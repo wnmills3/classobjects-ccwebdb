@@ -193,6 +193,38 @@ Default sign-in: `admin@example.com` / `adminpassword`.
 
 ---
 
+## Running the tests
+
+```powershell
+uv run pytest              # from the repo root
+```
+
+The suite creates its own database (`ccwebdb_test`), builds the schema, and
+drops it again afterwards, so it never touches development data. Each test runs
+inside a transaction that is rolled back, which keeps tests independent.
+
+This requires the application role to be able to create databases — a one-time
+grant:
+
+```powershell
+$env:PGPASSWORD = 'devpassword'
+psql -h localhost -U postgres -d postgres -c "ALTER ROLE ccwebdb CREATEDB;"
+```
+
+Point the suite somewhere else with `TEST_DATABASE_URL` if you prefer.
+
+Two of the suites are worth knowing about:
+
+- `test_migrations.py` builds a throwaway database purely by running
+  `alembic upgrade head`, then asserts that autogenerate finds no difference
+  against the models. It fails if a model changes without a migration.
+- `test_concurrency.py` deliberately bypasses `TestClient` and drives the order
+  handler from real threads. `TestClient` serialises requests through a single
+  portal, so a race written against it passes even when the row lock is
+  removed — which makes it worthless as a concurrency test.
+
+---
+
 ## Daily workflow
 
 | Task                        | Command                                          |
