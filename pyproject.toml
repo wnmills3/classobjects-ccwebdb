@@ -20,3 +20,14 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+addopts = "-q --strict-markers"
+# Surface deprecations in our own code as failures, but do not fail on
+# deprecations raised inside third-party libraries we do not control.
+filterwarnings = [
+    "error::DeprecationWarning",
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+]

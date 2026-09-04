@@ -101,3 +101,15 @@ Python dependencies are managed **exclusively** by uv (`uv add`, `uv sync`) and
 land in the conda `ccwebdb` environment. Do not `conda install` or `pip install`
 Python packages into that environment — see the gotchas in
 [docs/environment-setup.md](docs/environment-setup.md).
+
+## Tests
+
+```powershell
+uv run pytest
+```
+
+69 tests covering authentication and token handling, catalogue reads and
+admin-only writes, the purchase flow, and model/migration drift. The suite
+builds and drops its own `ccwebdb_test` database, so it never touches
+development data — see [docs/environment-setup.md](docs/environment-setup.md)
+for the one-time `CREATEDB` grant it needs.
