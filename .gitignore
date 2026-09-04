@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- ccwebdb project ---------------------------------------------------------
+# Local PostgreSQL cluster created by initdb (see docs/environment-setup.md)
+.pgdata/
+
+# Node / Vite frontend
+node_modules/
+dist/
+.vite/
