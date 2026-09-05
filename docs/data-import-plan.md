@@ -1297,3 +1297,94 @@ different class of data from anything else in this schema:
 Only that §16's `item_image` becomes `image` + `item_image`, so the 673 files
 are keyed by content hash from the start and can gain listing or shipment uses
 later without being re-imported. Nothing else is built yet.
+
+---
+
+## 18. Amendment H — EXIF cleansing at import, and image roles
+
+**Added 2026-09-05.** Refines §17: metadata is stripped **at import**, so nothing
+dirty is ever stored, rather than only at publish time.
+
+### Generic, not camera-specific
+
+EXIF, XMP and IPTC are **format-level standards**, not vendor formats. Samsung
+maker notes live *inside* the EXIF APP1 segment and disappear with it. So one
+generic filter handles every camera; no per-device filters are needed.
+
+The care required is not about the camera, it is about **which segments** get
+removed. Measured across 120 sampled images:
+
+| JPEG segment | 804 | 809 | Carries |
+|---|---|---|---|
+| APP1 | 60/60 | 60/60 | EXIF (incl. GPS, maker notes), XMP |
+| APP13 | 19/60 | 7/60 | IPTC / Photoshop |
+| APP14 | 20/60 | 13/60 | Adobe colour transform |
+| APP0 | 12/60 | 15/60 | JFIF (harmless, keep) |
+
+A filter that removes only EXIF leaves IPTC behind. The rule is: **drop every
+`APPn` except APP0**, then verify.
+
+### Orientation must be applied before stripping
+
+| Directory | Orientation value |
+|---|---|
+| SafetyDeposit804 | **6 on 60/60** |
+| SafetyDeposit809 | 6 on 50/60, 1 on 9, absent on 1 |
+
+Orientation `6` means *rotate 90° clockwise to display correctly*. Stripping
+metadata without first applying it makes **every one of those photographs
+display sideways** — a self-inflicted bug affecting nearly the whole library.
+
+### Import pipeline
+
+```
+1. read    -> capture DateTimeOriginal, width, height, orientation, make/model
+              into image columns; this is the only chance
+2. rotate  -> apply the orientation transform to the pixels (exif_transpose)
+3. strip   -> drop every APPn except APP0
+4. verify  -> reopen; assert no EXIF, no GPS IFD, no IPTC. Fail the import if not
+5. hash    -> sha256 of the CLEANSED file; that is the identity
+6. store   -> object store; DB records metadata only
+```
+
+Step 4 is the point. The guarantee comes from re-reading the written file, not
+from trusting the library that wrote it. `Galaxy S25 Ultra` and
+`DateTimeOriginal` were present on 120/120 sampled images and must both be gone
+afterwards.
+
+Step 5 matters too: hashing the cleansed file means re-importing the same
+original is still idempotent, because cleansing is deterministic.
+
+> **Trade-off, accepted deliberately.** Stripping at import discards the
+> original metadata permanently, which has some evidentiary value for insurance
+> or a dispute. The facts worth keeping (capture time, device, dimensions) are
+> preserved as database columns; the rest is not. If the raw originals are ever
+> wanted, they stay in OneDrive — the import copies, it does not move.
+
+### One item, many images
+
+Confirmed as a one-to-many relationship, as it already was in §17. Formalised
+with a role vocabulary, since front/back/zoom needs to be queryable rather than
+implied by sort order:
+
+```
+image_role     -- reference: obverse, reverse, edge, detail, slab,
+                  certificate, group, packaging, unassigned
+
+item_image
+  inventory_item_id, image_id
+  image_role_id
+  is_primary        -- exactly one per item, the listing thumbnail
+  sort_order
+  unique (inventory_item_id, image_id)
+```
+
+A partial unique index enforces at most one `is_primary` per item. Current data
+is roughly one photograph per item — 320 numbered files in 809 across `N001` to
+`N324` — so obverse/reverse pairs are the expected direction of growth, not the
+present state, and `image_role` defaults to `unassigned` rather than guessing.
+
+### Consequence
+
+Phase 5's image import gains steps 1–6 above and a test asserting a cleansed
+sample retains no EXIF, GPS or IPTC and is rotated upright.
