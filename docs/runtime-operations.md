@@ -15,6 +15,7 @@ Run from the repository root:
 scripts\ccweb_startup.cmd              start database, backend and frontend
 scripts\ccweb_shutdown.cmd             stop everything
 scripts\ccweb_shutdown.cmd /keepdb     stop the servers, leave PostgreSQL running
+scripts\ccweb_claude.cmd [name]        activate the env and start Claude Code
 ```
 
 The scripts locate the repository from their own path, so they also work
@@ -36,6 +37,36 @@ C:\Users\wnmil\dev\classobjects-ccwebdb\scripts\ccweb_startup.cmd
 | API docs | http://127.0.0.1:8000/docs |
 | Database | localhost:5432/ccwebdb |
 | Sign in | `admin@example.com` / `adminpassword` |
+
+---
+
+## Starting a Claude Code session
+
+```cmd
+scripts\ccweb_claude.cmd              new session
+scripts\ccweb_claude.cmd ccweb        resume, using "ccweb" as the search term
+scripts\ccweb_claude.cmd /check       activate and report, without starting
+```
+
+It activates the `ccwebdb` conda environment, changes to the repository root,
+and starts Claude Code. Any extra arguments pass straight through, so
+`scripts\ccweb_claude.cmd ccweb --effort high` works.
+
+Activating first matters: the status line reads `CONDA_DEFAULT_ENV`, and
+`node`, `npm`, `psql` and `pg_ctl` only exist on `PATH` inside the environment.
+
+`claude -r/--resume` takes a session id, or treats any other value as a search
+term for the interactive picker — so a session **name** works as the argument.
+
+`/check` verifies the environment and reports versions without launching
+anything, which is the quick way to confirm a machine is set up:
+
+```
+environment  ccwebdb
+directory    C:\Users\wnmil\dev\classobjects-ccwebdb
+python       Python 3.13.15
+claude       2.1.261 (Claude Code)
+```
 
 ---
 
