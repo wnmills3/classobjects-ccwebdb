@@ -876,3 +876,87 @@ rows, but **389 of them come from `Description` and are all false positives**:
 Applying it naively would cancel 389 received items. **Cancellation and missing
 status are read only from `Value` and `Comment`**, never from `Description`,
 which is marketing copy written by sellers.
+
+---
+
+## 14. Amendment D — this plan is deliberately bespoke
+
+**Added 2026-09-05.** Recorded intent, not a change of design.
+
+Everything in §1–§13 is fitted to one spreadsheet belonging to one collector.
+The `x`-means-received convention, the `$20 Blll` typo map, the 2026-05 cutoff,
+the overloaded `Value` and `Grading#` columns — none of that generalises, and
+none of it should. A later, generic import facility will let any user map their
+own file to the schema, at which point much of this becomes deprecated.
+
+**This is accepted, not regretted.** Getting real data in and queryable now is
+worth more than a configurable engine built against a hypothetical second user.
+What matters is knowing *which* code is disposable, so effort is not spent
+hardening what will be deleted.
+
+### Durable vs disposable
+
+| Durable — outlives the bespoke import | Disposable — dies with this spreadsheet |
+|---|---|
+| The domain model: `inventory_item`, `coin_detail`, `currency_detail`, reference tables | The 17-column mapping of `wnm3_coins.xlsx` |
+| `friedberg_number`, `pcgs_type` and their propose-and-confirm flow | The `Denom` rule set and its typo corrections |
+| `purchase_order`, `vendor`, certifications, `item_status` lifecycle | `x` = received; the `Value` overload; the 2026-05 cutoff |
+| Generated money columns and the tax model | `Grading#` routing by kind |
+| The two-stage pattern: raw staging → normalise → review queue | The specific `Rating` decomposition patterns |
+| `import_batch` / `import_row` with `JSONB` raw | The eBay purchase-history page parser |
+| `import_issue` and the review UI | The `Description`-is-not-authoritative guardrail |
+| `StorageBackend`, `source_document`, content addressing | |
+| `validation_finding` and the reconciliation model | |
+| The receiving workflow and its UX | |
+
+The durable column is most of the value. The disposable column is mostly
+*rules*, and rules are cheap to rewrite once the tables they populate are right.
+
+### The seam that makes replacement cheap
+
+All spreadsheet-specific logic goes in **one place** and is reached through one
+interface, rather than being spread across the loader:
+
+```
+importers/
+  engine.py          # durable: batch, staging, normalise, issues, provenance
+  profile.py         # durable: the Protocol a profile must satisfy
+  profiles/
+    wnm3_coins.py    # DISPOSABLE: every rule in the right-hand column above
+```
+
+A profile declares column mappings, classification rules, value dictionaries and
+status derivation. The engine knows nothing about coins, `Denom` or `x`. Phase 3
+and 4 build both, but only the engine gets treated as long-lived code.
+
+**Effort allocation follows from this.** Test the engine thoroughly; test the
+profile at the level of "the 7,581 rows land with these counts" rather than
+unit-testing each typo correction. Do not generalise a profile rule before a
+second profile exists to justify it.
+
+### What the generic facility looks like later
+
+A separate architecture document, written without reference to this
+spreadsheet's anomalies. Sketch only:
+
+- **Upload → inspect → map.** User uploads a file; the system infers columns and
+  types; the user maps each to a target field in a UI, saving the result as a
+  reusable named mapping.
+- **Rules as data, not code.** Classification patterns, value dictionaries and
+  typo maps become editable tables, versioned per user, replacing
+  `profiles/wnm3_coins.py` entirely.
+- **Derived-field expressions** defined by the user (a safe expression language,
+  not arbitrary code) so things like "status comes from column K" are configured.
+- **Pluggable document parsers** registered per vendor, replacing the hardcoded
+  eBay parser.
+- **Dry run and diff** before committing an import, with the same
+  `import_issue` review queue.
+
+At that point §1–§13 are superseded for import purposes; the schema, the
+reference tables and the workflows described here remain.
+
+### Consequence now
+
+Only one: the phase 3 and 4 code is organised around the engine/profile seam
+from the start. That costs nothing today and turns the eventual migration into
+deleting a directory rather than untangling a codebase.
