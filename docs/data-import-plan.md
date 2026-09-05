@@ -1180,3 +1180,120 @@ tests when the sales side is built.
 Phase 5 gains an image import: walk a directory, hash, store, record
 `captured_at` and `source_directory`, leave `inventory_item_id` null. Phase 7
 gains the linking UI. Neither blocks phases 1–4.
+
+---
+
+## 17. Amendment G — images across the lifecycle, and the sales domain
+
+**Added 2026-09-05.** Extends §16. Forward-looking: none of this is built until
+the sales phase, but the image model must accommodate it now, because retro-
+fitting it later would mean re-keying 673 files.
+
+### Images serve three roles with different visibility
+
+| Role | Example | Visibility |
+|---|---|---|
+| Inventory documentation | the 673 safety-deposit photos | **private, always** |
+| Listing photo | what a customer sees | **public** |
+| Shipment evidence | packed box, label, handoff | **private**, dispute defence |
+
+The same photograph may serve more than one role, so **the file and its use are
+separate things**:
+
+```
+image                      -- the file, stored once
+  sha256 unique, storage_key, byte_size, media_type
+  width, height, captured_at, source_directory
+
+image_derivative           -- generated, public-safe renditions
+  image_id, kind (thumb | web), storage_key, width, height
+
+item_image      (inventory_item_id, image_id, kind, sort_order)
+listing_image   (listing_id,        image_id, sort_order)
+shipment_image  (shipment_id,       image_id, kind: packed | label | handoff)
+```
+
+Three link tables rather than a polymorphic `subject_type`/`subject_id` — the
+same reasoning as Amendment B: real foreign keys, each independently
+constrained.
+
+### EXIF GPS — measured, and a real exposure
+
+Sampled 40 images from each directory:
+
+| Directory | With EXIF | **With GPS coordinates** |
+|---|---|---|
+| SafetyDeposit804 | 40/40 | **40/40** |
+| SafetyDeposit809 | 40/40 | **36/40** |
+
+All Samsung, all 4000x3000. **Every sampled photograph carries the coordinates
+of the bank where the valuables are held.**
+
+Consequently:
+
+- **Originals are never served.** Public requests are answered only from
+  `image_derivative` rows.
+- **Derivatives are generated with all EXIF removed** — not merely GPS. Camera
+  serial and timestamps are also identifying.
+- Derivatives are resized; 4000x3000 is 12 MP, unsuitable for a web listing
+  regardless of privacy.
+- This is a test, not a convention: publishing an image whose derivative retains
+  EXIF should fail the build.
+
+### The sales domain, sketched
+
+```
+customer
+  user_id null            -- links to the existing auth User when registered
+  display_name, email, phone
+
+address
+  customer_id, kind (shipping | billing)
+  line1, line2, city, region, postal_code, country_id
+  is_default, valid_from, valid_to        -- customers move
+
+carrier                   -- reference: USPS, UPS, FedEx, DHL
+
+shipment
+  order_id, carrier_id
+  tracking_number, service_level
+  shipped_at, delivered_at
+  cost, insured_value, weight_oz
+  status  pending | label_created | in_transit | delivered | exception | returned
+```
+
+Shipment sits on the order, not the item, because one parcel carries many lines
+— though a large order may split across parcels, so it is one-to-many and
+partial shipment must work, exactly as partial receipt does on the buying side.
+
+### Acquisition status and disposition are different axes
+
+§14's `item_status` tracks **how the item came in** — ordered, received,
+canceled, returned, missing. Selling is a separate axis, and folding it into the
+same column would make "received and sold" unrepresentable:
+
+```
+inventory_item
+  status_id       -- acquisition: ordered | received | canceled | returned | missing
+  disposition_id  -- held | listed | sold | shipped | delivered | returned_by_buyer
+```
+
+Selling also moves the item physically, so a sale writes `location_history` with
+a location of kind `in_transit`, then `sold`.
+
+### PII
+
+`customer` and `address` hold names, addresses and phone numbers. That is a
+different class of data from anything else in this schema:
+
+- Payment card data is **never stored** — a processor holds it, we keep a token.
+- Customer records need a retention and deletion answer before the sales phase
+  ships, not after.
+- The §16 boundary still applies in reverse: a customer must never see storage
+  location, and staff-facing views must not leak customer PII into listings.
+
+### Consequence now
+
+Only that §16's `item_image` becomes `image` + `item_image`, so the 673 files
+are keyed by content hash from the start and can gain listing or shipment uses
+later without being re-imported. Nothing else is built yet.
