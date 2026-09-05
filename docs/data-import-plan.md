@@ -709,3 +709,100 @@ None hold now, and none look likely for a personal-to-small-business inventory.
   keys rather than being read from their OneDrive paths in place, so parsing
   stops depending on that directory's layout.
 - No change to phases 1, 3, 4 or 6.
+
+---
+
+## 12. Amendment B — one inventory table, not two
+
+**Added 2026-09-05.** Question raised: should coins and currency be separate
+inventories, given how differently they are described?
+
+**Decision: one `inventory_item` table**, with `coin_detail` / `currency_detail`
+side tables for the divergent fields and database **views** presenting them as
+separate inventories. Considered and rejected: physically separate tables.
+
+### Evidence
+
+Purchases mix kinds far more than a first look suggested.
+
+An initial measurement grouped by order number and found only 9 orders
+containing both a coin and a note. **That measurement was wrong** — it silently
+excluded the 2,648 rows with no order number, and auction vendors are exactly
+the ones that lack one:
+
+| Vendor | Rows | With an order number |
+|---|---|---|
+| liveauctioneers.com | 131 | **0%** |
+| proxibid.com | 59 | **0%** |
+| hibid.co / www.hibid.com | 97 | **0%** |
+| goldstandardauctions.hibid.com | 108 | 0.9% |
+| hibid.com | 369 | 24.1% |
+| www.ebay.com | 5,740 | 66.5% |
+| www.whatnot.com | 931 | 100% |
+
+Re-measured by vendor + order date (an auction-invoice proxy), over 503
+multi-line purchase events:
+
+- **56.7%** contain more than one kind
+- **68.6% of all rows** sit inside a mixed-kind purchase event
+- coin + currency specifically: 6.2% of events, 8.3% of auction events
+
+### Why not two tables
+
+1. **The split is not two-way.** coin 56% · bullion 15.4% · currency 14.4% ·
+   set 8.1% · medal/token 0.4% · unclassified 5.7%. Two inventories leave ~30%
+   homeless — 1,166 bullion rows, 615 sets, 28 medals. A Silver Eagle is legally
+   a coin and practically bullion. The honest version is six tables.
+2. **The shared surface dominates.** ~27 fields are common (purchase order,
+   vendor, price, shipping, tax_rate, the three generated money columns, status,
+   received_on, authenticity, grade, grading service, certification, estimated
+   value, storage form and quantity, import provenance, images) against ~5
+   coin-specific and ~9 currency-specific. Splitting duplicates the generated
+   arithmetic, the status lifecycle and its history, the receiving workflow and
+   the validation findings — two copies to keep in lockstep.
+3. **Mixed purchases break the receiving panel.** It groups by order and
+   supports partial receipt; with 68.6% of rows in mixed events it would have to
+   union two tables and coordinate partial receipt across both.
+4. **Sales tracking would need a polymorphic foreign key** — two nullable
+   columns plus a check constraint, or a discriminator. One FK to one table is
+   materially cleaner, and sales are the next planned area.
+5. **Unclassified rows would have no home.** 434 rows cannot pick a table at
+   insert time, which is precisely when a split design forces the choice.
+
+### What delivers the separation instead
+
+```
+inventory_item            -- the shared 27 fields, one row per acquisition
+  coin_detail             -- 1:1, coin-only fields, pcgs_type_id
+  currency_detail         -- 1:1, note-only fields, friedberg_id, serial_number
+
+create view coin_inventory     as select ... where item_kind in ('coin','bullion','set')
+create view currency_inventory as select ... where item_kind = 'currency'
+```
+
+The views are what the API and UI consume, so both read as independent
+inventories: separate panels, separate columns, separate type catalogues
+(`pcgs_type` vs `friedberg_number`), separate receiving flows. Nothing shared is
+written twice.
+
+**Field-name consistency comes free.** Because the common fields live in one
+table, `price`, `shipping`, `total_cost` and `status` cannot drift apart between
+the two inventories — with separate tables that consistency would depend on
+discipline.
+
+### Consequences
+
+- No change to any phase. §6 already describes this shape; the views are a small
+  addition to Phase 2.
+- Cross-cutting reporting (total cost basis, profit by vendor or month, PDF
+  order reconciliation) stays a single query, which matters because an eBay or
+  auction document lists every kind together regardless of how we store them.
+
+### What would change this decision
+
+If the two inventories diverge until they share little beyond price and date —
+different lifecycles, different money handling, different sales mechanics — the
+shared table stops earning its keep. Nothing in the current data points that way.
+If physical separation is ever wanted without giving up the single logical table,
+PostgreSQL LIST partitioning on `item_kind` provides it; at 7,581 rows that would
+be ceremony without benefit.
