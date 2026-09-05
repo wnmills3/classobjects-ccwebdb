@@ -960,3 +960,124 @@ reference tables and the workflows described here remain.
 Only one: the phase 3 and 4 code is organised around the engine/profile seam
 from the start. That costs nothing today and turns the eventual migration into
 deleting a directory rather than untangling a codebase.
+
+---
+
+## 15. Amendment E — valuation: melt vs numismatic
+
+**Added 2026-09-05.** Amends §2 (computed fields) and closes the open question in
+§10 about historising `estimated_value`.
+
+A common-date, low-grade 90% silver coin is worth its metal, and that number
+moves daily with spot. A key date in MS64 is worth a collector premium that has
+nothing to do with spot. One stored `estimated_value` column cannot represent
+both, and storing a melt figure guarantees it is stale by tomorrow.
+
+### What the data supports
+
+| Signal | Rows |
+|---|---|
+| mentions silver | 2,895 |
+| mentions gold | 392 |
+| mentions copper | 370 |
+| mentions platinum | 5 |
+| states a fineness (90%, .999, .9999, 40%) | ~540 |
+| states a weight | 753 |
+
+Fineness is rarely written down — but it rarely needs to be. US coinage
+composition is **public fact keyed by denomination and year**, so it is
+derivable for **1,920 rows** without being stated:
+
+| Rows | Rule |
+|---|---|
+| 1,045 | dollar, ≤1964 → 90% Ag |
+| 434 | half, ≤1964 → 90% Ag |
+| 251 | dime, ≤1964 → 90% Ag |
+| 170 | quarter, ≤1964 → 90% Ag |
+| 20 | half, 1965–70 → 40% Ag |
+
+Unlike Friedberg numbers, this is not a proprietary catalogue — it is
+legislation and mint specification, and can be seeded outright.
+
+### Schema
+
+```
+metal              silver | gold | copper | platinum | palladium
+
+composition        -- public-fact lookup, seeded
+  denomination_id, country_id, year_from, year_to
+  metal_id, fineness            -- 0.900, 0.999, 0.400, 0.350
+  fine_weight_ozt               -- actual metal weight, e.g. dime 0.07234
+  source: seeded | manual
+
+inventory_item
+  composition_id   null   -- resolved from denomination + year, overridable
+  metal_id         null   -- for bullion, set directly
+  fineness         null
+  gross_weight_ozt null
+  fine_weight_ozt  null   -- computed or stated; the melt input
+  numismatic_value null   -- manual estimate; the collector premium
+  valuation_basis         -- melt | numismatic | manual
+
+metal_price        -- time series, fetched
+  metal_id, quoted_at, price_per_ozt, source
+```
+
+`fine_weight_ozt` figures are seeded from published mint specifications and
+should be verified against a reference at seed time rather than trusted from
+memory.
+
+### Melt value is reported, not stored
+
+```
+melt_value = fine_weight_ozt * (latest spot for that metal) * storage_quantity
+```
+
+Computed in a view against the most recent `metal_price` row. Never a column —
+a stored melt figure is wrong the moment spot moves.
+
+`reported_value` then follows `valuation_basis`:
+
+- **melt** — common-date, low grade: the metal is the value
+- **numismatic** — `numismatic_value`, entered manually, for anything with a premium
+- **manual** — an explicit override
+
+Default is `melt` where a composition resolves and no `numismatic_value` exists,
+otherwise `numismatic`.
+
+### Consequence: profit stops being a generated column
+
+**This amends §2.** `profit` and `profit_pct` were specified as
+`GENERATED ALWAYS AS ... STORED`. That is no longer sound: one of their inputs —
+spot price — changes daily, and a stored column cannot track it.
+
+| Field | Before | After |
+|---|---|---|
+| `taxes` | generated column | **unchanged** — inputs are static |
+| `total_cost` | generated column | **unchanged** |
+| `profit` | generated column | **moves to the reporting view** |
+| `profit_pct` | generated column | **moves to the reporting view** |
+
+Cost basis is fixed at purchase and stays generated. Only the value side is
+time-varying, so only the value side moves.
+
+### `valuation_snapshot` — closing the §10 question
+
+Yes, historise it, and this is the shape:
+
+```
+valuation_snapshot
+  inventory_item_id, captured_at
+  basis, spot_price_used, fine_weight_ozt
+  melt_value, numismatic_value, reported_value
+```
+
+Recording the spot price *used* makes each snapshot reproducible, which a bare
+value column never would be. Written on a schedule and on demand, giving a real
+portfolio history rather than a single mutable number.
+
+### Open
+
+A spot-price feed is an external dependency not yet chosen. Until one is wired
+in, `metal_price` can be populated by hand and melt values simply carry the date
+of the last quote — the model does not change, only its freshness.
