@@ -1081,3 +1081,102 @@ portfolio history rather than a single mutable number.
 A spot-price feed is an external dependency not yet chosen. Until one is wired
 in, `metal_price` can be populated by hand and melt values simply carry the date
 of the last quote — the model does not change, only its freshness.
+
+---
+
+## 16. Amendment F — images and physical location
+
+**Added 2026-09-05.** Extends the object-store decision in §11 with measured
+facts, and adds a concept the plan was missing entirely: where an item
+physically is.
+
+### What is there
+
+`Documents\coins\Classified\` holds two directories of photographs:
+
+| Directory | Files | Size | Median image | Captured |
+|---|---|---|---|---|
+| `SafetyDeposit804` | 302 jpg | 536 MB | 1.7 MB | 2025-12-31, 2026-01-02 |
+| `SafetyDeposit809` | 371 jpg | 1.5 GB | 4.5 MB | 2025-12-24 to 2025-12-26 |
+
+**673 images, ~2.0 GB**, and this is one snapshot of two boxes. Any argument for
+holding images in the database ends here.
+
+Two naming conventions:
+
+- `20251231_104754.jpg` — camera default. All 302 in 804, and 51 in 809.
+- `N001-20251224-125550.jpg` — **320 files in 809**, a hand-assigned sequence
+  running `N001`–`N324` with gaps (`N012` is absent).
+
+So **809 has been catalogued and 804 has not**. The `N###` sequence is a local
+catalogue number, not a grading or vendor reference.
+
+### There is no automatic link to the spreadsheet
+
+Checked directly: `N###` tokens appear in `Description` **7 times** — incidental
+matches, not a mapping — safety-deposit references appear twice, and there is no
+location column anywhere in the 17.
+
+**Attaching images to inventory items is therefore a manual task**, assisted by
+the UI, not an import step. Any plan that assumes the filenames resolve to rows
+is wrong.
+
+Assists worth building, to be validated before relied on:
+
+- Present unlinked images in capture order beside candidate rows; both the photo
+  session and the `N###` sequence are chronological.
+- Images seconds apart are plausibly obverse/reverse of one item, so offer them
+  as a pair.
+- Once an item is linked, its neighbours narrow the search for the next.
+
+### Schema
+
+```
+storage_location
+  kind        safe_deposit_box | safe | home | in_transit | sold | unknown
+  institution, identifier          -- e.g. "804", "809"
+  notes
+
+inventory_item
+  storage_location_id  null
+  local_catalog_number null          -- the N### where one exists
+
+location_history
+  inventory_item_id, storage_location_id, moved_at, moved_by, note
+
+item_image
+  inventory_item_id null             -- NULL until linked
+  storage_key, sha256 unique, byte_size, media_type
+  captured_at                        -- from filename, verified against EXIF
+  source_directory                   -- provenance: which import it came from
+  kind    obverse | reverse | slab | detail | group | unassigned
+  sort_order
+```
+
+`item_image.inventory_item_id` being nullable is the important part: **353
+images have no catalogue number at all** and must be storable, browsable and
+searchable before anyone decides what they depict. `sha256` is unique so
+re-importing a directory — likely, given OneDrive — is a no-op.
+
+`location_history` exists because items move between boxes, and "where was this
+in March" is a question worth being able to answer.
+
+### Privacy
+
+These are photographs of valuables in identified bank boxes, under a directory
+named `Classified`. Two consequences:
+
+- **Storage location and images must never reach the customer-facing catalogue.**
+  The public views expose the item, never `storage_location`,
+  `local_catalog_number` or `location_history`.
+- Image URLs must not be guessable or publicly served; the object store is
+  private and access is mediated by the application.
+
+This is a hard boundary, not a preference, and belongs in the authorisation
+tests when the sales side is built.
+
+### Consequence
+
+Phase 5 gains an image import: walk a directory, hash, store, record
+`captured_at` and `source_directory`, leave `inventory_item_id` null. Phase 7
+gains the linking UI. Neither blocks phases 1–4.
