@@ -225,3 +225,4 @@ __marimo__/
 node_modules/
 dist/
 .vite/
+.runtime/
