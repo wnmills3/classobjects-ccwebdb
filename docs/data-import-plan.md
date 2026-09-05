@@ -806,3 +806,73 @@ shared table stops earning its keep. Nothing in the current data points that way
 If physical separation is ever wanted without giving up the single logical table,
 PostgreSQL LIST partitioning on `item_kind` provides it; at 7,581 rows that would
 be ceremony without benefit.
+
+---
+
+## 13. Amendment C — receipt status resolved
+
+**Added 2026-09-05.** Supersedes the migration mapping in §5.
+
+**Rule given:** for non-currency, a row existing means the item was received,
+unless the row carries a form of cancellation.
+
+That resolves nearly all of the ambiguity, because the `x` convention turns out
+to be **a currency practice**: 431 of the 474 `x` marks are on currency rows.
+
+### Measured split
+
+| `Value` | Non-currency (6,539) | Currency (1,042) |
+|---|---|---|
+| numeric | **5,971** (91.3%) | 75 (7.2%) |
+| blank | 523 (8.0%) | **522** (50.1%) |
+| `x` | 43 (0.7%) | **431** (41.4%) |
+| `Canceled` | 0 | 4 |
+| `Returned` | 0 | 3 |
+| `?` | 0 | 7 |
+| `Counterfeit` / `XF-40` | 1 / 1 | 0 |
+
+Currency blanks are recent — 2026-05 (102), 2026-06 (327), 2026-07 (47),
+2026-08 (40), 2026-09 (3) — with only **3** older (2026-01). They read as
+awaiting receipt, not as missing data.
+
+### Final mapping
+
+**Non-currency — all `received`** unless a cancellation signal is present.
+Numeric values additionally set `estimated_value`; `Counterfeit` also sets
+`authenticity = counterfeit`; the single `XF-40` is a grade in the wrong column
+and goes to review with status `received`.
+
+**Currency:**
+
+| `Value` | Rows | Status |
+|---|---|---|
+| `x` | 431 | `received` |
+| numeric | 75 | `received` + `estimated_value` |
+| blank, ordered 2026-05 or later | 519 | `ordered` — awaiting receipt |
+| blank, ordered before 2026-05 | **3** | `unknown` — review |
+| `Canceled` | 4 | `canceled` |
+| `Returned` | 3 | `returned` |
+| `?` | **7** | `unknown` — review |
+
+**Rows needing a human decision: 11** (7 `?`, 3 old currency blanks, 1 `XF-40`),
+down from 129 under the previous date-based rule.
+
+### New status: `missing`
+
+Eight rows carry a `Comment` of `Missing`, two with the note's serial —
+`Missing E84256368C`, `Missing I87847860B`. That is neither cancelled nor
+returned: it was paid for and never arrived. `item_status` therefore becomes
+**ordered, received, canceled, returned, missing, unknown**.
+
+### Guardrail: never scan `Description` for cancellation
+
+A regex for `cancel|return|refund|missing|lost` across the row matches **408**
+rows, but **389 of them come from `Description` and are all false positives**:
+
+- `ITEM SEEN ON SCREEN ASK QUESTIONS NO CANCELLATION` — auction boilerplate
+- `2010 Lost Coins Never Released In Circulation` — a product name
+- `COLLECTION of 10 US Mint Uncirculated Sets (MISSING 1991, …)` — set contents
+
+Applying it naively would cancel 389 received items. **Cancellation and missing
+status are read only from `Value` and `Comment`**, never from `Description`,
+which is marketing copy written by sellers.
