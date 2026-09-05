@@ -21,25 +21,21 @@ orders.
 First time on a machine, follow **[docs/environment-setup.md](docs/environment-setup.md)** —
 it covers Miniforge, uv, Node, PostgreSQL and the database bootstrap.
 
-Once set up, two terminals with `conda activate ccwebdb`:
+Once set up, one command starts the database, the API and the UI:
 
-```powershell
-# API -> http://127.0.0.1:8000  (interactive docs at /docs)
-cd backend
-uv run uvicorn app.main:app --reload --port 8000
-
-# UI  -> http://127.0.0.1:5173
-cd frontend
-npm run dev
+```cmd
+scripts\ccweb_startup.cmd
 ```
 
-The database must be running first:
+| | |
+|---|---|
+| UI | http://127.0.0.1:5173 |
+| API docs | http://127.0.0.1:8000/docs |
+| Sign in | `admin@example.com` / `adminpassword` (see `.env`) |
 
-```powershell
-pg_ctl -D .pgdata -l .pgdata\server.log start
-```
-
-Default administrator: `admin@example.com` / `adminpassword` (see `.env`).
+Stop it again with `scripts\ccweb_shutdown.cmd`. See
+[docs/runtime-operations.md](docs/runtime-operations.md) for what those do and
+how to run a service by hand with `--reload`.
 
 ## Layout
 
@@ -104,7 +100,7 @@ Python packages into that environment — see the gotchas in
 
 ## Tests
 
-```powershell
+```cmd
 uv run pytest
 ```
 
