@@ -3,7 +3,9 @@
 Plan for loading the existing collection spreadsheet into a normalised
 database and validating it against the saved vendor order PDFs.
 
-**Status:** proposal. Nothing here is implemented yet.
+**Status:** proposal. Nothing here is implemented yet. Amendments are appended
+as numbered sections rather than edited in place, so the baseline stays legible;
+sections they supersede carry a pointer.
 
 **Guiding principle:** every free-text column in the spreadsheet becomes a
 foreign key to a reference table, so searching and filtering are standardised
@@ -492,9 +494,13 @@ order and vendor, with:
 ## 6. Core tables
 
 **`import_batch` / `import_row`** — two-stage import. Every row is first stored
-**verbatim as text**, with `status` (`pending | imported | needs_review |
-rejected`). Normalised records keep `import_row_id`, so any value traces back
-to its original cell. Nothing is silently coerced.
+**verbatim**, with `status` (`pending | imported | needs_review | rejected`).
+Normalised records keep `import_row_id`, so any value traces back to its
+original cell. Nothing is silently coerced.
+
+> Amended by **§11 Amendment A**: `import_row` stores the raw row as a single
+> `JSONB` column rather than 17 fixed text columns, so a change to the
+> spreadsheet's shape does not require a migration.
 
 **`import_issue`** — one row per ambiguity: which row, which column, which rule
 failed, what was guessed. This is the manual-review queue.
@@ -613,3 +619,93 @@ as `text` in the database prevents any recurrence.
    paid*. Recommendation: `inventory_item` becomes the core record, with a thin
    `listing` table marking what is for sale at what price. Best done now, before
    there is real sales data to migrate.
+
+---
+
+## 11. Amendment A — storage architecture
+
+**Added 2026-09-05, after the baseline commit.** Question raised: should this use
+an object store rather than a SQL database, for more flexibility?
+
+**Decision: keep PostgreSQL as the system of record, add `JSONB` where the shape
+genuinely varies, and use an object store for files.** A hybrid, with each part
+doing what it is good at.
+
+### Why not a document store for the records
+
+The flexibility wanted here is real, but it is *attribute* variability — coins
+have mint marks, notes have seals and districts, bullion has weight and purity —
+not schema chaos. PostgreSQL answers that two ways already in this plan: the
+`coin_detail` / `currency_detail` split, and `JSONB` columns with GIN indexes
+for attributes that do not warrant their own table. That is schemaless storage
+*inside* a relational database, still queryable and indexable.
+
+What a document store would cost, specifically:
+
+| Capability | Why it matters here |
+|---|---|
+| Referential integrity | The stated goal is standardised searching via reference tables — that *is* foreign keys. Without them, integrity becomes application code, which is how the sheet acquired `$20 Blll`, `$2Bill` and `$20 B` as three distinct things. |
+| Exact decimal money | `NUMERIC(12,2)` guarantees `2 x 189.00 = 378.00`. Profit across 7,581 rows is the wrong place to accept float rounding. |
+| Generated columns | `taxes`, `total_cost`, `profit` are computed *by the database* and cannot drift from their inputs or be written by mistake. |
+| Constraints | `unique (fr_number)`, the partial unique index on Friedberg keys, `check` constraints on quantities. |
+| Aggregation | "Profit by vendor by year by kind" is one SQL statement. |
+| Transactions | Already relied on for the `SELECT ... FOR UPDATE` oversell guarantee. |
+
+**Scale is not an argument either way.** 7,581 rows is trivial; PostgreSQL would
+not notice a hundred times that.
+
+### Where `JSONB` is the right answer
+
+1. **`import_row.raw`** — the whole spreadsheet row as one `JSONB` document.
+   Genuinely schema-free ingestion: if the sheet gains or reorders a column, the
+   loader does not change and no migration is needed. This supersedes the
+   17-text-column design in §6.
+2. **`inventory_item.attributes`** — kind-specific extras that do not justify a
+   column or a reference table (weight, purity, diameter, error type, packaging
+   notes).
+
+Rule for promotion: **anything filtered, sorted, joined or aggregated on gets a
+real column or a reference table.** `JSONB` is for the long tail, not a way to
+avoid deciding. A field that gets a saved search built on it has earned a column.
+
+### Where an object store genuinely wins
+
+Files — and there are already **1,096 PDFs**, with coin and note images to come.
+These do **not** belong in the database.
+
+```
+source_document
+  id, sha256 (unique), storage_key, media_type, byte_size,
+  vendor_id, doc_kind, captured_on, page_count, parse_status
+
+item_image
+  inventory_item_id, storage_key, kind (obverse|reverse|slab|detail),
+  sha256, sort_order
+```
+
+- **Content-addressed by sha256**, so re-saving the same eBay export is a no-op
+  and re-parsing is idempotent.
+- Accessed through a small `StorageBackend` interface with two implementations:
+  local filesystem now, S3-compatible later. Callers never learn which.
+- The database holds *metadata and parsed content*; the blob store holds bytes.
+
+### What would change this decision
+
+Revisit if any of these become true:
+
+- Users need arbitrary per-item user-defined fields at scale (and even then,
+  `JSONB` likely covers it).
+- The record count grows by several orders of magnitude *and* access becomes
+  key-value rather than analytical.
+- The domain model churns so fast that migrations dominate effort — mitigated
+  today by Alembic plus the drift test.
+
+None hold now, and none look likely for a personal-to-small-business inventory.
+
+### Consequences for the phased delivery
+
+- Phase 2 gains `import_row.raw JSONB` instead of 17 text columns.
+- Phase 5 gains the `StorageBackend` interface; PDFs move under content-addressed
+  keys rather than being read from their OneDrive paths in place, so parsing
+  stops depending on that directory's layout.
+- No change to phases 1, 3, 4 or 6.
