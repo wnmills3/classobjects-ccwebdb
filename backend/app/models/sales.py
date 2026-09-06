@@ -69,6 +69,16 @@ class Listing(TimestampMixin, Base):
 
     __tablename__ = "listing"
 
+    #: Optimistic concurrency -- see the note on InventoryItem.version.
+    #: `quantity_available` is deliberately NOT protected this way: it is a
+    #: counter decremented under a row lock by the order path, where a version
+    #: conflict would mean telling a buyer to try again for no reason.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+
+    __mapper_args__ = {"version_id_col": version}
+
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int] = mapped_column(
         ForeignKey("inventory_item.id", ondelete="RESTRICT"),

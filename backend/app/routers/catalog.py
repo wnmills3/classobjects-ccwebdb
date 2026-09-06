@@ -16,6 +16,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from ..deps import AdminUser, DbSession
 from ..models import (
@@ -93,6 +94,16 @@ def _eager(stmt):
     )
 
 
+def version_token(listing: Listing, item: InventoryItem) -> str:
+    """One token for a resource that is two rows.
+
+    A catalogue entry is a listing plus its inventory item, each with its own
+    version counter. The client should not have to know that, and checking
+    only one of them lets an edit to the other through unnoticed.
+    """
+    return f"{listing.version}.{item.version}"
+
+
 def to_catalog_item(listing: Listing) -> CatalogItemOut:
     """Project a listing and its item into the public shape.
 
@@ -111,6 +122,7 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
     return CatalogItemOut(
         id=listing.id,
         inventory_item_id=item.id,
+        version=version_token(listing, item),
         item_code=item.item_code,
         thumbnail_url=urls.get("thumbnail_url"),
         image_url=urls.get("image_url"),
@@ -282,6 +294,22 @@ def update_catalog_item(
 
     # exclude_unset so an omitted field is left alone rather than nulled.
     data = payload.model_dump(exclude_unset=True)
+    expected = data.pop("version", None)
+
+    # Checked before anything is applied. The database check below is the
+    # real guarantee -- it closes the gap between this comparison and the
+    # commit -- but failing here gives the caller the useful error rather
+    # than a StaleDataError from three layers down.
+    current = version_token(listing, item)
+    if expected is not None and expected != current:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"This item was changed by someone else (you have version "
+                f"{expected}, current is {current}). Reload and reapply your "
+                f"changes."
+            ),
+        )
 
     for field, value in _resolve_classifiers(db, data).items():
         setattr(item, field, value)
@@ -299,7 +327,19 @@ def update_catalog_item(
     elif data.get("is_active") is True:
         item.disposition_id = require_code(db, Disposition, "listed", "disposition")
 
-    db.commit()
+    try:
+        db.commit()
+    except StaleDataError as exc:
+        # Someone committed between the check above and this commit. The
+        # UPDATE carried `WHERE version = ...` and matched no rows, so
+        # nothing was overwritten.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This item was changed by someone else. Reload and reapply "
+            "your changes.",
+        ) from exc
+
     return to_catalog_item(_get_listing(db, listing_id))
 
 

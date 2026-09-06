@@ -102,6 +102,11 @@ Notable behaviour:
   `"grade": "MS64"`, `"country": "US"`. Ids differ between installations; codes
   are the stable contract. An unknown code is a 422 naming the field, never a
   silently null column. The API never invents classifier rows.
+- **Concurrent edits are detected, not silently applied.** Every GET returns a
+  `version` token; sending it back with a PATCH makes the save conditional. If
+  someone else saved meanwhile the request is refused with 409 and the current
+  state, instead of overwriting their work with values loaded before their
+  change. Reads are never blocked -- no locks are involved.
 - Placing an order locks the affected listings (`SELECT ... FOR UPDATE`, taken
   in id order) and decrements availability atomically, so concurrent buyers
   cannot oversell. Verified by tests that drive the handler from real threads

@@ -149,6 +149,29 @@ class InventoryItem(TimestampMixin, Base):
 
     __tablename__ = "inventory_item"
 
+    #: Optimistic concurrency. Incremented on every ORM update, and the UPDATE
+    #: carries `WHERE version = <the one that was read>`; if another writer got
+    #: there first the statement matches no rows and SQLAlchemy raises.
+    #:
+    #: This is the protection PostgreSQL's MVCC does not give. MVCC makes
+    #: readers and writers never block each other, but a read and a write in
+    #: *different* transactions -- which is what an edit form is -- can still
+    #: lose an update: two people load the same item, both save, and the second
+    #: silently overwrites the first with values it loaded before the change.
+    #:
+    #: Optimistic rather than a lock, because editing an item is a document
+    #: edit: conflicts are rare, they can take minutes of human thinking time,
+    #: and when one happens a person can resolve it. Holding a row lock across
+    #: that would block every reader of the row for as long as the form is
+    #: open. Contrast `create_order`, which decrements a counter and uses
+    #: SELECT ... FOR UPDATE -- there, conflicts are the normal case and there
+    #: is nothing for a human to merge.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+
+    __mapper_args__ = {"version_id_col": version}
+
     id: Mapped[int] = mapped_column(primary_key=True)
 
     # -- acquisition ------------------------------------------------------
