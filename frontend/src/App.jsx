@@ -6,6 +6,7 @@ import AdminCoins from './pages/AdminCoins'
 import Cart from './pages/Cart'
 import Catalog from './pages/Catalog'
 import CoinDetail from './pages/CoinDetail'
+import { InventoryCoins, InventoryCurrency } from './pages/Inventory'
 import Login from './pages/Login'
 import Orders from './pages/Orders'
 import Register from './pages/Register'
@@ -36,6 +37,8 @@ export default function App() {
           <NavLink to="/">Catalogue</NavLink>
           <NavLink to="/cart">Cart{count > 0 ? ` (${count})` : ''}</NavLink>
           {user && <NavLink to="/orders">Orders</NavLink>}
+          {isAdmin && <NavLink to="/inventory/coins">Coins</NavLink>}
+          {isAdmin && <NavLink to="/inventory/currency">Currency</NavLink>}
           {isAdmin && <NavLink to="/admin/coins">Manage</NavLink>}
         </nav>
 
@@ -71,6 +74,22 @@ export default function App() {
             element={
               <RequireAuth>
                 <Orders />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/inventory/coins"
+            element={
+              <RequireAuth adminOnly>
+                <InventoryCoins />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/inventory/currency"
+            element={
+              <RequireAuth adminOnly>
+                <InventoryCurrency />
               </RequireAuth>
             }
           />

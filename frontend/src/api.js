@@ -154,6 +154,14 @@ export const api = {
   getReference: (table) => send(`/api/reference/${table}`, { auth: false }),
 
   // inventory (staff)
+  searchInventory: (view, params = {}) => {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined && v !== false) qs.set(k, v)
+    })
+    const query = qs.toString()
+    return send(`/api/inventory/${view}/search${query ? `?${query}` : ''}`)
+  },
   splitItem: (itemId, payload) =>
     send(`/api/inventory/${itemId}/split`, { method: 'POST', body: payload }),
 

@@ -344,3 +344,36 @@ class InventoryItemOut(BaseModel):
     total_cost: Decimal
     parent_item_id: int | None = None
     split_at: datetime | None = None
+
+
+# --------------------------------------------------------------------------
+# Inventory browse
+# --------------------------------------------------------------------------
+
+
+class FacetValueOut(BaseModel):
+    value: object
+    count: int
+
+
+class InventoryPageOut(BaseModel):
+    """A page of inventory rows.
+
+    `rows` are plain dictionaries whose keys are the view's own columns rather
+    than a declared model per view. The two views differ in exactly the columns
+    that make them worth separating, and restating forty-odd fields twice in
+    Python would add no safety over the view definition while adding a second
+    place to drift. The returned column set is fixed by the view specification,
+    not by `select *`.
+
+    Money and weight arrive as strings, never floats.
+    """
+
+    view: str
+    rows: list[dict[str, object]]
+    total: int
+    limit: int
+    offset: int
+    sort: str
+    descending: bool
+    facets: dict[str, list[FacetValueOut]] = Field(default_factory=dict)
