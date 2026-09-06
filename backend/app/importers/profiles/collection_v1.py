@@ -254,6 +254,47 @@ SERIES_LETTER = re.compile(r"^(?:1[5-9]\d{2}|20\d{2})\s*-\s*([A-Z])$")
 #: importer can only detect it.
 SCIENTIFIC = re.compile(r"^\d(?:\.\d+)?[eE][+-]?\d+$")
 
+# --------------------------------------------------------------------------
+# Weight
+#
+# Weights are written into the denomination rather than a column of their own,
+# in five different units. They are extracted to troy ounces because that is
+# what melt value multiplies against.
+#
+# Decimal throughout, never float: this number multiplies into money.
+# --------------------------------------------------------------------------
+GRAMS_PER_OZT = Decimal("31.1034768")
+GRAMS_PER_LB = Decimal("453.59237")
+
+#: unit as written -> troy ounces per unit.
+#: "oz" is read as a TROY ounce, the bullion convention. Copper rounds are
+#: often sold by the avoirdupois ounce (28.35 g), 9.7% lighter, so weight_raw
+#: is kept for anything that later needs re-reading.
+UNIT_TO_OZT: dict[str, Decimal] = {
+    "ozt": Decimal(1),
+    "oz": Decimal(1),
+    "ounce": Decimal(1),
+    "ounces": Decimal(1),
+    "g": Decimal(1) / GRAMS_PER_OZT,
+    "gm": Decimal(1) / GRAMS_PER_OZT,
+    "gram": Decimal(1) / GRAMS_PER_OZT,
+    "grams": Decimal(1) / GRAMS_PER_OZT,
+    "kg": Decimal(1000) / GRAMS_PER_OZT,
+    "kilo": Decimal(1000) / GRAMS_PER_OZT,
+    "kilos": Decimal(1000) / GRAMS_PER_OZT,
+    "lb": GRAMS_PER_LB / GRAMS_PER_OZT,
+    "lbs": GRAMS_PER_LB / GRAMS_PER_OZT,
+    "dwt": Decimal(1) / Decimal(20),      # pennyweight
+}
+
+#: A quantity may be decimal, a bare fraction, or start with the point --
+#: ".5 oz" is a half ounce and must not be read as 5.
+WEIGHT = re.compile(
+    r"(\d+\s*/\s*\d+|\d+\.\d+|\.\d+|\d+)\s*"
+    r"(ozt|ounces|ounce|oz|grams|gram|gm|kilos|kilo|kg|lbs|lb|dwt|g)\b",
+    re.I,
+)
+
 #: Statuses the owner recorded in the value column.
 VALUE_MARKERS = {
     "x": "received",
@@ -348,6 +389,7 @@ class CollectionV1Profile:
             (name for name, pat in STORAGE_FORMS if re.search(pat, blob)), "single"
         )
 
+        self._parse_weight(denom, issues, fields)
         self._check_money(row, issues, fields)
         self._parse_year(row, issues, fields, classification.kind)
         self._check_identifiers(row, issues, classification.kind, fields)
@@ -356,6 +398,64 @@ class CollectionV1Profile:
         return RowResult(classification=classification, issues=issues, fields=fields)
 
     # -- individual checks -------------------------------------------------
+    def _parse_weight(self, denom: str, issues: list[Issue], fields: dict) -> None:
+        """Pull a weight out of the denomination and convert to troy ounces.
+
+        Only the denomination is read. Descriptions are seller prose and
+        mentioning a weight there does not make it this item's weight.
+        """
+        if not denom:
+            return
+        matches = WEIGHT.findall(denom)
+        if not matches:
+            return
+        if len(matches) > 1:
+            issues.append(
+                Issue(
+                    rule="weight-ambiguous",
+                    severity=WARNING,
+                    column=COL_DENOM,
+                    raw_value=denom,
+                    note=f"{len(matches)} weights in one denomination",
+                )
+            )
+            return
+
+        quantity, unit = matches[0]
+        factor = UNIT_TO_OZT.get(unit.lower())
+        if factor is None:
+            issues.append(
+                Issue(
+                    rule="weight-unit-unknown",
+                    severity=WARNING,
+                    column=COL_DENOM,
+                    raw_value=f"{quantity} {unit}",
+                )
+            )
+            return
+
+        try:
+            if "/" in quantity:
+                num, den = (p.strip() for p in quantity.split("/"))
+                amount = Decimal(num) / Decimal(den)
+            else:
+                amount = Decimal(quantity)
+        except (InvalidOperation, ArithmeticError, ZeroDivisionError):
+            issues.append(
+                Issue(
+                    rule="weight-not-parsed",
+                    severity=WARNING,
+                    column=COL_DENOM,
+                    raw_value=quantity,
+                )
+            )
+            return
+
+        fields["weight_raw"] = f"{quantity}{unit}"
+        fields["weight_unit_raw"] = unit.lower()
+        # six decimal places matches the column; quantize rather than round
+        fields["weight_ozt"] = (amount * factor).quantize(Decimal("0.000001"))
+
     def _check_money(self, row: RawRow, issues: list[Issue], fields: dict) -> None:
         for column, key in ((COL_PRICE, "price"), (COL_SHIPPING, "shipping")):
             text = row.text(column)

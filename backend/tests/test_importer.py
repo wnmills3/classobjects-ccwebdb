@@ -403,3 +403,82 @@ def test_uncertain_and_range_years_are_not_flagged() -> None:
     variants = {p.name: p for p in profiling.profile_columns(report, KNOWN_GOOD)}["Year"].variants
     flagged = {v.rare_value for v in variants}
     assert "2024?" not in flagged and "1980's" not in flagged
+
+
+# --------------------------------------------------------------------------
+# Weight extraction
+# --------------------------------------------------------------------------
+
+
+def weight_of(profile: CollectionV1Profile, denom: str):
+    return profile.inspect(make_row(Denom=denom)).fields.get("weight_ozt")
+
+
+@pytest.mark.parametrize(
+    "denom,expected",
+    [
+        ("Silver Round 1oz", "1.000000"),
+        ("Copper Round 5oz", "5.000000"),
+        ("Gold Maple 1/10 oz", "0.100000"),
+        ("Silver Square 10g", "0.321507"),
+        ("Gold Nugget 1.5gm", "0.048226"),
+        ("1Kilo Silver", "32.150747"),
+        ("Titanium 1lb", "14.583333"),
+        ("Silver Coins 9.3303oz", "9.330300"),
+    ],
+)
+def test_weight_converts_to_troy_ounces(
+    profile: CollectionV1Profile, denom: str, expected: str
+) -> None:
+    assert weight_of(profile, denom) == Decimal(expected)
+
+
+def test_leading_point_is_a_fraction_not_a_whole_number(
+    profile: CollectionV1Profile,
+) -> None:
+    """'.5 oz' is a half ounce. Reading it as 5 would be ten times the metal."""
+    assert weight_of(profile, "Silver Round .5 oz") == Decimal("0.500000")
+    assert weight_of(profile, "Silver Round .5oz") == Decimal("0.500000")
+    assert weight_of(profile, "Copper 1/2 Kilo") == Decimal("16.075373")
+
+
+def test_weight_is_decimal_never_float(profile: CollectionV1Profile) -> None:
+    """It multiplies into money, so it must be exact."""
+    value = weight_of(profile, "Silver Round 1oz")
+    assert isinstance(value, Decimal)
+    # three tenth-ounce coins are exactly three tenths, not 0.30000000000000004
+    tenth = weight_of(profile, "Gold Maple 1/10 oz")
+    assert tenth * 3 == Decimal("0.300000")
+
+
+def test_equivalent_units_agree(profile: CollectionV1Profile) -> None:
+    """1000 g and 1 kilo are the same mass and must convert identically."""
+    assert weight_of(profile, "1000gm Silver") == weight_of(profile, "1Kilo Silver")
+
+
+def test_weight_is_per_piece_not_per_lot(profile: CollectionV1Profile) -> None:
+    result = profile.inspect(make_row(Denom="20x 1oz Copper"))
+    assert result.fields["weight_ozt"] == Decimal("1.000000")
+    assert result.fields["storage_quantity"] == 20
+
+
+def test_denominations_without_a_weight_have_none(
+    profile: CollectionV1Profile,
+) -> None:
+    for denom in ("0.25", "Mint Set", "$1 Bill", "Silver Eagle"):
+        assert weight_of(profile, denom) is None
+
+
+def test_two_weights_in_one_denomination_go_to_review(
+    profile: CollectionV1Profile,
+) -> None:
+    result = profile.inspect(make_row(Denom="Lot: 1oz Silver + 5oz Copper"))
+    assert result.fields.get("weight_ozt") is None
+    assert any(i.rule == "weight-ambiguous" for i in result.issues)
+
+
+def test_original_weight_text_is_preserved(profile: CollectionV1Profile) -> None:
+    """weight_raw exists because 'oz' may mean troy or avoirdupois."""
+    fields = profile.inspect(make_row(Denom="Copper 1/2 Kilo")).fields
+    assert fields["weight_raw"] == "1/2Kilo"
+    assert fields["weight_unit_raw"] == "kilo"
