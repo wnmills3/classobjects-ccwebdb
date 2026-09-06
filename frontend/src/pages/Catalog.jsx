@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { api } from '../api'
+import { useReference } from '../reference'
 import { useCart } from '../cart'
 import { money } from '../format'
 
@@ -10,6 +11,7 @@ const PAGE_SIZE = 12
 export default function Catalog() {
   const [page, setPage] = useState({ items: [], total: 0, limit: PAGE_SIZE, offset: 0 })
   const [filters, setFilters] = useState({ q: '', kind: '', in_stock: false })
+  const kinds = useReference('item_kind')
   const [offset, setOffset] = useState(0)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(true)
@@ -54,17 +56,18 @@ export default function Catalog() {
           value={filters.q}
           onChange={(e) => applyFilter({ q: e.target.value })}
         />
+        {/* Read from the vocabulary rather than repeated here, so a new
+            item_kind shows up in the filter without a frontend change. */}
         <select
           value={filters.kind}
           onChange={(e) => applyFilter({ kind: e.target.value })}
         >
           <option value="">All types</option>
-          <option value="coin">Coins</option>
-          <option value="currency">Currency</option>
-          <option value="bullion">Bullion</option>
-          <option value="set">Sets</option>
-          <option value="medal">Medals</option>
-          <option value="token">Tokens</option>
+          {(kinds ?? []).map((entry) => (
+            <option key={entry.code} value={entry.code}>
+              {entry.label}
+            </option>
+          ))}
         </select>
         <label className="checkbox">
           <input

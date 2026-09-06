@@ -17,6 +17,9 @@ them, from the definitions here.
 from __future__ import annotations
 
 __all__ = [
+    "CREATE_VIEWS_ORIGINAL",
+    "CREATE_VIEWS_WITHOUT_LINEAGE",
+    "create_views",
     "ALL_VIEWS",
     "CREATE_VIEWS",
     "DROP_VIEWS",
@@ -39,6 +42,7 @@ PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
         "vendor_id",
         "notes_raw",
         "error_details",
+        "parent_item_id",
     }
 )
 
@@ -73,6 +77,9 @@ SELECT
     i.error_details,
     st.code           AS status,
     disp.code         AS disposition,
+    i.item_code,
+    i.parent_item_id,
+    i.split_at,
     i.storage_location_id,
     i.local_catalog_number,
     i.price,
@@ -107,8 +114,14 @@ LEFT JOIN grade_designation gd ON gd.id = i.grade_designation_id
 LEFT JOIN grading_service gs   ON gs.id = i.grading_service_id
 LEFT JOIN error_type et   ON et.id = i.error_type_id
 LEFT JOIN metal mt        ON mt.id = i.metal_id
-WHERE k.code IN ('coin', 'bullion', 'set', 'medal', 'token')
+WHERE i.split_at IS NULL
+  AND k.code IN ('coin', 'bullion', 'set', 'medal', 'token')
 """
+# The `split_at IS NULL` above excludes lots that have been broken into
+# pieces. Without it the lot and its pieces are both counted, so the
+# collection appears to hold twice what it does and to have cost twice what it
+# did. The note lives here rather than as a SQL comment because PostgreSQL
+# stores comments inside the view definition it reflects back.
 
 
 _CURRENCY_INVENTORY = """
@@ -146,6 +159,9 @@ SELECT
     i.error_details,
     st.code           AS status,
     disp.code         AS disposition,
+    i.item_code,
+    i.parent_item_id,
+    i.split_at,
     i.storage_location_id,
     i.local_catalog_number,
     i.price,
@@ -176,7 +192,8 @@ LEFT JOIN grade g             ON g.id  = i.grade_id
 LEFT JOIN grade_designation gd ON gd.id = i.grade_designation_id
 LEFT JOIN grading_service gs  ON gs.id = i.grading_service_id
 LEFT JOIN error_type et       ON et.id = i.error_type_id
-WHERE k.code = 'currency'
+WHERE i.split_at IS NULL
+  AND k.code = 'currency'
 """
 
 
@@ -211,6 +228,7 @@ computed AS (
     FROM inventory_item i
     JOIN valuation_basis vb ON vb.id = i.valuation_basis_id
     LEFT JOIN latest_spot s ON s.metal_id = i.metal_id
+    WHERE i.split_at IS NULL
 )
 SELECT
     c.*,
@@ -272,6 +290,7 @@ LEFT JOIN bullion_form bf ON bf.id = i.bullion_form_id
 LEFT JOIN metal mt        ON mt.id = i.metal_id
 WHERE l.is_active
   AND l.quantity_available > 0
+  AND i.split_at IS NULL
 """
 
 
@@ -293,3 +312,67 @@ CREATE_VIEWS: tuple[str, ...] = (
 DROP_VIEWS: tuple[str, ...] = tuple(
     f"DROP VIEW IF EXISTS {name}" for name in reversed(ALL_VIEWS)
 )
+
+
+# ---------------------------------------------------------------------------
+# Historical variants, for migrations
+#
+# A migration that creates these views imports the SQL from here, which means
+# the SQL can change underneath a migration written months ago. A view created
+# by an early revision must only name columns that existed at that revision --
+# otherwise a fresh `upgrade head` fails on a column that has not been added
+# yet, which is exactly what happened when `item_code` was introduced.
+#
+# So the variants are derived from the current definitions by removing the
+# later columns, and every removal is asserted. Deriving rather than
+# duplicating keeps them from drifting; asserting means a future edit that
+# changes the wording fails loudly here instead of silently producing SQL that
+# still names a column the target revision does not have.
+# ---------------------------------------------------------------------------
+
+_LINEAGE_FRAGMENTS: tuple[tuple[str, str], ...] = (
+    ("    i.parent_item_id,\n", ""),
+    ("    i.split_at,\n", ""),
+    ("WHERE i.split_at IS NULL\n  AND ", "WHERE "),
+    ("    WHERE i.split_at IS NULL\n", ""),
+    ("\n  AND i.split_at IS NULL", ""),
+)
+
+_ITEM_CODE_FRAGMENTS: tuple[tuple[str, str], ...] = (("    i.item_code,\n", ""),)
+
+
+def create_views(*, lineage: bool = True, item_code: bool = True) -> tuple[str, ...]:
+    """The view SQL as it stood before the named columns were introduced.
+
+    ``lineage`` covers `parent_item_id` and `split_at`; ``item_code`` covers
+    the permanent item code. Both default to the current definitions.
+    """
+    removals: list[tuple[str, str]] = []
+    if not lineage:
+        removals.extend(_LINEAGE_FRAGMENTS)
+    if not item_code:
+        removals.extend(_ITEM_CODE_FRAGMENTS)
+
+    statements = []
+    for statement in CREATE_VIEWS:
+        for fragment, replacement in removals:
+            statement = statement.replace(fragment, replacement)
+        if not lineage:
+            assert "split_at" not in statement, (
+                "the lineage-stripping fragments no longer match the view SQL; "
+                "a migration would create a view naming a column that does not "
+                "exist at its revision"
+            )
+            assert "parent_item_id" not in statement
+        if not item_code:
+            assert "item_code" not in statement
+        statements.append(statement)
+    return tuple(statements)
+
+
+#: What the views looked like before lot lineage existed. Used by the
+#: downgrade of the migration that added it.
+CREATE_VIEWS_WITHOUT_LINEAGE: tuple[str, ...] = create_views(lineage=False)
+
+#: What they looked like when first created, before either addition.
+CREATE_VIEWS_ORIGINAL: tuple[str, ...] = create_views(lineage=False, item_code=False)

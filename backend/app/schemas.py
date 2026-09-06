@@ -253,3 +253,94 @@ class OrderStatusUpdate(BaseModel):
     #: A `sales_order_status` code: pending, paid, packed, shipped,
     #: delivered, cancelled, refunded.
     status: str = Field(min_length=1, max_length=64)
+
+
+# --------------------------------------------------------------------------
+# Reference vocabularies
+# --------------------------------------------------------------------------
+
+
+class ReferenceValueOut(BaseModel):
+    """One classifier, shaped for a dropdown.
+
+    `code` is what gets submitted, `label` is what a person reads. Table
+    specific columns arrive in `extra` rather than being flattened, so a client
+    can show a denomination's face value or an error type's `applies_to`
+    without the API needing a response model per table.
+    """
+
+    code: str
+    label: str
+    sort_order: int
+    source: str
+    extra: dict[str, object] = Field(default_factory=dict)
+
+
+class ReferenceTableOut(BaseModel):
+    table: str
+    values: list[ReferenceValueOut]
+
+
+# --------------------------------------------------------------------------
+# Splitting a lot into its pieces
+# --------------------------------------------------------------------------
+
+
+class SplitPieceIn(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    storage_quantity: int = Field(default=1, ge=1)
+    #: The value of ONE piece, on whatever basis the caller chose -- face
+    #: value, melt, a catalogue price. Required in `relative` mode, ignored in
+    #: `equal`. What it measures is the caller's decision; this only divides
+    #: the cost in proportion to it.
+    relative_value: Decimal | None = Field(default=None, ge=0)
+    #: Classifier overrides for this piece, by code. A mint set's pieces have
+    #: different denominations from each other and from the set.
+    denomination: str | None = Field(default=None, max_length=64)
+    grade: str | None = Field(default=None, max_length=64)
+    metal: str | None = Field(default=None, max_length=64)
+    year_start: int | None = Field(default=None, ge=-3000, le=2200)
+
+
+class SplitRequest(BaseModel):
+    #: `equal` divides the cost evenly per piece; `relative` divides it in
+    #: proportion to each piece's `relative_value`.
+    mode: str = Field(default="equal", pattern="^(equal|relative)$")
+    pieces: list[SplitPieceIn] = Field(min_length=2)
+
+
+class SplitResultOut(BaseModel):
+    """What the split produced, with the arithmetic laid out to be checked."""
+
+    parent_item_code: str
+    mode: str
+    #: What the lot cost, and what the pieces cost. `price` and `shipping`
+    #: always reconcile exactly.
+    parent_price: Decimal
+    allocated_price: Decimal
+    parent_shipping: Decimal
+    allocated_shipping: Decimal
+    #: Taxes are generated per row at a fixed rate, so the sum of the pieces'
+    #: rounded taxes can differ from the lot's by a cent or two. Reported
+    #: rather than hidden -- see the note in the split endpoint.
+    parent_total_cost: Decimal
+    allocated_total_cost: Decimal
+    total_cost_difference: Decimal
+    pieces: list[InventoryItemOut]
+
+
+class InventoryItemOut(BaseModel):
+    """An inventory item as staff see it: cost basis included."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    item_code: str
+    title: str
+    storage_quantity: int
+    price: Decimal
+    shipping: Decimal
+    taxes: Decimal
+    total_cost: Decimal
+    parent_item_id: int | None = None
+    split_at: datetime | None = None

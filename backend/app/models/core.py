@@ -10,7 +10,7 @@ The attributes that genuinely differ live in 1:1 detail tables.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -18,6 +18,7 @@ from sqlalchemy import (
     CheckConstraint,
     Computed,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -245,6 +246,31 @@ class InventoryItem(TimestampMixin, Base):
         nullable=False,
     )
 
+    # -- lineage ----------------------------------------------------------
+    #: The lot this piece was broken out of, if it was.
+    #:
+    #: A tube of twenty rounds or a mint set is bought as one thing and may
+    #: later be sold as many. Splitting creates a child per piece and points
+    #: it here, so the cost basis of every piece can be traced back to the
+    #: purchase it actually came from -- which is the whole requirement for a
+    #: defensible gain calculation years later.
+    parent_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+    #: Set on the *parent* when it is broken up.
+    #:
+    #: The parent row is kept rather than deleted: it holds the purchase
+    #: order, the original price and the item code that a receipt or an
+    #: invoice refers to. But it is no longer a thing anyone holds, so
+    #: anything that counts inventory or money must exclude it -- otherwise
+    #: the lot and its pieces are both counted and the collection appears to
+    #: cost twice what it did.
+    split_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
     # -- description ------------------------------------------------------
     #: A number the owner assigned by their own scheme, before this system
     #: existed. Distinct from `item_code`: not unique, not issued here, and
@@ -353,6 +379,16 @@ class InventoryItem(TimestampMixin, Base):
     status: Mapped[ItemStatus] = relationship()
     disposition: Mapped[Disposition] = relationship()
     metal: Mapped[Metal | None] = relationship()
+
+    #: The pieces this lot was broken into, and the lot a piece came from.
+    pieces: Mapped[list["InventoryItem"]] = relationship(
+        back_populates="parent", remote_side=lambda: None,
+        foreign_keys=lambda: [InventoryItem.parent_item_id],
+    )
+    parent: Mapped["InventoryItem | None"] = relationship(
+        back_populates="pieces", remote_side=lambda: [InventoryItem.id],
+        foreign_keys=lambda: [InventoryItem.parent_item_id],
+    )
 
     #: Photographs of this item. Ordered so the primary one comes first,
     #: which is what a thumbnail lookup wants without further sorting.

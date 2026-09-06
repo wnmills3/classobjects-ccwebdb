@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { money } from '../format'
+import { ReferenceSelect } from '../reference'
 
 // Classifiers are sent as CODES, not free text: 'bullion', not 'Bullion';
 // 'US', not 'United States'; 'MS64', not 'MS-64'. An unknown code comes back
@@ -20,8 +21,6 @@ const BLANK = {
   quantity_available: 0,
   is_active: true,
 }
-
-const KINDS = ['coin', 'currency', 'bullion', 'set', 'medal', 'token', 'other']
 
 export default function AdminCoins() {
   const [items, setItems] = useState([])
@@ -124,17 +123,21 @@ export default function AdminCoins() {
           </label>
           <label>
             Type
-            <select value={form.item_kind} onChange={update('item_kind')}>
-              {KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
+            <ReferenceSelect
+              table="item_kind"
+              value={form.item_kind}
+              onChange={update('item_kind')}
+              allowBlank={false}
+            />
           </label>
           <label>
-            Country code
-            <input value={form.country} onChange={update('country')} placeholder="US" />
+            Country
+            <ReferenceSelect
+              table="country"
+              value={form.country}
+              onChange={update('country')}
+              placeholder="US"
+            />
           </label>
           <label>
             Year
@@ -145,28 +148,40 @@ export default function AdminCoins() {
             />
           </label>
           <label>
-            Denomination code
-            <input
+            Denomination
+            <ReferenceSelect
+              table="denomination"
               value={form.denomination}
               onChange={update('denomination')}
               placeholder="usd_coin_1_00"
             />
           </label>
           <label>
-            Grade code
-            <input value={form.grade} onChange={update('grade')} placeholder="MS64" />
+            Grade
+            <ReferenceSelect
+              table="grade"
+              value={form.grade}
+              onChange={update('grade')}
+              placeholder="MS64"
+            />
           </label>
           <label>
             Graded by
-            <input
+            <ReferenceSelect
+              table="grading_service"
               value={form.grading_service}
               onChange={update('grading_service')}
               placeholder="PCGS"
             />
           </label>
           <label>
-            Metal code
-            <input value={form.metal} onChange={update('metal')} placeholder="silver" />
+            Metal
+            <ReferenceSelect
+              table="metal"
+              value={form.metal}
+              onChange={update('metal')}
+              placeholder="silver"
+            />
           </label>
           <label>
             Price

@@ -11,7 +11,7 @@ from collections.abc import Sequence
 
 from alembic import op
 
-from app.models.views import CREATE_VIEWS, DROP_VIEWS
+from app.models.views import CREATE_VIEWS_ORIGINAL, DROP_VIEWS
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
@@ -897,7 +897,11 @@ def upgrade() -> None:
 
     # Views are not in Base.metadata -- autogenerate reflects tables only --
     # so the migration that creates the tables they read owns them too.
-    for statement in CREATE_VIEWS:
+    #
+    # The ORIGINAL definitions, not the current ones: later revisions add
+    # columns these views now select, and a fresh `upgrade head` would fail
+    # here on a column that does not exist yet.
+    for statement in CREATE_VIEWS_ORIGINAL:
         op.execute(statement)
 
 
