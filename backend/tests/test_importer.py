@@ -362,3 +362,44 @@ def test_a_spelling_that_does_not_dominate_is_not_flagged() -> None:
     rows = [make_row(i, Denom="0.25", Rating="UNC") for i in range(2, 22)]
     rows += [make_row(i, Denom="0.25", Rating="Unc") for i in range(30, 50)]
     assert _profiled(rows)["Rating"].variants == []
+
+
+def test_known_good_values_are_not_flagged() -> None:
+    """A 1/4 oz Gold Eagle has a $25 face value; it is not a typo for 2.5."""
+    from app.importers import profiling
+    from app.importers.profiles.collection_v1 import KNOWN_GOOD
+
+    rows = [make_row(i, Denom="2.5") for i in range(2, 40)]
+    rows.append(make_row(99, Denom="25"))
+    report = ImportEngine(CollectionV1Profile()).run(FakeSource(rows), mode=DRY_RUN)
+
+    without = {p.name: p for p in profiling.profile_columns(report)}
+    assert any(v.rare_value == "25" for v in without["Denom"].variants), (
+        "without the known-good list the detector should still propose it"
+    )
+
+    with_known = {p.name: p for p in profiling.profile_columns(report, KNOWN_GOOD)}
+    assert not any(v.rare_value == "25" for v in with_known["Denom"].variants)
+
+
+def test_trailing_plus_is_never_proposed_for_removal() -> None:
+    """UNC+ and MS64+ are grades, not misspellings of UNC and MS64."""
+    from app.importers import profiling
+
+    rows = [make_row(i, Denom="0.25", Rating="UNC") for i in range(2, 40)]
+    rows += [make_row(i, Denom="0.25", Rating="UNC+") for i in range(50, 52)]
+    report = ImportEngine(CollectionV1Profile()).run(FakeSource(rows), mode=DRY_RUN)
+    variants = {p.name: p for p in profiling.profile_columns(report)}["Rating"].variants
+    assert not any(v.rare_value == "UNC+" for v in variants)
+
+
+def test_uncertain_and_range_years_are_not_flagged() -> None:
+    from app.importers import profiling
+    from app.importers.profiles.collection_v1 import KNOWN_GOOD
+
+    rows = [make_row(i, Denom="0.25", Year="2024-") for i in range(2, 40)]
+    rows += [make_row(90, Denom="0.25", Year="2024?"), make_row(91, Denom="0.25", Year="1980's")]
+    report = ImportEngine(CollectionV1Profile()).run(FakeSource(rows), mode=DRY_RUN)
+    variants = {p.name: p for p in profiling.profile_columns(report, KNOWN_GOOD)}["Year"].variants
+    flagged = {v.rare_value for v in variants}
+    assert "2024?" not in flagged and "1980's" not in flagged

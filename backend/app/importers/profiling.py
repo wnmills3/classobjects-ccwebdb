@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import re
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -101,7 +102,22 @@ class ColumnProfile:
         return (self.distinct / self.filled) if self.filled else 0.0
 
 
-def profile_column(name: str, counts: Counter, total_rows: int) -> ColumnProfile:
+def _is_modifier_suffix(rare: str, dominant: str) -> bool:
+    """True when the two differ only by a trailing modifier such as '+'.
+
+    A trailing '+' is a qualifier, not a misspelling -- in this domain 'UNC+'
+    and 'MS64+' are grades in their own right. Proposing their removal would
+    destroy a real distinction, so it is never suggested.
+    """
+    return rare != dominant and rare.rstrip("+") == dominant.rstrip("+")
+
+
+def profile_column(
+    name: str,
+    counts: Counter,
+    total_rows: int,
+    accepted: set[str] | None = None,
+) -> ColumnProfile:
     filled = sum(counts.values())
     distinct = len(counts)
     values = list(counts)
@@ -146,6 +162,10 @@ def profile_column(name: str, counts: Counter, total_rows: int) -> ColumnProfile
             ranked = sorted(spellings, key=lambda v: -counts[v])
             dominant = ranked[0]
             for rare in ranked[1:]:
+                if accepted and rare in accepted:
+                    continue  # confirmed correct as written
+                if _is_modifier_suffix(rare, dominant):
+                    continue
                 # only flag when one spelling clearly dominates
                 if counts[rare] * 3 <= counts[dominant]:
                     variants.append(
@@ -168,9 +188,22 @@ def profile_column(name: str, counts: Counter, total_rows: int) -> ColumnProfile
     )
 
 
-def profile_columns(report: ImportReport) -> list[ColumnProfile]:
+def profile_columns(
+    report: ImportReport,
+    accepted: Mapping[str, set[str]] | None = None,
+) -> list[ColumnProfile]:
+    """`accepted` maps a column to values confirmed correct as written.
+
+    Supplied by the source profile, so domain knowledge stays out of here.
+    """
+    accepted = accepted or {}
     return [
-        profile_column(name, report.column_values.get(name, Counter()), report.rows)
+        profile_column(
+            name,
+            report.column_values.get(name, Counter()),
+            report.rows,
+            accepted.get(name),
+        )
         for name in report.columns
     ]
 

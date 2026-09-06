@@ -141,7 +141,11 @@ def write_summary_json(report: ImportReport, path: str | Path) -> None:
     )
 
 
-def write_all(report: ImportReport, out_dir: str | Path) -> dict[str, Path]:
+def write_all(
+    report: ImportReport,
+    out_dir: str | Path,
+    accepted: dict[str, set[str]] | None = None,
+) -> dict[str, Path]:
     """Write the full review set. Returns the paths written."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -161,7 +165,7 @@ def write_all(report: ImportReport, out_dir: str | Path) -> dict[str, Path]:
     write_unclassified_csv(report, paths["unclassified"])
     write_summary_json(report, paths["summary"])
 
-    profiles = profiling.profile_columns(report)
+    profiles = profiling.profile_columns(report, accepted)
     profiling.write_columns_csv(profiles, paths["columns"])
     profiling.write_variants_csv(profiles, paths["variants"])
 

@@ -77,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.no_files:
         out_dir = Path(args.out_dir) if args.out_dir else DEFAULT_OUT_DIR
-        paths = reporting.write_all(report, out_dir)
+        paths = reporting.write_all(
+            report, out_dir, accepted=getattr(profile, "known_good", None)
+        )
         print("")
         print("review files written:")
         for label, path in paths.items():
