@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "Top-level classification vocabulary.",
+    "Foreign keys are written as the referenced row's `code`, not its id, so",
+    "these files stay portable between installations. The loader resolves them."
+  ],
+  "item_kind": [
+    {"code": "coin", "label": "Coin", "sort_order": 10},
+    {"code": "currency", "label": "Currency", "sort_order": 20},
+    {"code": "bullion", "label": "Bullion", "sort_order": 30},
+    {"code": "set", "label": "Set", "sort_order": 40},
+    {"code": "medal", "label": "Medal", "sort_order": 50},
+    {"code": "token", "label": "Token", "sort_order": 60},
+    {"code": "other", "label": "Other", "sort_order": 70},
+    {"code": "unknown", "label": "Unknown", "sort_order": 80}
+  ],
+  "bullion_form": [
+    {"code": "silver_eagle", "label": "Silver Eagle", "sort_order": 10,
+     "metal": "silver", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9990"},
+    {"code": "gold_eagle", "label": "Gold Eagle", "sort_order": 20,
+     "metal": "gold", "typical_fineness": "0.9167"},
+    {"code": "gold_maple", "label": "Gold Maple", "sort_order": 30,
+     "metal": "gold", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9999"},
+    {"code": "krugerrand", "label": "Krugerrand", "sort_order": 40,
+     "metal": "gold", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9167"},
+    {"code": "britannia", "label": "Britannia", "sort_order": 50,
+     "metal": "silver", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9990"},
+    {"code": "philharmonic", "label": "Philharmonic", "sort_order": 60,
+     "metal": "silver", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9990"},
+    {"code": "libertad", "label": "Libertad", "sort_order": 70,
+     "metal": "silver", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9990"},
+    {"code": "buffalo", "label": "Buffalo", "sort_order": 80,
+     "metal": "gold", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9999"},
+    {"code": "silver_round", "label": "Silver Round", "sort_order": 90,
+     "metal": "silver", "typical_fineness": "0.9990"},
+    {"code": "copper_round", "label": "Copper Round", "sort_order": 100,
+     "metal": "copper", "typical_fineness": "0.9990"},
+    {"code": "silver_bar", "label": "Silver Bar", "sort_order": 110,
+     "metal": "silver", "typical_fineness": "0.9990"},
+    {"code": "copper_bar", "label": "Copper Bar", "sort_order": 120,
+     "metal": "copper", "typical_fineness": "0.9990"},
+    {"code": "round", "label": "Round", "sort_order": 130},
+    {"code": "bar", "label": "Bar", "sort_order": 140},
+    {"code": "bullion", "label": "Bullion", "sort_order": 150}
+  ],
+  "set_form": [
+    {"code": "mint_set", "label": "Mint Set", "sort_order": 10},
+    {"code": "proof_set", "label": "Proof Set", "sort_order": 20},
+    {"code": "silver_proof_set", "label": "Silver Proof Set", "sort_order": 30},
+    {"code": "prestige_set", "label": "Prestige Set", "sort_order": 40},
+    {"code": "coin_set", "label": "Coin Set", "sort_order": 50}
+  ],
+  "storage_form": [
+    {"code": "single", "label": "Single", "sort_order": 10, "default_quantity": 1},
+    {"code": "roll", "label": "Roll", "sort_order": 20,
+     "_note": "Count varies by denomination -- 50 cents, 40 nickels -- so no default."},
+    {"code": "tube", "label": "Tube", "sort_order": 30, "default_quantity": 20},
+    {"code": "box", "label": "Box", "sort_order": 40},
+    {"code": "bag", "label": "Bag", "sort_order": 50},
+    {"code": "album", "label": "Album", "sort_order": 60},
+    {"code": "mint_set", "label": "Mint Set", "sort_order": 70},
+    {"code": "proof_set", "label": "Proof Set", "sort_order": 80}
+  ]
+}

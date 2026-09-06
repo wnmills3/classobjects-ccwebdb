@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from .models import ItemKind, OrderStatus, UserRole
+from .models import CoinKind, OrderStatus, UserRole
 
 # --------------------------------------------------------------------------
 # Auth / users
@@ -50,7 +50,7 @@ class CoinBase(BaseModel):
     sku: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=255)
     description: str = ""
-    kind: ItemKind = ItemKind.coin
+    kind: CoinKind = CoinKind.coin
     country: str = Field(default="", max_length=100)
     year: int | None = Field(default=None, ge=-3000, le=2200)
     denomination: str = Field(default="", max_length=100)
@@ -73,7 +73,7 @@ class CoinUpdate(BaseModel):
 
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
-    kind: ItemKind | None = None
+    kind: CoinKind | None = None
     country: str | None = Field(default=None, max_length=100)
     year: int | None = Field(default=None, ge=-3000, le=2200)
     denomination: str | None = Field(default=None, max_length=100)

@@ -1,0 +1,63 @@
+{
+  "_comment": [
+    "Issuer, currency and face value.",
+    "Denomination codes are prefixed by kind because the same face value exists",
+    "as both a coin and a note -- a US dollar is both, and they are different",
+    "objects with different catalogues."
+  ],
+  "currency": [
+    {"code": "USD", "label": "US Dollar", "symbol": "$", "minor_units": 2, "sort_order": 10},
+    {"code": "CAD", "label": "Canadian Dollar", "symbol": "$", "minor_units": 2, "sort_order": 20},
+    {"code": "MXN", "label": "Mexican Peso", "symbol": "$", "minor_units": 2, "sort_order": 30},
+    {"code": "GBP", "label": "Pound Sterling", "symbol": "£", "minor_units": 2, "sort_order": 40},
+    {"code": "EUR", "label": "Euro", "symbol": "€", "minor_units": 2, "sort_order": 50}
+  ],
+  "country": [
+    {"code": "US", "label": "United States", "iso_alpha2": "US", "sort_order": 10},
+    {"code": "CA", "label": "Canada", "iso_alpha2": "CA", "sort_order": 20},
+    {"code": "MX", "label": "Mexico", "iso_alpha2": "MX", "sort_order": 30},
+    {"code": "GB", "label": "United Kingdom", "iso_alpha2": "GB", "sort_order": 40},
+    {"code": "ZA", "label": "South Africa", "iso_alpha2": "ZA", "sort_order": 50},
+    {"code": "AT", "label": "Austria", "iso_alpha2": "AT", "sort_order": 60},
+    {"code": "AU", "label": "Australia", "iso_alpha2": "AU", "sort_order": 70},
+    {"code": "CN", "label": "China", "iso_alpha2": "CN", "sort_order": 80},
+    {"code": "XX", "label": "Unknown", "sort_order": 999}
+  ],
+  "denomination": [
+    {"code": "usd_coin_0_01", "label": "Cent", "currency": "USD", "face_value": "0.0100", "kind": "coin", "sort_order": 10},
+    {"code": "usd_coin_0_05", "label": "Nickel", "currency": "USD", "face_value": "0.0500", "kind": "coin", "sort_order": 20},
+    {"code": "usd_coin_0_10", "label": "Dime", "currency": "USD", "face_value": "0.1000", "kind": "coin", "sort_order": 30},
+    {"code": "usd_coin_0_25", "label": "Quarter", "currency": "USD", "face_value": "0.2500", "kind": "coin", "sort_order": 40},
+    {"code": "usd_coin_0_50", "label": "Half Dollar", "currency": "USD", "face_value": "0.5000", "kind": "coin", "sort_order": 50},
+    {"code": "usd_coin_1_00", "label": "Dollar", "currency": "USD", "face_value": "1.0000", "kind": "coin", "sort_order": 60},
+    {"code": "usd_coin_2_50", "label": "Quarter Eagle ($2.50)", "currency": "USD", "face_value": "2.5000", "kind": "coin", "sort_order": 70},
+    {"code": "usd_coin_5_00", "label": "Half Eagle ($5)", "currency": "USD", "face_value": "5.0000", "kind": "coin", "sort_order": 80},
+    {"code": "usd_coin_10_00", "label": "Eagle ($10)", "currency": "USD", "face_value": "10.0000", "kind": "coin", "sort_order": 90},
+    {"code": "usd_coin_20_00", "label": "Double Eagle ($20)", "currency": "USD", "face_value": "20.0000", "kind": "coin", "sort_order": 100},
+    {"code": "usd_coin_25_00", "label": "$25 Gold Eagle", "currency": "USD", "face_value": "25.0000", "kind": "coin", "sort_order": 110,
+     "_note": "Face value of the half-ounce American Gold Eagle. Looks like a typo for 2.50 and is not."},
+    {"code": "usd_coin_50_00", "label": "$50 Gold Eagle", "currency": "USD", "face_value": "50.0000", "kind": "coin", "sort_order": 120},
+
+    {"code": "usd_note_1", "label": "$1 Bill", "currency": "USD", "face_value": "1.0000", "kind": "note", "sort_order": 210},
+    {"code": "usd_note_2", "label": "$2 Bill", "currency": "USD", "face_value": "2.0000", "kind": "note", "sort_order": 220},
+    {"code": "usd_note_5", "label": "$5 Bill", "currency": "USD", "face_value": "5.0000", "kind": "note", "sort_order": 230},
+    {"code": "usd_note_10", "label": "$10 Bill", "currency": "USD", "face_value": "10.0000", "kind": "note", "sort_order": 240},
+    {"code": "usd_note_20", "label": "$20 Bill", "currency": "USD", "face_value": "20.0000", "kind": "note", "sort_order": 250},
+    {"code": "usd_note_50", "label": "$50 Bill", "currency": "USD", "face_value": "50.0000", "kind": "note", "sort_order": 260},
+    {"code": "usd_note_100", "label": "$100 Bill", "currency": "USD", "face_value": "100.0000", "kind": "note", "sort_order": 270},
+    {"code": "usd_note_500", "label": "$500 Bill", "currency": "USD", "face_value": "500.0000", "kind": "note", "sort_order": 280},
+    {"code": "usd_note_1000", "label": "$1000 Bill", "currency": "USD", "face_value": "1000.0000", "kind": "note", "sort_order": 290}
+  ],
+  "mint": [
+    {"code": "P", "label": "Philadelphia", "mark": "P", "country": "US", "sort_order": 10,
+     "_note": "Struck no mark on most issues, so a blank mint mark is not a missing value."},
+    {"code": "D", "label": "Denver", "mark": "D", "country": "US", "sort_order": 20},
+    {"code": "S", "label": "San Francisco", "mark": "S", "country": "US", "sort_order": 30},
+    {"code": "W", "label": "West Point", "mark": "W", "country": "US", "sort_order": 40},
+    {"code": "O", "label": "New Orleans", "mark": "O", "country": "US", "sort_order": 50},
+    {"code": "CC", "label": "Carson City", "mark": "CC", "country": "US", "sort_order": 60},
+    {"code": "C", "label": "Charlotte", "mark": "C", "country": "US", "sort_order": 70},
+    {"code": "PD", "label": "Philadelphia and Denver", "mark": "P/D", "country": "US", "sort_order": 80,
+     "_note": "A mint set containing both mints, not broken out into separate items."}
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "Banknote-specific vocabulary.",
+    "Note attributes are a many-to-many link, not a grade: 'Star Note' describes",
+    "the note, not its condition, and putting it in the grade column is what",
+    "makes condition unqueryable."
+  ],
+  "note_type": [
+    {"code": "frn", "label": "Federal Reserve Note", "sort_order": 10},
+    {"code": "silver_certificate", "label": "Silver Certificate", "sort_order": 20},
+    {"code": "us_note", "label": "United States Note", "sort_order": 30},
+    {"code": "gold_certificate", "label": "Gold Certificate", "sort_order": 40},
+    {"code": "national_currency", "label": "National Currency", "sort_order": 50},
+    {"code": "legal_tender", "label": "Legal Tender Note", "sort_order": 60},
+    {"code": "frbn", "label": "Federal Reserve Bank Note", "sort_order": 70},
+    {"code": "fractional", "label": "Fractional Currency", "sort_order": 80}
+  ],
+  "note_attribute": [
+    {"code": "star", "label": "Star Note", "sort_order": 10},
+    {"code": "fancy_serial", "label": "Fancy Serial", "sort_order": 20},
+    {"code": "consecutive", "label": "Consecutive", "sort_order": 30},
+    {"code": "low_serial", "label": "Low Serial Number", "sort_order": 40},
+    {"code": "solid_serial", "label": "Solid Serial Number", "sort_order": 50},
+    {"code": "radar", "label": "Radar Serial", "sort_order": 60},
+    {"code": "repeater", "label": "Repeater Serial", "sort_order": 70},
+    {"code": "binary", "label": "Binary Serial", "sort_order": 80},
+    {"code": "birthday", "label": "Birthday Serial", "sort_order": 90},
+    {"code": "error", "label": "Error Note", "sort_order": 100},
+    {"code": "web_press", "label": "Web Press Note", "sort_order": 110}
+  ],
+  "seal_color": [
+    {"code": "blue", "label": "Blue Seal", "sort_order": 10},
+    {"code": "red", "label": "Red Seal", "sort_order": 20},
+    {"code": "brown", "label": "Brown Seal", "sort_order": 30},
+    {"code": "green", "label": "Green Seal", "sort_order": 40},
+    {"code": "gold", "label": "Gold Seal", "sort_order": 50}
+  ],
+  "fed_district": [
+    {"code": "A", "label": "A - Boston", "letter": "A", "city": "Boston", "number": 1, "sort_order": 1},
+    {"code": "B", "label": "B - New York", "letter": "B", "city": "New York", "number": 2, "sort_order": 2},
+    {"code": "C", "label": "C - Philadelphia", "letter": "C", "city": "Philadelphia", "number": 3, "sort_order": 3},
+    {"code": "D", "label": "D - Cleveland", "letter": "D", "city": "Cleveland", "number": 4, "sort_order": 4},
+    {"code": "E", "label": "E - Richmond", "letter": "E", "city": "Richmond", "number": 5, "sort_order": 5},
+    {"code": "F", "label": "F - Atlanta", "letter": "F", "city": "Atlanta", "number": 6, "sort_order": 6},
+    {"code": "G", "label": "G - Chicago", "letter": "G", "city": "Chicago", "number": 7, "sort_order": 7},
+    {"code": "H", "label": "H - St. Louis", "letter": "H", "city": "St. Louis", "number": 8, "sort_order": 8},
+    {"code": "I", "label": "I - Minneapolis", "letter": "I", "city": "Minneapolis", "number": 9, "sort_order": 9},
+    {"code": "J", "label": "J - Kansas City", "letter": "J", "city": "Kansas City", "number": 10, "sort_order": 10},
+    {"code": "K", "label": "K - Dallas", "letter": "K", "city": "Dallas", "number": 11, "sort_order": 11},
+    {"code": "L", "label": "L - San Francisco", "letter": "L", "city": "San Francisco", "number": 12, "sort_order": 12}
+  ]
+}

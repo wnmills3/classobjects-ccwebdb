@@ -602,3 +602,86 @@ even with the lock removed and is worthless.
 
 **Migrations.** Every schema change is an Alembic revision, with a test that
 asserts autogenerate finds no difference between the migrations and the models.
+
+---
+
+## 12. Reference data is shipped, not typed
+
+Most of the reference tables hold facts that are true everywhere: the Sheldon
+grades, the US mints, the twelve Federal Reserve districts, the composition of
+a pre-1965 dime. None of that is specific to one collection, and no new
+installation should have to rebuild it.
+
+So reference data lives in **versioned JSON** under `backend/data/reference/`,
+never hardcoded, and moves in both directions:
+
+```
+python -m app.seeding load                        idempotent, safe to re-run
+python -m app.seeding export --out <dir>          dump back to seed files
+python -m app.seeding export --source seeded derived
+```
+
+**Foreign keys travel as codes, not ids.** A seed row says `"metal": "silver"`,
+never `"metal_id": 3`. Ids are per-installation; codes are not. Resolution is
+generic -- the key `metal` is matched to the column `metal_id` and looked up in
+whatever table that column points at -- so a new classifier table needs no
+loader changes.
+
+**`source` is the safety valve.** Every reference row records whether it was
+`seeded`, `derived` by a rule, or entered `manual`ly:
+
+| source | meaning | exported by default |
+|---|---|---|
+| `seeded` | shipped vocabulary, or confirmed public fact | yes |
+| `derived` | learned from real data by an importer | only if asked for |
+| `manual` | one operator's own decision | never, unless asked for |
+
+This is what makes the export safe to hand to someone else. A collection's
+private judgements do not escape as though they were curated facts, and a
+hand-edited row is never overwritten by a later `load` -- a person's correction
+outranks a shipped default.
+
+It also creates a feedback loop worth naming: classifiers discovered while
+importing real data are written as `derived`, reviewed, and the good ones
+promoted into the shipped files. The vocabulary improves with use rather than
+being guessed at once.
+
+**Consequence for importers.** Because derived rows are candidates for export,
+an importer that invents junk classifiers is not merely untidy -- it
+contaminates a shared catalogue. So a value that cannot be confidently
+classified is *declined*: the original text is kept in its `*_raw` column and
+flagged for review, rather than becoming a reference row. Declining is the
+safe direction.
+
+---
+
+## 13. Implementation notes
+
+Three places where the built schema departs from the description above, each
+for a concrete reason.
+
+**`order` is `sales_order`.** `order` is a reserved word in SQL, so every
+reference to it in a view or hand-written query would need quoting, and the
+name was already taken by the superseded storefront scaffold. The tables are
+`sales_order` and `sales_order_item`.
+
+**The scaffold's `item_kind` enum became `coin_kind`.** The original demo
+catalogue had a PostgreSQL enum type named `item_kind`; the target schema has a
+reference *table* of that name. In PostgreSQL a table implicitly creates a
+composite type, so tables and types share one namespace and the two genuinely
+collide. The rename is carried out by the migration before any table is
+created.
+
+**The listed-items index is not partial.** The design asks for
+`inventory_item (disposition_id) where disposition_id = 'listed'`, but
+`disposition_id` is a surrogate key and its value is not knowable at migration
+time; a partial index would have to hardcode an integer that differs per
+installation. It is a plain index on `disposition_id`. The public catalogue's
+own partial index lives on `listing (is_active)`, where the predicate is a
+boolean and does hold.
+
+**Views are owned by the migration, not the metadata.** Alembic autogenerate
+reflects tables only, so views are created and dropped explicitly from the
+definitions in `app/models/views.py`. Two consequences worth knowing: a test
+database built with `create_all` needs the views created separately, and a
+downgrade must drop the views before the tables they read.

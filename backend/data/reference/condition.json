@@ -1,0 +1,560 @@
+{
+  "_comment": [
+    "Condition vocabulary.",
+    "`numeric_value` is what makes 'all my MS65-and-better Morgans' answerable.",
+    "Adjectival grades carry no number and stay null rather than being assigned",
+    "a fictional one -- BU is not reliably equal to any Sheldon number.",
+    "Grades qualified with '+' (UNC+, MS64+, BU++) are real distinctions and are",
+    "added as `derived` rows when encountered, not normalised away here."
+  ],
+  "grade_scale": [
+    {
+      "code": "sheldon",
+      "label": "Sheldon (1-70)",
+      "sort_order": 10
+    },
+    {
+      "code": "adjectival",
+      "label": "Adjectival",
+      "sort_order": 20
+    },
+    {
+      "code": "note",
+      "label": "Paper money grading",
+      "sort_order": 30
+    }
+  ],
+  "grade": [
+    {
+      "code": "MS70",
+      "label": "MS-70",
+      "grade_scale": "sheldon",
+      "numeric_value": 70,
+      "sort_order": 100
+    },
+    {
+      "code": "MS69",
+      "label": "MS-69",
+      "grade_scale": "sheldon",
+      "numeric_value": 69,
+      "sort_order": 101
+    },
+    {
+      "code": "MS68",
+      "label": "MS-68",
+      "grade_scale": "sheldon",
+      "numeric_value": 68,
+      "sort_order": 102
+    },
+    {
+      "code": "MS67",
+      "label": "MS-67",
+      "grade_scale": "sheldon",
+      "numeric_value": 67,
+      "sort_order": 103
+    },
+    {
+      "code": "MS66",
+      "label": "MS-66",
+      "grade_scale": "sheldon",
+      "numeric_value": 66,
+      "sort_order": 104
+    },
+    {
+      "code": "MS65",
+      "label": "MS-65",
+      "grade_scale": "sheldon",
+      "numeric_value": 65,
+      "sort_order": 105
+    },
+    {
+      "code": "MS64",
+      "label": "MS-64",
+      "grade_scale": "sheldon",
+      "numeric_value": 64,
+      "sort_order": 106
+    },
+    {
+      "code": "MS63",
+      "label": "MS-63",
+      "grade_scale": "sheldon",
+      "numeric_value": 63,
+      "sort_order": 107
+    },
+    {
+      "code": "MS62",
+      "label": "MS-62",
+      "grade_scale": "sheldon",
+      "numeric_value": 62,
+      "sort_order": 108
+    },
+    {
+      "code": "MS61",
+      "label": "MS-61",
+      "grade_scale": "sheldon",
+      "numeric_value": 61,
+      "sort_order": 109
+    },
+    {
+      "code": "MS60",
+      "label": "MS-60",
+      "grade_scale": "sheldon",
+      "numeric_value": 60,
+      "sort_order": 110
+    },
+    {
+      "code": "PR70",
+      "label": "PR-70",
+      "grade_scale": "sheldon",
+      "numeric_value": 70,
+      "is_proof": true,
+      "sort_order": 200
+    },
+    {
+      "code": "PR69",
+      "label": "PR-69",
+      "grade_scale": "sheldon",
+      "numeric_value": 69,
+      "is_proof": true,
+      "sort_order": 201
+    },
+    {
+      "code": "PR68",
+      "label": "PR-68",
+      "grade_scale": "sheldon",
+      "numeric_value": 68,
+      "is_proof": true,
+      "sort_order": 202
+    },
+    {
+      "code": "PR67",
+      "label": "PR-67",
+      "grade_scale": "sheldon",
+      "numeric_value": 67,
+      "is_proof": true,
+      "sort_order": 203
+    },
+    {
+      "code": "PR66",
+      "label": "PR-66",
+      "grade_scale": "sheldon",
+      "numeric_value": 66,
+      "is_proof": true,
+      "sort_order": 204
+    },
+    {
+      "code": "PR65",
+      "label": "PR-65",
+      "grade_scale": "sheldon",
+      "numeric_value": 65,
+      "is_proof": true,
+      "sort_order": 205
+    },
+    {
+      "code": "PR64",
+      "label": "PR-64",
+      "grade_scale": "sheldon",
+      "numeric_value": 64,
+      "is_proof": true,
+      "sort_order": 206
+    },
+    {
+      "code": "PR63",
+      "label": "PR-63",
+      "grade_scale": "sheldon",
+      "numeric_value": 63,
+      "is_proof": true,
+      "sort_order": 207
+    },
+    {
+      "code": "PR62",
+      "label": "PR-62",
+      "grade_scale": "sheldon",
+      "numeric_value": 62,
+      "is_proof": true,
+      "sort_order": 208
+    },
+    {
+      "code": "PR61",
+      "label": "PR-61",
+      "grade_scale": "sheldon",
+      "numeric_value": 61,
+      "is_proof": true,
+      "sort_order": 209
+    },
+    {
+      "code": "PR60",
+      "label": "PR-60",
+      "grade_scale": "sheldon",
+      "numeric_value": 60,
+      "is_proof": true,
+      "sort_order": 210
+    },
+    {
+      "code": "AU58",
+      "label": "AU-58",
+      "grade_scale": "sheldon",
+      "numeric_value": 58,
+      "sort_order": 300
+    },
+    {
+      "code": "AU55",
+      "label": "AU-55",
+      "grade_scale": "sheldon",
+      "numeric_value": 55,
+      "sort_order": 301
+    },
+    {
+      "code": "AU53",
+      "label": "AU-53",
+      "grade_scale": "sheldon",
+      "numeric_value": 53,
+      "sort_order": 302
+    },
+    {
+      "code": "AU50",
+      "label": "AU-50",
+      "grade_scale": "sheldon",
+      "numeric_value": 50,
+      "sort_order": 303
+    },
+    {
+      "code": "XF45",
+      "label": "XF-45",
+      "grade_scale": "sheldon",
+      "numeric_value": 45,
+      "sort_order": 304
+    },
+    {
+      "code": "XF40",
+      "label": "XF-40",
+      "grade_scale": "sheldon",
+      "numeric_value": 40,
+      "sort_order": 305
+    },
+    {
+      "code": "VF35",
+      "label": "VF-35",
+      "grade_scale": "sheldon",
+      "numeric_value": 35,
+      "sort_order": 306
+    },
+    {
+      "code": "VF30",
+      "label": "VF-30",
+      "grade_scale": "sheldon",
+      "numeric_value": 30,
+      "sort_order": 307
+    },
+    {
+      "code": "VF25",
+      "label": "VF-25",
+      "grade_scale": "sheldon",
+      "numeric_value": 25,
+      "sort_order": 308
+    },
+    {
+      "code": "VF20",
+      "label": "VF-20",
+      "grade_scale": "sheldon",
+      "numeric_value": 20,
+      "sort_order": 309
+    },
+    {
+      "code": "F15",
+      "label": "F-15",
+      "grade_scale": "sheldon",
+      "numeric_value": 15,
+      "sort_order": 310
+    },
+    {
+      "code": "F12",
+      "label": "F-12",
+      "grade_scale": "sheldon",
+      "numeric_value": 12,
+      "sort_order": 311
+    },
+    {
+      "code": "VG10",
+      "label": "VG-10",
+      "grade_scale": "sheldon",
+      "numeric_value": 10,
+      "sort_order": 312
+    },
+    {
+      "code": "VG8",
+      "label": "VG-8",
+      "grade_scale": "sheldon",
+      "numeric_value": 8,
+      "sort_order": 313
+    },
+    {
+      "code": "G6",
+      "label": "G-6",
+      "grade_scale": "sheldon",
+      "numeric_value": 6,
+      "sort_order": 314
+    },
+    {
+      "code": "G4",
+      "label": "G-4",
+      "grade_scale": "sheldon",
+      "numeric_value": 4,
+      "sort_order": 315
+    },
+    {
+      "code": "AG3",
+      "label": "AG-3",
+      "grade_scale": "sheldon",
+      "numeric_value": 3,
+      "sort_order": 316
+    },
+    {
+      "code": "FR2",
+      "label": "FR-2",
+      "grade_scale": "sheldon",
+      "numeric_value": 2,
+      "sort_order": 317
+    },
+    {
+      "code": "P1",
+      "label": "P-1",
+      "grade_scale": "sheldon",
+      "numeric_value": 1,
+      "sort_order": 318
+    },
+    {
+      "code": "GEM_PROOF",
+      "label": "Gem Proof",
+      "grade_scale": "adjectival",
+      "sort_order": 395
+    },
+    {
+      "code": "CHOICE_PROOF",
+      "label": "Choice Proof",
+      "grade_scale": "adjectival",
+      "sort_order": 396
+    },
+    {
+      "code": "GEM_UNC",
+      "label": "Gem UNC",
+      "grade_scale": "adjectival",
+      "sort_order": 397
+    },
+    {
+      "code": "CHOICE_UNC",
+      "label": "Choice UNC",
+      "grade_scale": "adjectival",
+      "sort_order": 398
+    },
+    {
+      "code": "PROOF",
+      "label": "Proof",
+      "grade_scale": "adjectival",
+      "sort_order": 399
+    },
+    {
+      "code": "GEM_BU",
+      "label": "GEM/BU",
+      "grade_scale": "adjectival",
+      "sort_order": 400
+    },
+    {
+      "code": "CHOICE_BU",
+      "label": "Choice BU",
+      "grade_scale": "adjectival",
+      "sort_order": 401
+    },
+    {
+      "code": "BU",
+      "label": "BU",
+      "grade_scale": "adjectival",
+      "sort_order": 402
+    },
+    {
+      "code": "UNC",
+      "label": "UNC",
+      "grade_scale": "adjectival",
+      "sort_order": 403
+    },
+    {
+      "code": "AU",
+      "label": "AU",
+      "grade_scale": "adjectival",
+      "sort_order": 404
+    },
+    {
+      "code": "XF",
+      "label": "XF",
+      "grade_scale": "adjectival",
+      "sort_order": 405
+    },
+    {
+      "code": "VF",
+      "label": "VF",
+      "grade_scale": "adjectival",
+      "sort_order": 406
+    },
+    {
+      "code": "F",
+      "label": "F",
+      "grade_scale": "adjectival",
+      "sort_order": 407
+    },
+    {
+      "code": "VG",
+      "label": "VG",
+      "grade_scale": "adjectival",
+      "sort_order": 408
+    },
+    {
+      "code": "G",
+      "label": "G",
+      "grade_scale": "adjectival",
+      "sort_order": 409
+    },
+    {
+      "code": "CIRC",
+      "label": "Circulated",
+      "grade_scale": "adjectival",
+      "sort_order": 410
+    },
+    {
+      "code": "UNGRADED",
+      "label": "Ungraded",
+      "grade_scale": "adjectival",
+      "sort_order": 999
+    }
+  ],
+  "grade_designation": [
+    {
+      "code": "DCAM",
+      "label": "DCAM (Deep Cameo)",
+      "sort_order": 10
+    },
+    {
+      "code": "CAM",
+      "label": "CAM (Cameo)",
+      "sort_order": 20
+    },
+    {
+      "code": "RD",
+      "label": "RD (Red)",
+      "sort_order": 30
+    },
+    {
+      "code": "RB",
+      "label": "RB (Red-Brown)",
+      "sort_order": 40
+    },
+    {
+      "code": "BN",
+      "label": "BN (Brown)",
+      "sort_order": 50
+    },
+    {
+      "code": "FS",
+      "label": "FS (Full Steps)",
+      "sort_order": 60
+    },
+    {
+      "code": "FB",
+      "label": "FB (Full Bands)",
+      "sort_order": 70
+    },
+    {
+      "code": "FBL",
+      "label": "FBL (Full Bell Lines)",
+      "sort_order": 80
+    },
+    {
+      "code": "FH",
+      "label": "FH (Full Head)",
+      "sort_order": 90
+    },
+    {
+      "code": "PL",
+      "label": "PL (Prooflike)",
+      "sort_order": 100
+    },
+    {
+      "code": "DMPL",
+      "label": "DMPL (Deep Mirror Prooflike)",
+      "sort_order": 110
+    },
+    {
+      "code": "EPQ",
+      "label": "EPQ (Exceptional Paper Quality)",
+      "sort_order": 120
+    },
+    {
+      "code": "PPQ",
+      "label": "PPQ (Premium Paper Quality)",
+      "sort_order": 130
+    }
+  ],
+  "grading_service": [
+    {
+      "code": "PCGS",
+      "label": "PCGS",
+      "sort_order": 10
+    },
+    {
+      "code": "NGC",
+      "label": "NGC",
+      "sort_order": 20
+    },
+    {
+      "code": "ANACS",
+      "label": "ANACS",
+      "sort_order": 30
+    },
+    {
+      "code": "ICG",
+      "label": "ICG",
+      "sort_order": 40
+    },
+    {
+      "code": "PMG",
+      "label": "PMG",
+      "sort_order": 50
+    },
+    {
+      "code": "SEGS",
+      "label": "SEGS",
+      "sort_order": 60
+    },
+    {
+      "code": "CACG",
+      "label": "CACG",
+      "sort_order": 70
+    },
+    {
+      "code": "SELF",
+      "label": "Self-graded",
+      "sort_order": 900
+    }
+  ],
+  "authenticity": [
+    {
+      "code": "unverified",
+      "label": "Unverified",
+      "sort_order": 10
+    },
+    {
+      "code": "genuine",
+      "label": "Genuine",
+      "sort_order": 20
+    },
+    {
+      "code": "counterfeit",
+      "label": "Counterfeit",
+      "sort_order": 30
+    },
+    {
+      "code": "questionable",
+      "label": "Questionable",
+      "sort_order": 40
+    }
+  ]
+}

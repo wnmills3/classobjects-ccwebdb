@@ -1,0 +1,456 @@
+"""Core tables: the acquisition side and the inventory spine.
+
+`inventory_item` is the single table every other concern hangs off. Coins and
+currency share it rather than splitting into parallel tables: they share
+purchase, cost, grade, certification, status, location and images; acquisitions
+routinely contain both; sales must reference either through one foreign key;
+and an item whose kind is not yet determined still needs somewhere to live.
+The attributes that genuinely differ live in 1:1 detail tables.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import (
+    CheckConstraint,
+    Computed,
+    Date,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .base import Base, ProvenanceSource, TimestampMixin, enum_column
+from .reference import (
+    Authenticity,
+    BullionForm,
+    Country,
+    Denomination,
+    Disposition,
+    ErrorType,
+    Grade,
+    GradeDesignation,
+    GradingService,
+    ItemKind,
+    ItemStatus,
+    Metal,
+    SetForm,
+    StorageForm,
+)
+
+__all__ = [
+    "CoinDetail",
+    "CurrencyDetail",
+    "InventoryItem",
+    "PurchaseOrder",
+    "Vendor",
+]
+
+#: The default sales-tax rate applied to acquisitions. Stored per row rather
+#: than baked into the generated expression, because rates vary by
+#: jurisdiction and change over time.
+DEFAULT_TAX_RATE = Decimal("0.0635")
+
+#: `taxes` and `total_cost` are both generated. PostgreSQL forbids a generated
+#: column from referencing another generated column, so the tax expression is
+#: repeated inside the total rather than referenced -- keeping them as one
+#: constant here means the two can never drift apart.
+_TAX_EXPR = "round((price + shipping) * tax_rate, 2)"
+
+
+class Vendor(TimestampMixin, Base):
+    """Where items are acquired from."""
+
+    __tablename__ = "vendor"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    host: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    vendor_kind_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vendor_kind.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+
+    orders: Mapped[list[PurchaseOrder]] = relationship(back_populates="vendor")
+
+    __table_args__ = (UniqueConstraint("name", name="uq_vendor_name"),)
+
+
+class PurchaseOrder(TimestampMixin, Base):
+    """One acquisition, commonly containing many items.
+
+    ``order_number`` is **text**, always. Identifiers from marketplaces and
+    auction houses contain leading zeros, letters and separators; storing them
+    as a number destroys information irreversibly. Many channels issue no order
+    number at all, hence nullable with a partial unique index.
+    """
+
+    __tablename__ = "purchase_order"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vendor_id: Mapped[int] = mapped_column(
+        ForeignKey("vendor.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    order_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    ordered_on: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    vendor: Mapped[Vendor] = relationship(back_populates="orders")
+    items: Mapped[list[InventoryItem]] = relationship(back_populates="purchase_order")
+
+    __table_args__ = (
+        Index(
+            "uq_purchase_order_vendor_number",
+            "vendor_id",
+            "order_number",
+            unique=True,
+            postgresql_where=text("order_number IS NOT NULL"),
+        ),
+    )
+
+
+class InventoryItem(TimestampMixin, Base):
+    """One acquired item or lot -- the shared spine of the whole schema."""
+
+    __tablename__ = "inventory_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # -- acquisition ------------------------------------------------------
+    purchase_order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("purchase_order.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+
+    # -- classification ---------------------------------------------------
+    item_kind_id: Mapped[int] = mapped_column(
+        ForeignKey("item_kind.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    denomination_id: Mapped[int | None] = mapped_column(
+        ForeignKey("denomination.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    bullion_form_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bullion_form.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    set_form_id: Mapped[int | None] = mapped_column(
+        ForeignKey("set_form.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    storage_form_id: Mapped[int] = mapped_column(
+        ForeignKey("storage_form.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    #: Pieces in the lot. A multi-quantity row stays one row: it was bought as
+    #: a lot and is stored as a lot.
+    storage_quantity: Mapped[int] = mapped_column(
+        Integer, default=1, server_default=text("1"), nullable=False
+    )
+    country_id: Mapped[int | None] = mapped_column(
+        ForeignKey("country.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+
+    #: A range, because a mint set or a roll spans several years.
+    year_start: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    year_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # -- condition --------------------------------------------------------
+    grade_id: Mapped[int | None] = mapped_column(
+        ForeignKey("grade.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    grade_designation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("grade_designation.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+    grading_service_id: Mapped[int | None] = mapped_column(
+        ForeignKey("grading_service.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+    authenticity_id: Mapped[int] = mapped_column(
+        ForeignKey("authenticity.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+
+    # -- errors -----------------------------------------------------------
+    #: Never inferred from free text: description fields are seller prose, and
+    #: keyword matching against them is unreliable in both directions.
+    error_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("error_type.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    error_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # -- lifecycle, two independent axes ----------------------------------
+    status_id: Mapped[int] = mapped_column(
+        ForeignKey("item_status.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    disposition_id: Mapped[int] = mapped_column(
+        ForeignKey("disposition.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    storage_location_id: Mapped[int | None] = mapped_column(
+        ForeignKey("storage_location.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+
+    # -- description ------------------------------------------------------
+    local_catalog_number: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(
+        String(500), default="", server_default=text("''"), nullable=False
+    )
+    description: Mapped[str] = mapped_column(
+        Text, default="", server_default=text("''"), nullable=False
+    )
+    listing_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    # -- verbatim source text ---------------------------------------------
+    # A parser can be wrong or incomplete, so nothing it read is discarded.
+    notes_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    denom_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    year_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grade_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # -- cost basis, fixed at purchase ------------------------------------
+    price: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), default=Decimal("0.00"), nullable=False
+    )
+    shipping: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), default=Decimal("0.00"), nullable=False
+    )
+    tax_rate: Mapped[Decimal] = mapped_column(
+        Numeric(6, 4),
+        default=DEFAULT_TAX_RATE,
+        server_default=text("0.0635"),
+        nullable=False,
+    )
+    taxes: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), Computed(_TAX_EXPR, persisted=True), nullable=False
+    )
+    total_cost: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        Computed(f"price + shipping + {_TAX_EXPR}", persisted=True),
+        nullable=False,
+    )
+
+    # -- valuation --------------------------------------------------------
+    #: The collector premium, entered by hand. Melt value is *not* stored: it
+    #: is a function of spot price, which moves daily. See the item_valuation
+    #: view.
+    numismatic_value: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    valuation_basis_id: Mapped[int] = mapped_column(
+        ForeignKey("valuation_basis.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    composition_id: Mapped[int | None] = mapped_column(
+        ForeignKey("composition.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    metal_id: Mapped[int | None] = mapped_column(
+        ForeignKey("metal.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    fineness: Mapped[Decimal | None] = mapped_column(Numeric(6, 4), nullable=True)
+
+    # -- weight, in troy ounces, never a float ----------------------------
+    #: Weight multiplies straight into money, so it gets the same treatment as
+    #: money: NUMERIC, not float. Six decimal places represents every real
+    #: figure exactly, down to a silver dime at 0.072338 ozt.
+    gross_weight_ozt: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6), nullable=True
+    )
+    #: The melt input. A Morgan dollar weighs 0.859370 ozt but contains only
+    #: 0.773440 ozt of silver, because it is 90% fine.
+    fine_weight_ozt: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 6), nullable=True
+    )
+    weight_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # -- long tail --------------------------------------------------------
+    #: Anything filtered, sorted, joined or aggregated on earns a real column.
+    #: This is for the genuine long tail, not a way to avoid deciding.
+    attributes: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    source: Mapped[ProvenanceSource] = mapped_column(
+        enum_column(ProvenanceSource, "provenance_source"),
+        default=ProvenanceSource.manual,
+        nullable=False,
+    )
+
+    # -- relationships ----------------------------------------------------
+    purchase_order: Mapped[PurchaseOrder | None] = relationship(
+        back_populates="items"
+    )
+    item_kind: Mapped[ItemKind] = relationship()
+    denomination: Mapped[Denomination | None] = relationship()
+    bullion_form: Mapped[BullionForm | None] = relationship()
+    set_form: Mapped[SetForm | None] = relationship()
+    storage_form: Mapped[StorageForm] = relationship()
+    country: Mapped[Country | None] = relationship()
+    grade: Mapped[Grade | None] = relationship()
+    grade_designation: Mapped[GradeDesignation | None] = relationship()
+    grading_service: Mapped[GradingService | None] = relationship()
+    authenticity: Mapped[Authenticity] = relationship()
+    error_type: Mapped[ErrorType | None] = relationship()
+    status: Mapped[ItemStatus] = relationship()
+    disposition: Mapped[Disposition] = relationship()
+    metal: Mapped[Metal | None] = relationship()
+
+    coin_detail: Mapped[CoinDetail | None] = relationship(
+        back_populates="item", uselist=False, cascade="all, delete-orphan"
+    )
+    currency_detail: Mapped[CurrencyDetail | None] = relationship(
+        back_populates="item", uselist=False, cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint("price >= 0", name="ck_inventory_item_price_non_negative"),
+        CheckConstraint(
+            "shipping >= 0", name="ck_inventory_item_shipping_non_negative"
+        ),
+        CheckConstraint(
+            "storage_quantity > 0", name="ck_inventory_item_quantity_positive"
+        ),
+        CheckConstraint(
+            "year_end IS NULL OR year_start IS NULL OR year_end >= year_start",
+            name="ck_inventory_item_year_range",
+        ),
+        CheckConstraint(
+            "fineness IS NULL OR (fineness > 0 AND fineness <= 1)",
+            name="ck_inventory_item_fineness_fraction",
+        ),
+        CheckConstraint(
+            "gross_weight_ozt IS NULL OR gross_weight_ozt >= 0",
+            name="ck_inventory_item_gross_weight_non_negative",
+        ),
+        CheckConstraint(
+            "fine_weight_ozt IS NULL OR fine_weight_ozt >= 0",
+            name="ck_inventory_item_fine_weight_non_negative",
+        ),
+        CheckConstraint(
+            "fine_weight_ozt IS NULL OR gross_weight_ozt IS NULL "
+            "OR fine_weight_ozt <= gross_weight_ozt",
+            name="ck_inventory_item_fine_within_gross",
+        ),
+        # The primary browse path: "show me my coins that have arrived".
+        Index("ix_inventory_item_kind_status", "item_kind_id", "status_id"),
+        # Full-text search over the free-text columns. The regconfig is named
+        # explicitly because to_tsvector() is only immutable -- and therefore
+        # only indexable -- in its two-argument form.
+        #
+        # Written exactly as PostgreSQL stores it, casts and all. PostgreSQL
+        # normalises an index expression on creation, so the shorter form
+        # `to_tsvector('english', title || ' ' || description)` reflects back
+        # differently from how it was written and autogenerate reports the
+        # index as changed on every single run -- a permanent false positive
+        # in the models-versus-migrations drift test.
+        Index(
+            "ix_inventory_item_fts",
+            text(
+                "to_tsvector('english'::regconfig, "
+                "(title::text || ' '::text) || description)"
+            ),
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_inventory_item_attributes",
+            "attributes",
+            postgresql_using="gin",
+        ),
+    )
+
+
+class CoinDetail(Base):
+    """Coin-only attributes. 1:1 with an item, every column nullable --
+    an item identified only by a photograph is still a valid row."""
+
+    __tablename__ = "coin_detail"
+
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: A mint mark. Structurally identical to a banknote's series letter and
+    #: semantically unrelated to it -- hence separate columns on separate
+    #: tables. `1921-D` is a mint; `1957-B` is a series.
+    mint_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mint.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    variety: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    pcgs_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pcgs_type.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    pcgs_status: Mapped[str] = mapped_column(
+        String(16), default="unknown", server_default=text("'unknown'"), nullable=False
+    )
+
+    item: Mapped[InventoryItem] = relationship(back_populates="coin_detail")
+
+    __table_args__ = (
+        CheckConstraint(
+            "pcgs_status IN ('unknown', 'proposed', 'confirmed', 'conflicting')",
+            name="ck_coin_detail_pcgs_status",
+        ),
+    )
+
+
+class CurrencyDetail(Base):
+    """Banknote-only attributes. 1:1 with an item, every column nullable."""
+
+    __tablename__ = "currency_detail"
+
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="CASCADE"), primary_key=True
+    )
+    note_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("note_type.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    series_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: A series letter, not a mint mark. See the note on CoinDetail.mint_id.
+    series_letter: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    seal_color_id: Mapped[int | None] = mapped_column(
+        ForeignKey("seal_color.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    signature_combination_id: Mapped[int | None] = mapped_column(
+        ForeignKey("signature_combination.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+    fed_district_id: Mapped[int | None] = mapped_column(
+        ForeignKey("fed_district.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    #: Printed on the note. Text, always: leading zeros and star suffixes are
+    #: meaning, not formatting. Distinct from a grading certificate serial,
+    #: which identifies a holder rather than a note.
+    serial_number: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    friedberg_id: Mapped[int | None] = mapped_column(
+        ForeignKey("friedberg_number.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=True,
+    )
+    friedberg_status: Mapped[str] = mapped_column(
+        String(16), default="unknown", server_default=text("'unknown'"), nullable=False
+    )
+
+    item: Mapped[InventoryItem] = relationship(back_populates="currency_detail")
+
+    __table_args__ = (
+        CheckConstraint(
+            "friedberg_status IN "
+            "('unknown', 'proposed', 'confirmed', 'conflicting')",
+            name="ck_currency_detail_friedberg_status",
+        ),
+    )

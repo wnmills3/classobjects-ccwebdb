@@ -1,15 +1,30 @@
-"""Database models for the numismatic inventory and sales platform."""
+"""The original storefront scaffold: users, a flat catalogue, and orders.
+
+This predates the target schema in `docs/database-design.md` and is superseded
+by it -- `coins` is a strictly less capable `inventory_item`. It is kept for
+now because the storefront routers, the auth flow and the oversell concurrency
+test all run against it, and moving those is a separate piece of work from
+building the schema.
+
+`users` is **not** scaffold: it is the login table the whole application uses,
+and the target schema references it from `customer`, `item_status_history`,
+`location_history` and both type catalogues.
+
+One rename was forced. The scaffold's PostgreSQL enum type was called
+``item_kind``, and the target schema has a reference *table* of that name. In
+PostgreSQL a table implicitly creates a composite type, so tables and types
+share one namespace and the two genuinely collide. The enum is ``coin_kind``.
+"""
 
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Enum,
     ForeignKey,
     Integer,
     Numeric,
@@ -18,20 +33,17 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .database import Base
+from .base import Base, enum_column, utcnow
 
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _enum_column(py_enum: type[enum.Enum], name: str):
-    """Store enum *values* (not member names) in a native PostgreSQL enum."""
-    return Enum(
-        py_enum,
-        name=name,
-        values_callable=lambda e: [member.value for member in e],
-    )
+__all__ = [
+    "Coin",
+    "CoinKind",
+    "Order",
+    "OrderItem",
+    "OrderStatus",
+    "User",
+    "UserRole",
+]
 
 
 class UserRole(str, enum.Enum):
@@ -39,7 +51,10 @@ class UserRole(str, enum.Enum):
     customer = "customer"
 
 
-class ItemKind(str, enum.Enum):
+class CoinKind(str, enum.Enum):
+    """Scaffold catalogue kind. Superseded by the `item_kind` reference table,
+    which carries eight values rather than two."""
+
     coin = "coin"
     banknote = "banknote"
 
@@ -61,7 +76,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        _enum_column(UserRole, "user_role"),
+        enum_column(UserRole, "user_role"),
         default=UserRole.customer,
         nullable=False,
     )
@@ -76,7 +91,7 @@ class User(Base):
 
 
 class Coin(Base):
-    """A single inventory item: a coin or a banknote."""
+    """A single scaffold catalogue item: a coin or a banknote."""
 
     __tablename__ = "coins"
 
@@ -87,8 +102,8 @@ class Coin(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
-    kind: Mapped[ItemKind] = mapped_column(
-        _enum_column(ItemKind, "item_kind"), default=ItemKind.coin, nullable=False
+    kind: Mapped[CoinKind] = mapped_column(
+        enum_column(CoinKind, "coin_kind"), default=CoinKind.coin, nullable=False
     )
     country: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -123,7 +138,7 @@ class Order(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     status: Mapped[OrderStatus] = mapped_column(
-        _enum_column(OrderStatus, "order_status"),
+        enum_column(OrderStatus, "order_status"),
         default=OrderStatus.pending,
         nullable=False,
     )

@@ -1,0 +1,83 @@
+{
+  "_comment": [
+    "US coinage composition -- public facts, seedable from mint specifications.",
+    "Composition is a matter of legislation, so it resolves from denomination,",
+    "country and year rather than being recorded per item. A dime struck in 1963",
+    "is 90% silver because the law said so, not because anyone typed it in.",
+    "",
+    "fine_weight_ozt is the published ASW (actual silver weight) where one",
+    "exists, not a recomputation from gross weight -- the published figure is",
+    "what the market quotes and what every dealer's calculator agrees with.",
+    "",
+    "This is exactly the kind of table a new installation should inherit rather",
+    "than rebuild: nothing here is specific to one collection."
+  ],
+  "composition": [
+    {"denomination": "usd_coin_0_10", "country": "US", "year_from": 1837, "year_to": 1964,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.080376", "fine_weight_ozt": "0.072340",
+     "note": "90% silver dime, 2.5 g. Seated Liberty through Roosevelt."},
+
+    {"denomination": "usd_coin_0_10", "country": "US", "year_from": 1965,
+     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "note": "Copper-nickel clad. No precious metal content; valued numismatically."},
+
+    {"denomination": "usd_coin_0_25", "country": "US", "year_from": 1932, "year_to": 1964,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.200939", "fine_weight_ozt": "0.180840",
+     "note": "90% silver quarter, 6.25 g. Washington and earlier."},
+
+    {"denomination": "usd_coin_0_25", "country": "US", "year_from": 1965,
+     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "note": "Copper-nickel clad."},
+
+    {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1892, "year_to": 1964,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.401877", "fine_weight_ozt": "0.361690",
+     "note": "90% silver half dollar, 12.5 g. Barber through Kennedy 1964."},
+
+    {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1965, "year_to": 1970,
+     "metal": "silver", "fineness": "0.4000",
+     "gross_weight_ozt": "0.369727", "fine_weight_ozt": "0.147900",
+     "note": "40% silver Kennedy half, 11.5 g. A distinct composition, not a variant."},
+
+    {"denomination": "usd_coin_0_50", "country": "US", "year_from": 1971,
+     "metal": "clad", "fineness": "0.0001", "fine_weight_ozt": "0.000000",
+     "note": "Copper-nickel clad."},
+
+    {"denomination": "usd_coin_1_00", "country": "US", "year_from": 1878, "year_to": 1935,
+     "metal": "silver", "fineness": "0.9000",
+     "gross_weight_ozt": "0.859380", "fine_weight_ozt": "0.773440",
+     "note": "Morgan and Peace dollar, 26.73 g. The canonical ASW figure."},
+
+    {"denomination": "usd_coin_1_00", "country": "US", "year_from": 1971, "year_to": 1976,
+     "metal": "silver", "fineness": "0.4000",
+     "gross_weight_ozt": "0.790500", "fine_weight_ozt": "0.316200",
+     "note": "40% silver Eisenhower dollar, collector issues only, 24.59 g."},
+
+    {"denomination": "usd_coin_0_05", "country": "US", "year_from": 1942, "year_to": 1945,
+     "metal": "silver", "fineness": "0.3500",
+     "gross_weight_ozt": "0.160755", "fine_weight_ozt": "0.056260",
+     "note": "War nickel. The only silver nickel, and easy to miss in a roll."},
+
+    {"denomination": "usd_coin_0_05", "country": "US", "year_from": 1866, "year_to": 1941,
+     "metal": "nickel", "fineness": "0.2500", "fine_weight_ozt": "0.000000",
+     "note": "75% copper, 25% nickel, 5 g."},
+
+    {"denomination": "usd_coin_0_05", "country": "US", "year_from": 1946,
+     "metal": "nickel", "fineness": "0.2500", "fine_weight_ozt": "0.000000",
+     "note": "75% copper, 25% nickel, 5 g."},
+
+    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1864, "year_to": 1942,
+     "metal": "copper", "fineness": "0.9500", "fine_weight_ozt": "0.000000",
+     "note": "Bronze cent, 3.11 g. Copper is not quoted per troy ounce for melt."},
+
+    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1944, "year_to": 1982,
+     "metal": "copper", "fineness": "0.9500", "fine_weight_ozt": "0.000000",
+     "note": "Bronze cent, 3.11 g."},
+
+    {"denomination": "usd_coin_0_01", "country": "US", "year_from": 1983,
+     "metal": "zinc", "fineness": "0.9750", "fine_weight_ozt": "0.000000",
+     "note": "Copper-plated zinc, 2.5 g."}
+  ]
+}

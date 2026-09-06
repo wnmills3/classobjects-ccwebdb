@@ -7,7 +7,7 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import Coin, ItemKind, OrderStatus
+from app.models import Coin, CoinKind, OrderStatus
 
 NEW_ITEM = {
     "sku": "TEST-NEW-001",
@@ -63,8 +63,8 @@ def test_search_matches_title_and_country(client: TestClient, coin: Coin) -> Non
 
 
 def test_filter_by_kind(client: TestClient, make_coin) -> None:
-    make_coin(n=1, sku="TEST-COIN", kind=ItemKind.coin)
-    make_coin(n=2, sku="TEST-NOTE", kind=ItemKind.banknote)
+    make_coin(n=1, sku="TEST-COIN", kind=CoinKind.coin)
+    make_coin(n=2, sku="TEST-NOTE", kind=CoinKind.banknote)
     assert client.get("/api/coins?kind=coin").json()["total"] == 1
     assert client.get("/api/coins?kind=banknote").json()["total"] == 1
 

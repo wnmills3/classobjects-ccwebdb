@@ -18,6 +18,7 @@ from typing import Protocol
 
 from sqlalchemy.orm import Session
 
+from .loader import SchemaLoader
 from .models import ImportBatch, ImportIssue, ImportRow
 from .profile import ImportProfile, RawRow, UNKNOWN
 
@@ -84,6 +85,11 @@ class ImportReport:
         default_factory=lambda: defaultdict(Counter)
     )
     batch_id: int | None = None
+    #: inventory_item rows written by normalisation (0 in dry-run)
+    items_created: int = 0
+    #: reference rows the loader had to invent, by table. A large number
+    #: here means the seeded vocabulary is missing something real.
+    derived_reference_rows: dict[str, int] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
 
     @property
@@ -106,6 +112,13 @@ class ImportReport:
         add(f"profile  : {self.profile_name}")
         add(f"mode     : {self.mode}" + (f"  (batch {self.batch_id})" if self.batch_id else ""))
         add(f"rows     : {self.rows}   in {self.elapsed_seconds:.2f}s")
+        if self.items_created:
+            add(f"items    : {self.items_created} inventory_item rows written")
+        if self.derived_reference_rows:
+            invented = ", ".join(
+                f"{t} {n}" for t, n in sorted(self.derived_reference_rows.items())
+            )
+            add(f"derived  : {invented}")
         add("")
         add(f"KIND  ({self.classified}/{self.rows} = {self.classified_pct:.1f}% classified)")
         for kind, n in self.kinds.most_common():
@@ -174,6 +187,7 @@ class ImportEngine:
         *,
         mode: str = DRY_RUN,
         limit: int | None = None,
+        normalise: bool = True,
     ) -> ImportReport:
         if mode == COMMIT and self.session is None:
             raise ValueError("commit mode requires a database session")
@@ -200,6 +214,14 @@ class ImportEngine:
             self.session.add(batch)
             self.session.flush()  # assign batch.id
             report.batch_id = batch.id
+
+        # One loader per run: it caches every reference lookup, which turns
+        # a per-row query storm into a few dozen queries for the whole file.
+        loader = (
+            SchemaLoader(self.session)
+            if mode == COMMIT and normalise
+            else None
+        )
 
         seen_columns: list[str] = []
         pending: list[ImportRow] = []
@@ -277,11 +299,26 @@ class ImportEngine:
                     self.session.flush()
                     pending.clear()
 
+                # Staging is verbatim and always written. Normalising into the
+                # target schema is separate and skippable, so a batch can be
+                # captured for review before anything is interpreted.
+                if loader is not None:
+                    item = loader.load(
+                        kind, result.classification.subtype, result.fields
+                    )
+                    row.inventory_item_id = item.id
+                    row.status = (
+                        "needs_review" if result.needs_review else "imported"
+                    )
+                    report.items_created += 1
+
         if mode == COMMIT:
             if pending:
                 self.session.add_all(pending)
             batch.row_count = report.rows
             batch.finished_at = datetime.now(timezone.utc)
+            if loader is not None:
+                report.derived_reference_rows = dict(loader.derived)
             self.session.commit()
 
         report.columns = seen_columns

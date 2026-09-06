@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.importers.engine import COMMIT, DRY_RUN, ImportEngine
 from app.importers.models import ImportBatch, ImportIssue, ImportRow
 from app.importers.profile import ERROR, UNKNOWN, Classification, RawRow, RowResult
+from app.importers.loader import parse_condition
 from app.importers.profiles.collection_v1 import CollectionV1Profile
 
 HEADERS = [
@@ -482,3 +483,77 @@ def test_original_weight_text_is_preserved(profile: CollectionV1Profile) -> None
     fields = profile.inspect(make_row(Denom="Copper 1/2 Kilo")).fields
     assert fields["weight_raw"] == "1/2Kilo"
     assert fields["weight_unit_raw"] == "kilo"
+
+
+# ---------------------------------------------------------------------------
+# Condition decomposition
+#
+# "PR69DCAM PCGS" is four facts, not one string. Storing it whole makes
+# "every MS65-and-better Morgan" unanswerable.
+# ---------------------------------------------------------------------------
+
+
+def test_a_condition_string_is_split_into_its_separate_facts():
+    parsed = parse_condition("#14 PR69DCAM PCGS")
+    assert parsed.grade == "PR69"
+    assert parsed.designation == "DCAM"
+    assert parsed.service == "PCGS"
+    assert parsed.catalog_number == "14"
+
+
+def test_a_grade_is_found_inside_surrounding_prose():
+    # Nearly half the collection writes the grade alongside a description.
+    assert parse_condition("MS70 American Bald Eagle").grade == "MS70"
+    assert parse_condition("#17 Clad Roosevelt Gem Proof").grade == "GEM_PROOF"
+
+
+def test_out_of_range_numbers_are_not_grades():
+    # The Sheldon scale runs 1-70 with a valid band per prefix. Without that
+    # check, prose yields "F73" and "G63" and they become permanent rows in a
+    # vocabulary meant to be shared with other installations.
+    for text in ("F73", "G63", "AU8", "PR10", "P70"):
+        assert parse_condition(text).grade is None, text
+
+
+def test_separator_variants_reach_the_same_seeded_grade():
+    # GEM/BU, GEM BU and GEM_BU are one grade written three ways. Treating
+    # them as three would make every query know about all three.
+    for text in ("GEM/BU", "GEM BU", "Gem-BU"):
+        assert parse_condition(text).grade == "GEM_BU", text
+
+
+def test_a_plus_is_a_real_distinction_and_survives():
+    # The owner said so explicitly: UNC+ is not UNC.
+    assert parse_condition("UNC+").grade == "UNC+"
+    assert parse_condition("MS64+").grade == "MS64+"
+    assert parse_condition("BU++").grade == "BU++"
+
+
+def test_equivalent_grade_spellings_normalise():
+    # PF and PR are the same thing; so are EF and XF.
+    assert parse_condition("PF70").grade == "PR70"
+    assert parse_condition("EF40").grade == "XF40"
+    assert parse_condition("MS-64").grade == "MS64"
+
+
+def test_note_features_are_not_grades():
+    # Star Note describes the note, not its condition. Putting it in the
+    # grade column is what makes condition unqueryable.
+    parsed = parse_condition("Red Seal Star Note")
+    assert parsed.grade is None
+    assert parsed.seal_color == "red"
+    assert parsed.note_attributes == ("star",)
+
+
+def test_a_designation_is_found_when_no_space_precedes_it():
+    # \b never fires between "9" and "D", so a plain word boundary misses it.
+    assert parse_condition("PR69DCAM").designation == "DCAM"
+    # ...but CAM must still not be found inside an ordinary word.
+    assert parse_condition("Scam artist").designation is None
+
+
+def test_a_description_that_is_not_a_grade_is_declined():
+    # Declining is the safe direction: the text is kept verbatim in grade_raw
+    # and flagged, rather than inventing a grade called "ACADIANP".
+    for text in ("5-Coin Mint Set", "Doubling (check P mark)", "Acadian Provinces"):
+        assert parse_condition(text).grade is None, text
