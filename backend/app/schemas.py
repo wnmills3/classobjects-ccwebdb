@@ -129,6 +129,27 @@ class CatalogItemUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class ImageOut(BaseModel):
+    """A stored photograph and the URLs its renditions are served from.
+
+    No URL for the original: public requests are answered only from
+    derivatives, which is what keeps a file that somehow retained metadata
+    unreachable.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sha256: str
+    media_type: str
+    byte_size: int
+    width: int | None = None
+    height: int | None = None
+    captured_at: datetime | None = None
+    thumbnail_url: str
+    image_url: str
+
+
 class CatalogItemOut(BaseModel):
     """What a buyer sees.
 
@@ -142,6 +163,9 @@ class CatalogItemOut(BaseModel):
 
     id: int
     inventory_item_id: int
+    #: The item's permanent code -- stable across sale, return and relisting,
+    #: which is what makes it usable on a packing slip and in an audit.
+    item_code: str
     title: str
     description: str
 
@@ -164,6 +188,12 @@ class CatalogItemOut(BaseModel):
     currency: str
     quantity_available: int
     is_active: bool
+
+    #: Renditions of the item's primary photograph. Null when it has none --
+    #: most of a real collection is unphotographed, and the UI has to cope.
+    thumbnail_url: str | None = None
+    image_url: str | None = None
+
     created_at: datetime
     updated_at: datetime
 

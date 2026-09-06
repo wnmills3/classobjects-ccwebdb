@@ -81,7 +81,8 @@ One row per acquired item or lot. The shared spine.
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | bigint pk | |
+| `id` | bigint pk | surrogate key, internal |
+| `item_code` | text unique | **permanent identifier for the physical object** |
 | `purchase_order_id` | fk null | null when the acquisition is not recorded |
 | `item_kind_id` | fk | coin, currency, bullion, set, medal, token, other, unknown |
 | `denomination_id` | fk null | face value + currency |

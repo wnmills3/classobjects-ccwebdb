@@ -22,6 +22,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    Sequence,
     String,
     Text,
     UniqueConstraint,
@@ -66,6 +67,28 @@ DEFAULT_TAX_RATE = Decimal("0.0635")
 #: repeated inside the total rather than referenced -- keeping them as one
 #: constant here means the two can never drift apart.
 _TAX_EXPR = "round((price + shipping) * tax_rate, 2)"
+
+#: Prefix for the permanent item code. Fixed at migration time because it is
+#: baked into a column default; changing it later renames nothing already
+#: issued, which is correct -- codes are permanent.
+ITEM_CODE_PREFIX = "CC"
+
+#: The sequence that issues item codes. Registered on the metadata so that a
+#: `create_all` test database gets it too, not only a migrated one.
+item_code_sequence = Sequence("item_code_seq", start=1, metadata=Base.metadata)
+
+#: Assigned by the database, not by the application: two concurrent inserts
+#: must not be able to receive the same code, and a sequence is the only thing
+#: that guarantees it without a lock.
+#:
+#: Written exactly as PostgreSQL stores it, casts and parentheses included --
+#: the same reason as the full-text index below. PostgreSQL normalises a
+#: default expression on creation, so the shorter form reflects back
+#: differently and autogenerate reports the column as changed on every run.
+ITEM_CODE_DEFAULT = (
+    f"('{ITEM_CODE_PREFIX}-'::text || "
+    "lpad((nextval('item_code_seq'::regclass))::text, 6, '0'::text))"
+)
 
 
 class Vendor(TimestampMixin, Base):
@@ -202,7 +225,30 @@ class InventoryItem(TimestampMixin, Base):
         nullable=True,
     )
 
+    # -- identity ---------------------------------------------------------
+    #: The permanent identifier for this physical object.
+    #:
+    #: Assigned once, never reused, never changed. It survives everything that
+    #: happens to the item: listed, sold, returned by the buyer, relisted. That
+    #: continuity is the point -- a returned item must resume its own history
+    #: rather than start a new one, and an audit has to be able to follow one
+    #: object from acquisition through to disposal.
+    #:
+    #: Drawn from a sequence rather than derived from `id`, so it stays stable
+    #: if rows are ever migrated or renumbered, and so gaps left by deletions
+    #: are never filled by a later item wearing a dead item's code.
+    #:
+    #: Short enough to write on a flip or a box label by hand.
+    item_code: Mapped[str] = mapped_column(
+        String(32),
+        server_default=text(ITEM_CODE_DEFAULT),
+        nullable=False,
+    )
+
     # -- description ------------------------------------------------------
+    #: A number the owner assigned by their own scheme, before this system
+    #: existed. Distinct from `item_code`: not unique, not issued here, and
+    #: kept only so their old references still resolve.
     local_catalog_number: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True
     )
@@ -308,6 +354,14 @@ class InventoryItem(TimestampMixin, Base):
     disposition: Mapped[Disposition] = relationship()
     metal: Mapped[Metal | None] = relationship()
 
+    #: Photographs of this item. Ordered so the primary one comes first,
+    #: which is what a thumbnail lookup wants without further sorting.
+    images: Mapped[list["ItemImage"]] = relationship(
+        back_populates="item",
+        order_by="(ItemImage.is_primary.desc(), ItemImage.sort_order)",
+        cascade="all, delete-orphan",
+    )
+
     #: Every offer ever made for this item. An item may be listed,
     #: withdrawn and relisted at a different price.
     listings: Mapped[list["Listing"]] = relationship(
@@ -350,6 +404,7 @@ class InventoryItem(TimestampMixin, Base):
             "OR fine_weight_ozt <= gross_weight_ozt",
             name="ck_inventory_item_fine_within_gross",
         ),
+        UniqueConstraint("item_code", name="uq_inventory_item_code"),
         # The primary browse path: "show me my coins that have arrived".
         Index("ix_inventory_item_kind_status", "item_kind_id", "status_id"),
         # Full-text search over the free-text columns. The regconfig is named

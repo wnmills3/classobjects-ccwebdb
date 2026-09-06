@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -33,6 +34,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, enum_column
+
+if TYPE_CHECKING:  # relationship target only; importing core at
+    # runtime would make core and images import each other.
+    from .core import InventoryItem
 
 __all__ = [
     "DerivativeKind",
@@ -155,6 +160,7 @@ class ItemImage(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     image: Mapped[Image] = relationship()
+    item: Mapped["InventoryItem | None"] = relationship(back_populates="images")
 
     __table_args__ = (
         UniqueConstraint(
