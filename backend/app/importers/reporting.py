@@ -145,8 +145,12 @@ def write_all(report: ImportReport, out_dir: str | Path) -> dict[str, Path]:
     """Write the full review set. Returns the paths written."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    from . import profiling
+
     paths = {
         "issues": out / "issues.csv",
+        "columns": out / "columns.csv",
+        "variants": out / "variants.csv",
         "corrections": out / "corrections.csv",
         "unclassified": out / "unclassified.csv",
         "summary": out / "summary.json",
@@ -156,5 +160,13 @@ def write_all(report: ImportReport, out_dir: str | Path) -> dict[str, Path]:
     write_corrections_csv(report, paths["corrections"])
     write_unclassified_csv(report, paths["unclassified"])
     write_summary_json(report, paths["summary"])
-    paths["report"].write_text(report.render(top=200), encoding="utf-8")
+
+    profiles = profiling.profile_columns(report)
+    profiling.write_columns_csv(profiles, paths["columns"])
+    profiling.write_variants_csv(profiles, paths["variants"])
+
+    paths["report"].write_text(
+        report.render(top=200) + "\n\n" + profiling.render(profiles),
+        encoding="utf-8",
+    )
     return paths

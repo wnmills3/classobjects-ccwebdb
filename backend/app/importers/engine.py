@@ -27,6 +27,7 @@ COMMIT = "commit"
 #: Safety valve: a pathological source should not exhaust memory building a
 #: report nobody could read anyway.
 MAX_RETAINED_ISSUES = 100_000
+MAX_DISTINCT_PER_COLUMN = 50_000
 
 
 class Source(Protocol):
@@ -78,6 +79,10 @@ class ImportReport:
     issues: list[IssueRecord] = field(default_factory=list)
     #: source column order, for stable report output
     columns: list[str] = field(default_factory=list)
+    #: column -> value frequencies, for column profiling
+    column_values: dict[str, Counter] = field(
+        default_factory=lambda: defaultdict(Counter)
+    )
     batch_id: int | None = None
     elapsed_seconds: float = 0.0
 
@@ -203,9 +208,13 @@ class ImportEngine:
             result = self.profile.inspect(raw_row)
             report.rows += 1
 
-            for column in raw_row.values:
+            for column, value in raw_row.values.items():
                 if column not in seen_columns:
                     seen_columns.append(column)
+                counts = report.column_values[column]
+                # bounded: a pathological column must not exhaust memory
+                if value is not None and (len(counts) < MAX_DISTINCT_PER_COLUMN or value in counts):
+                    counts[value] += 1
 
             kind = result.classification.kind
             report.kinds[kind] += 1
