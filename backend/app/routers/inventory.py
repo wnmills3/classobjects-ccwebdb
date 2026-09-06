@@ -10,16 +10,19 @@ Staff-only throughout: everything here exposes cost basis.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..deps import AdminUser, DbSession
 from ..models import Denomination, Grade, InventoryItem, Metal, StorageForm
+from ..inventory_search import VIEWS, count_facets, search
 from ..references import code_to_id
 from ..schemas import (
     InventoryItemOut,
+    InventoryPageOut,
     SplitPieceIn,
     SplitRequest,
     SplitResultOut,
@@ -66,6 +69,70 @@ def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
         storage_quantity=spec.storage_quantity,
         relative_value=spec.relative_value,
         overrides=overrides,
+    )
+
+
+@router.get("/{view}/search", response_model=InventoryPageOut)
+def search_inventory(
+    view: str,
+    request: Request,
+    db: DbSession,
+    _admin: AdminUser,
+    q: Annotated[str | None, Query(description="Free text over title, code, notes")] = None,
+    sort: str | None = None,
+    desc: bool = False,
+    facets: Annotated[bool, Query(description="Include value counts for the panel")] = False,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> InventoryPageOut:
+    """Browse one inventory. `view` is `coins` or `currency`.
+
+    Two views rather than one grid with a kind filter, because the columns
+    that matter differ: a coin has a mint mark and a variety, a banknote has a
+    series letter, a seal colour and its own printed serial. Sharing one grid
+    would leave most columns blank most of the time.
+
+    Filters are whatever the view's specification names -- anything else is a
+    422 rather than being ignored, because a silently dropped filter returns
+    the whole collection and looks like a matching result.
+    """
+    spec = VIEWS.get(view)
+    if spec is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown inventory view: {view!r}. Expected one of "
+            f"{sorted(VIEWS)}.",
+        )
+
+    reserved = {"q", "sort", "desc", "facets", "limit", "offset"}
+    params = {k: v for k, v in request.query_params.items() if k not in reserved}
+
+    try:
+        rows, total = search(
+            db, spec, params=params, query=q, sort=sort,
+            descending=desc, limit=limit, offset=offset,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown filter {exc.args[0]!r} for {view}. Available: "
+            f"{sorted(spec.filters)}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{exc} Sortable: {sorted(spec.sortable)}",
+        ) from exc
+
+    return InventoryPageOut(
+        view=view,
+        rows=rows,
+        total=total,
+        limit=limit,
+        offset=offset,
+        sort=sort or spec.default_sort,
+        descending=desc,
+        facets=count_facets(db, spec, params=params, query=q) if facets else {},
     )
 
 

@@ -77,6 +77,7 @@ docs/
 | DELETE | `/api/catalog/{id}`  | admin    |
 | GET    | `/api/reference`     | public (vocabulary index)  |
 | GET    | `/api/reference/{table}` | public               |
+| GET    | `/api/inventory/{view}/search` | admin (`coins` \| `currency`) |
 | GET    | `/api/inventory/{id}` | admin                     |
 | POST   | `/api/inventory/{id}/split` | admin               |
 | POST   | `/api/images`        | admin (multipart upload)   |
@@ -124,6 +125,17 @@ Notable behaviour:
   `thumb` and `web` renditions.
 - Images are content-addressed by the hash of the cleansed bytes, so uploading
   the same photograph twice stores one file.
+- **Coins and currency browse as separate inventories**, because the columns
+  that matter differ: a coin has a mint mark and a variety, a banknote has a
+  series letter, a seal colour and its own printed serial. One grid would
+  leave most columns blank most of the time.
+- The search panel's options come from **facets** -- value counts over the
+  current result set -- not the full vocabulary. A real collection uses a
+  fraction of the fifty-odd grades defined, so offering all of them buries the
+  ones present. Counts reflect the filters already applied, so a choice that
+  would return nothing is visibly empty before it is made.
+- **An unrecognised filter is a 422, never ignored.** A silently dropped
+  filter returns the whole collection and looks like a matching result.
 - **A lot can be split into its pieces**, dividing the cost between them.
   `equal` gives every piece the same share -- right for twenty identical rounds
   in a tube. `relative` divides in proportion to a value supplied per piece --
