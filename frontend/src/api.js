@@ -130,19 +130,24 @@ export const api = {
   me: () => send('/api/auth/me'),
 
   // catalogue
-  listCoins: (params = {}) => {
+  //
+  // A catalogue entry is a listing plus the inventory item behind it. The
+  // id in these paths is the LISTING id -- the item id is carried alongside
+  // as inventory_item_id, for the admin views that need it.
+  listCatalog: (params = {}) => {
     const qs = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => {
       if (v !== '' && v !== null && v !== undefined && v !== false) qs.set(k, v)
     })
     const query = qs.toString()
-    return send(`/api/coins${query ? `?${query}` : ''}`, { auth: false })
+    return send(`/api/catalog${query ? `?${query}` : ''}`, { auth: false })
   },
-  getCoin: (id) => send(`/api/coins/${id}`, { auth: false }),
-  createCoin: (payload) => send('/api/coins', { method: 'POST', body: payload }),
-  updateCoin: (id, payload) =>
-    send(`/api/coins/${id}`, { method: 'PATCH', body: payload }),
-  deleteCoin: (id) => send(`/api/coins/${id}`, { method: 'DELETE' }),
+  getCatalogItem: (id) => send(`/api/catalog/${id}`, { auth: false }),
+  createCatalogItem: (payload) =>
+    send('/api/catalog', { method: 'POST', body: payload }),
+  updateCatalogItem: (id, payload) =>
+    send(`/api/catalog/${id}`, { method: 'PATCH', body: payload }),
+  deleteCatalogItem: (id) => send(`/api/catalog/${id}`, { method: 'DELETE' }),
 
   // orders
   createOrder: (items) => send('/api/orders', { method: 'POST', body: { items } }),

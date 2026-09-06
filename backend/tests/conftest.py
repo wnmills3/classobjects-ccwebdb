@@ -15,14 +15,28 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app
-from app.models import Coin, CoinKind, User, UserRole
+from app.models import (
+    Authenticity,
+    Country,
+    Currency,
+    Disposition,
+    Grade,
+    InventoryItem,
+    ItemKind,
+    ItemStatus,
+    Listing,
+    StorageForm,
+    User,
+    UserRole,
+    ValuationBasis,
+)
 from app.models.views import CREATE_VIEWS
 from app.security import hash_password
 from app.seeding import seed_all
@@ -180,42 +194,71 @@ def customer_headers(client: TestClient, customer_user: User) -> dict[str, str]:
     return _token_headers(client, customer_user.email, CUSTOMER_PASSWORD)
 
 
-@pytest.fixture
-def coin(db: Session) -> Coin:
-    item = Coin(
-        sku="TEST-MORGAN-1881S",
-        title="1881-S Morgan Silver Dollar",
-        description="Test fixture item.",
-        kind=CoinKind.coin,
-        country="United States",
-        year=1881,
-        denomination="1 Dollar",
-        grade="MS-64",
-        price=Decimal("189.00"),
-        quantity=5,
+# --------------------------------------------------------------------------
+# Catalogue fixtures
+#
+# A catalogue entry is a `listing` plus the `inventory_item` behind it, so a
+# fixture has to build both. The item carries what the object *is*; the
+# listing carries what it is being sold for.
+# --------------------------------------------------------------------------
+
+
+def _code_id(db: Session, model, code: str) -> int:
+    return db.execute(select(model.id).where(model.code == code)).scalar_one()
+
+
+def build_listing(db: Session, **overrides) -> Listing:
+    """One catalogue entry, with every NOT NULL classifier resolved."""
+    item_fields = {
+        "title": overrides.pop("title", "1881-S Morgan Silver Dollar"),
+        "description": overrides.pop("description", "Test fixture item."),
+        "year_start": overrides.pop("year_start", 1881),
+        "year_end": overrides.pop("year_end", None),
+        "storage_quantity": overrides.pop("storage_quantity", 1),
+    }
+    kind = overrides.pop("kind", "coin")
+    country = overrides.pop("country", "US")
+    grade = overrides.pop("grade", "MS64")
+
+    item = InventoryItem(
+        **item_fields,
+        item_kind_id=_code_id(db, ItemKind, kind),
+        country_id=_code_id(db, Country, country) if country else None,
+        grade_id=_code_id(db, Grade, grade) if grade else None,
+        storage_form_id=_code_id(db, StorageForm, "single"),
+        authenticity_id=_code_id(db, Authenticity, "unverified"),
+        status_id=_code_id(db, ItemStatus, "received"),
+        disposition_id=_code_id(db, Disposition, "listed"),
+        valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
     )
     db.add(item)
+    db.flush()
+
+    listing = Listing(
+        inventory_item_id=item.id,
+        price=overrides.pop("price", Decimal("189.00")),
+        currency_id=_code_id(db, Currency, "USD"),
+        quantity_available=overrides.pop("quantity_available", 5),
+        is_active=overrides.pop("is_active", True),
+        **overrides,
+    )
+    db.add(listing)
     db.commit()
-    db.refresh(item)
-    return item
+    db.refresh(listing)
+    return listing
 
 
 @pytest.fixture
-def make_coin(db: Session):
-    """Factory for additional catalogue items within a test."""
+def listing(db: Session) -> Listing:
+    return build_listing(db)
 
-    def _make(**overrides) -> Coin:
-        defaults = {
-            "sku": f"TEST-SKU-{overrides.pop('n', 1)}",
-            "title": "Test Item",
-            "price": Decimal("10.00"),
-            "quantity": 3,
-        }
-        defaults.update(overrides)
-        item = Coin(**defaults)
-        db.add(item)
-        db.commit()
-        db.refresh(item)
-        return item
+
+@pytest.fixture
+def make_listing(db: Session):
+    """Factory for additional catalogue entries within a test."""
+
+    def _make(**overrides) -> Listing:
+        overrides.pop("n", None)
+        return build_listing(db, **overrides)
 
     return _make

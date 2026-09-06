@@ -15,7 +15,7 @@ Layout follows `docs/database-design.md`:
     lifecycle       status and location history (section 7)
     images          files, derivatives and their uses (section 8)
     sales           listings, customers, orders, shipments (section 9)
-    scaffold        the superseded storefront demo
+    scaffold        the users table, all that remains of the demo
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ from .sales import (
     SalesOrderItem,
     Shipment,
 )
-from .scaffold import Coin, CoinKind, Order, OrderItem, OrderStatus, User, UserRole
+from .scaffold import User, UserRole
 from .valuation import Composition, MetalPrice, ValuationSnapshot
 
 #: Reference tables, in dependency order. Seeding and export both walk this
@@ -141,9 +141,7 @@ __all__ = [
     "Base",
     "BullionForm",
     "Carrier",
-    "Coin",
     "CoinDetail",
-    "CoinKind",
     "Composition",
     "Country",
     "Currency",
@@ -178,9 +176,6 @@ __all__ = [
     "Mint",
     "NoteAttribute",
     "NoteType",
-    "Order",
-    "OrderItem",
-    "OrderStatus",
     "PcgsType",
     "ProvenanceSource",
     "PurchaseOrder",

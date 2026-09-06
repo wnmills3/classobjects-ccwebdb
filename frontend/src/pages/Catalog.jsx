@@ -19,7 +19,7 @@ export default function Catalog() {
     setBusy(true)
     setError('')
     try {
-      const result = await api.listCoins({
+      const result = await api.listCatalog({
         ...filters,
         limit: PAGE_SIZE,
         offset,
@@ -60,7 +60,11 @@ export default function Catalog() {
         >
           <option value="">All types</option>
           <option value="coin">Coins</option>
-          <option value="banknote">Banknotes</option>
+          <option value="currency">Currency</option>
+          <option value="bullion">Bullion</option>
+          <option value="set">Sets</option>
+          <option value="medal">Medals</option>
+          <option value="token">Tokens</option>
         </select>
         <label className="checkbox">
           <input
@@ -86,18 +90,18 @@ export default function Catalog() {
                 <Link to={`/coins/${coin.id}`}>{coin.title}</Link>
               </h3>
               <p className="muted small">
-                {[coin.country, coin.year, coin.grade].filter(Boolean).join(' - ')}
+                {[coin.country, coin.year_start, coin.grade].filter(Boolean).join(' - ')}
               </p>
               <p className="price">{money(coin.price)}</p>
               <p className="muted small">
-                {coin.quantity > 0 ? `${coin.quantity} available` : 'Sold out'}
+                {coin.quantity_available > 0 ? `${coin.quantity_available} available` : 'Sold out'}
               </p>
             </div>
             <button
-              disabled={coin.quantity === 0}
+              disabled={coin.quantity_available === 0}
               onClick={() => add(coin, 1)}
             >
-              {coin.quantity === 0 ? 'Sold out' : 'Add to cart'}
+              {coin.quantity_available === 0 ? 'Sold out' : 'Add to cart'}
             </button>
           </article>
         ))}

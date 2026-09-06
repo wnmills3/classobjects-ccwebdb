@@ -308,6 +308,12 @@ class InventoryItem(TimestampMixin, Base):
     disposition: Mapped[Disposition] = relationship()
     metal: Mapped[Metal | None] = relationship()
 
+    #: Every offer ever made for this item. An item may be listed,
+    #: withdrawn and relisted at a different price.
+    listings: Mapped[list["Listing"]] = relationship(
+        back_populates="inventory_item"
+    )
+
     coin_detail: Mapped[CoinDetail | None] = relationship(
         back_populates="item", uselist=False, cascade="all, delete-orphan"
     )

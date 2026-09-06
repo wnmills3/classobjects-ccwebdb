@@ -1,9 +1,11 @@
-"""Seed the database with an administrator and sample inventory.
+"""Create the first administrator and a small demo catalogue.
 
-Run with:  uv run python -m app.seed      (from the backend/ directory)
+Reference data is *not* seeded here -- that is `app.seeding`, which loads the
+shipped vocabulary from `backend/data/reference/`. Run that first; this module
+assumes the classifiers it names already exist.
 
-Safe to run repeatedly: existing rows are matched on their natural key and
-left untouched.
+    python -m app.seeding load
+    python -m app.seed
 """
 
 from __future__ import annotations
@@ -11,89 +13,140 @@ from __future__ import annotations
 from decimal import Decimal
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import SessionLocal
-from .models import Coin, CoinKind, User, UserRole
+from .models import (
+    Authenticity,
+    Country,
+    Currency,
+    Denomination,
+    Disposition,
+    Grade,
+    GradingService,
+    InventoryItem,
+    ItemKind,
+    ItemStatus,
+    Listing,
+    Metal,
+    ProvenanceSource,
+    StorageForm,
+    User,
+    UserRole,
+    ValuationBasis,
+)
 from .security import hash_password
 
-SAMPLE_INVENTORY = [
+#: A demo catalogue. Classifiers are given as codes, matching how they cross
+#: the API -- see `app.references`.
+SAMPLE_CATALOG: list[dict] = [
     {
-        "sku": "US-MORGAN-1881S",
         "title": "1881-S Morgan Silver Dollar",
-        "description": "Brilliant uncirculated, exceptional strike from the San Francisco mint.",
-        "kind": CoinKind.coin,
-        "country": "United States",
-        "year": 1881,
-        "denomination": "1 Dollar",
-        "composition": "90% silver, 10% copper",
-        "grade": "MS-64",
-        "certification": "PCGS",
-        "mint_mark": "S",
+        "description": "Brilliant uncirculated, exceptional strike and lustre.",
+        "item_kind": "coin",
+        "country": "US",
+        "denomination": "usd_coin_1_00",
+        "grade": "MS64",
+        "grading_service": "PCGS",
+        "year_start": 1881,
         "price": Decimal("189.00"),
-        "quantity": 4,
+        "quantity_available": 5,
     },
     {
-        "sku": "US-SAINT-1924",
-        "title": "1924 Saint-Gaudens Double Eagle",
-        "description": "Classic 20 dollar gold piece, original mint lustre.",
-        "kind": CoinKind.coin,
-        "country": "United States",
-        "year": 1924,
-        "denomination": "20 Dollars",
-        "composition": "90% gold",
-        "grade": "MS-63",
-        "certification": "NGC",
-        "mint_mark": "",
-        "price": Decimal("2650.00"),
-        "quantity": 1,
+        "title": "1916-D Mercury Dime",
+        "description": "Key date. Strong rims, fully readable mint mark.",
+        "item_kind": "coin",
+        "country": "US",
+        "denomination": "usd_coin_0_10",
+        "grade": "G4",
+        "year_start": 1916,
+        "price": Decimal("1250.00"),
+        "quantity_available": 1,
     },
     {
-        "sku": "GB-SOV-1900",
-        "title": "1900 Victoria Old Head Gold Sovereign",
-        "description": "London mint, well struck with light handling marks.",
-        "kind": CoinKind.coin,
-        "country": "United Kingdom",
-        "year": 1900,
-        "denomination": "1 Sovereign",
-        "composition": "22 carat gold",
-        "grade": "AU-58",
-        "certification": "",
-        "mint_mark": "",
-        "price": Decimal("615.00"),
-        "quantity": 3,
+        "title": "2021 American Silver Eagle",
+        "description": "One troy ounce of .999 fine silver, Type 2 reverse.",
+        "item_kind": "bullion",
+        "country": "US",
+        "metal": "silver",
+        "grade": "MS70",
+        "year_start": 2021,
+        "price": Decimal("46.50"),
+        "quantity_available": 20,
+        "fineness": Decimal("0.9990"),
+        "gross_weight_ozt": Decimal("1.000000"),
+        "fine_weight_ozt": Decimal("0.999000"),
     },
     {
-        "sku": "US-FRN-1934-1000",
-        "title": "1934 $1000 Federal Reserve Note",
-        "description": "Grover Cleveland high-denomination note, Chicago district.",
-        "kind": CoinKind.banknote,
-        "country": "United States",
-        "year": 1934,
-        "denomination": "1000 Dollars",
-        "composition": "Paper",
-        "grade": "VF-30",
-        "certification": "PMG",
-        "mint_mark": "",
-        "price": Decimal("4200.00"),
-        "quantity": 1,
+        "title": "1957-B $1 Silver Certificate",
+        "description": "Blue seal. Crisp, well centred, bright paper.",
+        "item_kind": "currency",
+        "country": "US",
+        "denomination": "usd_note_1",
+        "grade": "UNC",
+        "year_start": 1957,
+        "price": Decimal("24.00"),
+        "quantity_available": 8,
     },
     {
-        "sku": "CA-MAPLE-2021",
-        "title": "2021 Canadian Silver Maple Leaf",
-        "description": "One troy ounce of .9999 fine silver, sealed in original mint tube packaging.",
-        "kind": CoinKind.coin,
-        "country": "Canada",
-        "year": 2021,
-        "denomination": "5 Dollars",
-        "composition": ".9999 fine silver",
-        "grade": "BU",
-        "certification": "",
-        "mint_mark": "",
-        "price": Decimal("38.50"),
-        "quantity": 25,
+        "title": "1964 Kennedy Half Dollar",
+        "description": "The only 90% silver year for the Kennedy half.",
+        "item_kind": "coin",
+        "country": "US",
+        "denomination": "usd_coin_0_50",
+        "grade": "AU58",
+        "year_start": 1964,
+        "price": Decimal("18.75"),
+        "quantity_available": 12,
     },
 ]
+
+def _code_id(db: Session, model: type, code: str | None) -> int | None:
+    if not code:
+        return None
+    found = db.execute(select(model.id).where(model.code == code)).scalar_one_or_none()
+    if found is None:
+        raise SystemExit(
+            f"{model.__tablename__} has no code {code!r}. "
+            "Run `python -m app.seeding load` first."
+        )
+    return found
+
+
+def _build(db: Session, row: dict) -> None:
+    item = InventoryItem(
+        title=row["title"],
+        description=row.get("description", ""),
+        year_start=row.get("year_start"),
+        fineness=row.get("fineness"),
+        gross_weight_ozt=row.get("gross_weight_ozt"),
+        fine_weight_ozt=row.get("fine_weight_ozt"),
+        item_kind_id=_code_id(db, ItemKind, row["item_kind"]),
+        country_id=_code_id(db, Country, row.get("country")),
+        denomination_id=_code_id(db, Denomination, row.get("denomination")),
+        grade_id=_code_id(db, Grade, row.get("grade")),
+        grading_service_id=_code_id(db, GradingService, row.get("grading_service")),
+        metal_id=_code_id(db, Metal, row.get("metal")),
+        storage_form_id=_code_id(db, StorageForm, "single"),
+        authenticity_id=_code_id(db, Authenticity, "genuine"),
+        status_id=_code_id(db, ItemStatus, "received"),
+        disposition_id=_code_id(db, Disposition, "listed"),
+        valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
+        source=ProvenanceSource.seeded,
+    )
+    db.add(item)
+    db.flush()
+
+    db.add(
+        Listing(
+            inventory_item_id=item.id,
+            price=row["price"],
+            currency_id=_code_id(db, Currency, "USD"),
+            quantity_available=row["quantity_available"],
+            is_active=True,
+        )
+    )
 
 
 def seed() -> None:
@@ -112,12 +165,20 @@ def seed() -> None:
             print(f"admin {settings.first_admin_email} already exists")
 
         created = 0
-        for row in SAMPLE_INVENTORY:
-            if db.scalar(select(Coin).where(Coin.sku == row["sku"])) is None:
-                db.add(Coin(**row))
+        for row in SAMPLE_CATALOG:
+            # Matched on title: the target schema has no artificial unique key
+            # per catalogue row, because two identical coins are two objects.
+            exists = db.scalar(
+                select(InventoryItem.id).where(InventoryItem.title == row["title"])
+            )
+            if exists is None:
+                _build(db, row)
                 created += 1
-        print(f"created {created} inventory item(s); {len(SAMPLE_INVENTORY) - created} already present")
 
+        print(
+            f"created {created} catalogue item(s); "
+            f"{len(SAMPLE_CATALOG) - created} already present"
+        )
         db.commit()
 
 

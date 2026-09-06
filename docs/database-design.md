@@ -661,16 +661,21 @@ Three places where the built schema departs from the description above, each
 for a concrete reason.
 
 **`order` is `sales_order`.** `order` is a reserved word in SQL, so every
-reference to it in a view or hand-written query would need quoting, and the
-name was already taken by the superseded storefront scaffold. The tables are
-`sales_order` and `sales_order_item`.
+reference to it in a view or hand-written query would need quoting. The tables
+are `sales_order` and `sales_order_item`.
 
-**The scaffold's `item_kind` enum became `coin_kind`.** The original demo
-catalogue had a PostgreSQL enum type named `item_kind`; the target schema has a
-reference *table* of that name. In PostgreSQL a table implicitly creates a
-composite type, so tables and types share one namespace and the two genuinely
-collide. The rename is carried out by the migration before any table is
-created.
+**The storefront scaffold has been removed.** The demo's flat `coins` table and
+its `orders` / `order_items` tables were superseded by `inventory_item`,
+`listing` and `sales_order`, and the API now runs on those. `users` remains --
+it was never scaffold, and the target schema references it from `customer`,
+`item_status_history`, `location_history` and both type catalogues.
+
+The scaffold left one mark on the way out. Its PostgreSQL enum type was named
+`item_kind`, and the target schema has a reference *table* of that name; in
+PostgreSQL a table implicitly creates a composite type, so tables and types
+share one namespace and the two genuinely collided. The enum was renamed to
+`coin_kind` by the migration that created the new tables, and dropped with
+`coins` by the one that retired them.
 
 **The listed-items index is not partial.** The design asks for
 `inventory_item (disposition_id) where disposition_id = 'listed'`, but

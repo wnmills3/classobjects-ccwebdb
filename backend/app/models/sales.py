@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import enum
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -36,6 +37,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, enum_column, utcnow
+
+if TYPE_CHECKING:  # relationship targets only -- importing them at
+    # runtime would make core and sales import each other in a cycle.
+    from .core import InventoryItem
+    from .reference import Currency
 
 __all__ = [
     "Address",
@@ -93,6 +99,8 @@ class Listing(TimestampMixin, Base):
         DateTime(timezone=True), nullable=True
     )
 
+    inventory_item: Mapped[InventoryItem] = relationship(back_populates="listings")
+    currency: Mapped[Currency] = relationship()
     order_items: Mapped[list[SalesOrderItem]] = relationship(
         back_populates="listing"
     )

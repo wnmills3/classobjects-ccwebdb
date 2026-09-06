@@ -5,16 +5,19 @@ import { api } from '../api'
 import { useCart } from '../cart'
 import { money } from '../format'
 
+// Classifier values arrive as codes -- 'bullion', 'MS64', 'US' -- because
+// codes are the stable contract across installations. Human labels come later,
+// when the reference tables are exposed to the UI.
 const FIELDS = [
-  ['SKU', 'sku'],
-  ['Type', 'kind'],
+  ['Type', 'item_kind'],
   ['Country', 'country'],
-  ['Year', 'year'],
+  ['Year', 'year_start'],
   ['Denomination', 'denomination'],
-  ['Composition', 'composition'],
   ['Grade', 'grade'],
-  ['Certification', 'certification'],
-  ['Mint mark', 'mint_mark'],
+  ['Graded by', 'grading_service'],
+  ['Metal', 'metal'],
+  ['Fineness', 'fineness'],
+  ['Weight (ozt)', 'gross_weight_ozt'],
 ]
 
 export default function CoinDetail() {
@@ -49,7 +52,7 @@ export default function CoinDetail() {
       <h1>{coin.title}</h1>
       <p className="price large">{money(coin.price)}</p>
       <p className="muted">
-        {coin.quantity > 0 ? `${coin.quantity} available` : 'Sold out'}
+        {coin.quantity_available > 0 ? `${coin.quantity_available} available` : 'Sold out'}
       </p>
 
       {coin.description && <p>{coin.description}</p>}
@@ -67,8 +70,8 @@ export default function CoinDetail() {
         </tbody>
       </table>
 
-      <button disabled={coin.quantity === 0} onClick={() => add(coin, 1)}>
-        {coin.quantity === 0 ? 'Sold out' : 'Add to cart'}
+      <button disabled={coin.quantity_available === 0} onClick={() => add(coin, 1)}>
+        {coin.quantity_available === 0 ? 'Sold out' : 'Add to cart'}
       </button>
     </section>
   )
