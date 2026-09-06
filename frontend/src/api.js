@@ -149,6 +149,14 @@ export const api = {
     send(`/api/catalog/${id}`, { method: 'PATCH', body: payload }),
   deleteCatalogItem: (id) => send(`/api/catalog/${id}`, { method: 'DELETE' }),
 
+  // reference vocabularies, for dropdowns
+  listReferenceTables: () => send('/api/reference', { auth: false }),
+  getReference: (table) => send(`/api/reference/${table}`, { auth: false }),
+
+  // inventory (staff)
+  splitItem: (itemId, payload) =>
+    send(`/api/inventory/${itemId}/split`, { method: 'POST', body: payload }),
+
   // orders
   createOrder: (items) => send('/api/orders', { method: 'POST', body: { items } }),
   listOrders: () => send('/api/orders'),

@@ -75,6 +75,10 @@ docs/
 | POST   | `/api/catalog`       | admin    |
 | PATCH  | `/api/catalog/{id}`  | admin    |
 | DELETE | `/api/catalog/{id}`  | admin    |
+| GET    | `/api/reference`     | public (vocabulary index)  |
+| GET    | `/api/reference/{table}` | public               |
+| GET    | `/api/inventory/{id}` | admin                     |
+| POST   | `/api/inventory/{id}/split` | admin               |
 | POST   | `/api/images`        | admin (multipart upload)   |
 | GET    | `/api/images/{id}/{thumb\|web}` | public          |
 | DELETE | `/api/images/{id}`   | admin    |
@@ -120,6 +124,18 @@ Notable behaviour:
   `thumb` and `web` renditions.
 - Images are content-addressed by the hash of the cleansed bytes, so uploading
   the same photograph twice stores one file.
+- **A lot can be split into its pieces**, dividing the cost between them.
+  `equal` gives every piece the same share -- right for twenty identical rounds
+  in a tube. `relative` divides in proportion to a value supplied per piece --
+  right for a mint set, where charging the cent and the half dollar the same
+  cost basis would make one look like a disaster and the other a windfall.
+  `price` and `shipping` always reconcile to the penny; the allocation floors
+  each share and hands the remainder to the parts cut hardest. `taxes` is
+  generated per row, so the pieces' rounded taxes can total a cent or two away
+  from the lot's -- that difference is reported, never absorbed silently.
+- The lot is kept and marked `split_at`, because it holds the purchase order
+  and the price actually paid. Everything that counts inventory or money
+  excludes it, so a lot and its pieces are never both counted.
 
 ## Dependencies
 

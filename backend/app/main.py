@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import auth, catalog, images, orders
+from .routers import auth, catalog, images, inventory, orders, reference
 
 app = FastAPI(
     title="ccwebdb",
@@ -25,6 +25,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(catalog.router, prefix=settings.api_prefix)
 app.include_router(images.router, prefix=settings.api_prefix)
+app.include_router(inventory.router, prefix=settings.api_prefix)
+app.include_router(reference.router, prefix=settings.api_prefix)
 app.include_router(orders.router, prefix=settings.api_prefix)
 
 
