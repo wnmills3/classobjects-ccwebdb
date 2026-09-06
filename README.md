@@ -70,25 +70,39 @@ docs/
 | POST   | `/api/auth/login`    | public   |
 | POST   | `/api/auth/refresh`  | public   |
 | GET    | `/api/auth/me`       | signed in |
-| GET    | `/api/coins`         | public   |
-| GET    | `/api/coins/{id}`    | public   |
-| POST   | `/api/coins`         | admin    |
-| PATCH  | `/api/coins/{id}`    | admin    |
-| DELETE | `/api/coins/{id}`    | admin    |
+| GET    | `/api/catalog`       | public   |
+| GET    | `/api/catalog/{id}`  | public   |
+| POST   | `/api/catalog`       | admin    |
+| PATCH  | `/api/catalog/{id}`  | admin    |
+| DELETE | `/api/catalog/{id}`  | admin    |
 | POST   | `/api/orders`        | customer |
 | GET    | `/api/orders`        | own orders; admins see all |
 | GET    | `/api/orders/{id}`   | own order; admins see all  |
 | PATCH  | `/api/orders/{id}`   | admin (status changes)     |
 
+The `{id}` in the catalogue paths is a **listing** id. A catalogue entry is a
+`listing` joined to the `inventory_item` behind it: the item is what you own,
+the listing is what it is being sold for. The API presents the pair as one
+resource because that is how a shop is operated, and returns the item's id
+alongside as `inventory_item_id`.
+
 Notable behaviour:
 
-- Placing an order locks the affected catalogue rows (`SELECT ... FOR UPDATE`,
-  taken in id order) and decrements stock atomically, so concurrent buyers
-  cannot oversell an item.
+- **Classifiers cross the API as codes, not ids** -- `"item_kind": "bullion"`,
+  `"grade": "MS64"`, `"country": "US"`. Ids differ between installations; codes
+  are the stable contract. An unknown code is a 422 naming the field, never a
+  silently null column. The API never invents classifier rows.
+- Placing an order locks the affected listings (`SELECT ... FOR UPDATE`, taken
+  in id order) and decrements availability atomically, so concurrent buyers
+  cannot oversell. Verified by tests that drive the handler from real threads
+  -- a test that serialises its requests passes even with the lock removed.
 - Order lines record `unit_price` at purchase time, so later price edits do not
   rewrite order history.
-- Cancelling an order returns its items to available stock.
-- An item that appears in an existing order cannot be deleted; withdraw it by
+- Cancelling an unshipped order returns its units to availability. Cancelling
+  one already packed or shipped does not: that stock has left the building.
+- Selling the last unit moves the item's `disposition` to `sold`. Its `status`
+  -- how it was acquired -- is untouched; the two lifecycles are independent.
+- A listing that appears in an existing order cannot be deleted; withdraw it by
   setting `is_active` to false.
 
 ## Dependencies

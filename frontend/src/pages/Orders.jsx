@@ -66,7 +66,7 @@ export default function Orders() {
             <tbody>
               {order.items.map((item) => (
                 <tr key={item.id}>
-                  <td>#{item.coin_id}</td>
+                  <td>#{item.listing_id}</td>
                   <td>{item.quantity}</td>
                   <td>{money(item.unit_price)}</td>
                 </tr>

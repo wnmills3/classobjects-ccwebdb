@@ -19,7 +19,7 @@ export default function Cart() {
     setError('')
     try {
       const order = await api.createOrder(
-        lines.map((l) => ({ coin_id: l.coin.id, quantity: l.quantity })),
+        lines.map((l) => ({ listing_id: l.coin.id, quantity: l.quantity })),
       )
       clear()
       setPlaced(order)
@@ -81,7 +81,7 @@ export default function Cart() {
                 <input
                   type="number"
                   min="1"
-                  max={coin.quantity}
+                  max={coin.quantity_available}
                   value={quantity}
                   onChange={(e) => setQuantity(coin.id, Number(e.target.value))}
                   className="qty"

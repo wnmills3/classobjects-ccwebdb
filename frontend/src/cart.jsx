@@ -29,7 +29,7 @@ export function CartProvider({ children }) {
       const inCart = existing ? existing.quantity : 0
       // Never let the cart exceed what is actually in stock; the backend
       // would reject it at checkout anyway.
-      const next = Math.min(inCart + quantity, coin.quantity)
+      const next = Math.min(inCart + quantity, coin.quantity_available)
       if (next <= 0) return current
       if (existing) {
         return current.map((l) =>
@@ -45,7 +45,7 @@ export function CartProvider({ children }) {
       current
         .map((l) =>
           l.coin.id === coinId
-            ? { ...l, quantity: Math.max(0, Math.min(quantity, l.coin.quantity)) }
+            ? { ...l, quantity: Math.max(0, Math.min(quantity, l.coin.quantity_available_available)) }
             : l,
         )
         .filter((l) => l.quantity > 0),
