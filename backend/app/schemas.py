@@ -105,7 +105,25 @@ class CatalogItemCreate(CatalogItemBase):
 
 
 class CatalogItemUpdate(BaseModel):
-    """All fields optional -- only what is supplied gets changed."""
+    """All fields optional -- only what is supplied gets changed.
+
+    ``version`` is the token the client last read, returned by any GET.
+    Supplying it makes the update conditional: if someone else has saved in
+    the meantime the request is refused with 409, rather than silently
+    overwriting their work with values loaded before their change.
+
+    It is an opaque string, not a number, because a catalogue entry is two
+    rows -- the listing and the inventory item behind it -- each versioned
+    separately. Checking only one of them misses edits to the other, which is
+    exactly the bug the first implementation had: renaming an item changed the
+    *item* row, so a stale form whose listing version still matched was
+    accepted and overwrote the new title.
+
+    Optional, so a script that genuinely means "set this regardless" can omit
+    it -- but the edit form always sends it.
+    """
+
+    version: str | None = None
 
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
@@ -163,6 +181,9 @@ class CatalogItemOut(BaseModel):
 
     id: int
     inventory_item_id: int
+    #: Send this back on a PATCH to save safely. Opaque -- it covers both the
+    #: listing and the item behind it. See CatalogItemUpdate.
+    version: str
     #: The item's permanent code -- stable across sale, return and relisting,
     #: which is what makes it usable on a packing slip and in an audit.
     item_code: str

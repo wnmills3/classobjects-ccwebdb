@@ -138,6 +138,24 @@ def split_item(
         raise SplitError(f"unknown mode {mode!r}; expected one of {MODES}")
     if len(pieces) < 2:
         raise SplitError("splitting into fewer than two pieces does nothing")
+
+    # Lock the lot before deciding whether it can be split.
+    #
+    # Without this, two people splitting the same tube at the same moment both
+    # read split_at as NULL, both pass the check, and the lot is broken up
+    # twice -- eight pieces from four, and the cost basis allocated twice over.
+    # This is a check-then-act on a single row, which is what SELECT ... FOR
+    # UPDATE is for: the second caller waits, then sees the first one's work.
+    #
+    # Pessimistic here rather than optimistic because the whole operation is
+    # one short transaction with nothing for a human to merge -- unlike an
+    # edit form, which is held open for minutes.
+    # refresh() rather than a fresh select(): a select returns the object
+    # already in the identity map *without* re-reading its columns, so the
+    # lock would be taken and then the decision made on the stale values this
+    # session loaded before waiting for it -- which is precisely the race.
+    db.refresh(parent, with_for_update=True)
+
     if parent.split_at is not None:
         raise SplitError(f"{parent.item_code} has already been split")
     if parent.parent_item_id is not None:

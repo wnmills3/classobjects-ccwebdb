@@ -26,6 +26,9 @@ export default function AdminCoins() {
   const [items, setItems] = useState([])
   const [form, setForm] = useState(BLANK)
   const [editingId, setEditingId] = useState(null)
+  // The version of the record as loaded. Sent back on save so a stale form
+  // is refused rather than silently overwriting someone else's edit.
+  const [editingVersion, setEditingVersion] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(true)
 
@@ -63,11 +66,13 @@ export default function AdminCoins() {
       Object.keys(BLANK).map((k) => [k, coin[k] ?? BLANK[k]]),
     )
     setForm({ ...editable, year_start: coin.year_start ?? '' })
+    setEditingVersion(coin.version)
     setError('')
   }
 
   function cancelEdit() {
     setEditingId(null)
+    setEditingVersion(null)
     setForm(BLANK)
     setError('')
   }
@@ -87,13 +92,25 @@ export default function AdminCoins() {
 
     try {
       if (editingId) {
-        await api.updateCatalogItem(editingId, payload)
+        await api.updateCatalogItem(editingId, {
+          ...payload,
+          version: editingVersion,
+        })
       } else {
         await api.createCatalogItem(payload)
       }
       cancelEdit()
       await load()
     } catch (err) {
+      // 409 means somebody else saved while this form was open. Reloading is
+      // the honest response: showing the stale form again invites the user to
+      // save over their colleague a second time.
+      if (/changed by someone else/i.test(err.message)) {
+        setError(`${err.message} Reloading the list...`)
+        await load()
+        cancelEdit()
+        return
+      }
       setError(err.message)
     }
   }
