@@ -169,6 +169,30 @@ already coerced to numbers — losing leading zeros or, worse, becoming scientif
 notation — are flagged for manual recovery. **That damage is not repairable by
 the importer**, only detectable.
 
+### Domain facts that look like errors
+
+A variant detector proposes corrections by collapsing case, spacing and
+punctuation, then pointing rare spellings at dominant ones. It is a **proposal
+engine, not an authority** — several of its highest-confidence suggestions would
+destroy real information. Confirmed with the collection owner:
+
+| Value | Looks like | Actually means |
+|---|---|---|
+| `1980's`, `1970s` | a typo for mint mark `S` | a **decade** — e.g. a roll of pennies spanning the 1980s |
+| `1989-P&D`, `1988-P/D` | inconsistent separators | a **mint set containing both mints**, Philadelphia and Denver, not broken out as separate items |
+| `2024?` | a stray character | the year is **uncertain** |
+| `1953` vs `1953-` | a missing suffix | a bare year and an **open range** are different claims |
+| `-2024` | a transposition | may denote a **range** |
+| `UNC+`, `MS64+`, `BU++` | inconsistent grades | **real grading distinctions**, never normalised away |
+
+A year may be a single year, a range, a decade, or uncertain. **Normalising year
+formatting is safe only for case, stray whitespace and the separator between
+year and mint mark.** Anything that adds, removes or reinterprets a character
+carrying meaning is left for a human.
+
+`P&D` to `P/D` was accepted as a separator normalisation because it preserves
+the multi-mint meaning; the parser reads both marks out of either form.
+
 ### Authority rules
 
 **Status is read only from fields the owner controls deliberately.** Free-text
