@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from .config import settings
 from .database import SessionLocal
-from .models import Coin, ItemKind, User, UserRole
+from .models import Coin, CoinKind, User, UserRole
 from .security import hash_password
 
 SAMPLE_INVENTORY = [
@@ -22,7 +22,7 @@ SAMPLE_INVENTORY = [
         "sku": "US-MORGAN-1881S",
         "title": "1881-S Morgan Silver Dollar",
         "description": "Brilliant uncirculated, exceptional strike from the San Francisco mint.",
-        "kind": ItemKind.coin,
+        "kind": CoinKind.coin,
         "country": "United States",
         "year": 1881,
         "denomination": "1 Dollar",
@@ -37,7 +37,7 @@ SAMPLE_INVENTORY = [
         "sku": "US-SAINT-1924",
         "title": "1924 Saint-Gaudens Double Eagle",
         "description": "Classic 20 dollar gold piece, original mint lustre.",
-        "kind": ItemKind.coin,
+        "kind": CoinKind.coin,
         "country": "United States",
         "year": 1924,
         "denomination": "20 Dollars",
@@ -52,7 +52,7 @@ SAMPLE_INVENTORY = [
         "sku": "GB-SOV-1900",
         "title": "1900 Victoria Old Head Gold Sovereign",
         "description": "London mint, well struck with light handling marks.",
-        "kind": ItemKind.coin,
+        "kind": CoinKind.coin,
         "country": "United Kingdom",
         "year": 1900,
         "denomination": "1 Sovereign",
@@ -67,7 +67,7 @@ SAMPLE_INVENTORY = [
         "sku": "US-FRN-1934-1000",
         "title": "1934 $1000 Federal Reserve Note",
         "description": "Grover Cleveland high-denomination note, Chicago district.",
-        "kind": ItemKind.banknote,
+        "kind": CoinKind.banknote,
         "country": "United States",
         "year": 1934,
         "denomination": "1000 Dollars",
@@ -82,7 +82,7 @@ SAMPLE_INVENTORY = [
         "sku": "CA-MAPLE-2021",
         "title": "2021 Canadian Silver Maple Leaf",
         "description": "One troy ounce of .9999 fine silver, sealed in original mint tube packaging.",
-        "kind": ItemKind.coin,
+        "kind": CoinKind.coin,
         "country": "Canada",
         "year": 2021,
         "denomination": "5 Dollars",

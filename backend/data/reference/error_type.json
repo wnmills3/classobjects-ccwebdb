@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Mint and printing error vocabulary.",
+    "`applies_to` exists because the two vocabularies barely overlap -- a coin",
+    "is struck, a note is printed -- and the entry form should offer only what",
+    "is relevant to the item in hand.",
+    "An error type is NEVER inferred from free text. Description fields are",
+    "seller prose: scanning a real collection for error terms matched auction",
+    "boilerplate, while errors described in other words were missed entirely."
+  ],
+  "error_type": [
+    {"code": "doubled_die", "label": "Doubled Die", "applies_to": "coin", "sort_order": 10},
+    {"code": "off_center", "label": "Off Center", "applies_to": "coin", "sort_order": 20},
+    {"code": "clipped_planchet", "label": "Clipped Planchet", "applies_to": "coin", "sort_order": 30},
+    {"code": "wrong_planchet", "label": "Wrong Planchet", "applies_to": "coin", "sort_order": 40},
+    {"code": "broadstrike", "label": "Broadstrike", "applies_to": "coin", "sort_order": 50},
+    {"code": "brockage", "label": "Brockage", "applies_to": "coin", "sort_order": 60},
+    {"code": "die_crack", "label": "Die Crack", "applies_to": "coin", "sort_order": 70},
+    {"code": "cud", "label": "Cud", "applies_to": "coin", "sort_order": 80},
+    {"code": "lamination", "label": "Lamination", "applies_to": "coin", "sort_order": 90},
+    {"code": "repunched_mintmark", "label": "Repunched Mintmark", "applies_to": "coin", "sort_order": 100},
+    {"code": "struck_through", "label": "Struck Through", "applies_to": "coin", "sort_order": 110},
+    {"code": "overdate", "label": "Overdate", "applies_to": "coin", "sort_order": 120},
+    {"code": "mule", "label": "Mule", "applies_to": "coin", "sort_order": 130},
+    {"code": "blank_planchet", "label": "Blank Planchet", "applies_to": "coin", "sort_order": 140},
+    {"code": "die_adjustment", "label": "Die Adjustment Strike", "applies_to": "coin", "sort_order": 150},
+    {"code": "capped_die", "label": "Capped Die", "applies_to": "coin", "sort_order": 160},
+
+    {"code": "miscut", "label": "Miscut", "applies_to": "currency", "sort_order": 210},
+    {"code": "misaligned_print", "label": "Misaligned Print", "applies_to": "currency", "sort_order": 220},
+    {"code": "offset_printing", "label": "Offset Printing", "applies_to": "currency", "sort_order": 230},
+    {"code": "gutter_fold", "label": "Gutter Fold", "applies_to": "currency", "sort_order": 240},
+    {"code": "ink_smear", "label": "Ink Smear", "applies_to": "currency", "sort_order": 250},
+    {"code": "missing_overprint", "label": "Missing Overprint", "applies_to": "currency", "sort_order": 260},
+    {"code": "inverted_overprint", "label": "Inverted Overprint", "applies_to": "currency", "sort_order": 270},
+    {"code": "insufficient_inking", "label": "Insufficient Inking", "applies_to": "currency", "sort_order": 280},
+    {"code": "obstruction", "label": "Obstruction", "applies_to": "currency", "sort_order": 290},
+    {"code": "fold_over", "label": "Fold-over", "applies_to": "currency", "sort_order": 300},
+    {"code": "mismatched_serial", "label": "Mismatched Serial Numbers", "applies_to": "currency", "sort_order": 310},
+
+    {"code": "other", "label": "Other", "applies_to": "any", "sort_order": 900,
+     "_note": "error_details carries the specifics; the interesting part rarely fits a vocabulary."}
+  ]
+}

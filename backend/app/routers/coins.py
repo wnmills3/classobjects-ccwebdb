@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
-from ..models import Coin, ItemKind
+from ..models import Coin, CoinKind
 from ..schemas import CoinCreate, CoinOut, CoinPage, CoinUpdate
 
 router = APIRouter(prefix="/coins", tags=["coins"])
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/coins", tags=["coins"])
 def list_coins(
     db: DbSession,
     q: Annotated[str | None, Query(description="Free text over title/SKU/country")] = None,
-    kind: ItemKind | None = None,
+    kind: CoinKind | None = None,
     country: str | None = None,
     year_min: int | None = None,
     year_max: int | None = None,

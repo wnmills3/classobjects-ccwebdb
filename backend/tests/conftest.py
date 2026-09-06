@@ -22,8 +22,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app
-from app.models import Coin, ItemKind, User, UserRole
+from app.models import Coin, CoinKind, User, UserRole
+from app.models.views import CREATE_VIEWS
 from app.security import hash_password
+from app.seeding import seed_all
 
 
 def _test_database_url() -> URL:
@@ -65,6 +67,21 @@ def engine() -> Iterator[Engine]:
 
     test_engine = create_engine(TEST_URL, pool_pre_ping=True)
     Base.metadata.create_all(test_engine)
+
+    # Views are not in Base.metadata -- create_all builds tables only -- so
+    # they are created from the same definitions the migration uses. Without
+    # this, a test of the public_catalog authorisation boundary would silently
+    # have nothing to check.
+    with test_engine.begin() as conn:
+        for statement in CREATE_VIEWS:
+            conn.execute(text(statement))
+
+    # Reference data is seeded once and committed, not per test: inventory_item
+    # has NOT NULL foreign keys into half a dozen classifier tables, so almost
+    # nothing can be inserted without it. The per-test transaction rolls back
+    # around this, leaving the vocabulary in place.
+    with Session(test_engine) as session:
+        seed_all(session)
 
     yield test_engine
 
@@ -169,7 +186,7 @@ def coin(db: Session) -> Coin:
         sku="TEST-MORGAN-1881S",
         title="1881-S Morgan Silver Dollar",
         description="Test fixture item.",
-        kind=ItemKind.coin,
+        kind=CoinKind.coin,
         country="United States",
         year=1881,
         denomination="1 Dollar",

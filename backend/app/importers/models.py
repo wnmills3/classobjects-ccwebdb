@@ -83,7 +83,14 @@ class ImportRow(Base):
     classified_by_rule: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     #: set once the row has been turned into a real record
-    inventory_item_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    #: Set once the row has been normalised into the target schema. A real
+    #: foreign key, not a loose number: staging that claims to point at an
+    #: item which no longer exists is worse than staging that admits it.
+    inventory_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
 
     batch: Mapped[ImportBatch] = relationship(back_populates="rows")
     issues: Mapped[list[ImportIssue]] = relationship(

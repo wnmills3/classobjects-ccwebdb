@@ -1,0 +1,94 @@
+{
+  "_comment": [
+    "Metal, valuation, lifecycle, errors and the operational vocabularies.",
+    "The two lifecycle axes are deliberately separate tables: how an item came",
+    "in and how it goes out are different questions, and one column cannot",
+    "represent 'received and sold'."
+  ],
+  "metal": [
+    {"code": "silver", "label": "Silver", "symbol": "Ag", "is_precious": true, "sort_order": 10},
+    {"code": "gold", "label": "Gold", "symbol": "Au", "is_precious": true, "sort_order": 20},
+    {"code": "platinum", "label": "Platinum", "symbol": "Pt", "is_precious": true, "sort_order": 30},
+    {"code": "palladium", "label": "Palladium", "symbol": "Pd", "is_precious": true, "sort_order": 40},
+    {"code": "copper", "label": "Copper", "symbol": "Cu", "is_precious": false, "sort_order": 50},
+    {"code": "nickel", "label": "Nickel", "symbol": "Ni", "is_precious": false, "sort_order": 60},
+    {"code": "zinc", "label": "Zinc", "symbol": "Zn", "is_precious": false, "sort_order": 70},
+    {"code": "clad", "label": "Copper-Nickel Clad", "symbol": "", "is_precious": false, "sort_order": 80}
+  ],
+  "valuation_basis": [
+    {"code": "melt", "label": "Melt value", "sort_order": 10},
+    {"code": "numismatic", "label": "Numismatic value", "sort_order": 20},
+    {"code": "manual", "label": "Manual estimate", "sort_order": 30}
+  ],
+  "item_status": [
+    {"code": "ordered", "label": "Ordered", "sort_order": 10},
+    {"code": "received", "label": "Received", "sort_order": 20},
+    {"code": "canceled", "label": "Canceled", "sort_order": 30},
+    {"code": "returned", "label": "Returned", "sort_order": 40},
+    {"code": "missing", "label": "Missing", "sort_order": 50,
+     "_note": "Paid for, not cancelled, never arrived. Distinct from both."},
+    {"code": "unknown", "label": "Unknown", "sort_order": 60}
+  ],
+  "disposition": [
+    {"code": "held", "label": "Held", "sort_order": 10},
+    {"code": "listed", "label": "Listed", "sort_order": 20},
+    {"code": "sold", "label": "Sold", "sort_order": 30},
+    {"code": "shipped", "label": "Shipped", "sort_order": 40},
+    {"code": "delivered", "label": "Delivered", "sort_order": 50},
+    {"code": "returned_by_buyer", "label": "Returned by buyer", "sort_order": 60}
+  ],
+  "storage_location_kind": [
+    {"code": "safe_deposit_box", "label": "Safe deposit box", "sort_order": 10},
+    {"code": "safe", "label": "Safe", "sort_order": 20},
+    {"code": "home", "label": "Home", "sort_order": 30},
+    {"code": "in_transit", "label": "In transit", "sort_order": 40},
+    {"code": "sold", "label": "Sold", "sort_order": 50},
+    {"code": "unknown", "label": "Unknown", "sort_order": 60}
+  ],
+  "image_role": [
+    {"code": "obverse", "label": "Obverse", "sort_order": 10},
+    {"code": "reverse", "label": "Reverse", "sort_order": 20},
+    {"code": "edge", "label": "Edge", "sort_order": 30},
+    {"code": "detail", "label": "Detail", "sort_order": 40},
+    {"code": "slab", "label": "Slab", "sort_order": 50},
+    {"code": "certificate", "label": "Certificate", "sort_order": 60},
+    {"code": "group", "label": "Group", "sort_order": 70},
+    {"code": "packaging", "label": "Packaging", "sort_order": 80},
+    {"code": "unassigned", "label": "Unassigned", "sort_order": 999,
+     "_note": "Photographs exist before anyone decides what they depict."}
+  ],
+  "vendor_kind": [
+    {"code": "marketplace", "label": "Marketplace", "sort_order": 10},
+    {"code": "auction", "label": "Auction house", "sort_order": 20},
+    {"code": "mint", "label": "Mint", "sort_order": 30},
+    {"code": "dealer", "label": "Dealer", "sort_order": 40},
+    {"code": "private", "label": "Private sale", "sort_order": 50},
+    {"code": "unknown", "label": "Unknown", "sort_order": 60}
+  ],
+  "carrier": [
+    {"code": "USPS", "label": "USPS", "sort_order": 10,
+     "tracking_url_template": "https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"},
+    {"code": "UPS", "label": "UPS", "sort_order": 20,
+     "tracking_url_template": "https://www.ups.com/track?tracknum={tracking}"},
+    {"code": "FEDEX", "label": "FedEx", "sort_order": 30,
+     "tracking_url_template": "https://www.fedex.com/fedextrack/?trknbr={tracking}"},
+    {"code": "DHL", "label": "DHL", "sort_order": 40,
+     "tracking_url_template": "https://www.dhl.com/en/express/tracking.html?AWB={tracking}"}
+  ],
+  "sales_order_status": [
+    {"code": "pending", "label": "Pending", "sort_order": 10},
+    {"code": "paid", "label": "Paid", "sort_order": 20},
+    {"code": "packed", "label": "Packed", "sort_order": 30},
+    {"code": "shipped", "label": "Shipped", "sort_order": 40},
+    {"code": "delivered", "label": "Delivered", "sort_order": 50},
+    {"code": "cancelled", "label": "Cancelled", "sort_order": 60},
+    {"code": "refunded", "label": "Refunded", "sort_order": 70}
+  ],
+  "shipment_status": [
+    {"code": "label_created", "label": "Label created", "sort_order": 10},
+    {"code": "in_transit", "label": "In transit", "sort_order": 20},
+    {"code": "delivered", "label": "Delivered", "sort_order": 30},
+    {"code": "lost", "label": "Lost", "sort_order": 40},
+    {"code": "returned", "label": "Returned to sender", "sort_order": 50}
+  ]
+}

@@ -394,8 +394,36 @@ class CollectionV1Profile:
         self._parse_year(row, issues, fields, classification.kind)
         self._check_identifiers(row, issues, classification.kind, fields)
         self._read_value_column(row, issues, fields)
+        self._carry_text(row, fields)
 
         return RowResult(classification=classification, issues=issues, fields=fields)
+
+    def _carry_text(self, row: RawRow, fields: dict) -> None:
+        """Copy the remaining source columns under the normalised names the
+        loader expects.
+
+        This is the whole of the seam: everything above decides what a value
+        *means*, and this decides what the schema calls it. The loader never
+        sees a source column name.
+        """
+        fields["title"] = row.text(COL_DENOM)
+        fields["description"] = row.text(COL_DESCRIPTION)
+        fields["grade_raw"] = row.text(COL_RATING) or None
+        fields["comment"] = row.text(COL_COMMENT) or None
+        fields["order_number"] = row.text(COL_ORDER_NO) or None
+
+        # The vendor column holds a URL. The host is the vendor's identity --
+        # a dozen different deep links are all one seller.
+        vendor_url = row.text(COL_VENDOR) or None
+        if vendor_url:
+            fields["vendor_url"] = vendor_url
+            host = re.search(r"https?://([^/]+)", vendor_url)
+            fields["vendor_name"] = (
+                host.group(1).lower().removeprefix("www.") if host else vendor_url
+            )
+
+        if ordered := row.text(COL_ORDERED):
+            fields["ordered_on"] = _as_date(ordered)
 
     # -- individual checks -------------------------------------------------
     def _parse_weight(self, denom: str, issues: list[Issue], fields: dict) -> None:
@@ -549,3 +577,26 @@ class CollectionV1Profile:
                     note="neither an amount nor a known status marker",
                 )
             )
+
+
+def _as_date(text: str):
+    """Read a date the spreadsheet may have written several ways.
+
+    Returns None rather than a guess: an unparsed order date is a missing
+    fact, and inventing one would put a wrong figure in a real column.
+    """
+    from datetime import date, datetime as _dt
+
+    value = text.strip()
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d-%b-%Y", "%Y/%m/%d"):
+        try:
+            return _dt.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    # openpyxl hands back real datetimes for date-formatted cells.
+    try:
+        return _dt.fromisoformat(value).date()
+    except ValueError:
+        return None
