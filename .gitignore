@@ -226,3 +226,4 @@ node_modules/
 dist/
 .vite/
 .runtime/
+.semgrep/

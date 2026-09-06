@@ -17,6 +17,7 @@ from app.database import Base
 # Importing the models module registers every table on Base.metadata, which is
 # what autogenerate diffs against. Do not remove even though it looks unused.
 from app import models  # noqa: F401
+from app.importers import models as importer_models  # noqa: F401
 
 config = context.config
 
