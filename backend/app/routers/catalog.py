@@ -38,6 +38,7 @@ from ..models import (
     ValuationBasis,
 )
 from ..references import code_to_id, require_code
+from .images import image_urls
 from ..schemas import (
     CatalogItemCreate,
     CatalogItemOut,
@@ -86,6 +87,7 @@ def _eager(stmt):
             selectinload(InventoryItem.grade),
             selectinload(InventoryItem.grading_service),
             selectinload(InventoryItem.metal),
+            selectinload(InventoryItem.images),
         ),
         selectinload(Listing.currency),
     )
@@ -100,9 +102,18 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
     item = listing.inventory_item
     code = lambda row: getattr(row, "code", None)  # noqa: E731
 
+    # The primary photograph, if one has been chosen. Most of a real
+    # collection is unphotographed, so this is routinely absent and the
+    # response says so with nulls rather than a placeholder URL that 404s.
+    primary = next((link for link in item.images if link.is_primary), None)
+    urls = image_urls(primary.image_id) if primary else {}
+
     return CatalogItemOut(
         id=listing.id,
         inventory_item_id=item.id,
+        item_code=item.item_code,
+        thumbnail_url=urls.get("thumbnail_url"),
+        image_url=urls.get("image_url"),
         title=listing.title or item.title,
         description=listing.description or item.description,
         item_kind=code(item.item_kind),

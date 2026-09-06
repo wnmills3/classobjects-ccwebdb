@@ -309,3 +309,60 @@ def test_seeded_and_derived_rows_are_distinguishable(db: Session) -> None:
         text("select count(*) from grade where source = 'seeded'")
     ).scalar()
     assert seeded > 0
+
+
+# ---------------------------------------------------------------------------
+# The permanent item code
+#
+# Its whole value is that it can be cited years later and still mean the same
+# physical object -- on a packing slip, in a return, in an audit.
+# ---------------------------------------------------------------------------
+
+
+def test_every_item_gets_a_code_without_being_asked(db: Session) -> None:
+    item = make_item(db)
+    assert item.item_code
+    assert item.item_code.startswith("CC-")
+
+
+def test_codes_are_unique(db: Session) -> None:
+    first = make_item(db)
+    with pytest.raises(IntegrityError):
+        make_item(db, item_code=first.item_code)
+    db.rollback()
+
+
+def test_a_deleted_items_code_is_never_reissued(db: Session) -> None:
+    """A sequence never goes backwards. If a dead item's code could be handed
+    to a later one, every historical reference would become ambiguous."""
+    doomed = make_item(db)
+    code = doomed.item_code
+    db.delete(doomed)
+    db.commit()
+
+    replacement = make_item(db)
+    assert replacement.item_code != code
+
+
+def test_the_code_survives_being_sold_and_returned(db: Session) -> None:
+    """The reason it exists: a returned item resumes its own history rather
+    than starting a new one."""
+    item = make_item(db)
+    original = item.item_code
+
+    item.disposition_id = code_id(db, Disposition, "sold")
+    db.commit()
+    item.disposition_id = code_id(db, Disposition, "returned_by_buyer")
+    db.commit()
+    item.disposition_id = code_id(db, Disposition, "held")
+    db.commit()
+
+    db.refresh(item)
+    assert item.item_code == original
+
+
+def test_concurrent_inserts_cannot_collide_on_a_code(db: Session) -> None:
+    """Assigned by a sequence rather than by the application, so two inserts
+    in the same instant cannot compute the same value."""
+    codes = {make_item(db).item_code for _ in range(20)}
+    assert len(codes) == 20

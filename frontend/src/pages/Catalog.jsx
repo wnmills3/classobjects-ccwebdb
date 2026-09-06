@@ -85,6 +85,15 @@ export default function Catalog() {
       <div className="grid">
         {page.items.map((coin) => (
           <article key={coin.id} className="card">
+            {/* Most of a real collection is unphotographed, so the card has
+                to look deliberate with no image rather than broken. */}
+            {coin.thumbnail_url ? (
+              <Link to={`/coins/${coin.id}`} className="card-thumb">
+                <img src={coin.thumbnail_url} alt={coin.title} loading="lazy" />
+              </Link>
+            ) : (
+              <div className="card-thumb card-thumb-empty" aria-hidden="true" />
+            )}
             <div className="card-body">
               <h3>
                 <Link to={`/coins/${coin.id}`}>{coin.title}</Link>

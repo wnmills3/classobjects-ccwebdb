@@ -214,7 +214,7 @@ export default function AdminCoins() {
         <table className="table">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>Item code</th>
               <th>Title</th>
               <th>Price</th>
               <th>Qty</th>
@@ -225,7 +225,7 @@ export default function AdminCoins() {
           <tbody>
             {items.map((coin) => (
               <tr key={coin.id} className={coin.is_active ? '' : 'dim'}>
-                <td className="mono">#{coin.id}</td>
+                <td className="mono">{coin.item_code}</td>
                 <td>{coin.title}</td>
                 <td>{money(coin.price)}</td>
                 <td>{coin.quantity_available}</td>

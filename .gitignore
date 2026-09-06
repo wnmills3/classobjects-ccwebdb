@@ -228,3 +228,6 @@ dist/
 .runtime/
 .semgrep/
 logs/
+
+# Image storage: bytes never go in git, any more than they go in the database.
+media/

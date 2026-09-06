@@ -75,6 +75,9 @@ docs/
 | POST   | `/api/catalog`       | admin    |
 | PATCH  | `/api/catalog/{id}`  | admin    |
 | DELETE | `/api/catalog/{id}`  | admin    |
+| POST   | `/api/images`        | admin (multipart upload)   |
+| GET    | `/api/images/{id}/{thumb\|web}` | public          |
+| DELETE | `/api/images/{id}`   | admin    |
 | POST   | `/api/orders`        | customer |
 | GET    | `/api/orders`        | own orders; admins see all |
 | GET    | `/api/orders/{id}`   | own order; admins see all  |
@@ -104,6 +107,19 @@ Notable behaviour:
   -- how it was acquired -- is untouched; the two lifecycles are independent.
 - A listing that appears in an existing order cannot be deleted; withdraw it by
   setting `is_active` to false.
+- Every inventory item carries a permanent `item_code` (`CC-000123`), issued
+  once, never changed and never reused -- so a returned item resumes its own
+  history, and a reference in an audit stays unambiguous.
+- **Uploaded images have their metadata stripped at ingest, not at publish.**
+  Photographs of valuables routinely carry the GPS coordinates of where they
+  were taken. Orientation is applied to the pixels first, then every metadata
+  segment is removed, then the written bytes are re-read and checked -- an
+  image that still carries metadata is refused rather than stored. Verified
+  against real collection photographs, all of which carried GPS.
+- Originals are never served. Public requests are answered only from generated
+  `thumb` and `web` renditions.
+- Images are content-addressed by the hash of the cleansed bytes, so uploading
+  the same photograph twice stores one file.
 
 ## Dependencies
 

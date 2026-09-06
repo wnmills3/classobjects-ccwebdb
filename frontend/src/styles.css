@@ -380,3 +380,28 @@ button.link {
 button.link.danger {
   color: var(--danger);
 }
+
+/* Catalogue thumbnails.
+   A fixed aspect box so a grid of mixed portrait and landscape photographs
+   still lines up, and so cards do not jump as images load. */
+.card-thumb {
+  display: block;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: #f2f2f0;
+  border-bottom: 1px solid #e3e3e0;
+}
+.card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.card-thumb-empty {
+  background:
+    repeating-linear-gradient(45deg, #f5f5f3, #f5f5f3 10px, #efefec 10px, #efefec 20px);
+}
+.detail-image {
+  max-width: 100%;
+  border: 1px solid #e3e3e0;
+  border-radius: 4px;
+}

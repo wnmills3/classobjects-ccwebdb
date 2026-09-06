@@ -9,6 +9,7 @@ import { money } from '../format'
 // codes are the stable contract across installations. Human labels come later,
 // when the reference tables are exposed to the UI.
 const FIELDS = [
+  ['Item code', 'item_code'],
   ['Type', 'item_kind'],
   ['Country', 'country'],
   ['Year', 'year_start'],
@@ -50,6 +51,9 @@ export default function CoinDetail() {
         <Link to="/">&larr; Back to catalogue</Link>
       </p>
       <h1>{coin.title}</h1>
+      {coin.image_url && (
+        <img className="detail-image" src={coin.image_url} alt={coin.title} />
+      )}
       <p className="price large">{money(coin.price)}</p>
       <p className="muted">
         {coin.quantity_available > 0 ? `${coin.quantity_available} available` : 'Sold out'}

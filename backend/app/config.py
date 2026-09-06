@@ -40,6 +40,22 @@ class Settings(BaseSettings):
     first_admin_email: str = "admin@example.com"
     first_admin_password: str = "adminpassword"
 
+    # --- image storage ------------------------------------------------------
+    # Bytes never live in the database: a collection's photographs run to
+    # gigabytes. This is the local backend's root; an S3-compatible backend
+    # swaps in behind the same interface without touching callers.
+    media_root: Path = REPO_ROOT / "media"
+
+    # Longest edge, in pixels, of each generated rendition. Originals are never
+    # served -- public requests are answered only from these.
+    thumbnail_max_px: int = 320
+    web_max_px: int = 1600
+
+    # Refused before anything is decoded. A "decompression bomb" is a small
+    # file that expands to gigabytes of pixels, so both limits are needed.
+    max_upload_bytes: int = 25 * 1024 * 1024
+    max_image_pixels: int = 50_000_000
+
 
 @lru_cache
 def get_settings() -> Settings:
