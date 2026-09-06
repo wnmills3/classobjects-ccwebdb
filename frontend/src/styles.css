@@ -451,3 +451,15 @@ button.link.danger {
   align-items: center;
   gap: 0.8rem;
 }
+
+/* Adding a vocabulary value inline, from the picker that needed it. */
+.add-reference {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.add-reference input {
+  min-width: 0;
+  flex: 1 1 6rem;
+}

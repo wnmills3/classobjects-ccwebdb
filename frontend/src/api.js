@@ -153,6 +153,11 @@ export const api = {
   listReferenceTables: () => send('/api/reference', { auth: false }),
   getReference: (table) => send(`/api/reference/${table}`, { auth: false }),
 
+  addReferenceValue: (table, payload) =>
+    send(`/api/reference/${table}`, { method: 'POST', body: payload }),
+  renameReferenceValue: (table, code, payload) =>
+    send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),
+
   // inventory (staff)
   searchInventory: (view, params = {}) => {
     const qs = new URLSearchParams()

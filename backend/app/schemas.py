@@ -377,3 +377,38 @@ class InventoryPageOut(BaseModel):
     sort: str
     descending: bool
     facets: dict[str, list[FacetValueOut]] = Field(default_factory=dict)
+
+
+class ReferenceValueCreate(BaseModel):
+    """Add a value to a vocabulary while picking from it.
+
+    This is how the tables grow organically: an operator entering an item that
+    does not fit the shipped vocabulary adds the missing value in place rather
+    than abandoning the entry or forcing it into an approximate one.
+
+    Created rows are marked `manual`, so they stay distinguishable from the
+    shipped catalogue and are excluded from an export by default.
+    """
+
+    code: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_+./-]+$")
+    label: str = Field(min_length=1, max_length=255)
+    sort_order: int = 500
+    #: Columns specific to the table, such as a denomination's face value.
+    extra: dict[str, object] = Field(default_factory=dict)
+
+
+class ReferenceValueRename(BaseModel):
+    """Change what a value is *called*.
+
+    Only the label. The code is the API contract -- it appears in saved
+    filters, bookmarked searches and any integration -- so it is immutable,
+    and renaming is exactly the operation that lets a badly-worded label be
+    fixed without breaking those.
+
+    Because every record refers to the value by foreign key, a rename takes
+    effect everywhere at once. There is nothing to migrate.
+    """
+
+    label: str = Field(min_length=1, max_length=255)
+    sort_order: int | None = None
+    is_active: bool | None = None

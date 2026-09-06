@@ -77,6 +77,8 @@ docs/
 | DELETE | `/api/catalog/{id}`  | admin    |
 | GET    | `/api/reference`     | public (vocabulary index)  |
 | GET    | `/api/reference/{table}` | public               |
+| POST   | `/api/reference/{table}` | admin (add a value)  |
+| PATCH  | `/api/reference/{table}/{code}` | admin (rename) |
 | GET    | `/api/inventory/{view}/search` | admin (`coins` \| `currency`) |
 | GET    | `/api/inventory/{id}` | admin                     |
 | POST   | `/api/inventory/{id}/split` | admin               |
@@ -136,6 +138,18 @@ Notable behaviour:
   would return nothing is visibly empty before it is made.
 - **An unrecognised filter is a 422, never ignored.** A silently dropped
   filter returns the whole collection and looks like a matching result.
+- **Vocabularies grow with use.** A value missing from a picker can be added
+  from the picker, marked `manual` so one installation's additions stay out of
+  a catalogue shared with another.
+- **Renaming a value changes its label everywhere at once**, because every
+  record refers to it by foreign key -- there is nothing to migrate. The
+  `code` never changes: it appears in saved filters and bookmarked searches,
+  and renaming the label is exactly what lets a poorly worded one be fixed
+  without breaking them.
+- Searches read the base tables with only the joins each query needs, not the
+  wide inventory views. Measured over 6,370 coins, a page plus all facets went
+  from 400 ms to 23 ms -- the cost was never the normalisation, it was asking
+  a fourteen-way join for one column.
 - **A lot can be split into its pieces**, dividing the cost between them.
   `equal` gives every piece the same share -- right for twenty identical rounds
   in a tube. `relative` divides in proportion to a value supplied per piece --

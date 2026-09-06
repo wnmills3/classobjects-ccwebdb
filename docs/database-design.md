@@ -22,6 +22,22 @@ filter, group or report is a reference table with a stable code. Free text is
 where meaning goes to hide: `$20 Bill`, `$20 Blll` and `$20 B` are three
 different strings and one concept.
 
+> Copying the label onto each record as well -- keeping the key for integrity
+> and the string for speed -- was considered and measured. It buys nothing.
+> Over 6,370 coins a page plus all facets took 400 ms through the inventory
+> views, 29 ms reading the base tables with only the joins each query needs,
+> and 23 ms with partial indexes on the facet columns; a fully denormalised
+> table measured ~6 ms in the same test. The cost was never the normalisation:
+> it was asking a fourteen-way join for one column. Since the speed was
+> available without a second copy of every label that can drift from the
+> first, there was no reason to accept one.
+>
+> The two things denormalising was meant to enable are better without it. New
+> values are added from the picker that needed them, so the tables grow with
+> use. And renaming a value changes it everywhere the moment it commits,
+> because there is only one copy -- the migration a denormalised design would
+> need to run is a cost that design creates, not a feature it provides.
+
 **Raw text is kept beside every parsed value.** A parser can be wrong or
 incomplete. `*_raw` columns preserve exactly what a human or an importer
 supplied, so nothing is unrecoverable and re-parsing is always possible.
