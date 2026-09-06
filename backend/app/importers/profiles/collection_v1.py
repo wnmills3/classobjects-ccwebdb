@@ -90,7 +90,129 @@ CORRECTIONS: dict[str, str] = {
     "$20 b": "$20 Bill",
     "#3 bill": "$3 Bill",
     "silvereagle": "Silver Eagle",
+    "silvre eagle": "Silver Eagle",
+    "meteoriate": "Meteorite",
+    "mixxed": "Mixed",
+    "coloriazed state quarters": "Colorized State Quarters",
 }
+
+# --------------------------------------------------------------------------
+# Known values.
+#
+# An explicit map, not clever patterns: every entry is auditable at a glance
+# and correctable in isolation. Consulted before the keyword rules, since an
+# exact match is the most specific thing we can know. Disposable, like the
+# rest of this module.
+# --------------------------------------------------------------------------
+KNOWN_VALUES: dict[str, tuple[str, str | None]] = {
+    # -- sets --------------------------------------------------------------
+    "mint proof": ("set", "Mint Proof Set"),
+    "mint silver": ("set", "Silver Mint Set"),
+    "silver mint": ("set", "Silver Mint Set"),
+    "silver mint proof": ("set", "Silver Proof Set"),
+    "silver rev mint": ("set", "Reverse Proof Set"),
+    "reverse proof": ("set", "Reverse Proof Set"),
+    "proof": ("set", "Proof Set"),
+    "silver proof": ("set", "Silver Proof Set"),
+    "tribute proof": ("set", "Tribute Proof Set"),
+    "mixed sets": ("set", "Mixed Sets"),
+    "nickel series": ("set", "Nickel Series"),
+    "collection": ("set", "Collection"),
+    "colorized state quarters": ("set", "Colorized State Quarters"),
+    # -- bullion -----------------------------------------------------------
+    "ltd ed. silver": ("bullion", "Limited Edition Silver"),
+    "premier silver": ("bullion", "Premier Silver"),
+    "silver": ("bullion", "Silver"),
+    "silver 10oz": ("bullion", "Silver"),
+    "silver 15oz": ("bullion", "Silver"),
+    "silver coins 9.3303oz": ("bullion", "Silver"),
+    "silver square 10g": ("bullion", "Silver Square"),
+    "silver square 5g": ("bullion", "Silver Square"),
+    "silver onza": ("bullion", "Silver Onza"),
+    "copper 1/2 kilo": ("bullion", "Copper"),
+    "copper roll 20x 1oz": ("bullion", "Copper Round"),
+    "titanium 1lb": ("bullion", "Titanium"),
+    "tuvalu 2oz": ("bullion", "Silver"),
+    "dragon purple 1oz": ("bullion", "Silver"),
+    "1/500 gold": ("bullion", "Gold"),
+    "gold nugget 1.5gm": ("bullion", "Gold Nugget"),
+    "gold foil": ("bullion", "Gold Foil"),
+    "silver foil $100": ("bullion", "Silver Foil"),
+    # -- coins -------------------------------------------------------------
+    "box pennies": ("coin", None),
+    "roll": ("coin", None),
+    "roll pennies": ("coin", None),
+    "roll 1c": ("coin", None),
+    "roll 25c": ("coin", None),
+    "roll dimes": ("coin", None),
+    "roll quarters": ("coin", None),
+    "rolls .25": ("coin", None),
+    "peso": ("coin", None),
+    "cien peso": ("coin", None),
+    "cien pesos": ("coin", None),
+    "mexican peso": ("coin", None),
+    "duit": ("coin", None),
+    "voc duit": ("coin", None),
+    "thaler": ("coin", None),
+    "farthing": ("coin", None),
+    "half penny": ("coin", None),
+    "one crown": ("coin", None),
+    "double denarius": ("coin", None),
+    "colonial coin": ("coin", None),
+    "constantine x": ("coin", "Ancient"),
+    "constans": ("coin", "Ancient"),
+    "julian ii": ("coin", "Ancient"),
+    "herod 1": ("coin", "Ancient"),
+    "17-18th century": ("coin", None),
+    "m25 japan yen": ("coin", None),
+    "m26 japan yen": ("coin", None),
+    "m27 japan yen": ("coin", None),
+    "mark 45": ("coin", None),
+    "bullet paisa": ("coin", None),
+    "silver coin": ("coin", None),
+    "mini coins": ("coin", None),
+    "bimetalic": ("coin", None),
+    "double eagle": ("coin", None),
+    "commemorative": ("coin", "Commemorative"),
+    "comm": ("coin", "Commemorative"),
+    "pres coin": ("coin", "Presidential"),
+    "indian chief": ("coin", None),
+    "nixon": ("coin", "Presidential"),
+    "1880-o": ("coin", None),
+    # -- currency ----------------------------------------------------------
+    "mixed bills": ("currency", None),
+    "mixed gold bills": ("currency", None),
+    "1/2 goldback": ("currency", "Goldback"),
+    "1/4 gold back": ("currency", "Goldback"),
+    "currency": ("currency", None),
+    "adv script": ("currency", "Advertising Scrip"),
+    "dozen dollars": ("currency", None),
+    # -- medals ------------------------------------------------------------
+    "medals": ("medal", None),
+    # -- other -------------------------------------------------------------
+    "mixed": ("other", "Mixed Lot"),
+    "multi": ("other", "Mixed Lot"),
+    "special": ("other", None),
+    "pirate": ("other", "Novelty"),
+    "pirate coin": ("other", "Novelty"),
+    "pirate money": ("other", "Novelty"),
+    "stamps": ("other", "Stamps"),
+    "jeweler loop": ("other", "Equipment"),
+    "flip": ("other", "Supplies"),
+    "merch": ("other", "Merchandise"),
+    "vaultbox": ("other", "Vault Box"),
+}
+
+#: Packaging, read from the denomination and description together.
+STORAGE_FORMS: list[tuple[str, str]] = [
+    ("box", r"\bbox\b"),
+    ("roll", r"\brolls?\b"),
+    ("tube", r"\btube\b"),
+    ("bag", r"\bbag\b"),
+    ("album", r"\balbum\b|\bfolder\b"),
+    ("proof set", r"proof\s*set"),
+    ("mint set", r"mint\s*set"),
+]
 
 # --------------------------------------------------------------------------
 # Field parsing
@@ -131,6 +253,10 @@ class CollectionV1Profile:
         low = denom.casefold()
         if not denom:
             return Classification(kind=UNKNOWN, rule="blank")
+
+        if known := KNOWN_VALUES.get(low):
+            kind, subtype = known
+            return Classification(kind, subtype, "known-value")
 
         for label, pattern in BULLION_FORMS:
             if re.search(pattern, low):
@@ -187,6 +313,11 @@ class CollectionV1Profile:
         # multi-piece lots stay one row with a quantity
         m = MULTIPLIER.match(denom)
         fields["storage_quantity"] = int(m.group(1)) if m else 1
+
+        blob = f"{denom} {row.text(COL_DESCRIPTION)}".casefold()
+        fields["storage_form"] = next(
+            (name for name, pat in STORAGE_FORMS if re.search(pat, blob)), "single"
+        )
 
         self._check_money(row, issues, fields)
         self._parse_year(row, issues, fields, classification.kind)

@@ -77,7 +77,7 @@ def profile() -> CollectionV1Profile:
         ("Medal", "medal"),
         ("Token", "token"),
         ("", UNKNOWN),
-        ("Mixed", UNKNOWN),
+        ("Zzz Nonexistent", UNKNOWN),
     ],
 )
 def test_classification(profile: CollectionV1Profile, denom: str, expected: str) -> None:
@@ -99,7 +99,7 @@ def test_sets_are_tested_before_currency(profile: CollectionV1Profile) -> None:
 
 
 def test_unclassified_rows_are_flagged_for_review(profile: CollectionV1Profile) -> None:
-    result = profile.inspect(make_row(Denom="Pirate Money"))
+    result = profile.inspect(make_row(Denom="Zzz Nonexistent"))
     assert result.classification.kind == UNKNOWN
     assert result.needs_review
     assert any(i.rule == "unclassified" for i in result.issues)
@@ -188,7 +188,7 @@ def test_commit_writes_batch_rows_and_issues(
 ) -> None:
     rows = [
         make_row(2, Denom="0.25", Price="10"),
-        make_row(3, Denom="Pirate Money"),          # unclassified -> issue
+        make_row(3, Denom="Zzz Nonexistent"),          # unclassified -> issue
         make_row(4, Denom="$1 Bill", **{"Grading#": "5.0157E+14"}),  # error
     ]
     report = ImportEngine(profile, session=db).run(FakeSource(rows), mode=COMMIT)
@@ -225,18 +225,18 @@ def test_report_counts_reconcile(profile: CollectionV1Profile) -> None:
         make_row(2, Denom="0.25"),
         make_row(3, Denom="Silver Eagle"),
         make_row(4, Denom="$1 Bill"),
-        make_row(5, Denom="Mixed"),
+        make_row(5, Denom="Zzz Nonexistent"),
     ]
     report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
     assert report.rows == 4
     assert sum(report.kinds.values()) == report.rows, "every row lands in exactly one kind"
     assert report.classified == 3
-    assert report.unclassified_values["Mixed"] == 1
+    assert report.unclassified_values["Zzz Nonexistent"] == 1
 
 
 def test_report_renders_without_error(profile: CollectionV1Profile) -> None:
     report = ImportEngine(profile).run(
-        FakeSource([make_row(2, Denom="Mixed")]), mode=DRY_RUN
+        FakeSource([make_row(2, Denom="Zzz Nonexistent")]), mode=DRY_RUN
     )
     text = report.render()
     assert "UNCLASSIFIED VALUES" in text and "collection_v1" in text
@@ -257,9 +257,9 @@ def test_issue_records_carry_the_source_row_number(profile: CollectionV1Profile)
 
 
 def test_unclassified_values_record_their_rows(profile: CollectionV1Profile) -> None:
-    rows = [make_row(10, Denom="Mixed"), make_row(20, Denom="Mixed"), make_row(30, Denom="0.25")]
+    rows = [make_row(10, Denom="Zzz Nonexistent"), make_row(20, Denom="Zzz Nonexistent"), make_row(30, Denom="0.25")]
     report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
-    assert report.unclassified_rows["Mixed"] == [10, 20]
+    assert report.unclassified_rows["Zzz Nonexistent"] == [10, 20]
 
 
 def test_write_all_produces_reviewable_files(profile: CollectionV1Profile, tmp_path) -> None:
@@ -270,7 +270,7 @@ def test_write_all_produces_reviewable_files(profile: CollectionV1Profile, tmp_p
     rows = [
         make_row(2, Denom="0.25", Price="10"),
         make_row(3, Denom="$20 Blll"),
-        make_row(4, Denom="Pirate Money"),
+        make_row(4, Denom="Zzz Nonexistent"),
         make_row(5, Denom="1", **{"Grading#": "5.0157E+14"}),
     ]
     report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
@@ -287,7 +287,7 @@ def test_write_all_produces_reviewable_files(profile: CollectionV1Profile, tmp_p
 
     with paths["unclassified"].open(encoding="utf-8-sig") as fh:
         unclassified = list(_csv.DictReader(fh))
-    assert any(r["raw_value"] == "Pirate Money" and r["rows"] == "4" for r in unclassified)
+    assert any(r["raw_value"] == "Zzz Nonexistent" and r["rows"] == "4" for r in unclassified)
 
     with paths["issues"].open(encoding="utf-8-sig") as fh:
         issues = list(_csv.DictReader(fh))
@@ -302,3 +302,63 @@ def test_report_names_rows_for_corrections(profile: CollectionV1Profile) -> None
     text = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN).render()
     assert "SUGGESTED SOURCE CORRECTIONS" in text
     assert "rows 77" in text
+
+
+# --------------------------------------------------------------------------
+# Column profiling
+# --------------------------------------------------------------------------
+
+
+def _profiled(rows):
+    from app.importers import profiling
+
+    report = ImportEngine(CollectionV1Profile()).run(FakeSource(rows), mode=DRY_RUN)
+    return {p.name: p for p in profiling.profile_columns(report)}
+
+
+def test_normalise_collapses_case_space_and_punctuation() -> None:
+    from app.importers.profiling import normalise
+
+    assert normalise("$20 Blll") == normalise("$20blll") == "20blll"
+    assert normalise("Silver Eagle") == normalise("SilverEagle")
+
+
+def test_repeating_column_is_recommended_as_a_reference_table() -> None:
+    from app.importers.profiling import REFERENCE
+
+    rows = [make_row(i, Denom="0.25", Rating="UNC") for i in range(2, 60)]
+    assert _profiled(rows)["Rating"].recommendation == REFERENCE
+
+
+def test_nearly_unique_long_column_is_free_text() -> None:
+    from app.importers.profiling import FREE_TEXT
+
+    rows = [
+        make_row(i, Denom="0.25", Description=f"a distinct long description number {i}")
+        for i in range(2, 60)
+    ]
+    assert _profiled(rows)["Description"].recommendation == FREE_TEXT
+
+
+def test_empty_column_is_flagged_for_dropping() -> None:
+    from app.importers.profiling import EMPTY
+
+    rows = [make_row(i, Denom="0.25") for i in range(2, 10)]
+    assert _profiled(rows)["Comment"].recommendation == EMPTY
+
+
+def test_variants_point_the_rare_spelling_at_the_dominant_one() -> None:
+    """The mechanism that finds typos without a hand-written typo list."""
+    rows = [make_row(i, Denom="0.25", Rating="UNC") for i in range(2, 40)]
+    rows.append(make_row(99, Denom="0.25", Rating="Unc"))
+    variants = _profiled(rows)["Rating"].variants
+    assert len(variants) == 1
+    assert variants[0].rare_value == "Unc"
+    assert variants[0].likely_intended == "UNC"
+
+
+def test_a_spelling_that_does_not_dominate_is_not_flagged() -> None:
+    """Two common spellings are a real distinction, not a typo."""
+    rows = [make_row(i, Denom="0.25", Rating="UNC") for i in range(2, 22)]
+    rows += [make_row(i, Denom="0.25", Rating="Unc") for i in range(30, 50)]
+    assert _profiled(rows)["Rating"].variants == []
