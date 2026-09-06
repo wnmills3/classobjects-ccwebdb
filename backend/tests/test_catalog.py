@@ -298,3 +298,29 @@ def test_cannot_delete_item_that_appears_in_an_order(
     response = client.delete(f"/api/catalog/{listing.id}", headers=admin_headers)
     assert response.status_code == 409
     assert "is_active" in response.json()["detail"]
+
+
+def test_a_new_item_gets_its_code_from_the_database(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Nothing in the application assigns an item code.
+
+    The spreadsheet backfill was a one-off UPDATE over rows that already
+    existed; from then on the code comes from a column default backed by a
+    sequence, on every path that creates an item. Two concurrent creates
+    therefore cannot compute the same code, because neither computes one.
+    """
+    first = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
+    second = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
+
+    assert first["item_code"].startswith("CC-")
+    assert first["item_code"] != second["item_code"]
+
+    # The client cannot claim one either: item_code is not an input field, so
+    # a caller supplying it is ignored rather than trusted.
+    forced = client.post(
+        "/api/catalog",
+        json={**NEW_ITEM, "item_code": "CC-000001"},
+        headers=admin_headers,
+    ).json()
+    assert forced["item_code"] != "CC-000001"
