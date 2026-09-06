@@ -114,10 +114,37 @@ claude       2.1.261 (Claude Code)
 .runtime\pg_start.log     pg_ctl start output
 .runtime\pg_stop.log      pg_ctl stop output
 .pgdata\server.log        PostgreSQL server log
+logs\import\              import review files (see below)
 ```
 
-`.runtime\` is gitignored. When something fails to start, those logs are the
-first place to look — the scripts print the relevant path on failure.
+`.runtime\`, `.pgdata\` and `logs\` are all gitignored. When something fails to
+start, those logs are the first place to look — the scripts print the relevant
+path on failure.
+
+## Import review files
+
+```cmd
+cd backend
+uv run python -m app.importers.cli --file <source.xlsx>
+```
+
+Writes to `logs\import\` by default — inside the project and gitignored, so
+generated output never lands somewhere unexpected and never reaches version
+control. Override with `--out-dir`, or suppress with `--no-files`.
+
+| File | Contents |
+|---|---|
+| `corrections.csv` | distinct typos, their suggested fix, and every source row carrying them |
+| `unclassified.csv` | values no rule could place, with their rows |
+| `variants.csv` | rare spellings that collapse onto a dominant one, per column |
+| `columns.csv` | per column: reference table, free text, numeric or drop |
+| `issues.csv` | one line per issue, with the whole source row |
+| `summary.json` | counts, for tooling |
+| `report.txt` | the console report |
+
+Row numbers are the spreadsheet's own, with the header as row 1, so they can be
+typed straight into a Go To dialog. Dry run is the default and needs no
+database, so these can be regenerated with nothing running.
 
 ---
 

@@ -227,3 +227,4 @@ dist/
 .vite/
 .runtime/
 .semgrep/
+logs/

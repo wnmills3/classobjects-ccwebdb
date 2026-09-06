@@ -1,10 +1,13 @@
 """Import CLI.
 
-    :: dry run, prints a report -- no database needed
+    :: dry run -- no database needed. Writes review files to logs\\import\\.
     uv run python -m app.importers.cli --file <path.xlsx>
 
-    :: dry run, also writes review files you can open in a spreadsheet
-    uv run python -m app.importers.cli --file <path.xlsx> --out-dir review
+    :: somewhere else
+    uv run python -m app.importers.cli --file <path.xlsx> --out-dir <dir>
+
+    :: console report only
+    uv run python -m app.importers.cli --file <path.xlsx> --no-files
 
     :: write staging rows to the database
     uv run python -m app.importers.cli --file <path.xlsx> --commit
@@ -17,13 +20,19 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
+from ..config import REPO_ROOT
 from . import reporting
 from .engine import COMMIT, DRY_RUN, ImportEngine
 from .profiles.collection_v1 import CollectionV1Profile
 from .sources import XlsxSource
 
 PROFILES = {"collection_v1": CollectionV1Profile}
+
+#: Inside the project and gitignored, so review output never lands somewhere
+#: surprising and never reaches version control.
+DEFAULT_OUT_DIR = REPO_ROOT / "logs" / "import"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -37,8 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out-dir",
         default=None,
-        help="write issues.csv, corrections.csv, unclassified.csv, "
-        "summary.json and report.txt here",
+        help=f"where to write review files (default: {DEFAULT_OUT_DIR})",
+    )
+    parser.add_argument(
+        "--no-files", action="store_true", help="console report only, write nothing"
     )
     parser.add_argument("--quiet", action="store_true", help="suppress the report")
     args = parser.parse_args(argv)
@@ -64,12 +75,17 @@ def main(argv: list[str] | None = None) -> int:
     if not args.quiet:
         print(report.render(top=args.top))
 
-    if args.out_dir:
-        paths = reporting.write_all(report, args.out_dir)
+    if not args.no_files:
+        out_dir = Path(args.out_dir) if args.out_dir else DEFAULT_OUT_DIR
+        paths = reporting.write_all(report, out_dir)
         print("")
         print("review files written:")
         for label, path in paths.items():
-            print(f"  {label:<13} {path}")
+            try:
+                shown = path.relative_to(REPO_ROOT)
+            except ValueError:
+                shown = path
+            print(f"  {label:<13} {shown}")
 
     # Non-zero when anything is unusable, so a pipeline can gate on it.
     return 1 if report.issues_by_severity.get("error") else 0
