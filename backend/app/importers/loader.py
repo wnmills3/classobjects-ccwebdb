@@ -34,6 +34,8 @@ from ..models import (
     BullionForm,
     CoinDetail,
     Composition,
+    Country,
+    Currency,
     CurrencyDetail,
     Denomination,
     Disposition,
@@ -246,8 +248,29 @@ class SchemaLoader:
         grade_id = self._grade_id(fields.get("grade_raw"), fields)
         metal_id, fineness = self._metal_and_fineness(bullion_form_id, fields)
 
+        # Face value -> denomination -> composition is the chain that makes
+        # melt valuation work without recording metal content per item.
+        denomination_id = self._denomination_id(fields)
+        country_id = self._country_id(denomination_id)
+
         gross = _as_decimal(fields.get("weight_ozt"))
         fine = self._fine_weight(gross, fineness, fields)
+
+        composition = self.resolve_composition(
+            denomination_id, country_id, fields.get("year_start")
+        )
+        composition_id = composition.id if composition else None
+        if composition is not None:
+            # A public fact beats an absent one, but never overrides a weight
+            # the source actually stated.
+            if metal_id is None:
+                metal_id = composition.metal_id
+            if fineness is None:
+                fineness = composition.fineness
+            if gross is None:
+                gross = composition.gross_weight_ozt
+            if fine is None:
+                fine = composition.fine_weight_ozt
 
         vendor_id = self.vendor_id(fields.get("vendor_name"), fields.get("vendor_url"))
         order_id = self.purchase_order_id(
@@ -263,6 +286,9 @@ class SchemaLoader:
         item = InventoryItem(
             purchase_order_id=order_id,
             item_kind_id=item_kind_id,
+            denomination_id=denomination_id,
+            country_id=country_id,
+            composition_id=composition_id,
             bullion_form_id=bullion_form_id,
             set_form_id=set_form_id,
             storage_form_id=storage_form_id,
@@ -479,6 +505,53 @@ class SchemaLoader:
             return None
         return (gross * fineness).quantize(Decimal("0.000001"))
 
+    def _denomination_id(self, fields: dict) -> int | None:
+        """Match a face value to a seeded denomination.
+
+        Matched on (currency, face value, kind) rather than on the written
+        text, because the same face value is written a dozen ways. The kind
+        matters: a US dollar exists as both a coin and a note, and they are
+        different objects with different catalogues.
+
+        Returns None when the source stated no face value. That is a real
+        answer -- "Silver Eagle" has no meaningful face value for valuation --
+        and it is better than attaching the item to a composition it does not
+        have.
+        """
+        face = _as_decimal(fields.get("face_value"))
+        kind = fields.get("denomination_kind")
+        if face is None or kind is None:
+            return None
+
+        key = ("__denomination__", f"{kind}:{face}")
+        if key in self._codes:
+            return self._codes[key]
+
+        usd = self.code_id(Currency, "USD")
+        found = self.session.execute(
+            select(Denomination.id).where(
+                Denomination.currency_id == usd,
+                Denomination.face_value == face,
+                Denomination.kind == kind,
+            )
+        ).scalar_one_or_none()
+
+        # Not created when missing: denominations are a curated catalogue of
+        # what a mint actually issued, not a list of numbers seen in a file.
+        self._codes[key] = found
+        return found
+
+    def _country_id(self, denomination_id: int | None) -> int | None:
+        """Issuing country, inferred from the denomination rather than assumed.
+
+        A USD denomination implies a US issuer. Nothing is guessed for items
+        whose denomination did not resolve -- an unknown country would break
+        the composition lookup in the direction of a wrong answer.
+        """
+        if denomination_id is None:
+            return None
+        return self.code_id(Country, "US")
+
     def resolve_composition(
         self, denomination_id: int | None, country_id: int | None, year: int | None
     ) -> Composition | None:
@@ -542,6 +615,7 @@ _PROMOTED = frozenset(
         "vendor_name", "vendor_url", "order_number", "ordered_on", "title",
         "description", "listing_url", "comment", "metal", "fineness",
         "fine_weight_ozt", "grading_service", "grade_designation",
+        "face_value", "denomination_kind",
         "local_catalog_number", "seal_color", "note_attributes",
     }
 )

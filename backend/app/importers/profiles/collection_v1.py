@@ -395,6 +395,7 @@ class CollectionV1Profile:
         self._check_identifiers(row, issues, classification.kind, fields)
         self._read_value_column(row, issues, fields)
         self._carry_text(row, fields)
+        self._parse_face_value(denom_raw, classification.kind, fields)
 
         return RowResult(classification=classification, issues=issues, fields=fields)
 
@@ -424,6 +425,35 @@ class CollectionV1Profile:
 
         if ordered := row.text(COL_ORDERED):
             fields["ordered_on"] = _as_date(ordered)
+
+    def _parse_face_value(self, denom: str, kind: str, fields: dict) -> None:
+        """Read a face value out of the denomination, when it states one.
+
+        Face value is what links an item to the `composition` table, and
+        composition is what makes melt valuation possible at all -- a 1963
+        dime is 90% silver because the law said so. Without this the whole
+        public-facts mechanism is inert.
+
+        Only unambiguous forms are read. "Silver Eagle" has a face value of
+        $1 but is worth its metal, and reading a face value there would
+        resolve it to a composition it does not have.
+        """
+        text = denom.strip()
+        if not text:
+            return
+
+        if kind == "currency":
+            if m := re.match(r"^\$?\s*([\d,]+(?:\.\d+)?)\s*(?:bill|note)?\b", text, re.I):
+                fields["face_value"] = _decimal(m.group(1))
+                fields["denomination_kind"] = "note"
+            return
+
+        # A coin denomination in this source is written as a bare number:
+        # 0.25 is a quarter, 25 is a $25 Gold Eagle. Anything with words in
+        # it is a product name, not a face value.
+        if kind == "coin" and PURE_NUMBER.match(text):
+            fields["face_value"] = _decimal(text.lstrip("$").strip())
+            fields["denomination_kind"] = "coin"
 
     # -- individual checks -------------------------------------------------
     def _parse_weight(self, denom: str, issues: list[Issue], fields: dict) -> None:
