@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -115,3 +117,197 @@ def test_every_listed_vocabulary_can_actually_be_fetched(
         response = client.get(f"/api/reference/{table}")
         assert response.status_code == 200, f"{table} listed but not fetchable"
         assert response.json()["table"] == table
+
+
+# ---------------------------------------------------------------------------
+# Growing the vocabularies with use
+# ---------------------------------------------------------------------------
+
+
+def test_a_value_can_be_added_while_picking(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The organic-growth path: an operator entering an item that does not fit
+    the shipped vocabulary adds the missing value rather than abandoning the
+    entry or forcing it into an approximate one."""
+    response = client.post(
+        "/api/reference/grade",
+        json={"code": "MS64PL", "label": "MS-64 Prooflike"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["code"] == "MS64PL"
+
+    # Marked as this installation's own, not shipped catalogue.
+    assert body["source"] == "manual"
+
+    values = client.get("/api/reference/grade").json()["values"]
+    assert "MS64PL" in {v["code"] for v in values}
+
+
+def test_added_values_do_not_leak_into_a_shared_export(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`manual` is what keeps one collection's additions out of a catalogue
+    handed to another installation."""
+    client.post(
+        "/api/reference/grade",
+        json={"code": "HOUSE_X", "label": "House grade"},
+        headers=admin_headers,
+    )
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from app.seeding import export_reference_data
+
+    with TemporaryDirectory() as tmp:
+        export_reference_data(db, Path(tmp), sources=["seeded"])
+        payload = json.loads((Path(tmp) / "grade.json").read_text(encoding="utf-8"))
+    assert "HOUSE_X" not in {r["code"] for r in payload["grade"]}
+
+
+def test_adding_a_duplicate_code_is_refused(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/reference/grade",
+        json={"code": "MS65", "label": "Another MS-65"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 409
+
+
+def test_adding_requires_an_administrator(
+    client: TestClient, customer_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/reference/grade",
+        json={"code": "ANY", "label": "Any"},
+        headers=customer_headers,
+    )
+    assert response.status_code == 403
+
+
+def test_a_table_specific_column_can_be_supplied(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/reference/error_type",
+        json={
+            "code": "clashed_dies",
+            "label": "Clashed Dies",
+            "extra": {"applies_to": "coin"},
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 201
+    assert response.json()["extra"]["applies_to"] == "coin"
+
+
+def test_a_missing_required_column_is_explained(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A denomination without a currency or a face value cannot exist, and the
+    caller should be told which, not handed a 500."""
+    response = client.post(
+        "/api/reference/denomination",
+        json={"code": "usd_coin_3_00", "label": "Three Dollars"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422
+
+
+def test_an_unknown_column_is_named(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/reference/grade",
+        json={"code": "X1", "label": "X", "extra": {"nonsense": 1}},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422
+    assert "nonsense" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Renaming
+# ---------------------------------------------------------------------------
+
+
+def test_renaming_a_label_takes_effect_everywhere_at_once(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The payoff for keeping one copy: every record refers to the value by
+    foreign key, so there is nothing to migrate."""
+    from app.models import InventoryItem, ItemKind
+    from tests.test_schema import code_id, make_item
+
+    item = make_item(db, item_kind_id=code_id(db, ItemKind, "coin"),
+                     grade_id=code_id(db, Grade, "MS65"))
+
+    response = client.patch(
+        "/api/reference/grade/MS65",
+        json={"label": "MS-65 (Gem Uncirculated)"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+
+    db.expire_all()
+    refreshed = db.get(InventoryItem, item.id)
+    assert refreshed.grade.label == "MS-65 (Gem Uncirculated)"
+    # ...and the code, which is the contract, is untouched.
+    assert refreshed.grade.code == "MS65"
+
+
+def test_renaming_does_not_change_the_code(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The code appears in saved filters and bookmarked searches, so renaming
+    the label is precisely the operation that must not break them."""
+    client.patch(
+        "/api/reference/grade/MS64", json={"label": "Renamed"}, headers=admin_headers
+    )
+    values = client.get("/api/reference/grade").json()["values"]
+    entry = next(v for v in values if v["code"] == "MS64")
+    assert entry["label"] == "Renamed"
+
+
+def test_a_value_can_be_retired_without_breaking_existing_records(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Deleting is refused by the foreign keys anyway; retiring removes it from
+    the pickers while leaving old records valid."""
+    from app.models import ItemKind
+    from tests.test_schema import code_id, make_item
+
+    make_item(db, item_kind_id=code_id(db, ItemKind, "coin"),
+              grade_id=code_id(db, Grade, "VG8"))
+
+    client.patch(
+        "/api/reference/grade/VG8", json={"label": "VG-8", "is_active": False},
+        headers=admin_headers,
+    )
+
+    offered = {v["code"] for v in client.get("/api/reference/grade").json()["values"]}
+    assert "VG8" not in offered
+    everything = client.get("/api/reference/grade?include_inactive=true").json()
+    assert "VG8" in {v["code"] for v in everything["values"]}
+
+
+def test_renaming_an_unknown_value_is_a_404(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    response = client.patch(
+        "/api/reference/grade/NOPE", json={"label": "x"}, headers=admin_headers
+    )
+    assert response.status_code == 404
+
+
+def test_renaming_requires_an_administrator(
+    client: TestClient, customer_headers: dict[str, str]
+) -> None:
+    response = client.patch(
+        "/api/reference/grade/MS65", json={"label": "x"}, headers=customer_headers
+    )
+    assert response.status_code == 403

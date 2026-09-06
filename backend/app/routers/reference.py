@@ -21,10 +21,16 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from ..deps import DbSession
-from ..models import REFERENCE_MODELS
-from ..schemas import ReferenceTableOut, ReferenceValueOut
+from ..deps import AdminUser, DbSession
+from ..models import REFERENCE_MODELS, ProvenanceSource
+from ..schemas import (
+    ReferenceTableOut,
+    ReferenceValueCreate,
+    ReferenceValueOut,
+    ReferenceValueRename,
+)
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
@@ -106,3 +112,115 @@ def get_table(
         table=table,
         values=[_to_value(row, model) for row in rows],
     )
+
+
+def _model_or_404(table: str) -> type:
+    model = TABLES.get(table)
+    if model is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown reference table: {table!r}",
+        )
+    return model
+
+
+@router.post(
+    "/{table}", response_model=ReferenceValueOut, status_code=status.HTTP_201_CREATED
+)
+def create_value(
+    table: str, payload: ReferenceValueCreate, db: DbSession, _admin: AdminUser
+) -> ReferenceValueOut:
+    """Add a value to a vocabulary, so the tables grow with use.
+
+    An operator entering an item that does not fit the shipped vocabulary adds
+    the missing value here rather than abandoning the entry or forcing it into
+    an approximate one -- which is what actually happens otherwise, and it is
+    invisible afterwards.
+
+    Marked `manual`, so one installation's additions stay distinguishable from
+    the shipped catalogue and do not leave in an export unless asked for.
+
+    Staff only. The *importer* may also invent values, because it is
+    reconciling a real collection against an incomplete vocabulary; an
+    anonymous request has no such standing.
+    """
+    model = _model_or_404(table)
+
+    if db.scalar(select(model).where(model.code == payload.code)) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{table} already has a value with code {payload.code!r}",
+        )
+
+    known = {c.name for c in model.__table__.columns}
+    unknown = set(payload.extra) - known
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{table} has no column(s) {sorted(unknown)}. "
+            f"Available: {sorted(known - {'id'})}",
+        )
+
+    row = model(
+        code=payload.code,
+        label=payload.label,
+        sort_order=payload.sort_order,
+        source=ProvenanceSource.manual,
+        **payload.extra,
+    )
+    db.add(row)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        # Most often a NOT NULL column this table needs and the caller did not
+        # supply -- a denomination without a currency, say.
+        raise HTTPException(
+            status_code=422,
+            detail=f"{table} rejected the value: {exc.orig}",
+        ) from exc
+
+    db.commit()
+    db.refresh(row)
+    return _to_value(row, model)
+
+
+@router.patch("/{table}/{code}", response_model=ReferenceValueOut)
+def rename_value(
+    table: str,
+    code: str,
+    payload: ReferenceValueRename,
+    db: DbSession,
+    _admin: AdminUser,
+) -> ReferenceValueOut:
+    """Change what a value is called.
+
+    The label only. The code is the contract -- it appears in saved filters,
+    bookmarked searches and any integration -- so it does not change, and
+    renaming the label is precisely what lets a poorly worded one be fixed
+    without breaking those.
+
+    **Nothing needs migrating.** Every record refers to the value by foreign
+    key, so the new wording is live everywhere the moment this commits. That is
+    the payoff for keeping one copy of it.
+    """
+    model = _model_or_404(table)
+    row = db.scalar(select(model).where(model.code == code))
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{table} has no value with code {code!r}",
+        )
+
+    row.label = payload.label
+    if payload.sort_order is not None:
+        row.sort_order = payload.sort_order
+    if payload.is_active is not None:
+        # Retiring a value keeps existing records valid while removing it from
+        # the pickers -- which is what you want, since deleting it is refused
+        # by the foreign keys anyway.
+        row.is_active = payload.is_active
+
+    db.commit()
+    db.refresh(row)
+    return _to_value(row, model)

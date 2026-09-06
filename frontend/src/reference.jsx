@@ -18,6 +18,17 @@ export function ReferenceProvider({ children }) {
   const [tables, setTables] = useState({})
   const [pending, setPending] = useState({})
 
+  // After adding a value the cached vocabulary is stale, so it is dropped and
+  // refetched rather than patched locally -- the server decides sort order and
+  // provenance, and guessing at them here is how a cache starts lying.
+  const invalidate = useCallback((table) => {
+    setTables((t) => {
+      const next = { ...t }
+      delete next[table]
+      return next
+    })
+  }, [])
+
   const load = useCallback(
     async (table) => {
       if (tables[table] || pending[table]) return
@@ -37,7 +48,7 @@ export function ReferenceProvider({ children }) {
   )
 
   return (
-    <ReferenceContext.Provider value={{ tables, load }}>
+    <ReferenceContext.Provider value={{ tables, load, invalidate }}>
       {children}
     </ReferenceContext.Provider>
   )
@@ -63,6 +74,49 @@ export function useReference(table) {
  */
 export function ReferenceSelect({ table, value, onChange, allowBlank = true, placeholder }) {
   const values = useReference(table)
+  const context = useContext(ReferenceContext)
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState({ code: '', label: '' })
+  const [error, setError] = useState('')
+
+  async function addValue() {
+    try {
+      await api.addReferenceValue(table, draft)
+      context?.invalidate(table)
+      onChange({ target: { value: draft.code } })
+      setAdding(false)
+      setDraft({ code: '', label: '' })
+      setError('')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  if (adding) {
+    // Vocabularies grow with use: rather than abandoning an entry that does
+    // not fit, the missing value is added here and selected immediately.
+    return (
+      <div className="add-reference">
+        <input
+          placeholder="code"
+          value={draft.code}
+          onChange={(e) => setDraft({ ...draft, code: e.target.value })}
+        />
+        <input
+          placeholder="label"
+          value={draft.label}
+          onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+        />
+        <button type="button" onClick={addValue} disabled={!draft.code || !draft.label}>
+          Add
+        </button>
+        <button type="button" className="link" onClick={() => setAdding(false)}>
+          Cancel
+        </button>
+        {error && <span className="error">{error}</span>}
+      </div>
+    )
+  }
 
   if (!values || values.length === 0) {
     return (
@@ -76,16 +130,26 @@ export function ReferenceSelect({ table, value, onChange, allowBlank = true, pla
   }
 
   return (
-    <select value={value ?? ''} onChange={onChange} aria-label={table}>
-      {allowBlank && <option value="">--</option>}
-      {values.map((entry) => (
-        <option key={entry.code} value={entry.code}>
-          {entry.label}
-          {/* Values an import invented are marked, so a curated vocabulary
-              can be told apart from one collection's guesses. */}
-          {entry.source === 'derived' ? ' *' : ''}
-        </option>
-      ))}
-    </select>
+    <div className="reference-select">
+      <select
+        value={value ?? ''}
+        onChange={(e) => {
+          if (e.target.value === '__add__') setAdding(true)
+          else onChange(e)
+        }}
+        aria-label={table}
+      >
+        {allowBlank && <option value="">--</option>}
+        {values.map((entry) => (
+          <option key={entry.code} value={entry.code}>
+            {entry.label}
+            {/* Values an import invented are marked, so a curated vocabulary
+                can be told apart from one collection's guesses. */}
+            {entry.source === 'seeded' ? '' : ' *'}
+          </option>
+        ))}
+        <option value="__add__">+ Add a new value...</option>
+      </select>
+    </div>
   )
 }
