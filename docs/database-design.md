@@ -95,6 +95,8 @@ One row per acquired item or lot. The shared spine.
 | `grade_designation_id` | fk null | DCAM, CAM, RD, RB, BN, FS, FB |
 | `grading_service_id` | fk null | who graded it, distinct from the grade |
 | `authenticity_id` | fk | unverified, genuine, counterfeit, questionable |
+| `error_type_id` | fk null | mint or printing error — see §4 |
+| `error_details` | text null | free-form notes about the error |
 | `status_id` | fk | **acquisition** lifecycle — see §7 |
 | `disposition_id` | fk | **sales** lifecycle — see §7 |
 | `storage_location_id` | fk null | where it physically is |
@@ -213,11 +215,42 @@ and `source` (`seeded | derived | manual`). `code` is stable and machine-facing;
 | `item_status` | acquisition lifecycle | ordered, received, canceled, returned, missing, unknown |
 | `disposition` | sales lifecycle | held, listed, sold, shipped, delivered, returned_by_buyer |
 | `authenticity` | authenticity finding | unverified, genuine, counterfeit, questionable |
+| `error_type` | mint / printing error | Doubled Die, Off Center, Clipped Planchet, Struck Through, Repunched Mintmark, Miscut, Misaligned Print, Offset Printing, Gutter Fold, Ink Smear, Inverted Overprint, … |
 | `valuation_basis` | which value applies | melt, numismatic, manual |
 | `image_role` | what a photo shows | obverse, reverse, edge, detail, slab, certificate, group, packaging, unassigned |
 | `storage_location_kind` | where things live | safe_deposit_box, safe, home, in_transit, sold, unknown |
 | `carrier` | shipping carrier | USPS, UPS, FedEx, DHL |
 | `vendor_kind` | acquisition channel | marketplace, auction, mint, dealer |
+
+### Errors
+
+An error is a manufacturing defect that usually makes an item *more* desirable,
+so it is worth recording on any kind — a coin struck off centre, a note miscut
+or printed with an offset. Two fields on `inventory_item`, applicable
+throughout:
+
+```
+error_type_id   fk null    the classified defect, from the reference table
+error_details   text null  free-form notes: position, extent, direction,
+                           attribution, whatever the piece needs
+```
+
+`error_type` carries an `applies_to` column (`coin | currency | any`), because
+the vocabularies barely overlap — a coin is *struck*, a note is *printed* — and
+the entry form should offer only what is relevant.
+
+| applies_to | representative values |
+|---|---|
+| coin | Doubled Die, Off Center, Clipped Planchet, Wrong Planchet, Broadstrike, Brockage, Die Crack, Cud, Lamination, Repunched Mintmark, Struck Through, Overdate, Mule, Blank Planchet |
+| currency | Miscut, Misaligned Print, Offset Printing, Gutter Fold, Ink Smear, Missing Overprint, Inverted Overprint, Insufficient Inking, Obstruction, Fold-over |
+| any | Other |
+
+**Never inferred from free text.** Description fields are seller-supplied prose,
+and keyword matching against them is unreliable in both directions: scanning a
+real collection for error terms matched auction boilerplate such as *"ITEM SHOWN
+ON SCREEN"* and *"no cancellations"*, while errors described in other words were
+missed entirely. The error type is set by a person, and `error_details` exists
+precisely because the interesting part rarely fits a vocabulary.
 
 **Why grade is not one column.** Condition strings in this domain routinely
 combine a grade, a designation, a grading service and — for notes — attributes

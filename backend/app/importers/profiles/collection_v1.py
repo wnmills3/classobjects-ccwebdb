@@ -97,6 +97,34 @@ CORRECTIONS: dict[str, str] = {
 }
 
 # --------------------------------------------------------------------------
+# Values confirmed correct as written.
+#
+# The column profiler proposes corrections by collapsing case, spacing and
+# punctuation, which makes some legitimate values look like typos. Each entry
+# here was checked against the actual record and is not to be flagged again.
+# --------------------------------------------------------------------------
+KNOWN_GOOD: dict[str, set[str]] = {
+    COL_DENOM: {
+        # A 1/4 oz American Gold Eagle has a $25 face value. It collapses onto
+        # "2.5" -- the $2.50 Quarter Eagle -- which is a different coin entirely.
+        "25",
+        # ".5 oz" is a half ounce. It collapses onto "5oz", which is ten times
+        # the metal.
+        "Silver Round .5 oz",
+        "Silver Round .5oz",
+    },
+    COL_YEAR: {
+        # A year may be a single year, a range, a decade, or uncertain.
+        # Decades use an apostrophe, e.g. a roll of pennies spanning the 1980s.
+        # They collapse onto "1980-S", which is a mint mark, not a decade.
+        "1980's",
+        "1970's",
+        "2024?",    # the year is uncertain; meaning still unresolved
+        "2016-",    # "2016=" is the majority but the "=" is unexplained
+    },
+}
+
+# --------------------------------------------------------------------------
 # Known values.
 #
 # An explicit map, not clever patterns: every entry is auditable at a glance
@@ -247,6 +275,7 @@ class CollectionV1Profile:
     """Rules for one spreadsheet. Disposable."""
 
     name = "collection_v1"
+    known_good = KNOWN_GOOD
 
     # -- classification ----------------------------------------------------
     def _classify(self, denom: str) -> Classification:
