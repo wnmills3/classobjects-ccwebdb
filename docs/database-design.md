@@ -112,7 +112,11 @@ One row per acquired item or lot. The shared spine.
 | `numismatic_value` | numeric(12,2) null | manual estimate, the collector premium |
 | `valuation_basis_id` | fk | melt, numismatic, manual |
 | `composition_id` | fk null | resolves metal content — see §6 |
-| `metal_id`, `fineness`, `fine_weight_ozt` | null | set directly for bullion |
+| `metal_id` | fk null | set directly for bullion |
+| `fineness` | numeric(6,4) null | 0.9000, 0.9990, 0.4000 |
+| `gross_weight_ozt` | numeric(12,6) null | whole-item weight, troy ounces |
+| `fine_weight_ozt` | numeric(12,6) null | precious metal content — the melt input |
+| `weight_raw` | text null | the weight as originally written, e.g. `1/2 Kilo` |
 | `attributes` | jsonb | long-tail attributes; see the promotion rule below |
 | `source` | enum | seeded, derived, manual |
 | `created_at`, `updated_at` | timestamptz | |
@@ -355,6 +359,33 @@ metal_price                -- time series
 Coinage composition is a matter of legislation and mint specification, so it
 resolves from denomination, country and year without being recorded per item,
 and remains overridable.
+
+### Weight is its own field, and it is not a float
+
+Weight is stored on `inventory_item`, never left inside a denomination string,
+because it is an input to a calculation rather than a label. Three points:
+
+**`NUMERIC(12,6)`, not a float.** Weight multiplies straight into money —
+`weight x spot x quantity` — and a float cannot represent `0.1` exactly, so the
+error compounds through every revaluation. The rest of the schema already
+forbids floats for money; the multiplicand deserves the same treatment. Six
+decimal places in troy ounces represents every real figure exactly, including a
+silver dime at `0.072338` and a 1.5 g gold nugget at `0.048225`.
+
+**Gross and fine are different numbers.** A Morgan dollar weighs `0.859370` ozt
+in total but contains `0.773440` ozt of silver, because it is 90% fine. Melt
+value uses **fine** weight. Where a `composition` row resolves, fine weight is
+derived from denomination and year rather than entered; for bullion it is set
+directly.
+
+**Troy ounces are the stored unit**, with `weight_raw` preserving what was
+actually written — grams, kilos and pounds all appear in practice and convert on
+the way in.
+
+> One ambiguity worth knowing: precious metals are sold by the **troy** ounce
+> (31.1035 g) while copper rounds are commonly sold by the **avoirdupois** ounce
+> (28.35 g) — a 9.7% difference. It barely moves a copper valuation in money
+> terms, but the unit a source meant should be recorded rather than assumed.
 
 ```
 melt_value     = fine_weight_ozt * latest_spot(metal) * storage_quantity
