@@ -240,3 +240,65 @@ def test_report_renders_without_error(profile: CollectionV1Profile) -> None:
     )
     text = report.render()
     assert "UNCLASSIFIED VALUES" in text and "collection_v1" in text
+
+
+# --------------------------------------------------------------------------
+# Reporting -- reviewable without a database
+# --------------------------------------------------------------------------
+
+
+def test_issue_records_carry_the_source_row_number(profile: CollectionV1Profile) -> None:
+    """A typo is only actionable if you know which row to fix."""
+    rows = [make_row(2, Denom="0.25"), make_row(4711, Denom="$20 Blll")]
+    report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
+    fix = next(r for r in report.corrections() if r.raw_value == "$20 Blll")
+    assert fix.row_number == 4711
+    assert fix.proposed == "$20 Bill"
+
+
+def test_unclassified_values_record_their_rows(profile: CollectionV1Profile) -> None:
+    rows = [make_row(10, Denom="Mixed"), make_row(20, Denom="Mixed"), make_row(30, Denom="0.25")]
+    report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
+    assert report.unclassified_rows["Mixed"] == [10, 20]
+
+
+def test_write_all_produces_reviewable_files(profile: CollectionV1Profile, tmp_path) -> None:
+    import csv as _csv
+
+    from app.importers import reporting
+
+    rows = [
+        make_row(2, Denom="0.25", Price="10"),
+        make_row(3, Denom="$20 Blll"),
+        make_row(4, Denom="Pirate Money"),
+        make_row(5, Denom="1", **{"Grading#": "5.0157E+14"}),
+    ]
+    report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
+    paths = reporting.write_all(report, tmp_path)
+
+    for path in paths.values():
+        assert path.exists(), f"{path} was not written"
+
+    with paths["corrections"].open(encoding="utf-8-sig") as fh:
+        corrections = list(_csv.DictReader(fh))
+    typo = next(r for r in corrections if r["raw_value"] == "$20 Blll")
+    assert typo["suggested_fix"] == "$20 Bill"
+    assert typo["rows"] == "3", "the exact source row must be named"
+
+    with paths["unclassified"].open(encoding="utf-8-sig") as fh:
+        unclassified = list(_csv.DictReader(fh))
+    assert any(r["raw_value"] == "Pirate Money" and r["rows"] == "4" for r in unclassified)
+
+    with paths["issues"].open(encoding="utf-8-sig") as fh:
+        issues = list(_csv.DictReader(fh))
+    err = next(r for r in issues if r["severity"] == "error")
+    assert err["row_number"] == "5"
+    # the whole source row travels with the issue, for context
+    assert "src::Denom" in err and err["src::Denom"] == "1"
+
+
+def test_report_names_rows_for_corrections(profile: CollectionV1Profile) -> None:
+    rows = [make_row(77, Denom="$2Bill")]
+    text = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN).render()
+    assert "SUGGESTED SOURCE CORRECTIONS" in text
+    assert "rows 77" in text

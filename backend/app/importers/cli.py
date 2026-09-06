@@ -1,19 +1,24 @@
 """Import CLI.
 
-    uv run python -m app.importers.cli --file <path>              dry run
-    uv run python -m app.importers.cli --file <path> --commit     write staging
-    uv run python -m app.importers.cli --file <path> --limit 200  sample
+    :: dry run, prints a report -- no database needed
+    uv run python -m app.importers.cli --file <path.xlsx>
 
-Dry run is the default and touches no database.
+    :: dry run, also writes review files you can open in a spreadsheet
+    uv run python -m app.importers.cli --file <path.xlsx> --out-dir review
+
+    :: write staging rows to the database
+    uv run python -m app.importers.cli --file <path.xlsx> --commit
+
+Dry run is the default and touches no database, so the review files can be
+produced with nothing running.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from pathlib import Path
 
+from . import reporting
 from .engine import COMMIT, DRY_RUN, ImportEngine
 from .profiles.collection_v1 import CollectionV1Profile
 from .sources import XlsxSource
@@ -28,8 +33,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", default="collection_v1", choices=sorted(PROFILES))
     parser.add_argument("--commit", action="store_true", help="write staging rows")
     parser.add_argument("--limit", type=int, default=None, help="only N rows")
-    parser.add_argument("--top", type=int, default=25, help="rows per report section")
-    parser.add_argument("--json", dest="json_out", default=None, help="also write JSON")
+    parser.add_argument("--top", type=int, default=25, help="entries per section")
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="write issues.csv, corrections.csv, unclassified.csv, "
+        "summary.json and report.txt here",
+    )
+    parser.add_argument("--quiet", action="store_true", help="suppress the report")
     args = parser.parse_args(argv)
 
     source = XlsxSource(args.file, sheet=args.sheet)
@@ -50,26 +61,15 @@ def main(argv: list[str] | None = None) -> int:
         if session is not None:
             session.close()
 
-    print(report.render(top=args.top))
+    if not args.quiet:
+        print(report.render(top=args.top))
 
-    if args.json_out:
-        payload = {
-            "source_path": report.source_path,
-            "sha256": report.sha256,
-            "profile": report.profile_name,
-            "mode": report.mode,
-            "rows": report.rows,
-            "classified_pct": round(report.classified_pct, 2),
-            "kinds": dict(report.kinds),
-            "subtypes": dict(report.subtypes),
-            "issues_by_rule": dict(report.issues_by_rule),
-            "issues_by_severity": dict(report.issues_by_severity),
-            "review_rows": report.review_rows,
-            "unclassified_values": dict(report.unclassified_values),
-            "batch_id": report.batch_id,
-        }
-        Path(args.json_out).write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"\nJSON written to {args.json_out}")
+    if args.out_dir:
+        paths = reporting.write_all(report, args.out_dir)
+        print("")
+        print("review files written:")
+        for label, path in paths.items():
+            print(f"  {label:<13} {path}")
 
     # Non-zero when anything is unusable, so a pipeline can gate on it.
     return 1 if report.issues_by_severity.get("error") else 0
