@@ -127,6 +127,35 @@ anomaly checks are kind-aware: `no_grade` means *a coin or banknote with no
 grade*, so the 2,970 real cases are not buried under rounds that will never
 have one.
 
+## Finding the spreadsheet row behind an item
+
+For the imported collection only:
+
+```
+spreadsheet row = item code number + 1
+```
+
+`CC-002577` is row 2578; `CC-000001` is row 2; `CC-007598` is row 7599. The
+offset is the header row and it is exactly 1 for every one of the 7,598 items
+-- verified, not sampled. It holds because `item_code`, `inventory_item.id` and
+`import_row.id` were all assigned in the same pass.
+
+This makes cleanup much faster, since an anomaly found in the database can be
+checked against the original cell. But it is a **historical accident, not a
+guarantee**:
+
+- It applies only to `CC-000001` through `CC-007598`. The sequence is past
+  7,612, so anything created afterwards -- including the 770 reconstructed
+  purchase-lot parents -- corresponds to no spreadsheet row.
+- Nothing maintains it. Insert or delete a spreadsheet row and it is gone.
+
+The authoritative link is `import_row.inventory_item_id`, which survives all of
+that. Use the arithmetic to find a row by eye; use the join in code.
+
+Gaps in the item codes are normal. Fourteen were consumed by test runs and
+rolled-back transactions, and codes are never reused, so a gap never means a
+missing item.
+
 ## Working through it
 
 The tools are search and edit, not a wizard.
