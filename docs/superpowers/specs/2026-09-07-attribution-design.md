@@ -178,7 +178,8 @@ badge on the row. Adding a check later means adding one predicate.
 
 Initial checks: `no_year`, `no_grade`, `no_country`, `no_denomination`,
 `no_weight_bullion`, `mixed_marker`, `lot_count_mismatch`, `zero_price`,
-`kind_unknown`, `repeated_identity`, `inherited_from_lot`.
+`kind_unknown`, `repeated_identity`, `star_mismatch`, `interior_asterisk`,
+`inherited_from_lot`.
 
 ### Duplicate detection needs a natural key
 
@@ -210,6 +211,42 @@ single-character errors -- `O` for `U`, a dropped digit, `6` for `3` -- and
 were invisible to equality. The check should compare normalised identifiers
 (case folded, non-alphanumerics stripped) and flag near-matches within one
 purchase order as candidates, since that is where they cluster.
+
+### Cross-field checks find what no single field shows
+
+Some anomalies are only visible as a *disagreement between two fields*, and
+they are the most valuable kind because neither field looks wrong alone.
+
+**Star notes are the worked example.** A star (replacement) note carries an
+asterisk at the start or end of its serial -- never in the middle -- and there
+is a `star` entry in `note_attribute` to record it. Among notes with a serial:
+
+| Asterisk in serial | `star` attribute | Count |
+|---|---|---|
+| yes | yes | 161 |
+| yes | **no** | **28** |
+| **no** | yes | **5** |
+| no | no | 821 |
+
+33 disagreements, none of which any single-field check would surface. The 28
+include `B08084501*` through `B08084510*`, ten consecutive star notes whose
+attribute was never set. This is not cosmetic: star notes carry a premium, so
+those 28 would currently be listed as ordinary notes and sold too cheaply.
+
+Two related rules fall out:
+
+- **An interior asterisk is invalid.** The character is positional -- start or
+  end only. Currently 0 rows violate this, and the check exists to keep it that
+  way.
+- **Position is recorded inconsistently**: 179 trailing, 10 leading. Both mean
+  the same thing, so a search keyed on a trailing `*` silently misses ten
+  notes. The attribute, not the punctuation, should be what searches use --
+  which is exactly why the 33 disagreements need resolving first.
+
+The general shape is worth reusing: wherever a fact is recorded in two places
+-- a marker inside a free-text field and a structured attribute beside it --
+the check is that they agree, and the fix is to make the structured one
+authoritative.
 
 **And a repeat is sometimes correct.** Four of the nine currency groups are
 genuinely different notes -- different series or series letter -- that share a
