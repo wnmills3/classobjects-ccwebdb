@@ -1,14 +1,8 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+
+import { CartContext } from './cart-context'
 
 const CART_KEY = 'ccwebdb.cart'
-const CartContext = createContext(null)
 
 function readCart() {
   try {
@@ -83,10 +77,4 @@ export function CartProvider({ children }) {
 
   const value = { lines, add, setQuantity, remove, clear, count, total }
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
-}
-
-export function useCart() {
-  const ctx = useContext(CartContext)
-  if (!ctx) throw new Error('useCart must be used inside a CartProvider')
-  return ctx
 }

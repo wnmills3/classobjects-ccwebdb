@@ -1,7 +1,7 @@
 import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 
-import { useAuth } from './auth'
-import { useCart } from './cart'
+import { useAuth } from './auth-context'
+import { useCart } from './cart-context'
 import AdminCoins from './pages/AdminCoins'
 import Cart from './pages/Cart'
 import Catalog from './pages/Catalog'

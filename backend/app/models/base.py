@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import enum
 from datetime import UTC, datetime
-from typing import ClassVar
 
 from sqlalchemy import Boolean, DateTime, Enum, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
@@ -76,9 +75,12 @@ class ReferenceMixin:
     ``label`` is display text and may be reworded freely.
     """
 
-    #: Set by every concrete table. Declared here so the attribute is known
-    #: to a type checker rather than only to the declarative machinery.
-    __tablename__: ClassVar[str]
+    # NOTE: __tablename__ is deliberately NOT declared here. Annotating it as
+    # ClassVar[str] looks like an improvement -- it tells a checker the
+    # attribute exists -- but SQLAlchemy's DeclarativeBase already declares it
+    # as an instance variable, and overriding that with a class variable is an
+    # error on every concrete table that inherits this mixin. It cost 29 new
+    # findings the first time it was tried.
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(64), nullable=False)

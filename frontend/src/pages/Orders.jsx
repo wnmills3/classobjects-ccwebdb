@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { useAuth } from '../auth'
+import { useAuth } from '../auth-context'
 import { date, money } from '../format'
 
 const STATUSES = ['pending', 'paid', 'shipped', 'cancelled']
