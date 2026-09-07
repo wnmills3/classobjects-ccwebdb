@@ -1,0 +1,42 @@
+# Line endings
+#
+# Without this file the working tree inherits whatever `core.autocrlf` happens
+# to be set to on the machine. Here it is `true`, so git stored LF and checked
+# out CRLF -- and prettier, which defaults to endOfLine "lf", then reported
+# every frontend file as misformatted, including package-lock.json and
+# .prettierrc.json itself. Nothing was wrong with the files; the whole check
+# was measuring the checkout rule. Pinning the rules here makes the working
+# tree identical on every machine regardless of local git configuration.
+#
+# The repository side is unchanged: git already stored LF for every tracked
+# file, and still does. These rules only decide what lands on disk.
+
+# Default: detect text, store LF, check out LF.
+* text=auto eol=lf
+
+# Batch files are read by cmd.exe, which is genuinely fussy about CRLF --
+# labels and goto inside parenthesised blocks can misbehave in an LF-only
+# file, and scripts/ here use both. Stored as LF like everything else, but
+# written to disk as CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary. `text=auto` detects most of these on its own; naming them means a
+# corrupt checkout is impossible rather than merely unlikely. The project
+# handles photographs and spreadsheets, so these will appear eventually.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.xlsx binary
+*.xls  binary
+*.zip  binary
+*.woff binary
+*.woff2 binary
+
+# Generated and vendored files: keep them out of diffs and language stats.
+uv.lock                    -diff linguist-generated
+frontend/package-lock.json -diff linguist-generated
