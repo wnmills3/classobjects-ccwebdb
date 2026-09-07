@@ -9,8 +9,8 @@ looks arbitrary.
 
 Turn a personal coin and currency collection into a running business.
 
-The collection is real and already loaded: **7,598 items, $535,436.59 cost
-basis, 2,361 troy ounces of fine metal**. It was kept in a spreadsheet for
+The collection is real and already loaded: **7,591 items, $534,177.89 cost
+basis, 2,358 troy ounces of fine metal**. It was kept in a spreadsheet for
 years. The spreadsheet could record what was bought; it could not support
 selling from it, and it could not answer the questions a tax return asks.
 
@@ -85,8 +85,8 @@ to one of each at the same time and they say nothing about each other.
 ## What has to happen first
 
 Selling cannot start until the catalogue is trustworthy, and it is not yet.
-Half the collection arrived as flattened purchase lots -- 770 groups covering
-3,780 items, each group being rows the spreadsheet repeated because it had no
+Half the collection arrived as flattened purchase lots -- 769 groups covering
+3,777 items, each group being rows the spreadsheet repeated because it had no
 way to say "twenty of these". Those rows share a description and an order
 number and nothing else; the individual coins have never been described.
 

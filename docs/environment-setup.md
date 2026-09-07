@@ -177,15 +177,50 @@ npm install
 
 ## 8. Create the schema and seed data
 
+There are two paths and they are **not interchangeable**. Choose by whether a
+real collection is going into this database.
+
+### A trial installation, with demo data
+
 ```cmd
 cd backend
 uv run alembic upgrade head
+uv run python -m app.seeding load
 uv run python -m app.seed
 ```
 
-The seed creates the administrator from `FIRST_ADMIN_EMAIL` /
-`FIRST_ADMIN_PASSWORD` plus five sample inventory items. It is idempotent —
-re-running it will not duplicate rows.
+`app.seeding load` populates the 29 reference vocabularies. `app.seed` then
+creates the administrator from `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`
+**plus five demo inventory items with listings**. Both are idempotent.
+
+### A real collection
+
+```cmd
+cd backend
+uv run alembic upgrade head
+uv run python -m app.seeding load
+uv run python -m app.importers.cli --file <spreadsheet.xlsx> --commit
+uv run python -m app.seed
+```
+
+**`app.seed` must come after the import, and its demo items then deleted.**
+Run before, its five demo coins consume `CC-000002` through `CC-000006`, so
+every real item is permanently offset by five and five coins that do not exist
+sit in the collection. Nothing warns you; the import simply starts at
+`CC-000007`.
+
+To remove them after seeding the administrator:
+
+```sql
+DELETE FROM listing WHERE inventory_item_id IN
+  (SELECT id FROM inventory_item WHERE price = 0 AND parent_item_id IS NULL);
+DELETE FROM inventory_item WHERE price = 0 AND parent_item_id IS NULL;
+```
+
+Then verify the collection totals before trusting anything downstream: the item
+count, the cost basis and `sum(fine_weight_ozt * storage_quantity)`. **Multiply
+by `storage_quantity`** — a row holding twenty coins carries twenty coins'
+worth of metal, and the unweighted sum understates the holding by about 10%.
 
 ---
 

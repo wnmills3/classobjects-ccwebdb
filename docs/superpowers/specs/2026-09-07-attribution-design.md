@@ -28,30 +28,30 @@ year, mint mark, grade and variety. None of that was knowable at purchase.
 
 ### What is actually wrong, measured
 
-Over 7,598 items, excluding split parents:
+Over 7,591 items, excluding split parents:
 
 | Anomaly | Count |
 |---|---|
-| No grade (coins and currency only) | 2,970 |
-| No country | 2,395 |
+| No grade (coins and currency only) | 2,965 |
+| No country | 2,394 |
 | No year | 1,230 |
 | Bullion with no weight | 712 |
-| No denomination (coins and currency) | 263 |
+| No denomination (coins and currency) | 262 |
 | `Mixed` marker in grade or description | 186 rows, 43 groups |
 | Zero or missing price | 51 |
 | "LOT OF *n*" where *n* does not match the row count | 44 |
 | Kind still `unknown` | 33 |
 | Repeated currency serial numbers | 18 notes, 9 groups |
-| Repeated certification numbers | 80 rows, 40 numbers |
+| Repeated certification numbers | 108 rows, 48 numbers |
 | Reversed or implausible years | 0 |
 
 ### How the collection is grouped
 
 | Population | Count | State | Needs |
 |---|---|---|---|
-| Flattened purchase lots | 770 lots / **3,780 items** | one row per coin already, no parent | reconstruct the parent, then attribute each row |
+| Flattened purchase lots | 769 lots / **3,777 items** | one row per coin already, no parent | reconstruct the parent, then attribute each row |
 | Unsplit conglomerates | 12 items / **240 pieces** | still one row holding many coins | run the existing split, then attribute |
-| Bought individually | 3,813 items | fine | nothing |
+| Bought individually | 3,809 items | fine | nothing |
 
 **These populations overlap.** Seven of the twelve conglomerates are *also*
 inside a flattened group -- rows like `20x 1oz Copper Round Mixed`, repeated
@@ -59,7 +59,7 @@ nine times, each row itself holding twenty rounds. Those are lots of lots, and
 they need reconstructing *and* splitting. Any code that treats the three
 populations as disjoint will mishandle them.
 
-The 770 groups are rows sharing a purchase order and an identical description
+The 769 groups are rows sharing a purchase order and an identical description
 -- the spreadsheet's only way to say "twenty of these". The literal example:
 `(LOT OF 29) MORGAN SILVER DOLLARS "BETTER YEARS" 1878 - 1898`, 23 rows.
 
@@ -74,7 +74,7 @@ row stands for several different coins and the purchase lot needs decomposing.
 1. **An item that is not for sale cannot be edited at all.** The only editing
    path is `PATCH /api/catalog/{listing_id}`, which requires a listing. Every
    freshly split piece has none.
-2. **`split_item` creates no detail row.** Every one of the 7,598 items has
+2. **`split_item` creates no detail row.** Every one of the 7,591 items has
    exactly one -- `currency_detail` for currency, `coin_detail` for everything
    else, 100% coverage -- but split children get neither. Mint mark, variety
    and serial number have nowhere to be written. This is a bug, not a design
@@ -103,13 +103,13 @@ A separate table would have needed its own exclusion rule in four views, which
 is the kind of thing that gets missed in one of them.
 
 **The backfill reconstructs the parent the spreadsheet flattened away.** For
-each of the 770 groups: create one `inventory_item` holding the purchase order,
+each of the 769 groups: create one `inventory_item` holding the purchase order,
 the shared description, `price` and `shipping` summed from its rows, and
 `split_at` set; then point the members at it. This is not inventing a fiction.
 A roll of 20 Morgans on one order *was* one purchase; the spreadsheet could not
 express it.
 
-Grouping by `(purchase_order_id, description)` will be wrong somewhere in 770
+Grouping by `(purchase_order_id, description)` will be wrong somewhere in 769
 groups -- two genuinely separate purchases of the same thing on one order would
 merge -- so the backfill needs a review pass and the manual repair tools below.
 
@@ -122,7 +122,7 @@ would shift. A key that is actively being edited cannot be the key iterated by.
 
 ### Lot operations
 
-**The backfill is the manual tool run 770 times.** One operation -- group these
+**The backfill is the manual tool run 769 times.** One operation -- group these
 items under a new parent -- exposed as an endpoint and used by both the cleanup
 panel and the backfill script. A migration with its own copy of the logic is a
 migration whose behaviour drifts from the UI's.
@@ -168,7 +168,7 @@ only from search, because search is exactly where it is not.
 **Anomalies are named, kind-aware checks, not generic field filters.**
 `?issue=no_grade` means *a coin or banknote with no grade*, because bullion has
 no grade by nature and 712 rounds have no weight either. A generic `grade=null`
-would bury the 2,970 real cases under rounds that will never have one. The
+would bury the 2,965 real cases under rounds that will never have one. The
 domain knowledge belongs in the check, defined once, rather than in the head of
 whoever types the filter.
 
@@ -326,7 +326,7 @@ overridden and what is still only the seller's claim.
 **This replaces a stored `examined` flag.** An earlier draft proposed
 `examined_at`, a column someone maintains. It was dropped: the same question is
 answered by comparing the item to its parent, which cannot drift out of sync,
-needs no backfill decision for the 7,598 existing items, and finds problems
+needs no backfill decision for the 7,591 existing items, and finds problems
 nobody thought to flag.
 
 ## API
@@ -388,7 +388,7 @@ Follows the existing practice of proving a guarantee by removing it.
 - **Split creates detail rows.** Every child of a split has exactly one detail
   row, of the kind its `item_kind` implies.
 - **Backfill is the endpoint.** The migration calls the same code path as
-  `POST /api/inventory/group`; a test asserts the 770 reconstructed parents
+  `POST /api/inventory/group`; a test asserts the 769 reconstructed parents
   have `price` equal to the sum of their children and that total cost basis
   across the collection is unchanged to the penny.
 
@@ -396,12 +396,12 @@ Follows the existing practice of proving a guarantee by removing it.
 
 1. Add `deleted_at`; add `AND i.deleted_at IS NULL` to all four views.
 2. Fix `split_item` to create the detail row.
-3. Backfill the 770 parents through the group operation, in a transaction, with
+3. Backfill the 769 parents through the group operation, in a transaction, with
    a report written to `logs/` naming every group created and its members.
 4. Verify cost basis is unchanged: `sum(total_cost)` over non-split,
-   non-deleted items must still be $535,436.59.
+   non-deleted items must still be $534,177.89.
 
-Step 4 is the one that matters. The backfill creates 770 rows holding money;
+Step 4 is the one that matters. The backfill creates 769 rows holding money;
 if any of them is counted alongside its children the collection's value
 silently doubles in places.
 
@@ -421,7 +421,7 @@ silently doubles in places.
   matched-serial notes and 5 are the same note entered twice, with 3 further
   duplicates hidden behind typos.
 - **Certification numbers are not reliable and should not be trusted as an
-  identifier.** 40 numbers repeat across 80 rows. The 29 largest cases sit
+  identifier.** 48 numbers repeat across 108 rows. The 29 largest cases sit
   across two eBay orders six months apart with different totals -- two genuine
   purchases whose seller reused one listing template across identical PR69DCAM
   sets. The certificates were copied from listing text, so they identify the
