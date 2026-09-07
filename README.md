@@ -168,6 +168,30 @@ Notable behaviour:
   and the price actually paid. Everything that counts inventory or money
   excludes it, so a lot and its pieces are never both counted.
 
+## Looking at the data
+
+```
+scripts\ccweb_psql.cmd                              interactive psql
+scripts\ccweb_psql.cmd -c "select * from metal;"    one statement
+scripts\ccweb_psql.cmd -f query.sql                 a file
+```
+
+Query the **views** rather than the base tables: `coin_inventory`,
+`currency_inventory`, `item_valuation` and `public_catalog` resolve every
+foreign key to a readable code, so `grade` reads `MS64` instead of `grade_id`
+reading `37`. They also exclude lots that have been split, so nothing is
+counted twice.
+
+One trap when writing queries by hand: `title` holds the *denomination* as the
+spreadsheet wrote it (`0.25`, `Mint Set`, `5`), not a descriptive name. The
+words a person would search for live in `description` -- "Morgan" appears 899
+times there and never once in `title`. Search both, as the API already does:
+
+```sql
+select item_code, description, year_start, grade from coin_inventory
+where coalesce(title, '') || ' ' || coalesce(description, '') ilike '%morgan%';
+```
+
 ## Code quality
 
 ```
