@@ -206,6 +206,40 @@ be auto-resolved together:
 Only the shape of the value distinguishes them, so the check surfaces
 candidates and a person decides. It never merges rows.
 
+### The auction lot id is the only reliable duplicate key
+
+Resolved 2026-09-07 after three wrong answers, each wrong the same way.
+
+`import_row.raw->>'Link'` carries the venue's own lot id, e.g.
+`.../lot/226778844/1886-morgan-silver-dollar-ngc-ms66`. It is issued by the
+auction house and means exactly one thing: **one lot, won once.**
+
+63 lot ids appear on more than one row. Almost all are innocent -- one lot
+containing twenty coins becomes twenty rows, which is the flattened purchase
+lot again. What separates the duplicates is a signal with no innocent reading:
+
+| | Lot ids | Rows |
+|---|---|---|
+| All rows share one order date -- a genuine multi-item lot | 58 | 397 |
+| **Rows carry different order dates** -- the same lot recorded twice | **5** | **14** |
+
+A lot of twenty coins arrives on one date. The same lot appearing on 9 January
+*and* 12 January cannot be two purchases. Four of the five are one HiBid batch
+entered three days apart; the fifth is a three-note set entered twice.
+
+**Three earlier attempts failed, and the pattern is worth keeping.** Grouping by
+`(order, description)` returned 731 groups and $91,752 -- those were the Morgan
+rolls. Grouping by repeated lot id returned 63 groups and $26,353 -- those were
+multi-coin lots. Parsing counts out of the description (`[3]`, `x20`, `(2) x`)
+returned 38 suspects and $20,170 -- but `$10 Morgan Silver Dollar Sealed roll`
+means ten dollars of face value, `Silver Eagle Roll` means twenty coins, and
+`Red Seal $1, $2 & $5 Set` means three notes. Free text written by an auction
+house to sell something will not classify.
+
+**Prefer a field with a structural guarantee over free text.** The lot id is
+issued by the venue and means one thing. The description means whatever sold
+the lot.
+
 **Exact matching is not enough.** Three further currency duplicates hide behind
 single-character errors -- `O` for `U`, a dropped digit, `6` for `3` -- and
 were invisible to equality. The check should compare normalised identifiers
@@ -380,14 +414,16 @@ silently doubles in places.
   them, but the piece count comes from `storage_quantity`, which was itself
   parsed from the spreadsheet. Those counts want checking against the
   descriptions before anyone splits on them.
-- **Possible duplicate rows, and how many.** Investigated 2026-09-07. Of the 9
-  repeated currency serials, 4 are legitimate matched-serial notes and 5 are
-  the same note entered twice; 3 further duplicates hide behind typos. On the
-  coin side, 40 certification numbers repeat across 80 rows, **32 of them
-  spanning different purchase orders** -- one slab recorded as two purchases at
-  $7.30 and $7.42. If those are duplicates, the collection is smaller than
-  7,598 and the cost basis is overstated by roughly the value of 90-odd rows.
-  This wants confirming against the original invoices before anything is
-  deleted, because the alternative explanation -- one purchase recorded twice
-  under two order numbers -- would mean the *orders* need reconciling, not the
-  items.
+- **Duplicate rows: 5 lots, 7 surplus rows, $1,183.55.** Resolved 2026-09-07,
+  see the auction-lot-id section above. Needs confirming against the physical
+  collection -- one 1886 Morgan MS66 or two -- before anything is deleted.
+- **Currency duplicates.** Of the 9 repeated serials, 4 are legitimate
+  matched-serial notes and 5 are the same note entered twice, with 3 further
+  duplicates hidden behind typos.
+- **Certification numbers are not reliable and should not be trusted as an
+  identifier.** 40 numbers repeat across 80 rows. The 29 largest cases sit
+  across two eBay orders six months apart with different totals -- two genuine
+  purchases whose seller reused one listing template across identical PR69DCAM
+  sets. The certificates were copied from listing text, so they identify the
+  *listing*, not the slab. They want either re-reading from the physical slabs
+  or clearing.
