@@ -393,8 +393,8 @@ button.link.danger {
   display: block;
   aspect-ratio: 4 / 3;
   overflow: hidden;
-  background: #f2f2f0;
-  border-bottom: 1px solid #e3e3e0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 .card-thumb img {
   width: 100%;
@@ -404,22 +404,28 @@ button.link.danger {
 .card-thumb-empty {
   background: repeating-linear-gradient(
     45deg,
-    #f5f5f3,
-    #f5f5f3 10px,
-    #efefec 10px,
-    #efefec 20px
+    var(--bg),
+    var(--bg) 10px,
+    var(--surface) 10px,
+    var(--surface) 20px
   );
 }
 .detail-image {
   max-width: 100%;
-  border: 1px solid #e3e3e0;
+  border: 1px solid var(--border);
   border-radius: 4px;
 }
 
-/* Inventory search panel and results grid. */
+/* Inventory search panel and results grid.
+
+   Every colour here comes from the theme variables. Hardcoded near-white
+   values were used originally, which looked right in light mode and rendered
+   the panel's labels as white text on a white background under
+   `prefers-color-scheme: dark` -- `--text` flips to #ece9e4 while a literal
+   #fafaf8 does not flip at all. */
 .search-panel {
-  background: #fafaf8;
-  border: 1px solid #e3e3e0;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.9rem;
   margin-bottom: 1rem;

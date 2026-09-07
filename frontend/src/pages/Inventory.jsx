@@ -34,6 +34,7 @@ const COIN_VIEW = {
     ['Cost', 'total_cost', 'money'],
     ['Status', 'status'],
   ],
+  textFilters: [['Item code', 'item_code', 'CC-000123']],
   facetFilters: [
     ['Kind', 'kind', 'item_kind'],
     ['Metal', 'metal', 'metal'],
@@ -61,6 +62,10 @@ const CURRENCY_VIEW = {
     ['Grade', 'grade'],
     ['Cost', 'total_cost', 'money'],
     ['Status', 'status'],
+  ],
+  textFilters: [
+    ['Serial number', 'serial_number', 'B0808450_  (_ = one char, % = any)'],
+    ['Item code', 'item_code', 'CC-000123'],
   ],
   facetFilters: [
     ['Note type', 'note_type', 'note_type'],
@@ -153,7 +158,7 @@ function InventoryView({ config }) {
       <div className="search-panel">
         <input
           className="search-text"
-          placeholder="Search title, item code, notes..."
+          placeholder="Search descriptions, e.g. morgan, silver eagle, red seal"
           defaultValue={current.q ?? ''}
           onKeyDown={(e) => {
             if (e.key === 'Enter') apply({ q: e.target.value })
@@ -182,6 +187,25 @@ function InventoryView({ config }) {
               </label>
             )
           })}
+
+          {/* Text filters match anywhere in the value and ignore case, so a
+              partial serial finds the note. `%` and `_` reach the SQL pattern
+              unescaped and work as wildcards -- `_` for one character, which
+              is what finds a run of consecutive notes. */}
+          {(config.textFilters ?? []).map(([label, param, placeholder]) => (
+            <label key={param}>
+              {label}
+              <input
+                type="text"
+                placeholder={placeholder}
+                defaultValue={current[param] ?? ''}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') apply({ [param]: e.target.value })
+                }}
+                onBlur={(e) => apply({ [param]: e.target.value })}
+              />
+            </label>
+          ))}
 
           <label>
             Year from
