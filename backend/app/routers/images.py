@@ -52,6 +52,7 @@ CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
 def image_urls(image_id: int) -> dict[str, str]:
+    """Where an image's renditions are served from. Never the original."""
     return {
         "thumbnail_url": f"{settings.api_prefix}/images/{image_id}/thumb",
         "image_url": f"{settings.api_prefix}/images/{image_id}/web",
@@ -59,6 +60,7 @@ def image_urls(image_id: int) -> dict[str, str]:
 
 
 def to_image_out(image: Image) -> ImageOut:
+    """Project a stored image into the API shape."""
     return ImageOut(
         id=image.id,
         sha256=image.sha256,
@@ -102,9 +104,7 @@ def ingest(db: Session, raw: bytes, source_ref: str | None) -> Image:
     db.flush()
 
     for kind, longest_edge in DERIVATIVE_SIZES.items():
-        data, width, height, media_type = make_derivative(
-            cleansed.data, longest_edge
-        )
+        data, width, height, media_type = make_derivative(cleansed.data, longest_edge)
         derived_key = derivative_key(cleansed.sha256, kind.value, media_type)
         storage.put(derived_key, data)
         db.add(
@@ -153,9 +153,7 @@ async def upload_image(
             )
         )
         if link is None:
-            link = ItemImage(
-                inventory_item_id=inventory_item_id, image_id=image.id
-            )
+            link = ItemImage(inventory_item_id=inventory_item_id, image_id=image.id)
             db.add(link)
         link.image_role_id = code_to_id(db, ImageRole, image_role, "image_role")
 

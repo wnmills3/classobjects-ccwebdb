@@ -26,12 +26,6 @@ from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import select, text
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.orm.exc import StaleDataError
-
 from app.models import (
     Authenticity,
     Disposition,
@@ -42,14 +36,19 @@ from app.models import (
     StorageForm,
     ValuationBasis,
 )
+from fastapi.testclient import TestClient
+from sqlalchemy import select, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm.exc import StaleDataError
 
 
-def _code(session: Session, model, code: str) -> int:
+def _code(session: Session, model: type, code: str) -> int:
     return session.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
 @pytest.fixture
-def committed(engine: Engine):
+def committed(engine: Engine) -> None:
     """Real, committing sessions. Cleans up what it makes."""
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     yield factory
@@ -84,7 +83,9 @@ def committed(engine: Engine):
         cleanup.commit()
 
 
-def make_lot(factory, *, quantity: int = 4, price: str = "100.00") -> int:
+def make_lot(
+    factory: sessionmaker[Session], *, quantity: int = 4, price: str = "100.00"
+) -> int:
     with factory() as session:
         item = InventoryItem(
             title="WRITE-RACE lot",
@@ -108,7 +109,7 @@ def make_lot(factory, *, quantity: int = 4, price: str = "100.00") -> int:
 
 
 def test_a_second_writer_is_refused_rather_than_silently_winning(
-    committed,
+    committed: sessionmaker[Session],
 ) -> None:
     """The failure this exists to prevent.
 
@@ -141,7 +142,7 @@ def test_a_second_writer_is_refused_rather_than_silently_winning(
     )
 
 
-def test_the_version_advances_on_every_write(committed) -> None:
+def test_the_version_advances_on_every_write(committed: sessionmaker[Session]) -> None:
     item_id = make_lot(committed)
     with committed() as session:
         row = session.get(InventoryItem, item_id)
@@ -151,9 +152,12 @@ def test_the_version_advances_on_every_write(committed) -> None:
         assert row.version == first + 1
 
 
-def test_reads_are_never_blocked_by_a_write(committed) -> None:
-    """MVCC's half of the guarantee: a reader sees the previous committed
-    value immediately rather than waiting for the writer to finish."""
+def test_reads_are_never_blocked_by_a_write(committed: sessionmaker[Session]) -> None:
+    """A reader is never made to wait for a writer.
+
+    MVCC's half of the guarantee: a reader sees the previous committed
+    value immediately rather than waiting for the writer to finish.
+    """
     item_id = make_lot(committed)
     writing = threading.Event()
     may_finish = threading.Event()
@@ -189,7 +193,9 @@ def test_reads_are_never_blocked_by_a_write(committed) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_two_people_cannot_split_the_same_lot_at_once(committed) -> None:
+def test_two_people_cannot_split_the_same_lot_at_once(
+    committed: sessionmaker[Session],
+) -> None:
     """Check-then-act on one row, so the lot is locked before the decision.
 
     Without the lock both callers read split_at as NULL, both proceed, and the
@@ -239,8 +245,11 @@ def test_two_people_cannot_split_the_same_lot_at_once(committed) -> None:
 def test_a_stale_form_is_refused_by_the_api(
     client: TestClient, admin_headers: dict[str, str], listing: Listing
 ) -> None:
-    """Two staff open the same item; the second saves a form loaded before the
-    first one's change. Their stale title must not overwrite it."""
+    """A form loaded before someone else's save is refused.
+
+    Two staff open the same item; the second saves a form loaded before the
+    first one's change. Their stale title must not overwrite it.
+    """
     form_a = client.get(f"/api/catalog/{listing.id}").json()
     form_b = client.get(f"/api/catalog/{listing.id}").json()
 
@@ -253,8 +262,11 @@ def test_a_stale_form_is_refused_by_the_api(
 
     second = client.patch(
         f"/api/catalog/{listing.id}",
-        json={"title": form_b["title"], "price": "222.00",
-              "version": form_b["version"]},
+        json={
+            "title": form_b["title"],
+            "price": "222.00",
+            "version": form_b["version"],
+        },
         headers=admin_headers,
     )
     assert second.status_code == 409
@@ -309,8 +321,10 @@ def test_retrying_with_the_current_version_succeeds(
 def test_omitting_the_version_still_works(
     client: TestClient, admin_headers: dict[str, str], listing: Listing
 ) -> None:
-    """Deliberately unconditional, for a script that means "set this
-    regardless". The edit form always sends the version; a bulk fix need not."""
+    """Deliberately unconditional, for a script that means "set this regardless".
+
+    The edit form always sends the version; a bulk fix need not.
+    """
     response = client.patch(
         f"/api/catalog/{listing.id}",
         json={"title": "unconditional"},
@@ -329,9 +343,11 @@ def test_the_version_is_returned_so_a_client_can_send_it_back(
 def test_the_token_covers_the_item_row_not_just_the_listing(
     client: TestClient, admin_headers: dict[str, str], listing: Listing
 ) -> None:
-    """A catalogue entry is two rows. The first implementation versioned only
-    the listing, so renaming the item -- which touches the *item* row -- left
-    the listing's version unchanged and a stale form was accepted.
+    """A catalogue entry is two rows.
+
+    The first implementation versioned only the listing, so renaming the item
+    -- which touches the *item* row -- left the listing's version unchanged
+    and a stale form was accepted.
     """
     before = client.get(f"/api/catalog/{listing.id}").json()["version"]
 

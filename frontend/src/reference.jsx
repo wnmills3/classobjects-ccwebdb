@@ -72,7 +72,13 @@ export function useReference(table) {
  * could not be fetched, so the form is always usable -- degraded, never
  * broken.
  */
-export function ReferenceSelect({ table, value, onChange, allowBlank = true, placeholder }) {
+export function ReferenceSelect({
+  table,
+  value,
+  onChange,
+  allowBlank = true,
+  placeholder,
+}) {
   const values = useReference(table)
   const context = useContext(ReferenceContext)
   const [adding, setAdding] = useState(false)

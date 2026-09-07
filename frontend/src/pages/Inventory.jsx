@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
@@ -77,43 +77,55 @@ const PAGE_SIZE = 50
 
 function cell(row, key, kind) {
   const value = row[key]
-  if (value === null || value === undefined || value === '') return <span className="muted">-</span>
+  if (value === null || value === undefined || value === '')
+    return <span className="muted">-</span>
   if (kind === 'money') return money(value)
   return String(value)
 }
 
 function InventoryView({ config }) {
   const [params, setParams] = useSearchParams()
-  const [page, setPage] = useState(null)
+  // The result is stored with the query that produced it, so "still loading"
+  // is *derived* -- it is exactly "what is displayed does not match what is
+  // being asked for". Setting a busy flag would be a second piece of state
+  // saying the same thing, able to disagree with the first.
+  const [result, setResult] = useState(null)
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(true)
 
   // The URL is the source of truth for the search, so a filtered view can be
   // bookmarked, shared with someone, or survive a reload.
   const current = Object.fromEntries(params.entries())
   const offset = Number(current.offset ?? 0)
 
-  const load = useCallback(async () => {
-    setBusy(true)
-    try {
-      const body = await api.searchInventory(config.view, {
-        ...current,
+  // A plain string, so the dependency is a simple expression the linter and
+  // React can both reason about.
+  const query = params.toString()
+
+  useEffect(() => {
+    // `cancelled` is not only tidiness. Typing in the search box fires a
+    // request per keystroke, and without this an early slow response can land
+    // after a later fast one and overwrite the newer results with older ones.
+    let cancelled = false
+
+    api
+      .searchInventory(config.view, {
+        ...Object.fromEntries(new URLSearchParams(query)),
         facets: true,
         limit: PAGE_SIZE,
       })
-      setPage(body)
-      setError('')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.view, params.toString()])
+      .then((body) => {
+        if (cancelled) return
+        setResult({ query, body })
+        setError('')
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message)
+      })
 
-  useEffect(() => {
-    load()
-  }, [load])
+    return () => {
+      cancelled = true
+    }
+  }, [config.view, query])
 
   function apply(changes) {
     const next = { ...current, ...changes }
@@ -126,6 +138,10 @@ function InventoryView({ config }) {
     setParams(next)
   }
 
+  // Derived, not stored: busy is true exactly while the displayed result
+  // belongs to an older query than the one now being asked.
+  const busy = result?.query !== query
+  const page = result?.body
   const facets = page?.facets ?? {}
   const total = page?.total ?? 0
   const shown = page?.rows?.length ?? 0
@@ -197,9 +213,7 @@ function InventoryView({ config }) {
 
       {error && <p className="error">{error}</p>}
 
-      {!busy && total === 0 && (
-        <p className="muted">Nothing matches those filters.</p>
-      )}
+      {!busy && total === 0 && <p className="muted">Nothing matches those filters.</p>}
 
       {shown > 0 && (
         <table className="table inventory-table">
@@ -212,7 +226,8 @@ function InventoryView({ config }) {
                   onClick={() =>
                     apply({
                       sort: key,
-                      desc: current.sort === key && current.desc !== 'true' ? 'true' : '',
+                      desc:
+                        current.sort === key && current.desc !== 'true' ? 'true' : '',
                     })
                   }
                 >
@@ -245,7 +260,8 @@ function InventoryView({ config }) {
             Previous
           </button>
           <span className="muted">
-            {offset + 1}-{Math.min(offset + PAGE_SIZE, total)} of {total.toLocaleString()}
+            {offset + 1}-{Math.min(offset + PAGE_SIZE, total)} of{' '}
+            {total.toLocaleString()}
           </span>
           <button
             disabled={offset + PAGE_SIZE >= total}

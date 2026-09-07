@@ -4,19 +4,24 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from app.models import CurrencyDetail, Grade, ItemKind, SealColor
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import CurrencyDetail, Grade, ItemKind, SealColor
 from tests.test_schema import code_id, make_item
 
 
-def coin(db: Session, **overrides):
+def coin(db: Session, **overrides: object) -> None:
     return make_item(db, item_kind_id=code_id(db, ItemKind, "coin"), **overrides)
 
 
-def note(db: Session, *, seal: str | None = None, serial: str | None = None,
-         **overrides):
+def note(
+    db: Session,
+    *,
+    seal: str | None = None,
+    serial: str | None = None,
+    **overrides: object,
+) -> None:
     item = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"), **overrides)
     db.add(
         CurrencyDetail(
@@ -30,7 +35,9 @@ def note(db: Session, *, seal: str | None = None, serial: str | None = None,
     return item
 
 
-def search(client, view, headers, **params):
+def search(
+    client: TestClient, view: str, headers: dict[str, str], **params: object
+) -> None:
     return client.get(f"/api/inventory/{view}/search", params=params, headers=headers)
 
 
@@ -57,8 +64,11 @@ def test_each_view_holds_only_its_own_kind(
 def test_each_view_returns_the_columns_that_matter_to_it(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The reason for two views: a coin has a mint mark, a note has a seal
-    colour and its own serial. One grid would leave most columns empty."""
+    """Each view carries the columns its own kind needs.
+
+    The reason for two views: a coin has a mint mark, a note has a seal
+    colour and its own serial. One grid would leave most columns empty.
+    """
     coin(db)
     note(db, seal="blue", serial="A12345678B")
 
@@ -106,17 +116,18 @@ def test_filters_combine(
     wanted = coin(db, year_start=1881, price=Decimal("50.00"))
     coin(db, year_start=1921)
 
-    body = search(
-        client, "coins", admin_headers, year_min=1880, year_max=1890
-    ).json()
+    body = search(client, "coins", admin_headers, year_min=1880, year_max=1890).json()
     assert {r["id"] for r in body["rows"]} == {wanted.id}
 
 
 def test_an_unknown_filter_is_refused_rather_than_ignored(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """A silently dropped filter returns the whole collection and looks like a
-    matching result -- the worst possible failure for a search."""
+    """An unknown filter fails loudly rather than widening the search.
+
+    A silently dropped filter returns the whole collection and looks like a
+    matching result -- the worst possible failure for a search.
+    """
     coin(db)
     response = search(client, "coins", admin_headers, mint_mark_typo="D")
 
@@ -127,8 +138,11 @@ def test_an_unknown_filter_is_refused_rather_than_ignored(
 def test_a_filter_from_the_other_view_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """seal_color means nothing to coins, and pretending otherwise would
-    return every coin."""
+    """A filter belonging to the other view is refused.
+
+    seal_color means nothing to coins, and pretending otherwise would
+    return every coin.
+    """
     coin(db)
     assert search(client, "coins", admin_headers, seal_color="blue").status_code == 422
     assert search(client, "currency", admin_headers, metal="silver").status_code == 422
@@ -185,8 +199,11 @@ def test_paging_reports_the_total_not_the_page(
 def test_money_never_arrives_as_a_float(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """FastAPI's encoder turns a Decimal in a plain dict into a float, which is
-    the one thing this schema is careful never to do."""
+    """Money crosses the API as a string, never a float.
+
+    FastAPI's encoder turns a Decimal in a plain dict into a float, which is
+    the one thing this schema is careful never to do.
+    """
     coin(db, price=Decimal("0.10"), shipping=Decimal("0.20"))
     row = search(client, "coins", admin_headers).json()["rows"][0]
 
@@ -203,8 +220,11 @@ def test_money_never_arrives_as_a_float(
 def test_facets_count_what_is_actually_present(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """A search panel over thousands of items needs to offer the values that
-    exist, not the fifty-odd grades the vocabulary defines."""
+    """Facets offer the values present, not the whole vocabulary.
+
+    A search panel over thousands of items needs to offer the values that
+    exist, not the fifty-odd grades the vocabulary defines.
+    """
     coin(db, grade_id=code_id(db, Grade, "MS64"))
     coin(db, grade_id=code_id(db, Grade, "MS64"))
     coin(db, grade_id=code_id(db, Grade, "MS65"))
@@ -219,14 +239,15 @@ def test_facets_count_what_is_actually_present(
 def test_facets_reflect_the_current_filters(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The counts describe what narrowing further would do, so a filter that
-    would return nothing is visibly empty before it is chosen."""
+    """Facet counts respect the filters already applied.
+
+    The counts describe what narrowing further would do, so a filter that
+    would return nothing is visibly empty before it is chosen.
+    """
     coin(db, year_start=1881)
     coin(db, year_start=2020)
 
-    filtered = search(
-        client, "coins", admin_headers, facets=True, year_min=2000
-    ).json()
+    filtered = search(client, "coins", admin_headers, facets=True, year_min=2000).json()
     total_in_facet = sum(f["count"] for f in filtered["facets"]["item_kind"])
 
     assert total_in_facet == filtered["total"]
@@ -247,8 +268,11 @@ def test_facets_are_opt_in(
 def test_browsing_inventory_requires_an_administrator(
     client: TestClient, customer_headers: dict[str, str]
 ) -> None:
-    """These rows carry cost basis, storage quantity and local catalogue
-    numbers -- none of which is customer-facing."""
+    """Browsing inventory is staff-only.
+
+    These rows carry cost basis, storage quantity and local catalogue
+    numbers -- none of which is customer-facing.
+    """
     response = client.get("/api/inventory/coins/search", headers=customer_headers)
     assert response.status_code == 403
 
@@ -258,10 +282,12 @@ def test_browsing_inventory_requires_an_administrator(
 def test_a_split_lot_does_not_appear(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The view excludes split lots, so browsing cannot show a lot beside the
-    pieces it became."""
-    parent = coin(db, title="Tube of four", storage_quantity=4,
-                  price=Decimal("100.00"))
+    """A lot that has been broken up no longer appears.
+
+    The view excludes split lots, so browsing cannot show a lot beside the
+    pieces it became.
+    """
+    parent = coin(db, title="Tube of four", storage_quantity=4, price=Decimal("100.00"))
     client.post(
         f"/api/inventory/{parent.id}/split",
         json={"mode": "equal", "pieces": [{"title": f"P{n}"} for n in range(4)]},

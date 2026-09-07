@@ -168,6 +168,19 @@ Notable behaviour:
   and the price actually paid. Everything that counts inventory or money
   excludes it, so a lot and its pieces are never both counted.
 
+## Code quality
+
+```
+scripts\ccweb_check.cmd          format, lint, types, tests, frontend
+scripts\ccweb_check.cmd fix      auto-fix first, then check
+```
+
+`ruff` formats and lints the Python, `eslint` and `prettier` the frontend,
+`mypy` reports on types. Every public class, method and function carries a
+docstring and every function is annotated, enforced by ruff's `D` and `ANN`
+rule sets. See [docs/code-quality.md](docs/code-quality.md) for what is
+checked, and for the three exceptions and why each exists.
+
 ## Dependencies
 
 Python dependencies are managed **exclusively** by uv (`uv add`, `uv sync`) and

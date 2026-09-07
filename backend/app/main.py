@@ -32,4 +32,9 @@ app.include_router(orders.router, prefix=settings.api_prefix)
 
 @app.get("/health", tags=["meta"])
 def health() -> dict[str, str]:
+    """Liveness probe.
+
+    Deliberately touches nothing, so it stays honest about the process rather
+    than about the database.
+    """
     return {"status": "ok"}

@@ -15,15 +15,17 @@ a reference table fills up with typos.
 
 from __future__ import annotations
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from .models import ReferenceMixin
 
 __all__ = ["code_to_id", "id_to_code", "require_code"]
 
 
 def code_to_id(
-    db: Session, model: type, code: str | None, field: str
+    db: Session, model: type[ReferenceMixin], code: str | None, field: str
 ) -> int | None:
     """Resolve a classifier code, or None when the caller supplied none."""
     if code is None or code == "":
@@ -39,7 +41,9 @@ def code_to_id(
     return found
 
 
-def require_code(db: Session, model: type, code: str, field: str) -> int:
+def require_code(
+    db: Session, model: type[ReferenceMixin], code: str, field: str
+) -> int:
     """Same, for a classifier the schema cannot do without."""
     resolved = code_to_id(db, model, code, field)
     if resolved is None:

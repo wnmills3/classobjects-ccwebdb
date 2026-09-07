@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
-from ..models import REFERENCE_MODELS, ProvenanceSource
+from ..models import REFERENCE_MODELS, ProvenanceSource, ReferenceMixin
 from ..schemas import (
     ReferenceTableOut,
     ReferenceValueCreate,
@@ -38,10 +38,12 @@ router = APIRouter(prefix="/reference", tags=["reference"])
 #: specific to it and goes into `extra`.
 _COMMON = frozenset({"id", "code", "label", "sort_order", "is_active", "source"})
 
-TABLES: dict[str, type] = {model.__tablename__: model for model in REFERENCE_MODELS}
+TABLES: dict[str, type[ReferenceMixin]] = {
+    model.__tablename__: model for model in REFERENCE_MODELS
+}
 
 
-def _plain(value: Any) -> Any:
+def _plain(value: object) -> object:
     """JSON-safe, without letting a Decimal become a float on the way out."""
     if isinstance(value, Decimal):
         return str(value)
@@ -52,7 +54,7 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def _to_value(row: Any, model: type) -> ReferenceValueOut:
+def _to_value(row: object, model: type[ReferenceMixin]) -> ReferenceValueOut:
     extra: dict[str, Any] = {}
     for column in model.__table__.columns:
         if column.name in _COMMON:

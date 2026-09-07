@@ -33,7 +33,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font:
+    15px/1.5 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
 }
 
 .app {
@@ -397,8 +402,13 @@ button.link.danger {
   object-fit: contain;
 }
 .card-thumb-empty {
-  background:
-    repeating-linear-gradient(45deg, #f5f5f3, #f5f5f3 10px, #efefec 10px, #efefec 20px);
+  background: repeating-linear-gradient(
+    45deg,
+    #f5f5f3,
+    #f5f5f3 10px,
+    #efefec 10px,
+    #efefec 20px
+  );
 }
 .detail-image {
   max-width: 100%;

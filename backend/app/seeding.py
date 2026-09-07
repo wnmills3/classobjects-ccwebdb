@@ -35,19 +35,18 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
-from .models import REFERENCE_MODELS, Composition, ProvenanceSource
+from .models import REFERENCE_MODELS, Composition, ProvenanceSource, ReferenceMixin
 
 #: backend/data/reference
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "reference"
 
 #: Tables the seeder understands, in dependency order: a table may only
 #: reference tables that appear before it.
-SEEDABLE: tuple[type, ...] = (*REFERENCE_MODELS, Composition)
+SEEDABLE: tuple[type[ReferenceMixin], ...] = (*REFERENCE_MODELS, Composition)
 
 #: Composition has no `code`, so its identity is the span it describes.
 NATURAL_KEYS: dict[str, tuple[str, ...]] = {
@@ -62,11 +61,12 @@ class SeedError(RuntimeError):
     """A seed file refers to something that does not exist."""
 
 
-def _model_by_table() -> dict[str, type]:
+def _model_by_table() -> dict[str, type[ReferenceMixin]]:
     return {model.__tablename__: model for model in SEEDABLE}
 
 
-def natural_key(model: type) -> tuple[str, ...]:
+def natural_key(model: type[ReferenceMixin]) -> tuple[str, ...]:
+    """The columns identifying a row for re-loading -- `code`, or a span."""
     return NATURAL_KEYS.get(model.__tablename__, ("code",))
 
 
@@ -93,7 +93,7 @@ def load_seed_data(data_dir: Path = DATA_DIR) -> dict[str, list[dict[str, Any]]]
     return merged
 
 
-def _foreign_key_targets(model: type) -> dict[str, tuple[str, str]]:
+def _foreign_key_targets(model: type[ReferenceMixin]) -> dict[str, tuple[str, str]]:
     """Map a bare data key to the column it fills and the table it points at.
 
     ``{"metal": ("metal_id", "metal")}`` -- so a seed row saying
@@ -111,7 +111,7 @@ def _foreign_key_targets(model: type) -> dict[str, tuple[str, str]]:
 
 def _resolve_row(
     row: dict[str, Any],
-    model: type,
+    model: type[ReferenceMixin],
     code_index: dict[str, dict[str, int]],
     where: str,
 ) -> dict[str, Any]:
@@ -148,7 +148,7 @@ def _build_code_index(session: Session) -> dict[str, dict[str, int]]:
         if "code" not in {c.name for c in model.__table__.columns}:
             continue
         rows = session.execute(select(model.code, model.id)).all()
-        index[model.__tablename__] = {code: row_id for code, row_id in rows}
+        index[model.__tablename__] = dict(rows)
     return index
 
 
@@ -169,7 +169,6 @@ def seed_all(
     a shipped default.
     """
     data = load_seed_data(data_dir)
-    models = _model_by_table()
     stats: dict[str, Counter] = {}
 
     for model in SEEDABLE:
@@ -222,7 +221,7 @@ def seed_all(
     return stats
 
 
-def _differs(current: Any, incoming: Any) -> bool:
+def _differs(current: object, incoming: object) -> bool:
     """Compare tolerantly across the JSON/database type boundary.
 
     Numerics arrive as strings so that no value passes through a float on its
@@ -258,7 +257,9 @@ def export_reference_data(
     for model in SEEDABLE:
         table = model.__tablename__
         fk_targets = _foreign_key_targets(model)
-        by_column = {column: (bare, target) for bare, (column, target) in fk_targets.items()}
+        by_column = {
+            column: (bare, target) for bare, (column, target) in fk_targets.items()
+        }
 
         stmt = select(model)
         if not include_inactive and hasattr(model, "is_active"):
@@ -291,15 +292,14 @@ def export_reference_data(
 
 
 def _record_to_row(
-    record: Any,
-    model: type,
+    record: object,
+    model: type[ReferenceMixin],
     by_column: dict[str, tuple[str, str]],
     session: Session,
 ) -> dict[str, Any]:
     """One database row as a portable seed row, with ids turned back to codes."""
     models = _model_by_table()
     row: dict[str, Any] = {}
-    state = sa_inspect(record)
 
     for column in model.__table__.columns:
         name = column.name
@@ -322,9 +322,9 @@ def _record_to_row(
 
         if isinstance(value, Decimal):
             row[name] = str(value)
-        elif isinstance(value, ProvenanceSource):
-            row[name] = value.value
-        elif hasattr(value, "value") and not isinstance(value, (int, str, bool)):
+        elif isinstance(value, ProvenanceSource) or (
+            hasattr(value, "value") and not isinstance(value, (int, str, bool))
+        ):
             row[name] = value.value
         else:
             row[name] = value
@@ -332,7 +332,6 @@ def _record_to_row(
     # created_at/updated_at describe this installation, not the vocabulary.
     for transient in ("created_at", "updated_at"):
         row.pop(transient, None)
-    del state
     return row
 
 

@@ -27,12 +27,16 @@ from .base import Base, enum_column, utcnow
 __all__ = ["User", "UserRole"]
 
 
-class UserRole(str, enum.Enum):
+class UserRole(enum.StrEnum):
+    """What a login may do. Administrators see cost basis; customers do not."""
+
     admin = "admin"
     customer = "customer"
 
 
 class User(Base):
+    """A login. Referenced by customer, history rows and both type catalogues."""
+
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)

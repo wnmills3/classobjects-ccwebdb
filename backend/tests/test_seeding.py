@@ -13,9 +13,6 @@ import json
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-
 from app.models import Grade, Metal, ProvenanceSource
 from app.seeding import (
     DATA_DIR,
@@ -24,6 +21,8 @@ from app.seeding import (
     load_seed_data,
     seed_all,
 )
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 
 def test_seed_files_parse_and_cover_the_expected_tables() -> None:
@@ -35,8 +34,11 @@ def test_seed_files_parse_and_cover_the_expected_tables() -> None:
 
 
 def test_loading_is_idempotent(db: Session) -> None:
-    """Re-running a load must not duplicate rows or disturb ids that other
-    rows already reference."""
+    """Loading the same seed files twice changes nothing.
+
+    Re-running a load must not duplicate rows or disturb ids that other
+    rows already reference.
+    """
     before = db.execute(select(func.count()).select_from(Grade)).scalar()
 
     stats = seed_all(db)
@@ -47,8 +49,11 @@ def test_loading_is_idempotent(db: Session) -> None:
 
 
 def test_a_reworded_label_updates_in_place(db: Session) -> None:
-    """Codes are stable, labels are editable -- so a label change must not
-    create a second row."""
+    """A reworded label updates in place.
+
+    Codes are stable, labels are editable -- so a label change must not
+    create a second row.
+    """
     silver = db.execute(select(Metal).where(Metal.code == "silver")).scalar_one()
     original_id, original_label = silver.id, silver.label
 
@@ -75,7 +80,9 @@ def test_a_hand_edited_row_is_never_overwritten(db: Session) -> None:
     assert silver.label == "Ag - locally renamed"
 
 
-def test_an_unknown_reference_is_refused_not_guessed(db: Session, tmp_path: Path) -> None:
+def test_an_unknown_reference_is_refused_not_guessed(
+    db: Session, tmp_path: Path
+) -> None:
     (tmp_path / "bad.json").write_text(
         json.dumps(
             {"bullion_form": [{"code": "x", "label": "X", "metal": "unobtainium"}]}
@@ -88,8 +95,11 @@ def test_an_unknown_reference_is_refused_not_guessed(db: Session, tmp_path: Path
 
 
 def test_export_writes_codes_not_ids(db: Session, tmp_path: Path) -> None:
-    """Ids are per-installation; codes are portable. Exporting ids would make
-    the file useless anywhere but the database it came from."""
+    """Ids are per-installation; codes are portable.
+
+    Exporting ids would make the file useless anywhere but the database it
+    came from.
+    """
     export_reference_data(db, tmp_path, sources=["seeded"])
 
     payload = json.loads((tmp_path / "composition.json").read_text(encoding="utf-8"))
@@ -102,8 +112,11 @@ def test_export_writes_codes_not_ids(db: Session, tmp_path: Path) -> None:
 
 
 def test_export_round_trips_through_a_fresh_load(db: Session, tmp_path: Path) -> None:
-    """What comes out must go back in: the export is only useful if another
-    installation can actually load it."""
+    """An export loads cleanly into another installation.
+
+    What comes out must go back in: the export is only useful if another
+    installation can actually load it.
+    """
     export_reference_data(db, tmp_path, sources=["seeded"])
     stats = seed_all(db, tmp_path)
 
@@ -115,10 +128,14 @@ def test_export_round_trips_through_a_fresh_load(db: Session, tmp_path: Path) ->
 def test_export_excludes_one_installations_private_rows(
     db: Session, tmp_path: Path
 ) -> None:
-    """`manual` rows are a particular operator's decisions and must not ship
-    as though they were curated facts."""
-    db.add(Grade(code="LOCAL_ONLY", label="House grade",
-                 source=ProvenanceSource.manual))
+    """One operator's decisions do not ship as facts.
+
+    `manual` rows are a particular operator's decisions and must not ship
+    as though they were curated facts.
+    """
+    db.add(
+        Grade(code="LOCAL_ONLY", label="House grade", source=ProvenanceSource.manual)
+    )
     db.commit()
 
     export_reference_data(db, tmp_path, sources=["seeded"])
@@ -135,7 +152,10 @@ def test_export_excludes_one_installations_private_rows(
 
 
 def test_seed_files_on_disk_load_into_an_empty_database(db: Session) -> None:
-    """The shipped files must be internally consistent -- every foreign key
-    they name has to resolve within the same load."""
+    """Every foreign key a seed file names resolves in-load.
+
+    The shipped files must be internally consistent -- every foreign key
+    they name has to resolve within the same load.
+    """
     stats = seed_all(db, DATA_DIR)
     assert "composition" in stats

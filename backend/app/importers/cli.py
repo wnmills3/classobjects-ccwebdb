@@ -1,4 +1,4 @@
-"""Import CLI.
+r"""Import CLI.
 
     :: dry run -- no database needed. Writes review files to logs\\import\\.
     uv run python -m app.importers.cli --file <path.xlsx>
@@ -36,6 +36,7 @@ DEFAULT_OUT_DIR = REPO_ROOT / "logs" / "import"
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run an import from the command line. Dry-run unless --commit is given."""
     parser = argparse.ArgumentParser(prog="import", description=__doc__)
     parser.add_argument("--file", required=True, help="source .xlsx")
     parser.add_argument("--sheet", default=None, help="worksheet name")

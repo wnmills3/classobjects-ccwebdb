@@ -9,12 +9,11 @@ property of the demo, not of the domain.
 
 from __future__ import annotations
 
-from decimal import Decimal
-
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from collections.abc import Callable
 
 from app.models import Listing
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 NEW_ITEM = {
     "title": "1909-S VDB Lincoln Cent",
@@ -57,7 +56,9 @@ def test_price_is_serialised_with_two_decimals(
     assert client.get(f"/api/catalog/{listing.id}").json()["price"] == "189.00"
 
 
-def test_withdrawn_listings_hidden_by_default(client: TestClient, make_listing) -> None:
+def test_withdrawn_listings_hidden_by_default(
+    client: TestClient, make_listing: Callable[..., Listing]
+) -> None:
     make_listing(is_active=False)
     assert client.get("/api/catalog").json()["total"] == 0
     assert client.get("/api/catalog?include_inactive=true").json()["total"] == 1
@@ -71,7 +72,9 @@ def test_search_matches_title_and_description(
     assert client.get("/api/catalog?q=nothingmatches").json()["total"] == 0
 
 
-def test_filter_by_kind(client: TestClient, make_listing) -> None:
+def test_filter_by_kind(
+    client: TestClient, make_listing: Callable[..., Listing]
+) -> None:
     make_listing(kind="coin")
     make_listing(kind="currency")
     assert client.get("/api/catalog?kind=coin").json()["total"] == 1
@@ -81,21 +84,28 @@ def test_filter_by_kind(client: TestClient, make_listing) -> None:
 def test_filter_by_an_unknown_classifier_is_a_422_not_an_empty_page(
     client: TestClient, listing: Listing
 ) -> None:
-    """Silently returning nothing would look like "no results" rather than
-    "you asked for something that does not exist"."""
+    """An unknown classifier is an error, not an empty page.
+
+    Silently returning nothing would look like "no results" rather than
+    "you asked for something that does not exist".
+    """
     response = client.get("/api/catalog?kind=notakind")
     assert response.status_code == 422
     assert "notakind" in response.json()["detail"]
 
 
-def test_filter_in_stock_only(client: TestClient, make_listing) -> None:
+def test_filter_in_stock_only(
+    client: TestClient, make_listing: Callable[..., Listing]
+) -> None:
     make_listing(quantity_available=2)
     make_listing(quantity_available=0)
     assert client.get("/api/catalog").json()["total"] == 2
     assert client.get("/api/catalog?in_stock=true").json()["total"] == 1
 
 
-def test_filter_by_year_range(client: TestClient, make_listing) -> None:
+def test_filter_by_year_range(
+    client: TestClient, make_listing: Callable[..., Listing]
+) -> None:
     make_listing(year_start=1850)
     make_listing(year_start=1990)
     assert client.get("/api/catalog?year_min=1900").json()["total"] == 1
@@ -103,7 +113,7 @@ def test_filter_by_year_range(client: TestClient, make_listing) -> None:
 
 
 def test_pagination_reports_total_not_page_size(
-    client: TestClient, make_listing
+    client: TestClient, make_listing: Callable[..., Listing]
 ) -> None:
     for _ in range(5):
         make_listing()
@@ -127,13 +137,23 @@ def test_limit_is_bounded(client: TestClient) -> None:
 def test_catalogue_never_exposes_cost_basis_or_location(
     client: TestClient, listing: Listing
 ) -> None:
-    """The same authorisation boundary the public_catalog view enforces, at
-    the API layer. A field added for staff must not reach a customer."""
+    """Cost basis and location must not reach a customer.
+
+    The same authorisation boundary the public_catalog view enforces, at
+    the API layer. A field added for staff must not reach a customer.
+    """
     body = client.get(f"/api/catalog/{listing.id}").json()
     forbidden = {
-        "total_cost", "taxes", "shipping", "tax_rate", "numismatic_value",
-        "storage_location_id", "local_catalog_number", "purchase_order_id",
-        "notes_raw", "error_details",
+        "total_cost",
+        "taxes",
+        "shipping",
+        "tax_rate",
+        "numismatic_value",
+        "storage_location_id",
+        "local_catalog_number",
+        "purchase_order_id",
+        "notes_raw",
+        "error_details",
     }
     assert not (set(body) & forbidden), f"leaked: {sorted(set(body) & forbidden)}"
 
@@ -187,8 +207,11 @@ def test_admin_can_create(client: TestClient, admin_headers: dict[str, str]) -> 
 def test_creating_makes_both_an_item_and_a_listing(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The two are separate rows: that is what lets an item be relisted at a
-    different price without rewriting what it is."""
+    """Creating an entry writes both an item and a listing.
+
+    The two are separate rows: that is what lets an item be relisted at a
+    different price without rewriting what it is.
+    """
     body = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
 
     listing = db.get(Listing, body["id"])

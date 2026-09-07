@@ -71,7 +71,9 @@ class Filt:
 
 @dataclass(frozen=True)
 class Facet:
-    """A facet counts an indexed id column on the item table, then resolves
+    """How one facet is counted, and against which column.
+
+    A facet counts an indexed id column on the item table, then resolves
     those ids to codes in a second, tiny query.
 
     Grouping by `grade_id` uses the foreign key index directly. Grouping by
@@ -84,6 +86,8 @@ class Facet:
 
 @dataclass(frozen=True)
 class ViewSpec:
+    """One searchable inventory: its columns, filters, sorts and facets."""
+
     name: str
     #: Everything reads from the item table; the views are for whole rows.
     base: str = "inventory_item i"
@@ -174,8 +178,13 @@ _SHARED_FILTERS: dict[str, Filt] = {
 }
 
 _SHARED_SORT = (
-    "item_code", "title", "year_start", "price", "total_cost",
-    "grade_value", "created_at",
+    "item_code",
+    "title",
+    "year_start",
+    "price",
+    "total_cost",
+    "grade_value",
+    "created_at",
 )
 
 _SHARED_FACETS: dict[str, Facet] = {
@@ -215,7 +224,7 @@ COIN_VIEW = ViewSpec(
         "set_form": Filt("sf.code", join=(_J_SET,)),
     },
     search_columns=("i.title", "i.description", "i.item_code"),
-    sortable=_SHARED_SORT + ("fine_weight_ozt",),
+    sortable=(*_SHARED_SORT, "fine_weight_ozt"),
     facets={
         **_SHARED_FACETS,
         "item_kind": Facet("item_kind_id", "item_kind"),
@@ -252,7 +261,7 @@ CURRENCY_VIEW = ViewSpec(
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
     },
     search_columns=("i.title", "i.description", "i.item_code"),
-    sortable=_SHARED_SORT + ("series_year",),
+    sortable=(*_SHARED_SORT, "series_year"),
     facets={
         **_SHARED_FACETS,
         "note_type": Facet("note_type_id", "note_type"),
@@ -268,7 +277,7 @@ _DETAIL_FACETS = {"note_type", "seal_color"}
 
 def _conditions(
     spec: ViewSpec, params: dict[str, Any], query: str | None
-) -> tuple[list[str], list[str | None], dict[str, Any]]:
+) -> tuple[list[str], list[tuple[str, ...]], dict[str, Any]]:
     clauses = list(spec.where)
     joins: list[tuple[str, ...]] = [(_J_KIND,)]  # every spec filters on kind
     bound: dict[str, Any] = {}
@@ -305,7 +314,7 @@ def _conditions(
     return clauses, joins, bound
 
 
-def _plain(value: Any) -> Any:
+def _plain(value: object) -> object:
     """JSON-safe without letting money or weight become a float.
 
     FastAPI's encoder turns a Decimal inside a plain dict into a float, which
@@ -360,7 +369,7 @@ def search(
     # NULLS LAST so unrecorded values sort to the end rather than filling the
     # first page of every ascending search. The ordering is repeated on the
     # outer query: a join does not preserve the inner ordering.
-    filter_joins = spec.joins_for(joins + [spec.columns[sort_key].join])
+    filter_joins = spec.joins_for([*joins, spec.columns[sort_key].join])
     rows = (
         db.execute(
             text(
@@ -423,7 +432,7 @@ def count_facets(
             continue
 
         ids = [row.fid for row in counts]
-        labels = dict(
+        labels: dict[int, str] = dict(
             db.execute(
                 text(f"SELECT id, code FROM {facet.table} WHERE id = ANY(:ids)"),
                 {"ids": ids},

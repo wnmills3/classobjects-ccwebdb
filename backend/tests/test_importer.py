@@ -8,25 +8,38 @@ to be deleted.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
+from app.importers.engine import COMMIT, DRY_RUN, ImportEngine
+from app.importers.loader import parse_condition
+from app.importers.models import ImportBatch, ImportIssue, ImportRow
+from app.importers.profile import ERROR, UNKNOWN, RawRow
+from app.importers.profiles.collection_v1 import CollectionV1Profile
+from app.importers.profiling import ColumnProfile
 from sqlalchemy.orm import Session
 
-from app.importers.engine import COMMIT, DRY_RUN, ImportEngine
-from app.importers.models import ImportBatch, ImportIssue, ImportRow
-from app.importers.profile import ERROR, UNKNOWN, Classification, RawRow, RowResult
-from app.importers.loader import parse_condition
-from app.importers.profiles.collection_v1 import CollectionV1Profile
-
 HEADERS = [
-    "Ordered", "Order Number", "Denom", "Year", "Rating", "Price",
-    "Link", "Description", "Vendor", "Shipping", "Grading#", "Value", "Comment",
+    "Ordered",
+    "Order Number",
+    "Denom",
+    "Year",
+    "Rating",
+    "Price",
+    "Link",
+    "Description",
+    "Vendor",
+    "Shipping",
+    "Grading#",
+    "Value",
+    "Comment",
 ]
 
 
 def make_row(n: int = 2, **overrides: str) -> RawRow:
-    values = {h: None for h in HEADERS}
+    values = dict.fromkeys(HEADERS)
     values.update(overrides)
     return RawRow(row_number=n, values=values)
 
@@ -38,10 +51,12 @@ class FakeSource:
     path = "<fake>"
 
     def __init__(self, rows: list[RawRow], sha: str = "a" * 64) -> None:
+        """A source that yields the rows it was handed."""
         self._rows = rows
         self.sha256 = sha
 
-    def read_rows(self, limit=None):
+    def read_rows(self, limit: int | None = None) -> Iterator[RawRow]:
+        """Yield the rows, at most `limit` of them."""
         for i, r in enumerate(self._rows):
             if limit is not None and i >= limit:
                 break
@@ -81,11 +96,15 @@ def profile() -> CollectionV1Profile:
         ("Zzz Nonexistent", UNKNOWN),
     ],
 )
-def test_classification(profile: CollectionV1Profile, denom: str, expected: str) -> None:
+def test_classification(
+    profile: CollectionV1Profile, denom: str, expected: str
+) -> None:
     assert profile.inspect(make_row(Denom=denom)).classification.kind == expected
 
 
-def test_bullion_is_tested_before_number_then_word(profile: CollectionV1Profile) -> None:
+def test_bullion_is_tested_before_number_then_word(
+    profile: CollectionV1Profile,
+) -> None:
     """The single easiest rule to break by reordering.
 
     "1oz Copper Round" matches "a number followed by a word", which is the
@@ -118,7 +137,9 @@ def test_correction_map_is_logged_not_silent(profile: CollectionV1Profile) -> No
 # --------------------------------------------------------------------------
 
 
-def test_scientific_notation_identifier_is_an_error(profile: CollectionV1Profile) -> None:
+def test_scientific_notation_identifier_is_an_error(
+    profile: CollectionV1Profile,
+) -> None:
     """Excel already destroyed these; the importer can only detect them."""
     result = profile.inspect(make_row(Denom="0.25", **{"Grading#": "5.0157E+14"}))
     issue = next(
@@ -137,9 +158,17 @@ def test_grading_column_routes_by_kind(profile: CollectionV1Profile) -> None:
 
 
 def test_value_column_carries_amount_or_status(profile: CollectionV1Profile) -> None:
-    assert profile.inspect(make_row(Denom="1", Value="50")).fields["numismatic_value"] == Decimal("50")
-    assert profile.inspect(make_row(Denom="1", Value="x")).fields["status_marker"] == "received"
-    assert profile.inspect(make_row(Denom="1", Value="Canceled")).fields["status_marker"] == "canceled"
+    assert profile.inspect(make_row(Denom="1", Value="50")).fields[
+        "numismatic_value"
+    ] == Decimal("50")
+    assert (
+        profile.inspect(make_row(Denom="1", Value="x")).fields["status_marker"]
+        == "received"
+    )
+    assert (
+        profile.inspect(make_row(Denom="1", Value="Canceled")).fields["status_marker"]
+        == "canceled"
+    )
     unknown = profile.inspect(make_row(Denom="1", Value="???"))
     assert any(i.rule == "value-not-understood" for i in unknown.issues)
 
@@ -154,7 +183,10 @@ def test_series_letter_is_not_a_mint_mark(profile: CollectionV1Profile) -> None:
 def test_year_range_and_multiplier(profile: CollectionV1Profile) -> None:
     ranged = profile.inspect(make_row(Denom="0.25", Year="1999-2008")).fields
     assert (ranged["year_start"], ranged["year_end"]) == (1999, 2008)
-    assert profile.inspect(make_row(Denom="20x 1oz Copper")).fields["storage_quantity"] == 20
+    assert (
+        profile.inspect(make_row(Denom="20x 1oz Copper")).fields["storage_quantity"]
+        == 20
+    )
     assert profile.inspect(make_row(Denom="0.25")).fields["storage_quantity"] == 1
 
 
@@ -189,7 +221,7 @@ def test_commit_writes_batch_rows_and_issues(
 ) -> None:
     rows = [
         make_row(2, Denom="0.25", Price="10"),
-        make_row(3, Denom="Zzz Nonexistent"),          # unclassified -> issue
+        make_row(3, Denom="Zzz Nonexistent"),  # unclassified -> issue
         make_row(4, Denom="$1 Bill", **{"Grading#": "5.0157E+14"}),  # error
     ]
     report = ImportEngine(profile, session=db).run(FakeSource(rows), mode=COMMIT)
@@ -230,7 +262,9 @@ def test_report_counts_reconcile(profile: CollectionV1Profile) -> None:
     ]
     report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
     assert report.rows == 4
-    assert sum(report.kinds.values()) == report.rows, "every row lands in exactly one kind"
+    assert sum(report.kinds.values()) == report.rows, (
+        "every row lands in exactly one kind"
+    )
     assert report.classified == 3
     assert report.unclassified_values["Zzz Nonexistent"] == 1
 
@@ -248,7 +282,9 @@ def test_report_renders_without_error(profile: CollectionV1Profile) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_issue_records_carry_the_source_row_number(profile: CollectionV1Profile) -> None:
+def test_issue_records_carry_the_source_row_number(
+    profile: CollectionV1Profile,
+) -> None:
     """A typo is only actionable if you know which row to fix."""
     rows = [make_row(2, Denom="0.25"), make_row(4711, Denom="$20 Blll")]
     report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
@@ -258,12 +294,18 @@ def test_issue_records_carry_the_source_row_number(profile: CollectionV1Profile)
 
 
 def test_unclassified_values_record_their_rows(profile: CollectionV1Profile) -> None:
-    rows = [make_row(10, Denom="Zzz Nonexistent"), make_row(20, Denom="Zzz Nonexistent"), make_row(30, Denom="0.25")]
+    rows = [
+        make_row(10, Denom="Zzz Nonexistent"),
+        make_row(20, Denom="Zzz Nonexistent"),
+        make_row(30, Denom="0.25"),
+    ]
     report = ImportEngine(profile).run(FakeSource(rows), mode=DRY_RUN)
     assert report.unclassified_rows["Zzz Nonexistent"] == [10, 20]
 
 
-def test_write_all_produces_reviewable_files(profile: CollectionV1Profile, tmp_path) -> None:
+def test_write_all_produces_reviewable_files(
+    profile: CollectionV1Profile, tmp_path: Path
+) -> None:
     import csv as _csv
 
     from app.importers import reporting
@@ -288,7 +330,9 @@ def test_write_all_produces_reviewable_files(profile: CollectionV1Profile, tmp_p
 
     with paths["unclassified"].open(encoding="utf-8-sig") as fh:
         unclassified = list(_csv.DictReader(fh))
-    assert any(r["raw_value"] == "Zzz Nonexistent" and r["rows"] == "4" for r in unclassified)
+    assert any(
+        r["raw_value"] == "Zzz Nonexistent" and r["rows"] == "4" for r in unclassified
+    )
 
     with paths["issues"].open(encoding="utf-8-sig") as fh:
         issues = list(_csv.DictReader(fh))
@@ -310,7 +354,7 @@ def test_report_names_rows_for_corrections(profile: CollectionV1Profile) -> None
 # --------------------------------------------------------------------------
 
 
-def _profiled(rows):
+def _profiled(rows: list[dict[str, str]]) -> list[ColumnProfile]:
     from app.importers import profiling
 
     report = ImportEngine(CollectionV1Profile()).run(FakeSource(rows), mode=DRY_RUN)
@@ -399,9 +443,14 @@ def test_uncertain_and_range_years_are_not_flagged() -> None:
     from app.importers.profiles.collection_v1 import KNOWN_GOOD
 
     rows = [make_row(i, Denom="0.25", Year="2024-") for i in range(2, 40)]
-    rows += [make_row(90, Denom="0.25", Year="2024?"), make_row(91, Denom="0.25", Year="1980's")]
+    rows += [
+        make_row(90, Denom="0.25", Year="2024?"),
+        make_row(91, Denom="0.25", Year="1980's"),
+    ]
     report = ImportEngine(CollectionV1Profile()).run(FakeSource(rows), mode=DRY_RUN)
-    variants = {p.name: p for p in profiling.profile_columns(report, KNOWN_GOOD)}["Year"].variants
+    variants = {p.name: p for p in profiling.profile_columns(report, KNOWN_GOOD)}[
+        "Year"
+    ].variants
     flagged = {v.rare_value for v in variants}
     assert "2024?" not in flagged and "1980's" not in flagged
 
@@ -411,7 +460,7 @@ def test_uncertain_and_range_years_are_not_flagged() -> None:
 # --------------------------------------------------------------------------
 
 
-def weight_of(profile: CollectionV1Profile, denom: str):
+def weight_of(profile: CollectionV1Profile, denom: str) -> None:
     return profile.inspect(make_row(Denom=denom)).fields.get("weight_ozt")
 
 
@@ -493,7 +542,7 @@ def test_original_weight_text_is_preserved(profile: CollectionV1Profile) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_a_condition_string_is_split_into_its_separate_facts():
+def test_a_condition_string_is_split_into_its_separate_facts() -> None:
     parsed = parse_condition("#14 PR69DCAM PCGS")
     assert parsed.grade == "PR69"
     assert parsed.designation == "DCAM"
@@ -501,13 +550,13 @@ def test_a_condition_string_is_split_into_its_separate_facts():
     assert parsed.catalog_number == "14"
 
 
-def test_a_grade_is_found_inside_surrounding_prose():
+def test_a_grade_is_found_inside_surrounding_prose() -> None:
     # Nearly half the collection writes the grade alongside a description.
     assert parse_condition("MS70 American Bald Eagle").grade == "MS70"
     assert parse_condition("#17 Clad Roosevelt Gem Proof").grade == "GEM_PROOF"
 
 
-def test_out_of_range_numbers_are_not_grades():
+def test_out_of_range_numbers_are_not_grades() -> None:
     # The Sheldon scale runs 1-70 with a valid band per prefix. Without that
     # check, prose yields "F73" and "G63" and they become permanent rows in a
     # vocabulary meant to be shared with other installations.
@@ -515,28 +564,28 @@ def test_out_of_range_numbers_are_not_grades():
         assert parse_condition(text).grade is None, text
 
 
-def test_separator_variants_reach_the_same_seeded_grade():
+def test_separator_variants_reach_the_same_seeded_grade() -> None:
     # GEM/BU, GEM BU and GEM_BU are one grade written three ways. Treating
     # them as three would make every query know about all three.
     for text in ("GEM/BU", "GEM BU", "Gem-BU"):
         assert parse_condition(text).grade == "GEM_BU", text
 
 
-def test_a_plus_is_a_real_distinction_and_survives():
+def test_a_plus_is_a_real_distinction_and_survives() -> None:
     # The owner said so explicitly: UNC+ is not UNC.
     assert parse_condition("UNC+").grade == "UNC+"
     assert parse_condition("MS64+").grade == "MS64+"
     assert parse_condition("BU++").grade == "BU++"
 
 
-def test_equivalent_grade_spellings_normalise():
+def test_equivalent_grade_spellings_normalise() -> None:
     # PF and PR are the same thing; so are EF and XF.
     assert parse_condition("PF70").grade == "PR70"
     assert parse_condition("EF40").grade == "XF40"
     assert parse_condition("MS-64").grade == "MS64"
 
 
-def test_note_features_are_not_grades():
+def test_note_features_are_not_grades() -> None:
     # Star Note describes the note, not its condition. Putting it in the
     # grade column is what makes condition unqueryable.
     parsed = parse_condition("Red Seal Star Note")
@@ -545,14 +594,14 @@ def test_note_features_are_not_grades():
     assert parsed.note_attributes == ("star",)
 
 
-def test_a_designation_is_found_when_no_space_precedes_it():
+def test_a_designation_is_found_when_no_space_precedes_it() -> None:
     # \b never fires between "9" and "D", so a plain word boundary misses it.
     assert parse_condition("PR69DCAM").designation == "DCAM"
     # ...but CAM must still not be found inside an ordinary word.
     assert parse_condition("Scam artist").designation is None
 
 
-def test_a_description_that_is_not_a_grade_is_declined():
+def test_a_description_that_is_not_a_grade_is_declined() -> None:
     # Declining is the safe direction: the text is kept verbatim in grade_raw
     # and flagged, rather than inventing a grade called "ACADIANP".
     for text in ("5-Coin Mint Set", "Doubling (check P mark)", "Acadian Provinces"):

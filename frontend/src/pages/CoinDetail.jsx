@@ -56,7 +56,9 @@ export default function CoinDetail() {
       )}
       <p className="price large">{money(coin.price)}</p>
       <p className="muted">
-        {coin.quantity_available > 0 ? `${coin.quantity_available} available` : 'Sold out'}
+        {coin.quantity_available > 0
+          ? `${coin.quantity_available} available`
+          : 'Sold out'}
       </p>
 
       {coin.description && <p>{coin.description}</p>}

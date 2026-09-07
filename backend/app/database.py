@@ -23,6 +23,8 @@ SessionLocal = sessionmaker(
 
 
 class Base(DeclarativeBase):
+    """Declarative base. Importing app.models registers every table on it."""
+
     pass
 
 

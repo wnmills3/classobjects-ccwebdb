@@ -118,9 +118,7 @@ def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> Orde
     customer = _customer_for(db, user)
     order = SalesOrder(
         customer_id=customer.id,
-        sales_order_status_id=require_code(
-            db, SalesOrderStatus, "pending", "status"
-        ),
+        sales_order_status_id=require_code(db, SalesOrderStatus, "pending", "status"),
     )
     total = Decimal("0.00")
 
@@ -204,6 +202,7 @@ def _visible_or_404(db: Session, order_id: int, user: User) -> SalesOrder:
 
 @router.get("/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db: DbSession, user: CurrentUser) -> OrderOut:
+    """One order. A customer sees only their own; an administrator sees any."""
     order = _visible_or_404(db, order_id, user)
     return _order_out(order, _status_code(db, order))
 
@@ -212,6 +211,7 @@ def get_order(order_id: int, db: DbSession, user: CurrentUser) -> OrderOut:
 def update_order_status(
     order_id: int, payload: OrderStatusUpdate, db: DbSession, _admin: AdminUser
 ) -> OrderOut:
+    """Advance an order. Cancelling an unshipped one returns its stock."""
     order = _load(db, order_id)
     if order is None:
         raise HTTPException(

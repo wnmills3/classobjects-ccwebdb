@@ -1,0 +1,43 @@
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import prettier from 'eslint-config-prettier'
+
+/**
+ * Linting for the frontend.
+ *
+ * `prettier` goes last so it switches off every stylistic rule that would
+ * argue with the formatter. One tool owns layout, another owns correctness --
+ * the same split as ruff format and ruff check on the Python side.
+ */
+export default [
+  { ignores: ['dist/**', 'node_modules/**'] },
+  js.configs.recommended,
+  {
+    files: ['**/*.{js,jsx}'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      globals: { ...globals.browser },
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+        sourceType: 'module',
+      },
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      // A component file that also exports something else breaks fast refresh.
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // An unused variable is either a mistake or a leftover; a leading
+      // underscore is how you say it is deliberate.
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      eqeqeq: ['error', 'smart'],
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
+    },
+  },
+  prettier,
+]

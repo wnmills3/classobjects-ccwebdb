@@ -22,11 +22,6 @@ from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
 import pytest
-from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
-
 from app.models import (
     Authenticity,
     Currency,
@@ -46,12 +41,16 @@ from app.models import (
 from app.routers.orders import create_order
 from app.schemas import OrderCreate, OrderLineIn
 from app.security import hash_password
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
 
 RACE_TITLE = "RACE Contested Item"
 
 
 @pytest.fixture
-def committed(engine: Engine):
+def committed(engine: Engine) -> None:
     """Real, committing sessions. Cleans up the rows it creates."""
     factory = sessionmaker(bind=engine, expire_on_commit=False)
 
@@ -62,20 +61,22 @@ def committed(engine: Engine):
         cleanup.query(SalesOrder).delete()
         cleanup.query(Customer).delete()
         cleanup.query(Listing).delete()
-        cleanup.query(InventoryItem).filter(
-            InventoryItem.title == RACE_TITLE
-        ).delete(synchronize_session=False)
+        cleanup.query(InventoryItem).filter(InventoryItem.title == RACE_TITLE).delete(
+            synchronize_session=False
+        )
         cleanup.query(User).filter(User.email.like("race%@example.com")).delete(
             synchronize_session=False
         )
         cleanup.commit()
 
 
-def _code_id(session: Session, model, code: str) -> int:
+def _code_id(session: Session, model: type, code: str) -> int:
     return session.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
-def _seed(factory, *, stock: int, buyers: int) -> tuple[int, list[int]]:
+def _seed(
+    factory: sessionmaker[Session], *, stock: int, buyers: int
+) -> tuple[int, list[int]]:
     with factory() as session:
         item = InventoryItem(
             title=RACE_TITLE,
@@ -110,7 +111,9 @@ def _seed(factory, *, stock: int, buyers: int) -> tuple[int, list[int]]:
         return listing.id, [u.id for u in users]
 
 
-def _race(factory, listing_id: int, user_ids: list[int]) -> list[int | str]:
+def _race(
+    factory: sessionmaker[Session], listing_id: int, user_ids: list[int]
+) -> list[int | str]:
     """Every buyer attempts one unit at the same instant. Returns outcomes."""
     barrier = threading.Barrier(len(user_ids))
     payload = OrderCreate(items=[OrderLineIn(listing_id=listing_id, quantity=1)])
@@ -132,12 +135,14 @@ def _race(factory, listing_id: int, user_ids: list[int]) -> list[int | str]:
         return sorted(pool.map(attempt, user_ids), key=str)
 
 
-def _remaining(factory, listing_id: int) -> int:
+def _remaining(factory: sessionmaker[Session], listing_id: int) -> int:
     with factory() as session:
         return session.get(Listing, listing_id).quantity_available
 
 
-def test_two_buyers_cannot_both_take_the_last_item(committed) -> None:
+def test_two_buyers_cannot_both_take_the_last_item(
+    committed: sessionmaker[Session],
+) -> None:
     listing_id, user_ids = _seed(committed, stock=1, buyers=2)
 
     outcomes = _race(committed, listing_id, user_ids)
@@ -146,7 +151,9 @@ def test_two_buyers_cannot_both_take_the_last_item(committed) -> None:
     assert _remaining(committed, listing_id) == 0
 
 
-def test_stock_never_goes_negative_under_contention(committed) -> None:
+def test_stock_never_goes_negative_under_contention(
+    committed: sessionmaker[Session],
+) -> None:
     """Five buyers, two units: exactly two win and stock lands at zero."""
     listing_id, user_ids = _seed(committed, stock=2, buyers=5)
 
@@ -159,7 +166,9 @@ def test_stock_never_goes_negative_under_contention(committed) -> None:
     assert remaining == 0, f"stock must not go negative, got {remaining}"
 
 
-def test_all_buyers_succeed_when_stock_is_sufficient(committed) -> None:
+def test_all_buyers_succeed_when_stock_is_sufficient(
+    committed: sessionmaker[Session],
+) -> None:
     listing_id, user_ids = _seed(committed, stock=5, buyers=3)
 
     outcomes = _race(committed, listing_id, user_ids)
@@ -168,9 +177,14 @@ def test_all_buyers_succeed_when_stock_is_sufficient(committed) -> None:
     assert _remaining(committed, listing_id) == 2
 
 
-def test_each_winner_gets_exactly_one_order_line(committed) -> None:
-    """The count that actually matters commercially: units sold must equal
-    units gone from the catalogue."""
+def test_each_winner_gets_exactly_one_order_line(
+    committed: sessionmaker[Session],
+) -> None:
+    """Units sold must equal units gone from the catalogue.
+
+    The count that actually matters commercially: units sold must equal
+    units gone from the catalogue.
+    """
     listing_id, user_ids = _seed(committed, stock=3, buyers=6)
 
     outcomes = _race(committed, listing_id, user_ids)

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import enum
 from datetime import date, datetime
-from typing import TYPE_CHECKING
 from decimal import Decimal
+from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy import (
     Boolean,
@@ -54,7 +54,9 @@ __all__ = [
 ]
 
 
-class AddressKind(str, enum.Enum):
+class AddressKind(enum.StrEnum):
+    """What an address is for. A customer may have one of each."""
+
     shipping = "shipping"
     billing = "billing"
 
@@ -77,7 +79,7 @@ class Listing(TimestampMixin, Base):
         Integer, nullable=False, server_default=text("1")
     )
 
-    __mapper_args__ = {"version_id_col": version}
+    __mapper_args__: ClassVar[dict[str, object]] = {"version_id_col": version}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int] = mapped_column(
@@ -111,9 +113,7 @@ class Listing(TimestampMixin, Base):
 
     inventory_item: Mapped[InventoryItem] = relationship(back_populates="listings")
     currency: Mapped[Currency] = relationship()
-    order_items: Mapped[list[SalesOrderItem]] = relationship(
-        back_populates="listing"
-    )
+    order_items: Mapped[list[SalesOrderItem]] = relationship(back_populates="listing")
 
     __table_args__ = (
         CheckConstraint("price >= 0", name="ck_listing_price_non_negative"),
@@ -310,9 +310,7 @@ class Shipment(TimestampMixin, Base):
         DateTime(timezone=True), nullable=True
     )
     cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    insured_value: Mapped[Decimal | None] = mapped_column(
-        Numeric(12, 2), nullable=True
-    )
+    insured_value: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     #: Parcel weight. Avoirdupois ounces -- this is a postal weight, not a
     #: metal weight, and must not be confused with the troy ounces used
     #: everywhere else in the schema.

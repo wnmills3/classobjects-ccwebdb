@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { api } from '../api'
@@ -9,40 +9,46 @@ import { money } from '../format'
 const PAGE_SIZE = 12
 
 export default function Catalog() {
-  const [page, setPage] = useState({ items: [], total: 0, limit: PAGE_SIZE, offset: 0 })
+  const [result, setResult] = useState(null)
   const [filters, setFilters] = useState({ q: '', kind: '', in_stock: false })
   const kinds = useReference('item_kind')
   const [offset, setOffset] = useState(0)
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(true)
+
   const { add } = useCart()
 
-  const load = useCallback(async () => {
-    setBusy(true)
-    setError('')
-    try {
-      const result = await api.listCatalog({
-        ...filters,
-        limit: PAGE_SIZE,
-        offset,
-      })
-      setPage(result)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }, [filters, offset])
+  // The request is keyed by what was asked for, so "loading" can be derived
+  // rather than tracked separately, and a slow response for an old filter
+  // cannot land after a newer one and overwrite it.
+  const key = JSON.stringify({ ...filters, offset })
 
   useEffect(() => {
-    load()
-  }, [load])
+    let cancelled = false
+    api
+      .listCatalog({ ...filters, limit: PAGE_SIZE, offset })
+      .then((result) => {
+        if (cancelled) return
+        setResult({ key, page: result })
+        setError('')
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message)
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
 
   function applyFilter(patch) {
     setOffset(0)
     setFilters((f) => ({ ...f, ...patch }))
   }
 
+  // Derived rather than stored: loading is exactly "the page on screen is not
+  // the one being asked for".
+  const busy = result?.key !== key
+  const page = result?.page ?? { items: [], total: 0, limit: PAGE_SIZE, offset: 0 }
   const shown = page.offset + page.items.length
 
   return (
@@ -102,11 +108,15 @@ export default function Catalog() {
                 <Link to={`/coins/${coin.id}`}>{coin.title}</Link>
               </h3>
               <p className="muted small">
-                {[coin.country, coin.year_start, coin.grade].filter(Boolean).join(' - ')}
+                {[coin.country, coin.year_start, coin.grade]
+                  .filter(Boolean)
+                  .join(' - ')}
               </p>
               <p className="price">{money(coin.price)}</p>
               <p className="muted small">
-                {coin.quantity_available > 0 ? `${coin.quantity_available} available` : 'Sold out'}
+                {coin.quantity_available > 0
+                  ? `${coin.quantity_available} available`
+                  : 'Sold out'}
               </p>
             </div>
             <button
@@ -121,13 +131,19 @@ export default function Catalog() {
 
       {page.total > PAGE_SIZE && (
         <div className="pager">
-          <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+          <button
+            disabled={offset === 0}
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+          >
             Previous
           </button>
           <span className="muted">
             {page.offset + 1}-{shown} of {page.total}
           </span>
-          <button disabled={shown >= page.total} onClick={() => setOffset(offset + PAGE_SIZE)}>
+          <button
+            disabled={shown >= page.total}
+            onClick={() => setOffset(offset + PAGE_SIZE)}
+          >
             Next
           </button>
         </div>

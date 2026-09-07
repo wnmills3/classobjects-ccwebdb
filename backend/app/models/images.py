@@ -50,12 +50,16 @@ __all__ = [
 ]
 
 
-class DerivativeKind(str, enum.Enum):
+class DerivativeKind(enum.StrEnum):
+    """The renditions generated at ingest. Originals are never served."""
+
     thumb = "thumb"
     web = "web"
 
 
-class ShipmentImageKind(str, enum.Enum):
+class ShipmentImageKind(enum.StrEnum):
+    """What a photograph of an outgoing parcel shows."""
+
     packed = "packed"
     label = "label"
     handover = "handover"
@@ -160,12 +164,10 @@ class ItemImage(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     image: Mapped[Image] = relationship()
-    item: Mapped["InventoryItem | None"] = relationship(back_populates="images")
+    item: Mapped[InventoryItem | None] = relationship(back_populates="images")
 
     __table_args__ = (
-        UniqueConstraint(
-            "inventory_item_id", "image_id", name="uq_item_image_pair"
-        ),
+        UniqueConstraint("inventory_item_id", "image_id", name="uq_item_image_pair"),
         # At most one primary photograph per item. Partial, so the many
         # non-primary rows do not collide with each other.
         Index(

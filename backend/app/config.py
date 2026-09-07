@@ -10,6 +10,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
+    """Everything configurable, read from the environment and the repo .env."""
+
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",
         env_file_encoding="utf-8",
@@ -59,6 +61,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """The settings singleton. Cached so the .env is read once per process."""
     return Settings()
 
 
