@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { api } from '../api'
-import { useReference } from '../reference'
-import { useCart } from '../cart'
+import { useReference } from '../reference-context'
+import { useCart } from '../cart-context'
 import { money } from '../format'
 
 const PAGE_SIZE = 12

@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { useCallback, useContext, useState } from 'react'
 
 import { api } from './api'
+import { ReferenceContext, useReference } from './reference-context'
 
 /**
  * Classifier vocabularies, fetched once and shared.
@@ -12,7 +13,6 @@ import { api } from './api'
  * Cached in one place because a single admin form needs five or six of these
  * vocabularies, and they change about as often as the software does.
  */
-const ReferenceContext = createContext(null)
 
 export function ReferenceProvider({ children }) {
   const [tables, setTables] = useState({})
@@ -52,17 +52,6 @@ export function ReferenceProvider({ children }) {
       {children}
     </ReferenceContext.Provider>
   )
-}
-
-export function useReference(table) {
-  const context = useContext(ReferenceContext)
-  const { tables, load } = context ?? { tables: {}, load: () => {} }
-
-  useEffect(() => {
-    if (table) load(table)
-  }, [table, load])
-
-  return tables[table]
 }
 
 /**

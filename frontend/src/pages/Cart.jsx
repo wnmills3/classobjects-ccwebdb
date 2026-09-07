@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { api } from '../api'
-import { useAuth } from '../auth'
-import { useCart } from '../cart'
+import { useAuth } from '../auth-context'
+import { useCart } from '../cart-context'
 import { money } from '../format'
 
 export default function Cart() {

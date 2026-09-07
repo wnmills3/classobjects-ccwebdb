@@ -93,3 +93,15 @@ Worth recording, because it is the argument for having them:
 - **A dead variable and a vestigial `inspect()` call** in the seeding exporter.
 - **`Image.LANCZOS`**, which moved to `Image.Resampling.LANCZOS` in Pillow 10
   and survived only because the old name still resolves.
+
+## Fast Refresh
+
+`react-refresh/only-export-components` fires when a module exports a component
+*and* something that is not one. It matters because the bundler can then no
+longer tell whether an edit to that file is a component change it can hot-swap,
+so it falls back to a full reload and loses whatever state the app was holding.
+
+Each context is therefore split in two: `auth-context.js` holds the context and
+the `useAuth` hook, `auth.jsx` holds only `AuthProvider`. Same for cart and
+reference. The `-context` modules import nothing but React, so there are no
+cycles.
