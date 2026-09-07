@@ -8,7 +8,8 @@ as assertions, timestamps `*_at` and dates `*_on`.
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import ClassVar
 
 from sqlalchemy import Boolean, DateTime, Enum, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
@@ -26,7 +27,8 @@ __all__ = [
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Now, in UTC. A function so it is evaluated per row, not at import."""
+    return datetime.now(UTC)
 
 
 def enum_column(py_enum: type[enum.Enum], name: str) -> Enum:
@@ -42,7 +44,7 @@ def enum_column(py_enum: type[enum.Enum], name: str) -> Enum:
     )
 
 
-class ProvenanceSource(str, enum.Enum):
+class ProvenanceSource(enum.StrEnum):
     """How a row came to exist.
 
     A machine guess must never be indistinguishable from a curated fact, so
@@ -55,6 +57,8 @@ class ProvenanceSource(str, enum.Enum):
 
 
 class TimestampMixin:
+    """created_at and updated_at, maintained by the ORM on every write."""
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
@@ -72,6 +76,10 @@ class ReferenceMixin:
     ``label`` is display text and may be reworded freely.
     """
 
+    #: Set by every concrete table. Declared here so the attribute is known
+    #: to a type checker rather than only to the declarative machinery.
+    __tablename__: ClassVar[str]
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(64), nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -84,8 +92,10 @@ class ReferenceMixin:
     )
 
     @declared_attr.directive
-    def __table_args__(cls) -> tuple:  # noqa: N805
+    def __table_args__(cls) -> tuple:
+        """Every reference table has a unique code."""
         return (UniqueConstraint("code", name=f"uq_{cls.__tablename__}_code"),)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        """The code, which is what identifies the row to a person."""
         return f"<{type(self).__name__} {self.code}>"

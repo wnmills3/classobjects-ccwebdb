@@ -17,13 +17,13 @@ them, from the definitions here.
 from __future__ import annotations
 
 __all__ = [
-    "CREATE_VIEWS_ORIGINAL",
-    "CREATE_VIEWS_WITHOUT_LINEAGE",
-    "create_views",
     "ALL_VIEWS",
     "CREATE_VIEWS",
+    "CREATE_VIEWS_ORIGINAL",
+    "CREATE_VIEWS_WITHOUT_LINEAGE",
     "DROP_VIEWS",
     "PUBLIC_CATALOG_FORBIDDEN_COLUMNS",
+    "create_views",
 ]
 
 #: Columns that must never appear in `public_catalog`. Asserted by a test.

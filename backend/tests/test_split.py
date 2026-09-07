@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from app.models import InventoryItem, Listing
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.models import InventoryItem, Listing
 from tests.test_schema import make_item
 
 TUBE = {
@@ -30,7 +30,7 @@ MINT_SET = {
 }
 
 
-def lot(db: Session, **overrides) -> InventoryItem:
+def lot(db: Session, **overrides: object) -> InventoryItem:
     defaults = {
         "title": "Tube of 4 Silver Rounds",
         "storage_quantity": 4,
@@ -41,7 +41,9 @@ def lot(db: Session, **overrides) -> InventoryItem:
     return make_item(db, **defaults)
 
 
-def do_split(client: TestClient, headers, item_id: int, payload: dict):
+def do_split(
+    client: TestClient, headers: dict[str, str], item_id: int, payload: dict
+) -> None:
     return client.post(f"/api/inventory/{item_id}/split", json=payload, headers=headers)
 
 
@@ -65,8 +67,11 @@ def test_equal_split_divides_the_cost_evenly(
 def test_price_and_shipping_reconcile_to_the_penny(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """An awkward total, split three ways -- the case naive division loses a
-    penny on."""
+    """Price and shipping reconcile exactly, whatever the total.
+
+    An awkward total, split three ways -- the case naive division loses a
+    penny on.
+    """
     parent = lot(db, price=Decimal("100.00"), shipping=Decimal("0.01"))
     payload = {"mode": "equal", "pieces": [{"title": f"P{n}"} for n in range(3)]}
 
@@ -79,10 +84,14 @@ def test_price_and_shipping_reconcile_to_the_penny(
 def test_a_piece_holding_several_items_carries_several_shares(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """An equal split is per piece, not per row: a child holding three coins
-    takes three coins' worth of the cost."""
-    parent = lot(db, price=Decimal("100.00"), shipping=Decimal("0.00"),
-                 storage_quantity=4)
+    """A piece holding several items carries several shares.
+
+    An equal split is per piece, not per row: a child holding three coins
+    takes three coins' worth of the cost.
+    """
+    parent = lot(
+        db, price=Decimal("100.00"), shipping=Decimal("0.00"), storage_quantity=4
+    )
     payload = {
         "mode": "equal",
         "pieces": [
@@ -103,11 +112,19 @@ def test_a_piece_holding_several_items_carries_several_shares(
 def test_relative_split_follows_the_supplied_values(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The reason this mode exists: charging the cent and the half dollar the
+    """Cost follows value, so a cent is not charged like a half.
+
+    The reason this mode exists: charging the cent and the half dollar the
     same cost basis would make one look like a disaster and the other a
-    windfall, and both figures would be wrong."""
-    parent = lot(db, title="1964 Mint Set", storage_quantity=1,
-                 price=Decimal("91.00"), shipping=Decimal("0.00"))
+    windfall, and both figures would be wrong.
+    """
+    parent = lot(
+        db,
+        title="1964 Mint Set",
+        storage_quantity=1,
+        price=Decimal("91.00"),
+        shipping=Decimal("0.00"),
+    )
 
     body = do_split(client, admin_headers, parent.id, MINT_SET).json()
 
@@ -120,8 +137,9 @@ def test_relative_split_follows_the_supplied_values(
 def test_relative_split_reconciles_on_an_awkward_total(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    parent = lot(db, storage_quantity=1, price=Decimal("47.53"),
-                 shipping=Decimal("6.99"))
+    parent = lot(
+        db, storage_quantity=1, price=Decimal("47.53"), shipping=Decimal("6.99")
+    )
     body = do_split(client, admin_headers, parent.id, MINT_SET).json()
 
     assert body["allocated_price"] == "47.53"
@@ -141,8 +159,11 @@ def test_relative_mode_requires_values(
 def test_the_relative_value_used_is_recorded_on_each_piece(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """So the division can be re-checked later without guessing at what basis
-    someone had in mind."""
+    """The value used for the allocation is recorded per piece.
+
+    So the division can be re-checked later without guessing at what basis
+    someone had in mind.
+    """
     parent = lot(db, storage_quantity=1, price=Decimal("91.00"))
     do_split(client, admin_headers, parent.id, MINT_SET)
 
@@ -171,8 +192,11 @@ def test_pieces_point_back_at_the_lot(
 def test_the_lot_is_marked_split_and_kept(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """Kept, because it holds the purchase order, the price actually paid and
-    the item code a receipt refers to."""
+    """A split lot is marked, not deleted.
+
+    Kept, because it holds the purchase order, the price actually paid and
+    the item code a receipt refers to.
+    """
     parent = lot(db)
     do_split(client, admin_headers, parent.id, TUBE)
 
@@ -186,8 +210,11 @@ def test_the_lot_is_marked_split_and_kept(
 def test_a_split_lot_disappears_from_the_inventory_views(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The double-counting trap. Without this the lot and its pieces are both
-    counted and the collection appears to hold twice what it does."""
+    """The double-counting trap.
+
+    Without this the lot and its pieces are both counted and the collection
+    appears to hold twice what it does.
+    """
     parent = lot(db)
     before = db.execute(text("select count(*) from coin_inventory")).scalar()
 
@@ -204,20 +231,27 @@ def test_a_split_lot_disappears_from_the_inventory_views(
 def test_splitting_does_not_change_what_the_collection_cost(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The invariant that matters for tax: breaking a lot up moves cost basis
-    around, it does not create or destroy any."""
+    """Splitting moves cost basis; it creates and destroys none.
+
+    The invariant that matters for tax: breaking a lot up moves cost basis
+    around, it does not create or destroy any.
+    """
     parent = lot(db, price=Decimal("100.00"), shipping=Decimal("8.00"))
     total_before = db.execute(
-        text("select coalesce(sum(price + shipping), 0) from inventory_item "
-             "where split_at is null")
+        text(
+            "select coalesce(sum(price + shipping), 0) from inventory_item "
+            "where split_at is null"
+        )
     ).scalar()
 
     do_split(client, admin_headers, parent.id, TUBE)
     db.expire_all()
 
     total_after = db.execute(
-        text("select coalesce(sum(price + shipping), 0) from inventory_item "
-             "where split_at is null")
+        text(
+            "select coalesce(sum(price + shipping), 0) from inventory_item "
+            "where split_at is null"
+        )
     ).scalar()
     assert total_after == total_before
 
@@ -225,8 +259,11 @@ def test_splitting_does_not_change_what_the_collection_cost(
 def test_the_tax_rounding_difference_is_reported_not_hidden(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """taxes is generated per row, so the sum of rounded taxes need not equal
-    the rounded tax of the sum. Whatever the difference is, it is stated."""
+    """The tax rounding difference is reported, not hidden.
+
+    Taxes is generated per row, so the sum of rounded taxes need not equal
+    the rounded tax of the sum. Whatever the difference is, it is stated.
+    """
     parent = lot(db, price=Decimal("100.00"), shipping=Decimal("0.00"))
     payload = {"mode": "equal", "pieces": [{"title": f"P{n}"} for n in range(3)]}
 
@@ -272,8 +309,11 @@ def test_a_lot_that_has_been_ordered_cannot_be_split(
     customer_headers: dict[str, str],
     listing: Listing,
 ) -> None:
-    """Order history points at the lot; splitting would leave a sold line
-    referring to something that no longer exists as sold."""
+    """A lot that has been ordered cannot be split.
+
+    Order history points at the lot; splitting would leave a sold line
+    referring to something that no longer exists as sold.
+    """
     placed = client.post(
         "/api/orders",
         json={"items": [{"listing_id": listing.id, "quantity": 1}]},
@@ -281,9 +321,7 @@ def test_a_lot_that_has_been_ordered_cannot_be_split(
     )
     assert placed.status_code == 201
 
-    response = do_split(
-        client, admin_headers, listing.inventory_item_id, TUBE
-    )
+    response = do_split(client, admin_headers, listing.inventory_item_id, TUBE)
     assert response.status_code == 409
     assert "order" in response.json()["detail"]
 
@@ -293,7 +331,9 @@ def test_splitting_into_one_piece_is_refused(
 ) -> None:
     parent = lot(db)
     response = do_split(
-        client, admin_headers, parent.id,
+        client,
+        admin_headers,
+        parent.id,
         {"mode": "equal", "pieces": [{"title": "only"}]},
     )
     assert response.status_code == 422
@@ -325,10 +365,18 @@ def test_pieces_may_carry_their_own_classifiers(
     payload = {
         "mode": "relative",
         "pieces": [
-            {"title": "Cent", "relative_value": "0.01",
-             "denomination": "usd_coin_0_01", "year_start": 1964},
-            {"title": "Half", "relative_value": "0.50",
-             "denomination": "usd_coin_0_50", "year_start": 1964},
+            {
+                "title": "Cent",
+                "relative_value": "0.01",
+                "denomination": "usd_coin_0_01",
+                "year_start": 1964,
+            },
+            {
+                "title": "Half",
+                "relative_value": "0.50",
+                "denomination": "usd_coin_0_50",
+                "year_start": 1964,
+            },
         ],
     }
     assert do_split(client, admin_headers, parent.id, payload).status_code == 200

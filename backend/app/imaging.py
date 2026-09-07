@@ -101,7 +101,7 @@ def _captured_at(image: Image.Image) -> datetime | None:
     """DateTimeOriginal, if the camera recorded one and it parses."""
     try:
         exif = image.getexif()
-    except Exception:  # noqa: BLE001 - a corrupt tag must not fail the ingest
+    except Exception:
         return None
     if not exif:
         return None
@@ -200,7 +200,7 @@ def make_derivative(data: bytes, longest_edge: int) -> tuple[bytes, int, int, st
     with Image.open(io.BytesIO(data)) as image:
         image.load()
         rendition = image.copy()
-    rendition.thumbnail((longest_edge, longest_edge), Image.LANCZOS)
+    rendition.thumbnail((longest_edge, longest_edge), Image.Resampling.LANCZOS)
     encoded, media_type = _encode(rendition, quality=82)
     _assert_no_metadata(encoded)
     return encoded, rendition.width, rendition.height, media_type
@@ -221,4 +221,5 @@ def original_key(sha256: str, media_type: str) -> str:
 
 
 def derivative_key(sha256: str, kind: str, media_type: str) -> str:
+    """Storage key for one rendition of an image, fanned out by hash."""
     return f"derivatives/{kind}/{sha256[:2]}/{sha256}.{_extension(media_type)}"

@@ -21,8 +21,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, ReferenceMixin, enum_column
 
 __all__ = [
-    "Authenticity",
     "AppliesTo",
+    "Authenticity",
     "BullionForm",
     "Carrier",
     "Country",
@@ -55,7 +55,7 @@ __all__ = [
 ]
 
 
-class AppliesTo(str, enum.Enum):
+class AppliesTo(enum.StrEnum):
     """Which kind of item an error vocabulary term is relevant to."""
 
     coin = "coin"
@@ -63,7 +63,9 @@ class AppliesTo(str, enum.Enum):
     any = "any"
 
 
-class DenominationKind(str, enum.Enum):
+class DenominationKind(enum.StrEnum):
+    """Whether a face value is a coin or a note. The same value exists as both."""
+
     coin = "coin"
     note = "note"
 
@@ -130,6 +132,8 @@ class Currency(ReferenceMixin, Base):
 
 
 class Country(ReferenceMixin, Base):
+    """Issuing country."""
+
     __tablename__ = "country"
 
     iso_alpha2: Mapped[str | None] = mapped_column(String(2), nullable=True)
@@ -164,8 +168,11 @@ class Denomination(ReferenceMixin, Base):
 
 
 class Mint(ReferenceMixin, Base):
-    """Coin mint. ``mark`` is the letter struck on the coin, and may be blank:
-    Philadelphia struck no mark on most issues."""
+    """Coin mint.
+
+    ``mark`` is the letter struck on the coin, and may be blank: Philadelphia
+    struck no mark on most issues.
+    """
 
     __tablename__ = "mint"
 

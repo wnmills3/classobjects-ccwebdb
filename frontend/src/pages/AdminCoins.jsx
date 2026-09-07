@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { money } from '../format'
@@ -30,25 +30,31 @@ export default function AdminCoins() {
   // is refused rather than silently overwriting someone else's edit.
   const [editingVersion, setEditingVersion] = useState(null)
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(true)
+  const [loaded, setLoaded] = useState(false)
+  const [reload, setReload] = useState(0)
 
-  const load = useCallback(async () => {
-    setBusy(true)
-    try {
-      // include_inactive so administrators can see withdrawn items too.
-      const page = await api.listCatalog({ include_inactive: true, limit: 200 })
-      setItems(page.items)
-      setError('')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }, [])
-
+  // `reload` is bumped after any write; the effect is the only place that
+  // sets state, and only once the request has returned.
   useEffect(() => {
-    load()
-  }, [load])
+    let cancelled = false
+    // include_inactive so administrators see withdrawn items too.
+    api
+      .listCatalog({ include_inactive: true, limit: 200 })
+      .then((page) => {
+        if (cancelled) return
+        setItems(page.items)
+        setError('')
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [reload])
 
   function update(field) {
     return (event) => {
@@ -86,7 +92,13 @@ export default function AdminCoins() {
     const payload = { ...form }
     payload.year_start = form.year_start === '' ? null : Number(form.year_start)
     payload.quantity_available = Number(payload.quantity_available)
-    for (const key of ['country', 'denomination', 'grade', 'grading_service', 'metal']) {
+    for (const key of [
+      'country',
+      'denomination',
+      'grade',
+      'grading_service',
+      'metal',
+    ]) {
       if (payload[key] === '') payload[key] = null
     }
 
@@ -100,14 +112,14 @@ export default function AdminCoins() {
         await api.createCatalogItem(payload)
       }
       cancelEdit()
-      await load()
+      setReload((n) => n + 1)
     } catch (err) {
       // 409 means somebody else saved while this form was open. Reloading is
       // the honest response: showing the stale form again invites the user to
       // save over their colleague a second time.
       if (/changed by someone else/i.test(err.message)) {
         setError(`${err.message} Reloading the list...`)
-        await load()
+        setReload((n) => n + 1)
         cancelEdit()
         return
       }
@@ -119,7 +131,7 @@ export default function AdminCoins() {
     if (!window.confirm(`Delete ${coin.title}? This cannot be undone.`)) return
     try {
       await api.deleteCatalogItem(coin.id)
-      await load()
+      setReload((n) => n + 1)
     } catch (err) {
       // 409 when the item appears in existing orders.
       setError(err.message)
@@ -223,10 +235,18 @@ export default function AdminCoins() {
         </div>
         <label>
           Description
-          <textarea rows={3} value={form.description} onChange={update('description')} />
+          <textarea
+            rows={3}
+            value={form.description}
+            onChange={update('description')}
+          />
         </label>
         <label className="checkbox">
-          <input type="checkbox" checked={form.is_active} onChange={update('is_active')} />
+          <input
+            type="checkbox"
+            checked={form.is_active}
+            onChange={update('is_active')}
+          />
           Listed for sale
         </label>
         <div className="row">
@@ -240,7 +260,7 @@ export default function AdminCoins() {
       </form>
 
       <h2>Inventory ({items.length})</h2>
-      {busy ? (
+      {!loaded ? (
         <p className="muted">Loading...</p>
       ) : (
         <table className="table">

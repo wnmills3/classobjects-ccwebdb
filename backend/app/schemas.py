@@ -16,6 +16,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic_core.core_schema import ValidationInfo
 
 from .models import UserRole
 
@@ -25,12 +26,16 @@ from .models import UserRole
 
 
 class UserCreate(BaseModel):
+    """Registration payload. The password is never stored or echoed back."""
+
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str = Field(default="", max_length=255)
 
 
 class UserOut(BaseModel):
+    """A user as the API returns them -- no password material of any kind."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -42,12 +47,16 @@ class UserOut(BaseModel):
 
 
 class TokenPair(BaseModel):
+    """The two tokens issued on login: a short access one and a long refresh one."""
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
 
 
 class RefreshRequest(BaseModel):
+    """Exchange a refresh token for a new access token."""
+
     refresh_token: str
 
 
@@ -63,6 +72,8 @@ class RefreshRequest(BaseModel):
 
 
 class CatalogItemBase(BaseModel):
+    """Fields shared by creating and reading a catalogue entry."""
+
     title: str = Field(min_length=1, max_length=500)
     description: str = ""
 
@@ -93,7 +104,14 @@ class CatalogItemBase(BaseModel):
 
     @field_validator("year_end")
     @classmethod
-    def year_range_must_not_be_backwards(cls, value: int | None, info) -> int | None:
+    def year_range_must_not_be_backwards(
+        cls, value: int | None, info: ValidationInfo
+    ) -> int | None:
+        """Reject a range that ends before it starts.
+
+        Caught here rather than only by the database check constraint, so the
+        caller gets a field-level message instead of a 500.
+        """
         start = info.data.get("year_start")
         if value is not None and start is not None and value < start:
             raise ValueError("year_end must not be earlier than year_start")
@@ -234,16 +252,25 @@ class CatalogPage(BaseModel):
 
 
 class OrderLineIn(BaseModel):
+    """One line of an order: which listing, and how many."""
+
     listing_id: int
     quantity: int = Field(ge=1)
 
 
 class OrderCreate(BaseModel):
+    """An order as placed. At least one line, and no listing twice."""
+
     items: list[OrderLineIn] = Field(min_length=1)
 
     @field_validator("items")
     @classmethod
     def no_duplicate_listings(cls, items: list[OrderLineIn]) -> list[OrderLineIn]:
+        """Refuse the same listing twice in one order.
+
+        Two lines for one listing would each be checked against stock
+        separately, so together they could pass while overselling it.
+        """
         seen = {item.listing_id for item in items}
         if len(seen) != len(items):
             raise ValueError("each listing_id may appear at most once per order")
@@ -251,6 +278,8 @@ class OrderCreate(BaseModel):
 
 
 class OrderItemOut(BaseModel):
+    """An order line as stored, with the price frozen at purchase time."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -260,6 +289,8 @@ class OrderItemOut(BaseModel):
 
 
 class OrderOut(BaseModel):
+    """An order and its lines."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -271,6 +302,8 @@ class OrderOut(BaseModel):
 
 
 class OrderStatusUpdate(BaseModel):
+    """Advance an order to another status, by `sales_order_status` code."""
+
     #: A `sales_order_status` code: pending, paid, packed, shipped,
     #: delivered, cancelled, refunded.
     status: str = Field(min_length=1, max_length=64)
@@ -298,6 +331,8 @@ class ReferenceValueOut(BaseModel):
 
 
 class ReferenceTableOut(BaseModel):
+    """One vocabulary, ordered as a picker should show it."""
+
     table: str
     values: list[ReferenceValueOut]
 
@@ -308,6 +343,8 @@ class ReferenceTableOut(BaseModel):
 
 
 class SplitPieceIn(BaseModel):
+    """One piece to create when breaking a lot apart."""
+
     title: str = Field(min_length=1, max_length=500)
     storage_quantity: int = Field(default=1, ge=1)
     #: The value of ONE piece, on whatever basis the caller chose -- face
@@ -324,6 +361,8 @@ class SplitPieceIn(BaseModel):
 
 
 class SplitRequest(BaseModel):
+    """How to break a lot into pieces, and how to divide its cost."""
+
     #: `equal` divides the cost evenly per piece; `relative` divides it in
     #: proportion to each piece's `relative_value`.
     mode: str = Field(default="equal", pattern="^(equal|relative)$")
@@ -373,6 +412,8 @@ class InventoryItemOut(BaseModel):
 
 
 class FacetValueOut(BaseModel):
+    """One value a filter could take, and how many rows would match it."""
+
     value: object
     count: int
 

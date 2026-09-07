@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from app.models import User, UserRole
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import User, UserRole
 from tests.conftest import CUSTOMER_PASSWORD
 
 
@@ -167,9 +167,7 @@ def test_me_requires_a_token(client: TestClient) -> None:
 
 
 def test_me_rejects_garbage_token(client: TestClient) -> None:
-    response = client.get(
-        "/api/auth/me", headers={"Authorization": "Bearer not.a.jwt"}
-    )
+    response = client.get("/api/auth/me", headers={"Authorization": "Bearer not.a.jwt"})
     assert response.status_code == 401
 
 

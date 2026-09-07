@@ -51,6 +51,7 @@ def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: DbSession,
 ) -> TokenPair:
+    """Exchange email and password for a token pair."""
     # OAuth2PasswordRequestForm calls the field "username"; we use the email.
     user = db.scalar(select(User).where(User.email == form.username))
 
@@ -80,6 +81,11 @@ def login(
 
 @router.post("/refresh", response_model=TokenPair)
 def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
+    """Exchange a refresh token for a fresh pair.
+
+    The token type is checked, so an access token cannot be used here to
+    extend its own lifetime indefinitely.
+    """
     try:
         decoded = decode_token(payload.refresh_token, expected_type="refresh")
         user_id = int(decoded["sub"])
@@ -104,4 +110,5 @@ def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
 
 @router.get("/me", response_model=UserOut)
 def me(user: CurrentUser) -> User:
+    """The signed-in user."""
     return user

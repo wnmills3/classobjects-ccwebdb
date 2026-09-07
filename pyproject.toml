@@ -19,10 +19,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "mypy>=2.3.1",
     "openpyxl>=3.1.5",
     "pdfplumber>=0.11.10",
     "piexif>=1.1.3",
     "pytest>=9.1.1",
+    "ruff>=0.16.6",
 ]
 
 [tool.pytest.ini_options]
@@ -35,3 +37,77 @@ filterwarnings = [
     "error::DeprecationWarning",
     "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
 ]
+
+# ---------------------------------------------------------------------------
+# Formatting and linting
+#
+# One formatter, one linter, no argument. Ruff does both, so there is a single
+# tool and a single config rather than black-plus-isort-plus-flake8 with three
+# opinions about line length.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+extend-exclude = ["backend/alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes -- unused imports, undefined names
+    "I",        # import ordering
+    "UP",       # syntax that is out of date for the target version
+    "B",        # bugbear -- mutable defaults, shadowed loop vars
+    "SIM",      # simplifications
+    "C4",       # comprehensions
+    "RUF",      # ruff's own
+    "D",        # docstrings must exist and be well formed
+    "ANN",      # functions must be annotated
+    "PTH",      # prefer pathlib over os.path
+    "RET",      # return-statement hygiene
+]
+# Nothing is ignored to spare the codebase work. These two are ignored because
+# they are *mutually exclusive with rules that are enabled* -- ruff cannot
+# satisfy both members of either pair, so one of each must be chosen:
+#   D203 (blank line before a class docstring) vs D211 (no blank line)
+#   D213 (summary on the second line)          vs D212 (summary on the first)
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.per-file-ignores]
+# A pytest function is invoked by the framework and imported by nothing, so
+# D103 "undocumented *public* function" does not describe it -- its name is
+# its summary. Everything else applies to tests as it does to app code: they
+# are annotated, import-sorted and formatted like the rest.
+"backend/tests/*" = ["D103"]
+# Alembic generates these from its own template.
+"backend/alembic/env.py" = ["D", "ANN", "I"]
+# FastAPI declares parameters by calling File()/Form()/Depends() in the
+# default. B008 is right in general and wrong for this framework.
+"backend/app/routers/*" = ["B008"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# Relative imports within the package (`..models`) are deliberate and
+# consistent -- they are what makes the app relocatable. Not linted against.
+
+# ---------------------------------------------------------------------------
+# Type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.13"
+files = ["backend/app"]
+plugins = ["pydantic.mypy"]
+# Start strict about the things that actually catch bugs, rather than turning
+# on everything and drowning the signal in `Any` complaints from libraries.
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+# Alembic revisions are generated; type checking them checks a template.
+module = "alembic.*"
+ignore_errors = true

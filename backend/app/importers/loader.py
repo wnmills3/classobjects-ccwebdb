@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -40,20 +40,21 @@ from ..models import (
     Denomination,
     Disposition,
     Grade,
+    GradeDesignation,
     GradingService,
     InventoryItem,
     ItemCertification,
-    GradeDesignation,
     ItemKind,
     ItemNoteAttribute,
-    NoteAttribute,
-    SealColor,
     ItemStatus,
     ItemStatusHistory,
     Metal,
     Mint,
+    NoteAttribute,
     ProvenanceSource,
     PurchaseOrder,
+    ReferenceMixin,
+    SealColor,
     SetForm,
     StorageForm,
     ValuationBasis,
@@ -107,6 +108,7 @@ class SchemaLoader:
     """
 
     def __init__(self, session: Session, *, create_missing: bool = True) -> None:
+        """Caches every reference lookup for the life of the load."""
         self.session = session
         #: When False, an unknown classifier raises instead of creating a row.
         #: Useful for a strict re-run once the vocabulary has settled.
@@ -122,11 +124,11 @@ class SchemaLoader:
 
     def code_id(
         self,
-        model: type,
+        model: type[ReferenceMixin],
         code: str | None,
         *,
         label: str | None = None,
-        extra: dict[str, Any] | None = None,
+        extra: dict[str, object] | None = None,
     ) -> int | None:
         """Resolve a reference code to an id, creating a derived row if needed."""
         if not code:
@@ -157,7 +159,9 @@ class SchemaLoader:
         self._codes[key] = found
         return found
 
-    def by_label(self, model: type, label: str | None, **extra: Any) -> int | None:
+    def by_label(
+        self, model: type[ReferenceMixin], label: str | None, **extra: object
+    ) -> int | None:
         """Resolve by human label, slugging it into a code first."""
         if not label:
             return None
@@ -166,6 +170,7 @@ class SchemaLoader:
     # -- acquisition -------------------------------------------------------
 
     def vendor_id(self, name: str | None, url: str | None = None) -> int | None:
+        """Find or create the vendor with this name."""
         if not name:
             return None
         if name in self._vendors:
@@ -191,7 +196,7 @@ class SchemaLoader:
         self,
         vendor_id: int | None,
         order_number: str | None,
-        ordered_on: Any = None,
+        ordered_on: date | None = None,
         source_url: str | None = None,
     ) -> int | None:
         """One order, many items -- so the same order number reuses its row."""
@@ -225,7 +230,9 @@ class SchemaLoader:
 
     # -- the item ----------------------------------------------------------
 
-    def load(self, kind: str, subtype: str | None, fields: dict[str, Any]) -> InventoryItem:
+    def load(
+        self, kind: str, subtype: str | None, fields: dict[str, Any]
+    ) -> InventoryItem:
         """Create one inventory item, its detail row and its opening history."""
         kind_code = kind if kind else DEFAULT_ITEM_KIND
         item_kind_id = self.code_id(ItemKind, kind_code, label=kind_code.title())
@@ -336,7 +343,7 @@ class SchemaLoader:
                 inventory_item_id=item.id,
                 from_status_id=None,
                 to_status_id=item.status_id,
-                changed_at=datetime.now(timezone.utc),
+                changed_at=datetime.now(UTC),
                 note="set at import",
             )
         )
@@ -373,9 +380,7 @@ class SchemaLoader:
         marks = fields.get("mint_marks") or []
         mint_id = self.code_id(Mint, marks[0]) if marks else None
         if kind in {"coin", "bullion", "set", "medal", "token", "other", "unknown"}:
-            self.session.add(
-                CoinDetail(inventory_item_id=item.id, mint_id=mint_id)
-            )
+            self.session.add(CoinDetail(inventory_item_id=item.id, mint_id=mint_id))
 
     def _add_certification(self, item: InventoryItem, fields: dict) -> None:
         cert = fields.get("cert_number")
@@ -450,7 +455,9 @@ class SchemaLoader:
         if key in index:
             return index[key]
 
-        row = Grade(code=parsed.grade, label=parsed.grade, source=ProvenanceSource.derived)
+        row = Grade(
+            code=parsed.grade, label=parsed.grade, source=ProvenanceSource.derived
+        )
         self.session.add(row)
         self.session.flush()
         self.derived["grade"] = self.derived.get("grade", 0) + 1
@@ -555,8 +562,10 @@ class SchemaLoader:
     def resolve_composition(
         self, denomination_id: int | None, country_id: int | None, year: int | None
     ) -> Composition | None:
-        """The public-fact lookup: what a coin of this denomination and year is
-        made of. Returns None rather than guessing when the year is unknown."""
+        """The public-fact lookup: what a coin of this denomination and year is made of.
+
+        Returns None rather than guessing when the year is unknown.
+        """
         if denomination_id is None or country_id is None or year is None:
             return None
         return self.session.execute(
@@ -577,7 +586,7 @@ class SchemaLoader:
 # ---------------------------------------------------------------------------
 
 
-def _as_decimal(value: Any) -> Decimal | None:
+def _as_decimal(value: object) -> Decimal | None:
     if value is None or value == "":
         return None
     if isinstance(value, Decimal):
@@ -589,7 +598,7 @@ def _as_decimal(value: Any) -> Decimal | None:
         return None
 
 
-def _upper_or_none(value: Any) -> str | None:
+def _upper_or_none(value: object) -> str | None:
     return str(value).strip().upper() if value else None
 
 
@@ -608,15 +617,42 @@ def _host_of(url: str | None) -> str | None:
 #: to `attributes` rather than being silently dropped.
 _PROMOTED = frozenset(
     {
-        "storage_form", "storage_quantity", "year_start", "year_end", "year_raw",
-        "denom_raw", "grade_raw", "price", "shipping", "numismatic_value",
-        "weight_ozt", "weight_raw", "weight_unit_raw", "status_marker",
-        "serial_number", "cert_number", "mint_marks", "series_letter",
-        "vendor_name", "vendor_url", "order_number", "ordered_on", "title",
-        "description", "listing_url", "comment", "metal", "fineness",
-        "fine_weight_ozt", "grading_service", "grade_designation",
-        "face_value", "denomination_kind",
-        "local_catalog_number", "seal_color", "note_attributes",
+        "storage_form",
+        "storage_quantity",
+        "year_start",
+        "year_end",
+        "year_raw",
+        "denom_raw",
+        "grade_raw",
+        "price",
+        "shipping",
+        "numismatic_value",
+        "weight_ozt",
+        "weight_raw",
+        "weight_unit_raw",
+        "status_marker",
+        "serial_number",
+        "cert_number",
+        "mint_marks",
+        "series_letter",
+        "vendor_name",
+        "vendor_url",
+        "order_number",
+        "ordered_on",
+        "title",
+        "description",
+        "listing_url",
+        "comment",
+        "metal",
+        "fineness",
+        "fine_weight_ozt",
+        "grading_service",
+        "grade_designation",
+        "face_value",
+        "denomination_kind",
+        "local_catalog_number",
+        "seal_color",
+        "note_attributes",
     }
 )
 
@@ -640,6 +676,7 @@ def _attributes(fields: dict[str, Any]) -> dict[str, Any]:
 #: '+' survives because UNC+ is a different grade from UNC; separators do not,
 #: because GEM/BU, GEM BU and GEM_BU are one grade written three ways.
 _GRADE_DROP = re.compile(r"[^A-Z0-9+]")
+
 
 def _grade_key(text: str) -> str:
     return _GRADE_DROP.sub("", str(text).upper())

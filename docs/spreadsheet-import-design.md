@@ -57,10 +57,10 @@ A profile supplies:
 
 ```python
 class ImportProfile(Protocol):
-    def columns(self) -> Mapping[str, str]:            ...  # source header -> field
+    def columns(self) -> Mapping[str, str]: ...  # source header -> field
     def classify(self, row: RawRow) -> Classification: ...  # kind + subtype
-    def normalise(self, row: RawRow) -> Normalised:    ...  # typed values
-    def issues(self, row: RawRow) -> list[Issue]:      ...  # anything ambiguous
+    def normalise(self, row: RawRow) -> Normalised: ...  # typed values
+    def issues(self, row: RawRow) -> list[Issue]: ...  # anything ambiguous
 ```
 
 **Effort follows the seam.** The engine is tested thoroughly. The profile is

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from sqlalchemy import (
     CheckConstraint,
@@ -33,6 +33,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, ProvenanceSource, TimestampMixin, enum_column
+
+if TYPE_CHECKING:  # relationship targets only -- importing these at runtime
+    # would make core, images and sales import one another in a cycle.
+    from .images import ItemImage
+    from .sales import Listing
 from .reference import (
     Authenticity,
     BullionForm,
@@ -170,7 +175,7 @@ class InventoryItem(TimestampMixin, Base):
         Integer, nullable=False, server_default=text("1")
     )
 
-    __mapper_args__ = {"version_id_col": version}
+    __mapper_args__: ClassVar[dict[str, object]] = {"version_id_col": version}
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
@@ -385,9 +390,7 @@ class InventoryItem(TimestampMixin, Base):
     )
 
     # -- relationships ----------------------------------------------------
-    purchase_order: Mapped[PurchaseOrder | None] = relationship(
-        back_populates="items"
-    )
+    purchase_order: Mapped[PurchaseOrder | None] = relationship(back_populates="items")
     item_kind: Mapped[ItemKind] = relationship()
     denomination: Mapped[Denomination | None] = relationship()
     bullion_form: Mapped[BullionForm | None] = relationship()
@@ -404,18 +407,20 @@ class InventoryItem(TimestampMixin, Base):
     metal: Mapped[Metal | None] = relationship()
 
     #: The pieces this lot was broken into, and the lot a piece came from.
-    pieces: Mapped[list["InventoryItem"]] = relationship(
-        back_populates="parent", remote_side=lambda: None,
+    pieces: Mapped[list[InventoryItem]] = relationship(
+        back_populates="parent",
+        remote_side=lambda: None,
         foreign_keys=lambda: [InventoryItem.parent_item_id],
     )
-    parent: Mapped["InventoryItem | None"] = relationship(
-        back_populates="pieces", remote_side=lambda: [InventoryItem.id],
+    parent: Mapped[InventoryItem | None] = relationship(
+        back_populates="pieces",
+        remote_side=lambda: [InventoryItem.id],
         foreign_keys=lambda: [InventoryItem.parent_item_id],
     )
 
     #: Photographs of this item. Ordered so the primary one comes first,
     #: which is what a thumbnail lookup wants without further sorting.
-    images: Mapped[list["ItemImage"]] = relationship(
+    images: Mapped[list[ItemImage]] = relationship(
         back_populates="item",
         order_by="(ItemImage.is_primary.desc(), ItemImage.sort_order)",
         cascade="all, delete-orphan",
@@ -423,9 +428,7 @@ class InventoryItem(TimestampMixin, Base):
 
     #: Every offer ever made for this item. An item may be listed,
     #: withdrawn and relisted at a different price.
-    listings: Mapped[list["Listing"]] = relationship(
-        back_populates="inventory_item"
-    )
+    listings: Mapped[list[Listing]] = relationship(back_populates="inventory_item")
 
     coin_detail: Mapped[CoinDetail | None] = relationship(
         back_populates="item", uselist=False, cascade="all, delete-orphan"
@@ -538,8 +541,11 @@ class InventoryItem(TimestampMixin, Base):
 
 
 class CoinDetail(Base):
-    """Coin-only attributes. 1:1 with an item, every column nullable --
-    an item identified only by a photograph is still a valid row."""
+    """Coin-only attributes.
+
+    1:1 with an item, every column nullable -- an item identified only by a
+    photograph is still a valid row.
+    """
 
     __tablename__ = "coin_detail"
 
@@ -614,8 +620,7 @@ class CurrencyDetail(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "friedberg_status IN "
-            "('unknown', 'proposed', 'confirmed', 'conflicting')",
+            "friedberg_status IN ('unknown', 'proposed', 'confirmed', 'conflicting')",
             name="ck_currency_detail_friedberg_status",
         ),
     )

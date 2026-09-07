@@ -9,10 +9,10 @@ from alembic.autogenerate import compare_metadata
 from alembic.command import upgrade
 from alembic.config import Config
 from alembic.migration import MigrationContext
+from app.database import Base
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url  # noqa: F401
 
-from app.database import Base
 from tests.conftest import TEST_URL
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]

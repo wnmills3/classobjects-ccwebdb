@@ -14,11 +14,6 @@ from collections.abc import Iterator
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select, text
-from sqlalchemy.engine import URL, Engine, make_url
-from sqlalchemy.orm import Session, sessionmaker
-
 from app.config import settings
 from app.database import Base, get_db
 from app.main import app
@@ -40,6 +35,10 @@ from app.models import (
 from app.models.views import CREATE_VIEWS
 from app.security import hash_password
 from app.seeding import seed_all
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, select, text
+from sqlalchemy.engine import URL, Engine, make_url
+from sqlalchemy.orm import Session
 
 
 def _test_database_url() -> URL:
@@ -203,11 +202,11 @@ def customer_headers(client: TestClient, customer_user: User) -> dict[str, str]:
 # --------------------------------------------------------------------------
 
 
-def _code_id(db: Session, model, code: str) -> int:
+def _code_id(db: Session, model: type, code: str) -> int:
     return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
-def build_listing(db: Session, **overrides) -> Listing:
+def build_listing(db: Session, **overrides: object) -> Listing:
     """One catalogue entry, with every NOT NULL classifier resolved."""
     item_fields = {
         "title": overrides.pop("title", "1881-S Morgan Silver Dollar"),
@@ -254,10 +253,10 @@ def listing(db: Session) -> Listing:
 
 
 @pytest.fixture
-def make_listing(db: Session):
+def make_listing(db: Session) -> None:
     """Factory for additional catalogue entries within a test."""
 
-    def _make(**overrides) -> Listing:
+    def _make(**overrides: object) -> Listing:
         overrides.pop("n", None)
         return build_listing(db, **overrides)
 

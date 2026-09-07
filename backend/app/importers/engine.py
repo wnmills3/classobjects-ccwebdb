@@ -13,14 +13,14 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 from sqlalchemy.orm import Session
 
 from .loader import SchemaLoader
 from .models import ImportBatch, ImportIssue, ImportRow
-from .profile import ImportProfile, RawRow, UNKNOWN
+from .profile import UNKNOWN, ImportProfile, RawRow
 
 DRY_RUN = "dry_run"
 COMMIT = "commit"
@@ -32,10 +32,14 @@ MAX_DISTINCT_PER_COLUMN = 50_000
 
 
 class Source(Protocol):
+    """Anything the engine can read rows from."""
+
     kind: str
     sha256: str
 
-    def read_rows(self, limit: int | None = None) -> Iterator[RawRow]: ...
+    def read_rows(self, limit: int | None = None) -> Iterator[RawRow]:
+        """Yield rows from the source, at most `limit` of them."""
+        ...
 
 
 @dataclass
@@ -59,6 +63,8 @@ class IssueRecord:
 
 @dataclass
 class ImportReport:
+    """Everything one run observed, whether or not it wrote anything."""
+
     source_path: str
     source_kind: str
     sha256: str
@@ -94,10 +100,12 @@ class ImportReport:
 
     @property
     def classified(self) -> int:
+        """Rows the profile could put a kind to."""
         return self.rows - self.kinds.get(UNKNOWN, 0)
 
     @property
     def classified_pct(self) -> float:
+        """Classified rows as a percentage of all rows."""
         return (self.classified / self.rows * 100) if self.rows else 0.0
 
     def corrections(self) -> list[IssueRecord]:
@@ -105,12 +113,16 @@ class ImportReport:
         return [i for i in self.issues if i.proposed]
 
     def render(self, top: int = 25, example_rows: int = 6) -> str:
+        """The run as a report a human can act on, source row numbers included."""
         out: list[str] = []
         add = out.append
         add(f"source   : {self.source_path}")
         add(f"sha256   : {self.sha256[:16]}...")
         add(f"profile  : {self.profile_name}")
-        add(f"mode     : {self.mode}" + (f"  (batch {self.batch_id})" if self.batch_id else ""))
+        add(
+            f"mode     : {self.mode}"
+            + (f"  (batch {self.batch_id})" if self.batch_id else "")
+        )
         add(f"rows     : {self.rows}   in {self.elapsed_seconds:.2f}s")
         if self.items_created:
             add(f"items    : {self.items_created} inventory_item rows written")
@@ -120,7 +132,10 @@ class ImportReport:
             )
             add(f"derived  : {invented}")
         add("")
-        add(f"KIND  ({self.classified}/{self.rows} = {self.classified_pct:.1f}% classified)")
+        add(
+            f"KIND  ({self.classified}/{self.rows} = "
+            f"{self.classified_pct:.1f}% classified)"
+        )
         for kind, n in self.kinds.most_common():
             add(f"  {n:>6}  {n / self.rows * 100:5.1f}%  {kind}")
         if self.subtypes:
@@ -149,14 +164,20 @@ class ImportReport:
         if fixes:
             grouped: dict[tuple[str, str], list[int]] = defaultdict(list)
             for rec in fixes:
-                grouped[(rec.raw_value or "", rec.proposed or "")].append(rec.row_number)
+                grouped[(rec.raw_value or "", rec.proposed or "")].append(
+                    rec.row_number
+                )
             add("")
             add(f"SUGGESTED SOURCE CORRECTIONS  ({len(grouped)} distinct)")
             for (raw, proposed), rows in sorted(
                 grouped.items(), key=lambda kv: -len(kv[1])
             )[:top]:
                 shown = ", ".join(str(r) for r in rows[:example_rows])
-                more = f" (+{len(rows) - example_rows} more)" if len(rows) > example_rows else ""
+                more = (
+                    f" (+{len(rows) - example_rows} more)"
+                    if len(rows) > example_rows
+                    else ""
+                )
                 add(f"  {len(rows):>4}  {raw!r} -> {proposed!r}")
                 add(f"        rows {shown}{more}")
 
@@ -169,7 +190,11 @@ class ImportReport:
             for value, n in self.unclassified_values.most_common(top):
                 rows = self.unclassified_rows.get(value, [])
                 shown = ", ".join(str(r) for r in rows[:example_rows])
-                more = f" (+{len(rows) - example_rows} more)" if len(rows) > example_rows else ""
+                more = (
+                    f" (+{len(rows) - example_rows} more)"
+                    if len(rows) > example_rows
+                    else ""
+                )
                 add(f"  {n:>6}  {value!r}")
                 if shown:
                     add(f"          rows {shown}{more}")
@@ -177,7 +202,10 @@ class ImportReport:
 
 
 class ImportEngine:
+    """Reads a source into staging and hands each row to a profile."""
+
     def __init__(self, profile: ImportProfile, session: Session | None = None) -> None:
+        """A session is required only to commit; a dry run needs none."""
         self.profile = profile
         self.session = session
 
@@ -189,10 +217,14 @@ class ImportEngine:
         limit: int | None = None,
         normalise: bool = True,
     ) -> ImportReport:
+        """Read the source, classify every row, and report what was found."""
         if mode == COMMIT and self.session is None:
             raise ValueError("commit mode requires a database session")
+        # Bound once, so the rest of the method works with a plain Session
+        # rather than re-narrowing an Optional at every use.
+        session = self.session
 
-        started = datetime.now(timezone.utc)
+        started = datetime.now(UTC)
         report = ImportReport(
             source_path=str(getattr(source, "path", "<source>")),
             source_kind=source.kind,
@@ -211,17 +243,14 @@ class ImportEngine:
                 mode=mode,
                 started_at=started,
             )
-            self.session.add(batch)
-            self.session.flush()  # assign batch.id
+            assert session is not None
+            session.add(batch)
+            session.flush()  # assign batch.id
             report.batch_id = batch.id
 
         # One loader per run: it caches every reference lookup, which turns
         # a per-row query storm into a few dozen queries for the whole file.
-        loader = (
-            SchemaLoader(self.session)
-            if mode == COMMIT and normalise
-            else None
-        )
+        loader = SchemaLoader(self.session) if mode == COMMIT and normalise else None
 
         seen_columns: list[str] = []
         pending: list[ImportRow] = []
@@ -235,7 +264,9 @@ class ImportEngine:
                     seen_columns.append(column)
                 counts = report.column_values[column]
                 # bounded: a pathological column must not exhaust memory
-                if value is not None and (len(counts) < MAX_DISTINCT_PER_COLUMN or value in counts):
+                if value is not None and (
+                    len(counts) < MAX_DISTINCT_PER_COLUMN or value in counts
+                ):
                     counts[value] += 1
 
             kind = result.classification.kind
@@ -265,10 +296,17 @@ class ImportEngine:
                 report.review_rows += 1
 
             if kind == UNKNOWN:
-                marker = next(
-                    (i.raw_value for i in result.issues if i.rule == "unclassified"),
-                    None,
-                ) or "<blank>"
+                marker = (
+                    next(
+                        (
+                            i.raw_value
+                            for i in result.issues
+                            if i.rule == "unclassified"
+                        ),
+                        None,
+                    )
+                    or "<blank>"
+                )
                 report.unclassified_values[marker] += 1
                 report.unclassified_rows[marker].append(raw_row.row_number)
 
@@ -295,8 +333,8 @@ class ImportEngine:
                 ]
                 pending.append(row)
                 if len(pending) >= 500:
-                    self.session.add_all(pending)
-                    self.session.flush()
+                    session.add_all(pending)
+                    session.flush()
                     pending.clear()
 
                 # Staging is verbatim and always written. Normalising into the
@@ -307,20 +345,18 @@ class ImportEngine:
                         kind, result.classification.subtype, result.fields
                     )
                     row.inventory_item_id = item.id
-                    row.status = (
-                        "needs_review" if result.needs_review else "imported"
-                    )
+                    row.status = "needs_review" if result.needs_review else "imported"
                     report.items_created += 1
 
         if mode == COMMIT:
             if pending:
-                self.session.add_all(pending)
+                session.add_all(pending)
             batch.row_count = report.rows
-            batch.finished_at = datetime.now(timezone.utc)
+            batch.finished_at = datetime.now(UTC)
             if loader is not None:
                 report.derived_reference_rows = dict(loader.derived)
-            self.session.commit()
+            session.commit()
 
         report.columns = seen_columns
-        report.elapsed_seconds = (datetime.now(timezone.utc) - started).total_seconds()
+        report.elapsed_seconds = (datetime.now(UTC) - started).total_seconds()
         return report

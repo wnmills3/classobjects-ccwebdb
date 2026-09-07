@@ -32,7 +32,7 @@ to have cost twice what it did.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -120,11 +120,9 @@ def _weights(pieces: list[SplitPiece], mode: str) -> list[Decimal]:
             "relative mode needs a relative_value for every piece; missing "
             f"for: {missing}"
         )
-    if any(p.relative_value < 0 for p in pieces):
+    if any(p.relative_value is not None and p.relative_value < 0 for p in pieces):
         raise SplitError("relative_value cannot be negative")
-    return [
-        Decimal(piece.relative_value) * piece.storage_quantity for piece in pieces
-    ]
+    return [Decimal(piece.relative_value) * piece.storage_quantity for piece in pieces]
 
 
 def split_item(
@@ -176,15 +174,13 @@ def split_item(
     if sold is not None:
         # Order history points at the lot. Splitting it now would leave a sold
         # line referring to something that no longer exists as sold.
-        raise SplitError(
-            f"{parent.item_code} appears in an order and cannot be split"
-        )
+        raise SplitError(f"{parent.item_code} appears in an order and cannot be split")
 
     weights = _weights(pieces, mode)
     prices = allocate(parent.price, weights)
     shipping = allocate(parent.shipping, weights)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     held = db.scalar(select(Disposition.id).where(Disposition.code == "held"))
 
     children: list[InventoryItem] = []

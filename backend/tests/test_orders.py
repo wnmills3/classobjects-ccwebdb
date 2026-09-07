@@ -8,17 +8,19 @@ otherwise it would have been asserting that a valid status is rejected.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
+from app.models import Customer, Listing, SalesOrder, SalesOrderStatus, User
+from app.security import hash_password
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Customer, Listing, SalesOrder, SalesOrderStatus, User
-from app.security import hash_password
 
-
-def place(client: TestClient, headers: dict[str, str], listing_id: int, quantity: int):
+def place(
+    client: TestClient, headers: dict[str, str], listing_id: int, quantity: int
+) -> None:
     return client.post(
         "/api/orders",
         json={"items": [{"listing_id": listing_id, "quantity": quantity}]},
@@ -73,7 +75,9 @@ def test_place_order_computes_exact_total(
 
 
 def test_order_across_multiple_items_sums_correctly(
-    client: TestClient, make_listing, customer_headers: dict[str, str]
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
 ) -> None:
     a = make_listing(price=Decimal("19.99"), quantity_available=10)
     b = make_listing(price=Decimal("0.01"), quantity_available=10)
@@ -102,7 +106,10 @@ def test_order_decrements_availability(
 
 
 def test_selling_the_last_unit_marks_the_item_sold(
-    client: TestClient, make_listing, customer_headers: dict[str, str], db: Session
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    db: Session,
 ) -> None:
     """Disposition is the sales axis, independent of how the item came in."""
     only_one = make_listing(quantity_available=1)
@@ -126,14 +133,18 @@ def test_cannot_order_more_than_available(
 
 
 def test_cannot_order_sold_out_item(
-    client: TestClient, make_listing, customer_headers: dict[str, str]
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
 ) -> None:
     sold_out = make_listing(quantity_available=0)
     assert place(client, customer_headers, sold_out.id, 1).status_code == 409
 
 
 def test_cannot_order_withdrawn_listing(
-    client: TestClient, make_listing, customer_headers: dict[str, str]
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
 ) -> None:
     withdrawn = make_listing(is_active=False, quantity_available=5)
     response = place(client, customer_headers, withdrawn.id, 1)
@@ -177,7 +188,10 @@ def test_zero_quantity_rejected(
 
 
 def test_partially_unavailable_order_is_all_or_nothing(
-    client: TestClient, make_listing, customer_headers: dict[str, str], db: Session
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    db: Session,
 ) -> None:
     """If one line fails, no line may be committed."""
     available = make_listing(quantity_available=5)
@@ -346,8 +360,11 @@ def test_cancelling_after_shipping_does_not_return_stock(
     admin_headers: dict[str, str],
     db: Session,
 ) -> None:
-    """Stock that has already been posted is gone; returning it to the
-    catalogue would oversell the next buyer."""
+    """Cancelling after shipping does not return stock.
+
+    Stock that has already been posted is gone; returning it to the
+    catalogue would oversell the next buyer.
+    """
     order = place(client, customer_headers, listing.id, 2).json()
     for state in ("paid", "shipped", "cancelled"):
         client.patch(

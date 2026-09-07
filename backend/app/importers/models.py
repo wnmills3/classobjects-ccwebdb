@@ -7,7 +7,7 @@ rather than part of the throwaway importer.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -26,7 +26,8 @@ from ..database import Base
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Now, in UTC. A function so it is evaluated per row, not at import."""
+    return datetime.now(UTC)
 
 
 class ImportBatch(Base):

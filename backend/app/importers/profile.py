@@ -9,9 +9,9 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 # Issue severities
-INFO = "info"        # a rule fired and did something worth recording
+INFO = "info"  # a rule fired and did something worth recording
 WARNING = "warning"  # a value was ambiguous; a guess was made
-ERROR = "error"      # unusable or irrecoverable; needs a human
+ERROR = "error"  # unusable or irrecoverable; needs a human
 
 UNKNOWN = "unknown"
 
@@ -61,6 +61,8 @@ class Classification:
 
 @dataclass
 class RowResult:
+    """What a profile made of one row: its classification, fields and issues."""
+
     classification: Classification = field(default_factory=Classification)
     issues: list[Issue] = field(default_factory=list)
     #: values the profile could parse out of the row. Kept loose on purpose --
@@ -69,6 +71,7 @@ class RowResult:
 
     @property
     def needs_review(self) -> bool:
+        """Whether anything about this row needs a human before it can be trusted."""
         return self.classification.kind == UNKNOWN or any(
             i.severity == ERROR for i in self.issues
         )

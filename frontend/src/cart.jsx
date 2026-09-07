@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 
 const CART_KEY = 'ccwebdb.cart'
 const CartContext = createContext(null)
@@ -45,7 +52,13 @@ export function CartProvider({ children }) {
       current
         .map((l) =>
           l.coin.id === coinId
-            ? { ...l, quantity: Math.max(0, Math.min(quantity, l.coin.quantity_available_available)) }
+            ? {
+                ...l,
+                quantity: Math.max(
+                  0,
+                  Math.min(quantity, l.coin.quantity_available_available),
+                ),
+              }
             : l,
         )
         .filter((l) => l.quantity > 0),

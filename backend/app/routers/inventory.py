@@ -17,8 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..deps import AdminUser, DbSession
-from ..models import Denomination, Grade, InventoryItem, Metal, StorageForm
 from ..inventory_search import VIEWS, count_facets, search
+from ..models import Denomination, Grade, InventoryItem, Metal, StorageForm
 from ..references import code_to_id
 from ..schemas import (
     InventoryItemOut,
@@ -78,10 +78,14 @@ def search_inventory(
     request: Request,
     db: DbSession,
     _admin: AdminUser,
-    q: Annotated[str | None, Query(description="Free text over title, code, notes")] = None,
+    q: Annotated[
+        str | None, Query(description="Free text over title, code, notes")
+    ] = None,
     sort: str | None = None,
     desc: bool = False,
-    facets: Annotated[bool, Query(description="Include value counts for the panel")] = False,
+    facets: Annotated[
+        bool, Query(description="Include value counts for the panel")
+    ] = False,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> InventoryPageOut:
@@ -109,8 +113,14 @@ def search_inventory(
 
     try:
         rows, total = search(
-            db, spec, params=params, query=q, sort=sort,
-            descending=desc, limit=limit, offset=offset,
+            db,
+            spec,
+            params=params,
+            query=q,
+            sort=sort,
+            descending=desc,
+            limit=limit,
+            offset=offset,
         )
     except KeyError as exc:
         raise HTTPException(
@@ -138,6 +148,7 @@ def search_inventory(
 
 @router.get("/{item_id}", response_model=InventoryItemOut)
 def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> InventoryItem:
+    """One inventory item, cost basis included. Staff only."""
     return _get_item(db, item_id)
 
 

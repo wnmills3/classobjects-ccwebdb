@@ -29,6 +29,7 @@ def get_current_user(
     db: DbSession,
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> User:
+    """Resolve the bearer token to the user it belongs to."""
     try:
         payload = decode_token(token, expected_type="access")
         user_id = int(payload["sub"])
@@ -49,6 +50,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 def require_admin(user: CurrentUser) -> User:
+    """Reject anyone who is not an administrator."""
     if user.role is not UserRole.admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

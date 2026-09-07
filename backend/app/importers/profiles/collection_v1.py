@@ -10,6 +10,7 @@ Everything source-specific lives here so the engine stays clean.
 from __future__ import annotations
 
 import re
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from ..profile import (
@@ -119,8 +120,8 @@ KNOWN_GOOD: dict[str, set[str]] = {
         # They collapse onto "1980-S", which is a mint mark, not a decade.
         "1980's",
         "1970's",
-        "2024?",    # the year is uncertain; meaning still unresolved
-        "2016-",    # "2016=" is the majority but the "=" is unexplained
+        "2024?",  # the year is uncertain; meaning still unresolved
+        "2016-",  # "2016=" is the majority but the "=" is unexplained
     },
 }
 
@@ -284,7 +285,7 @@ UNIT_TO_OZT: dict[str, Decimal] = {
     "kilos": Decimal(1000) / GRAMS_PER_OZT,
     "lb": GRAMS_PER_LB / GRAMS_PER_OZT,
     "lbs": GRAMS_PER_LB / GRAMS_PER_OZT,
-    "dwt": Decimal(1) / Decimal(20),      # pennyweight
+    "dwt": Decimal(1) / Decimal(20),  # pennyweight
 }
 
 #: A quantity may be decimal, a bare fraction, or start with the point --
@@ -349,6 +350,7 @@ class CollectionV1Profile:
 
     # -- the profile contract ---------------------------------------------
     def inspect(self, row: RawRow) -> RowResult:
+        """Classify one spreadsheet row and pull its fields out."""
         issues: list[Issue] = []
         fields: dict[str, object] = {}
 
@@ -400,8 +402,9 @@ class CollectionV1Profile:
         return RowResult(classification=classification, issues=issues, fields=fields)
 
     def _carry_text(self, row: RawRow, fields: dict) -> None:
-        """Copy the remaining source columns under the normalised names the
-        loader expects.
+        """Carry the remaining source columns across the seam.
+
+        Copies them under the normalised names the loader expects.
 
         This is the whole of the seam: everything above decides what a value
         *means*, and this decides what the schema calls it. The loader never
@@ -443,7 +446,9 @@ class CollectionV1Profile:
             return
 
         if kind == "currency":
-            if m := re.match(r"^\$?\s*([\d,]+(?:\.\d+)?)\s*(?:bill|note)?\b", text, re.I):
+            if m := re.match(
+                r"^\$?\s*([\d,]+(?:\.\d+)?)\s*(?:bill|note)?\b", text, re.I
+            ):
                 fields["face_value"] = _decimal(m.group(1))
                 fields["denomination_kind"] = "note"
             return
@@ -541,12 +546,17 @@ class CollectionV1Profile:
         if not text:
             return
         if rng := YEAR_RANGE.match(text):
-            fields["year_start"], fields["year_end"] = int(rng.group(1)), int(rng.group(2))
+            fields["year_start"], fields["year_end"] = (
+                int(rng.group(1)),
+                int(rng.group(2)),
+            )
         elif one := YEAR_ONE.match(text):
             fields["year_start"] = fields["year_end"] = int(one.group(1))
         else:
             issues.append(
-                Issue(rule="year-unparsed", severity=INFO, column=COL_YEAR, raw_value=text)
+                Issue(
+                    rule="year-unparsed", severity=INFO, column=COL_YEAR, raw_value=text
+                )
             )
             return
         # "1921-D" and "2017-A" are the same shape. A regex cannot tell a coin's
@@ -586,7 +596,9 @@ class CollectionV1Profile:
         if grading and not SCIENTIFIC.match(grading):
             fields["serial_number" if kind == "currency" else "cert_number"] = grading
 
-    def _read_value_column(self, row: RawRow, issues: list[Issue], fields: dict) -> None:
+    def _read_value_column(
+        self, row: RawRow, issues: list[Issue], fields: dict
+    ) -> None:
         """The value column carries either an appraisal or a status marker."""
         text = row.text(COL_VALUE)
         if not text:
@@ -609,13 +621,13 @@ class CollectionV1Profile:
             )
 
 
-def _as_date(text: str):
+def _as_date(text: str) -> date | None:
     """Read a date the spreadsheet may have written several ways.
 
     Returns None rather than a guess: an unparsed order date is a missing
     fact, and inventing one would put a wrong figure in a real column.
     """
-    from datetime import date, datetime as _dt
+    from datetime import datetime as _dt
 
     value = text.strip()
     if not value:

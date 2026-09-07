@@ -31,6 +31,7 @@ from .models import (
     Listing,
     Metal,
     ProvenanceSource,
+    ReferenceMixin,
     StorageForm,
     User,
     UserRole,
@@ -102,7 +103,8 @@ SAMPLE_CATALOG: list[dict] = [
     },
 ]
 
-def _code_id(db: Session, model: type, code: str | None) -> int | None:
+
+def _code_id(db: Session, model: type[ReferenceMixin], code: str | None) -> int | None:
     if not code:
         return None
     found = db.execute(select(model.id).where(model.code == code)).scalar_one_or_none()
@@ -150,6 +152,11 @@ def _build(db: Session, row: dict) -> None:
 
 
 def seed() -> None:
+    """Create the first administrator and a small demo catalogue.
+
+    Assumes the reference vocabularies are already loaded; run
+    `python -m app.seeding load` first.
+    """
     with SessionLocal() as db:
         admin = db.scalar(select(User).where(User.email == settings.first_admin_email))
         if admin is None:

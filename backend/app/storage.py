@@ -22,16 +22,28 @@ __all__ = ["LocalStorage", "StorageBackend", "get_storage"]
 class StorageBackend(Protocol):
     """The whole contract. Deliberately tiny."""
 
-    def put(self, key: str, data: bytes) -> None: ...
-    def get(self, key: str) -> bytes: ...
-    def delete(self, key: str) -> None: ...
-    def exists(self, key: str) -> bool: ...
+    def put(self, key: str, data: bytes) -> None:
+        """Store `data` under `key`, replacing anything already there."""
+        ...
+
+    def get(self, key: str) -> bytes:
+        """Return the bytes stored under `key`, or raise if absent."""
+        ...
+
+    def delete(self, key: str) -> None:
+        """Remove `key`. Deleting something that is not there is not an error."""
+        ...
+
+    def exists(self, key: str) -> bool:
+        """Whether anything is stored under `key`."""
+        ...
 
 
 class LocalStorage:
     """Filesystem backend, rooted at a configured directory."""
 
     def __init__(self, root: Path | None = None) -> None:
+        """Root the backend at `root`, or at the configured media directory."""
         self.root = Path(root or settings.media_root)
 
     def _path(self, key: str) -> Path:
@@ -49,6 +61,7 @@ class LocalStorage:
         return candidate
 
     def put(self, key: str, data: bytes) -> None:
+        """Write `data` at `key`, creating parent directories as needed."""
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Write to a temporary name and rename, so a reader never sees a
@@ -58,12 +71,15 @@ class LocalStorage:
         temporary.replace(path)
 
     def get(self, key: str) -> bytes:
+        """Read the file at `key`."""
         return self._path(key).read_bytes()
 
     def delete(self, key: str) -> None:
+        """Remove the file at `key` if it is there."""
         self._path(key).unlink(missing_ok=True)
 
     def exists(self, key: str) -> bool:
+        """Whether a file exists at `key`."""
         return self._path(key).exists()
 
 

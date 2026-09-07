@@ -10,7 +10,6 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-
 from app.allocation import AllocationError, allocate
 
 
@@ -19,8 +18,10 @@ def D(value: str) -> Decimal:
 
 
 def test_the_obvious_case_that_naive_division_gets_wrong() -> None:
-    """$100 three ways is 33.33 each, which is 99.99. The penny has to land
-    somewhere rather than evaporate."""
+    """$100 three ways is 33.33 each, which is 99.99.
+
+    The penny has to land somewhere rather than evaporate.
+    """
     shares = allocate(D("100.00"), [D(1), D(1), D(1)])
 
     assert sum(shares) == D("100.00")
@@ -43,8 +44,11 @@ def test_proportional_split_follows_the_weights() -> None:
 
 
 def test_the_remainder_goes_to_the_parts_cut_hardest() -> None:
-    """Largest-remainder, not first-come: the pennies go where the rounding
-    took the most, which is the only allocation nobody can call arbitrary."""
+    """The leftover pennies go where the rounding bit hardest.
+
+    Largest-remainder, not first-come: the pennies go where the rounding
+    took the most, which is the only allocation nobody can call arbitrary.
+    """
     shares = allocate(D("10.00"), [D(1), D(1), D(1), D(1), D(1), D(1)])
     assert sum(shares) == D("10.00")
     # 1.666... each: four get 1.67, two get 1.66 -- or some such split, but
@@ -89,16 +93,21 @@ def test_a_zero_total_allocates_zero() -> None:
 
 
 def test_all_zero_weights_fall_back_to_an_equal_split() -> None:
-    """Proportion is undefined when everything is worth nothing; an equal
-    split is the only defensible answer and is what the caller meant."""
+    """An all-zero weighting falls back to an equal split.
+
+    Proportion is undefined when everything is worth nothing; an equal
+    split is the only defensible answer and is what the caller meant.
+    """
     shares = allocate(D("10.00"), [D(0), D(0), D(0), D(0)])
     assert shares == [D("2.50")] * 4
 
 
 def test_the_result_is_deterministic() -> None:
-    """The same input must always produce the same output. An allocation that
-    shuffled pennies between runs would give a re-import a different cost
-    basis from the original."""
+    """The same input must always produce the same output.
+
+    An allocation that shuffled pennies between runs would give a re-import a
+    different cost basis from the original.
+    """
     first = allocate(D("100.00"), [D(1), D(1), D(1)])
     for _ in range(20):
         assert allocate(D("100.00"), [D(1), D(1), D(1)]) == first

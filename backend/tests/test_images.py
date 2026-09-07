@@ -12,21 +12,23 @@ import io
 
 import piexif
 import pytest
+from app.imaging import MetadataRemainsError, cleanse, make_derivative
+from app.models import DerivativeKind, Image, ItemImage, Listing
 from fastapi.testclient import TestClient
 from PIL import Image as PILImage
 from sqlalchemy.orm import Session
 
-from app.imaging import MetadataRemainsError, cleanse, make_derivative
-from app.models import DerivativeKind, Image, ItemImage, Listing
 
-
-def make_jpeg(size=(800, 600), colour=(180, 140, 40)) -> bytes:
+def make_jpeg(
+    size: tuple[int, int] = (800, 600),
+    colour: tuple[int, int, int] = (180, 140, 40),
+) -> bytes:
     buffer = io.BytesIO()
     PILImage.new("RGB", size, colour).save(buffer, format="JPEG", quality=90)
     return buffer.getvalue()
 
 
-def make_jpeg_with_gps(size=(800, 600)) -> bytes:
+def make_jpeg_with_gps(size: tuple[int, int] = (800, 600)) -> bytes:
     """A photograph carrying GPS coordinates and a capture time.
 
     This is what a phone actually produces, and the reason ingest strips
@@ -76,8 +78,11 @@ def test_gps_does_not_survive_ingest() -> None:
 
 
 def test_capture_time_is_read_before_it_is_destroyed() -> None:
-    """The one piece worth keeping: capture order is the strongest signal for
-    linking unidentified photographs to items later."""
+    """Capture time is read before the metadata is destroyed.
+
+    The one piece worth keeping: capture order is the strongest signal for
+    linking unidentified photographs to items later.
+    """
     cleansed = cleanse(make_jpeg_with_gps())
     assert cleansed.captured_at is not None
     assert cleansed.captured_at.year == 2024
@@ -85,10 +90,18 @@ def test_capture_time_is_read_before_it_is_destroyed() -> None:
 
 
 def test_orientation_is_applied_to_the_pixels_not_just_dropped() -> None:
-    """Stripping orientation without first applying it leaves every phone
-    photograph sideways. The image must come out physically rotated."""
-    exif = {"0th": {piexif.ImageIFD.Orientation: 6}, "Exif": {}, "GPS": {},
-            "1st": {}, "thumbnail": None}
+    """Orientation reaches the pixels, not just the metadata.
+
+    Stripping orientation without first applying it leaves every phone
+    photograph sideways. The image must come out physically rotated.
+    """
+    exif = {
+        "0th": {piexif.ImageIFD.Orientation: 6},
+        "Exif": {},
+        "GPS": {},
+        "1st": {},
+        "thumbnail": None,
+    }
     buffer = io.BytesIO()
     # Landscape on disk, tagged "rotate 90" -- so it should end up portrait.
     PILImage.new("RGB", (900, 300), (10, 20, 30)).save(
@@ -107,7 +120,9 @@ def test_derivatives_are_also_clean() -> None:
         assert not (exif and len(exif))
 
 
-def test_verification_rejects_an_image_it_could_not_clean(monkeypatch) -> None:
+def test_verification_rejects_an_image_it_could_not_clean(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The verify step is the actual guarantee, so it must be able to fail.
 
     A strip that quietly did nothing has to be caught here rather than
@@ -115,10 +130,15 @@ def test_verification_rejects_an_image_it_could_not_clean(monkeypatch) -> None:
     """
     import app.imaging as imaging
 
-    def passthrough(image, quality=90):
+    def passthrough(image: PILImage.Image, quality: int = 90) -> tuple[bytes, str]:
         buffer = io.BytesIO()
-        exif = {"0th": {piexif.ImageIFD.Make: b"Leaky"}, "Exif": {}, "GPS": {},
-                "1st": {}, "thumbnail": None}
+        exif = {
+            "0th": {piexif.ImageIFD.Make: b"Leaky"},
+            "Exif": {},
+            "GPS": {},
+            "1st": {},
+            "thumbnail": None,
+        }
         image.convert("RGB").save(buffer, format="JPEG", exif=piexif.dump(exif))
         return buffer.getvalue(), "image/jpeg"
 
@@ -136,8 +156,13 @@ def test_identity_is_the_hash_of_the_cleansed_bytes() -> None:
     """Two files differing only in metadata are the same photograph."""
     plain = cleanse(make_jpeg(colour=(1, 2, 3)))
     tagged_buffer = io.BytesIO()
-    exif = {"0th": {piexif.ImageIFD.Make: b"Other"}, "Exif": {}, "GPS": {},
-            "1st": {}, "thumbnail": None}
+    exif = {
+        "0th": {piexif.ImageIFD.Make: b"Other"},
+        "Exif": {},
+        "GPS": {},
+        "1st": {},
+        "thumbnail": None,
+    }
     PILImage.new("RGB", (800, 600), (1, 2, 3)).save(
         tagged_buffer, format="JPEG", quality=90, exif=piexif.dump(exif)
     )
@@ -147,8 +172,11 @@ def test_identity_is_the_hash_of_the_cleansed_bytes() -> None:
 
 
 def test_a_thumbnail_is_not_enlarged() -> None:
-    """A 200px photograph asked for a 320px thumbnail stays 200px rather than
-    being blurrily scaled up."""
+    """A rendition is never enlarged beyond its source.
+
+    A 200px photograph asked for a 320px thumbnail stays 200px rather than
+    being blurrily scaled up.
+    """
     cleansed = cleanse(make_jpeg(size=(200, 150)))
     _, width, height, _ = make_derivative(cleansed.data, 320)
     assert (width, height) == (200, 150)
@@ -196,11 +224,13 @@ def test_uploading_the_same_photograph_twice_stores_one_copy(
 ) -> None:
     raw = make_jpeg(colour=(7, 8, 9))
     first = client.post(
-        "/api/images", files={"file": ("a.jpg", raw, "image/jpeg")},
+        "/api/images",
+        files={"file": ("a.jpg", raw, "image/jpeg")},
         headers=admin_headers,
     ).json()
     second = client.post(
-        "/api/images", files={"file": ("b.jpg", raw, "image/jpeg")},
+        "/api/images",
+        files={"file": ("b.jpg", raw, "image/jpeg")},
         headers=admin_headers,
     ).json()
     assert first["id"] == second["id"]
@@ -237,8 +267,11 @@ def test_a_thumbnail_is_publicly_servable(
 def test_the_original_is_not_reachable_over_http(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """Only derivatives are served. That is the second half of the metadata
-    guarantee: an original is unreachable even if it retained something."""
+    """Only derivatives are served.
+
+    That is the second half of the metadata guarantee: an original is
+    unreachable even if it retained something.
+    """
     body = client.post(
         "/api/images",
         files={"file": ("coin.jpg", make_jpeg(), "image/jpeg")},
@@ -274,8 +307,11 @@ def test_uploading_against_an_item_makes_it_the_catalogue_thumbnail(
 def test_only_one_photograph_can_be_primary(
     client: TestClient, admin_headers: dict[str, str], listing: Listing, db: Session
 ) -> None:
-    """A partial unique index enforces it; the handler must clear the previous
-    one in the same transaction rather than collide with it."""
+    """Only one photograph per item may be the primary one.
+
+    A partial unique index enforces it; the handler must clear the previous
+    one in the same transaction rather than collide with it.
+    """
     for colour in ((10, 10, 10), (20, 20, 20)):
         response = client.post(
             "/api/images",
@@ -304,7 +340,9 @@ def test_a_photograph_can_exist_before_anyone_knows_what_it_shows(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Camera filenames carry only a timestamp, so linking is a human step.
-    An unattached image must still be storable and servable."""
+
+    An unattached image must still be storable and servable.
+    """
     body = client.post(
         "/api/images",
         files={"file": ("DSC00417.JPG", make_jpeg(colour=(3, 3, 3)), "image/jpeg")},

@@ -45,9 +45,7 @@ function readDetail(body) {
   if (!detail) return 'Request failed'
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail)) {
-    return detail
-      .map((d) => `${(d.loc || []).slice(1).join('.')}: ${d.msg}`)
-      .join('; ')
+    return detail.map((d) => `${(d.loc || []).slice(1).join('.')}: ${d.msg}`).join('; ')
   }
   return 'Request failed'
 }

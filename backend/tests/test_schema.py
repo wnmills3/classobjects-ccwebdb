@@ -10,10 +10,6 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.exc import DBAPIError, IntegrityError
-from sqlalchemy.orm import Session
-
 from app.models import (  # noqa: F401
     Authenticity,
     Composition,
@@ -31,25 +27,27 @@ from app.models import (  # noqa: F401
     ValuationBasis,
 )
 from app.models.views import PUBLIC_CATALOG_FORBIDDEN_COLUMNS
+from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.orm import Session
 
 
 def code_id(db: Session, model: type, code: str) -> int:
-    value = db.execute(select(model.id).where(model.code == code)).scalar_one()
-    return value
+    return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
-def make_item(db: Session, **overrides) -> InventoryItem:
+def make_item(db: Session, **overrides: object) -> InventoryItem:
     """An inventory item with every NOT NULL classifier filled in."""
-    defaults = dict(
-        item_kind_id=code_id(db, ItemKind, "coin"),
-        storage_form_id=code_id(db, StorageForm, "single"),
-        authenticity_id=code_id(db, Authenticity, "unverified"),
-        status_id=code_id(db, ItemStatus, "received"),
-        disposition_id=code_id(db, Disposition, "held"),
-        valuation_basis_id=code_id(db, ValuationBasis, "numismatic"),
-        price=Decimal("100.00"),
-        shipping=Decimal("0.00"),
-    )
+    defaults: dict[str, object] = {
+        "item_kind_id": code_id(db, ItemKind, "coin"),
+        "storage_form_id": code_id(db, StorageForm, "single"),
+        "authenticity_id": code_id(db, Authenticity, "unverified"),
+        "status_id": code_id(db, ItemStatus, "received"),
+        "disposition_id": code_id(db, Disposition, "held"),
+        "valuation_basis_id": code_id(db, ValuationBasis, "numismatic"),
+        "price": Decimal("100.00"),
+        "shipping": Decimal("0.00"),
+    }
     defaults.update(overrides)
     item = InventoryItem(**defaults)
     db.add(item)
@@ -82,7 +80,9 @@ def test_generated_columns_cannot_be_written(db: Session) -> None:
 def test_tax_rate_is_per_row_not_a_constant(db: Session) -> None:
     """Rates vary by jurisdiction, which is why it is a column."""
     item = make_item(
-        db, price=Decimal("100.00"), shipping=Decimal("0.00"),
+        db,
+        price=Decimal("100.00"),
+        shipping=Decimal("0.00"),
         tax_rate=Decimal("0.0000"),
     )
     assert item.taxes == Decimal("0.00")
@@ -123,8 +123,11 @@ def test_constraints_refuse_impossible_data(db: Session, overrides: dict) -> Non
 
 
 def test_a_classifier_in_use_cannot_be_deleted(db: Session) -> None:
-    """Reference foreign keys are ON DELETE RESTRICT: deleting a classifier
-    that rows depend on would orphan them."""
+    """A classifier in use cannot be deleted.
+
+    Reference foreign keys are ON DELETE RESTRICT: deleting a classifier
+    that rows depend on would orphan them.
+    """
     item = make_item(db)
     kind = db.get(ItemKind, item.item_kind_id)
 
@@ -147,16 +150,20 @@ def test_year_range_allows_a_single_year_and_an_open_range(db: Session) -> None:
 
 def test_weight_survives_the_database_exactly(db: Session) -> None:
     """Six decimal places in troy ounces represents a silver dime exactly."""
-    item = make_item(db, gross_weight_ozt=Decimal("0.080376"),
-                     fine_weight_ozt=Decimal("0.072340"))
+    item = make_item(
+        db, gross_weight_ozt=Decimal("0.080376"), fine_weight_ozt=Decimal("0.072340")
+    )
     db.expire(item)
     assert item.fine_weight_ozt == Decimal("0.072340")
     assert isinstance(item.fine_weight_ozt, Decimal)
 
 
 def test_fine_weight_is_less_than_gross_for_a_ninety_percent_coin(db: Session) -> None:
-    """A Morgan dollar weighs more than the silver in it. Melt uses the fine
-    weight; using gross would overstate every 90% coin by 11%."""
+    """A Morgan dollar weighs more than the silver in it.
+
+    Melt uses the fine weight; using gross would overstate every 90% coin by
+    11%.
+    """
     item = make_item(
         db,
         gross_weight_ozt=Decimal("0.859380"),
@@ -204,9 +211,7 @@ def test_composition_resolves_a_silver_dime_by_year(db: Session) -> None:
 
 def test_coin_and_currency_views_partition_the_inventory(db: Session) -> None:
     coin = make_item(db, item_kind_id=code_id(db, ItemKind, "coin"), title="a coin")
-    note = make_item(
-        db, item_kind_id=code_id(db, ItemKind, "currency"), title="a note"
-    )
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"), title="a note")
 
     coin_ids = {r[0] for r in db.execute(text("select id from coin_inventory"))}
     note_ids = {r[0] for r in db.execute(text("select id from currency_inventory"))}
@@ -219,13 +224,17 @@ def test_item_valuation_computes_melt_from_the_latest_spot_price(db: Session) ->
     """Melt is a view column precisely because spot moves; the newest quote wins."""
     silver = db.execute(select(Metal).where(Metal.code == "silver")).scalar_one()
     db.execute(
-        text("insert into metal_price (metal_id, quoted_at, price_per_ozt, source) "
-             "values (:m, now() - interval '2 days', 20.0000, 'test')"),
+        text(
+            "insert into metal_price (metal_id, quoted_at, price_per_ozt, source) "
+            "values (:m, now() - interval '2 days', 20.0000, 'test')"
+        ),
         {"m": silver.id},
     )
     db.execute(
-        text("insert into metal_price (metal_id, quoted_at, price_per_ozt, source) "
-             "values (:m, now(), 30.0000, 'test')"),
+        text(
+            "insert into metal_price (metal_id, quoted_at, price_per_ozt, source) "
+            "values (:m, now(), 30.0000, 'test')"
+        ),
         {"m": silver.id},
     )
     db.commit()
@@ -241,8 +250,10 @@ def test_item_valuation_computes_melt_from_the_latest_spot_price(db: Session) ->
     )
 
     row = db.execute(
-        text("select spot_price_used, melt_value, reported_value, profit "
-             "from item_valuation where inventory_item_id = :i"),
+        text(
+            "select spot_price_used, melt_value, reported_value, profit "
+            "from item_valuation where inventory_item_id = :i"
+        ),
         {"i": item.id},
     ).one()
 
@@ -276,16 +287,24 @@ def test_public_catalog_shows_only_active_listings(db: Session) -> None:
     usd = db.execute(select(Currency).where(Currency.code == "USD")).scalar_one()
     item = make_item(db, title="for sale")
 
-    active = Listing(inventory_item_id=item.id, price=Decimal("50.00"),
-                     currency_id=usd.id, is_active=True, quantity_available=1)
-    ended = Listing(inventory_item_id=item.id, price=Decimal("50.00"),
-                    currency_id=usd.id, is_active=False, quantity_available=1)
+    active = Listing(
+        inventory_item_id=item.id,
+        price=Decimal("50.00"),
+        currency_id=usd.id,
+        is_active=True,
+        quantity_available=1,
+    )
+    ended = Listing(
+        inventory_item_id=item.id,
+        price=Decimal("50.00"),
+        currency_id=usd.id,
+        is_active=False,
+        quantity_available=1,
+    )
     db.add_all([active, ended])
     db.commit()
 
-    listed = {
-        r[0] for r in db.execute(text("select listing_id from public_catalog"))
-    }
+    listed = {r[0] for r in db.execute(text("select listing_id from public_catalog"))}
     assert active.id in listed
     assert ended.id not in listed
 
@@ -303,8 +322,11 @@ def test_reference_codes_are_unique(db: Session) -> None:
 
 
 def test_seeded_and_derived_rows_are_distinguishable(db: Session) -> None:
-    """The distinction that makes exporting a catalogue to another
-    installation safe: one collection's guesses are not shipped as facts."""
+    """Seeded and derived rows stay distinguishable.
+
+    The distinction that makes exporting a catalogue to another
+    installation safe: one collection's guesses are not shipped as facts.
+    """
     seeded = db.execute(
         text("select count(*) from grade where source = 'seeded'")
     ).scalar()
@@ -333,8 +355,11 @@ def test_codes_are_unique(db: Session) -> None:
 
 
 def test_a_deleted_items_code_is_never_reissued(db: Session) -> None:
-    """A sequence never goes backwards. If a dead item's code could be handed
-    to a later one, every historical reference would become ambiguous."""
+    """A sequence never goes backwards.
+
+    If a dead item's code could be handed to a later one, every historical
+    reference would become ambiguous.
+    """
     doomed = make_item(db)
     code = doomed.item_code
     db.delete(doomed)
@@ -345,8 +370,11 @@ def test_a_deleted_items_code_is_never_reissued(db: Session) -> None:
 
 
 def test_the_code_survives_being_sold_and_returned(db: Session) -> None:
-    """The reason it exists: a returned item resumes its own history rather
-    than starting a new one."""
+    """The code survives sale, return and relisting.
+
+    The reason it exists: a returned item resumes its own history rather
+    than starting a new one.
+    """
     item = make_item(db)
     original = item.item_code
 
@@ -362,7 +390,10 @@ def test_the_code_survives_being_sold_and_returned(db: Session) -> None:
 
 
 def test_concurrent_inserts_cannot_collide_on_a_code(db: Session) -> None:
-    """Assigned by a sequence rather than by the application, so two inserts
-    in the same instant cannot compute the same value."""
+    """Concurrent inserts cannot compute the same code.
+
+    Assigned by a sequence rather than by the application, so two inserts
+    in the same instant cannot compute the same value.
+    """
     codes = {make_item(db).item_code for _ in range(20)}
     assert len(codes) == 20

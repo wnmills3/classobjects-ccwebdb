@@ -9,7 +9,9 @@ from __future__ import annotations
 import csv
 import json
 from collections import defaultdict
+from csv import DictWriter
 from pathlib import Path
+from typing import TextIO
 
 from .engine import ImportReport
 
@@ -28,7 +30,7 @@ ISSUE_FIELDS = [
 ]
 
 
-def _writer(path: Path, fieldnames: list[str]):
+def _writer(path: Path, fieldnames: list[str]) -> tuple[TextIO, DictWriter]:
     handle = path.open("w", newline="", encoding=ENCODING)
     # QUOTE_ALL keeps values that look like formulas or numbers intact.
     writer = csv.DictWriter(
@@ -116,6 +118,7 @@ def write_unclassified_csv(report: ImportReport, path: str | Path) -> int:
 
 
 def write_summary_json(report: ImportReport, path: str | Path) -> None:
+    """Write the run's counts as JSON, for diffing one run against the next."""
     Path(path).write_text(
         json.dumps(
             {

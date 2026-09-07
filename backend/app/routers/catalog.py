@@ -10,11 +10,10 @@ is how a shop is actually operated.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -39,13 +38,13 @@ from ..models import (
     ValuationBasis,
 )
 from ..references import code_to_id, require_code
-from .images import image_urls
 from ..schemas import (
     CatalogItemCreate,
     CatalogItemOut,
     CatalogItemUpdate,
     CatalogPage,
 )
+from .images import image_urls
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
@@ -73,7 +72,7 @@ ITEM_SCALARS = (
 )
 
 
-def _eager(stmt):
+def _eager(stmt: Select[Any]) -> Select[Any]:
     """Load the classifier rows the response needs in one round trip.
 
     Without this, rendering a page of 24 results costs a query per classifier
@@ -167,7 +166,9 @@ def _resolve_classifiers(db: Session, payload: dict[str, Any]) -> dict[str, int 
 @router.get("", response_model=CatalogPage)
 def list_catalog(
     db: DbSession,
-    q: Annotated[str | None, Query(description="Free text over title and description")] = None,
+    q: Annotated[
+        str | None, Query(description="Free text over title and description")
+    ] = None,
     kind: Annotated[str | None, Query(description="item_kind code")] = None,
     country: Annotated[str | None, Query(description="country code")] = None,
     metal: Annotated[str | None, Query(description="metal code")] = None,
@@ -210,7 +211,9 @@ def list_catalog(
     if in_stock:
         filters.append(Listing.quantity_available > 0)
 
-    base = select(Listing).join(InventoryItem, Listing.inventory_item_id == InventoryItem.id)
+    base = select(Listing).join(
+        InventoryItem, Listing.inventory_item_id == InventoryItem.id
+    )
 
     total = (
         db.scalar(
@@ -222,7 +225,9 @@ def list_catalog(
         or 0
     )
     rows = db.scalars(
-        _eager(base.where(*filters).order_by(Listing.id.desc()).limit(limit).offset(offset))
+        _eager(
+            base.where(*filters).order_by(Listing.id.desc()).limit(limit).offset(offset)
+        )
     ).all()
 
     return CatalogPage(
@@ -244,6 +249,7 @@ def _get_listing(db: Session, listing_id: int) -> Listing:
 
 @router.get("/{listing_id}", response_model=CatalogItemOut)
 def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
+    """One catalogue entry. Public: it carries no cost basis or location."""
     return to_catalog_item(_get_listing(db, listing_id))
 
 
@@ -289,6 +295,7 @@ def create_catalog_item(
 def update_catalog_item(
     listing_id: int, payload: CatalogItemUpdate, db: DbSession, _admin: AdminUser
 ) -> CatalogItemOut:
+    """Change a catalogue entry. Send `version` to be told about conflicts."""
     listing = _get_listing(db, listing_id)
     item = listing.inventory_item
 

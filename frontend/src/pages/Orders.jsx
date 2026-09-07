@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { useAuth } from '../auth'
@@ -10,34 +10,43 @@ export default function Orders() {
   const { isAdmin } = useAuth()
   const [orders, setOrders] = useState([])
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(true)
+  const [loaded, setLoaded] = useState(false)
 
-  const load = useCallback(async () => {
-    setBusy(true)
-    try {
-      setOrders(await api.listOrders())
-      setError('')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }, [])
+  // `reload` is a counter the status handler bumps; the effect is the only
+  // place that sets state, and it does so after the request, never
+  // synchronously.
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
-    load()
-  }, [load])
+    let cancelled = false
+    api
+      .listOrders()
+      .then((rows) => {
+        if (cancelled) return
+        setOrders(rows)
+        setError('')
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [reload])
 
   async function changeStatus(id, status) {
     try {
       await api.setOrderStatus(id, status)
-      await load()
+      setReload((n) => n + 1)
     } catch (err) {
       setError(err.message)
     }
   }
 
-  if (busy) return <p className="muted">Loading...</p>
+  if (!loaded) return <p className="muted">Loading...</p>
 
   return (
     <section>

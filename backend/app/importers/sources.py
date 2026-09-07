@@ -15,6 +15,7 @@ from .profile import RawRow
 
 
 def sha256_of(path: Path) -> str:
+    """Hash a file, so a re-import of unchanged input is recognisable."""
     h = hashlib.sha256()
     with path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -37,7 +38,11 @@ def _as_text(value: object) -> str | None:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, datetime):
-        return value.date().isoformat() if value.time().isoformat() == "00:00:00" else value.isoformat()
+        return (
+            value.date().isoformat()
+            if value.time().isoformat() == "00:00:00"
+            else value.isoformat()
+        )
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, float) and value.is_integer():
@@ -53,6 +58,7 @@ class XlsxSource:
     kind = "xlsx"
 
     def __init__(self, path: str | Path, sheet: str | None = None) -> None:
+        """Open a spreadsheet; `sheet` defaults to the first one."""
         self.path = Path(path)
         if not self.path.is_file():
             raise FileNotFoundError(self.path)
@@ -61,11 +67,13 @@ class XlsxSource:
 
     @property
     def sha256(self) -> str:
+        """Hash of the file, so an unchanged re-import is recognisable."""
         if self._sha256 is None:
             self._sha256 = sha256_of(self.path)
         return self._sha256
 
     def read_rows(self, limit: int | None = None) -> Iterator[RawRow]:
+        """Yield rows verbatim -- values are text or None, never coerced."""
         from openpyxl import load_workbook
 
         wb = load_workbook(self.path, data_only=True, read_only=True)

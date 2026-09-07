@@ -80,6 +80,8 @@ class Variant:
 
 @dataclass
 class ColumnProfile:
+    """What one source column looks like: fill, cardinality and its values."""
+
     name: str
     filled: int
     total: int
@@ -95,10 +97,12 @@ class ColumnProfile:
 
     @property
     def fill_pct(self) -> float:
+        """How much of the column is populated."""
         return (self.filled / self.total * 100) if self.total else 0.0
 
     @property
     def cardinality_ratio(self) -> float:
+        """Distinct values over populated values -- near 1 means free text."""
         return (self.distinct / self.filled) if self.filled else 0.0
 
 
@@ -118,11 +122,14 @@ def profile_column(
     total_rows: int,
     accepted: set[str] | None = None,
 ) -> ColumnProfile:
+    """Describe one column, and propose corrections for rare spellings."""
     filled = sum(counts.values())
     distinct = len(counts)
     values = list(counts)
 
-    numeric_share = (sum(1 for v in values if _is_number(v)) / distinct) if distinct else 0.0
+    numeric_share = (
+        (sum(1 for v in values if _is_number(v)) / distinct) if distinct else 0.0
+    )
     date_share = (sum(1 for v in values if _is_date(v)) / distinct) if distinct else 0.0
     max_length = max((len(v) for v in values), default=0)
     ratio = (distinct / filled) if filled else 0.0
@@ -145,7 +152,8 @@ def profile_column(
     else:
         rec, why = (
             REVIEW,
-            f"{distinct} distinct, ratio {ratio:.2f} -- between a vocabulary and free text",
+            f"{distinct} distinct, ratio {ratio:.2f} -- between a vocabulary "
+            "and free text",
         )
 
     # Near-duplicate detection: only meaningful where a vocabulary is expected.
@@ -214,22 +222,39 @@ def profile_columns(
 
 
 def write_columns_csv(profiles: list[ColumnProfile], path: str | Path) -> int:
+    """Write the column profiles for review outside the database."""
     path = Path(path)
     with path.open("w", newline="", encoding=ENCODING) as fh:
         w = csv.writer(fh, quoting=csv.QUOTE_ALL)
         w.writerow(
             [
-                "column", "recommendation", "reason", "filled", "fill_pct",
-                "distinct", "cardinality_ratio", "singletons", "max_length",
-                "numeric_share", "likely_variants", "top_values",
+                "column",
+                "recommendation",
+                "reason",
+                "filled",
+                "fill_pct",
+                "distinct",
+                "cardinality_ratio",
+                "singletons",
+                "max_length",
+                "numeric_share",
+                "likely_variants",
+                "top_values",
             ]
         )
         for p in profiles:
             w.writerow(
                 [
-                    p.name, p.recommendation, p.reason, p.filled,
-                    f"{p.fill_pct:.1f}", p.distinct, f"{p.cardinality_ratio:.4f}",
-                    p.singletons, p.max_length, f"{p.numeric_share:.2f}",
+                    p.name,
+                    p.recommendation,
+                    p.reason,
+                    p.filled,
+                    f"{p.fill_pct:.1f}",
+                    p.distinct,
+                    f"{p.cardinality_ratio:.4f}",
+                    p.singletons,
+                    p.max_length,
+                    f"{p.numeric_share:.2f}",
                     len(p.variants),
                     " | ".join(f"{v} ({n})" for v, n in p.top_values),
                 ]
@@ -248,12 +273,19 @@ def write_variants_csv(profiles: list[ColumnProfile], path: str | Path) -> int:
         )
         for v in sorted(rows, key=lambda v: (v.column, -v.common_count)):
             w.writerow(
-                [v.column, v.rare_value, v.rare_count, v.likely_intended, v.common_count]
+                [
+                    v.column,
+                    v.rare_value,
+                    v.rare_count,
+                    v.likely_intended,
+                    v.common_count,
+                ]
             )
     return len(rows)
 
 
 def render(profiles: list[ColumnProfile], top: int = 6) -> str:
+    """The column profiles as a readable table."""
     out: list[str] = ["COLUMN PROFILE", ""]
     width = max((len(p.name) for p in profiles), default=10)
     out.append(
