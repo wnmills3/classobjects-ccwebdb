@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "ccwebdb (local)",
+      "Group": "Servers",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "ccwebdb",
+      "Username": "ccwebdb",
+      "SSLMode": "prefer",
+      "Comment": "Development cluster in .pgdata. Password is not stored here on purpose -- pgAdmin will ask once and can keep it in its own encrypted store."
+    }
+  }
+}
