@@ -42,24 +42,48 @@ how to run a service by hand with `--reload`.
 ```
 backend/
   app/
-    main.py        FastAPI app and CORS
-    config.py      settings from .env
-    database.py    engine, session, declarative base
-    models.py      User, Coin, Order, OrderItem
-    schemas.py     Pydantic request/response models
-    security.py    argon2 hashing, JWT issue/verify
-    deps.py        current-user and admin-role dependencies
-    seed.py        idempotent admin + sample inventory
-    routers/       auth, coins, orders
-  alembic/         migrations
+    main.py              FastAPI app and CORS
+    config.py            settings from .env
+    database.py          engine, session factory, declarative base
+    deps.py              current-user and admin-role dependencies
+    security.py          argon2 hashing, JWT issue/verify
+    schemas.py           Pydantic request/response models
+    models/              the schema, by subject area: core (inventory_item
+                         and the coin/currency detail tables), reference,
+                         identification, valuation, lifecycle, images,
+                         sales, and views
+    routers/             auth, catalog, inventory, reference, images, orders
+    inventory_search.py  one search implementation, two view specifications
+    splitting.py         breaking a lot into its pieces
+    allocation.py        largest-remainder division of money, to the penny
+    references.py        classifier code <-> id resolution
+    imaging.py           metadata stripping, thumb/web renditions
+    storage.py           content-addressed file storage
+    seeding.py           load and export reference data as versioned JSON
+    seed.py              idempotent admin user
+    importers/           spreadsheet import: a durable engine and a
+                         disposable per-spreadsheet profile
+  alembic/               migrations
 frontend/
   src/
-    api.js         fetch wrapper with automatic token refresh
-    auth.jsx       authentication context
-    cart.jsx       cart state, persisted to localStorage
-    pages/         Catalog, CoinDetail, Login, Register, Cart, Orders, AdminCoins
+    api.js               fetch wrapper with automatic token refresh
+    format.js            money and date formatting
+    auth-context.js      context and hook  -- split from the provider so
+    auth.jsx             provider only        Fast Refresh keeps app state
+    cart-context.js      cart contents; the provider in cart.jsx is what
+    cart.jsx             persists them to localStorage
+    reference-context.js vocabularies for the pickers
+    reference.jsx
+    pages/               Catalog, CoinDetail, Cart, Orders, Login, Register,
+                         AdminCoins, Inventory (coins and currency views)
 docs/
-  environment-setup.md
+  environment-setup.md         first time on a machine
+  runtime-operations.md        starting and stopping the services
+  code-quality.md              the gates, and the exceptions that are justified
+  database-design.md           the target schema
+  data-import-plan.md          import decisions, amendments A-H
+  spreadsheet-import-design.md
+scripts/                       startup, shutdown, check, psql, pgadmin, claude
 ```
 
 ## API
