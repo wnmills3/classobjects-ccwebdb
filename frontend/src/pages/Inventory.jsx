@@ -176,8 +176,18 @@ function InventoryView({ config }) {
                   value={current[param] ?? ''}
                   onChange={(e) => apply({ [param]: e.target.value })}
                   disabled={options.length === 0}
+                  title={
+                    options.length === 0
+                      ? `No ${label.toLowerCase()} has been recorded on any matching item yet`
+                      : undefined
+                  }
                 >
-                  <option value="">Any</option>
+                  {/* A disabled control with no explanation reads as broken.
+                      Empty here means the field is unrecorded on every
+                      matching item -- a gap in the data, not in the filter. */}
+                  <option value="">
+                    {options.length === 0 ? 'None recorded' : 'Any'}
+                  </option>
                   {options.map((o) => (
                     <option key={String(o.value)} value={String(o.value)}>
                       {String(o.value)} ({o.count})

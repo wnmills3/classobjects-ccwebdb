@@ -73,15 +73,27 @@ class Filt:
 class Facet:
     """How one facet is counted, and against which column.
 
-    A facet counts an indexed id column on the item table, then resolves
-    those ids to codes in a second, tiny query.
+    A facet counts an indexed id column, then resolves those ids to codes in a
+    second, tiny query.
 
     Grouping by `grade_id` uses the foreign key index directly. Grouping by
     `grade.code` would force the join first, which is most of the cost.
+
+    `alias` and `join` let a facet live on a detail table rather than on the
+    item -- a coin's mint is on `coin_detail`, a note's district on
+    `currency_detail`. `label_column` must name the column the matching
+    *filter* compares against, or the facet offers values the filter rejects:
+    mint filters on `mint.mark`, not `mint.code`.
+
+    `table=None` means the column already holds the value and needs no lookup,
+    which is how a plain integer like `series_year` is faceted.
     """
 
     id_column: str
-    table: str
+    table: str | None = None
+    join: tuple[str, ...] = ()
+    alias: str = "i"
+    label_column: str = "code"
 
 
 @dataclass(frozen=True)
@@ -235,6 +247,10 @@ COIN_VIEW = ViewSpec(
         "item_kind": Facet("item_kind_id", "item_kind"),
         "metal": Facet("metal_id", "metal"),
         "bullion_form": Facet("bullion_form_id", "bullion_form"),
+        # Resolves to `mark` because the matching filter compares against
+        # `m.mark`. Offering `mint.code` here would list values the filter
+        # then rejects with a 422.
+        "mint_mark": Facet("mint_id", "mint", (_J_COIN_DETAIL,), "cd", "mark"),
     },
 )
 
@@ -269,15 +285,18 @@ CURRENCY_VIEW = ViewSpec(
     sortable=(*_SHARED_SORT, "series_year"),
     facets={
         **_SHARED_FACETS,
-        "note_type": Facet("note_type_id", "note_type"),
-        "seal_color": Facet("seal_color_id", "seal_color"),
+        "note_type": Facet("note_type_id", "note_type", (_J_CUR_DETAIL,), "cud"),
+        "seal_color": Facet("seal_color_id", "seal_color", (_J_CUR_DETAIL,), "cud"),
+        "fed_district_letter": Facet(
+            "fed_district_id", "fed_district", (_J_CUR_DETAIL,), "cud", "letter"
+        ),
+        # No reference table: the column already holds the value the filter
+        # compares against.
+        "series_year": Facet("series_year", None, (_J_CUR_DETAIL,), "cud"),
     },
 )
 
 VIEWS: dict[str, ViewSpec] = {v.name: v for v in (COIN_VIEW, CURRENCY_VIEW)}
-
-#: Facets that live on currency_detail rather than on the item itself.
-_DETAIL_FACETS = {"note_type", "seal_color"}
 
 
 def _conditions(
@@ -417,10 +436,9 @@ def count_facets(
     for name, facet in spec.facets.items():
         source = spec.base
         facet_joins = list(joins)
-        column = f"i.{facet.id_column}"
-        if name in _DETAIL_FACETS:
-            facet_joins.append((_J_CUR_DETAIL,))
-            column = f"cud.{facet.id_column}"
+        if facet.join:
+            facet_joins.append(facet.join)
+        column = f"{facet.alias}.{facet.id_column}"
 
         counts = db.execute(
             text(
@@ -436,10 +454,18 @@ def count_facets(
             results[name] = []
             continue
 
+        if facet.table is None:
+            # The column is the value -- there is nothing to resolve.
+            results[name] = [{"value": row.fid, "count": row.n} for row in counts]
+            continue
+
         ids = [row.fid for row in counts]
         labels: dict[int, str] = dict(
             db.execute(
-                text(f"SELECT id, code FROM {facet.table} WHERE id = ANY(:ids)"),
+                text(
+                    f"SELECT id, {facet.label_column} FROM {facet.table} "
+                    "WHERE id = ANY(:ids)"
+                ),
                 {"ids": ids},
             ).all()
         )
