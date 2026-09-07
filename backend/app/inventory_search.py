@@ -137,6 +137,11 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "id": Col("i.id"),
     "item_code": Col("i.item_code"),
     "title": Col("i.title"),
+    # The spreadsheet's leftmost column was the denomination, so `title` holds
+    # "0.25", "Mint Set", "5" -- not a name. What a person recognises the item
+    # by lives in `description`, which is why it is returned as well and is
+    # what the browse screens show.
+    "description": Col("i.description"),
     "year_start": Col("i.year_start"),
     "year_end": Col("i.year_end"),
     "storage_quantity": Col("i.storage_quantity"),

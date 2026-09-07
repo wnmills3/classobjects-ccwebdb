@@ -23,7 +23,7 @@ const COIN_VIEW = {
   title: 'Coins & bullion',
   columns: [
     ['Code', 'item_code', 'mono'],
-    ['Title', 'title'],
+    ['Description', 'description', 'wide'],
     ['Kind', 'item_kind'],
     ['Year', 'year_start'],
     ['Mint', 'mint_mark'],
@@ -50,7 +50,7 @@ const CURRENCY_VIEW = {
   title: 'Currency',
   columns: [
     ['Code', 'item_code', 'mono'],
-    ['Title', 'title'],
+    ['Description', 'description', 'wide'],
     ['Denomination', 'denomination_label'],
     ['Series', 'series_year'],
     ['Letter', 'series_letter'],
@@ -241,7 +241,7 @@ function InventoryView({ config }) {
             {page.rows.map((row) => (
               <tr key={row.id}>
                 {config.columns.map(([, key, kind]) => (
-                  <td key={key} className={kind === 'mono' ? 'mono' : undefined}>
+                  <td key={key} className={kind === 'money' ? undefined : kind}>
                     {cell(row, key, kind)}
                   </td>
                 ))}
