@@ -170,6 +170,31 @@ Notable behaviour:
 
 ## Looking at the data
 
+In a browser, with pgAdmin:
+
+```
+scripts\ccweb_pgadmin.cmd
+```
+
+That starts pgAdmin on <http://127.0.0.1:5050> and opens it, with the `ccwebdb`
+connection already registered — the password is `devpassword` and pgAdmin will
+offer to remember it. The rows are under **Databases > ccwebdb > Schemas >
+public > Views**.
+
+pgAdmin is deliberately *not* a project dependency. It lives in its own uv tool
+environment outside the repository, so it never enters `uv.lock` and never
+reaches the conda environment that `UV_PROJECT_ENVIRONMENT` points at:
+
+```
+uv tool install --python 3.13 pgadmin4
+```
+
+Pin 3.13. uv otherwise picks the newest interpreter it can see — miniforge's
+3.14 — and `pywinpty` publishes no `cp314` wheel, so uv falls back to building
+it from Rust source and fails on the missing MSVC linker.
+
+At the command line, with psql:
+
 ```
 scripts\ccweb_psql.cmd                              interactive psql
 scripts\ccweb_psql.cmd -c "select * from metal;"    one statement
