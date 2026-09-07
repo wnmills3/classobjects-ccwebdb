@@ -41,7 +41,8 @@ Over 7,598 items, excluding split parents:
 | Zero or missing price | 51 |
 | "LOT OF *n*" where *n* does not match the row count | 44 |
 | Kind still `unknown` | 33 |
-| Duplicate currency serial numbers | 18 notes, 9 groups |
+| Repeated currency serial numbers | 18 notes, 9 groups |
+| Repeated certification numbers | 80 rows, 40 numbers |
 | Reversed or implausible years | 0 |
 
 ### How the collection is grouped
@@ -177,7 +178,45 @@ badge on the row. Adding a check later means adding one predicate.
 
 Initial checks: `no_year`, `no_grade`, `no_country`, `no_denomination`,
 `no_weight_bullion`, `mixed_marker`, `lot_count_mismatch`, `zero_price`,
-`kind_unknown`, `duplicate_serial`, `inherited_from_lot`.
+`kind_unknown`, `repeated_identity`, `inherited_from_lot`.
+
+### Duplicate detection needs a natural key
+
+`repeated_identity` covers the two fields that identify a *physical object*
+rather than describe it: `currency_detail.serial_number` and
+`item_certification.cert_number`. A PCGS or NGC number names exactly one slab
+and a serial names exactly one note, so a repeat is real evidence.
+
+**It must not be generalised to items without such a key.** 731 groups of 3,543
+items share a purchase order, a price and a description -- and those are the
+flattened purchase lots, not duplicates. Twenty Morgans bought together at $19
+each look identical by every available column and are twenty different coins.
+Treating that as a duplicate signal would condemn $91,752 of real inventory.
+
+Measured, the check finds three different problems that look alike and must not
+be auto-resolved together:
+
+| Shape | Example | Almost certainly |
+|---|---|---|
+| Same identifier, same order, same price | 5 currency pairs | the same item entered twice |
+| Same identifier, *different* orders | 32 cert numbers | one purchase recorded twice, or a mistranscription |
+| Identifier that is not an identifier | `1973` on 5 rows | a year parsed into the cert field |
+
+Only the shape of the value distinguishes them, so the check surfaces
+candidates and a person decides. It never merges rows.
+
+**Exact matching is not enough.** Three further currency duplicates hide behind
+single-character errors -- `O` for `U`, a dropped digit, `6` for `3` -- and
+were invisible to equality. The check should compare normalised identifiers
+(case folded, non-alphanumerics stripped) and flag near-matches within one
+purchase order as candidates, since that is where they cluster.
+
+**And a repeat is sometimes correct.** Four of the nine currency groups are
+genuinely different notes -- different series or series letter -- that share a
+serial because collecting matched serial numbers across issues is a deliberate
+pursuit. `E00003333B` appears on a 2021 and a 2017-A $1, and the serial itself
+is a repeating-digit note bought on purpose. A check that assumed repeats were
+errors would fight the collection's actual theme.
 
 `mixed_marker` is separate from `no_grade` because it means "known to vary"
 rather than "unknown", and the remedy is different: decompose the purchase lot
@@ -304,6 +343,14 @@ silently doubles in places.
   them, but the piece count comes from `storage_quantity`, which was itself
   parsed from the spreadsheet. Those counts want checking against the
   descriptions before anyone splits on them.
-- **Currency duplicate serials.** 9 groups of notes share a serial number,
-  which is either a data-entry error or two notes genuinely recorded from one
-  photograph. Needs a human decision, not a rule.
+- **Possible duplicate rows, and how many.** Investigated 2026-09-07. Of the 9
+  repeated currency serials, 4 are legitimate matched-serial notes and 5 are
+  the same note entered twice; 3 further duplicates hide behind typos. On the
+  coin side, 40 certification numbers repeat across 80 rows, **32 of them
+  spanning different purchase orders** -- one slab recorded as two purchases at
+  $7.30 and $7.42. If those are duplicates, the collection is smaller than
+  7,598 and the cost basis is overstated by roughly the value of 90-odd rows.
+  This wants confirming against the original invoices before anything is
+  deleted, because the alternative explanation -- one purchase recorded twice
+  under two order numbers -- would mean the *orders* need reconciling, not the
+  items.
