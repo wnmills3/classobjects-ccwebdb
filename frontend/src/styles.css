@@ -473,3 +473,14 @@ button.link.danger {
   min-width: 0;
   flex: 1 1 6rem;
 }
+
+/* Inventory description column.
+   `title` holds the denomination the spreadsheet recorded ("0.25", "Mint
+   Set"), so the browse screens show `description` instead -- which is long,
+   and would otherwise stretch the table past the viewport. */
+.inventory-table td.wide {
+  max-width: 34rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
