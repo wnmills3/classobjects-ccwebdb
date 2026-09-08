@@ -396,7 +396,9 @@ class InventoryItemOut(BaseModel):
 
     id: int
     item_code: str
+    version: int
     source_title: str
+    year_start: int | None = None
     piece_count: int
     item_cost: Decimal
     shipping_cost: Decimal
@@ -404,6 +406,56 @@ class InventoryItemOut(BaseModel):
     total_cost: Decimal
     parent_item_id: int | None = None
     split_at: datetime | None = None
+
+
+class InventoryItemUpdate(BaseModel):
+    """A partial edit to an item, in the item's own vocabulary.
+
+    Not `CatalogItemUpdate`. That one speaks the shop's language -- a listing
+    has a `title` and a `price`, meaning what the shop calls the item and what
+    it is offered for. This one speaks the item's: `source_title` is what the
+    row was called where it came from, and `item_cost` is what was paid for
+    it. The Excel round trip uses these names too, so there is one vocabulary
+    at this boundary rather than two.
+
+    Every field optional, and applied with `exclude_unset`, so an omitted
+    field is left alone rather than nulled.
+    """
+
+    #: The version read before editing. Send it and a conflicting save is a
+    #: 409 rather than a silent overwrite; omit it to mean "set this
+    #: regardless", which a script may legitimately want.
+    version: int | None = None
+
+    source_title: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = None
+    year_start: int | None = Field(default=None, ge=-3000, le=2200)
+    year_end: int | None = Field(default=None, ge=-3000, le=2200)
+    fineness: Decimal | None = Field(default=None, ge=0, le=1, decimal_places=4)
+    gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
+    fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
+    piece_count: int | None = Field(default=None, ge=1)
+    item_cost: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+    shipping_cost: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+
+    # Classifiers, by code.
+    item_kind: str | None = Field(default=None, max_length=64)
+    country: str | None = Field(default=None, max_length=64)
+    denomination: str | None = Field(default=None, max_length=64)
+    bullion_form: str | None = Field(default=None, max_length=64)
+    grade: str | None = Field(default=None, max_length=64)
+    grade_designation: str | None = Field(default=None, max_length=64)
+    grading_service: str | None = Field(default=None, max_length=64)
+    metal: str | None = Field(default=None, max_length=64)
+    series: str | None = Field(default=None, max_length=64)
+    storage_form: str | None = Field(default=None, max_length=64)
+    authenticity: str | None = Field(default=None, max_length=64)
+    status: str | None = Field(default=None, max_length=64)
+    disposition: str | None = Field(default=None, max_length=64)
 
 
 # --------------------------------------------------------------------------
