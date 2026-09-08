@@ -458,6 +458,25 @@ class InventoryItemUpdate(BaseModel):
     disposition: str | None = Field(default=None, max_length=64)
 
 
+class ReviewRequest(BaseModel):
+    """Which fields of an item a person has confirmed by looking at it."""
+
+    #: Column names, e.g. `grade_id`. Checked against the reviewable set, so a
+    #: typo is a 422 rather than a record nobody can ever query for.
+    fields: list[str] = Field(default_factory=list)
+    #: False adds to what is already recorded, which is the normal case --
+    #: confirming the grade says nothing about the year. True makes the given
+    #: list the whole truth, which is how a mistaken confirmation is undone.
+    replace: bool = False
+
+
+class ItemReviewOut(BaseModel):
+    """Which fields of one item stand confirmed."""
+
+    inventory_item_id: int
+    reviewed: list[str]
+
+
 # --------------------------------------------------------------------------
 # Inventory browse
 # --------------------------------------------------------------------------
