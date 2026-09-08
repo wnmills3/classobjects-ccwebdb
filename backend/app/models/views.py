@@ -405,7 +405,12 @@ def create_views(
     """The view SQL as it stood before the named columns were introduced.
 
     ``lineage`` covers `parent_item_id` and `split_at`; ``item_code`` covers
-    the permanent item code. Both default to the current definitions.
+    the permanent item code; ``renamed_costs`` covers the earlier names of
+    `item_cost`, `shipping_cost`, `sales_tax`, `piece_count` and
+    `source_title` (`price`, `shipping`, `taxes`, `storage_quantity`,
+    `title`); ``soft_delete`` covers `deleted_at` and its `WHERE` clause in
+    all four views. All four default to True, the current definitions, so a
+    migration strips only what it names.
     """
     removals: list[tuple[str, str]] = []
     # Soft delete is stripped FIRST, before lineage. Replacements apply in
