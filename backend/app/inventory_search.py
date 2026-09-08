@@ -121,6 +121,15 @@ class ViewSpec:
         return " ".join(seen)
 
 
+#: How the search treats soft-deleted rows. Not a `Filt`, because it is a
+#: choice between three predicates rather than a value to compare against.
+DELETED_MODES: dict[str, str] = {
+    "no": "i.deleted_at IS NULL",
+    "only": "i.deleted_at IS NOT NULL",
+    "any": "TRUE",
+}
+
+
 # --- joins, named once -----------------------------------------------------
 _J_GRADE = "LEFT JOIN grade g ON g.id = i.grade_id"
 _J_GRADE_DES = "LEFT JOIN grade_designation gd ON gd.id = i.grade_designation_id"
@@ -340,6 +349,28 @@ def _conditions(
     clauses = list(spec.where)
     joins: list[tuple[str, ...]] = [(_J_KIND,)]  # every spec filters on kind
     bound: dict[str, Any] = {}
+
+    # Consumed here rather than in spec.filters: it selects between three
+    # predicates rather than comparing a column to a value. Excluded by
+    # default, so a deleted row does not reappear because someone forgot.
+    params = dict(params)
+    mode = params.pop("deleted", None) or "no"
+    if mode not in DELETED_MODES:
+        raise ValueError(
+            f"unknown deleted mode {mode!r}; expected one of {sorted(DELETED_MODES)}."
+        )
+    clauses.append(DELETED_MODES[mode])
+
+    # Everything split from one lot, named by the lot's item code -- what is
+    # printed on the flip and what a person has in front of them, rather than
+    # a database id they would have to look up.
+    lot_code = params.pop("lot", None)
+    if lot_code:
+        clauses.append(
+            "i.parent_item_id = "
+            "(SELECT id FROM inventory_item WHERE item_code = :p_lot)"
+        )
+        bound["p_lot"] = lot_code
 
     for key, value in params.items():
         if value in (None, ""):

@@ -9,11 +9,12 @@ Staff-only throughout: everything here exposes cost basis.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
@@ -33,6 +34,7 @@ from ..models import (
     ItemFieldReview,
     ItemKind,
     ItemStatus,
+    Listing,
     Metal,
     Series,
     StorageForm,
@@ -132,6 +134,15 @@ def search_inventory(
     reserved = {"q", "sort", "desc", "facets", "limit", "offset"}
     params = {k: v for k, v in request.query_params.items() if k not in reserved}
 
+    lot_code = params.get("lot")
+    if lot_code and not db.scalar(
+        select(InventoryItem.id).where(InventoryItem.item_code == lot_code)
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"No item has code {lot_code!r}.",
+        )
+
     try:
         rows, total = search(
             db,
@@ -150,10 +161,11 @@ def search_inventory(
             f"{sorted(spec.filters)}",
         ) from exc
     except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"{exc} Sortable: {sorted(spec.sortable)}",
-        ) from exc
+        # Two different failures reach here: an unsortable column, and an
+        # unrecognised `deleted` mode. Appending the sortable list to both
+        # sends the wrong person looking in the wrong place.
+        hint = f" Sortable: {sorted(spec.sortable)}" if "sort" in str(exc) else ""
+        raise HTTPException(status_code=422, detail=f"{exc}{hint}") from exc
 
     return InventoryPageOut(
         view=view,
@@ -441,3 +453,53 @@ def set_item_review(
     return ItemReviewOut(
         inventory_item_id=item.id, reviewed=_reviewed_fields(db, item.id)
     )
+
+
+@router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
+    """Soft delete: this row should never have existed.
+
+    Guarded twice, because both failures are silent. A lot with pieces holds
+    the cost basis they were allocated from, and deleting it would leave four
+    coins descended from nothing. An item that has been listed or sold is
+    referenced by order history, which would then point at a row the reports
+    exclude.
+
+    **Reachable from the lot panel, not only from search.** After its last
+    child is detached a parent still has `split_at` set, so it is invisible in
+    every view and not deleted -- a row that exists and cannot be found.
+    Search is exactly where it is not.
+    """
+    item = _get_item(db, item_id)
+
+    if item.deleted_at is not None:
+        return  # Already gone. Deleting twice is not an error.
+
+    pieces = db.scalar(
+        select(func.count())
+        .select_from(InventoryItem)
+        .where(InventoryItem.parent_item_id == item.id)
+    )
+    if pieces:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{item.item_code} has {pieces} piece(s) split from it and "
+                f"cannot be deleted. Detach them first."
+            ),
+        )
+
+    listed = db.scalar(
+        select(Listing.id).where(Listing.inventory_item_id == item.id).limit(1)
+    )
+    if listed is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{item.item_code} has a listing and cannot be deleted. "
+                f"Withdraw the listing first."
+            ),
+        )
+
+    item.deleted_at = datetime.now(UTC)
+    db.commit()
