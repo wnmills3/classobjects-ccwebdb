@@ -461,6 +461,19 @@ those axes and be unusable against any published guide.
 
 ## Open questions
 
+- **eBay order numbers are recoverable from the PDFs, and should be.** The
+  1,857 eBay rows are currently grouped by *listing* id, which is a
+  placeholder: the owner simply was not recording order numbers when the
+  spreadsheet began. `OneDrive/Documents/coins` holds **1,020 `ebay_*.pdf`
+  purchase pages**, and the real numbers extract cleanly -- a 25-file sample
+  yielded 545 distinct ones, median 25 per file, none empty.
+
+  The work is not the extraction but the matching: a purchases page lists
+  order number, title, price and date together, and each must be paired to
+  the right inventory row. That wants the same discipline as the series
+  matcher -- apply the confident matches, report the ambiguous ones, and never
+  resolve a tie by taking the first. Worth its own piece of work.
+
 - **`purchase_order` 114 is an importer artefact, not an order.** The
   spreadsheet has no purchase-order concept at all -- only a vendor's order
   number per row. `loader.purchase_order_id` keys on
