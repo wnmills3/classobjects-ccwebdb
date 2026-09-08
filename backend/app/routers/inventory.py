@@ -231,9 +231,12 @@ def update_item(
     data = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
 
-    # Checked before anything is applied, so the caller gets a useful message.
-    # The database check below is the real guarantee: it closes the gap
-    # between this comparison and the commit.
+    # This is what catches the ordinary lost-update case: two staff, each with
+    # a form loaded at a different time, and the second one saving over the
+    # first. The item is re-fetched fresh at the top of every request, so
+    # nothing later in this function -- including the database's own
+    # version_id_col check -- ever sees a token from an earlier request; only
+    # this comparison, against the value the caller actually sent, does.
     if expected is not None and expected != item.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -256,9 +259,10 @@ def update_item(
     try:
         db.commit()
     except StaleDataError as exc:
-        # Someone committed between the check above and this one. The UPDATE
-        # carried `WHERE version = ...`, matched no rows, and overwrote
-        # nothing.
+        # A narrower race than the check above: another commit landed inside
+        # this request's own read-to-commit window, after `item` was loaded
+        # here but before this commit. The UPDATE carried `WHERE version =
+        # ...`, matched no rows, and overwrote nothing.
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
