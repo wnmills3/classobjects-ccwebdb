@@ -1,8 +1,10 @@
 import { useState } from 'react'
 
+import BulkEditBar from './inventory/BulkEditBar'
 import FilterPanel from './inventory/FilterPanel'
 import InventoryTable from './inventory/InventoryTable'
 import ItemEditForm from './inventory/ItemEditForm'
+import ReviewPane from './inventory/ReviewPane'
 import { COIN_VIEW, CURRENCY_VIEW, PAGE_SIZE } from './inventory/specs'
 import { useInventorySearch } from './inventory/useInventorySearch'
 
@@ -24,6 +26,8 @@ function InventoryView({ config }) {
     config.view,
   )
   const [editing, setEditing] = useState(null)
+  const [selected, setSelected] = useState([])
+  const [reviewing, setReviewing] = useState(null)
 
   const total = page?.total ?? 0
   const rows = page?.rows ?? []
@@ -43,6 +47,22 @@ function InventoryView({ config }) {
         busy={busy}
       />
 
+      <button
+        disabled={rows.length === 0}
+        onClick={() => setReviewing(rows.map((r) => r.id))}
+      >
+        Review these {rows.length}
+      </button>
+
+      <BulkEditBar
+        ids={selected}
+        onApplied={() => {
+          setSelected([])
+          apply({})
+        }}
+        onClear={() => setSelected([])}
+      />
+
       {error && <p className="error">{error}</p>}
       {!busy && total === 0 && <p className="muted">Nothing matches those filters.</p>}
 
@@ -52,6 +72,8 @@ function InventoryView({ config }) {
           rows={rows}
           current={current}
           apply={apply}
+          selected={selected}
+          onSelect={setSelected}
           onOpen={setEditing}
         />
       )}
@@ -83,6 +105,19 @@ function InventoryView({ config }) {
           itemId={editing}
           onSaved={() => apply({})}
           onClose={() => setEditing(null)}
+        />
+      )}
+
+      {reviewing && (
+        <ReviewPane
+          ids={reviewing}
+          onClose={() => {
+            setReviewing(null)
+            // Re-run the search once, on leaving -- never while review is
+            // open, or the frozen queue described above would shift under
+            // the reviewer's feet.
+            apply({})
+          }}
         />
       )}
     </section>

@@ -12,26 +12,49 @@ function cell(row, key, kind) {
  * The inventory results table: sortable column headers plus the rows
  * themselves.
  *
- * `selected` and `onSelect` are accepted and unused until Task 14 (bulk
- * edit needs row selection). Added now so these signatures do not have to
- * change twice. `onOpen` opens the edit form for a row's item.
+ * `selected` is an array of ids; `onSelect(ids)` replaces it wholesale, so
+ * the parent holds one piece of state rather than the table holding a
+ * second copy able to disagree with it. `onOpen` opens the edit form for a
+ * row's item.
  */
 export default function InventoryTable({
   config,
   rows,
   current,
   apply,
-  // Not used until Task 14 (selection) -- bound with a leading underscore
-  // so eslint's convention for a deliberately unused binding applies
-  // without changing the prop names callers pass.
-  selected: _selected,
-  onSelect: _onSelect,
+  selected,
+  onSelect,
   onOpen,
 }) {
+  const ids = rows.map((r) => r.id)
+  const allShown = ids.length > 0 && ids.every((id) => selected.includes(id))
+
+  function toggle(id) {
+    onSelect(
+      selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id],
+    )
+  }
+
   return (
     <table className="table inventory-table">
       <thead>
         <tr>
+          <th className="select-cell">
+            {/* Selects the current page, not the whole result set.
+                "Apply to 7,591" from one click on a 50-row page is not
+                something anyone means. */}
+            <input
+              type="checkbox"
+              checked={allShown}
+              onChange={() =>
+                onSelect(
+                  allShown
+                    ? selected.filter((id) => !ids.includes(id))
+                    : [...new Set([...selected, ...ids])],
+                )
+              }
+            />
+          </th>
           {config.columns.map(([label, key]) => (
             <th
               key={key}
@@ -52,6 +75,13 @@ export default function InventoryTable({
       <tbody>
         {rows.map((row) => (
           <tr key={row.id}>
+            <td className="select-cell">
+              <input
+                type="checkbox"
+                checked={selected.includes(row.id)}
+                onChange={() => toggle(row.id)}
+              />
+            </td>
             {config.columns.map(([, key, kind]) => (
               <td key={key} className={kind === 'money' ? undefined : kind}>
                 {key === 'item_code' ? (
