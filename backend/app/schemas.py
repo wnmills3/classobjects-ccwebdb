@@ -428,6 +428,32 @@ class ItemDetailOut(InventoryItemOut):
     #: Fields a person has confirmed by examination.
     reviewed: list[str] = Field(default_factory=list)
 
+    # -- the rest of EDITABLE_SCALARS: not on InventoryItemOut, which is the
+    # shape a split's pieces come back as and has no reason to carry these.
+    description: str = ""
+    year_end: int | None = None
+    fineness: Decimal | None = None
+    gross_weight_ozt: Decimal | None = None
+    fine_weight_ozt: Decimal | None = None
+
+    # -- every classifier the edit form can set, by code. Without these the
+    # form's dropdowns have nothing to preselect: a coin already graded MS65
+    # would show an empty Grade box, and saving from it would overwrite the
+    # grade with nothing.
+    item_kind: str | None = None
+    country: str | None = None
+    denomination: str | None = None
+    bullion_form: str | None = None
+    grade: str | None = None
+    grade_designation: str | None = None
+    grading_service: str | None = None
+    metal: str | None = None
+    series: str | None = None
+    storage_form: str | None = None
+    authenticity: str | None = None
+    status: str | None = None
+    disposition: str | None = None
+
 
 class InventoryItemUpdate(BaseModel):
     """A partial edit to an item, in the item's own vocabulary.
@@ -549,6 +575,10 @@ class InventoryPageOut(BaseModel):
     #: `facets=true`, and computed ignoring any `issue` filter so the sizes
     #: of the other jobs stay visible.
     issues: dict[str, int] = Field(default_factory=dict)
+    #: What each check in `issues` means, written once here rather than
+    #: copied into the client. `no_weight_bullion` does not explain itself
+    #: from its code alone; this is what a chip's tooltip reads from.
+    issue_descriptions: dict[str, str] = Field(default_factory=dict)
 
 
 class ReferenceValueCreate(BaseModel):

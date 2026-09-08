@@ -82,6 +82,27 @@ def test_one_bad_code_changes_nothing(
         assert item.year_start == 1878
 
 
+def test_bulk_nulling_a_required_classifier_is_refused_naming_the_field(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A bulk edit must not 500 where a single edit would 422.
+
+    The same guard as PATCH -- see
+    test_nulling_a_required_classifier_is_refused_naming_the_field in
+    test_inventory_edit.py.
+    """
+    items = [make_item(db) for _ in range(2)]
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [i.id for i in items], "changes": {"disposition": None}},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
+    assert "disposition" in response.json()["detail"]
+
+
 def test_bulk_refuses_an_empty_selection(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

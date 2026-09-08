@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from app.models import Grade
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.test_schema import code_id, make_item
 
 
 def test_an_unlisted_item_can_be_edited(
@@ -216,3 +217,64 @@ def test_a_piece_reports_the_lot_s_claim_even_when_it_still_agrees(
         "and the response must still say the lot is where that came from"
     )
     assert body["reviewed"] == [], "nobody has confirmed it"
+
+
+def test_a_piece_reports_the_lot_s_claimed_grade_as_a_code(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """lot_claims crosses the API as codes, like every other classifier.
+
+    Every other assertion in this file about lot_claims checks only
+    year_start -- the one field where a raw database id and the value a
+    person would type happen to look alike, so a lot_claims keyed by id
+    (`{"grade_id": 1}`) would still pass them. This checks a classifier, where
+    that distinction actually shows: the form must render "lot says MS64",
+    not "lot says 1".
+    """
+    from tests.test_split import TUBE, do_split, lot
+
+    parent = lot(db, grade_id=code_id(db, Grade, "MS64"))
+    piece_id = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"][0][
+        "id"
+    ]
+
+    body = client.get(f"/api/inventory/{piece_id}", headers=admin_headers).json()
+    assert body["lot_claims"]["grade"] == "MS64"
+
+
+def test_the_detail_payload_covers_every_editable_field(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A field the API accepts but never returns renders blank in the form.
+
+    Someone walking the no_grade queue would then see an empty Grade box on a
+    coin that already holds MS65, type a grade, and overwrite it. The two
+    lists are defined in different modules, so nothing but this test keeps
+    them in step.
+    """
+    from app.routers.inventory import EDITABLE_SCALARS, ITEM_CLASSIFIERS
+
+    item = make_item(db)
+    body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
+
+    missing = sorted((set(EDITABLE_SCALARS) | set(ITEM_CLASSIFIERS)) - set(body))
+    assert not missing, f"editable but never returned: {missing}"
+
+
+def test_nulling_a_required_classifier_is_refused_naming_the_field(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """status_id is NOT NULL. Nulling it must be a 422, not a 500.
+
+    catalog.py already guards item_kind this way; this router drifted from
+    its neighbour by resolving every classifier through code_to_id, which
+    happily returns None for a null code.
+    """
+    item = make_item(db)
+
+    response = client.patch(
+        f"/api/inventory/{item.id}", json={"status": None}, headers=admin_headers
+    )
+
+    assert response.status_code == 422
+    assert "status" in response.json()["detail"]

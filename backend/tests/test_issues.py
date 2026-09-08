@@ -9,13 +9,29 @@ head of whoever types the filter.
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
+from app.inventory_search import VIEWS
 from app.models import ItemKind
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from tests.test_schema import code_id, make_item
+
+#: Pulls a `k.code = 'x'` or `k.code <> 'x'` constraint out of a predicate,
+#: if it states one at all. Both a view's own WHERE and an issue's SQL are
+#: built from these, and the only structural contradiction this test can
+#: cheaply see is two constraints on the same column that no row can satisfy
+#: together.
+_KIND_CONSTRAINT = re.compile(r"k\.code\s*(=|<>)\s*'([^']+)'")
+
+
+def _kind_constraint(sql: str) -> tuple[bool, str] | None:
+    match = _KIND_CONSTRAINT.search(sql)
+    if match is None:
+        return None
+    return match.group(1) == "=", match.group(2)
 
 
 def search(client: TestClient, headers: dict[str, str], query: str) -> dict:
@@ -218,3 +234,48 @@ def test_an_unclassified_item_is_reachable_and_flagged(
 
     rows = search(client, admin_headers, "issue=kind_unknown")["rows"]
     assert [r["id"] for r in rows] == [unknown.id]
+
+
+def test_every_issue_a_view_offers_can_actually_fire(db: Session) -> None:
+    """A check that cannot return a row reads as a clean bill of health.
+
+    kind_unknown shipped in both views while COIN_VIEW excluded 'unknown' and
+    CURRENCY_VIEW excludes it still. The check is only meaningful in a view
+    whose WHERE clause can admit a matching row.
+
+    This does not prove every issue can fire -- only that no issue's own
+    `k.code` constraint structurally contradicts its view's `k.code`
+    constraint. An issue naming no `k.code` at all, or one whose
+    contradiction lives in a different column, passes this test whether or
+    not it can ever match a row. What it does catch is exactly the shape of
+    bug that shipped: a check moved, or shared, into a view its own kind
+    constraint rules out.
+    """
+    for spec in VIEWS.values():
+        view_constraints = [
+            c for clause in spec.where if (c := _kind_constraint(clause)) is not None
+        ]
+        for name, issue in spec.issues.items():
+            issue_constraint = _kind_constraint(issue.sql)
+            if issue_constraint is None:
+                continue
+            issue_is_eq, issue_kind = issue_constraint
+            for view_is_eq, view_kind in view_constraints:
+                if view_is_eq and issue_is_eq:
+                    # Both pin k.code to a single value: they must agree.
+                    possible = view_kind == issue_kind
+                elif view_is_eq != issue_is_eq:
+                    # One pins it, the other excludes a value: fine unless
+                    # the excluded value is the one pinned.
+                    possible = view_kind != issue_kind
+                else:
+                    # Both only exclude a value each -- never a structural
+                    # contradiction by itself.
+                    possible = True
+                assert possible, (
+                    f"{spec.name}.{name} requires k.code "
+                    f"{'=' if issue_is_eq else '<>'} {issue_kind!r}, but "
+                    f"{spec.name}'s own WHERE requires k.code "
+                    f"{'=' if view_is_eq else '<>'} {view_kind!r}: no row in "
+                    "this view can ever satisfy this check"
+                )

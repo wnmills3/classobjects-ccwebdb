@@ -46,7 +46,7 @@ from ..models import (
     Series,
     StorageForm,
 )
-from ..references import code_to_id
+from ..references import code_to_id, require_code
 from ..schemas import (
     BulkEditRequest,
     InventoryItemOut,
@@ -148,7 +148,7 @@ def search_inventory(
         select(InventoryItem.id).where(InventoryItem.item_code == lot_code)
     ):
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"No item has code {lot_code!r}.",
         )
 
@@ -165,13 +165,13 @@ def search_inventory(
         )
     except UnknownIssue as exc:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unknown issue {exc.args[0]!r} for {view}. Available: "
             f"{sorted(spec.issues)}",
         ) from exc
     except KeyError as exc:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unknown filter {exc.args[0]!r} for {view}. Available: "
             f"{sorted(spec.filters)}",
         ) from exc
@@ -180,7 +180,9 @@ def search_inventory(
         # unrecognised `deleted` mode. Appending the sortable list to both
         # sends the wrong person looking in the wrong place.
         hint = f" Sortable: {sorted(spec.sortable)}" if "sort" in str(exc) else ""
-        raise HTTPException(status_code=422, detail=f"{exc}{hint}") from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{exc}{hint}"
+        ) from exc
 
     return InventoryPageOut(
         view=view,
@@ -192,6 +194,11 @@ def search_inventory(
         descending=desc,
         facets=count_facets(db, spec, params=params, query=q) if facets else {},
         issues=count_issues(db, spec, params=params, query=q) if facets else {},
+        issue_descriptions=(
+            {name: issue.description for name, issue in spec.issues.items()}
+            if facets
+            else {}
+        ),
     )
 
 
@@ -200,20 +207,41 @@ def search_inventory(
 #: A subset of splitting.INHERITED: only what a person actually re-decides
 #: while attributing. Showing the lot's storage_form beside a piece's would be
 #: noise, since a piece always comes out of the tube as a single.
+#:
+#: Named by API field, not by column: a classifier here (`grade`, `country`,
+#: ...) is a key into ITEM_CLASSIFIERS below and crosses the wire as a code,
+#: the same as every other classifier on this router. The plain scalars
+#: (`year_start`, `year_end`, `fineness`, `fine_weight_ozt`) keep their own
+#: column names since there is nothing to resolve.
 LOT_CLAIM_FIELDS: tuple[str, ...] = (
     "year_start",
     "year_end",
-    "grade_id",
-    "grade_designation_id",
-    "grading_service_id",
-    "denomination_id",
-    "country_id",
-    "metal_id",
-    "series_id",
+    "grade",
+    "grade_designation",
+    "grading_service",
+    "denomination",
+    "country",
+    "metal",
+    "series",
     "fineness",
     "fine_weight_ozt",
-    "authenticity_id",
+    "authenticity",
 )
+
+
+def _classifier_code(db: Session, model: type, fk: int | None) -> str | None:
+    """The code a classifier's foreign key resolves to, or None when unset.
+
+    Looked up by id rather than through an ORM relationship, because not
+    every entry in ITEM_CLASSIFIERS has one -- `series` is set and read as a
+    plain `series_id` column with no `InventoryItem.series` relationship
+    declared -- and one lookup path that works for all of them is simpler
+    than two.
+    """
+    if fk is None:
+        return None
+    row = db.get(model, fk)
+    return row.code if row is not None else None
 
 
 @router.get("/{item_id}", response_model=ItemDetailOut)
@@ -222,6 +250,12 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
 
     Both in one response because the edit form needs both on every field, and
     three round trips per coin is three per coin across 7,591 of them.
+
+    Carries every field EDITABLE_SCALARS and ITEM_CLASSIFIERS accept, not a
+    hand-picked subset -- see test_the_detail_payload_covers_every_editable_field.
+    A field the client can set but this endpoint never returns renders blank
+    in the form regardless of what is stored, which is how a coin already
+    holding MS65 shows an empty Grade box and gets overwritten with nothing.
     """
     item = _get_item(db, item_id)
 
@@ -240,11 +274,26 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
             # not this endpoint's -- it has `reviewed` alongside, so it can
             # tell "inherited and unchecked" from "confirmed" from
             # "overridden".
-            claims = {
-                name: plain(value)
-                for name in LOT_CLAIM_FIELDS
-                if (value := getattr(parent, name)) is not None
-            }
+            #
+            # A relationship may claim nothing at all -- a lot with no grade
+            # recorded says nothing about grade -- and that is omitted rather
+            # than sent as null, so the form can tell "the lot said nothing"
+            # from "the lot said none of these apply".
+            for name in LOT_CLAIM_FIELDS:
+                value: object
+                if name in ITEM_CLASSIFIERS:
+                    value = _classifier_code(
+                        db, ITEM_CLASSIFIERS[name], getattr(parent, f"{name}_id")
+                    )
+                else:
+                    value = plain(getattr(parent, name))
+                if value is not None:
+                    claims[name] = value
+
+    classifiers = {
+        field: _classifier_code(db, model, getattr(item, f"{field}_id"))
+        for field, model in ITEM_CLASSIFIERS.items()
+    }
 
     return ItemDetailOut(
         **{
@@ -254,7 +303,12 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
                 "item_code",
                 "version",
                 "source_title",
+                "description",
                 "year_start",
+                "year_end",
+                "fineness",
+                "gross_weight_ozt",
+                "fine_weight_ozt",
                 "piece_count",
                 "item_cost",
                 "shipping_cost",
@@ -264,6 +318,7 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
                 "split_at",
             )
         },
+        **classifiers,
         parent_item_code=parent_code,
         lot_claims=claims,
         reviewed=_reviewed_fields(db, item.id),
@@ -290,6 +345,17 @@ ITEM_CLASSIFIERS: dict[str, type] = {
     "status": ItemStatus,
     "disposition": Disposition,
 }
+
+#: The subset of ITEM_CLASSIFIERS whose column is NOT NULL.
+#:
+#: `code_to_id` returns None for a null or empty code, and setting a NOT NULL
+#: foreign key to None is an IntegrityError from the database -- an unhandled
+#: 500, not a message a caller can act on. `catalog.py` already guards
+#: `item_kind` this way for the same reason; this mirrors it for every
+#: required classifier on this router, not only that one.
+REQUIRED_CLASSIFIERS: frozenset[str] = frozenset(
+    {"item_kind", "storage_form", "authenticity", "status", "disposition"}
+)
 
 #: Plain columns a client may set. Named identically on the wire and in the
 #: database, unlike the catalogue router's `ITEM_SCALARS` -- that one is a
@@ -323,6 +389,11 @@ def bulk_edit(
     state nobody can describe, and "which of the 50 applied?" is not a
     question the UI should ever have to answer -- so every id is resolved and
     every code checked before anything is written.
+
+    Soft-deleted ids are not filtered out, deliberately and consistently with
+    `PATCH /{item_id}`, which does not either -- correcting a field on a row
+    that should never have existed is still a correction, and a caller who
+    means to exclude it can filter its ids out before calling this.
     """
     data = payload.changes.model_dump(exclude_unset=True)
     data.pop("version", None)  # Meaningless across a set of rows.
@@ -344,9 +415,10 @@ def bulk_edit(
     for field, model in ITEM_CLASSIFIERS.items():
         if field in data:
             value = data[field]
-            resolved[f"{field}_id"] = (
-                None if value is None else code_to_id(db, model, value, field)
-            )
+            if field in REQUIRED_CLASSIFIERS:
+                resolved[f"{field}_id"] = require_code(db, model, value, field)
+            else:
+                resolved[f"{field}_id"] = code_to_id(db, model, value, field)
     for field in EDITABLE_SCALARS:
         if field in data:
             resolved[field] = data[field]
@@ -397,7 +469,10 @@ def update_item(
     for field, model in ITEM_CLASSIFIERS.items():
         if field in data:
             value = data[field]
-            setattr(item, f"{field}_id", code_to_id(db, model, value, field))
+            if field in REQUIRED_CLASSIFIERS:
+                setattr(item, f"{field}_id", require_code(db, model, value, field))
+            else:
+                setattr(item, f"{field}_id", code_to_id(db, model, value, field))
 
     for field in EDITABLE_SCALARS:
         if field in data:
@@ -495,6 +570,7 @@ REVIEWABLE_FIELDS: frozenset[str] = frozenset(
         "country_id",
         "metal_id",
         "series_id",
+        "authenticity_id",
         "fineness",
         "fine_weight_ozt",
         "gross_weight_ozt",
@@ -547,7 +623,7 @@ def set_item_review(
     unknown = sorted(set(payload.fields) - REVIEWABLE_FIELDS)
     if unknown:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Not reviewable: {unknown}. Available: {sorted(REVIEWABLE_FIELDS)}",
         )
 

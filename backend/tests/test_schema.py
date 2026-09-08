@@ -323,31 +323,54 @@ def test_public_catalog_shows_only_active_listings(db: Session) -> None:
 
 
 def test_a_deleted_item_leaves_every_view(db: Session) -> None:
-    """Soft delete must reach the views, not only the search.
+    """Soft delete must reach all four views, not only the search.
 
     A row that is hidden from search but still summed by item_valuation would
-    keep contributing money to a collection that no longer holds it.
+    keep contributing money to a collection that no longer holds it. All four
+    views carry `deleted_at IS NULL`, and this checks each one directly rather
+    than trusting that they agree.
     """
-    item = make_item(db, item_cost=Decimal("42.00"))
-    # item_valuation names the item's id `inventory_item_id`, not `id`.
-    views = (("coin_inventory", "id"), ("item_valuation", "inventory_item_id"))
+    coin = make_item(db, item_cost=Decimal("42.00"))
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
 
-    for view, id_column in views:
-        present = db.execute(
-            text(f"SELECT count(*) FROM {view} WHERE {id_column} = :id"),
-            {"id": item.id},
-        ).scalar_one()
-        assert present == 1, f"{view} should show a live item"
-
-    item.deleted_at = utcnow()
+    usd = db.execute(select(Currency).where(Currency.code == "USD")).scalar_one()
+    listing = Listing(
+        inventory_item_id=coin.id,
+        price=Decimal("50.00"),
+        currency_id=usd.id,
+        is_active=True,
+        quantity_available=1,
+    )
+    db.add(listing)
     db.commit()
 
-    for view, id_column in views:
+    # item_valuation names the item's id `inventory_item_id`, not `id`;
+    # public_catalog carries no inventory_item_id at all -- see
+    # PUBLIC_CATALOG_FORBIDDEN_COLUMNS -- so it is checked by listing_id.
+    views = (
+        ("coin_inventory", "id", coin.id),
+        ("currency_inventory", "id", note.id),
+        ("item_valuation", "inventory_item_id", coin.id),
+        ("public_catalog", "listing_id", listing.id),
+    )
+
+    for view, id_column, row_id in views:
         present = db.execute(
             text(f"SELECT count(*) FROM {view} WHERE {id_column} = :id"),
-            {"id": item.id},
+            {"id": row_id},
         ).scalar_one()
-        assert present == 0, f"{view} still shows a deleted item"
+        assert present == 1, f"{view} should show a live row"
+
+    coin.deleted_at = utcnow()
+    note.deleted_at = utcnow()
+    db.commit()
+
+    for view, id_column, row_id in views:
+        present = db.execute(
+            text(f"SELECT count(*) FROM {view} WHERE {id_column} = :id"),
+            {"id": row_id},
+        ).scalar_one()
+        assert present == 0, f"{view} still shows a deleted row"
 
 
 # ---------------------------------------------------------------------------

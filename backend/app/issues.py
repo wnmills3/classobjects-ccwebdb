@@ -53,15 +53,14 @@ SHARED_ISSUES: dict[str, Issue] = {
     ),
     "no_grade": Issue(
         "i.grade_id IS NULL AND k.code IN ('coin', 'currency')",
-        description="A coin or banknote with no grade; bullion is excluded",
+        description=(
+            "A coin or banknote with no grade; bullion, sets, medals, "
+            "tokens, 'other' and unclassified items are excluded"
+        ),
     ),
     "no_denomination": Issue(
         "i.denomination_id IS NULL AND k.code IN ('coin', 'currency')",
         description="A coin or banknote with no denomination",
-    ),
-    "kind_unknown": Issue(
-        "k.code = 'unknown'",
-        description="The import could not classify it",
     ),
     "zero_cost": Issue(
         "coalesce(i.item_cost, 0) = 0",
@@ -85,6 +84,16 @@ SHARED_ISSUES: dict[str, Issue] = {
 
 COIN_ISSUES: dict[str, Issue] = {
     **SHARED_ISSUES,
+    # Coin-only, not shared: COIN_VIEW's own WHERE is `k.code <> 'currency'`,
+    # everything that is not currency, so it is the only view an item of
+    # kind `unknown` can ever appear in. Sharing this into CURRENCY_ISSUES
+    # put it in a view whose WHERE requires `k.code = 'currency'` -- a
+    # predicate the row can never satisfy, so the check counted zero forever
+    # and read as a clean bill of health while never actually running.
+    "kind_unknown": Issue(
+        "k.code = 'unknown'",
+        description="The import could not classify it",
+    ),
     "no_weight_bullion": Issue(
         "i.fine_weight_ozt IS NULL AND k.code = 'bullion'",
         description="Bullion with no weight; its value cannot be computed",
@@ -107,14 +116,21 @@ COIN_ISSUES: dict[str, Issue] = {
 CURRENCY_ISSUES: dict[str, Issue] = {
     **SHARED_ISSUES,
     "star_mismatch": Issue(
-        # Scoped to notes with a recorded serial. Without this, a null serial
-        # reads as "not a star pattern" by construction -- coalesce(NULL LIKE
-        # '*%', false) is false -- so a note that simply has no serial typed
-        # in yet, but does carry the star attribute, looked like a
-        # disagreement. It is not one: there is nothing here to disagree with.
-        # 21 of this check's 26 original hits were exactly that.
+        # Scoped to notes with a recorded serial. Without the IS NOT NULL
+        # guard, a null serial reads as "not a star pattern" by construction
+        # -- coalesce(NULL LIKE '*%', false) is false -- so a note that
+        # simply has no serial typed in yet, but does carry the star
+        # attribute, looked like a disagreement. It is not one: there is
+        # nothing here to disagree with. 21 of this check's 26 original hits
+        # were exactly that.
+        #
+        # The guard also makes a `coalesce` around the LIKE expression
+        # unreachable: once serial_number is known NOT NULL, `... LIKE '*%'
+        # OR ... LIKE '%*'` can no longer evaluate to NULL, so there was
+        # nothing left for coalesce to catch. Removed rather than kept as
+        # defensive noise.
         "cud.serial_number IS NOT NULL AND "
-        "coalesce(cud.serial_number LIKE '*%' OR cud.serial_number LIKE '%*', false) "
+        "(cud.serial_number LIKE '*%' OR cud.serial_number LIKE '%*') "
         "<> EXISTS (SELECT 1 FROM item_note_attribute x "
         "JOIN note_attribute na ON na.id = x.note_attribute_id "
         "WHERE x.inventory_item_id = i.id AND na.code = 'star')",
@@ -130,7 +146,10 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         join=(_J_CUR_DETAIL,),
         # A warning, never a refusal. Three of the first four serials flagged
         # by this rule were valid notes it had not anticipated.
-        description="An interior letter in the serial; usually a typo, sometimes real",
+        description=(
+            "An uppercase letter between two digits in the serial; "
+            "usually a typo, sometimes real"
+        ),
     ),
     "repeated_identity": Issue(
         "cud.serial_number IN (SELECT serial_number FROM currency_detail "
