@@ -34,9 +34,11 @@ export const COIN_VIEW = {
     ['Status', 'status', 'status'],
     ['Disposition', 'disposition', 'disposition'],
   ],
-  // Named diagnostics. The code is the contract and appears in bookmarked
-  // URLs; the wording comes from the API's `description`, so it is written
-  // once on the server rather than twice.
+  // Named diagnostics. The code is the contract, appears in bookmarked URLs,
+  // and is what the chip's label is derived from; the explanation on its
+  // tooltip comes from the API's `issue_descriptions`, so a check's reasoning
+  // -- why bullion is excluded, what "malformed" means here -- is written
+  // once on the server rather than copied into this file and left to drift.
   issueChecks: [
     'no_year',
     'no_country',
@@ -82,9 +84,15 @@ export const CURRENCY_VIEW = {
     ['Status', 'status', 'status'],
     ['Disposition', 'disposition', 'disposition'],
   ],
-  // Named diagnostics. The code is the contract and appears in bookmarked
-  // URLs; the wording comes from the API's `description`, so it is written
-  // once on the server rather than twice.
+  // Named diagnostics. The code is the contract, appears in bookmarked URLs,
+  // and is what the chip's label is derived from; the explanation on its
+  // tooltip comes from the API's `issue_descriptions`, so a check's reasoning
+  // -- why bullion is excluded, what "malformed" means here -- is written
+  // once on the server rather than copied into this file and left to drift.
+  // kind_unknown is not offered here: CURRENCY_VIEW's own filter requires
+  // k.code = 'currency', so an item of kind 'unknown' can never appear in
+  // this view for the check to find. COIN_VIEW is everything that is not
+  // currency, which is where that check actually lives.
   issueChecks: [
     'no_year',
     'no_country',
@@ -92,7 +100,6 @@ export const CURRENCY_VIEW = {
     'no_denomination',
     'mixed_marker',
     'zero_cost',
-    'kind_unknown',
     'repeated_identity',
     'unreviewed',
     'star_mismatch',

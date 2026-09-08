@@ -64,6 +64,7 @@ function InventoryView({ config }) {
         clear={clear}
         facets={page?.facets ?? {}}
         issues={page?.issues ?? {}}
+        issueDescriptions={page?.issue_descriptions ?? {}}
         total={total}
         busy={busy}
       />
