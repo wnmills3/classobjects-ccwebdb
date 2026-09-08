@@ -105,16 +105,19 @@ def downgrade() -> None:
     op.drop_constraint(
         "ck_inventory_item_piece_count_positive", "inventory_item", type_="check"
     )
-    op.create_check_constraint(
-        "ck_inventory_item_quantity_positive", "inventory_item", "storage_quantity > 0"
-    )
     op.drop_constraint(
         "ck_inventory_item_cost_non_negative", "inventory_item", type_="check"
     )
 
+    # Drop everything before renaming, then create everything after: a
+    # constraint expression names a column, so it can only be created once
+    # that column exists under that name.
     for old, new in RENAMES:
         op.alter_column("inventory_item", new, new_column_name=old)
 
+    op.create_check_constraint(
+        "ck_inventory_item_quantity_positive", "inventory_item", "storage_quantity > 0"
+    )
     op.create_check_constraint(
         "ck_inventory_item_price_non_negative", "inventory_item", "price >= 0"
     )
