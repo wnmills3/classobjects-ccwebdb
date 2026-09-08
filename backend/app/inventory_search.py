@@ -243,7 +243,14 @@ COIN_VIEW = ViewSpec(
     name="coins",
     where=(
         "i.split_at IS NULL",
-        "k.code IN ('coin', 'bullion', 'set', 'medal', 'token')",
+        # Everything that is not currency, deliberately including the kinds
+        # `unknown` and `other`: an item nobody has classified yet is
+        # precisely the item someone needs to find, and `issue=kind_unknown`
+        # exists to find it. A narrower list here reads as "no misclassified
+        # items" while the check behind it never runs at all -- which is what
+        # happened before this was widened: 33 `unknown` and 81 `other` items
+        # were in neither search view, invisible to every screen.
+        "k.code <> 'currency'",
     ),
     columns={
         **_SHARED_COLUMNS,

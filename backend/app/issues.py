@@ -107,6 +107,13 @@ COIN_ISSUES: dict[str, Issue] = {
 CURRENCY_ISSUES: dict[str, Issue] = {
     **SHARED_ISSUES,
     "star_mismatch": Issue(
+        # Scoped to notes with a recorded serial. Without this, a null serial
+        # reads as "not a star pattern" by construction -- coalesce(NULL LIKE
+        # '*%', false) is false -- so a note that simply has no serial typed
+        # in yet, but does carry the star attribute, looked like a
+        # disagreement. It is not one: there is nothing here to disagree with.
+        # 21 of this check's 26 original hits were exactly that.
+        "cud.serial_number IS NOT NULL AND "
         "coalesce(cud.serial_number LIKE '*%' OR cud.serial_number LIKE '%*', false) "
         "<> EXISTS (SELECT 1 FROM item_note_attribute x "
         "JOIN note_attribute na ON na.id = x.note_attribute_id "
@@ -136,15 +143,38 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         description="A serial that appears on more than one note",
     ),
     "near_duplicate_serial": Issue(
-        # Exact matching is not enough. Three duplicates in this collection
-        # hide behind single-character errors -- `O` for `U`, a dropped digit,
-        # `6` for `3` -- and are invisible to equality.
+        # Exact matching is not enough. Duplicates in this collection hide
+        # behind a dropped or duplicated character and are invisible to
+        # equality.
         #
-        # Scoped to one purchase order, which is both where they cluster and
-        # what keeps this affordable: the comparison is quadratic within a
-        # group and the largest order holds 85 items. Collection-wide it would
-        # be 1,015 x 1,015 and would find mostly noise, because two unrelated
-        # notes differing by one digit are two unrelated notes.
+        # Edit distance alone is not enough either, and finding that out cost
+        # a false start: a consecutive run of serials -- bought and stored as
+        # a deliberate set of star notes, twenty-seven of them from one
+        # purchase order -- differs from its neighbour by edit distance 1 as
+        # the *normal* case, so edit-distance-1 alone flagged 250 of them,
+        # firing hardest on exactly the deliberate run this collection is
+        # built around. Filtering by a "consecutive" attribute does not
+        # rescue it: that attribute is not reliably applied, and excluding
+        # tagged items still left 182 hits.
+        #
+        # Length is the signal that actually separates the two. A run like
+        # ...160, ...161, ...162 keeps the same length; a dropped or
+        # duplicated character changes it. Requiring the two cleaned serials
+        # to differ in length narrows this to 4 hits, both real
+        # mistranscriptions: a duplicated digit (D31997827A / D319997827A)
+        # and a dropped one (K62594467F / K6294467F).
+        #
+        # What this cannot find: a same-length substitution, `6` for `3` in
+        # the middle of a serial, is indistinguishable from the next note in
+        # a consecutive run and is deliberately left unflagged. Widening this
+        # back to edit distance alone is how the check got into this state;
+        # do not.
+        #
+        # Scoped to one purchase order, which is both where mistranscriptions
+        # cluster and what keeps this affordable: the comparison is quadratic
+        # within a group and the largest order holds 85 items. Collection-wide
+        # it would be 1,015 x 1,015 and would find mostly noise, because two
+        # unrelated notes differing by one character are two unrelated notes.
         "EXISTS (SELECT 1 FROM currency_detail o "
         "JOIN inventory_item oi ON oi.id = o.inventory_item_id "
         "WHERE oi.id <> i.id "
@@ -152,14 +182,17 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         "AND i.purchase_order_id IS NOT NULL "
         "AND coalesce(o.serial_number, '') <> '' "
         "AND coalesce(cud.serial_number, '') <> '' "
+        "AND length(regexp_replace(o.serial_number, '[^A-Za-z0-9]', '', 'g')) "
+        "<> length(regexp_replace(cud.serial_number, '[^A-Za-z0-9]', '', 'g')) "
         "AND levenshtein("
         "upper(regexp_replace(o.serial_number, '[^A-Za-z0-9]', '', 'g')), "
         "upper(regexp_replace(cud.serial_number, '[^A-Za-z0-9]', '', 'g'))"
         ") = 1)",
         join=(_J_CUR_DETAIL,),
         description=(
-            "A serial one character from another in the same order; "
-            "usually a mistranscription"
+            "A serial one character shorter or longer than another in the "
+            "same order, and one edit away from it; usually a dropped or "
+            "duplicated character. Cannot catch a same-length substitution."
         ),
     ),
 }
