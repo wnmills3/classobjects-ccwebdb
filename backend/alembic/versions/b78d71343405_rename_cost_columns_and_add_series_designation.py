@@ -40,7 +40,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-from app.models.views import CREATE_VIEWS, DROP_VIEWS, create_views
+from app.models.views import DROP_VIEWS, create_views
 
 revision: str = "b78d71343405"
 down_revision: str | None = "3bdcdea56f53"
@@ -92,7 +92,7 @@ def upgrade() -> None:
         ),
     )
 
-    for statement in CREATE_VIEWS:
+    for statement in create_views(soft_delete=False):
         op.execute(statement)
 
 

@@ -26,6 +26,7 @@ from app.models import (  # noqa: F401
     StorageForm,
     ValuationBasis,
 )
+from app.models.base import utcnow
 from app.models.views import PUBLIC_CATALOG_FORBIDDEN_COLUMNS
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -311,6 +312,34 @@ def test_public_catalog_shows_only_active_listings(db: Session) -> None:
     listed = {r[0] for r in db.execute(text("select listing_id from public_catalog"))}
     assert active.id in listed
     assert ended.id not in listed
+
+
+def test_a_deleted_item_leaves_every_view(db: Session) -> None:
+    """Soft delete must reach the views, not only the search.
+
+    A row that is hidden from search but still summed by item_valuation would
+    keep contributing money to a collection that no longer holds it.
+    """
+    item = make_item(db, item_cost=Decimal("42.00"))
+    # item_valuation names the item's id `inventory_item_id`, not `id`.
+    views = (("coin_inventory", "id"), ("item_valuation", "inventory_item_id"))
+
+    for view, id_column in views:
+        present = db.execute(
+            text(f"SELECT count(*) FROM {view} WHERE {id_column} = :id"),
+            {"id": item.id},
+        ).scalar_one()
+        assert present == 1, f"{view} should show a live item"
+
+    item.deleted_at = utcnow()
+    db.commit()
+
+    for view, id_column in views:
+        present = db.execute(
+            text(f"SELECT count(*) FROM {view} WHERE {id_column} = :id"),
+            {"id": item.id},
+        ).scalar_one()
+        assert present == 0, f"{view} still shows a deleted item"
 
 
 # ---------------------------------------------------------------------------

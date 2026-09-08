@@ -312,6 +312,19 @@ class InventoryItem(TimestampMixin, Base):
     split_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+    #: Soft delete: this row should never have existed.
+    #:
+    #: Not a `disposition` value. Disposition records what happened to a coin
+    #: -- held, listed, sold, shipped -- and "created by mistake" is not
+    #: something that happened to a coin. Putting it there would corrupt every
+    #: disposition report with rows that were never real.
+    #:
+    #: A column also lets `WHERE deleted_at IS NULL` sit beside the
+    #: `split_at IS NULL` already in all four views: same shape of rule, same
+    #: place.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
+    )
 
     # -- description ------------------------------------------------------
     #: A number the owner assigned by their own scheme, before this system
