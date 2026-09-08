@@ -102,6 +102,17 @@ into a trustworthy state. `docs/workflow-new-collection.md` covers the same
 ground for someone starting from an empty database, which is the path every
 future acquisition takes.
 
+## The database is the system of record
+
+From 2026-09-08. The spreadsheet was the source; it is now history. Corrections,
+derived classifications and reconstructed provenance live only in the database,
+so it is what gets backed up and what any other tool must read from or write
+back to.
+
+That is what makes an Excel round trip a *feature* rather than a workaround:
+the spreadsheet becomes an editing surface over the database rather than a
+parallel copy of the truth.
+
 ## Constraints that apply everywhere
 
 - **Money is exact.** `NUMERIC`, never a float, and divisions reconcile to the
