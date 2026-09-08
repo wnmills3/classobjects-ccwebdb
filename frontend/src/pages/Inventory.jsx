@@ -1,5 +1,8 @@
+import { useState } from 'react'
+
 import FilterPanel from './inventory/FilterPanel'
 import InventoryTable from './inventory/InventoryTable'
+import ItemEditForm from './inventory/ItemEditForm'
 import { COIN_VIEW, CURRENCY_VIEW, PAGE_SIZE } from './inventory/specs'
 import { useInventorySearch } from './inventory/useInventorySearch'
 
@@ -20,6 +23,7 @@ function InventoryView({ config }) {
   const { current, apply, clear, page, busy, error, offset } = useInventorySearch(
     config.view,
   )
+  const [editing, setEditing] = useState(null)
 
   const total = page?.total ?? 0
   const rows = page?.rows ?? []
@@ -43,7 +47,13 @@ function InventoryView({ config }) {
       {!busy && total === 0 && <p className="muted">Nothing matches those filters.</p>}
 
       {rows.length > 0 && (
-        <InventoryTable config={config} rows={rows} current={current} apply={apply} />
+        <InventoryTable
+          config={config}
+          rows={rows}
+          current={current}
+          apply={apply}
+          onOpen={setEditing}
+        />
       )}
 
       {total > PAGE_SIZE && (
@@ -65,6 +75,14 @@ function InventoryView({ config }) {
             Next
           </button>
         </div>
+      )}
+
+      {editing && (
+        <ItemEditForm
+          itemId={editing}
+          onSaved={() => apply({})}
+          onClose={() => setEditing(null)}
+        />
       )}
     </section>
   )
