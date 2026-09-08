@@ -16,11 +16,30 @@ from app.serial_patterns import analyse, is_incomplete
     [
         ("A12344321B", {"radar", "fancy_serial"}),
         ("A12341234B", {"repeater", "fancy_serial"}),
-        ("A11112222B", {"binary", "fancy_serial"}),
+        ("A11112222B", {"binary", "double_quad", "fancy_serial"}),
         ("M88888888", {"solid_serial", "radar", "repeater", "fancy_serial"}),
         ("A12345678B", {"ladder", "fancy_serial"}),
-        ("A00000059B", {"low_serial"}),
+        # Low and high are positional -- where the note sits in the print
+        # run -- so they stack with the pattern designations rather than
+        # replacing them.
+        ("A00001234B", {"low_serial"}),
+        ("A98765432B", {"high_serial", "ladder", "fancy_serial"}),
+        (
+            "A99999999B",
+            {
+                "high_serial",
+                "solid_serial",
+                "radar",
+                "repeater",
+                "fancy_serial",
+            },
+        ),
         ("A04301989B", {"birthday", "fancy_serial"}),
+        ("A15141514B", {"trinary", "repeater", "fancy_serial"}),
+        ("A25282252B", {"trinary", "fancy_serial"}),
+        # Four of one digit then four of another. Binary too -- two distinct
+        # digits -- but the arrangement is the thing collectors pay for.
+        ("E00003333B", {"double_quad", "binary", "low_serial", "fancy_serial"}),
         ("A19472856B", set()),
     ],
 )
