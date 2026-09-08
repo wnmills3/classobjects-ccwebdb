@@ -144,3 +144,54 @@ def test_reading_back_what_has_been_reviewed(
         f"/api/inventory/{item.id}/reviewed", headers=admin_headers
     ).json()
     assert sorted(body["reviewed"]) == ["grade_id", "year_start"]
+
+
+def test_a_concurrent_confirmation_of_the_same_field_is_not_an_error(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row committed between this request's read and its own commit must not 500.
+
+    ``client`` and ``db`` share one session (see the ``client`` fixture), so
+    the request under test and the "other" request racing it are, from the
+    database's point of view, genuinely two inserts landing in the same
+    transaction before either has committed -- exactly what two overlapping
+    HTTP requests naming the same never-before-reviewed field would produce.
+    A test that merely pre-commits the row before calling the endpoint would
+    only prove idempotence (the endpoint's own read of `existing` would
+    already see it and skip it); this instead inserts the competing row from
+    *inside* `_reviewed_fields`, i.e. after this request has done its read of
+    `existing` but before it reaches its own `db.commit()`, so the later
+    `db.add` for the same field really does collide at commit time.
+    """
+    import app.routers.inventory as inventory_module
+
+    item = make_item(db)
+    real_reviewed_fields = inventory_module._reviewed_fields
+    calls = {"n": 0}
+
+    def reviewed_fields_that_races(db: Session, item_id: int) -> list[str]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Stand in for the other request: it reads `existing` as empty
+            # too, then wins the race to commit first.
+            db.add(ItemFieldReview(inventory_item_id=item_id, field_name="grade_id"))
+            db.commit()
+            return []
+        return real_reviewed_fields(db, item_id)
+
+    monkeypatch.setattr(
+        inventory_module, "_reviewed_fields", reviewed_fields_that_races
+    )
+
+    response = client.post(
+        f"/api/inventory/{item.id}/reviewed",
+        json={"fields": ["grade_id"]},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["reviewed"] == ["grade_id"]
+    assert db.query(ItemFieldReview).count() == 1
