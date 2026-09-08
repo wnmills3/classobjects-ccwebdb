@@ -49,17 +49,17 @@ Over 7,591 items, excluding split parents:
 
 | Population | Count | State | Needs |
 |---|---|---|---|
-| Flattened purchase lots | 769 lots / **3,777 items** | one row per coin already, no parent | reconstruct the parent, then attribute each row |
+| Already exploded by the owner | 769 groups / **3,777 items** | one row per coin, sharing a description | attribute each row; nothing to reconstruct |
 | Unsplit conglomerates | 12 items / **240 pieces** | still one row holding many coins | run the existing split, then attribute |
 | Bought individually | 3,809 items | fine | nothing |
 
 **These populations overlap.** Seven of the twelve conglomerates are *also*
 inside a flattened group -- rows like `20x 1oz Copper Round Mixed`, repeated
 nine times, each row itself holding twenty rounds. Those are lots of lots, and
-they need reconstructing *and* splitting. Any code that treats the three
+they need splitting. Any code that treats the three
 populations as disjoint will mishandle them.
 
-The 769 groups are rows sharing a purchase order and an identical description
+The 769 groups are rows sharing an identical description
 -- the spreadsheet's only way to say "twenty of these". The literal example:
 `(LOT OF 29) MORGAN SILVER DOLLARS "BETTER YEARS" 1878 - 1898`, 23 rows.
 
@@ -86,61 +86,64 @@ row stands for several different coins and the purchase lot needs decomposing.
 
 ## Design
 
-### A purchase lot is an item that was split
+### There is no lot to reconstruct
 
-No new table and no new column. `parent_item_id` already means exactly this,
-and reusing it inherits behaviour that a parallel `lot` table would have had to
-reimplement:
+An earlier draft proposed rebuilding a parent row for each of the 769 groups
+that share a purchase order and a description. **That was wrong**, and the
+owner said so during review. Two facts settle it.
 
-- `WHERE i.split_at IS NULL` already appears in **all four views**, so a lot is
-  excluded from inventory and valuation automatically
-- `parent_item_id` is already indexed, so "every item in this lot" is one
-  lookup
-- the `pieces` / `parent` relationship already exists
-- cost-basis lineage semantics are already documented on the column
+**A purchase order is not a lot.** eBay reuses an order number for a grouped
+shipment, or simply for purchases made close together. The largest such group
+here has *no order number at all* -- it is the bucket holding 1,922 eBay
+purchases with 1,402 distinct descriptions. Treating an order as a container
+would invent a relationship the seller never asserted.
 
-A separate table would have needed its own exclusion rule in four views, which
-is the kind of thing that gets missed in one of them.
+**The repeated descriptions are the owner's own explosion of a lot**, already
+done. The evidence is in the text: a row reading `DEALERS LOT! Bulk Lot of 27
+U.S. MINT PROOF SETS` appears 27 times, and `Collection of 20 Assorted`
+appears 20 times. The lot was broken into rows years ago, each carrying its
+own share of the cost. There is nothing left to split.
 
-**The backfill reconstructs the parent the spreadsheet flattened away.** For
-each of the 769 groups: create one `inventory_item` holding the purchase order,
-the shared description, `price` and `shipping` summed from its rows, and
-`split_at` set; then point the members at it. This is not inventing a fiction.
-A roll of 20 Morgans on one order *was* one purchase; the spreadsheet could not
-express it.
+So reconstruction would create 769 rows describing purchases that never
+happened, each holding money that all four views would then have to be told
+to ignore -- and one missed exclusion inflates the collection's value
+silently. The design gains nothing for it: the cost is already apportioned per
+row, `purchase_order_id` already records what was bought together, and the
+description already says what the lot was.
 
-Grouping by `(purchase_order_id, description)` will be wrong somewhere in 769
-groups -- two genuinely separate purchases of the same thing on one order would
-merge -- so the backfill needs a review pass and the manual repair tools below.
+**What exists is enough.**
 
-### Do not group by a column being edited
+| Question | Answered by |
+|---|---|
+| What was bought in one transaction? | `purchase_order_id` |
+| Which rows came from one lot the owner exploded? | the shared description |
+| Which pieces came from a lot *this system* split? | `parent_item_id` |
 
-Membership must be stored, not derived from description equality. The moment
-the first Morgan's description is edited to `1881-S Morgan`, it would drop out
-of a derived group, the group would shrink, and any position in a review queue
-would shift. A key that is actively being edited cannot be the key iterated by.
+`parent_item_id` stays exactly as it is, for genuine splits: the 12 unsplit
+conglomerates, and every roll bought and broken up from now on. Those parents
+are real -- bought as one thing, holding the price actually paid, marked
+`split_at` and excluded from the views because they are no longer held.
 
-### Lot operations
+Most items have no parent and never will. Of 7,591 items, **3,813 were bought
+individually**; lot purchases are the interesting case, not the majority one,
+and nothing in the search, the views or the valuation may assume a parent
+exists. `Detach` sets `parent_item_id` back to null rather than moving the
+child anywhere: an item with no parent is complete, not orphaned.
 
-**The backfill is the manual tool run 769 times.** One operation -- group these
-items under a new parent -- exposed as an endpoint and used by both the cleanup
-panel and the backfill script. A migration with its own copy of the logic is a
-migration whose behaviour drifts from the UI's.
+### Repair operations
+
+No `Group` operation and no backfill: with nothing to reconstruct there is
+nothing to group. What remains are the repairs a real split may need.
 
 | Operation | Effect | Guard |
 |---|---|---|
-| **Group** | create a parent from selected items, sum `price` and `shipping`, set `split_at`, point members at it | items unsold and sharing a purchase order |
-| **Detach** | remove one child from its parent; it becomes standalone | none |
-| **Split** | existing endpoint: one item holding many becomes many | already built |
+| **Split** | one item holding many becomes many; the parent is kept, marked `split_at`, and excluded from every view | already built |
+| **Detach** | set a child's `parent_item_id` back to null; it becomes a standalone item, which is the normal state | none |
 | **Delete** | soft delete so the item leaves search | refuse if it has pieces or appears in an order |
 
-Detach-then-delete is the repair path for a wrong grouping: pull the
-misassigned children off, then delete the childless parent.
-
-Normal processing is lot-first -- receive a purchase lot as one item, then
-decompose it. Grouping is **cleanup tooling for imported data**, not a routine
-workflow, and should not accumulate conveniences for a path that will not
-normally be taken.
+Splitting stays the routine path for lots bought from now on: receive the lot
+as one item, decompose it, attribute the pieces. Detach and delete exist for
+when a split was wrong.
 
 ### Soft delete
 
@@ -334,8 +337,7 @@ nobody thought to flag.
 ```
 PATCH  /api/inventory/{id}           edit an item; optimistic via version, 409 on conflict
 POST   /api/inventory/bulk           set fields across selected ids
-POST   /api/inventory/group          create a parent from selected ids
-DELETE /api/inventory/{id}/parent    detach a child from its parent
+DELETE /api/inventory/{id}/parent    detach a child; its parent_item_id becomes null
 DELETE /api/inventory/{id}           soft delete, guarded
 GET    /api/inventory/{view}/search  extended: issue, lot, deleted filters
 ```
@@ -387,23 +389,20 @@ Follows the existing practice of proving a guarantee by removing it.
   409. Remove the version check and this must fail.
 - **Split creates detail rows.** Every child of a split has exactly one detail
   row, of the kind its `item_kind` implies.
-- **Backfill is the endpoint.** The migration calls the same code path as
-  `POST /api/inventory/group`; a test asserts the 769 reconstructed parents
-  have `price` equal to the sum of their children and that total cost basis
-  across the collection is unchanged to the penny.
+- **Splitting conserves money.** A test asserts that
+  splitting apportions cost exactly: the pieces' `price` and `shipping` sum
+  to the parent's, and total cost basis across the collection is unchanged to
+  the penny.
 
 ## Migration
 
 1. Add `deleted_at`; add `AND i.deleted_at IS NULL` to all four views.
 2. Fix `split_item` to create the detail row.
-3. Backfill the 769 parents through the group operation, in a transaction, with
-   a report written to `logs/` naming every group created and its members.
-4. Verify cost basis is unchanged: `sum(total_cost)` over non-split,
+3. Verify cost basis is unchanged: `sum(total_cost)` over non-split,
    non-deleted items must still be $534,177.89.
 
-Step 4 is the one that matters. The backfill creates 769 rows holding money;
-if any of them is counted alongside its children the collection's value
-silently doubles in places.
+Nothing in this migration creates a row holding money, which is precisely why
+the earlier reconstruction proposal was dropped.
 
 ## Series, aliases, and why Friedberg is different
 
@@ -462,9 +461,11 @@ those axes and be unusable against any published guide.
 
 ## Open questions
 
-- **Grouping accuracy.** `(purchase_order_id, description)` is a heuristic.
-  The 44 rows where "LOT OF *n*" disagrees with the row count are evidence it
-  will not always be right. The backfill report exists to be read, not filed.
+- **`purchase_order` 114 is not an order.** It has no order number and holds
+  1,922 items across two years of eBay buying, $90,438.91 of cost basis --
+  the importer collapsed every numberless eBay purchase into one row dated
+  2024-04-01. Provenance for a quarter of the collection is therefore coarser
+  than it looks, and splitting it needs the original eBay records.
 - **Item 0 of the 12 conglomerates.** The unsplit items hold 240 pieces between
   them, but the piece count comes from `storage_quantity`, which was itself
   parsed from the spreadsheet. Those counts want checking against the
