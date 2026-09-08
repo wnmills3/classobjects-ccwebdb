@@ -1,6 +1,6 @@
 import { money } from '../../format'
 
-export function cell(row, key, kind) {
+function cell(row, key, kind) {
   const value = row[key]
   if (value === null || value === undefined || value === '')
     return <span className="muted">-</span>
