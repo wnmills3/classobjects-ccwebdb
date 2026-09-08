@@ -48,6 +48,12 @@ from .models import (
 #: meaningful against a complete one.
 SERIAL_DIGITS = 8
 
+#: Small-size notes begin here. Before 1928 US currency was large-size and
+#: obsolete/broken-bank issues earlier still, and neither follows the
+#: letters-at-the-ends convention -- an 1852 note may legitimately carry a
+#: serial that a modern shape check would reject.
+SMALL_SIZE_FROM = 1928
+
 #: A low serial is one padded with at least this many leading zeros, and a
 #: high serial is one whose first digit is this. Both are the owner's
 #: definitions, which are positional -- an earlier version compared the
@@ -161,10 +167,24 @@ class SerialIssue:
     message: str
 
 
-def check(serial: str, series_year: int | None = None) -> list[SerialIssue]:
-    """Everything questionable about a serial, worst first."""
+def check(
+    serial: str, series_year: int | None = None, country: str | None = "US"
+) -> list[SerialIssue]:
+    """Everything questionable about a serial, worst first.
+
+    Shape rules apply to **US** notes only. A US small-size serial is letters
+    at the ends and eight digits between, but world notes are not: many
+    formats interleave letters and digits legitimately, so applying this to a
+    Bank of Canada or Bundesbank note would refuse a correct entry. Passing a
+    country other than "US" checks nothing structural.
+    """
     issues: list[SerialIssue] = []
     if not serial or not serial.strip():
+        return issues
+    if country is not None and country.upper() != "US":
+        return issues
+    if series_year is not None and series_year < SMALL_SIZE_FROM:
+        # Large-size and obsolete issues predate the convention entirely.
         return issues
     cleaned = serial.strip().upper()
 
@@ -174,10 +194,11 @@ def check(serial: str, series_year: int | None = None) -> list[SerialIssue]:
     if INTERNAL_LETTER.search(cleaned):
         issues.append(
             SerialIssue(
-                "error",
-                "a letter appears among the digits. Letters belong at the "
-                "start or the end of a serial, so this is a transposition -- "
-                "check the note and re-enter it.",
+                "warning",
+                "a letter appears among the digits. On a small-size US note "
+                "that is usually the suffix letter typed one position early "
+                "-- S9753547A6 for S97535476A -- so check it against the "
+                "note. Save anyway if that is what is printed.",
             )
         )
     elif not WELL_FORMED.match(cleaned):
