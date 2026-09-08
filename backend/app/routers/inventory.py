@@ -503,3 +503,20 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
 
     item.deleted_at = datetime.now(UTC)
     db.commit()
+
+
+@router.delete("/{item_id}/parent", response_model=InventoryItemOut)
+def detach_item(item_id: int, db: DbSession, _admin: AdminUser) -> InventoryItem:
+    """Set an item's `parent_item_id` back to null.
+
+    An item with no parent is complete, not orphaned -- 7,591 of 7,591 have
+    none. So this moves nothing and repairs nothing: the piece keeps the cost
+    it was allocated, and simply stops recording where it came from.
+
+    Idempotent, because the end state is exactly what was asked for.
+    """
+    item = _get_item(db, item_id)
+    item.parent_item_id = None
+    db.commit()
+    db.refresh(item)
+    return item

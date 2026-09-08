@@ -118,3 +118,62 @@ def test_a_listed_item_cannot_be_deleted(
     )
     assert response.status_code == 409
     assert "listing" in response.json()["detail"].lower()
+
+
+def test_detaching_leaves_a_standalone_item(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """No parent is the normal state, not an orphan.
+
+    7,591 of 7,591 items have none, so nothing may treat a null parent as a
+    problem to be repaired.
+    """
+    parent = lot(db)
+    pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
+    child_id = pieces[0]["id"]
+
+    response = client.delete(f"/api/inventory/{child_id}/parent", headers=admin_headers)
+
+    assert response.status_code == 200
+    assert response.json()["parent_item_id"] is None
+
+
+def test_detaching_does_not_move_money(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A detached piece keeps the cost it was allocated."""
+    parent = lot(db)
+    pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
+    before = pieces[0]["item_cost"]
+
+    body = client.delete(
+        f"/api/inventory/{pieces[0]['id']}/parent", headers=admin_headers
+    ).json()
+
+    assert body["item_cost"] == before
+
+
+def test_detaching_an_item_with_no_parent_is_harmless(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Idempotent, because the end state is what was asked for."""
+    item = make_item(db)
+    response = client.delete(f"/api/inventory/{item.id}/parent", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["parent_item_id"] is None
+
+
+def test_a_lot_can_be_deleted_once_its_last_piece_is_detached(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The round trip the guard in Task 6 would otherwise make impossible."""
+    parent = lot(db)
+    pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
+
+    for piece in pieces:
+        client.delete(f"/api/inventory/{piece['id']}/parent", headers=admin_headers)
+
+    assert (
+        client.delete(f"/api/inventory/{parent.id}", headers=admin_headers).status_code
+        == 204
+    )
