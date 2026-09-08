@@ -165,21 +165,27 @@ In `backend/app/splitting.py`, extend the `from .models import (...)` block with
 Inside `split_item`, immediately after the existing `held = db.scalar(...)` line, add:
 
 ```python
-# Resolved once rather than per piece: a fifty-way split would otherwise
-# run fifty identical lookups.
-currency_kind_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    # Resolved once rather than per piece: a fifty-way split would otherwise
+    # run fifty identical lookups.
+    currency_kind_id = db.scalar(
+        select(ItemKind.id).where(ItemKind.code == "currency")
+    )
 ```
 
 Then inside the `for piece, cost, ship in zip(...)` loop, after the existing `db.add(child)` / `db.flush()` pair and before the `ItemStatusHistory` block, add:
 
 ```python
-# Every item in the collection has exactly one detail row, and a piece
-# is an item. Created empty rather than copied from the parent's: a
-# lot's detail row describes the lot, so copying it would write the
-# seller's guess into exactly the fields someone is about to fill in
-# by examining this piece.
-detail_model = CurrencyDetail if child.item_kind_id == currency_kind_id else CoinDetail
-db.add(detail_model(inventory_item_id=child.id))
+        # Every item in the collection has exactly one detail row, and a piece
+        # is an item. Created empty rather than copied from the parent's: a
+        # lot's detail row describes the lot, so copying it would write the
+        # seller's guess into exactly the fields someone is about to fill in
+        # by examining this piece.
+        detail_model = (
+            CurrencyDetail
+            if child.item_kind_id == currency_kind_id
+            else CoinDetail
+        )
+        db.add(detail_model(inventory_item_id=child.id))
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -575,7 +581,9 @@ def upgrade() -> None:
         "inventory_item",
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index("ix_inventory_item_deleted_at", "inventory_item", ["deleted_at"])
+    op.create_index(
+        "ix_inventory_item_deleted_at", "inventory_item", ["deleted_at"]
+    )
 
     for statement in CREATE_VIEWS:
         op.execute(statement)
@@ -715,9 +723,7 @@ def test_an_unknown_code_is_refused_naming_the_field(
     item = make_item(db)
 
     response = client.patch(
-        f"/api/inventory/{item.id}",
-        json={"grade": "NOT_A_GRADE"},
-        headers=admin_headers,
+        f"/api/inventory/{item.id}", json={"grade": "NOT_A_GRADE"}, headers=admin_headers
     )
 
     assert response.status_code == 422
@@ -1366,10 +1372,9 @@ def test_a_deleted_item_leaves_search(
 ) -> None:
     item = make_item(db, source_title="MISTAKE")
 
-    assert (
-        client.delete(f"/api/inventory/{item.id}", headers=admin_headers).status_code
-        == 204
-    )
+    assert client.delete(
+        f"/api/inventory/{item.id}", headers=admin_headers
+    ).status_code == 204
 
     rows = client.get(
         "/api/inventory/coins/search?q=MISTAKE", headers=admin_headers
@@ -1408,7 +1413,7 @@ def test_an_unrecognised_deleted_mode_is_refused(
 def test_the_lot_filter_finds_a_lot_s_pieces(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """ "Show me everything from that tube" is the review queue's entry point.
+    """"Show me everything from that tube" is the review queue's entry point.
 
     By item code rather than id: the code is what is printed on the flip and
     what a person has in front of them.
@@ -1679,7 +1684,9 @@ def test_detaching_leaves_a_standalone_item(
     pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
     child_id = pieces[0]["id"]
 
-    response = client.delete(f"/api/inventory/{child_id}/parent", headers=admin_headers)
+    response = client.delete(
+        f"/api/inventory/{child_id}/parent", headers=admin_headers
+    )
 
     assert response.status_code == 200
     assert response.json()["parent_item_id"] is None
@@ -1720,10 +1727,9 @@ def test_a_lot_can_be_deleted_once_its_last_piece_is_detached(
     for piece in pieces:
         client.delete(f"/api/inventory/{piece['id']}/parent", headers=admin_headers)
 
-    assert (
-        client.delete(f"/api/inventory/{parent.id}", headers=admin_headers).status_code
-        == 204
-    )
+    assert client.delete(
+        f"/api/inventory/{parent.id}", headers=admin_headers
+    ).status_code == 204
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1886,7 +1892,7 @@ def test_one_bad_code_changes_nothing(
 def test_bulk_refuses_an_empty_selection(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """ "Apply to nothing" is far more likely a lost selection than an intent."""
+    """"Apply to nothing" is far more likely a lost selection than an intent."""
     response = client.post(
         "/api/inventory/bulk",
         json={"ids": [], "changes": {"year_start": 1964}},
@@ -2527,7 +2533,7 @@ In `backend/app/routers/inventory.py`, add `UnknownIssue, count_issues` to the `
 and add to the `InventoryPageOut(...)` construction:
 
 ```python
-issues = (count_issues(db, spec, params=params, query=q) if facets else {},)
+        issues=count_issues(db, spec, params=params, query=q) if facets else {},
 ```
 
 - [ ] **Step 6: Run the tests to verify they pass**
@@ -2609,9 +2615,7 @@ def test_a_piece_reports_what_its_lot_claimed(
     from tests.test_split import TUBE, do_split, lot
 
     parent = lot(db, year_start=1881)
-    piece_id = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"][0][
-        "id"
-    ]
+    piece_id = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"][0]["id"]
 
     body = client.get(f"/api/inventory/{piece_id}", headers=admin_headers).json()
 
