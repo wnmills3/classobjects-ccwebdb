@@ -81,18 +81,26 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
 
   function toggleReview(column) {
+    const before = reviewed
     const next = reviewed.includes(column)
       ? reviewed.filter((c) => c !== column)
       : [...reviewed, column]
     setReviewed(next)
     // replace:true, so unticking removes the record rather than leaving a
     // confirmation nobody stands behind any more.
-    api.setItemReview(itemId, next, true).catch((err) => setError(err.message))
+    api.setItemReview(itemId, next, true).catch((err) => {
+      // Put the box back. This mark is the record that a person examined the
+      // coin, so a tick the server never accepted is worse than no tick.
+      setReviewed(before)
+      setError(err.message)
+    })
   }
 
   function claim(column) {
     const claimed = item.lot_claims?.[column]
-    if (claimed === undefined || claimed === null) return null
+    // An empty cell rather than nothing: `.field` is a four-column grid, and a
+    // missing child shifts everything after it into the wrong column.
+    if (claimed === undefined || claimed === null) return <span />
     return (
       <span
         className="lot-claim"
@@ -104,7 +112,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   }
 
   function review(column) {
-    if (!column) return null
+    if (!column) return <span />
     return (
       <label className="review-mark" title="I have confirmed this by examination">
         <input

@@ -79,6 +79,7 @@ function InventoryView({ config }) {
 
       {editing && (
         <ItemEditForm
+          key={editing}
           itemId={editing}
           onSaved={() => apply({})}
           onClose={() => setEditing(null)}
