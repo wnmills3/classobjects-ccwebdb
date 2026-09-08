@@ -524,6 +524,10 @@ class InventoryPageOut(BaseModel):
     sort: str
     descending: bool
     facets: dict[str, list[FacetValueOut]] = Field(default_factory=dict)
+    #: How many rows in this result set hit each named check. Populated when
+    #: `facets=true`, and computed ignoring any `issue` filter so the sizes
+    #: of the other jobs stay visible.
+    issues: dict[str, int] = Field(default_factory=dict)
 
 
 class ReferenceValueCreate(BaseModel):

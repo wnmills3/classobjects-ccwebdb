@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from ..deps import AdminUser, DbSession
-from ..inventory_search import VIEWS, count_facets, search
+from ..inventory_search import VIEWS, UnknownIssue, count_facets, count_issues, search
 from ..models import (
     Authenticity,
     BullionForm,
@@ -155,6 +155,12 @@ def search_inventory(
             limit=limit,
             offset=offset,
         )
+    except UnknownIssue as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown issue {exc.args[0]!r} for {view}. Available: "
+            f"{sorted(spec.issues)}",
+        ) from exc
     except KeyError as exc:
         raise HTTPException(
             status_code=422,
@@ -177,6 +183,7 @@ def search_inventory(
         sort=sort or spec.default_sort,
         descending=desc,
         facets=count_facets(db, spec, params=params, query=q) if facets else {},
+        issues=count_issues(db, spec, params=params, query=q) if facets else {},
     )
 
 

@@ -96,6 +96,14 @@ def engine() -> Iterator[Engine]:
         for statement in CREATE_VIEWS:
             conn.execute(text(statement))
 
+    # Also outside Base.metadata: an extension lives in the database's own
+    # catalog, not in anything the ORM tracks. levenshtein() is needed for
+    # near_duplicate_serial, and this test database is built fresh from the
+    # models rather than by running the migrations, so the migration that
+    # installs it on a real deployment never runs here.
+    with test_engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS fuzzystrmatch"))
+
     # Reference data is seeded once and committed, not per test: inventory_item
     # has NOT NULL foreign keys into half a dozen classifier tables, so almost
     # nothing can be inserted without it. The per-test transaction rolls back
