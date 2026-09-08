@@ -123,6 +123,7 @@ LEFT JOIN grading_service gs   ON gs.id = i.grading_service_id
 LEFT JOIN error_type et   ON et.id = i.error_type_id
 LEFT JOIN metal mt        ON mt.id = i.metal_id
 WHERE i.split_at IS NULL
+  AND i.deleted_at IS NULL
   AND k.code IN ('coin', 'bullion', 'set', 'medal', 'token')
 """
 # The `split_at IS NULL` above excludes lots that have been broken into
@@ -201,6 +202,7 @@ LEFT JOIN grade_designation gd ON gd.id = i.grade_designation_id
 LEFT JOIN grading_service gs  ON gs.id = i.grading_service_id
 LEFT JOIN error_type et       ON et.id = i.error_type_id
 WHERE i.split_at IS NULL
+  AND i.deleted_at IS NULL
   AND k.code = 'currency'
 """
 
@@ -237,6 +239,7 @@ computed AS (
     JOIN valuation_basis vb ON vb.id = i.valuation_basis_id
     LEFT JOIN latest_spot s ON s.metal_id = i.metal_id
     WHERE i.split_at IS NULL
+      AND i.deleted_at IS NULL
 )
 SELECT
     c.*,
@@ -299,6 +302,7 @@ LEFT JOIN metal mt        ON mt.id = i.metal_id
 WHERE l.is_active
   AND l.quantity_available > 0
   AND i.split_at IS NULL
+  AND i.deleted_at IS NULL
 """
 
 
@@ -378,9 +382,25 @@ _RENAMED_COLUMNS = (
     "source_title",
 )
 
+#: Soft delete came later than the views, so a view created by an earlier
+#: revision must not name the column. Without this a fresh `upgrade head`
+#: fails partway: the view is created before the column is added.
+#:
+#: Two indents because `item_valuation` nests its WHERE inside a CTE. They
+#: cannot match each other's text: after `\n`, one expects exactly two spaces
+#: then `AND`, the other six.
+_SOFT_DELETE_FRAGMENTS: tuple[tuple[str, str], ...] = (
+    ("\n  AND i.deleted_at IS NULL", ""),
+    ("\n      AND i.deleted_at IS NULL", ""),
+)
+
 
 def create_views(
-    *, lineage: bool = True, item_code: bool = True, renamed_costs: bool = True
+    *,
+    lineage: bool = True,
+    item_code: bool = True,
+    renamed_costs: bool = True,
+    soft_delete: bool = True,
 ) -> tuple[str, ...]:
     """The view SQL as it stood before the named columns were introduced.
 
@@ -388,6 +408,16 @@ def create_views(
     the permanent item code. Both default to the current definitions.
     """
     removals: list[tuple[str, str]] = []
+    # Soft delete is stripped FIRST, before lineage. Replacements apply in
+    # list order, and the lineage fragment is
+    # ("WHERE i.split_at IS NULL\n  AND ", "WHERE ") -- which would otherwise
+    # swallow the `AND i.deleted_at IS NULL` line now sitting directly beneath
+    # it, leaving `WHERE i.deleted_at IS NULL` in a view whose revision has no
+    # such column. The assertion below then fires, and the fix is this
+    # ordering rather than a wider fragment.
+    if not soft_delete:
+        removals.extend(_SOFT_DELETE_FRAGMENTS)
+
     if not lineage:
         removals.extend(_LINEAGE_FRAGMENTS)
     if not item_code:
@@ -415,6 +445,12 @@ def create_views(
                     "migration would create a view naming a column that "
                     "does not exist at its revision"
                 )
+        if not soft_delete:
+            assert "deleted_at" not in statement, (
+                "the soft-delete-stripping fragments no longer match the view "
+                "SQL; a migration would create a view naming a column that "
+                "does not exist at its revision"
+            )
         statements.append(statement)
     return tuple(statements)
 
@@ -422,10 +458,10 @@ def create_views(
 #: What the views looked like before lot lineage existed. Used by the
 #: downgrade of the migration that added it.
 CREATE_VIEWS_WITHOUT_LINEAGE: tuple[str, ...] = create_views(
-    lineage=False, renamed_costs=False
+    lineage=False, renamed_costs=False, soft_delete=False
 )
 
 #: What they looked like when first created, before either addition.
 CREATE_VIEWS_ORIGINAL: tuple[str, ...] = create_views(
-    lineage=False, item_code=False, renamed_costs=False
+    lineage=False, item_code=False, renamed_costs=False, soft_delete=False
 )

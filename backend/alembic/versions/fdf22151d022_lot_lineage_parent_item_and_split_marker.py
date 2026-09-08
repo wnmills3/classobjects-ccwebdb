@@ -45,8 +45,9 @@ def upgrade() -> None:
     for statement in DROP_VIEWS:
         op.execute(statement)
     # The current view text names columns renamed long after this revision,
-    # so it must be rewritten back to what existed here.
-    for statement in create_views(renamed_costs=False):
+    # so it must be rewritten back to what existed here. soft_delete=False for
+    # the same reason: this revision predates that column too.
+    for statement in create_views(renamed_costs=False, soft_delete=False):
         op.execute(statement)
     # ### end Alembic commands ###
 
