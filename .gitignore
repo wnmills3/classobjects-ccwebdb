@@ -234,3 +234,7 @@ media/
 
 # Local database backups made by `python -m app.backup`
 .backups/
+
+# Subagent-driven-development scratch: ledger, briefs, review packages.
+# Git history is the durable record; this is the controller working memory.
+.superpowers/
