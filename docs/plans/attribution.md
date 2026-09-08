@@ -2853,7 +2853,7 @@ A refactor with no behaviour change. Doing it first means the four features that
   - `specs.js` exports `COIN_VIEW`, `CURRENCY_VIEW`, `PAGE_SIZE`.
   - `useInventorySearch.js` exports `useInventorySearch(view)` returning `{ current, apply, clear, page, busy, error, offset }`.
   - `FilterPanel.jsx` exports `default function FilterPanel({ config, current, apply, facets, issues, total, busy, clear })`.
-  - `InventoryTable.jsx` exports `default function InventoryTable({ config, rows, current, apply, selected, onSelect })` and the named helper `cell(row, key, kind)`.
+  - `InventoryTable.jsx` exports `default function InventoryTable({ config, rows, current, apply, selected, onSelect })` and **nothing else**. Its `cell(row, key, kind)` helper stays module-private: no other module needs it, and a file exporting a component alongside a non-component trips `react-refresh/only-export-components`, which costs a full reload and the filtered search this screen is holding. See `docs/code-quality.md` and commit `cb81077`.
 - Tasks 12-14 consume all of these.
 
 - [ ] **Step 1: Extract the specifications**
