@@ -20,7 +20,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from ..deps import AdminUser, DbSession
-from ..inventory_search import VIEWS, UnknownIssue, count_facets, count_issues, search
+from ..inventory_search import (
+    VIEWS,
+    UnknownIssue,
+    count_facets,
+    count_issues,
+    plain,
+    search,
+)
 from ..models import (
     Authenticity,
     BullionForm,
@@ -45,6 +52,7 @@ from ..schemas import (
     InventoryItemOut,
     InventoryItemUpdate,
     InventoryPageOut,
+    ItemDetailOut,
     ItemReviewOut,
     ReviewRequest,
     SplitPieceIn,
@@ -187,10 +195,79 @@ def search_inventory(
     )
 
 
-@router.get("/{item_id}", response_model=InventoryItemOut)
-def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> InventoryItem:
-    """One inventory item, cost basis included. Staff only."""
-    return _get_item(db, item_id)
+#: Fields a piece inherits from its lot, and so may be overriding.
+#:
+#: A subset of splitting.INHERITED: only what a person actually re-decides
+#: while attributing. Showing the lot's storage_form beside a piece's would be
+#: noise, since a piece always comes out of the tube as a single.
+LOT_CLAIM_FIELDS: tuple[str, ...] = (
+    "year_start",
+    "year_end",
+    "grade_id",
+    "grade_designation_id",
+    "grading_service_id",
+    "denomination_id",
+    "country_id",
+    "metal_id",
+    "series_id",
+    "fineness",
+    "fine_weight_ozt",
+    "authenticity_id",
+)
+
+
+@router.get("/{item_id}", response_model=ItemDetailOut)
+def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
+    """One item, with what its lot claimed and what has been confirmed.
+
+    Both in one response because the edit form needs both on every field, and
+    three round trips per coin is three per coin across 7,591 of them.
+    """
+    item = _get_item(db, item_id)
+
+    parent_code: str | None = None
+    claims: dict[str, object] = {}
+    if item.parent_item_id is not None:
+        parent = db.get(InventoryItem, item.parent_item_id)
+        if parent is not None:
+            parent_code = parent.item_code
+            # Every inherited field, not only the ones that now differ. A
+            # piece that still agrees with its lot is the important case, not
+            # the boring one: it agrees *because* it inherited the seller's
+            # claim and nobody has checked it yet. Reporting only the
+            # differences would drop exactly the fields that need the
+            # warning. What to do with an agreeing field is the form's call,
+            # not this endpoint's -- it has `reviewed` alongside, so it can
+            # tell "inherited and unchecked" from "confirmed" from
+            # "overridden".
+            claims = {
+                name: plain(value)
+                for name in LOT_CLAIM_FIELDS
+                if (value := getattr(parent, name)) is not None
+            }
+
+    return ItemDetailOut(
+        **{
+            column: plain(getattr(item, column))
+            for column in (
+                "id",
+                "item_code",
+                "version",
+                "source_title",
+                "year_start",
+                "piece_count",
+                "item_cost",
+                "shipping_cost",
+                "sales_tax",
+                "total_cost",
+                "parent_item_id",
+                "split_at",
+            )
+        },
+        parent_item_code=parent_code,
+        lot_claims=claims,
+        reviewed=_reviewed_fields(db, item.id),
+    )
 
 
 #: Editable classifiers on an item, and where each code resolves.

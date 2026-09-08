@@ -46,6 +46,7 @@ __all__ = [
     "ViewSpec",
     "count_facets",
     "count_issues",
+    "plain",
     "search",
 ]
 
@@ -441,7 +442,7 @@ def _conditions(
     return clauses, joins, bound
 
 
-def _plain(value: object) -> object:
+def plain(value: object) -> object:
     """JSON-safe without letting money or weight become a float.
 
     FastAPI's encoder turns a Decimal inside a plain dict into a float, which
@@ -517,7 +518,7 @@ def search(
         .all()
     )
 
-    return [{k: _plain(v) for k, v in row.items()} for row in rows], total
+    return [{k: plain(v) for k, v in row.items()} for row in rows], total
 
 
 def count_facets(

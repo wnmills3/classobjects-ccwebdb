@@ -144,3 +144,75 @@ def test_money_survives_a_round_trip_as_a_string(
     assert response.json()["item_cost"] == "19.99"
     db.refresh(item)
     assert item.item_cost == Decimal("19.99")
+
+
+def test_a_piece_reports_what_its_lot_claimed(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """So it is always visible what is being overridden.
+
+    And what is still only the seller's word about the lot.
+    """
+    from tests.test_split import TUBE, do_split, lot
+
+    parent = lot(db, year_start=1881)
+    piece_id = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"][0][
+        "id"
+    ]
+
+    body = client.get(f"/api/inventory/{piece_id}", headers=admin_headers).json()
+
+    assert body["parent_item_code"] == parent.item_code
+    assert body["lot_claims"]["year_start"] == 1881
+
+
+def test_an_item_with_no_parent_claims_nothing(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """7,591 of 7,591 have no parent. Absent is the normal case, not an error."""
+    item = make_item(db)
+    body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
+
+    assert body["parent_item_code"] is None
+    assert body["lot_claims"] == {}
+
+
+def test_the_detail_carries_what_has_been_reviewed(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """One round trip for the edit form, not two."""
+    item = make_item(db)
+    client.post(
+        f"/api/inventory/{item.id}/reviewed",
+        json={"fields": ["grade_id"]},
+        headers=admin_headers,
+    )
+
+    body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
+    assert body["reviewed"] == ["grade_id"]
+
+
+def test_a_piece_reports_the_lot_s_claim_even_when_it_still_agrees(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The agreeing case is the important one, not the boring one.
+
+    Fifty Morgans split out of one lot all read grade BU because they
+    inherited the seller's claim, not because anyone graded them. A form that
+    showed the lot's value only where the piece already differs would stay
+    silent on exactly the fields that need the warning.
+    """
+    from tests.test_split import TUBE, do_split, lot
+
+    parent = lot(db, year_start=1881)
+    piece_id = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"][0][
+        "id"
+    ]
+
+    body = client.get(f"/api/inventory/{piece_id}", headers=admin_headers).json()
+
+    assert body["year_start"] == 1881, "the piece inherited the lot's year"
+    assert body["lot_claims"]["year_start"] == 1881, (
+        "and the response must still say the lot is where that came from"
+    )
+    assert body["reviewed"] == [], "nobody has confirmed it"

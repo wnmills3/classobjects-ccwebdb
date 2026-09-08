@@ -15,8 +15,6 @@ so a client can show a denomination's face value or an error type's
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -24,6 +22,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
+from ..inventory_search import plain
 from ..models import REFERENCE_MODELS, ProvenanceSource, ReferenceMixin
 from ..schemas import (
     ReferenceTableOut,
@@ -43,17 +42,6 @@ TABLES: dict[str, type[ReferenceMixin]] = {
 }
 
 
-def _plain(value: object) -> object:
-    """JSON-safe, without letting a Decimal become a float on the way out."""
-    if isinstance(value, Decimal):
-        return str(value)
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if hasattr(value, "value"):  # an enum
-        return value.value
-    return value
-
-
 def _to_value(row: object, model: type[ReferenceMixin]) -> ReferenceValueOut:
     extra: dict[str, Any] = {}
     for column in model.__table__.columns:
@@ -67,7 +55,7 @@ def _to_value(row: object, model: type[ReferenceMixin]) -> ReferenceValueOut:
             if code is not None:
                 extra[column.name[: -len("_id")]] = code
             continue
-        extra[column.name] = _plain(getattr(row, column.name))
+        extra[column.name] = plain(getattr(row, column.name))
 
     return ReferenceValueOut(
         code=row.code,
