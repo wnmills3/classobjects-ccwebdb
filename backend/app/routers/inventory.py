@@ -41,6 +41,7 @@ from ..models import (
 )
 from ..references import code_to_id
 from ..schemas import (
+    BulkEditRequest,
     InventoryItemOut,
     InventoryItemUpdate,
     InventoryPageOut,
@@ -226,6 +227,52 @@ EDITABLE_SCALARS: tuple[str, ...] = (
     "item_cost",
     "shipping_cost",
 )
+
+
+@router.post("/bulk")
+def bulk_edit(
+    payload: BulkEditRequest, db: DbSession, _admin: AdminUser
+) -> dict[str, int]:
+    """Set the same fields across many items, all or nothing.
+
+    One transaction on purpose. A partial bulk edit across 50 coins leaves a
+    state nobody can describe, and "which of the 50 applied?" is not a
+    question the UI should ever have to answer -- so every id is resolved and
+    every code checked before anything is written.
+    """
+    data = payload.changes.model_dump(exclude_unset=True)
+    data.pop("version", None)  # Meaningless across a set of rows.
+
+    items = db.scalars(
+        select(InventoryItem).where(InventoryItem.id.in_(payload.ids))
+    ).all()
+    found = {item.id for item in items}
+    missing = sorted(set(payload.ids) - found)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No such item(s): {missing}. Nothing was changed.",
+        )
+
+    # Every code resolved before anything is set, so a typo in the last field
+    # does not leave the first three applied.
+    resolved: dict[str, object] = {}
+    for field, model in ITEM_CLASSIFIERS.items():
+        if field in data:
+            value = data[field]
+            resolved[f"{field}_id"] = (
+                None if value is None else code_to_id(db, model, value, field)
+            )
+    for field in EDITABLE_SCALARS:
+        if field in data:
+            resolved[field] = data[field]
+
+    for item in items:
+        for column, value in resolved.items():
+            setattr(item, column, value)
+
+    db.commit()
+    return {"updated": len(items)}
 
 
 @router.patch("/{item_id}", response_model=InventoryItemOut)

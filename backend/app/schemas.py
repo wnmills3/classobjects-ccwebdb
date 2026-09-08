@@ -458,6 +458,20 @@ class InventoryItemUpdate(BaseModel):
     disposition: str | None = Field(default=None, max_length=64)
 
 
+class BulkEditRequest(BaseModel):
+    """One set of changes, applied to many items in one transaction.
+
+    `changes` is validated as an `InventoryItemUpdate`, so bulk and single
+    edits accept exactly the same fields and the same codes. Two field lists
+    would drift.
+    """
+
+    #: At least one. "Apply to nothing" is far more likely a selection that
+    #: was lost than something anyone meant.
+    ids: list[int] = Field(min_length=1)
+    changes: InventoryItemUpdate
+
+
 class ReviewRequest(BaseModel):
     """Which fields of an item a person has confirmed by looking at it."""
 
