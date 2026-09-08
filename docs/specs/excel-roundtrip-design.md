@@ -143,6 +143,77 @@ than applied** -- silence would look like acceptance.
 
 `About` exists so a workbook found in six months explains itself.
 
+## The full export is an archive, not a backup
+
+Exporting with no filters produces a complete record of the **item catalogue**,
+and that is worth having as a first-class feature. It is human-readable,
+portable, and openable in twenty years without PostgreSQL or this application
+-- none of which is true of a `pg_dump`.
+
+It is not a database backup, and the workbook never becomes the system of
+record. The direction stays one-way.
+
+**What the item catalogue is**, and a workbook can carry, one row per item:
+
+| | Rows today |
+|---|---|
+| `inventory_item` | 7,591 |
+| `coin_detail` / `currency_detail` | 6,477 / 1,114 |
+| `item_certification` | 1,456 |
+| `item_note_attribute` | 891 |
+| `purchase_order`, `vendor` | 3,879 / 21 |
+
+**What it cannot carry**, because it is one-to-many or not item-shaped:
+
+| | Rows today | Why |
+|---|---|---|
+| `item_status_history` | **7,591** | an append-only event log per item |
+| `import_row` | **7,591** | the original spreadsheet row, as JSON -- the provenance chain |
+| `listing`, `sales_order`, `customer`, `address`, `shipment` | 0 | **the whole business goes here** |
+| `image`, `item_image` | 0 | binary |
+| `valuation_snapshot`, `location_history` | 0 | histories by design |
+
+The second table is why the direction cannot reverse. Restoring from a
+workbook today would silently drop 7,591 status rows and every item's link
+back to its spreadsheet origin. After the first sale it would drop the sale.
+
+A workbook is also lossy in a way that gets worse rather than better: the
+zero-row tables are the ones the business is about to start filling.
+
+**So:** rebuilding the catalogue from a full export is a supported
+disaster-recovery path, and the `About` sheet states plainly what a restore
+would not bring back. Anyone restoring should know what they are missing
+before they start, not afterwards.
+
+## Backing up the database itself
+
+The archive above covers items. The database needs its own backup, and it has
+one: `python -m app.backup` copies every table -- the histories, the sales
+side, the reference data -- into a timestamped database beside the live one.
+
+**It is built on SQLAlchemy rather than `pg_dump`, deliberately.** The schema
+comes from the models and the destination is a URL, so pointing it at another
+engine is a change of URL rather than of code:
+
+    python -m app.backup                     a local copy, ccwebdb_bak_<stamp>
+    python -m app.backup --to <url>          anywhere SQLAlchemy reaches
+    python -m app.backup --list              what exists
+    python -m app.backup --verify <name>     row counts, table by table
+
+Three details make it faithful rather than merely complete. Tables copy in
+`Base.metadata.sorted_tables` order, so a row never arrives before the row it
+references. Generated columns are skipped and recomputed by the destination,
+because writing them would let the stored value disagree with the expression
+defining it. And each serial sequence is advanced past the copied ids, without
+which a restored backup works until the first insert collides.
+
+`--verify` compares row counts on every table; any mismatch is a failed
+backup. First run: 29,439 rows, matching the source on every table, with the
+generated columns recomputed to the same figures.
+
+`pg_dump` remains the right tool for taking a file off the machine. This is
+for a copy you can query.
+
 ## Testing
 
 - **Round trip with no edits changes nothing.** Export, import, and assert zero
