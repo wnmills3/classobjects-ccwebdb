@@ -31,6 +31,7 @@ import argparse
 import re
 import sys
 from collections import Counter
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -123,6 +124,104 @@ def analyse(serial: str) -> set[str]:
     if found - {"star", "low_serial", "high_serial"}:
         found.add("fancy_serial")
     return found
+
+
+#: A small-size US serial: one or two prefix letters, eight digits, one suffix
+#: letter, with a star replacing either letter on a replacement note.
+WELL_FORMED = re.compile(r"^(?:\*|[A-Z]{1,2})\d{8}(?:\*|[A-Z])$")
+
+#: A letter with digits on both sides. Structurally impossible on a real
+#: note, so this is the one thing data entry refuses outright.
+INTERNAL_LETTER = re.compile(r"\d[A-Z]\d")
+
+#: The highest an eight-digit serial can be. Structural, not a print run.
+MAX_SERIAL = 99_999_999
+
+#: Advisory only. Some print runs ended at 96,000,000 rather than 99,999,999,
+#: so a serial above this is worth a second look -- but the real limit varies
+#: by series, denomination and era, and this project has no sourced table of
+#: them. The BEP publishes production figures and they are US government work,
+#: so such a table could be built; until it is, this is a prompt to check
+#: rather than a statement that the note cannot exist.
+ADVISORY_CEILING = 96_000_000
+
+
+@dataclass(frozen=True)
+class SerialIssue:
+    """Something wrong with a serial, and how wrong.
+
+    `error` means the serial cannot be what was typed, so data entry refuses
+    it. `warning` means it is unusual and worth a second look, and entry
+    proceeds if the person insists -- a collection holds genuine oddities, and
+    a system that would not let its owner record what is in their hand records
+    fiction instead.
+    """
+
+    severity: str
+    message: str
+
+
+def check(serial: str, series_year: int | None = None) -> list[SerialIssue]:
+    """Everything questionable about a serial, worst first."""
+    issues: list[SerialIssue] = []
+    if not serial or not serial.strip():
+        return issues
+    cleaned = serial.strip().upper()
+
+    # An internal letter is a transposition, not a variant. Letters belong at
+    # the ends -- one or two in front, one behind -- and a serial with one in
+    # the middle is a typo every time: S97535476A entered as S9753547A6.
+    if INTERNAL_LETTER.search(cleaned):
+        issues.append(
+            SerialIssue(
+                "error",
+                "a letter appears among the digits. Letters belong at the "
+                "start or the end of a serial, so this is a transposition -- "
+                "check the note and re-enter it.",
+            )
+        )
+    elif not WELL_FORMED.match(cleaned):
+        digits = digits_of(cleaned)
+        if len(digits) < SERIAL_DIGITS:
+            issues.append(
+                SerialIssue(
+                    "warning",
+                    f"only {len(digits)} digits; a US small-size serial has "
+                    f"{SERIAL_DIGITS}, so one may have been dropped.",
+                )
+            )
+        else:
+            issues.append(
+                SerialIssue(
+                    "warning",
+                    "does not match the usual shape of one or two prefix "
+                    "letters, eight digits and a suffix letter.",
+                )
+            )
+
+    digits = digits_of(cleaned)
+    if len(digits) == SERIAL_DIGITS:
+        value = int(digits)
+        if value > MAX_SERIAL:
+            issues.append(
+                SerialIssue(
+                    "error",
+                    f"above {MAX_SERIAL:,}, which no eight-digit serial reaches.",
+                )
+            )
+        elif value > ADVISORY_CEILING:
+            year = f" for series {series_year}" if series_year else ""
+            issues.append(
+                SerialIssue(
+                    "warning",
+                    f"above {ADVISORY_CEILING:,}{year}; some print runs ended "
+                    "there rather than at 99,999,999, so this is worth "
+                    "confirming against the note.",
+                )
+            )
+
+    issues.sort(key=lambda i: 0 if i.severity == "error" else 1)
+    return issues
 
 
 def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:

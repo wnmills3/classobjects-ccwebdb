@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
@@ -91,6 +91,12 @@ def get_table(
     include_inactive: Annotated[
         bool, Query(description="Include retired values, for editing old records")
     ] = False,
+    year: Annotated[
+        int | None,
+        Query(
+            description="Only values whose term covers this year, where a table has one"
+        ),
+    ] = None,
 ) -> ReferenceTableOut:
     """One vocabulary, ordered as it should appear in a picker.
 
@@ -108,11 +114,34 @@ def get_table(
     stmt = select(model)
     if not include_inactive:
         stmt = stmt.where(model.is_active.is_(True))
+    if year is not None:
+        stmt = _limit_to_year(model, stmt, year)
     rows = db.scalars(stmt.order_by(model.sort_order, model.code)).all()
 
     return ReferenceTableOut(
         table=table,
         values=[_to_value(row, model) for row in rows],
+    )
+
+
+def _limit_to_year(model: type, stmt: Select[Any], year: int) -> Select[Any]:
+    """Narrow a term-bounded vocabulary to the values valid in a given year.
+
+    Signature combinations are the case this exists for. A note's series year
+    decides which Treasurer and Secretary can possibly appear on it, so a
+    picker offering all eleven invites the wrong one to be chosen -- and the
+    signatures are what separate one catalogue variant from another, so a
+    wrong one is a wrong lookup.
+
+    A table without a term is returned unfiltered rather than empty: the
+    parameter is a narrowing where one is possible, not a requirement.
+    """
+    columns = model.__table__.columns
+    if "term_from" not in columns or "term_to" not in columns:
+        return stmt
+    return stmt.where(
+        or_(columns["term_from"].is_(None), columns["term_from"] <= year),
+        or_(columns["term_to"].is_(None), columns["term_to"] >= year),
     )
 
 
