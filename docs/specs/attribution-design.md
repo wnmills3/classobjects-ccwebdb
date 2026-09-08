@@ -1,6 +1,6 @@
 # Attribution: finding what is wrong and fixing it
 
-Design, 2026-09-07. Status: awaiting review.
+Design. Status: awaiting review.
 
 The first of three pieces of work. Attribution comes first because nothing
 downstream is possible without it: you cannot list a coin whose year you do not
@@ -9,139 +9,192 @@ know, and you cannot design a customer-facing catalogue against zero listings.
 | | Depends on |
 |---|---|
 | **A. Attribution** (this document) | -- |
-| B. Listing | A |
-| C. Public catalogue | B, for data to design against |
+| B. Listing and valuation | A |
+| C. Public catalogue and auction | B |
 
-Photograph linking is deliberately excluded. Matching the ~673 photographs
-already on disk to items is a bulk-matching problem, which is a different job
-from grading a coin in hand, and it gets its own document.
+Photograph linking is excluded. Matching the ~673 photographs already on disk
+to items is a bulk-matching problem, which is a different job from grading a
+coin in hand, and it gets its own document.
 
-## The problem
+## What attribution means here
 
 Building an inventory is slow and error-prone. The need is to **search for
-anomalies and fix them**, both in the imported data and in everything acquired
-from now on.
+anomalies and fix them**, in the imported data and in everything acquired from
+now on.
 
-The concrete case: a lot of fifty Morgan dollars is bought with no detail known
-beyond "supposed to be BU". After splitting, each of the fifty needs its own
-year, mint mark, grade and variety. None of that was knowable at purchase.
+The worked case, in the owner's words: a lot of fifty Morgan dollars is bought
+with no detail known beyond "supposed to be BU". After splitting, each of the
+fifty needs its own year, mint mark, grade and variety. None of that was
+knowable at purchase, and each of the fifty is a separate act of examination.
 
-### What is actually wrong, measured
+That case sets three requirements that run through everything below:
 
-Over 7,591 items, excluding split parents:
+1. An item that is not for sale must be editable.
+2. A piece created by a split must have somewhere to put a mint mark.
+3. It must be visible which values are the seller's claim about the lot and
+   which a person has actually confirmed.
+
+## The collection as it stands
+
+7,591 live items, $534,177.89 of cost basis, every one of them with exactly one
+detail row -- `currency_detail` for the 1,114 banknotes, `coin_detail` for the
+rest.
 
 | Anomaly | Count |
 |---|---|
-| No grade (coins and currency only) | 2,965 |
+| No grade (coins and banknotes only) | 2,965 |
 | No country | 2,394 |
 | No year | 1,230 |
 | Bullion with no weight | 712 |
-| No denomination (coins and currency) | 262 |
-| `Mixed` marker in grade or description | 186 rows, 43 groups |
-| Zero or missing price | 51 |
-| "LOT OF *n*" where *n* does not match the row count | 44 |
+| `Mixed` marker in grade or description | 175 |
+| No denomination (coins and banknotes only) | 262 |
 | Kind still `unknown` | 33 |
-| Repeated currency serial numbers | 18 notes, 9 groups |
+| Zero or missing `item_cost` | 51 |
+| Repeated banknote serials | 18 notes, 9 groups |
 | Repeated certification numbers | 108 rows, 48 numbers |
-| Reversed or implausible years | 0 |
+| Star attribute with no asterisk in the serial | 5 |
 
-### How the collection is grouped
+Nothing here is a defect of the import. These are the things that were not
+knowable, or not recorded, when a row was typed.
 
-| Population | Count | State | Needs |
-|---|---|---|---|
-| Already exploded by the owner | 769 groups / **3,777 items** | one row per coin, sharing a description | attribute each row; nothing to reconstruct |
-| Unsplit conglomerates | 12 items / **240 pieces** | still one row holding many coins | run the existing split, then attribute |
-| Bought individually | 3,809 items | fine | nothing |
+**No item has a parent, and none has a listing.** There are 0 split parents and
+0 listings. Every figure above describes items bought individually or already
+broken out by hand, and the split machinery is currently exercised only by
+tests. Twelve items still hold more than one piece -- 240 pieces between them
+-- and are the first real work for it.
 
-**These populations overlap.** Seven of the twelve conglomerates are *also*
-inside a flattened group -- rows like `20x 1oz Copper Round Mixed`, repeated
-nine times, each row itself holding twenty rounds. Those are lots of lots, and
-they need splitting. Any code that treats the three
-populations as disjoint will mishandle them.
+### What is already built and must not be re-derived
 
-The 769 groups are rows sharing an identical description
--- the spreadsheet's only way to say "twenty of these". The literal example:
-`(LOT OF 29) MORGAN SILVER DOLLARS "BETTER YEARS" 1878 - 1898`, 23 rows.
-
-`Mixed` is a marker the owner used for lot attributes where the individuals
-vary. It is not a grade and the import correctly declined to make it one; it
-survives in `grade_raw` unresolved. It means something different from *missing*
--- not "unknown" but "known to vary", which is a positive statement that the
-row stands for several different coins and the purchase lot needs decomposing.
-
-## Three gaps in the current code
-
-1. **An item that is not for sale cannot be edited at all.** The only editing
-   path is `PATCH /api/catalog/{listing_id}`, which requires a listing. Every
-   freshly split piece has none.
-2. **`split_item` creates no detail row.** Every one of the 7,591 items has
-   exactly one -- `currency_detail` for currency, `coin_detail` for everything
-   else, 100% coverage -- but split children get neither. Mint mark, variety
-   and serial number have nowhere to be written. This is a bug, not a design
-   question.
-3. **Split children inherit the lot's guess with nothing marking it as one.**
-   `INHERITED` copies `year_start`, `grade_id`, `metal_id` and twenty other
-   columns. All fifty Morgans say `grade = BU`, which is the seller's claim
-   about the lot, not a verified grade for coin 37.
-
-## Design
-
-### There is no lot to reconstruct
-
-An earlier draft proposed rebuilding a parent row for each of the 769 groups
-that share a purchase order and a description. **That was wrong**, and the
-owner said so during review. Two facts settle it.
-
-**A purchase order is not a lot.** eBay reuses an order number for a grouped
-shipment, or simply for purchases made close together. The largest such group
-here has *no order number at all* -- it is the bucket holding 1,922 eBay
-purchases with 1,402 distinct descriptions. Treating an order as a container
-would invent a relationship the seller never asserted.
-
-**The repeated descriptions are the owner's own explosion of a lot**, already
-done. The evidence is in the text: a row reading `DEALERS LOT! Bulk Lot of 27
-U.S. MINT PROOF SETS` appears 27 times, and `Collection of 20 Assorted`
-appears 20 times. The lot was broken into rows years ago, each carrying its
-own share of the cost. There is nothing left to split.
-
-So reconstruction would create 769 rows describing purchases that never
-happened, each holding money that all four views would then have to be told
-to ignore -- and one missed exclusion inflates the collection's value
-silently. The design gains nothing for it: the cost is already apportioned per
-row, `purchase_order_id` already records what was bought together, and the
-description already says what the lot was.
-
-**What exists is enough.**
-
-| Question | Answered by |
+| | State |
 |---|---|
-| What was bought in one transaction? | `purchase_order_id` |
-| Which rows came from one lot the owner exploded? | the shared description |
-| Which pieces came from a lot *this system* split? | `parent_item_id` |
+| `purchase_order` | 3,879 real orders over 7,497 items; largest holds 85 |
+| `series` / `series_alias` | 38 series, 25 aliases; 3,273 items classified |
+| `currency_detail.series_designation` | generated, 1,035 notes carry it |
+| `note_attribute` | 891 links; star, radar, binary, trinary, repeater, ladder, low and high serial, double quad |
+| `app.serial_patterns` | derives the designations from the serial and reports malformed ones |
+| `app.order_repair` | recovers a vendor's order number from the listing URL |
+| `app.backup` | portable full-database copy; the database is the system of record |
+| Excel round trip | designed in `excel-roundtrip-design.md`; the bulk-edit surface |
 
-`parent_item_id` stays exactly as it is, for genuine splits: the 12 unsplit
-conglomerates, and every roll bought and broken up from now on. Those parents
-are real -- bought as one thing, holding the price actually paid, marked
-`split_at` and excluded from the views because they are no longer held.
+Two of these change what this document has to specify. The order repair means
+`purchase_order_id` is now trustworthy, so "what was bought together" needs no
+reconstruction. The serial-pattern work means the star and fancy-serial
+attributes are derived rather than typed, so those checks are about
+*disagreement*, not absence.
 
-Most items have no parent and never will. Of 7,591 items, **3,813 were bought
-individually**; lot purchases are the interesting case, not the majority one,
-and nothing in the search, the views or the valuation may assume a parent
-exists. `Detach` sets `parent_item_id` back to null rather than moving the
-child anywhere: an item with no parent is complete, not orphaned.
+### Shared descriptions are not a signal
 
-### Repair operations
+809 groups of rows share an identical description, covering 3,983 items. This
+looks like structure and is not: it is copy-and-paste from replicating a row,
+and the owner's cleanup will replace those descriptions with real ones.
 
-No `Group` operation and no backfill: with nothing to reconstruct there is
-nothing to group. What remains are the repairs a real split may need.
+**Nothing may be built on a shared description.** Not grouping, not duplicate
+detection, not lot reconstruction. A signal that is about to be deliberately
+destroyed is not a signal. This matters because free text is the tempting
+option every time -- see the duplicate section below, where it was tried three
+times and was wrong three times.
+
+## The three gaps
+
+These are the whole of the implementable core. None is built today.
+
+### 1. An item that is not for sale cannot be edited
+
+The only editing path is `PATCH /api/catalog/{listing_id}`, which needs a
+listing. There are no listings, so **there is currently no way to edit any of
+the 7,591 items through the API**, and no way to edit a freshly split piece
+ever, because a piece is held rather than listed.
+
+`PATCH /api/inventory/{id}` unblocks everything else in this document.
+
+It follows the conventions already in place: classifiers cross the API as
+codes, an unknown code is a 422 naming the field, and the edit is optimistic
+against `version` with a 409 carrying the current state on conflict.
+
+The catalogue's own vocabulary stays as it is. A listing has a `title` and a
+`price` -- what the shop calls the item and what it is offered for -- while the
+item has `source_title` and `item_cost`. `ITEM_SCALARS` in the catalogue router
+translates between them, and the inventory API speaks the item's names
+throughout, because that is the surface the Excel round trip also uses.
+
+### 2. `split_item` creates no detail row
+
+Every existing item has exactly one detail row. Split children get neither, so
+mint mark, variety, series letter and serial number have nowhere to be written
+-- which is precisely the data the worked case exists to capture.
+
+This is a bug, not a design question. The fix creates a `coin_detail` or
+`currency_detail` row per child according to the child's `item_kind`, and
+copies from the parent's detail row only what is a fact about every piece
+(nothing, for a mixed lot) rather than everything the parent happened to hold.
+
+### 3. Nothing marks a value as the lot's claim
+
+`INHERITED` copies `year_start`, `grade_id`, `metal_id` and twenty other
+columns onto every child. All fifty Morgans say `grade = BU`, which is the
+seller's claim about the lot rather than a verified grade for coin 37.
+
+The row-level `source = derived` records that the *row* was produced by a
+split. It says nothing about which of its fields anyone has since looked at,
+and it cannot: it is one value for the whole row.
+
+## Provenance is per field
+
+**Recommended: a small `item_field_review` table.**
+
+```
+item_field_review
+  inventory_item_id  -> inventory_item, cascade
+  field_name         text          the column confirmed, e.g. 'grade_id'
+  reviewed_at        timestamptz
+  reviewed_by        -> users
+  unique (inventory_item_id, field_name)
+```
+
+One row per field a person has confirmed by looking at the object. Absent means
+unconfirmed, which is the correct default for all 7,591 imported items and
+needs no backfill.
+
+Three reasons for a table rather than a flag or a JSON key:
+
+- **It is new information, not derivable.** "A person examined this coin's
+  grade" cannot be computed from any other column, which is what distinguishes
+  it from an `examined_at` flag that would merely restate what comparing a
+  child to its parent already shows.
+- **The unit of work is the field, not the item.** Attributing fifty Morgans
+  means confirming grade on all fifty, then year on all fifty, in whatever
+  order the light and the loupe allow. An item-level flag cannot express a
+  half-done coin, and a half-done coin is the normal state.
+- **`attributes` is the wrong home.** That JSONB column is documented as the
+  long tail of profile output awaiting promotion to a real column. A
+  first-class concept starting there would contradict the promotion rule.
+
+This is complementary to, not a replacement for, comparing a child to its
+parent. The comparison answers "what does the lot claim?" and is shown beside
+each field in the edit form -- `Grade [AU58] · lot says BU`. The review record
+answers "has anyone checked?". Both are needed, and neither derives the other.
+
+The single decision this document needs from the owner is whether per-field is
+worth the table, or whether one `examined_at` per item is enough for now. The
+recommendation is per-field, because the collection will take months to work
+through and "which fields have I already done on this coin" is exactly the
+question that stops work being repeated.
+
+## Repair operations
 
 | Operation | Effect | Guard |
 |---|---|---|
-| **Split** | one item holding many becomes many; the parent is kept, marked `split_at`, and excluded from every view | already built |
-| **Detach** | set a child's `parent_item_id` back to null; it becomes a standalone item, which is the normal state | none |
-| **Delete** | soft delete so the item leaves search | refuse if it has pieces or appears in an order |
+| **Split** | one item holding many becomes many; the parent is kept, marked `split_at`, excluded from every view | built |
+| **Detach** | a child's `parent_item_id` becomes null and it stands alone | none needed |
+| **Delete** | soft delete; the item leaves search | refuse if it has pieces or appears in an order |
 
-Splitting stays the routine path for lots bought from now on: receive the lot
+**Most items have no parent and never will.** 7,591 of 7,591 have none today,
+and lot purchases are the interesting case rather than the majority one.
+Nothing in search, the views or valuation may assume a parent exists. Detach
+sets `parent_item_id` back to null rather than moving the child anywhere,
+because an item with no parent is complete, not orphaned.
+
+**Splitting is the routine path for lots bought from now on**: receive the lot
 as one item, decompose it, attribute the pieces. Detach and delete exist for
 when a split was wrong.
 
@@ -154,19 +207,18 @@ Putting it there would corrupt every disposition report with rows that were
 never real.
 
 A separate column also lets `WHERE deleted_at IS NULL` sit beside the
-`split_at IS NULL` already present in all four views: same shape of rule, same
-place.
+`split_at IS NULL` already in all four views: same shape of rule, same place.
 
 Search excludes deleted by default and accepts `?deleted=no|only|any`. An
-unrecognised value is a 422, consistent with the existing rule that an
-unrecognised filter is never silently ignored.
+unrecognised value is a 422, consistent with the existing rule that a filter is
+never silently ignored.
 
 **Known hazard.** After detaching its last child, a parent still has `split_at`
-set, so it is invisible in every view but not deleted -- a row that exists and
+set, so it is invisible in every view and not deleted -- a row that exists and
 cannot be found. Delete must therefore be reachable from the lot panel, not
 only from search, because search is exactly where it is not.
 
-### Search as a diagnostic
+## Search as a diagnostic
 
 **Anomalies are named, kind-aware checks, not generic field filters.**
 `?issue=no_grade` means *a coin or banknote with no grade*, because bullion has
@@ -180,173 +232,158 @@ a facet (`no_year 1,230`, so the size is visible before committing), and a
 badge on the row. Adding a check later means adding one predicate.
 
 Initial checks: `no_year`, `no_grade`, `no_country`, `no_denomination`,
-`no_weight_bullion`, `mixed_marker`, `lot_count_mismatch`, `zero_price`,
-`kind_unknown`, `repeated_identity`, `star_mismatch`, `interior_asterisk`,
-`inherited_from_lot`.
+`no_weight_bullion`, `mixed_marker`, `zero_cost`, `kind_unknown`,
+`repeated_identity`, `star_mismatch`, `malformed_serial`, `unreviewed`.
 
-### Duplicate detection needs a natural key
+Two structural filters join them: `lot=CC-004120` (everything with that parent)
+and `deleted=no|only|any`.
+
+`mixed_marker` is separate from `no_grade` because it means "known to vary"
+rather than "unknown". `Mixed` is the owner's marker for a lot attribute where
+the individuals differ; the import correctly declined to make it a grade and
+left it in `grade_raw`. The remedy is to decompose the lot, not to fill the
+field.
+
+## Identity and duplicates
 
 `repeated_identity` covers the two fields that identify a *physical object*
 rather than describe it: `currency_detail.serial_number` and
-`item_certification.cert_number`. A PCGS or NGC number names exactly one slab
-and a serial names exactly one note, so a repeat is real evidence.
+`item_certification.cert_number`. A PCGS or NGC number names one slab and a
+serial names one note, so a repeat is real evidence.
 
-**It must not be generalised to items without such a key.** 731 groups of 3,543
-items share a purchase order, a price and a description -- and those are the
-flattened purchase lots, not duplicates. Twenty Morgans bought together at $19
-each look identical by every available column and are twenty different coins.
-Treating that as a duplicate signal would condemn $91,752 of real inventory.
+**It must not be generalised to items without such a key.** Twenty Morgans
+bought together at $19 each are identical in every available column and are
+twenty different coins.
 
-Measured, the check finds three different problems that look alike and must not
-be auto-resolved together:
+Measured, the check finds three problems that look alike and must not be
+auto-resolved together:
 
 | Shape | Example | Almost certainly |
 |---|---|---|
-| Same identifier, same order, same price | 5 currency pairs | the same item entered twice |
+| Same identifier, same order, same cost | 5 currency pairs | the same item entered twice |
 | Same identifier, *different* orders | 32 cert numbers | one purchase recorded twice, or a mistranscription |
 | Identifier that is not an identifier | `1973` on 5 rows | a year parsed into the cert field |
 
 Only the shape of the value distinguishes them, so the check surfaces
 candidates and a person decides. It never merges rows.
 
-### The auction lot id is the only reliable duplicate key
+**A repeat is sometimes correct.** Four of the nine repeated-serial groups are
+different notes -- different series or series letter -- sharing a serial
+because collecting matched serials across issues is a deliberate pursuit.
+`E00003333B` appears on a 2021 and a 2017-A $1, and the serial is itself a
+repeating-digit note bought on purpose. A check that assumed repeats were
+errors would fight the collection's own theme.
 
-Resolved 2026-09-07 after three wrong answers, each wrong the same way.
+### Prefer a field with a structural guarantee over free text
 
 `import_row.raw->>'Link'` carries the venue's own lot id, e.g.
 `.../lot/226778844/1886-morgan-silver-dollar-ngc-ms66`. It is issued by the
-auction house and means exactly one thing: **one lot, won once.**
-
-63 lot ids appear on more than one row. Almost all are innocent -- one lot
-containing twenty coins becomes twenty rows, which is the flattened purchase
-lot again. What separates the duplicates is a signal with no innocent reading:
+auction house and means exactly one thing: **one lot, won once.** 63 lot ids
+appear on more than one row; what separates the duplicates from the innocent
+multi-item lots is a signal with no second reading:
 
 | | Lot ids | Rows |
 |---|---|---|
 | All rows share one order date -- a genuine multi-item lot | 58 | 397 |
-| **Rows carry different order dates** -- the same lot recorded twice | **5** | **14** |
+| **Rows carry different order dates** -- one lot recorded twice | **5** | **14** |
 
 A lot of twenty coins arrives on one date. The same lot appearing on 9 January
 *and* 12 January cannot be two purchases. Four of the five are one HiBid batch
-entered three days apart; the fifth is a three-note set entered twice.
+entered three days apart; the fifth is a three-note set entered twice. Seven
+surplus rows, $1,183.55.
 
-**Three earlier attempts failed, and the pattern is worth keeping.** Grouping by
-`(order, description)` returned 731 groups and $91,752 -- those were the Morgan
-rolls. Grouping by repeated lot id returned 63 groups and $26,353 -- those were
-multi-coin lots. Parsing counts out of the description (`[3]`, `x20`, `(2) x`)
-returned 38 suspects and $20,170 -- but `$10 Morgan Silver Dollar Sealed roll`
-means ten dollars of face value, `Silver Eagle Roll` means twenty coins, and
-`Red Seal $1, $2 & $5 Set` means three notes. Free text written by an auction
-house to sell something will not classify.
-
-**Prefer a field with a structural guarantee over free text.** The lot id is
-issued by the venue and means one thing. The description means whatever sold
-the lot.
+Three earlier approaches each failed the same way, and the pattern is the point
+rather than the arithmetic: grouping by `(order, description)` condemned the
+Morgan rolls; grouping by repeated lot id condemned genuine multi-coin lots;
+parsing counts out of the description broke on `$10 Morgan Silver Dollar Sealed
+roll` (ten dollars of face value), `Silver Eagle Roll` (twenty coins) and `Red
+Seal $1, $2 & $5 Set` (three notes). **Text written by an auction house to sell
+something will not classify.** The lot id means one thing; the description
+means whatever sold the lot.
 
 **Exact matching is not enough.** Three further currency duplicates hide behind
-single-character errors -- `O` for `U`, a dropped digit, `6` for `3` -- and
-were invisible to equality. The check should compare normalised identifiers
-(case folded, non-alphanumerics stripped) and flag near-matches within one
-purchase order as candidates, since that is where they cluster.
+single-character errors -- `O` for `U`, a dropped digit, `6` for `3`. The check
+compares normalised identifiers (case folded, non-alphanumerics stripped) and
+flags near-matches *within one purchase order*, which is where they cluster.
 
-### Cross-field checks find what no single field shows
+## Cross-field checks
 
-Some anomalies are only visible as a *disagreement between two fields*, and
-they are the most valuable kind because neither field looks wrong alone.
+Some anomalies are visible only as a disagreement between two fields, and they
+are the most valuable kind because neither field looks wrong alone.
 
 **Star notes are the worked example.** A star (replacement) note carries an
 asterisk at the start or end of its serial -- never in the middle -- and there
-is a `star` entry in `note_attribute` to record it. Among notes with a serial:
+is a `star` entry in `note_attribute`. Among the 1,015 notes with a serial:
 
 | Asterisk in serial | `star` attribute | Count |
 |---|---|---|
-| yes | yes | 161 |
-| yes | **no** | **28** |
-| **no** | yes | **5** |
+| yes | yes | 189 |
+| no | **yes** | **5** |
 | no | no | 821 |
 
-33 disagreements, none of which any single-field check would surface. The 28
-include `B08084501*` through `B08084510*`, ten consecutive star notes whose
-attribute was never set. This is not cosmetic: star notes carry a premium, so
-those 28 would currently be listed as ordinary notes and sold too cheaply.
+The serial-pattern work closed the larger direction: there is no longer a note
+whose serial carries an asterisk without the attribute. The five remaining
+disagreements are one consecutive run, `R05945301A` through `R05945305A`.
+Those serials are well-formed *non-star* serials -- letter, eight digits,
+letter -- so the attribute is the likely error, but five notes in hand settle
+it and no code should. This is not cosmetic: star notes carry a premium, so a
+wrong attribute either overprices a note or sells a star note as an ordinary
+one.
 
-Two related rules fall out:
+The general shape is worth reusing. Wherever a fact is recorded in two places
+-- a marker inside free text and a structured attribute beside it -- the check
+is that they agree, and the fix is to make the structured one authoritative.
+Position is the reason: 179 asterisks are trailing and 10 leading, both meaning
+the same thing, so a search keyed on punctuation silently misses ten notes. The
+attribute is what searches use.
 
-- **An interior asterisk is invalid.** The character is positional -- start or
-  end only. Currently 0 rows violate this, and the check exists to keep it that
-  way.
-- **Position is recorded inconsistently**: 179 trailing, 10 leading. Both mean
-  the same thing, so a search keyed on a trailing `*` silently misses ten
-  notes. The attribute, not the punctuation, should be what searches use --
-  which is exactly why the 33 disagreements need resolving first.
+`app.serial_patterns.check` reports a malformed serial as a warning and never
+refuses one. Three of the first four serials it flagged were valid notes the
+rule had not anticipated, which is the argument for warnings: the collection is
+more varied than any rule written in advance.
 
-The general shape is worth reusing: wherever a fact is recorded in two places
--- a marker inside a free-text field and a structured attribute beside it --
-the check is that they agree, and the fix is to make the structured one
-authoritative.
-
-**And a repeat is sometimes correct.** Four of the nine currency groups are
-genuinely different notes -- different series or series letter -- that share a
-serial because collecting matched serial numbers across issues is a deliberate
-pursuit. `E00003333B` appears on a 2021 and a 2017-A $1, and the serial itself
-is a repeating-digit note bought on purpose. A check that assumed repeats were
-errors would fight the collection's actual theme.
-
-`mixed_marker` is separate from `no_grade` because it means "known to vary"
-rather than "unknown", and the remedy is different: decompose the purchase lot
-rather than fill the field.
-
-Two new structural filters: `lot=CC-004120` (everything with that parent) and
-`deleted=no|only|any`.
-
-### Review and edit
+## Review and edit
 
 **The queue is the search result, frozen at entry.** Search, get 23 Morgans,
 enter review, walk them one at a time with previous/next and a progress count.
 
-Freezing is required for the same reason membership is stored: if the queue
-re-ran the search at each step, fixing item 3's missing year would remove it
-from `?issue=no_year`, the set would shrink to 22, and every position after it
-would shift -- silently skipping an item. Entering review captures the id list
-once; navigation walks that list; fixed items stay visible, marked done.
+Freezing is required. If the queue re-ran the search at each step, fixing item
+3's missing year would remove it from `?issue=no_year`, the set would shrink to
+22, and every position after it would shift -- silently skipping an item.
+Entering review captures the id list once; navigation walks that list; fixed
+items stay visible, marked done.
 
-Two renderings of one result set:
+Three renderings of one result set:
 
-| | Table view | Review view |
-|---|---|---|
-| Shows | many rows, few columns | one item, every field |
-| For | finding work, bulk-setting what is common | exceptions, one at a time |
-| Edits | select rows, set shared fields, apply | full form, save and next |
+| | Table | Review | Workbook |
+|---|---|---|---|
+| Shows | many rows, few columns | one item, every field | many rows, every editable column |
+| For | finding work | exceptions, one at a time | bulk correction, fill-down, find-and-replace |
+| Edits | inline on the selected rows | full form, save and next | offline in Excel, imported as a diff |
 
-They share the search, the filters, the URL and the edit API. Switching is a
-toggle that preserves the query, so "the 23 Morgans" is one set viewed two
-ways rather than two screens to navigate between.
+The workbook is the third surface and it is deliberate: Excel is a better bulk
+editor than any screen this project will build in reasonable time, and the
+owner has years of muscle memory in it. `excel-roundtrip-design.md` specifies
+it -- export a search, edit, import as a set of proposed changes reconciled
+against `item_code` and `version`, dry run by default. Multi-valued columns
+travel tilde-separated. That document owns the round trip; this one only
+requires that the same search, the same filters and the same edit API stand
+behind all three surfaces.
 
-**The edit form shows the parent's value beside each field** --
-`Grade [AU58] · lot says BU` -- so it is always visible what is being
-overridden and what is still only the seller's claim.
-
-**This replaces a stored `examined` flag.** An earlier draft proposed
-`examined_at`, a column someone maintains. It was dropped: the same question is
-answered by comparing the item to its parent, which cannot drift out of sync,
-needs no backfill decision for the 7,591 existing items, and finds problems
-nobody thought to flag.
+**The edit form shows the parent's value beside each field**, so it is always
+visible what is being overridden and what is still only the seller's claim.
+Confirming a field writes its `item_field_review` row.
 
 ## API
 
 ```
 PATCH  /api/inventory/{id}           edit an item; optimistic via version, 409 on conflict
 POST   /api/inventory/bulk           set fields across selected ids
-DELETE /api/inventory/{id}/parent    detach a child; its parent_item_id becomes null
+POST   /api/inventory/{id}/reviewed  record which fields a person has confirmed
+DELETE /api/inventory/{id}/parent    detach a child; parent_item_id becomes null
 DELETE /api/inventory/{id}           soft delete, guarded
 GET    /api/inventory/{view}/search  extended: issue, lot, deleted filters
 ```
-
-`PATCH` unblocks everything else.
-
-Existing conventions carry over unchanged: classifiers cross the API as codes
-rather than ids, an unknown code is a 422 naming the field, and edits are
-optimistic against `version` with a 409 and the current state on conflict.
 
 `POST /bulk` is all-or-nothing in one transaction. A partial bulk edit across
 50 coins leaves a state nobody can describe, and "which of the 50 applied?" is
@@ -354,10 +391,10 @@ not a question the UI should ever have to answer.
 
 ## Frontend
 
-`Inventory.jsx` is 284 lines and already carries search, filters, facets,
-sorting and paging. Selection, bulk edit, review mode and an edit form would
-take it past 800. It gets split as part of this work, not after, since every
-one of those modules is touched anyway:
+`Inventory.jsx` already carries search, filters, facets, sorting and paging.
+Selection, bulk edit, review mode and an edit form would take it past 800
+lines, so it gets split as part of this work rather than after, since every one
+of those modules is touched anyway:
 
 ```
 inventory/
@@ -366,143 +403,187 @@ inventory/
   FilterPanel.jsx         text, facet selects, issue checks
   BulkEditBar.jsx         appears with a selection
   ReviewPane.jsx          one item at a time, previous/next
-  ItemEditForm.jsx        fields, parent value hints, save
-  specs.js               the coin and currency column/filter specifications
+  ItemEditForm.jsx        fields, parent value hints, review marks
+  specs.js                the coin and currency column and filter specifications
 ```
+
+## Where valuation gets its numbers
+
+Attribution exists to make valuation possible, so the sources it will draw on
+belong here even though the pricing work is document B.
+
+**The approach is cost-plus.** The asking price is derived from what was paid
+and a markup the owner chooses, informed by a wholesale reference. The derived
+number is the owner's own and is his to publish; the reference behind it may
+not be. That distinction decides the design.
+
+### The standing rule
+
+> Ensure it is okay to use any data we retrieve -- avoid copyrighted or
+> proprietary data.
+
+This applies to everything the system ingests, and it has already shaped the
+schema twice. A **fact** may be seeded: which offices two people held, what a
+series is called, what collectors nickname it. A **publisher's arrangement**
+may not: Friedberg's numbering, Pick's numbering, the contents of a price
+guide. The test is whether the thing was discovered or authored.
+
+### Friedberg numbers stay supported, not populated
+
+`friedberg_number` models the identifier fully -- `fr_number`, `base_number`,
+`note_type_id`, `series_year`, `series_letter`, `seal_color_id`,
+`signature_combination_id`, `size_class` -- and stays empty, for two reasons
+pointing the same way. Exactly **3** of 7,591 descriptions cite an Fr. number,
+so there is nothing to extract; and the numbering comes from Friedberg's
+*Paper Money of the United States*, so shipping a seeded mapping would be
+republishing a copyrighted work. The field is filled during attribution, from
+the owner's own copy or from a slab label, exactly as a certificate number is.
+
+The same reasoning stops a currency *series* vocabulary being invented. Note
+classes are already in `note_type`, the specific issue is the Friedberg number,
+and "Funnyback" names a design while "Horse Blanket" names a size era --
+`size_class` already separates those axes. A made-up list would mix them and be
+unusable against any published guide.
+
+### The CDN Public API v2
+
+CDN (Greysheet) publishes a REST API over its catalogue and price guides. It is
+the right shape for this project for a reason worth stating plainly: **it turns
+the catalogue from a table we would have to copy into a service we call.** The
+Friedberg problem above is a copying problem, and a licensed lookup does not
+have it.
+
+Access requires a paid dealer subscription -- Coin Dealer Digital or Coin
+Dealer for basic access, Dealer+ or Pro for advanced -- and API calls are
+billed by usage separately from the subscription. Coverage includes US paper
+money, which is the half of the collection with the weakest catalogue support
+today.
+
+The licence is workable for cost-plus, and its terms map onto the design
+directly. The material clauses, as published:
+
+| Data | What the licence permits |
+|---|---|
+| **Greysheet / Bluesheet / Greensheet wholesale values** | back-end internal systems only; **not permitted on any public website** without CDN's prior written permission |
+| **CPG retail values** | may appear on a front-facing website or collection-management tool, provided values are labelled as sourced from CDN |
+| **GSID numbers** | usable in back-end and front-end systems; when displayed publicly, `GSID` must be shown with a hyperlink to the matching record |
+| **Caching** | internal caching up to 24 hours, and not past the refresh time or end of business day, 3PM Pacific; data must not be stored with the intent of avoiding future calls |
+| **Redistribution** | no reproduction, distribution or publication without express prior written consent; no sale, lease, sublicence or transfer of API access |
+
+Five consequences, none of them onerous:
+
+1. **Wholesale values are an input, never a display.** They feed the markup
+   calculation server-side. The number the store shows is the owner's own
+   asking price. This is exactly what cost-plus wants, so the strictest clause
+   costs nothing.
+2. **The store may show CPG retail beside the asking price, labelled as CDN's.**
+   That is a genuinely useful thing to show a customer, and it is licensed.
+3. **There is no `greysheet_price` table.** The caching clause forbids the
+   obvious design -- a nightly refresh into a reference table -- because that
+   is storage to avoid future calls. Prices live in an expiring cache with a
+   TTL no longer than 24 hours and no later than the day's refresh, and the
+   cache is not part of the backup.
+4. **A GSID may be stored on an item.** It is an identifier, like a
+   certificate number, and storing it enables a call rather than avoiding one,
+   which is the use the licence describes. Displayed publicly it carries the
+   label and the link.
+5. **`valuation_snapshot` needs care.** It exists to make a past valuation
+   reproducible by recording its inputs, and a CDN value recorded there
+   outlives 24 hours by design. The conservative reading is to snapshot the
+   inputs the project owns -- cost basis, metal spot price, the markup applied
+   -- plus the *derived* value and a note of which CDN basis and timestamp were
+   used, without copying the CDN figure itself. If retaining the figure is
+   wanted for audit, that is a written-permission question to put to CDN
+   rather than a judgment call to make here.
+
+**Before any of this is built, the current Terms of Use and License Agreement
+must be read in full against the subscription actually purchased.** The summary
+above is from the published terms and is enough to design against; it is not
+enough to rely on, and the terms may change.
+
+Sources: [CDN Public API V2 Usage
+Guide](https://www.greysheet.com/cms/1049/cdn-public-api-v2-usage-guide) ·
+[API Terms of Use and License
+Agreement](https://www.greysheet.com/cms/1053/api-terms-of-use-and-license-agreement)
+· [CDN Public API Pricing](https://www.greysheet.com/publications/api-pricing)
+
+### Metal spot prices are separate and simpler
+
+Melt value is already computed from `metal_price`, a time series rather than a
+current-value column, so a past valuation stays reproducible. Spot prices are
+widely published as bare facts and carry none of the above constraints. Bullion
+-- 712 items with no weight recorded, and every round and bar besides -- is
+valued this way and needs no price guide at all.
 
 ## Testing
 
-Follows the existing practice of proving a guarantee by removing it.
+Follows the existing practice of proving a guarantee by removing it and
+confirming the test fails.
 
-- **Group/detach/delete round trip.** Group five items, detach one, delete the
-  parent once childless; the four remaining are standalone and cost basis is
-  unchanged.
-- **Delete guards.** Deleting a parent with pieces fails; deleting an item in
-  an order fails. Both must fail *for the stated reason*, not incidentally.
-- **Soft delete leaves search.** A deleted item is absent by default, present
-  with `deleted=only`, and absent from all four views.
-- **Queue stability.** Enter review on `issue=no_year`, fix the first item,
-  confirm the queue still has the same members in the same order. Remove the
-  freezing and this test must fail.
-- **Bulk atomicity.** A bulk edit where one id is invalid changes nothing.
+- **Split creates detail rows.** Every child has exactly one detail row, of the
+  kind its `item_kind` implies. Remove the creation and this must fail.
+- **Splitting conserves money.** The pieces' `item_cost` and `shipping_cost`
+  sum exactly to the parent's, and total cost basis across the collection is
+  unchanged to the penny. `total_cost` may differ by a cent or two because
+  `sales_tax` is generated per row; the difference is reported, not absorbed.
+- **An unlisted item is editable.** `PATCH /api/inventory/{id}` succeeds on an
+  item with no listing -- which is every item today.
 - **Optimistic conflict.** Two edits from one loaded state: the second gets a
   409. Remove the version check and this must fail.
-- **Split creates detail rows.** Every child of a split has exactly one detail
-  row, of the kind its `item_kind` implies.
-- **Splitting conserves money.** A test asserts that
-  splitting apportions cost exactly: the pieces' `price` and `shipping` sum
-  to the parent's, and total cost basis across the collection is unchanged to
-  the penny.
+- **Queue stability.** Enter review on `issue=no_year`, fix the first item,
+  confirm the queue still has the same members in the same order. Remove the
+  freezing and this must fail.
+- **Bulk atomicity.** A bulk edit where one id is invalid changes nothing.
+- **Soft delete leaves search.** A deleted item is absent by default, present
+  with `deleted=only`, and absent from all four views.
+- **Delete guards.** Deleting a parent with pieces fails; deleting an item in
+  an order fails. Both must fail *for the stated reason*, not incidentally.
+- **Detach round trip.** Split an item, detach one child, delete the parent
+  once childless; the remaining children stand alone and cost basis is
+  unchanged.
+- **A review mark survives an edit** and is scoped to one field: confirming
+  `grade_id` does not mark `year_start`.
 
 ## Migration
 
-1. Add `deleted_at`; add `AND i.deleted_at IS NULL` to all four views.
-2. Fix `split_item` to create the detail row.
-3. Verify cost basis is unchanged: `sum(total_cost)` over non-split,
-   non-deleted items must still be $534,177.89.
+1. Add `item_field_review`.
+2. Add `inventory_item.deleted_at`; add `AND i.deleted_at IS NULL` to all four
+   views.
+3. Fix `split_item` to create the detail row.
+4. Verify cost basis is unchanged: `sum(total_cost)` over live items must still
+   be $534,177.89.
 
-Nothing in this migration creates a row holding money, which is precisely why
-the earlier reconstruction proposal was dropped.
-
-## Series, aliases, and why Friedberg is different
-
-Built 2026-09-07.
-
-**Series** is the industry's word -- PCGS organises its price guide,
-population report and CoinFacts by it -- so a `series` reference table now
-carries Morgan Dollar, Winged Liberty Head Dime and 36 others, with
-`inventory_item.series_id` pointing at it. On the item rather than
-`coin_detail`, so faceting groups by an indexed key on the table already being
-scanned.
-
-**Aliases are required, not decorative.** Measured over the collection's own
-descriptions: "Mercury" appears 104 times and "Winged Liberty Head" zero;
-"Buffalo" 156 and "Indian Head Nickel" zero; but "Walking Liberty" 130 against
-"Walker" 2. A vocabulary of formal names alone misses 260 items; nicknames
-alone miss 130. `series_alias` is many-to-many in both directions -- a series
-has several nicknames, and "Cartwheel" spans Morgan and Peace.
-
-`series_match` classified **3,273 items** from text already held. It refuses
-two kinds of guess:
-
-- **Ambiguous terms need a denomination.** Barber names three series, Seated
-  Liberty four, Indian Head three. Without a denomination the item is left
-  unclassified, because a wrong series is inherited by every price looked up
-  against it afterwards.
-- **Two matches means neither.** 78 items match more than one series and are
-  left alone. `CC-000371` is why: *2010 D FRANKLIN PIERCE PRESIDENTIAL DOLLAR*
-  matches Franklin Half and Presidential Dollar, and taking the first would
-  have filed a presidential dollar as a Franklin half.
-
-### Friedberg numbers are supported, not populated
-
-The Friedberg number is the universally accepted catalogue identifier for US
-paper money, and `friedberg_number` already models it fully -- `fr_number`,
-`base_number`, `note_type_id`, `series_year`, `series_letter`,
-`seal_color_id`, `signature_combination_id`, `size_class`.
-
-It stays empty, for two reasons that both point the same way:
-
-1. **Nothing to derive.** Exactly **3** of 7,591 descriptions cite an Fr.
-   number. There is no extraction to do.
-2. **The catalogue is not ours to reproduce.** The numbering comes from
-   Friedberg's *Paper Money of the United States*, a copyrighted work. Shipping
-   a seeded mapping of Fr. numbers to issues would be republishing it.
-
-So the field is recorded during attribution, from the owner's own copy or from
-the slab label, exactly as a certificate number is. Populating a catalogue is
-not something this project should do.
-
-The same reasoning stops a currency *series* vocabulary being invented: note
-classes are already in `note_type`, the specific issue is the Friedberg number,
-and "Funnyback" names a design while "Horse Blanket" names a size era --
-`size_class` already separates them. A made-up currency series list would mix
-those axes and be unusable against any published guide.
+Nothing in this migration creates a row holding money, and nothing recomputes
+one.
 
 ## Open questions
 
-- **eBay order numbers are recoverable from the PDFs, and should be.** The
-  1,857 eBay rows are currently grouped by *listing* id, which is a
-  placeholder: the owner simply was not recording order numbers when the
-  spreadsheet began. `OneDrive/Documents/coins` holds **1,020 `ebay_*.pdf`
-  purchase pages**, and the real numbers extract cleanly -- a 25-file sample
-  yielded 545 distinct ones, median 25 per file, none empty.
-
-  The work is not the extraction but the matching: a purchases page lists
-  order number, title, price and date together, and each must be paired to
-  the right inventory row. That wants the same discipline as the series
-  matcher -- apply the confident matches, report the ambiguous ones, and never
-  resolve a tie by taking the first. Worth its own piece of work.
-
-- **`purchase_order` 114 is an importer artefact, not an order.** The
-  spreadsheet has no purchase-order concept at all -- only a vendor's order
-  number per row. `loader.purchase_order_id` keys on
-  `(vendor_id, order_number or "")`, so **every row with a blank order number
-  from one vendor collapses into a single key**. For ebay.com that is 1,922
-  items across two years, $90,438.91 of cost basis, dated by whichever row
-  happened to come first (2024-04-01).
-
-  It is a bug rather than a finding about the collection, and it is larger
-  than one vendor. Twelve orders are affected -- ebay.com, hibid.com,
-  liveauctioneers.com and nine others -- covering **2,644 items and
-  $224,372.20, which is 42% of the cost basis**. Rows with no order number
-  are not one order and must not share a row: each should get its own, or
-  none at all. Until it is fixed, any report grouping by purchase order is
-  wrong for two fifths of the collection by value.
-- **Item 0 of the 12 conglomerates.** The unsplit items hold 240 pieces between
-  them, but the piece count comes from `storage_quantity`, which was itself
-  parsed from the spreadsheet. Those counts want checking against the
-  descriptions before anyone splits on them.
-- **Duplicate rows: 5 lots, 7 surplus rows, $1,183.55.** Resolved 2026-09-07,
-  see the auction-lot-id section above. Needs confirming against the physical
-  collection -- one 1886 Morgan MS66 or two -- before anything is deleted.
-- **Currency duplicates.** Of the 9 repeated serials, 4 are legitimate
-  matched-serial notes and 5 are the same note entered twice, with 3 further
-  duplicates hidden behind typos.
-- **Certification numbers are not reliable and should not be trusted as an
-  identifier.** 48 numbers repeat across 108 rows. The 29 largest cases sit
-  across two eBay orders six months apart with different totals -- two genuine
-  purchases whose seller reused one listing template across identical PR69DCAM
-  sets. The certificates were copied from listing text, so they identify the
-  *listing*, not the slab. They want either re-reading from the physical slabs
-  or clearing.
+- **Per-field review, or one flag per item.** The single design decision this
+  document needs. Recommendation above.
+- **The twelve conglomerates' piece counts.** They hold 240 pieces between
+  them, but the count came from `piece_count`, parsed from the spreadsheet.
+  Worth checking against the descriptions before splitting on them.
+- **Seven surplus rows, $1,183.55**, across five auction lots. Identified;
+  needs confirming against the physical collection -- one 1886 Morgan MS66 or
+  two -- before anything is deleted.
+- **Five star attributes with no asterisk**, one consecutive run. Needs the
+  notes in hand.
+- **Certification numbers are not reliable as identifiers.** 48 numbers repeat
+  across 108 rows. The largest cases sit across two eBay orders six months
+  apart with different totals -- two genuine purchases whose seller reused one
+  listing template across identical PR69DCAM sets. The numbers were copied from
+  listing text, so they identify the *listing*, not the slab. They want
+  re-reading from the physical slabs, or clearing.
+- **eBay order numbers from the PDFs.** 3,053 eBay orders are recorded, but the
+  earliest rows predate the owner recording order numbers at all.
+  `OneDrive/Documents/coins` holds 1,020 `ebay_*.pdf` purchase pages and the
+  numbers extract cleanly -- a 25-file sample yielded 545 distinct ones, median
+  25 per file. The work is the matching, not the extraction: a purchases page
+  lists order number, title, price and date together and each must be paired to
+  the right row. That wants the discipline the series matcher uses -- apply the
+  confident matches, report the ambiguous, never resolve a tie by taking the
+  first. Its own piece of work.
+- **Whether the CDN subscription is worth buying yet.** It is a recurring cost
+  plus per-call billing, and it is only useful once items are attributed well
+  enough to look up. That argues for finishing attribution first and treating
+  the API as document B's opening move.
