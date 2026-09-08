@@ -1437,7 +1437,7 @@ def test_an_unrecognised_deleted_mode_is_refused(
 def test_the_lot_filter_finds_a_lot_s_pieces(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """"Show me everything from that tube" is the review queue's entry point.
+    """Everything split from one lot -- the review queue's entry point.
 
     By item code rather than id: the code is what is printed on the flip and
     what a person has in front of them.
@@ -1916,7 +1916,7 @@ def test_one_bad_code_changes_nothing(
 def test_bulk_refuses_an_empty_selection(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """"Apply to nothing" is far more likely a lost selection than an intent."""
+    """Applying to nothing is far more likely a lost selection than an intent."""
     response = client.post(
         "/api/inventory/bulk",
         json={"ids": [], "changes": {"year_start": 1964}},
