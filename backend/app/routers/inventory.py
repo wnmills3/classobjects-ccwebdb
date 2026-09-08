@@ -15,13 +15,30 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from ..deps import AdminUser, DbSession
 from ..inventory_search import VIEWS, count_facets, search
-from ..models import Denomination, Grade, InventoryItem, Metal, StorageForm
+from ..models import (
+    Authenticity,
+    BullionForm,
+    Country,
+    Denomination,
+    Disposition,
+    Grade,
+    GradeDesignation,
+    GradingService,
+    InventoryItem,
+    ItemKind,
+    ItemStatus,
+    Metal,
+    Series,
+    StorageForm,
+)
 from ..references import code_to_id
 from ..schemas import (
     InventoryItemOut,
+    InventoryItemUpdate,
     InventoryPageOut,
     SplitPieceIn,
     SplitRequest,
@@ -150,6 +167,106 @@ def search_inventory(
 def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> InventoryItem:
     """One inventory item, cost basis included. Staff only."""
     return _get_item(db, item_id)
+
+
+#: Editable classifiers on an item, and where each code resolves.
+#:
+#: Wider than PIECE_CLASSIFIERS above, which covers only what a split may
+#: override per piece. Everything here is a correction someone makes while
+#: attributing an item in hand.
+ITEM_CLASSIFIERS: dict[str, type] = {
+    "item_kind": ItemKind,
+    "country": Country,
+    "denomination": Denomination,
+    "bullion_form": BullionForm,
+    "grade": Grade,
+    "grade_designation": GradeDesignation,
+    "grading_service": GradingService,
+    "metal": Metal,
+    "series": Series,
+    "storage_form": StorageForm,
+    "authenticity": Authenticity,
+    "status": ItemStatus,
+    "disposition": Disposition,
+}
+
+#: Plain columns a client may set. Named identically on the wire and in the
+#: database, unlike the catalogue router's `ITEM_SCALARS` -- that one is a
+#: *mapping*, because the shop says `title` and `price` where the item says
+#: `source_title` and `item_cost`. This surface speaks the item's own
+#: vocabulary throughout, the same names the Excel round trip uses, so no
+#: translation is needed and a tuple is enough. Deliberately not called
+#: ITEM_SCALARS: two things with one name in two routers is how the wrong one
+#: gets imported.
+EDITABLE_SCALARS: tuple[str, ...] = (
+    "source_title",
+    "description",
+    "year_start",
+    "year_end",
+    "fineness",
+    "gross_weight_ozt",
+    "fine_weight_ozt",
+    "piece_count",
+    "item_cost",
+    "shipping_cost",
+)
+
+
+@router.patch("/{item_id}", response_model=InventoryItemOut)
+def update_item(
+    item_id: int,
+    payload: InventoryItemUpdate,
+    db: DbSession,
+    _admin: AdminUser,
+) -> InventoryItem:
+    """Correct an item. Send `version` to be told about conflicts.
+
+    This is the editing path for the collection. `PATCH /api/catalog/{id}`
+    needs a listing, and an item is owned long before it is offered and after
+    it is sold -- most of this collection will never have a listing at all.
+    """
+    item = _get_item(db, item_id)
+
+    # exclude_unset so an omitted field is left alone rather than nulled.
+    data = payload.model_dump(exclude_unset=True)
+    expected = data.pop("version", None)
+
+    # Checked before anything is applied, so the caller gets a useful message.
+    # The database check below is the real guarantee: it closes the gap
+    # between this comparison and the commit.
+    if expected is not None and expected != item.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{item.item_code} was changed by someone else (you have "
+                f"version {expected}, current is {item.version}). Reload and "
+                f"reapply your changes."
+            ),
+        )
+
+    for field, model in ITEM_CLASSIFIERS.items():
+        if field in data:
+            value = data[field]
+            setattr(item, f"{field}_id", code_to_id(db, model, value, field))
+
+    for field in EDITABLE_SCALARS:
+        if field in data:
+            setattr(item, field, data[field])
+
+    try:
+        db.commit()
+    except StaleDataError as exc:
+        # Someone committed between the check above and this one. The UPDATE
+        # carried `WHERE version = ...`, matched no rows, and overwrote
+        # nothing.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{item.item_code} was changed while saving. Reload and retry.",
+        ) from exc
+
+    db.refresh(item)
+    return item
 
 
 @router.post("/{item_id}/split", response_model=SplitResultOut)
