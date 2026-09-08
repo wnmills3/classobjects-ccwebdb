@@ -526,3 +526,26 @@ button.link.danger {
   padding: 0.6rem 0.8rem;
   margin-bottom: 1rem;
 }
+/* Issue chips. A selected chip must be unmistakable at a glance: the panel's
+   whole job is showing which of a dozen checks is currently narrowing the
+   list. */
+.issue-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+}
+.chip {
+  background: #f2f2f2;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  color: #333;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.7rem;
+}
+.chip-on {
+  background: #24507a;
+  border-color: #24507a;
+  color: #fff;
+}
