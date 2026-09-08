@@ -61,6 +61,7 @@ from ..models import (
     Vendor,
     VendorKind,
 )
+from ..order_repair import identify
 
 __all__ = ["SchemaLoader"]
 
@@ -199,10 +200,32 @@ class SchemaLoader:
         ordered_on: date | None = None,
         source_url: str | None = None,
     ) -> int | None:
-        """One order, many items -- so the same order number reuses its row."""
+        """One order, many items -- so the same order number reuses its row.
+
+        **A blank order number is not an order number.** Keying on
+        ``order_number or ""`` collapsed every numberless row from one vendor
+        into a single fabricated order: 1,922 eBay purchases across two years
+        became `purchase_order` 114. That is treating *unknown* as a value.
+
+        Where the number is missing, the vendor's own transaction id is often
+        in the URL -- a HiBid or Proxibid lot, a LiveAuctioneers item, an Etsy
+        receipt -- and that identifies the purchase properly. An eBay item
+        number names a *listing* rather than a purchase, so it groups the rows
+        but is never written into ``order_number``. With neither, the row gets
+        no order at all, which is the honest answer.
+        """
         if vendor_id is None:
             return None
-        key = (vendor_id, order_number or "")
+
+        identified = identify(source_url) if not order_number else None
+        if not order_number and identified is None:
+            return None
+        if identified is not None:
+            identifier, is_order_number = identified
+            order_number = identifier if is_order_number else None
+            key = (vendor_id, f"url:{identifier}")
+        else:
+            key = (vendor_id, order_number or "")
         if key in self._orders:
             return self._orders[key]
 
