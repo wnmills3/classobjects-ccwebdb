@@ -6,7 +6,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import auth, catalog, images, inventory, orders, reference
+from .routers import (
+    auth,
+    catalog,
+    customers,
+    images,
+    inventory,
+    orders,
+    reference,
+    users,
+)
 
 app = FastAPI(
     title="ccwebdb",
@@ -28,6 +37,8 @@ app.include_router(images.router, prefix=settings.api_prefix)
 app.include_router(inventory.router, prefix=settings.api_prefix)
 app.include_router(reference.router, prefix=settings.api_prefix)
 app.include_router(orders.router, prefix=settings.api_prefix)
+app.include_router(users.router, prefix=settings.api_prefix)
+app.include_router(customers.router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["meta"])

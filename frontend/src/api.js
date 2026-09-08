@@ -173,4 +173,18 @@ export const api = {
   listOrders: () => send('/api/orders'),
   setOrderStatus: (id, status) =>
     send(`/api/orders/${id}`, { method: 'PATCH', body: { status } }),
+
+  // accounts -- who can sign in
+  listUsers: () => send('/api/users'),
+  updateUser: (id, payload) =>
+    send(`/api/users/${id}`, { method: 'PATCH', body: payload }),
+  setUserPassword: (id, password) =>
+    send(`/api/users/${id}/password`, { method: 'POST', body: { password } }),
+
+  // customers -- who you ship to
+  listCustomers: () => send('/api/customers'),
+  updateCustomer: (id, payload) =>
+    send(`/api/customers/${id}`, { method: 'PATCH', body: payload }),
+  addCustomerAddress: (id, payload) =>
+    send(`/api/customers/${id}/addresses`, { method: 'POST', body: payload }),
 }
