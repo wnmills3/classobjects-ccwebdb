@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -29,6 +29,7 @@ from ..models import (
     GradeDesignation,
     GradingService,
     InventoryItem,
+    ItemFieldReview,
     ItemKind,
     ItemStatus,
     Metal,
@@ -40,6 +41,8 @@ from ..schemas import (
     InventoryItemOut,
     InventoryItemUpdate,
     InventoryPageOut,
+    ItemReviewOut,
+    ReviewRequest,
     SplitPieceIn,
     SplitRequest,
     SplitResultOut,
@@ -327,4 +330,105 @@ def split(
         allocated_total_cost=allocated_total,
         total_cost_difference=allocated_total - parent.total_cost,
         pieces=[InventoryItemOut.model_validate(c) for c in children],
+    )
+
+
+#: Fields worth confirming by examination.
+#:
+#: A whitelist rather than "any column": a review of `created_at` means
+#: nothing, and a typo that became a record would be a row nobody can ever
+#: query for. Held here rather than as a check constraint because which
+#: fields are worth confirming is a product decision that will change, and a
+#: constraint would need a migration every time it did.
+REVIEWABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "year_start",
+        "year_end",
+        "grade_id",
+        "grade_designation_id",
+        "grading_service_id",
+        "denomination_id",
+        "country_id",
+        "metal_id",
+        "series_id",
+        "fineness",
+        "fine_weight_ozt",
+        "gross_weight_ozt",
+        "piece_count",
+        "mint_id",
+        "variety",
+        "serial_number",
+        "series_year",
+        "series_letter",
+        "seal_color_id",
+        "fed_district_id",
+        "friedberg_id",
+    }
+)
+
+
+def _reviewed_fields(db: Session, item_id: int) -> list[str]:
+    return sorted(
+        db.scalars(
+            select(ItemFieldReview.field_name).where(
+                ItemFieldReview.inventory_item_id == item_id
+            )
+        ).all()
+    )
+
+
+@router.get("/{item_id}/reviewed", response_model=ItemReviewOut)
+def get_item_review(item_id: int, db: DbSession, _admin: AdminUser) -> ItemReviewOut:
+    """Which of this item's fields a person has confirmed."""
+    item = _get_item(db, item_id)
+    return ItemReviewOut(
+        inventory_item_id=item.id, reviewed=_reviewed_fields(db, item.id)
+    )
+
+
+@router.post("/{item_id}/reviewed", response_model=ItemReviewOut)
+def set_item_review(
+    item_id: int,
+    payload: ReviewRequest,
+    db: DbSession,
+    admin: AdminUser,
+) -> ItemReviewOut:
+    """Record that a person has confirmed these fields by examination.
+
+    Idempotent: confirming a field twice is the same fact, not an error.
+    Looking at a coin again and agreeing with yourself should not be a 409.
+    """
+    item = _get_item(db, item_id)
+
+    unknown = sorted(set(payload.fields) - REVIEWABLE_FIELDS)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not reviewable: {unknown}. Available: {sorted(REVIEWABLE_FIELDS)}",
+        )
+
+    existing = set(_reviewed_fields(db, item.id))
+    wanted = set(payload.fields)
+
+    if payload.replace:
+        for gone in existing - wanted:
+            db.execute(
+                delete(ItemFieldReview).where(
+                    ItemFieldReview.inventory_item_id == item.id,
+                    ItemFieldReview.field_name == gone,
+                )
+            )
+
+    for name in wanted - existing:
+        db.add(
+            ItemFieldReview(
+                inventory_item_id=item.id,
+                field_name=name,
+                reviewed_by_id=admin.id,
+            )
+        )
+
+    db.commit()
+    return ItemReviewOut(
+        inventory_item_id=item.id, reviewed=_reviewed_fields(db, item.id)
     )
