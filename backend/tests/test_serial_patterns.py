@@ -94,18 +94,18 @@ def test_empty_serial_is_silent() -> None:
     assert analyse("") == set()
 
 
-def test_an_internal_letter_is_refused_not_warned() -> None:
-    """A letter among the digits is a typo every time.
+def test_an_internal_letter_warns_rather_than_refusing() -> None:
+    """Usually a transposition, but the owner has shown it is not always.
 
-    S97535476A entered as S9753547A6. Letters belong at the ends of a serial
-    -- one or two in front, one behind -- so one in the middle cannot be what
-    is printed on the note, and data entry refuses it rather than asking.
+    S97535476A typed as S9753547A6 is the common case. But three notes in
+    this collection carry an internal letter and are correct as recorded, so
+    refusing outright would have blocked legitimate entry. It warns instead.
     """
     from app.serial_patterns import check
 
     issues = check("S9753547A6")
-    assert issues[0].severity == "error"
-    assert "transposition" in issues[0].message
+    assert [i.severity for i in issues] == ["warning", "warning"]
+    assert "one position early" in issues[0].message
 
 
 def test_short_and_high_serials_only_warn() -> None:
@@ -139,3 +139,32 @@ def test_ends_may_carry_letters_or_a_star() -> None:
 
     for serial in ("A12345678B", "AB12345678C", "*12345678B", "A12345678*"):
         assert check(serial) == [], serial
+
+
+def test_shape_rules_apply_to_us_notes_only() -> None:
+    """A world note is not malformed for looking unlike a US one.
+
+    Many national formats interleave letters and digits legitimately, so
+    applying the US shape to a Bank of Canada or Bundesbank note would refuse
+    a correct entry. The four malformed serials found in this collection came
+    from a lot described as "US or World Currency", which is how the question
+    arose.
+    """
+    from app.serial_patterns import check
+
+    assert check("S9753547A6", country="US")[0].severity == "warning"
+    assert check("S9753547A6", country="CA") == []
+    assert check("AB-1234/567", country="DE") == []
+
+
+def test_pre_1928_notes_are_not_shape_checked() -> None:
+    """Large-size and obsolete issues predate the convention.
+
+    CC-007305 is an 1852 $5 whose serial is S143r1 and is correct. The
+    letters-at-the-ends rule arrived with small-size notes in 1928, so
+    applying it 76 years early would condemn a genuine note.
+    """
+    from app.serial_patterns import check
+
+    assert check("S143r1", 1852) == []
+    assert check("S143r1", 1957) != []
