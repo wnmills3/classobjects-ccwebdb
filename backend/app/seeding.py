@@ -39,7 +39,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
-from .models import REFERENCE_MODELS, Composition, ProvenanceSource, ReferenceMixin
+from .models import (
+    REFERENCE_MODELS,
+    Composition,
+    ProvenanceSource,
+    ReferenceMixin,
+    Series,
+    SeriesAlias,
+)
 
 #: backend/data/reference
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "reference"
@@ -217,8 +224,52 @@ def seed_all(
         session.flush()
         stats[table] = counter
 
+    if not only or "series_alias" in only:
+        stats["series_alias"] = _seed_series_aliases(session, data)
+
     session.commit()
     return stats
+
+
+def _seed_series_aliases(
+    session: Session, data: dict[str, list[dict[str, Any]]]
+) -> Counter:
+    """Load the colloquial names, which the generic loader cannot carry.
+
+    `series_alias` has no `code` and no `label`, so it is not a classifier in
+    the sense the rest of this module means. It is a lookup that exists purely
+    so a search for "Mercury" finds a Winged Liberty Head Dime.
+    """
+    counter: Counter = Counter()
+    rows = data.get("series_alias") or []
+    if not rows:
+        return counter
+
+    series_ids = dict(session.execute(select(Series.code, Series.id)).all())
+    existing = {
+        (series_id, alias)
+        for series_id, alias in session.execute(
+            select(SeriesAlias.series_id, SeriesAlias.alias)
+        ).all()
+    }
+
+    for position, row in enumerate(rows, start=1):
+        code = row.get("series")
+        alias = row.get("alias")
+        if not code or not alias:
+            raise SeedError(f"series_alias[{position}]: needs 'series' and 'alias'")
+        series_id = series_ids.get(code)
+        if series_id is None:
+            raise SeedError(f"series_alias[{position}]: unknown series {code!r}")
+        if (series_id, alias) in existing:
+            counter["unchanged"] += 1
+            continue
+        session.add(SeriesAlias(series_id=series_id, alias=alias))
+        existing.add((series_id, alias))
+        counter["created"] += 1
+
+    session.flush()
+    return counter
 
 
 def _differs(current: object, incoming: object) -> bool:

@@ -11,7 +11,7 @@ existing spreadsheet in.
 
 Status: the schema and the import engine exist. **The entry panels described
 here do not yet.** This document specifies what they need to do; the attribution
-design in `docs/superpowers/specs/` covers the first slice of building them.
+design in `docs/specs/` covers the first slice of building them.
 
 ## The starting state
 

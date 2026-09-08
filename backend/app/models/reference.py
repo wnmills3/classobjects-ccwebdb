@@ -15,7 +15,14 @@ from __future__ import annotations
 import enum
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import (
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, ReferenceMixin, enum_column
@@ -165,6 +172,71 @@ class Denomination(ReferenceMixin, Base):
             "currency_id", "face_value", "kind", name="uq_denomination_value"
         ),
     )
+
+
+class Series(ReferenceMixin, Base):
+    """A design series: Morgan Dollar, Peace Dollar, Winged Liberty Head Dime.
+
+    "Series" is the industry's word, not one invented here -- PCGS organises
+    its price guide, population report and CoinFacts by series, so using the
+    same term is what lets a value be looked up against a published guide.
+
+    Notes carry one too where a design has a distinct identity, though the
+    canonical identifier for US paper money is the Friedberg number rather
+    than a series name.
+
+    ``label`` is the formal name and ``aliases`` carry what people actually
+    say. That distinction is load-bearing: "Winged Liberty Head Dime" appears
+    nowhere in this collection's own descriptions and "Mercury" appears 104
+    times, so a search that knew only the formal name would find nothing.
+    """
+
+    __tablename__ = "series"
+
+    #: First and last year the design was struck. Nullable because a series
+    #: still in production has no end, and some are not precisely bounded.
+    year_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    year_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Which inventory this series belongs to, so the coin picker does not
+    #: offer Silver Certificate and the currency picker does not offer Morgan.
+    applies_to: Mapped[str] = mapped_column(
+        String(16), default="coin", server_default=text("'coin'"), nullable=False
+    )
+    denomination_id: Mapped[int | None] = mapped_column(
+        ForeignKey("denomination.id", ondelete="RESTRICT"), nullable=True
+    )
+
+    aliases: Mapped[list[SeriesAlias]] = relationship(
+        back_populates="series", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (UniqueConstraint("code", name="uq_series_code"),)
+
+
+class SeriesAlias(Base):
+    """A colloquial name people search by.
+
+    Kept separate from ``series.label`` rather than stuffed into it because
+    the relationship is many-to-one in both directions: a series has several
+    nicknames ("Mercury", "Merc"), and one nickname spans several series
+    ("Cartwheel" is any large silver dollar).
+
+    Aliases are never typed onto an item. An item inherits them through its
+    series, so a nickname added later applies retrospectively to everything
+    already classified.
+    """
+
+    __tablename__ = "series_alias"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    series_id: Mapped[int] = mapped_column(
+        ForeignKey("series.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    alias: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    series: Mapped[Series] = relationship(back_populates="aliases")
+
+    __table_args__ = (UniqueConstraint("series_id", "alias", name="uq_series_alias"),)
 
 
 class Mint(ReferenceMixin, Base):
