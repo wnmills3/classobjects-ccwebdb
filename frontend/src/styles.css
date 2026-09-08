@@ -490,3 +490,39 @@ button.link.danger {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Two-tab pages. Accounts and customers are separate tables, so they get
+   separate tabs rather than one merged grid that would imply every customer
+   can sign in. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+}
+.tab {
+  background: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  padding: 0.45rem 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  width: auto;
+  margin: 0 0 -1px 0;
+}
+.tab-active {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+.notice {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+}

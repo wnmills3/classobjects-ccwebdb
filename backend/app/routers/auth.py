@@ -74,8 +74,8 @@ def login(
         db.commit()
 
     return TokenPair(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        access_token=create_access_token(user.id, user.token_version),
+        refresh_token=create_refresh_token(user.id, user.token_version),
     )
 
 
@@ -101,10 +101,18 @@ def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
         )
+    # Without this the revocation is decorative: a refresh token issued before
+    # the password changed would mint a brand-new access token carrying the
+    # *current* version, and the reset would have revoked nothing at all.
+    if decoded.get("tv") != user.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
 
     return TokenPair(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        access_token=create_access_token(user.id, user.token_version),
+        refresh_token=create_refresh_token(user.id, user.token_version),
     )
 
 

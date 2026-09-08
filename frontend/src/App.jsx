@@ -3,6 +3,7 @@ import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth-context'
 import { useCart } from './cart-context'
 import AdminCoins from './pages/AdminCoins'
+import AdminPeople from './pages/AdminPeople'
 import Cart from './pages/Cart'
 import Catalog from './pages/Catalog'
 import CoinDetail from './pages/CoinDetail'
@@ -40,6 +41,7 @@ export default function App() {
           {isAdmin && <NavLink to="/inventory/coins">Coins</NavLink>}
           {isAdmin && <NavLink to="/inventory/currency">Currency</NavLink>}
           {isAdmin && <NavLink to="/admin/coins">Manage</NavLink>}
+          {isAdmin && <NavLink to="/admin/people">People</NavLink>}
         </nav>
 
         <div className="account">
@@ -98,6 +100,14 @@ export default function App() {
             element={
               <RequireAuth adminOnly>
                 <AdminCoins />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/admin/people"
+            element={
+              <RequireAuth adminOnly>
+                <AdminPeople />
               </RequireAuth>
             }
           />

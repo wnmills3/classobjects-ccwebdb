@@ -44,7 +44,9 @@ def needs_rehash(hashed: str) -> bool:
         return False
 
 
-def _create_token(subject: str, token_type: TokenType, expires: timedelta) -> str:
+def _create_token(
+    subject: str, token_type: TokenType, expires: timedelta, token_version: int
+) -> str:
     """Issue a signed JWT carrying its own type.
 
     The type is inside the payload so an access token cannot be presented
@@ -58,25 +60,31 @@ def _create_token(subject: str, token_type: TokenType, expires: timedelta) -> st
         "iat": now,
         "exp": now + expires,
         "jti": uuid.uuid4().hex,
+        # Checked against the user row on every request. A password change
+        # bumps the stored value, which invalidates every token issued before
+        # it -- the only revocation available without a token store.
+        "tv": token_version,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, token_version: int = 1) -> str:
     """A short-lived token for ordinary requests."""
     return _create_token(
         str(user_id),
         "access",
         timedelta(minutes=settings.access_token_expire_minutes),
+        token_version,
     )
 
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: int, token_version: int = 1) -> str:
     """A long-lived token whose only use is obtaining a new access token."""
     return _create_token(
         str(user_id),
         "refresh",
         timedelta(days=settings.refresh_token_expire_days),
+        token_version,
     )
 
 
