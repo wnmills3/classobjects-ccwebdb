@@ -13,6 +13,7 @@ import pytest
 from app.models import (  # noqa: F401
     Authenticity,
     Composition,
+    Country,
     Currency,
     Denomination,
     Disposition,
@@ -38,7 +39,12 @@ def code_id(db: Session, model: type, code: str) -> int:
 
 
 def make_item(db: Session, **overrides: object) -> InventoryItem:
-    """An inventory item with every NOT NULL classifier filled in."""
+    """An ordinary, fully-attributed coin.
+
+    Every NOT NULL classifier is filled in, plus a year and a country, so a
+    test that wants a gap has to ask for one explicitly rather than getting
+    it by accident.
+    """
     defaults: dict[str, object] = {
         "item_kind_id": code_id(db, ItemKind, "coin"),
         "storage_form_id": code_id(db, StorageForm, "single"),
@@ -46,6 +52,8 @@ def make_item(db: Session, **overrides: object) -> InventoryItem:
         "status_id": code_id(db, ItemStatus, "received"),
         "disposition_id": code_id(db, Disposition, "held"),
         "valuation_basis_id": code_id(db, ValuationBasis, "numismatic"),
+        "country_id": code_id(db, Country, "US"),
+        "year_start": 1881,
         "item_cost": Decimal("100.00"),
         "shipping_cost": Decimal("0.00"),
     }

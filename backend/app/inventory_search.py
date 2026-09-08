@@ -36,12 +36,16 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from .issues import COIN_ISSUES, CURRENCY_ISSUES, Issue
+
 __all__ = [
     "COIN_VIEW",
     "CURRENCY_VIEW",
     "VIEWS",
+    "UnknownIssue",
     "ViewSpec",
     "count_facets",
+    "count_issues",
     "search",
 ]
 
@@ -110,6 +114,7 @@ class ViewSpec:
     sortable: tuple[str, ...] = ()
     facets: dict[str, Facet] = field(default_factory=dict)
     default_sort: str = "item_code"
+    issues: dict[str, Issue] = field(default_factory=dict)
 
     def joins_for(self, groups: list[tuple[str, ...]]) -> str:
         """Only the joins the current query needs, each emitted once."""
@@ -119,6 +124,14 @@ class ViewSpec:
                 if clause not in seen:
                     seen.append(clause)
         return " ".join(seen)
+
+
+class UnknownIssue(KeyError):
+    """An `issue=` value the view does not define.
+
+    Distinct from a plain KeyError so the router can name the available
+    checks rather than the available filters.
+    """
 
 
 #: How the search treats soft-deleted rows. Not a `Filt`, because it is a
@@ -266,6 +279,7 @@ COIN_VIEW = ViewSpec(
         # then rejects with a 422.
         "mint_mark": Facet("mint_id", "mint", (_J_COIN_DETAIL,), "cd", "mark"),
     },
+    issues=COIN_ISSUES,
 )
 
 
@@ -312,6 +326,7 @@ CURRENCY_VIEW = ViewSpec(
         # compares against.
         "series_year": Facet("series_year", None, (_J_CUR_DETAIL,), "cud"),
     },
+    issues=CURRENCY_ISSUES,
 )
 
 VIEWS: dict[str, ViewSpec] = {v.name: v for v in (COIN_VIEW, CURRENCY_VIEW)}
@@ -371,6 +386,16 @@ def _conditions(
             "(SELECT id FROM inventory_item WHERE item_code = :p_lot)"
         )
         bound["p_lot"] = lot_code
+
+    issue_key = params.pop("issue", None)
+    if issue_key:
+        issue = spec.issues.get(issue_key)
+        if issue is None:
+            raise UnknownIssue(issue_key)
+        # Parenthesised: a predicate containing OR would otherwise bind
+        # loosely against the other clauses and match far too much.
+        clauses.append(f"({issue.sql})")
+        joins.append(issue.join)
 
     for key, value in params.items():
         if value in (None, ""):
@@ -551,3 +576,42 @@ def count_facets(
         ]
 
     return results
+
+
+def count_issues(
+    db: Session, spec: ViewSpec, *, params: dict[str, Any], query: str | None = None
+) -> dict[str, int]:
+    """How many rows in the current result set hit each named check.
+
+    One query with a FILTER per check rather than one query per check: there
+    are a dozen checks and they all read the same rows.
+
+    `issue` itself is dropped from the filters first. Counting within the
+    selected check would collapse every other count to zero or to a subset,
+    and the panel would stop being a way to see what work is left.
+    """
+    params = {k: v for k, v in params.items() if k != "issue"}
+    clauses, joins, bound = _conditions(
+        spec, params, query, series_ids_matching(db, query)
+    )
+    # All checks are counted at once, so every check's joins must be present.
+    joins = list(joins) + [issue.join for issue in spec.issues.values()]
+
+    selected = ", ".join(
+        f"count(*) FILTER (WHERE {issue.sql}) AS {name}"
+        for name, issue in spec.issues.items()
+    )
+    row = (
+        db.execute(
+            text(
+                f"SELECT {selected} FROM {spec.base} {spec.joins_for(joins)} "
+                f"WHERE {' AND '.join(clauses)}"
+            ),
+            bound,
+        )
+        .mappings()
+        .one()
+    )
+    # Zero-count checks are omitted: a panel listing a dozen checks that all
+    # say 0 hides the two that do not.
+    return {name: row[name] for name in spec.issues if row[name]}
