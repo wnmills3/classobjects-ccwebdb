@@ -133,6 +133,38 @@ hand-edited `total_cost` would be silently recomputed away.
 They are visually distinct, locked, and **an edit to one is reported rather
 than applied** -- silence would look like acceptance.
 
+## Multi-valued fields are one comma-separated column
+
+Decided with the owner, 2026-09-08. A note carrying several designations gets
+one cell:
+
+    note_attributes    star, radar, fancy_serial, high_serial
+
+The alternative -- a boolean column per value -- would put **seventeen**
+columns on the currency sheet for `note_attribute` alone, most of them empty
+on most rows, and would need a new column every time the vocabulary grows.
+The vocabulary is meant to grow.
+
+Rules that keep it unambiguous:
+
+- **Codes, not labels**, as everywhere else at this boundary.
+- **Order carries no meaning.** `star, radar` and `radar, star` are the same
+  set, and reordering a cell is not an edit.
+- **Whitespace around a comma is ignored**, because Excel and people both add
+  it.
+- **An empty cell means no values**, and is distinct from an untouched row --
+  the diff already knows which cells changed.
+- **An unknown code rejects the row**, naming the cell, exactly as a
+  single-valued classifier does. No code in any vocabulary contains a comma,
+  so the separator is safe.
+
+The derived designations are the interesting case. `star`, `radar` and the
+rest are computed from the serial by `app.serial_patterns`, so the column is
+**shown but not accepted**: editing it is reported rather than applied, and
+the way to change it is to correct the serial. `consecutive` is the exception
+-- it describes a run of notes and cannot be derived from one serial, so it is
+editable.
+
 ## Sheets in the workbook
 
 | Sheet | Contents |
@@ -233,9 +265,8 @@ for a copy you can query.
 - **Which columns are editable** for each view. The coin browse shows 47 and
   not all of them should be hand-editable; the list wants going through once
   with the owner rather than guessing.
-- **Multi-valued fields.** A note can carry several `note_attribute` values.
-  One column of comma-separated codes is editable but loose; several boolean
-  columns are rigid but unambiguous. Undecided.
+- ~~Multi-valued fields.~~ **Decided 2026-09-08: one comma-separated column.**
+  See below.
 - **Photographs** are out of scope. A workbook cannot carry them and should
   not pretend to.
 - **Whether import should ever create items.** Editing existing rows is the
