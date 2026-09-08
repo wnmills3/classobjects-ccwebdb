@@ -120,5 +120,8 @@ def downgrade() -> None:
     )
 
     # The pre-rename view text, so the downgrade leaves a consistent database.
-    for statement in create_views(renamed_costs=False):
+    # soft_delete=False too: this downgrade runs after ffe36996607c's own
+    # downgrade has already dropped deleted_at, so a view naming it here would
+    # fail with UndefinedColumn.
+    for statement in create_views(renamed_costs=False, soft_delete=False):
         op.execute(statement)
