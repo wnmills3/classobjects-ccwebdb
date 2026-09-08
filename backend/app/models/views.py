@@ -27,11 +27,19 @@ __all__ = [
 ]
 
 #: Columns that must never appear in `public_catalog`. Asserted by a test.
+#:
+#: The cost columns are listed under **both** names. The old ones cannot
+#: appear any more, so on their own this set would have quietly stopped
+#: guarding anything -- a test that can no longer fail. They stay because a
+#: downgrade recreates the pre-rename view, and that view must be checked too.
 PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
     {
         "storage_location_id",
         "storage_location",
         "local_catalog_number",
+        "item_cost",
+        "shipping_cost",
+        "sales_tax",
         "price",
         "shipping",
         "tax_rate",
@@ -51,7 +59,7 @@ _COIN_INVENTORY = """
 CREATE VIEW coin_inventory AS
 SELECT
     i.id,
-    i.title,
+    i.source_title,
     i.description,
     k.code            AS item_kind,
     d.code            AS denomination,
@@ -59,7 +67,7 @@ SELECT
     bf.code           AS bullion_form,
     sf.code           AS set_form,
     stf.code          AS storage_form,
-    i.storage_quantity,
+    i.piece_count,
     c.code            AS country,
     i.year_start,
     i.year_end,
@@ -82,9 +90,9 @@ SELECT
     i.split_at,
     i.storage_location_id,
     i.local_catalog_number,
-    i.price,
-    i.shipping,
-    i.taxes,
+    i.item_cost,
+    i.shipping_cost,
+    i.sales_tax,
     i.total_cost,
     i.numismatic_value,
     vb.code           AS valuation_basis,
@@ -128,13 +136,13 @@ _CURRENCY_INVENTORY = """
 CREATE VIEW currency_inventory AS
 SELECT
     i.id,
-    i.title,
+    i.source_title,
     i.description,
     k.code            AS item_kind,
     d.code            AS denomination,
     d.label           AS denomination_label,
     stf.code          AS storage_form,
-    i.storage_quantity,
+    i.piece_count,
     c.code            AS country,
     i.year_start,
     i.year_end,
@@ -164,9 +172,9 @@ SELECT
     i.split_at,
     i.storage_location_id,
     i.local_catalog_number,
-    i.price,
-    i.shipping,
-    i.taxes,
+    i.item_cost,
+    i.shipping_cost,
+    i.sales_tax,
     i.total_cost,
     i.numismatic_value,
     vb.code           AS valuation_basis,
@@ -216,14 +224,14 @@ computed AS (
         i.item_kind_id,
         i.total_cost,
         i.numismatic_value,
-        i.storage_quantity,
+        i.piece_count,
         i.fine_weight_ozt,
         vb.code                 AS valuation_basis,
         s.price_per_ozt         AS spot_price_used,
         s.quoted_at             AS spot_quoted_at,
         CASE
             WHEN i.fine_weight_ozt IS NULL OR s.price_per_ozt IS NULL THEN NULL
-            ELSE round(i.fine_weight_ozt * s.price_per_ozt * i.storage_quantity, 2)
+            ELSE round(i.fine_weight_ozt * s.price_per_ozt * i.piece_count, 2)
         END                     AS melt_value
     FROM inventory_item i
     JOIN valuation_basis vb ON vb.id = i.valuation_basis_id
@@ -264,7 +272,7 @@ SELECT
     cur.code            AS listing_currency,
     l.quantity_available,
     l.listed_at,
-    COALESCE(NULLIF(l.title, ''), i.title)             AS title,
+    COALESCE(NULLIF(l.title, ''), i.source_title)      AS title,
     COALESCE(NULLIF(l.description, ''), i.description) AS description,
     k.code              AS item_kind,
     d.label             AS denomination_label,
@@ -340,8 +348,40 @@ _LINEAGE_FRAGMENTS: tuple[tuple[str, str], ...] = (
 
 _ITEM_CODE_FRAGMENTS: tuple[tuple[str, str], ...] = (("    i.item_code,\n", ""),)
 
+#: The cost columns were renamed later -- price -> item_cost and friends -- so
+#: a view created by an earlier revision must still say the old names. Without
+#: this a fresh `upgrade head` fails partway: the view is created before the
+#: rename runs, naming columns the table does not have yet.
+_PRE_RENAME_FRAGMENTS: tuple[tuple[str, str], ...] = (
+    ("    i.item_cost,\n", "    i.price,\n"),
+    ("    i.shipping_cost,\n", "    i.shipping,\n"),
+    ("    i.sales_tax,\n", "    i.taxes,\n"),
+    ("    i.piece_count,\n", "    i.storage_quantity,\n"),
+    ("    i.source_title,\n", "    i.title,\n"),
+    ("        i.piece_count,\n", "        i.storage_quantity,\n"),
+    (
+        "i.fine_weight_ozt * s.price_per_ozt * i.piece_count",
+        "i.fine_weight_ozt * s.price_per_ozt * i.storage_quantity",
+    ),
+    (
+        "COALESCE(NULLIF(l.title, ''), i.source_title)      AS title",
+        "COALESCE(NULLIF(l.title, ''), i.title)             AS title",
+    ),
+)
 
-def create_views(*, lineage: bool = True, item_code: bool = True) -> tuple[str, ...]:
+#: The names that rename introduced, asserted absent from a pre-rename view.
+_RENAMED_COLUMNS = (
+    "item_cost",
+    "shipping_cost",
+    "sales_tax",
+    "piece_count",
+    "source_title",
+)
+
+
+def create_views(
+    *, lineage: bool = True, item_code: bool = True, renamed_costs: bool = True
+) -> tuple[str, ...]:
     """The view SQL as it stood before the named columns were introduced.
 
     ``lineage`` covers `parent_item_id` and `split_at`; ``item_code`` covers
@@ -352,6 +392,8 @@ def create_views(*, lineage: bool = True, item_code: bool = True) -> tuple[str, 
         removals.extend(_LINEAGE_FRAGMENTS)
     if not item_code:
         removals.extend(_ITEM_CODE_FRAGMENTS)
+    if not renamed_costs:
+        removals.extend(_PRE_RENAME_FRAGMENTS)
 
     statements = []
     for statement in CREATE_VIEWS:
@@ -366,13 +408,24 @@ def create_views(*, lineage: bool = True, item_code: bool = True) -> tuple[str, 
             assert "parent_item_id" not in statement
         if not item_code:
             assert "item_code" not in statement
+        if not renamed_costs:
+            for column in _RENAMED_COLUMNS:
+                assert column not in statement, (
+                    f"{column} survived the pre-rename rewrite; a "
+                    "migration would create a view naming a column that "
+                    "does not exist at its revision"
+                )
         statements.append(statement)
     return tuple(statements)
 
 
 #: What the views looked like before lot lineage existed. Used by the
 #: downgrade of the migration that added it.
-CREATE_VIEWS_WITHOUT_LINEAGE: tuple[str, ...] = create_views(lineage=False)
+CREATE_VIEWS_WITHOUT_LINEAGE: tuple[str, ...] = create_views(
+    lineage=False, renamed_costs=False
+)
 
 #: What they looked like when first created, before either addition.
-CREATE_VIEWS_ORIGINAL: tuple[str, ...] = create_views(lineage=False, item_code=False)
+CREATE_VIEWS_ORIGINAL: tuple[str, ...] = create_views(
+    lineage=False, item_code=False, renamed_costs=False
+)

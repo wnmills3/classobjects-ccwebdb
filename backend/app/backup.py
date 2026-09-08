@@ -18,7 +18,7 @@ unchanged, and the report says so rather than leaving it to be discovered:
 
 - `JSONB` columns (`inventory_item.attributes`, `import_row.raw`) become the
   target's JSON type, or text where it has none.
-- Generated columns (`taxes`, `total_cost`) are recomputed by the target from
+- Generated columns (`sales_tax`, `total_cost`) are recomputed by the target from
   their expressions rather than copied, so a dialect without them needs the
   arithmetic doing elsewhere.
 - Partial indexes and enum types degrade to whatever the dialect offers.
@@ -47,7 +47,7 @@ CHUNK = 1000
 #: Generated columns are computed by the destination from their own
 #: expressions. Writing them would either be refused or, worse, accepted and
 #: then disagree with the expression.
-GENERATED = {"taxes", "total_cost"}
+GENERATED = {"sales_tax", "total_cost"}
 
 
 def timestamped_name(prefix: str = "ccwebdb_bak") -> str:

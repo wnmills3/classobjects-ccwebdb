@@ -59,17 +59,25 @@ CLASSIFIERS: dict[str, type] = {
     "metal": Metal,
 }
 
-#: Columns on `inventory_item` a client may set directly.
-ITEM_SCALARS = (
-    "title",
-    "description",
-    "year_start",
-    "year_end",
-    "fineness",
-    "gross_weight_ozt",
-    "fine_weight_ozt",
-    "storage_quantity",
-)
+#: Payload field -> column on `inventory_item`, for the fields a client may
+#: set directly.
+#:
+#: A mapping rather than a tuple because the two vocabularies have diverged.
+#: The shop says `title` and `price`; the item says `source_title` (what the
+#: row was called where it came from) and `item_cost` (what was paid for it,
+#: as against `listing.price`, what it is offered for). One lookup table is
+#: the honest way to hold both -- a tuple of shared names would silently be
+#: wrong the moment one of them differed, which it now does.
+ITEM_SCALARS: dict[str, str] = {
+    "title": "source_title",
+    "description": "description",
+    "year_start": "year_start",
+    "year_end": "year_end",
+    "fineness": "fineness",
+    "gross_weight_ozt": "gross_weight_ozt",
+    "fine_weight_ozt": "fine_weight_ozt",
+    "piece_count": "piece_count",
+}
 
 
 def _eager(stmt: Select[Any]) -> Select[Any]:
@@ -125,7 +133,7 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         item_code=item.item_code,
         thumbnail_url=urls.get("thumbnail_url"),
         image_url=urls.get("image_url"),
-        title=listing.title or item.title,
+        title=listing.title or item.source_title,
         description=listing.description or item.description,
         item_kind=code(item.item_kind),
         country=code(item.country),
@@ -139,7 +147,7 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         fineness=item.fineness,
         gross_weight_ozt=item.gross_weight_ozt,
         fine_weight_ozt=item.fine_weight_ozt,
-        storage_quantity=item.storage_quantity,
+        piece_count=item.piece_count,
         price=listing.price,
         currency=code(listing.currency) or "USD",
         quantity_available=listing.quantity_available,
@@ -190,7 +198,7 @@ def list_catalog(
         filters.append(
             or_(
                 Listing.title.ilike(pattern),
-                InventoryItem.title.ilike(pattern),
+                InventoryItem.source_title.ilike(pattern),
                 InventoryItem.description.ilike(pattern),
             )
         )
@@ -262,7 +270,7 @@ def create_catalog_item(
     classifiers = _resolve_classifiers(db, data)
 
     item = InventoryItem(
-        **{field: data[field] for field in ITEM_SCALARS},
+        **{column: data[field] for field, column in ITEM_SCALARS.items()},
         **classifiers,
         # Sensible defaults for an item created through the shop: it is on
         # hand, unverified until someone says otherwise, and listed.
@@ -320,9 +328,9 @@ def update_catalog_item(
 
     for field, value in _resolve_classifiers(db, data).items():
         setattr(item, field, value)
-    for field in ITEM_SCALARS:
+    for field, column in ITEM_SCALARS.items():
         if field in data:
-            setattr(item, field, data[field])
+            setattr(item, column, data[field])
 
     for field in ("price", "quantity_available", "is_active"):
         if field in data:

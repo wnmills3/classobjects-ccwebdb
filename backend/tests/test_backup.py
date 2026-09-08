@@ -32,7 +32,7 @@ def test_generated_columns_are_not_copied() -> None:
     Writing them would either be refused, or accepted and then disagree with
     the expression that is supposed to define them.
     """
-    assert {"taxes", "total_cost"} == GENERATED
+    assert {"sales_tax", "total_cost"} == GENERATED
     columns = {c.name for c in Base.metadata.tables["inventory_item"].columns}
     assert columns > GENERATED, "the generated columns must still exist to skip"
 

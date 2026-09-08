@@ -120,7 +120,7 @@ class StorageForm(ReferenceMixin, Base):
     __tablename__ = "storage_form"
 
     #: Pieces the packaging conventionally holds -- a cent roll is 50. Only a
-    #: default for data entry; `inventory_item.storage_quantity` is the truth.
+    #: default for data entry; `inventory_item.piece_count` is the truth.
     default_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 

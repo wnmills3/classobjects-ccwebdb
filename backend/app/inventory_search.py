@@ -149,7 +149,7 @@ _J_FRIEDBERG = "LEFT JOIN friedberg_number fr ON fr.id = cud.friedberg_id"
 _SHARED_COLUMNS: dict[str, Col] = {
     "id": Col("i.id"),
     "item_code": Col("i.item_code"),
-    "title": Col("i.title"),
+    "source_title": Col("i.source_title"),
     # The spreadsheet's leftmost column was the denomination, so `title` holds
     # "0.25", "Mint Set", "5" -- not a name. What a person recognises the item
     # by lives in `description`, which is why it is returned as well and is
@@ -157,10 +157,10 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "description": Col("i.description"),
     "year_start": Col("i.year_start"),
     "year_end": Col("i.year_end"),
-    "storage_quantity": Col("i.storage_quantity"),
-    "price": Col("i.price"),
-    "shipping": Col("i.shipping"),
-    "taxes": Col("i.taxes"),
+    "piece_count": Col("i.piece_count"),
+    "item_cost": Col("i.item_cost"),
+    "shipping_cost": Col("i.shipping_cost"),
+    "sales_tax": Col("i.sales_tax"),
     "total_cost": Col("i.total_cost"),
     "numismatic_value": Col("i.numismatic_value"),
     "local_catalog_number": Col("i.local_catalog_number"),
@@ -200,9 +200,9 @@ _SHARED_FILTERS: dict[str, Filt] = {
 
 _SHARED_SORT = (
     "item_code",
-    "title",
+    "source_title",
     "year_start",
-    "price",
+    "item_cost",
     "total_cost",
     "grade_value",
     "created_at",
@@ -245,7 +245,7 @@ COIN_VIEW = ViewSpec(
         "bullion_form": Filt("bf.code", join=(_J_BULLION,)),
         "set_form": Filt("sf.code", join=(_J_SET,)),
     },
-    search_columns=("i.title", "i.description", "i.item_code"),
+    search_columns=("i.source_title", "i.description", "i.item_code"),
     sortable=(*_SHARED_SORT, "fine_weight_ozt"),
     facets={
         **_SHARED_FACETS,
@@ -269,6 +269,9 @@ CURRENCY_VIEW = ViewSpec(
         "note_type": Col("nt.code", (_J_CUR_DETAIL, _J_NOTE_TYPE)),
         "series_year": Col("cud.series_year", (_J_CUR_DETAIL,)),
         "series_letter": Col("cud.series_letter", (_J_CUR_DETAIL,)),
+        # How a collector writes the series -- 1935A, not 1935 and A apart.
+        # Generated, so it cannot disagree with the two columns above.
+        "series_designation": Col("cud.series_designation", (_J_CUR_DETAIL,)),
         "seal_color": Col("sc.code", (_J_CUR_DETAIL, _J_SEAL)),
         "fed_district_letter": Col("fd.letter", (_J_CUR_DETAIL, _J_DISTRICT)),
         "fed_district_city": Col("fd.city", (_J_CUR_DETAIL, _J_DISTRICT)),
@@ -283,11 +286,12 @@ CURRENCY_VIEW = ViewSpec(
         "fed_district": Filt("fd.letter", join=(_J_CUR_DETAIL, _J_DISTRICT)),
         "series_year": Filt("cud.series_year", join=(_J_CUR_DETAIL,)),
         "series_letter": Filt("cud.series_letter", join=(_J_CUR_DETAIL,)),
+        "series_designation": Filt("cud.series_designation", join=(_J_CUR_DETAIL,)),
         "friedberg_status": Filt("cud.friedberg_status", join=(_J_CUR_DETAIL,)),
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
     },
-    search_columns=("i.title", "i.description", "i.item_code"),
-    sortable=(*_SHARED_SORT, "series_year"),
+    search_columns=("i.source_title", "i.description", "i.item_code"),
+    sortable=(*_SHARED_SORT, "series_year", "series_designation"),
     facets={
         **_SHARED_FACETS,
         "note_type": Facet("note_type_id", "note_type", (_J_CUR_DETAIL,), "cud"),

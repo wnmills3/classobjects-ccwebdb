@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from alembic import op
 
 from app.models.views import (
-    CREATE_VIEWS,
+    create_views,
     CREATE_VIEWS_WITHOUT_LINEAGE,
     DROP_VIEWS,
 )
@@ -44,7 +44,9 @@ def upgrade() -> None:
     # definition has to say so.
     for statement in DROP_VIEWS:
         op.execute(statement)
-    for statement in CREATE_VIEWS:
+    # The current view text names columns renamed long after this revision,
+    # so it must be rewritten back to what existed here.
+    for statement in create_views(renamed_costs=False):
         op.execute(statement)
     # ### end Alembic commands ###
 
