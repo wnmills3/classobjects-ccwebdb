@@ -3120,7 +3120,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ### Task 12: Issue checks in the filter panel
 
 **Files:**
-- Modify: `frontend/src/pages/inventory/FilterPanel.jsx`, `frontend/src/pages/inventory/InventoryTable.jsx`
+- Modify: `frontend/src/pages/inventory/FilterPanel.jsx`, `frontend/src/styles.css`
 
 **Interfaces:**
 - Consumes: `issues` prop (Task 11), the API's `issues` counts (Task 9).
