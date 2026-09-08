@@ -282,6 +282,15 @@ class InventoryItem(TimestampMixin, Base):
     #: it here, so the cost basis of every piece can be traced back to the
     #: purchase it actually came from -- which is the whole requirement for a
     #: defensible gain calculation years later.
+    #: The design series -- Morgan Dollar, Winged Liberty Head Dime.
+    #:
+    #: On the item rather than on `coin_detail` so that faceting groups by an
+    #: indexed foreign key on the table already being scanned. Measured
+    #: earlier: grouping by a joined column was most of the cost of the whole
+    #: search. It also lets a banknote carry a series without a second path.
+    series_id: Mapped[int | None] = mapped_column(
+        ForeignKey("series.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
     parent_item_id: Mapped[int | None] = mapped_column(
         ForeignKey("inventory_item.id", ondelete="RESTRICT"),
         index=True,

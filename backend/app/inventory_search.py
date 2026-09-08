@@ -134,6 +134,7 @@ _J_STORAGE = "JOIN storage_form stf ON stf.id = i.storage_form_id"
 _J_AUTH = "JOIN authenticity a ON a.id = i.authenticity_id"
 _J_ERROR = "LEFT JOIN error_type et ON et.id = i.error_type_id"
 _J_METAL = "LEFT JOIN metal mt ON mt.id = i.metal_id"
+_J_SERIES = "LEFT JOIN series ser ON ser.id = i.series_id"
 _J_BULLION = "LEFT JOIN bullion_form bf ON bf.id = i.bullion_form_id"
 _J_SET = "LEFT JOIN set_form sf ON sf.id = i.set_form_id"
 _J_COIN_DETAIL = "LEFT JOIN coin_detail cd ON cd.inventory_item_id = i.id"
@@ -177,6 +178,8 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "storage_form": Col("stf.code", (_J_STORAGE,)),
     "authenticity": Col("a.code", (_J_AUTH,)),
     "error_type": Col("et.code", (_J_ERROR,)),
+    "series": Col("ser.code", (_J_SERIES,)),
+    "series_label": Col("ser.label", (_J_SERIES,)),
 }
 
 _SHARED_FILTERS: dict[str, Filt] = {
@@ -188,6 +191,7 @@ _SHARED_FILTERS: dict[str, Filt] = {
     "disposition": Filt("disp.code", join=(_J_DISP,)),
     "denomination": Filt("d.code", join=(_J_DENOM,)),
     "error_type": Filt("et.code", join=(_J_ERROR,)),
+    "series": Filt("ser.code", join=(_J_SERIES,)),
     "year_min": Filt("i.year_start", "gte"),
     "year_max": Filt("i.year_start", "lte"),
     "grade_min": Filt("g.numeric_value", "gte", (_J_GRADE,)),
@@ -205,6 +209,7 @@ _SHARED_SORT = (
 )
 
 _SHARED_FACETS: dict[str, Facet] = {
+    "series": Facet("series_id", "series"),
     "grade": Facet("grade_id", "grade"),
     "country": Facet("country_id", "country"),
     "status": Facet("status_id", "item_status"),
@@ -299,8 +304,34 @@ CURRENCY_VIEW = ViewSpec(
 VIEWS: dict[str, ViewSpec] = {v.name: v for v in (COIN_VIEW, CURRENCY_VIEW)}
 
 
+def series_ids_matching(db: Session, query: str | None) -> list[int]:
+    """Series whose formal name or nickname contains the search text.
+
+    This is what makes the alias table do anything. The formal name and the
+    colloquial one are often disjoint in practice -- nothing in this
+    collection's descriptions says "Winged Liberty Head", and 104 rows say
+    "Mercury" -- so matching description text alone finds whichever name the
+    seller happened to use and misses the other entirely.
+    """
+    if not query or not query.strip():
+        return []
+    pattern = f"%{query.strip()}%"
+    rows = db.execute(
+        text(
+            "SELECT DISTINCT s.id FROM series s "
+            "LEFT JOIN series_alias a ON a.series_id = s.id "
+            "WHERE s.label ILIKE :p OR a.alias ILIKE :p"
+        ),
+        {"p": pattern},
+    ).all()
+    return [row[0] for row in rows]
+
+
 def _conditions(
-    spec: ViewSpec, params: dict[str, Any], query: str | None
+    spec: ViewSpec,
+    params: dict[str, Any],
+    query: str | None,
+    series_ids: list[int] | None = None,
 ) -> tuple[list[str], list[tuple[str, ...]], dict[str, Any]]:
     clauses = list(spec.where)
     joins: list[tuple[str, ...]] = [(_J_KIND,)]  # every spec filters on kind
@@ -332,6 +363,11 @@ def _conditions(
 
     if query:
         parts = [f"coalesce({c}, '') ILIKE :p_q" for c in spec.search_columns]
+        if series_ids:
+            # An item whose description never mentions the term still matches
+            # when its series does, formally or colloquially.
+            parts.append("i.series_id = ANY(:p_series)")
+            bound["p_series"] = list(series_ids)
         clauses.append("(" + " OR ".join(parts) + ")")
         bound["p_q"] = f"%{query}%"
 
@@ -367,7 +403,9 @@ def search(
     if sort_key not in spec.sortable:
         raise ValueError(f"cannot sort by {sort_key!r}")
 
-    clauses, joins, bound = _conditions(spec, params, query)
+    clauses, joins, bound = _conditions(
+        spec, params, query, series_ids_matching(db, query)
+    )
     where = " WHERE " + " AND ".join(clauses)
 
     # The count needs no display joins at all -- only whatever the filters
@@ -429,7 +467,9 @@ def count_facets(
     to codes in one small lookup per table. Grouping by the code instead would
     force every join first, which was most of the old cost.
     """
-    clauses, joins, bound = _conditions(spec, params, query)
+    clauses, joins, bound = _conditions(
+        spec, params, query, series_ids_matching(db, query)
+    )
     where = " WHERE " + " AND ".join(clauses)
 
     results: dict[str, list[dict[str, Any]]] = {}

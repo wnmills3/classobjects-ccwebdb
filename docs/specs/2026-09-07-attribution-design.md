@@ -405,6 +405,61 @@ Step 4 is the one that matters. The backfill creates 769 rows holding money;
 if any of them is counted alongside its children the collection's value
 silently doubles in places.
 
+## Series, aliases, and why Friedberg is different
+
+Built 2026-09-07.
+
+**Series** is the industry's word -- PCGS organises its price guide,
+population report and CoinFacts by it -- so a `series` reference table now
+carries Morgan Dollar, Winged Liberty Head Dime and 36 others, with
+`inventory_item.series_id` pointing at it. On the item rather than
+`coin_detail`, so faceting groups by an indexed key on the table already being
+scanned.
+
+**Aliases are required, not decorative.** Measured over the collection's own
+descriptions: "Mercury" appears 104 times and "Winged Liberty Head" zero;
+"Buffalo" 156 and "Indian Head Nickel" zero; but "Walking Liberty" 130 against
+"Walker" 2. A vocabulary of formal names alone misses 260 items; nicknames
+alone miss 130. `series_alias` is many-to-many in both directions -- a series
+has several nicknames, and "Cartwheel" spans Morgan and Peace.
+
+`series_match` classified **3,273 items** from text already held. It refuses
+two kinds of guess:
+
+- **Ambiguous terms need a denomination.** Barber names three series, Seated
+  Liberty four, Indian Head three. Without a denomination the item is left
+  unclassified, because a wrong series is inherited by every price looked up
+  against it afterwards.
+- **Two matches means neither.** 78 items match more than one series and are
+  left alone. `CC-000371` is why: *2010 D FRANKLIN PIERCE PRESIDENTIAL DOLLAR*
+  matches Franklin Half and Presidential Dollar, and taking the first would
+  have filed a presidential dollar as a Franklin half.
+
+### Friedberg numbers are supported, not populated
+
+The Friedberg number is the universally accepted catalogue identifier for US
+paper money, and `friedberg_number` already models it fully -- `fr_number`,
+`base_number`, `note_type_id`, `series_year`, `series_letter`,
+`seal_color_id`, `signature_combination_id`, `size_class`.
+
+It stays empty, for two reasons that both point the same way:
+
+1. **Nothing to derive.** Exactly **3** of 7,591 descriptions cite an Fr.
+   number. There is no extraction to do.
+2. **The catalogue is not ours to reproduce.** The numbering comes from
+   Friedberg's *Paper Money of the United States*, a copyrighted work. Shipping
+   a seeded mapping of Fr. numbers to issues would be republishing it.
+
+So the field is recorded during attribution, from the owner's own copy or from
+the slab label, exactly as a certificate number is. Populating a catalogue is
+not something this project should do.
+
+The same reasoning stops a currency *series* vocabulary being invented: note
+classes are already in `note_type`, the specific issue is the Friedberg number,
+and "Funnyback" names a design while "Horse Blanket" names a size era --
+`size_class` already separates them. A made-up currency series list would mix
+those axes and be unusable against any published guide.
+
 ## Open questions
 
 - **Grouping accuracy.** `(purchase_order_id, description)` is a heuristic.

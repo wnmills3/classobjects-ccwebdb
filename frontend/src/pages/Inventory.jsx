@@ -24,6 +24,7 @@ const COIN_VIEW = {
   columns: [
     ['Code', 'item_code', 'mono'],
     ['Description', 'description', 'wide'],
+    ['Series', 'series_label'],
     ['Kind', 'item_kind'],
     ['Year', 'year_start'],
     ['Mint', 'mint_mark'],
@@ -36,6 +37,7 @@ const COIN_VIEW = {
   ],
   textFilters: [['Item code', 'item_code', 'CC-000123']],
   facetFilters: [
+    ['Series', 'series', 'series'],
     ['Kind', 'kind', 'item_kind'],
     ['Metal', 'metal', 'metal'],
     ['Grade', 'grade', 'grade'],
@@ -52,8 +54,9 @@ const CURRENCY_VIEW = {
   columns: [
     ['Code', 'item_code', 'mono'],
     ['Description', 'description', 'wide'],
+    ['Series', 'series_label'],
     ['Denomination', 'denomination_label'],
-    ['Series', 'series_year'],
+    ['Series year', 'series_year'],
     ['Letter', 'series_letter'],
     ['Seal', 'seal_color'],
     ['District', 'fed_district_letter'],
@@ -68,11 +71,12 @@ const CURRENCY_VIEW = {
     ['Item code', 'item_code', 'CC-000123'],
   ],
   facetFilters: [
+    ['Series', 'series', 'series'],
     ['Note type', 'note_type', 'note_type'],
     ['Seal', 'seal_color', 'seal_color'],
     ['District', 'fed_district', 'fed_district_letter'],
     ['Grade', 'grade', 'grade'],
-    ['Series', 'series_year', 'series_year'],
+    ['Series year', 'series_year', 'series_year'],
     ['Status', 'status', 'status'],
     ['Disposition', 'disposition', 'disposition'],
   ],
@@ -158,7 +162,7 @@ function InventoryView({ config }) {
       <div className="search-panel">
         <input
           className="search-text"
-          placeholder="Search descriptions, e.g. morgan, silver eagle, red seal"
+          placeholder="Search descriptions and series, e.g. mercury, buffalo, morgan"
           defaultValue={current.q ?? ''}
           onKeyDown={(e) => {
             if (e.key === 'Enter') apply({ q: e.target.value })

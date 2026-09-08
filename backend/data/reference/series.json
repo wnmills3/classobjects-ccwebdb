@@ -1,0 +1,111 @@
+{
+  "_comment": [
+    "Design series, and the colloquial names people search by.",
+    "",
+    "'Series' is the industry's word, not one invented here: PCGS organises its",
+    "price guide, population report and CoinFacts by series, so using the same",
+    "term is what lets a coin be looked up against a published value.",
+    "",
+    "label is the formal name; aliases are what people actually say. That split",
+    "is load-bearing rather than decorative. Measured against this collection's",
+    "own descriptions: 'Mercury' appears 104 times and 'Winged Liberty Head'",
+    "zero; 'Buffalo' 156 and 'Indian Head Nickel' zero; but 'Walking Liberty'",
+    "130 against 'Walker' 2. Neither the formal names nor the nicknames alone",
+    "would find everything.",
+    "",
+    "Only coin series are listed. US paper money is catalogued by Friedberg",
+    "number rather than by design name, and its classes are already in",
+    "note_type -- inventing a parallel currency-series vocabulary here would be",
+    "exactly the made-up terminology this table exists to avoid.",
+    "",
+    "Dates are the years the design was struck. year_end is null for a series",
+    "still in production."
+  ],
+
+  "series": [
+    { "code": "large_cent", "label": "Large Cent", "year_start": 1793, "year_end": 1857, "sort_order": 10 },
+    { "code": "flying_eagle_cent", "label": "Flying Eagle Cent", "year_start": 1856, "year_end": 1858, "sort_order": 20 },
+    { "code": "indian_head_cent", "label": "Indian Head Cent", "year_start": 1859, "year_end": 1909, "sort_order": 30 },
+    { "code": "lincoln_cent", "label": "Lincoln Cent", "year_start": 1909, "year_end": null, "sort_order": 40 },
+
+    { "code": "shield_nickel", "label": "Shield Nickel", "year_start": 1866, "year_end": 1883, "sort_order": 50 },
+    { "code": "liberty_head_nickel", "label": "Liberty Head Nickel", "year_start": 1883, "year_end": 1913, "sort_order": 60 },
+    { "code": "indian_head_nickel", "label": "Indian Head Nickel", "year_start": 1913, "year_end": 1938, "sort_order": 70 },
+    { "code": "jefferson_nickel", "label": "Jefferson Nickel", "year_start": 1938, "year_end": null, "sort_order": 80 },
+
+    { "code": "seated_liberty_dime", "label": "Seated Liberty Dime", "year_start": 1837, "year_end": 1891, "sort_order": 90 },
+    { "code": "barber_dime", "label": "Barber Dime", "year_start": 1892, "year_end": 1916, "sort_order": 100 },
+    { "code": "winged_liberty_head_dime", "label": "Winged Liberty Head Dime", "year_start": 1916, "year_end": 1945, "sort_order": 110 },
+    { "code": "roosevelt_dime", "label": "Roosevelt Dime", "year_start": 1946, "year_end": null, "sort_order": 120 },
+
+    { "code": "seated_liberty_quarter", "label": "Seated Liberty Quarter", "year_start": 1838, "year_end": 1891, "sort_order": 130 },
+    { "code": "barber_quarter", "label": "Barber Quarter", "year_start": 1892, "year_end": 1916, "sort_order": 140 },
+    { "code": "standing_liberty_quarter", "label": "Standing Liberty Quarter", "year_start": 1916, "year_end": 1930, "sort_order": 150 },
+    { "code": "washington_quarter", "label": "Washington Quarter", "year_start": 1932, "year_end": null, "sort_order": 160 },
+    { "code": "state_quarters", "label": "50 State Quarters", "year_start": 1999, "year_end": 2008, "sort_order": 170 },
+    { "code": "atb_quarters", "label": "America the Beautiful Quarters", "year_start": 2010, "year_end": 2021, "sort_order": 180 },
+
+    { "code": "seated_liberty_half", "label": "Seated Liberty Half Dollar", "year_start": 1839, "year_end": 1891, "sort_order": 190 },
+    { "code": "barber_half", "label": "Barber Half Dollar", "year_start": 1892, "year_end": 1915, "sort_order": 200 },
+    { "code": "walking_liberty_half", "label": "Walking Liberty Half Dollar", "year_start": 1916, "year_end": 1947, "sort_order": 210 },
+    { "code": "franklin_half", "label": "Franklin Half Dollar", "year_start": 1948, "year_end": 1963, "sort_order": 220 },
+    { "code": "kennedy_half", "label": "Kennedy Half Dollar", "year_start": 1964, "year_end": null, "sort_order": 230 },
+
+    { "code": "seated_liberty_dollar", "label": "Seated Liberty Dollar", "year_start": 1840, "year_end": 1873, "sort_order": 240 },
+    { "code": "trade_dollar", "label": "Trade Dollar", "year_start": 1873, "year_end": 1885, "sort_order": 250 },
+    { "code": "morgan_dollar", "label": "Morgan Dollar", "year_start": 1878, "year_end": null, "sort_order": 260 },
+    { "code": "peace_dollar", "label": "Peace Dollar", "year_start": 1921, "year_end": null, "sort_order": 270 },
+    { "code": "eisenhower_dollar", "label": "Eisenhower Dollar", "year_start": 1971, "year_end": 1978, "sort_order": 280 },
+    { "code": "anthony_dollar", "label": "Susan B. Anthony Dollar", "year_start": 1979, "year_end": 1999, "sort_order": 290 },
+    { "code": "sacagawea_dollar", "label": "Sacagawea Dollar", "year_start": 2000, "year_end": null, "sort_order": 300 },
+    { "code": "presidential_dollar", "label": "Presidential Dollar", "year_start": 2007, "year_end": 2020, "sort_order": 310 },
+
+    { "code": "liberty_head_gold", "label": "Liberty Head Gold", "year_start": 1838, "year_end": 1908, "sort_order": 320 },
+    { "code": "indian_head_gold", "label": "Indian Head Gold", "year_start": 1908, "year_end": 1929, "sort_order": 330 },
+    { "code": "saint_gaudens_double_eagle", "label": "Saint-Gaudens Double Eagle", "year_start": 1907, "year_end": 1933, "sort_order": 340 },
+
+    { "code": "american_silver_eagle", "label": "American Silver Eagle", "year_start": 1986, "year_end": null, "sort_order": 350 },
+    { "code": "american_gold_eagle", "label": "American Gold Eagle", "year_start": 1986, "year_end": null, "sort_order": 360 },
+    { "code": "american_platinum_eagle", "label": "American Platinum Eagle", "year_start": 1997, "year_end": null, "sort_order": 370 },
+    { "code": "american_gold_buffalo", "label": "American Gold Buffalo", "year_start": 2006, "year_end": null, "sort_order": 380 }
+  ],
+
+  "series_alias": [
+    { "series": "winged_liberty_head_dime", "alias": "Mercury" },
+    { "series": "winged_liberty_head_dime", "alias": "Mercury Dime" },
+    { "series": "winged_liberty_head_dime", "alias": "Merc" },
+
+    { "series": "indian_head_nickel", "alias": "Buffalo" },
+    { "series": "indian_head_nickel", "alias": "Buffalo Nickel" },
+
+    { "series": "liberty_head_nickel", "alias": "V Nickel" },
+
+    { "series": "lincoln_cent", "alias": "Wheat Penny" },
+    { "series": "lincoln_cent", "alias": "Wheatie" },
+    { "series": "lincoln_cent", "alias": "Wheat Cent" },
+
+    { "series": "indian_head_cent", "alias": "Indian Head Penny" },
+
+    { "series": "walking_liberty_half", "alias": "Walker" },
+
+    { "series": "eisenhower_dollar", "alias": "Ike" },
+    { "series": "eisenhower_dollar", "alias": "Ike Dollar" },
+
+    { "series": "anthony_dollar", "alias": "SBA" },
+
+    { "series": "saint_gaudens_double_eagle", "alias": "Saint" },
+    { "series": "saint_gaudens_double_eagle", "alias": "Double Eagle" },
+
+    { "series": "morgan_dollar", "alias": "Cartwheel" },
+    { "series": "peace_dollar", "alias": "Cartwheel" },
+
+    { "series": "american_silver_eagle", "alias": "ASE" },
+    { "series": "american_silver_eagle", "alias": "Silver Eagle" },
+    { "series": "american_gold_eagle", "alias": "AGE" },
+    { "series": "american_gold_eagle", "alias": "Gold Eagle" },
+
+    { "series": "state_quarters", "alias": "State Quarter" },
+    { "series": "atb_quarters", "alias": "ATB" },
+    { "series": "atb_quarters", "alias": "National Park Quarter" }
+  ]
+}

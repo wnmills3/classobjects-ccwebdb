@@ -10,7 +10,7 @@ keeps tests independent without paying to rebuild the schema every time.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from decimal import Decimal
 
 import pytest
@@ -204,6 +204,45 @@ def customer_headers(client: TestClient, customer_user: User) -> dict[str, str]:
 
 def _code_id(db: Session, model: type, code: str) -> int:
     return db.execute(select(model.id).where(model.code == code)).scalar_one()
+
+
+def build_item(db: Session, **overrides: object) -> InventoryItem:
+    """One inventory item, with every NOT NULL classifier resolved.
+
+    Separate from `build_listing` because an item need not be for sale --
+    most of the collection is not, and the search tests care about items
+    rather than about what is offered.
+    """
+    item = InventoryItem(
+        title=overrides.pop("title", "1881-S Morgan Silver Dollar"),
+        description=overrides.pop("description", "Test fixture item."),
+        year_start=overrides.pop("year_start", 1881),
+        year_end=overrides.pop("year_end", None),
+        storage_quantity=overrides.pop("storage_quantity", 1),
+        item_kind_id=_code_id(db, ItemKind, overrides.pop("kind", "coin")),
+        country_id=_code_id(db, Country, "US"),
+        grade_id=_code_id(db, Grade, "MS64"),
+        storage_form_id=_code_id(db, StorageForm, "single"),
+        authenticity_id=_code_id(db, Authenticity, "unverified"),
+        status_id=_code_id(db, ItemStatus, "received"),
+        disposition_id=_code_id(db, Disposition, "held"),
+        valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
+        **overrides,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@pytest.fixture
+def make_item(db: Session) -> Callable[..., InventoryItem]:
+    """Factory for inventory items inside one test."""
+
+    def factory(**overrides: object) -> InventoryItem:
+        return build_item(db, **overrides)
+
+    return factory
 
 
 def build_listing(db: Session, **overrides: object) -> Listing:
