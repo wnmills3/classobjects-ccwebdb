@@ -1,0 +1,133 @@
+{
+  "_comment": [
+    "Treasurer of the United States and Secretary of the Treasury, as they",
+    "appear on small-size US currency.",
+    "",
+    "Signatures are the differentiator between Friedberg variants of the same",
+    "denomination and series year, so they are the field a lookup service most",
+    "needs. They are also safe to seed in a way a Friedberg table is not: who",
+    "held an office and when is historical fact, whereas the Friedberg",
+    "numbering is a copyrighted arrangement.",
+    "",
+    "term_from and term_to bracket the years the pair signed together, so a",
+    "picker can offer only the combinations possible for a note's series year",
+    "instead of all of them. That is the intended use -- 'signature choices",
+    "based on series'.",
+    "",
+    "THIS LIST IS PARTIAL AND DELIBERATELY SO. Every pair here was confirmed",
+    "against published sources during a session on 2026-09-07: the 1935 series",
+    "run A-H, the 1957 run, 1963 and 1963A, and 1969. An attempt to extract a",
+    "complete chronology returned obviously corrupt rows -- six pairs with the",
+    "same surname in both columns -- and was discarded rather than seeded.",
+    "",
+    "The gaps are the point of the seed-and-extend model: add what is missing",
+    "from the note in hand, and it is marked `manual` so a later reload never",
+    "overwrites it. Anything added by hand should be checked against the note",
+    "itself before it is trusted for a catalogue lookup.",
+    "",
+    "Naming: `code` is treasurer_secretary in lower case, which is how dealers",
+    "write it (Julian/Morgenthau). `label` is the same pair as displayed."
+  ],
+
+  "signature_combination": [
+    {
+      "code": "julian_morgenthau",
+      "label": "Julian / Morgenthau",
+      "treasurer": "William A. Julian",
+      "secretary": "Henry Morgenthau Jr.",
+      "term_from": 1934,
+      "term_to": 1945,
+      "sort_order": 10
+    },
+    {
+      "code": "julian_vinson",
+      "label": "Julian / Vinson",
+      "treasurer": "William A. Julian",
+      "secretary": "Fred M. Vinson",
+      "term_from": 1945,
+      "term_to": 1946,
+      "sort_order": 20
+    },
+    {
+      "code": "julian_snyder",
+      "label": "Julian / Snyder",
+      "treasurer": "William A. Julian",
+      "secretary": "John W. Snyder",
+      "term_from": 1946,
+      "term_to": 1949,
+      "sort_order": 30
+    },
+    {
+      "code": "clark_snyder",
+      "label": "Clark / Snyder",
+      "treasurer": "Georgia Neese Clark",
+      "secretary": "John W. Snyder",
+      "term_from": 1949,
+      "term_to": 1953,
+      "sort_order": 40
+    },
+    {
+      "code": "priest_humphrey",
+      "label": "Priest / Humphrey",
+      "treasurer": "Ivy Baker Priest",
+      "secretary": "George M. Humphrey",
+      "term_from": 1953,
+      "term_to": 1957,
+      "sort_order": 50
+    },
+    {
+      "code": "priest_anderson",
+      "label": "Priest / Anderson",
+      "treasurer": "Ivy Baker Priest",
+      "secretary": "Robert B. Anderson",
+      "term_from": 1957,
+      "term_to": 1961,
+      "sort_order": 60
+    },
+    {
+      "code": "smith_dillon",
+      "label": "Smith / Dillon",
+      "treasurer": "Elizabeth Rudel Smith",
+      "secretary": "C. Douglas Dillon",
+      "term_from": 1961,
+      "term_to": 1962,
+      "sort_order": 70
+    },
+    {
+      "code": "granahan_dillon",
+      "label": "Granahan / Dillon",
+      "treasurer": "Kathryn O'Hay Granahan",
+      "secretary": "C. Douglas Dillon",
+      "term_from": 1963,
+      "term_to": 1965,
+      "sort_order": 80
+    },
+    {
+      "code": "granahan_fowler",
+      "label": "Granahan / Fowler",
+      "treasurer": "Kathryn O'Hay Granahan",
+      "secretary": "Henry H. Fowler",
+      "term_from": 1965,
+      "term_to": 1968,
+      "sort_order": 90
+    },
+    {
+      "code": "elston_kennedy",
+      "label": "Elston / Kennedy",
+      "treasurer": "Dorothy Andrews Elston",
+      "secretary": "David M. Kennedy",
+      "term_from": 1969,
+      "term_to": 1970,
+      "sort_order": 100
+    },
+    {
+      "code": "kabis_kennedy",
+      "label": "Kabis / Kennedy",
+      "treasurer": "Dorothy Andrews Kabis",
+      "secretary": "David M. Kennedy",
+      "term_from": 1970,
+      "term_to": 1971,
+      "sort_order": 110
+    }
+  ]
+}

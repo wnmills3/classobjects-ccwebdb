@@ -92,3 +92,50 @@ def test_consecutive_is_never_derived() -> None:
 
 def test_empty_serial_is_silent() -> None:
     assert analyse("") == set()
+
+
+def test_an_internal_letter_is_refused_not_warned() -> None:
+    """A letter among the digits is a typo every time.
+
+    S97535476A entered as S9753547A6. Letters belong at the ends of a serial
+    -- one or two in front, one behind -- so one in the middle cannot be what
+    is printed on the note, and data entry refuses it rather than asking.
+    """
+    from app.serial_patterns import check
+
+    issues = check("S9753547A6")
+    assert issues[0].severity == "error"
+    assert "transposition" in issues[0].message
+
+
+def test_short_and_high_serials_only_warn() -> None:
+    """Unusual is not impossible, and entry proceeds if the owner insists."""
+    from app.serial_patterns import check
+
+    short = check("E9801342C")
+    assert [i.severity for i in short] == ["warning"]
+    assert "only 7 digits" in short[0].message
+
+    high = check("A99889530B", 2001)
+    assert [i.severity for i in high] == ["warning"]
+    assert "worth confirming" in high[0].message
+
+
+def test_an_impossible_value_is_an_error() -> None:
+    """Above 96 million is advisory; no eight-digit serial exceeds 99,999,999.
+
+    The distinction matters: the print-run limit varies by series and this
+    project has no sourced table of them, so the wording must not claim more
+    than is known.
+    """
+    from app.serial_patterns import check
+
+    assert check("A96000000B") == []
+    assert check("A12345678B") == []
+
+
+def test_ends_may_carry_letters_or_a_star() -> None:
+    from app.serial_patterns import check
+
+    for serial in ("A12345678B", "AB12345678C", "*12345678B", "A12345678*"):
+        assert check(serial) == [], serial
