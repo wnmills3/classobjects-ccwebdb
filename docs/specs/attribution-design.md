@@ -140,7 +140,7 @@ and it cannot: it is one value for the whole row.
 
 ## Provenance is per field
 
-**Recommended: a small `item_field_review` table.**
+**Decided with the owner: a small `item_field_review` table.**
 
 ```
 item_field_review
@@ -174,11 +174,9 @@ parent. The comparison answers "what does the lot claim?" and is shown beside
 each field in the edit form -- `Grade [AU58] · lot says BU`. The review record
 answers "has anyone checked?". Both are needed, and neither derives the other.
 
-The single decision this document needs from the owner is whether per-field is
-worth the table, or whether one `examined_at` per item is enough for now. The
-recommendation is per-field, because the collection will take months to work
-through and "which fields have I already done on this coin" is exactly the
-question that stops work being repeated.
+The owner chose per-field over a single `examined_at` per item. The collection
+will take months to work through, and "which fields have I already done on this
+coin" is exactly the question that stops work being repeated.
 
 ## Repair operations
 
@@ -558,8 +556,6 @@ one.
 
 ## Open questions
 
-- **Per-field review, or one flag per item.** The single design decision this
-  document needs. Recommendation above.
 - **The twelve conglomerates' piece counts.** They hold 240 pieces between
   them, but the count came from `piece_count`, parsed from the spreadsheet.
   Worth checking against the descriptions before splitting on them.
