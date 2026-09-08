@@ -62,7 +62,7 @@ def test_an_unrecognised_deleted_mode_is_refused(
 def test_the_lot_filter_finds_a_lot_s_pieces(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """“Show me everything from that tube” is the review queue's entry point.
+    """Everything split from one lot -- the review queue's entry point.
 
     By item code rather than id: the code is what is printed on the flip and
     what a person has in front of them.
