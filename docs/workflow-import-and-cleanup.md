@@ -56,9 +56,21 @@ Unresolvable values survive verbatim in `grade_raw` and
 important case -- see below.
 
 **Every run is reversible and reviewable.** A dry run touches no database and
-writes review files to `logs/import/`. The database can be rebuilt from scratch
-at any time: drop it, `alembic upgrade head`, `python -m app.seeding load`, then
-the importer with `--commit`.
+writes review files to `logs/import/`.
+
+> ### The database is now the system of record
+>
+> Decided 2026-09-08. Rebuilding from the spreadsheet **destroys work that
+> exists nowhere else**: 3,273 series assignments, 891 derived note
+> designations, 3,879 reconstructed purchase orders, a corrected serial, and
+> the user accounts. The spreadsheet is a historical source, not a backup.
+>
+> A rebuild was safe up to the point where the only content was what the
+> importer had put there. That stopped being true the moment anything was
+> derived or corrected in place.
+>
+> Restore from a `pg_dump` instead. Re-import only into an empty database, and
+> only when starting again deliberately.
 
 ### 3: reconstruct the purchase lots
 
