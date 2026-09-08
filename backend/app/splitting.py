@@ -41,8 +41,11 @@ from sqlalchemy.orm import Session
 
 from .allocation import allocate
 from .models import (
+    CoinDetail,
+    CurrencyDetail,
     Disposition,
     InventoryItem,
+    ItemKind,
     ItemStatusHistory,
     Listing,
     ProvenanceSource,
@@ -183,6 +186,10 @@ def split_item(
     now = datetime.now(UTC)
     held = db.scalar(select(Disposition.id).where(Disposition.code == "held"))
 
+    # Resolved once rather than per piece: a fifty-way split would otherwise
+    # run fifty identical lookups.
+    currency_kind_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+
     children: list[InventoryItem] = []
     for piece, cost, ship in zip(pieces, costs, shipping, strict=True):
         values = {column: getattr(parent, column) for column in INHERITED}
@@ -216,6 +223,16 @@ def split_item(
         )
         db.add(child)
         db.flush()
+
+        # Every item in the collection has exactly one detail row, and a piece
+        # is an item. Created empty rather than copied from the parent's: a
+        # lot's detail row describes the lot, so copying it would write the
+        # seller's guess into exactly the fields someone is about to fill in
+        # by examining this piece.
+        detail_model = (
+            CurrencyDetail if child.item_kind_id == currency_kind_id else CoinDetail
+        )
+        db.add(detail_model(inventory_item_id=child.id))
 
         db.add(
             ItemStatusHistory(
