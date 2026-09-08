@@ -109,10 +109,11 @@ def test_an_omitted_field_is_left_alone(
     """exclude_unset, so a partial form does not null everything it omits."""
     item = make_item(db, source_title="keep me", year_start=1921)
 
-    client.patch(
+    response = client.patch(
         f"/api/inventory/{item.id}", json={"year_start": 1922}, headers=admin_headers
     )
 
+    assert response.status_code == 200
     db.refresh(item)
     assert item.source_title == "keep me"
 
