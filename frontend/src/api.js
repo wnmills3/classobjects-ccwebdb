@@ -167,6 +167,19 @@ export const api = {
   },
   splitItem: (itemId, payload) =>
     send(`/api/inventory/${itemId}/split`, { method: 'POST', body: payload }),
+  getInventoryItem: (id) => send(`/api/inventory/${id}`),
+  updateInventoryItem: (id, payload) =>
+    send(`/api/inventory/${id}`, { method: 'PATCH', body: payload }),
+  bulkEditInventory: (ids, changes) =>
+    send('/api/inventory/bulk', { method: 'POST', body: { ids, changes } }),
+  setItemReview: (id, fields, replace = false) =>
+    send(`/api/inventory/${id}/reviewed`, {
+      method: 'POST',
+      body: { fields, replace },
+    }),
+  detachInventoryItem: (id) =>
+    send(`/api/inventory/${id}/parent`, { method: 'DELETE' }),
+  deleteInventoryItem: (id) => send(`/api/inventory/${id}`, { method: 'DELETE' }),
 
   // orders
   createOrder: (items) => send('/api/orders', { method: 'POST', body: { items } }),
