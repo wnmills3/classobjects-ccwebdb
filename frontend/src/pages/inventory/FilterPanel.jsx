@@ -7,10 +7,7 @@ export default function FilterPanel({
   current,
   apply,
   facets,
-  // Not rendered until Task 12 -- bound to `_issues` so eslint's
-  // convention for a deliberately unused binding applies without
-  // changing the prop name callers pass.
-  issues: _issues,
+  issues,
   total,
   busy,
   clear,
@@ -94,6 +91,24 @@ export default function FilterPanel({
             onBlur={(e) => apply({ year_max: e.target.value })}
           />
         </label>
+      </div>
+
+      {/* Named checks, with the size of each job visible before committing
+          to it. Counts ignore the selected check, so choosing one does not
+          hide what else is left. A check with no hits is not offered: a list
+          of a dozen zeroes buries the two that matter. */}
+      <div className="issue-checks">
+        {config.issueChecks
+          .filter((code) => issues[code])
+          .map((code) => (
+            <button
+              key={code}
+              className={current.issue === code ? 'chip chip-on' : 'chip'}
+              onClick={() => apply({ issue: current.issue === code ? '' : code })}
+            >
+              {code.replace(/_/g, ' ')} ({issues[code].toLocaleString()})
+            </button>
+          ))}
       </div>
 
       <div className="row">
