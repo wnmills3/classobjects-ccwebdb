@@ -408,6 +408,27 @@ class InventoryItemOut(BaseModel):
     split_at: datetime | None = None
 
 
+class ItemDetailOut(InventoryItemOut):
+    """One item, with everything the edit form needs in one round trip.
+
+    The two provenance mechanisms answer different questions and both appear
+    here. `lot_claims` is *derived* by comparing the item to its parent and
+    says what the lot claimed -- it cannot drift out of sync because it is
+    recomputed. `reviewed` is *asserted* and says a person looked -- it cannot
+    be computed from anything. Neither replaces the other.
+    """
+
+    #: The lot this piece came out of, if any. Absent for 7,591 of 7,591
+    #: items today: no parent is the normal state, not an orphan.
+    parent_item_code: str | None = None
+    #: What the lot said, for the fields a piece inherits. The form shows
+    #: these beside the item's own values, so it is always visible what is
+    #: being overridden and what is still only the seller's word.
+    lot_claims: dict[str, object] = Field(default_factory=dict)
+    #: Fields a person has confirmed by examination.
+    reviewed: list[str] = Field(default_factory=list)
+
+
 class InventoryItemUpdate(BaseModel):
     """A partial edit to an item, in the item's own vocabulary.
 
