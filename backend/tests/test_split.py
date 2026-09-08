@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import InventoryItem, Listing
+from app.models import CoinDetail, CurrencyDetail, InventoryItem, ItemKind, Listing
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.test_schema import code_id, make_item
 
 TUBE = {
     "mode": "equal",
@@ -390,3 +390,75 @@ def test_pieces_may_carry_their_own_classifiers(
     half = db.scalar(select(InventoryItem).where(InventoryItem.source_title == "Half"))
     assert half.denomination.code == "usd_coin_0_50"
     assert half.year_start == 1964
+
+
+# ---------------------------------------------------------------------------
+# Detail rows
+# ---------------------------------------------------------------------------
+
+
+def test_a_split_piece_gets_its_own_coin_detail_row(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Every item in the collection has exactly one; a piece must too.
+
+    Without it, mint mark and variety have nowhere to be written -- which is
+    the whole point of splitting a lot of Morgans.
+    """
+    parent = lot(db)
+    body = do_split(client, admin_headers, parent.id, TUBE).json()
+    ids = sorted(p["id"] for p in body["pieces"])
+
+    rows = sorted(
+        db.scalars(
+            select(CoinDetail.inventory_item_id).where(
+                CoinDetail.inventory_item_id.in_(ids)
+            )
+        ).all()
+    )
+    assert rows == ids
+
+
+def test_a_currency_piece_gets_a_currency_detail_row(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The kind decides the table: a note's serial has no home on coin_detail."""
+    parent = lot(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    body = do_split(client, admin_headers, parent.id, TUBE).json()
+    ids = sorted(p["id"] for p in body["pieces"])
+
+    rows = sorted(
+        db.scalars(
+            select(CurrencyDetail.inventory_item_id).where(
+                CurrencyDetail.inventory_item_id.in_(ids)
+            )
+        ).all()
+    )
+    assert rows == ids
+    assert not db.scalars(
+        select(CoinDetail.inventory_item_id).where(
+            CoinDetail.inventory_item_id.in_(ids)
+        )
+    ).all(), "a banknote must not also get a coin_detail row"
+
+
+def test_a_piece_detail_row_starts_empty(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The lot's detail row describes the lot, and must not be copied down.
+
+    Copying would write the seller's guess into precisely the fields someone
+    is about to fill in by examining the piece -- the thing the whole
+    provenance design exists to prevent.
+    """
+    parent = lot(db)
+    db.add(CoinDetail(inventory_item_id=parent.id, variety="VAM-1A"))
+    db.commit()
+
+    body = do_split(client, admin_headers, parent.id, TUBE).json()
+    ids = [p["id"] for p in body["pieces"]]
+
+    varieties = db.scalars(
+        select(CoinDetail.variety).where(CoinDetail.inventory_item_id.in_(ids))
+    ).all()
+    assert set(varieties) == {None}
