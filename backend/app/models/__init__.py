@@ -51,7 +51,12 @@ from .images import (
     ShipmentImage,
     ShipmentImageKind,
 )
-from .lifecycle import ItemStatusHistory, LocationHistory, StorageLocation
+from .lifecycle import (
+    ItemFieldReview,
+    ItemStatusHistory,
+    LocationHistory,
+    StorageLocation,
+)
 from .reference import (
     AppliesTo,
     Authenticity,
@@ -166,6 +171,7 @@ __all__ = [
     "ImageRole",
     "InventoryItem",
     "ItemCertification",
+    "ItemFieldReview",
     "ItemImage",
     "ItemKind",
     "ItemNoteAttribute",

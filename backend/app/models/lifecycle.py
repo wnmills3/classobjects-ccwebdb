@@ -27,7 +27,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, TimestampMixin, utcnow
 from .reference import StorageLocationKind
 
-__all__ = ["ItemStatusHistory", "LocationHistory", "StorageLocation"]
+__all__ = ["ItemFieldReview", "ItemStatusHistory", "LocationHistory", "StorageLocation"]
 
 
 class StorageLocation(TimestampMixin, Base):
@@ -137,5 +137,52 @@ class LocationHistory(Base):
             "ix_location_history_item_time",
             "inventory_item_id",
             text("moved_at DESC"),
+        ),
+    )
+
+
+class ItemFieldReview(Base):
+    """One field of one item, confirmed by a person looking at the object.
+
+    Per field rather than per item because the unit of work is the field.
+    Attributing fifty Morgans means confirming grade on all fifty, then year
+    on all fifty, in whatever order the light and the loupe allow; an
+    item-level flag cannot express a half-done coin, and a half-done coin is
+    the normal state.
+
+    Absent means unconfirmed, which is the correct default for every one of
+    the 7,591 imported items and needs no backfill.
+
+    Distinct from comparing a split child to its parent, which answers what
+    the *lot claimed*. That comparison is derived and cannot drift out of
+    sync; this is asserted and cannot be computed from anything. Both are
+    needed and neither replaces the other.
+    """
+
+    __tablename__ = "item_field_review"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    #: The column confirmed, e.g. `grade_id`. Checked against a whitelist at
+    #: the API boundary rather than by a constraint here: which fields are
+    #: worth confirming is a product decision that will change, and a check
+    #: constraint would need a migration every time it did.
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    #: SET NULL rather than CASCADE: deactivating a member of staff must not
+    #: erase the record that the work was done.
+    reviewed_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "inventory_item_id", "field_name", name="uq_item_field_review"
         ),
     )
