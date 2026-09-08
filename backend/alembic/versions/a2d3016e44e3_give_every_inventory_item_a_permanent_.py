@@ -21,6 +21,8 @@ from collections.abc import Sequence
 from alembic import op
 import sqlalchemy as sa
 
+from app.models.views import CREATE_VIEWS_ORIGINAL, DROP_VIEWS
+
 
 revision: str = 'a2d3016e44e3'
 down_revision: str | None = '7e6c16c1e0eb'
@@ -80,9 +82,20 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # A view holds a reference to its source columns, so item_code cannot be
+    # dropped out from under coin_inventory and currency_inventory while they
+    # still name it. Drop all four views first and recreate them afterward in
+    # the form this revision predates -- no item_code, no lot lineage, the old
+    # cost-column names, no soft delete -- which is exactly CREATE_VIEWS_ORIGINAL.
+    for statement in DROP_VIEWS:
+        op.execute(statement)
+
     op.drop_constraint("uq_inventory_item_code", "inventory_item", type_="unique")
     op.drop_column("inventory_item", "item_code")
     # Dropping the sequence too: leaving it behind would mean a later upgrade
     # resumed numbering mid-way and issued codes that look like they belong to
     # items that never existed.
     op.execute("DROP SEQUENCE IF EXISTS item_code_seq")
+
+    for statement in CREATE_VIEWS_ORIGINAL:
+        op.execute(statement)

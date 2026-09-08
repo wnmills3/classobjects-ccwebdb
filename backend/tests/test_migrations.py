@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from alembic.autogenerate import compare_metadata
-from alembic.command import upgrade
+from alembic.command import downgrade, upgrade
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from app.database import Base
@@ -54,6 +54,57 @@ def migrated_url() -> str:
             )
             conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
         admin.dispose()
+
+
+@pytest.fixture
+def round_trip_url() -> str:
+    """A throwaway database of its own.
+
+    So this test cannot fight `migrated_url` for one database while both
+    fixtures are torn down at different times.
+    """
+    url = TEST_URL
+    name = f"{url.database}_migrations_roundtrip"
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+
+    with admin.connect() as conn:
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+
+    # hide_password=False is essential: str(url) would render it as "***".
+    target = url.set(database=name).render_as_string(hide_password=False)
+    try:
+        yield target
+    finally:
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :name AND pid <> pg_backend_pid() "
+                    "AND backend_type = 'client backend'"
+                ),
+                {"name": name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()
+
+
+def test_migrations_round_trip(round_trip_url: str) -> None:
+    """`alembic downgrade base` must complete after `alembic upgrade head`.
+
+    The point of this test is that the downgrade *completes* -- not that it
+    reproduces any particular schema, just that every `downgrade()` in the
+    chain runs without PostgreSQL refusing an operation. Four bugs of the same
+    shape (a downgrade doing something in the wrong order for what exists in
+    the database at the moment it runs) went unseen for a long time because no
+    test ever ran a full downgrade; this is that test.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", round_trip_url)
+
+    upgrade(config, "head")
+    downgrade(config, "base")
 
 
 def test_migrations_match_models(migrated_url: str) -> None:
