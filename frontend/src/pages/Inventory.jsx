@@ -32,6 +32,27 @@ function InventoryView({ config }) {
   const total = page?.total ?? 0
   const rows = page?.rows ?? []
 
+  // Two renderings of one result set, not both at once. While review is open
+  // the filters, sorting, paging and bulk bar are gone -- changing any of
+  // them would reorder the table behind the pane, and a second edit form
+  // opened from a row would let two saves race with versions read at
+  // different moments. The queue keeps the query; leaving review is what
+  // returns you to it.
+  if (reviewing) {
+    return (
+      <section>
+        <h1>{config.title}</h1>
+        <ReviewPane
+          ids={reviewing}
+          onClose={() => {
+            setReviewing(null)
+            apply({})
+          }}
+        />
+      </section>
+    )
+  }
+
   return (
     <section>
       <h1>{config.title}</h1>
@@ -105,19 +126,6 @@ function InventoryView({ config }) {
           itemId={editing}
           onSaved={() => apply({})}
           onClose={() => setEditing(null)}
-        />
-      )}
-
-      {reviewing && (
-        <ReviewPane
-          ids={reviewing}
-          onClose={() => {
-            setReviewing(null)
-            // Re-run the search once, on leaving -- never while review is
-            // open, or the frozen queue described above would shift under
-            // the reviewer's feet.
-            apply({})
-          }}
         />
       )}
     </section>
