@@ -169,7 +169,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         <label key={key} className="field">
           {label}
           <input type="number" value={value(key)} onChange={set(key)} />
-          {claim(REVIEWABLE[key] ?? key)}
+          {claim(key)}
           {review(REVIEWABLE[key])}
         </label>
       ))}
@@ -186,6 +186,12 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             value={value(key)}
             onChange={set(key)}
           />
+          {/* No lot ever claims a cost -- a piece's cost is allocated at
+              split time, not inherited -- but `.field` is a four-column grid
+              and every other row fills this slot, so an empty one is called
+              for explicitly rather than left to shift the review box into
+              its neighbour's column. */}
+          {claim(key)}
           {review(REVIEWABLE[key])}
         </label>
       ))}
@@ -194,7 +200,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         <label key={key} className="field">
           {label}
           <ReferenceSelect table={table} value={value(key)} onChange={set(key)} />
-          {claim(REVIEWABLE[key])}
+          {claim(key)}
           {review(REVIEWABLE[key])}
         </label>
       ))}

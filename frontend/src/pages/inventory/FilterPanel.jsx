@@ -8,6 +8,7 @@ export default function FilterPanel({
   apply,
   facets,
   issues,
+  issueDescriptions,
   total,
   busy,
   clear,
@@ -104,6 +105,7 @@ export default function FilterPanel({
             <button
               key={code}
               className={current.issue === code ? 'chip chip-on' : 'chip'}
+              title={issueDescriptions[code]}
               onClick={() => apply({ issue: current.issue === code ? '' : code })}
             >
               {code.replace(/_/g, ' ')} ({issues[code].toLocaleString()})
