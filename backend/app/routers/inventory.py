@@ -14,6 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -428,7 +429,15 @@ def set_item_review(
             )
         )
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Another request recorded the same confirmation between this one's
+        # read and its commit. The fact the caller asked for is now true, so
+        # this is success, not a conflict -- the same reasoning that makes a
+        # sequential repeat a no-op rather than a 409.
+        db.rollback()
+
     return ItemReviewOut(
         inventory_item_id=item.id, reviewed=_reviewed_fields(db, item.id)
     )
