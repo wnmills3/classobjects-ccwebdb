@@ -480,6 +480,10 @@ Then add the historical-variant machinery beside `_PRE_RENAME_FRAGMENTS`:
 #: Soft delete came later than the views, so a view created by an earlier
 #: revision must not name the column. Without this a fresh `upgrade head`
 #: fails partway: the view is created before the column is added.
+#:
+#: Two indents because `item_valuation` nests its WHERE inside a CTE. They
+#: cannot match each other's text: after `\n`, one expects exactly two spaces
+#: then `AND`, the other six.
 _SOFT_DELETE_FRAGMENTS: tuple[tuple[str, str], ...] = (
     ("\n  AND i.deleted_at IS NULL", ""),
     ("\n      AND i.deleted_at IS NULL", ""),
@@ -498,11 +502,31 @@ def create_views(
 ) -> tuple[str, ...]:
 ```
 
-Inside it, after the `if not renamed_costs:` removal block:
+Inside it, **before the `if not lineage:` block** — the order is
+load-bearing, not stylistic:
 
 ```python
+    # Soft delete is stripped FIRST, before lineage. Replacements apply in
+    # list order, and the lineage fragment is
+    # ("WHERE i.split_at IS NULL\n  AND ", "WHERE ") -- which would otherwise
+    # swallow the `AND i.deleted_at IS NULL` line now sitting directly beneath
+    # it, leaving `WHERE i.deleted_at IS NULL` in a view whose revision has no
+    # such column. The assertion below then fires, and the fix is this
+    # ordering rather than a wider fragment.
     if not soft_delete:
         removals.extend(_SOFT_DELETE_FRAGMENTS)
+
+```
+
+...so the finished block reads `soft_delete`, then `lineage`, then
+`item_code`, then `renamed_costs`. Verified by simulating both orderings
+against the real coin-view SQL:
+
+```
+lineage first    -> "WHERE i.deleted_at IS NULL\n  AND k.code IN ('coin')"
+                    deleted_at survives; the assertion fires
+soft_delete first -> "WHERE k.code IN ('coin')"
+                    correct
 ```
 
 and inside the per-statement loop, after the `renamed_costs` assertions:
