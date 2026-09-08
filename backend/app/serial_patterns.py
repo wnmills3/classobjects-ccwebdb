@@ -47,8 +47,13 @@ from .models import (
 #: meaningful against a complete one.
 SERIAL_DIGITS = 8
 
-#: A serial below this is a "low serial number" to a grading service.
-LOW_SERIAL_CEILING = 100
+#: A low serial is one padded with at least this many leading zeros, and a
+#: high serial is one whose first digit is this. Both are the owner's
+#: definitions, which are positional -- an earlier version compared the
+#: numeric value against a ceiling, which is a different question and got
+#: 00000494 wrong.
+LOW_SERIAL_ZEROS = 4
+HIGH_SERIAL_FIRST_DIGIT = "9"
 
 
 def digits_of(serial: str) -> str:
@@ -76,16 +81,31 @@ def analyse(serial: str) -> set[str]:
     if len(d) != SERIAL_DIGITS:
         return found  # incomplete: say nothing rather than something wrong
 
-    if int(d) < LOW_SERIAL_CEILING:
+    # Both are positional: where the serial sits in the print run, not what
+    # its digits spell. They stack with the pattern designations rather than
+    # replacing them -- a note can be low *and* a double quad, and 00003333 is.
+    if d.startswith("0" * LOW_SERIAL_ZEROS):
         found.add("low_serial")
-    if len(set(d)) == 1:
+    if d.startswith(HIGH_SERIAL_FIRST_DIGIT):
+        found.add("high_serial")
+
+    distinct = len(set(d))
+    if distinct == 1:
         found.add("solid_serial")
-    elif len(set(d)) == 2:
+    elif distinct == 2:
         found.add("binary")
+    elif distinct == 3:
+        found.add("trinary")
     if d == d[::-1]:
         found.add("radar")
     if d[: SERIAL_DIGITS // 2] == d[SERIAL_DIGITS // 2 :]:
         found.add("repeater")
+    # Four of one digit then four of another -- 00005555. Named separately
+    # from `binary` because collectors and grading forms treat the arrangement
+    # as the point, not merely the count of distinct digits.
+    half = SERIAL_DIGITS // 2
+    if len(set(d[:half])) == 1 and len(set(d[half:])) == 1 and d[0] != d[half]:
+        found.add("double_quad")
 
     ascending = "".join(str((int(d[0]) + i) % 10) for i in range(SERIAL_DIGITS))
     descending = "".join(str((int(d[0]) - i) % 10) for i in range(SERIAL_DIGITS))
@@ -100,7 +120,7 @@ def analyse(serial: str) -> set[str]:
     # a replacement note, which is a different question on a grading form and
     # a different suffix on the catalogue number -- sweeping it in here would
     # have labelled all 189 stars as fancy serials.
-    if found - {"star", "low_serial"}:
+    if found - {"star", "low_serial", "high_serial"}:
         found.add("fancy_serial")
     return found
 

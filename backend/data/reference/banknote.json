@@ -117,6 +117,21 @@
       "code": "proof",
       "label": "Proof",
       "sort_order": 140
+    },
+    {
+      "code": "trinary",
+      "label": "Trinary Serial",
+      "sort_order": 150
+    },
+    {
+      "code": "double_quad",
+      "label": "Double Quad Serial",
+      "sort_order": 160
+    },
+    {
+      "code": "high_serial",
+      "label": "High Serial Number",
+      "sort_order": 170
     }
   ],
   "seal_color": [
