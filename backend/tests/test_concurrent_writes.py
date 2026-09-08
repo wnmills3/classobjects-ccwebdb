@@ -56,29 +56,29 @@ def committed(engine: Engine) -> None:
         cleanup.execute(
             text(
                 "DELETE FROM item_status_history WHERE inventory_item_id IN "
-                "(SELECT id FROM inventory_item WHERE title LIKE 'WRITE-RACE%')"
+                "(SELECT id FROM inventory_item WHERE source_title LIKE 'WRITE-RACE%')"
             )
         )
         cleanup.execute(
             text(
                 "DELETE FROM coin_detail WHERE inventory_item_id IN "
-                "(SELECT id FROM inventory_item WHERE title LIKE 'WRITE-RACE%')"
+                "(SELECT id FROM inventory_item WHERE source_title LIKE 'WRITE-RACE%')"
             )
         )
         cleanup.execute(
             text(
                 "DELETE FROM listing WHERE inventory_item_id IN "
-                "(SELECT id FROM inventory_item WHERE title LIKE 'WRITE-RACE%')"
+                "(SELECT id FROM inventory_item WHERE source_title LIKE 'WRITE-RACE%')"
             )
         )
         cleanup.execute(
             text(
                 "UPDATE inventory_item SET parent_item_id = NULL "
-                "WHERE title LIKE 'WRITE-RACE%'"
+                "WHERE source_title LIKE 'WRITE-RACE%'"
             )
         )
         cleanup.execute(
-            text("DELETE FROM inventory_item WHERE title LIKE 'WRITE-RACE%'")
+            text("DELETE FROM inventory_item WHERE source_title LIKE 'WRITE-RACE%'")
         )
         cleanup.commit()
 
@@ -88,9 +88,9 @@ def make_lot(
 ) -> int:
     with factory() as session:
         item = InventoryItem(
-            title="WRITE-RACE lot",
-            storage_quantity=quantity,
-            price=Decimal(price),
+            source_title="WRITE-RACE lot",
+            piece_count=quantity,
+            item_cost=Decimal(price),
             item_kind_id=_code(session, ItemKind, "coin"),
             storage_form_id=_code(session, StorageForm, "single"),
             authenticity_id=_code(session, Authenticity, "unverified"),
@@ -126,7 +126,7 @@ def test_a_second_writer_is_refused_rather_than_silently_winning(
             row = session.get(InventoryItem, item_id)
             _ = row.version  # both read the same version
             barrier.wait(timeout=10)
-            row.title = new_title
+            row.source_title = new_title
             try:
                 session.commit()
                 return "committed"
@@ -147,7 +147,7 @@ def test_the_version_advances_on_every_write(committed: sessionmaker[Session]) -
     with committed() as session:
         row = session.get(InventoryItem, item_id)
         first = row.version
-        row.title = "WRITE-RACE renamed"
+        row.source_title = "WRITE-RACE renamed"
         session.commit()
         assert row.version == first + 1
 
@@ -166,7 +166,7 @@ def test_reads_are_never_blocked_by_a_write(committed: sessionmaker[Session]) ->
     def slow_writer() -> None:
         with committed() as session:
             row = session.get(InventoryItem, item_id)
-            row.title = "WRITE-RACE mid-flight"
+            row.source_title = "WRITE-RACE mid-flight"
             session.flush()  # holds the row lock, uncommitted
             writing.set()
             may_finish.wait(timeout=10)
@@ -177,7 +177,7 @@ def test_reads_are_never_blocked_by_a_write(committed: sessionmaker[Session]) ->
         with committed() as session:
             # Must return at once, with the pre-write value.
             row = session.get(InventoryItem, item_id)
-            read_value.append(row.title)
+            read_value.append(row.source_title)
         may_finish.set()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -215,7 +215,7 @@ def test_two_people_cannot_split_the_same_lot_at_once(
                 split_item(
                     session,
                     parent,
-                    [SplitPiece(title=f"WRITE-RACE {tag}{n}") for n in range(4)],
+                    [SplitPiece(source_title=f"WRITE-RACE {tag}{n}") for n in range(4)],
                 )
                 session.commit()
                 return "split"

@@ -72,7 +72,7 @@ DEFAULT_TAX_RATE = Decimal("0.0635")
 #: column from referencing another generated column, so the tax expression is
 #: repeated inside the total rather than referenced -- keeping them as one
 #: constant here means the two can never drift apart.
-_TAX_EXPR = "round((price + shipping) * tax_rate, 2)"
+_TAX_EXPR = "round((item_cost + shipping_cost) * tax_rate, 2)"
 
 #: Prefix for the permanent item code. Fixed at migration time because it is
 #: baked into a column default; changing it later renames nothing already
@@ -202,9 +202,14 @@ class InventoryItem(TimestampMixin, Base):
     storage_form_id: Mapped[int] = mapped_column(
         ForeignKey("storage_form.id", ondelete="RESTRICT"), index=True, nullable=False
     )
-    #: Pieces in the lot. A multi-quantity row stays one row: it was bought as
-    #: a lot and is stored as a lot.
-    storage_quantity: Mapped[int] = mapped_column(
+    #: How many pieces this row stands for. A multi-piece row stays one row:
+    #: it was bought as a lot and is stored as a lot.
+    #:
+    #: Named `piece_count` rather than `storage_quantity` because it is not a
+    #: fact about storage -- `storage_form` and `storage_location` answer
+    #: that. It is how many objects the row represents, which is what every
+    #: weight and valuation multiplies by.
+    piece_count: Mapped[int] = mapped_column(
         Integer, default=1, server_default=text("1"), nullable=False
     )
     country_id: Mapped[int | None] = mapped_column(
@@ -315,7 +320,12 @@ class InventoryItem(TimestampMixin, Base):
     local_catalog_number: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True
     )
-    title: Mapped[str] = mapped_column(
+    #: Whatever the source called this row. The spreadsheet's leftmost
+    #: column was the denomination, so this holds "Rolls .25", "$20 Bill",
+    #: "Duit" and "2" -- not a name. `description` is what a person
+    #: recognises an item by; this is kept because it is what the source
+    #: said, and discarding a source value is not this project's habit.
+    source_title: Mapped[str] = mapped_column(
         String(500), default="", server_default=text("''"), nullable=False
     )
     description: Mapped[str] = mapped_column(
@@ -331,10 +341,16 @@ class InventoryItem(TimestampMixin, Base):
     grade_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # -- cost basis, fixed at purchase ------------------------------------
-    price: Mapped[Decimal] = mapped_column(
+    #: What was paid for the item itself. Named `item_cost` rather than
+    #: `price` because `listing.price` is what it is *offered* for, and one
+    #: word for both sides of a transaction is a confusion waiting to be
+    #: made -- especially in a report that joins them.
+    item_cost: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=Decimal("0.00"), nullable=False
     )
-    shipping: Mapped[Decimal] = mapped_column(
+    #: Inbound shipping, paid on acquisition. The sales side has its own
+    #: outbound shipping, which is a different number.
+    shipping_cost: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=Decimal("0.00"), nullable=False
     )
     tax_rate: Mapped[Decimal] = mapped_column(
@@ -343,12 +359,15 @@ class InventoryItem(TimestampMixin, Base):
         server_default=text("0.0635"),
         nullable=False,
     )
-    taxes: Mapped[Decimal] = mapped_column(
+    #: Sales tax paid on the purchase. Specifically that, not "taxes" --
+    #: income tax on a realised gain is a different thing entirely and this
+    #: system will eventually have to speak about both.
+    sales_tax: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), Computed(_TAX_EXPR, persisted=True), nullable=False
     )
     total_cost: Mapped[Decimal] = mapped_column(
         Numeric(12, 2),
-        Computed(f"price + shipping + {_TAX_EXPR}", persisted=True),
+        Computed(f"item_cost + shipping_cost + {_TAX_EXPR}", persisted=True),
         nullable=False,
     )
 
@@ -447,12 +466,13 @@ class InventoryItem(TimestampMixin, Base):
     )
 
     __table_args__ = (
-        CheckConstraint("price >= 0", name="ck_inventory_item_price_non_negative"),
+        CheckConstraint("item_cost >= 0", name="ck_inventory_item_cost_non_negative"),
         CheckConstraint(
-            "shipping >= 0", name="ck_inventory_item_shipping_non_negative"
+            "shipping_cost >= 0",
+            name="ck_inventory_item_shipping_non_negative",
         ),
         CheckConstraint(
-            "storage_quantity > 0", name="ck_inventory_item_quantity_positive"
+            "piece_count > 0", name="ck_inventory_item_piece_count_positive"
         ),
         CheckConstraint(
             "year_end IS NULL OR year_start IS NULL OR year_end >= year_start",
@@ -484,7 +504,7 @@ class InventoryItem(TimestampMixin, Base):
         #
         # Written exactly as PostgreSQL stores it, casts and all. PostgreSQL
         # normalises an index expression on creation, so the shorter form
-        # `to_tsvector('english', title || ' ' || description)` reflects back
+        # `to_tsvector('english', source_title || ' ' || description)` reflects
         # differently from how it was written and autogenerate reports the
         # index as changed on every single run -- a permanent false positive
         # in the models-versus-migrations drift test.
@@ -492,7 +512,7 @@ class InventoryItem(TimestampMixin, Base):
             "ix_inventory_item_fts",
             text(
                 "to_tsvector('english'::regconfig, "
-                "(title::text || ' '::text) || description)"
+                "(source_title::text || ' '::text) || description)"
             ),
             postgresql_using="gin",
         ),
@@ -599,6 +619,20 @@ class CurrencyDetail(Base):
     series_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: A series letter, not a mint mark. See the note on CoinDetail.mint_id.
     series_letter: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    #: How a collector writes the series: 1935A, 1957B, or plain 1935.
+    #:
+    #: Generated rather than stored, because the year and the letter are what
+    #: filtering and sorting need and this is what reading needs. Two stored
+    #: copies of one fact could disagree; a generated column cannot.
+    series_designation: Mapped[str | None] = mapped_column(
+        String(16),
+        Computed(
+            "CASE WHEN series_year IS NULL THEN NULL "
+            "ELSE series_year::text || coalesce(series_letter, '') END",
+            persisted=True,
+        ),
+        nullable=True,
+    )
     seal_color_id: Mapped[int | None] = mapped_column(
         ForeignKey("seal_color.id", ondelete="RESTRICT"), index=True, nullable=True
     )

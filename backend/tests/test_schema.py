@@ -45,8 +45,8 @@ def make_item(db: Session, **overrides: object) -> InventoryItem:
         "status_id": code_id(db, ItemStatus, "received"),
         "disposition_id": code_id(db, Disposition, "held"),
         "valuation_basis_id": code_id(db, ValuationBasis, "numismatic"),
-        "price": Decimal("100.00"),
-        "shipping": Decimal("0.00"),
+        "item_cost": Decimal("100.00"),
+        "shipping_cost": Decimal("0.00"),
     }
     defaults.update(overrides)
     item = InventoryItem(**defaults)
@@ -62,18 +62,18 @@ def make_item(db: Session, **overrides: object) -> InventoryItem:
 
 
 def test_taxes_and_total_are_computed_by_the_database(db: Session) -> None:
-    item = make_item(db, price=Decimal("37.95"), shipping=Decimal("8.95"))
+    item = make_item(db, item_cost=Decimal("37.95"), shipping_cost=Decimal("8.95"))
 
     # 46.90 * 0.0635 = 2.97815 -> 2.98
-    assert item.taxes == Decimal("2.98")
+    assert item.sales_tax == Decimal("2.98")
     assert item.total_cost == Decimal("49.88")
-    assert item.total_cost == item.price + item.shipping + item.taxes
+    assert item.total_cost == item.item_cost + item.shipping_cost + item.sales_tax
 
 
 def test_generated_columns_cannot_be_written(db: Session) -> None:
     """The point of generating them is that they cannot drift from their inputs."""
     with pytest.raises((DBAPIError, IntegrityError)):
-        make_item(db, price=Decimal("10.00"), taxes=Decimal("999.99"))
+        make_item(db, item_cost=Decimal("10.00"), sales_tax=Decimal("999.99"))
     db.rollback()
 
 
@@ -81,20 +81,20 @@ def test_tax_rate_is_per_row_not_a_constant(db: Session) -> None:
     """Rates vary by jurisdiction, which is why it is a column."""
     item = make_item(
         db,
-        price=Decimal("100.00"),
-        shipping=Decimal("0.00"),
+        item_cost=Decimal("100.00"),
+        shipping_cost=Decimal("0.00"),
         tax_rate=Decimal("0.0000"),
     )
-    assert item.taxes == Decimal("0.00")
+    assert item.sales_tax == Decimal("0.00")
     assert item.total_cost == Decimal("100.00")
 
 
 def test_money_never_becomes_a_float(db: Session) -> None:
-    item = make_item(db, price=Decimal("0.10"), shipping=Decimal("0.20"))
-    assert isinstance(item.price, Decimal)
+    item = make_item(db, item_cost=Decimal("0.10"), shipping_cost=Decimal("0.20"))
+    assert isinstance(item.item_cost, Decimal)
     assert isinstance(item.total_cost, Decimal)
     # The float trap: 0.1 + 0.2 != 0.3 in binary floating point.
-    assert item.price + item.shipping == Decimal("0.30")
+    assert item.item_cost + item.shipping_cost == Decimal("0.30")
 
 
 # ---------------------------------------------------------------------------
@@ -105,9 +105,9 @@ def test_money_never_becomes_a_float(db: Session) -> None:
 @pytest.mark.parametrize(
     "overrides",
     [
-        pytest.param({"price": Decimal("-1.00")}, id="negative price"),
-        pytest.param({"shipping": Decimal("-1.00")}, id="negative shipping"),
-        pytest.param({"storage_quantity": 0}, id="zero quantity"),
+        pytest.param({"item_cost": Decimal("-1.00")}, id="negative price"),
+        pytest.param({"shipping_cost": Decimal("-1.00")}, id="negative shipping"),
+        pytest.param({"piece_count": 0}, id="zero quantity"),
         pytest.param({"year_start": 2000, "year_end": 1999}, id="reversed year range"),
         pytest.param({"fineness": Decimal("1.5000")}, id="fineness above one"),
         pytest.param(
@@ -210,8 +210,12 @@ def test_composition_resolves_a_silver_dime_by_year(db: Session) -> None:
 
 
 def test_coin_and_currency_views_partition_the_inventory(db: Session) -> None:
-    coin = make_item(db, item_kind_id=code_id(db, ItemKind, "coin"), title="a coin")
-    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"), title="a note")
+    coin = make_item(
+        db, item_kind_id=code_id(db, ItemKind, "coin"), source_title="a coin"
+    )
+    note = make_item(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), source_title="a note"
+    )
 
     coin_ids = {r[0] for r in db.execute(text("select id from coin_inventory"))}
     note_ids = {r[0] for r in db.execute(text("select id from currency_inventory"))}
@@ -243,10 +247,10 @@ def test_item_valuation_computes_melt_from_the_latest_spot_price(db: Session) ->
         db,
         metal_id=silver.id,
         fine_weight_ozt=Decimal("2.000000"),
-        storage_quantity=3,
+        piece_count=3,
         valuation_basis_id=code_id(db, ValuationBasis, "melt"),
-        price=Decimal("100.00"),
-        shipping=Decimal("0.00"),
+        item_cost=Decimal("100.00"),
+        shipping_cost=Decimal("0.00"),
     )
 
     row = db.execute(
@@ -285,7 +289,7 @@ def test_public_catalog_never_exposes_private_columns(db: Session) -> None:
 
 def test_public_catalog_shows_only_active_listings(db: Session) -> None:
     usd = db.execute(select(Currency).where(Currency.code == "USD")).scalar_one()
-    item = make_item(db, title="for sale")
+    item = make_item(db, source_title="for sale")
 
     active = Listing(
         inventory_item_id=item.id,

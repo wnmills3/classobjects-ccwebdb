@@ -49,8 +49,8 @@ def search(
 def test_each_view_holds_only_its_own_kind(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    a_coin = coin(db, title="A Morgan Dollar")
-    a_note = note(db, title="A Silver Certificate")
+    a_coin = coin(db, source_title="A Morgan Dollar")
+    a_note = note(db, source_title="A Silver Certificate")
 
     coins = search(client, "coins", admin_headers).json()
     currency = search(client, "currency", admin_headers).json()
@@ -90,8 +90,8 @@ def test_each_view_returns_the_columns_that_matter_to_it(
 def test_free_text_searches_title_and_item_code(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    wanted = coin(db, title="1881-S Morgan Dollar")
-    coin(db, title="Walking Liberty Half")
+    wanted = coin(db, source_title="1881-S Morgan Dollar")
+    coin(db, source_title="Walking Liberty Half")
 
     by_title = search(client, "coins", admin_headers, q="morgan").json()
     assert {r["id"] for r in by_title["rows"]} == {wanted.id}
@@ -103,8 +103,8 @@ def test_free_text_searches_title_and_item_code(
 def test_a_note_can_be_found_by_its_printed_serial(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    wanted = note(db, title="Blue seal", serial="A12345678B")
-    note(db, title="Another", serial="C98765432D")
+    wanted = note(db, source_title="Blue seal", serial="A12345678B")
+    note(db, source_title="Another", serial="C98765432D")
 
     found = search(client, "currency", admin_headers, serial_number="12345678").json()
     assert {r["id"] for r in found["rows"]} == {wanted.id}
@@ -113,7 +113,7 @@ def test_a_note_can_be_found_by_its_printed_serial(
 def test_filters_combine(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    wanted = coin(db, year_start=1881, price=Decimal("50.00"))
+    wanted = coin(db, year_start=1881, item_cost=Decimal("50.00"))
     coin(db, year_start=1921)
 
     body = search(client, "coins", admin_headers, year_min=1880, year_max=1890).json()
@@ -163,8 +163,8 @@ def test_an_unknown_view_is_a_404(
 def test_sorting_both_ways(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    coin(db, title="old", year_start=1878)
-    coin(db, title="new", year_start=2020)
+    coin(db, source_title="old", year_start=1878)
+    coin(db, source_title="new", year_start=2020)
 
     up = search(client, "coins", admin_headers, sort="year_start").json()
     down = search(client, "coins", admin_headers, sort="year_start", desc=True).json()
@@ -186,7 +186,7 @@ def test_paging_reports_the_total_not_the_page(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     for n in range(5):
-        coin(db, title=f"item {n}")
+        coin(db, source_title=f"item {n}")
 
     body = search(client, "coins", admin_headers, limit=2).json()
     assert body["total"] >= 5
@@ -204,12 +204,12 @@ def test_money_never_arrives_as_a_float(
     FastAPI's encoder turns a Decimal in a plain dict into a float, which is
     the one thing this schema is careful never to do.
     """
-    coin(db, price=Decimal("0.10"), shipping=Decimal("0.20"))
+    coin(db, item_cost=Decimal("0.10"), shipping_cost=Decimal("0.20"))
     row = search(client, "coins", admin_headers).json()["rows"][0]
 
-    assert isinstance(row["price"], str)
+    assert isinstance(row["item_cost"], str)
     assert isinstance(row["total_cost"], str)
-    assert row["price"] == "0.10"
+    assert row["item_cost"] == "0.10"
 
 
 # ---------------------------------------------------------------------------
@@ -287,10 +287,12 @@ def test_a_split_lot_does_not_appear(
     The view excludes split lots, so browsing cannot show a lot beside the
     pieces it became.
     """
-    parent = coin(db, title="Tube of four", storage_quantity=4, price=Decimal("100.00"))
+    parent = coin(
+        db, source_title="Tube of four", piece_count=4, item_cost=Decimal("100.00")
+    )
     client.post(
         f"/api/inventory/{parent.id}/split",
-        json={"mode": "equal", "pieces": [{"title": f"P{n}"} for n in range(4)]},
+        json={"mode": "equal", "pieces": [{"source_title": f"P{n}"} for n in range(4)]},
         headers=admin_headers,
     )
 

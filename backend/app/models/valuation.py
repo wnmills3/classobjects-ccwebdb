@@ -167,7 +167,10 @@ class ValuationSnapshot(Base):
     fine_weight_ozt: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 6), nullable=True
     )
-    storage_quantity: Mapped[int] = mapped_column(
+    #: How many pieces the item held when the snapshot was taken. Copied
+    #: rather than joined, so a later correction to the item does not silently
+    #: restate a past valuation. Named to match `inventory_item.piece_count`.
+    piece_count: Mapped[int] = mapped_column(
         Integer, default=1, server_default=text("1"), nullable=False
     )
 

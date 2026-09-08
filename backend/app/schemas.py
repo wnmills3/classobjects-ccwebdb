@@ -95,7 +95,7 @@ class CatalogItemBase(BaseModel):
 
     #: Pieces in the lot itself -- a roll of 50 is one item with quantity 50.
     #: Distinct from `quantity_available`, which is how many are for sale.
-    storage_quantity: int = Field(default=1, ge=1)
+    piece_count: int = Field(default=1, ge=1)
 
     price: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
     currency: str = Field(default="USD", max_length=8)
@@ -157,7 +157,7 @@ class CatalogItemUpdate(BaseModel):
     fineness: Decimal | None = Field(default=None, ge=0, le=1, decimal_places=4)
     gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
     fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
-    storage_quantity: int | None = Field(default=None, ge=1)
+    piece_count: int | None = Field(default=None, ge=1)
     price: Decimal | None = Field(
         default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
     )
@@ -221,7 +221,7 @@ class CatalogItemOut(BaseModel):
     fineness: Decimal | None = None
     gross_weight_ozt: Decimal | None = None
     fine_weight_ozt: Decimal | None = None
-    storage_quantity: int = 1
+    piece_count: int = 1
 
     price: Decimal
     currency: str
@@ -345,8 +345,8 @@ class ReferenceTableOut(BaseModel):
 class SplitPieceIn(BaseModel):
     """One piece to create when breaking a lot apart."""
 
-    title: str = Field(min_length=1, max_length=500)
-    storage_quantity: int = Field(default=1, ge=1)
+    source_title: str = Field(min_length=1, max_length=500)
+    piece_count: int = Field(default=1, ge=1)
     #: The value of ONE piece, on whatever basis the caller chose -- face
     #: value, melt, a catalogue price. Required in `relative` mode, ignored in
     #: `equal`. What it measures is the caller's decision; this only divides
@@ -374,10 +374,10 @@ class SplitResultOut(BaseModel):
 
     parent_item_code: str
     mode: str
-    #: What the lot cost, and what the pieces cost. `price` and `shipping`
-    #: always reconcile exactly.
-    parent_price: Decimal
-    allocated_price: Decimal
+    #: What the lot cost, and what the pieces cost. `item_cost` and
+    #: `shipping_cost` always reconcile exactly.
+    parent_cost: Decimal
+    allocated_cost: Decimal
     parent_shipping: Decimal
     allocated_shipping: Decimal
     #: Taxes are generated per row at a fixed rate, so the sum of the pieces'
@@ -396,11 +396,11 @@ class InventoryItemOut(BaseModel):
 
     id: int
     item_code: str
-    title: str
-    storage_quantity: int
-    price: Decimal
-    shipping: Decimal
-    taxes: Decimal
+    source_title: str
+    piece_count: int
+    item_cost: Decimal
+    shipping_cost: Decimal
+    sales_tax: Decimal
     total_cost: Decimal
     parent_item_id: int | None = None
     split_at: datetime | None = None

@@ -65,8 +65,8 @@ def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
         overrides.setdefault("storage_form_id", single)
 
     return SplitPiece(
-        title=spec.title,
-        storage_quantity=spec.storage_quantity,
+        source_title=spec.source_title,
+        piece_count=spec.piece_count,
         relative_value=spec.relative_value,
         overrides=overrides,
     )
@@ -79,7 +79,7 @@ def search_inventory(
     db: DbSession,
     _admin: AdminUser,
     q: Annotated[
-        str | None, Query(description="Free text over title, code, notes")
+        str | None, Query(description="Free text over source title, code, notes")
     ] = None,
     sort: str | None = None,
     desc: bool = False,
@@ -164,12 +164,12 @@ def split(
     the same cost basis would make one look like a disaster and the other a
     windfall, and both figures would be wrong.
 
-    **`price` and `shipping` always reconcile to the penny**, by construction:
+    **`item_cost` and `shipping_cost` always reconcile to the penny**, by construction:
     the allocation floors every share and hands the remainder out one cent at a
     time to the parts cut hardest.
 
     **`total_cost` may differ by a cent or two, and the difference is
-    reported.** `taxes` is a generated column, `round((price + shipping) *
+    reported.** `sales_tax` is a generated column, `round((item_cost + shipping_cost) *
     tax_rate, 2)`, computed per row. The sum of several rounded taxes is not
     always the rounded tax of the sum -- splitting $100 three ways at 6.35%
     gives 2.12 + 2.12 + 2.12 = 6.36 against the lot's 6.35. That penny is
@@ -191,16 +191,16 @@ def split(
         db.refresh(child)
     db.refresh(parent)
 
-    allocated_price = sum((c.price for c in children), Decimal("0.00"))
-    allocated_shipping = sum((c.shipping for c in children), Decimal("0.00"))
+    allocated_cost = sum((c.item_cost for c in children), Decimal("0.00"))
+    allocated_shipping = sum((c.shipping_cost for c in children), Decimal("0.00"))
     allocated_total = sum((c.total_cost for c in children), Decimal("0.00"))
 
     return SplitResultOut(
         parent_item_code=parent.item_code,
         mode=payload.mode,
-        parent_price=parent.price,
-        allocated_price=allocated_price,
-        parent_shipping=parent.shipping,
+        parent_cost=parent.item_cost,
+        allocated_cost=allocated_cost,
+        parent_shipping=parent.shipping_cost,
         allocated_shipping=allocated_shipping,
         parent_total_cost=parent.total_cost,
         allocated_total_cost=allocated_total,

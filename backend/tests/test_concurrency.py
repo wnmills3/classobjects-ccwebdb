@@ -61,9 +61,9 @@ def committed(engine: Engine) -> None:
         cleanup.query(SalesOrder).delete()
         cleanup.query(Customer).delete()
         cleanup.query(Listing).delete()
-        cleanup.query(InventoryItem).filter(InventoryItem.title == RACE_TITLE).delete(
-            synchronize_session=False
-        )
+        cleanup.query(InventoryItem).filter(
+            InventoryItem.source_title == RACE_TITLE
+        ).delete(synchronize_session=False)
         cleanup.query(User).filter(User.email.like("race%@example.com")).delete(
             synchronize_session=False
         )
@@ -79,7 +79,7 @@ def _seed(
 ) -> tuple[int, list[int]]:
     with factory() as session:
         item = InventoryItem(
-            title=RACE_TITLE,
+            source_title=RACE_TITLE,
             item_kind_id=_code_id(session, ItemKind, "coin"),
             storage_form_id=_code_id(session, StorageForm, "single"),
             authenticity_id=_code_id(session, Authenticity, "unverified"),

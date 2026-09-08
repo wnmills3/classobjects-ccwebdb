@@ -71,7 +71,14 @@ def engine() -> Iterator[Engine]:
         conn.execute(
             text(
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = :name AND pid <> pg_backend_pid()"
+                "WHERE datname = :name AND pid <> pg_backend_pid() "
+                # Client sessions only. An autovacuum worker may be running
+                # on this database, and signalling one needs the
+                # pg_signal_autovacuum_worker role -- which the application
+                # user does not have, so the attempt raises and the teardown
+                # fails intermittently. Workers exit when the database is
+                # dropped, so there is nothing to terminate here anyway.
+                "AND backend_type = 'client backend'"
             ),
             {"name": url.database},
         )
@@ -103,7 +110,14 @@ def engine() -> Iterator[Engine]:
         conn.execute(
             text(
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = :name AND pid <> pg_backend_pid()"
+                "WHERE datname = :name AND pid <> pg_backend_pid() "
+                # Client sessions only. An autovacuum worker may be running
+                # on this database, and signalling one needs the
+                # pg_signal_autovacuum_worker role -- which the application
+                # user does not have, so the attempt raises and the teardown
+                # fails intermittently. Workers exit when the database is
+                # dropped, so there is nothing to terminate here anyway.
+                "AND backend_type = 'client backend'"
             ),
             {"name": url.database},
         )
@@ -214,11 +228,11 @@ def build_item(db: Session, **overrides: object) -> InventoryItem:
     rather than about what is offered.
     """
     item = InventoryItem(
-        title=overrides.pop("title", "1881-S Morgan Silver Dollar"),
+        source_title=overrides.pop("title", "1881-S Morgan Silver Dollar"),
         description=overrides.pop("description", "Test fixture item."),
         year_start=overrides.pop("year_start", 1881),
         year_end=overrides.pop("year_end", None),
-        storage_quantity=overrides.pop("storage_quantity", 1),
+        piece_count=overrides.pop("storage_quantity", 1),
         item_kind_id=_code_id(db, ItemKind, overrides.pop("kind", "coin")),
         country_id=_code_id(db, Country, "US"),
         grade_id=_code_id(db, Grade, "MS64"),
@@ -248,11 +262,11 @@ def make_item(db: Session) -> Callable[..., InventoryItem]:
 def build_listing(db: Session, **overrides: object) -> Listing:
     """One catalogue entry, with every NOT NULL classifier resolved."""
     item_fields = {
-        "title": overrides.pop("title", "1881-S Morgan Silver Dollar"),
+        "source_title": overrides.pop("title", "1881-S Morgan Silver Dollar"),
         "description": overrides.pop("description", "Test fixture item."),
         "year_start": overrides.pop("year_start", 1881),
         "year_end": overrides.pop("year_end", None),
-        "storage_quantity": overrides.pop("storage_quantity", 1),
+        "piece_count": overrides.pop("storage_quantity", 1),
     }
     kind = overrides.pop("kind", "coin")
     country = overrides.pop("country", "US")

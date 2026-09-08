@@ -94,8 +94,8 @@ class SplitError(ValueError):
 class SplitPiece:
     """One piece to create."""
 
-    title: str
-    storage_quantity: int = 1
+    source_title: str
+    piece_count: int = 1
     #: The value of ONE piece, on whatever basis the caller chose. Only used
     #: in `relative` mode.
     relative_value: Decimal | None = None
@@ -112,9 +112,9 @@ def _weights(pieces: list[SplitPiece], mode: str) -> list[Decimal]:
     is per *piece*, not per *row*.
     """
     if mode == EQUAL:
-        return [Decimal(piece.storage_quantity) for piece in pieces]
+        return [Decimal(piece.piece_count) for piece in pieces]
 
-    missing = [p.title for p in pieces if p.relative_value is None]
+    missing = [p.source_title for p in pieces if p.relative_value is None]
     if missing:
         raise SplitError(
             "relative mode needs a relative_value for every piece; missing "
@@ -122,7 +122,7 @@ def _weights(pieces: list[SplitPiece], mode: str) -> list[Decimal]:
         )
     if any(p.relative_value is not None and p.relative_value < 0 for p in pieces):
         raise SplitError("relative_value cannot be negative")
-    return [Decimal(piece.relative_value) * piece.storage_quantity for piece in pieces]
+    return [Decimal(piece.relative_value) * piece.piece_count for piece in pieces]
 
 
 def split_item(
@@ -162,7 +162,7 @@ def split_item(
         raise SplitError(
             f"{parent.item_code} is itself a piece of a lot; split the lot"
         )
-    if any(quantity < 1 for quantity in (p.storage_quantity for p in pieces)):
+    if any(count < 1 for count in (p.piece_count for p in pieces)):
         raise SplitError("every piece must hold at least one item")
 
     sold = db.scalar(
@@ -177,14 +177,14 @@ def split_item(
         raise SplitError(f"{parent.item_code} appears in an order and cannot be split")
 
     weights = _weights(pieces, mode)
-    prices = allocate(parent.price, weights)
-    shipping = allocate(parent.shipping, weights)
+    costs = allocate(parent.item_cost, weights)
+    shipping = allocate(parent.shipping_cost, weights)
 
     now = datetime.now(UTC)
     held = db.scalar(select(Disposition.id).where(Disposition.code == "held"))
 
     children: list[InventoryItem] = []
-    for piece, price, ship in zip(pieces, prices, shipping, strict=True):
+    for piece, cost, ship in zip(pieces, costs, shipping, strict=True):
         values = {column: getattr(parent, column) for column in INHERITED}
         # Packaging is inherited but routinely overridden: pieces come out of
         # a tube or a set as singles, whatever the lot was packaged as.
@@ -194,11 +194,11 @@ def split_item(
         child = InventoryItem(
             **values,
             parent_item_id=parent.id,
-            title=piece.title,
-            storage_quantity=piece.storage_quantity,
+            source_title=piece.source_title,
+            piece_count=piece.piece_count,
             disposition_id=held,
-            price=price,
-            shipping=ship,
+            item_cost=cost,
+            shipping_cost=ship,
             source=ProvenanceSource.derived,
             attributes={
                 **(parent.attributes or {}),

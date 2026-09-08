@@ -156,7 +156,7 @@ def run(db: Session, *, commit: bool) -> Counter:
         select(
             InventoryItem.id,
             InventoryItem.description,
-            InventoryItem.title,
+            InventoryItem.source_title,
             Denomination.label,
         )
         .join(

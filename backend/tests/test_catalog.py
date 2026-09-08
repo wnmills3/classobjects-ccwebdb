@@ -42,7 +42,7 @@ def test_list_is_public(client: TestClient, listing: Listing) -> None:
 def test_detail_is_public(client: TestClient, listing: Listing) -> None:
     response = client.get(f"/api/catalog/{listing.id}")
     assert response.status_code == 200
-    assert response.json()["title"] == listing.inventory_item.title
+    assert response.json()["title"] == listing.inventory_item.source_title
 
 
 def test_detail_404_for_unknown_id(client: TestClient) -> None:
@@ -145,7 +145,7 @@ def test_catalogue_never_exposes_cost_basis_or_location(
     body = client.get(f"/api/catalog/{listing.id}").json()
     forbidden = {
         "total_cost",
-        "taxes",
+        "sales_tax",
         "shipping",
         "tax_rate",
         "numismatic_value",
@@ -217,7 +217,7 @@ def test_creating_makes_both_an_item_and_a_listing(
     listing = db.get(Listing, body["id"])
     assert listing is not None
     assert listing.inventory_item_id == body["inventory_item_id"]
-    assert listing.inventory_item.title == NEW_ITEM["title"]
+    assert listing.inventory_item.source_title == NEW_ITEM["title"]
 
 
 def test_an_unknown_classifier_is_rejected(
@@ -263,7 +263,7 @@ def test_backwards_year_range_rejected(
 def test_patch_only_changes_supplied_fields(
     client: TestClient, listing: Listing, admin_headers: dict[str, str]
 ) -> None:
-    original_title = listing.inventory_item.title
+    original_title = listing.inventory_item.source_title
     response = client.patch(
         f"/api/catalog/{listing.id}", json={"price": "200.00"}, headers=admin_headers
     )

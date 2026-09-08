@@ -118,7 +118,7 @@ def _code_id(db: Session, model: type[ReferenceMixin], code: str | None) -> int 
 
 def _build(db: Session, row: dict) -> None:
     item = InventoryItem(
-        title=row["title"],
+        source_title=row["title"],
         description=row.get("description", ""),
         year_start=row.get("year_start"),
         fineness=row.get("fineness"),
@@ -173,10 +173,12 @@ def seed() -> None:
 
         created = 0
         for row in SAMPLE_CATALOG:
-            # Matched on title: the target schema has no artificial unique key
+            # Matched on source_title: the schema has no artificial unique key
             # per catalogue row, because two identical coins are two objects.
             exists = db.scalar(
-                select(InventoryItem.id).where(InventoryItem.title == row["title"])
+                select(InventoryItem.id).where(
+                    InventoryItem.source_title == row["title"]
+                )
             )
             if exists is None:
                 _build(db, row)

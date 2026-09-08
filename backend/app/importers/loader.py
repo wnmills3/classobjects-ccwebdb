@@ -322,7 +322,7 @@ class SchemaLoader:
             bullion_form_id=bullion_form_id,
             set_form_id=set_form_id,
             storage_form_id=storage_form_id,
-            storage_quantity=max(1, int(fields.get("storage_quantity") or 1)),
+            piece_count=max(1, int(fields.get("storage_quantity") or 1)),
             year_start=fields.get("year_start"),
             year_end=fields.get("year_end"),
             grade_id=grade_id,
@@ -336,15 +336,15 @@ class SchemaLoader:
             status_id=self.code_id(ItemStatus, status_code),
             disposition_id=self.code_id(Disposition, DEFAULT_DISPOSITION),
             local_catalog_number=fields.get("local_catalog_number"),
-            title=_clip(fields.get("title") or "", 500),
+            source_title=_clip(fields.get("title") or "", 500),
             description=fields.get("description") or "",
             listing_url=fields.get("listing_url"),
             notes_raw=fields.get("comment"),
             denom_raw=fields.get("denom_raw"),
             year_raw=fields.get("year_raw"),
             grade_raw=fields.get("grade_raw"),
-            price=_as_decimal(fields.get("price")) or Decimal("0.00"),
-            shipping=_as_decimal(fields.get("shipping")) or Decimal("0.00"),
+            item_cost=_as_decimal(fields.get("price")) or Decimal("0.00"),
+            shipping_cost=_as_decimal(fields.get("shipping")) or Decimal("0.00"),
             numismatic_value=numismatic,
             valuation_basis_id=self.code_id(ValuationBasis, basis),
             metal_id=metal_id,
@@ -638,6 +638,10 @@ def _host_of(url: str | None) -> str | None:
 
 #: Fields already stored in real columns; everything else a profile emits goes
 #: to `attributes` rather than being silently dropped.
+#:
+#: These are the *profile's* names, which describe the spreadsheet, so they
+#: keep saying `price` and `title` even though the columns they land in are
+#: now `item_cost` and `source_title`. The mapping is explicit above.
 _PROMOTED = frozenset(
     {
         "storage_form",
