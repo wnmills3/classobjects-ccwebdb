@@ -51,6 +51,24 @@ line-length = 88
 target-version = "py313"
 extend-exclude = ["backend/alembic/versions"]
 
+
+# `ruff format` reformats Python inside fenced code blocks in Markdown, and for
+# this project's documentation that is wrong rather than helpful.
+#
+# The specs and plans in `docs/` quote *fragments* -- three lines that go
+# inside an existing function, indented to show where. Ruff sees a module,
+# dedents them to column zero, and the placement information is gone. Worse, it
+# reflows them: a snippet showing the keyword argument
+# `issues=count_issues(...) if facets else {},` became
+# `issues = (count_issues(...) if facets else {},)`, an assignment of a
+# 1-tuple. That is a different construct, and it would have been transcribed
+# into real code by whoever implemented from that document.
+#
+# Formatting is for code the interpreter runs. A fragment in a specification is
+# prose about code, and reformatting prose to compile changes what it says.
+[tool.ruff.format]
+exclude = ["docs/**/*.md"]
+
 [tool.ruff.lint]
 select = [
     "E", "W",   # pycodestyle
