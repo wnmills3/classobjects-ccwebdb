@@ -461,11 +461,21 @@ those axes and be unusable against any published guide.
 
 ## Open questions
 
-- **`purchase_order` 114 is not an order.** It has no order number and holds
-  1,922 items across two years of eBay buying, $90,438.91 of cost basis --
-  the importer collapsed every numberless eBay purchase into one row dated
-  2024-04-01. Provenance for a quarter of the collection is therefore coarser
-  than it looks, and splitting it needs the original eBay records.
+- **`purchase_order` 114 is an importer artefact, not an order.** The
+  spreadsheet has no purchase-order concept at all -- only a vendor's order
+  number per row. `loader.purchase_order_id` keys on
+  `(vendor_id, order_number or "")`, so **every row with a blank order number
+  from one vendor collapses into a single key**. For ebay.com that is 1,922
+  items across two years, $90,438.91 of cost basis, dated by whichever row
+  happened to come first (2024-04-01).
+
+  It is a bug rather than a finding about the collection, and it is larger
+  than one vendor. Twelve orders are affected -- ebay.com, hibid.com,
+  liveauctioneers.com and nine others -- covering **2,644 items and
+  $224,372.20, which is 42% of the cost basis**. Rows with no order number
+  are not one order and must not share a row: each should get its own, or
+  none at all. Until it is fixed, any report grouping by purchase order is
+  wrong for two fifths of the collection by value.
 - **Item 0 of the 12 conglomerates.** The unsplit items hold 240 pieces between
   them, but the piece count comes from `storage_quantity`, which was itself
   parsed from the spreadsheet. Those counts want checking against the
