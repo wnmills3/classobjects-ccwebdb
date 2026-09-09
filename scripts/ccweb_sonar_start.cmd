@@ -10,6 +10,9 @@ rem
 rem  The database publishes no host port; SonarQube reaches it over the private
 rem  podman network. SonarQube binds 127.0.0.1 only, so it is unreachable from
 rem  the LAN whatever the firewall says.
+rem
+rem  Contract: pre-flights podman and port 9000, then exits non-zero unless
+rem  /api/system/status is confirmed UP within the poll window.
 rem ---------------------------------------------------------------------------
 setlocal enabledelayedexpansion
 

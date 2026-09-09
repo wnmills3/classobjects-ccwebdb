@@ -6,6 +6,9 @@ rem    ccweb_sonar_scan
 rem
 rem  Requires SONAR_TOKEN in the environment: the scanner runs in its own
 rem  container and cannot read the host keychain.
+rem
+rem  Contract: pre-flights the server and SONAR_TOKEN, then exits non-zero
+rem  (and refuses to publish) if the test suite fails or the scanner fails.
 rem ---------------------------------------------------------------------------
 setlocal enabledelayedexpansion
 
@@ -41,6 +44,11 @@ if not exist "%PY%" (
 )
 
 echo === tests with coverage ===
+rem  Non-zero coverage needs all three of: relative_files = true under
+rem  [tool.coverage.run] in pyproject.toml, running from the repository root
+rem  (this "pushd" above), and --cov=backend/app. Running from backend, the
+rem  way ccweb_check.cmd does, records paths like app/db.py, which sonar.sources
+rem  (backend/app) cannot map - a silent 0% that looks like clean code.
 "%PY%" -m pytest -q --cov=backend/app --cov-report=xml:coverage.xml
 if errorlevel 1 (
     echo ERROR: tests failed - refusing to publish an analysis.
