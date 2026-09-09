@@ -371,8 +371,15 @@ describe('owner console shell', () => {
     expect(screen.queryByRole('link', { name: /people/i })).not.toBeInTheDocument()
   })
 
+  // '/nowhere' renders the console chrome and its "Page not found", without
+  // mounting any page. That is exactly what these two cases assert -- the
+  // navigation an administrator sees. Rendering at '/' would redirect to
+  // /inventory/coins, mount InventoryCoins, and call the API; every existing
+  // page test vi.mocks the api module, and a factory mock here would have to
+  // list every export the inventory page touches and would break the moment
+  // it touched one more.
   it('renders the console navigation for an administrator', () => {
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/' })
+    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
     expect(screen.getByRole('link', { name: /coins/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /people/i })).toBeInTheDocument()
   })
@@ -383,7 +390,7 @@ describe('owner console shell', () => {
   })
 
   it('does not link back to the shop', () => {
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/' })
+    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
     expect(screen.queryByRole('link', { name: /catalogue/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^cart$/i })).not.toBeInTheDocument()
   })
@@ -1323,30 +1330,39 @@ try {
   process.exit(1)
 }
 
-const entries = Object.entries(manifest)
-  .filter(([, chunk]) => chunk.isEntry)
-  .map(([key, chunk]) => [key, chunk.name])
+const entries = Object.entries(manifest).filter(([, chunk]) => chunk.isEntry)
 
-const store = entries.find(([, name]) => name === 'store')
-const owner = entries.find(([, name]) => name === 'owner')
+// Selected by manifest key, not by chunk.name. For HTML inputs Vite keys the
+// manifest by the HTML path, and `name` is not reliably the rollupOptions
+// input key -- selecting on it risks reporting "no such entry" on a perfectly
+// good build, which invites someone to loosen the check rather than fix it.
+function findEntry(htmlPath, inputName) {
+  return (
+    entries.find(([key]) => key === htmlPath) ??
+    entries.find(([, chunk]) => chunk.name === inputName)
+  )
+}
+
+const store = findEntry('index.html', 'store')
+const owner = findEntry('owner.html', 'owner')
 
 if (!store || !owner) {
-  console.error(
-    `Expected entries named "store" and "owner"; found: ${entries.map(([, n]) => n).join(', ') || '(none)'}`,
-  )
+  console.error('Could not find both entries in the manifest.')
+  console.error(`  entry keys present: ${entries.map(([k]) => k).join(', ') || '(none)'}`)
+  console.error('  expected: index.html (shop) and owner.html (console)')
   process.exit(1)
 }
 
 const failures = []
-for (const [entry, forbidden] of [
-  [store, 'src/owner/'],
-  [owner, 'src/store/'],
+for (const [entry, label, forbidden] of [
+  [store, 'shop', 'src/owner/'],
+  [owner, 'console', 'src/store/'],
 ]) {
   for (const key of graph(manifest, entry[0])) {
     const chunk = manifest[key]
     const sources = [key, chunk?.src ?? ''].filter(Boolean)
     if (sources.some((s) => s.includes(forbidden))) {
-      failures.push(`${entry[1]} bundle reaches ${forbidden} via ${key}`)
+      failures.push(`${label} bundle reaches ${forbidden} via ${key}`)
     }
   }
 }
@@ -1369,6 +1385,11 @@ cd frontend
 ```
 
 Expected: `Bundle isolation OK: neither entry reaches the other tree.`
+
+If instead it reports `Could not find both entries in the manifest`, read the
+entry keys it printed and adjust `findEntry`'s expected paths. Do **not**
+loosen the check to make it pass -- a check that cannot locate what it is
+guarding is guarding nothing.
 
 - [ ] **Step 3: Mutation-test it**
 
