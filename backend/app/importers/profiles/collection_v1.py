@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from ..profile import (
     ERROR,
@@ -313,7 +313,8 @@ VALUE_MARKERS = {
 def _decimal(text: str) -> Decimal | None:
     try:
         return Decimal(text.replace(",", "").replace("$", "").strip())
-    except (InvalidOperation, ArithmeticError, ValueError):
+    # InvalidOperation derives from ArithmeticError; ValueError does not.
+    except (ArithmeticError, ValueError):
         return None
 
 
@@ -516,7 +517,9 @@ class CollectionV1Profile:
                 amount = Decimal(num) / Decimal(den)
             else:
                 amount = Decimal(quantity)
-        except (InvalidOperation, ArithmeticError, ZeroDivisionError):
+        # InvalidOperation and ZeroDivisionError both derive from
+        # ArithmeticError.
+        except ArithmeticError:
             issues.append(
                 Issue(
                     rule="weight-not-parsed",

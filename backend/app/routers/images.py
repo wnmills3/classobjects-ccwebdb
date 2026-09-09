@@ -121,7 +121,7 @@ def ingest(db: Session, raw: bytes, source_ref: str | None) -> Image:
     return image
 
 
-@router.post("", response_model=ImageOut, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_image(
     db: DbSession,
     _admin: AdminUser,

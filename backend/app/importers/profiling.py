@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 
 from .engine import ImportReport
@@ -53,7 +53,8 @@ def _is_number(value: str) -> bool:
     try:
         Decimal(value.replace(",", "").replace("$", "").strip())
         return True
-    except (InvalidOperation, ArithmeticError, ValueError):
+    # InvalidOperation derives from ArithmeticError; ValueError does not.
+    except (ArithmeticError, ValueError):
         return False
 
 
