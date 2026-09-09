@@ -250,6 +250,7 @@ media/
 # report are both regenerated on every run. coverage.xml already has an entry
 # above, in the "Unit test / coverage reports" block.
 .scannerwork/
+frontend/coverage/
 
 # SonarQube CLI state, created by `sonar` commands under scripts\.
 scripts/.sonar/

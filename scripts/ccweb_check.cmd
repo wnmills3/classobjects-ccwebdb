@@ -63,6 +63,14 @@ if exist "frontend\node_modules\eslint" (
     echo === frontend format ===
     "%NODE%" frontend\node_modules\prettier\bin\prettier.cjs --check frontend --log-level warn
     if errorlevel 1 set "FAILED=!FAILED! prettier"
+
+    echo === frontend tests ===
+    rem  Run from frontend so vitest picks up vite.config.js; node is not
+    rem  on PATH, so the script is invoked directly rather than via npm.
+    pushd frontend
+    "%NODE%" node_modules\vitest\vitest.mjs run
+    if errorlevel 1 set "FAILED=!FAILED! vitest"
+    popd
 )
 
 popd
