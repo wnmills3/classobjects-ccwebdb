@@ -166,7 +166,16 @@ credential `sonar auth login` stored there does not reach it:
 set "SONAR_TOKEN=squ_..."
 ```
 
-Generate a token at http://localhost:9000/account/security.
+On a fresh server, generating a token needs a signed-in account first: open
+http://localhost:9000, log in as `admin` / `admin`, and complete the forced
+password change SonarQube requires on that first login. Only then does
+**My Account -> Security -> Generate Tokens** work. Generate one at
+http://localhost:9000/account/security.
+
+`ccweb_sonar_scan.cmd` also needs the `ccwebdb` conda environment to run the
+test suite (see [environment-setup.md](environment-setup.md)), and it refuses
+to publish an analysis if that suite fails — a broken build should not attach
+misleading coverage to a passing-looking dashboard.
 
 The server and database run as podman containers (`sonarqube`, `sonar-db`) on
 the `sonar-net` network, with all state held in four named podman volumes:

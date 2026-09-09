@@ -37,9 +37,11 @@ skill specifies a different path, format, or workflow, this file wins.
   chat, `.cmd` scripts, and documentation examples. No `.ps1`, and no shelling
   out to `powershell -Command` from inside a `.cmd` — that is still PowerShell.
 - Useful pure-cmd equivalents: `curl -s -f -o nul <url>` then `if errorlevel 1`
-  for readiness checks; `timeout /t 1 /nobreak >nul` to sleep; `taskkill /PID
-  <pid> /T /F` to kill a tree; `setlocal EnableDelayedExpansion` with `!var!`
-  inside blocks.
+  for readiness checks; `ping -n 2 127.0.0.1 >nul` to sleep — `timeout` needs a
+  real console and fails instantly, with no sleep at all, when stdin is
+  redirected, which is exactly how an automated or scheduled caller runs a
+  script; `taskkill /PID <pid> /T /F` to kill a tree; `setlocal
+  EnableDelayedExpansion` with `!var!` inside blocks.
 - **Machine trap:** `NoDefaultCurrentDirectoryInExePath=1` is set, so
   `cmd /c script.cmd` fails with "not recognized" even in the current
   directory. Always invoke as `.\script.cmd` or with a full path.
