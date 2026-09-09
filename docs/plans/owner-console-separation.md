@@ -9,7 +9,8 @@ owner route.
 **Architecture:** One Vite project, three source trees (`shared/`, `store/`,
 `owner/`), two HTML entry points. Rollup treats each entry as an independent
 module graph. The separation is enforced by ESLint import-boundary rules at
-edit time and verified against the built artefact by a manifest check.
+edit time and verified against the built artefact by a check that inspects
+which modules ended up in which chunk.
 
 **Tech Stack:** Vite 8, React 19, react-router-dom 7, Vitest 5, ESLint 10
 (flat config), Prettier 3.
@@ -55,7 +56,7 @@ frontend/
   owner.html                     NEW       -> /src/owner/main.jsx
   vite.config.js                 MODIFIED  two inputs, manifest, dev fallback
   eslint.config.js               MODIFIED  import-boundary rules
-  scripts/check-bundle-isolation.mjs  NEW  manifest-graph assertion
+  scripts/check-bundle-isolation.mjs  NEW  chunk-membership assertion
   src/
     shared/    api.js  api.test.js  format.js  format.test.js
                auth.jsx  auth.test.jsx  auth-context.js
@@ -1300,11 +1301,78 @@ build-configuration mistake such as both entries sharing a chunk.
 - Modify: `docs/code-quality.md`
 
 **Interfaces:**
-- Consumes: `frontend/dist/.vite/manifest.json`, produced by the `manifest: true`
-  build option added in Task 3, with entry names `store` and `owner`.
+- Consumes: `frontend/dist/.vite/bundle-graph.json`, emitted by a build plugin
+  added in Step 1 below. Entry chunks carry `name` `store` and `owner`.
 - Produces: a script exiting 0 on success and 1 with a report on failure.
 
-- [ ] **Step 1: Write the check**
+> **Why not Vite's `manifest.json`.** The earlier draft of this task read the
+> manifest and asked whether any chunk's `src` named `src/owner/`. Inspecting a
+> real build of this project shows why that cannot work: both entries import
+> one shared chunk, recorded as
+> `"_styles-DXfkAPNt.js": { "isEntry": false, "src": null }`. A manifest never
+> lists the modules inside a chunk, and a shared chunk has no single `src` to
+> name. Rollup puts any module imported by *both* entries into that shared
+> chunk — so the day someone imports an owner page from shop code, the module
+> lands in the chunk the shop already downloads, and a manifest-based check
+> reports success. That is precisely the regression this task exists to catch,
+> so the check reads chunk membership instead.
+
+- [ ] **Step 1: Emit a bundle graph at build time, and pin the dev host**
+
+Two changes to `frontend/vite.config.js`.
+
+First, add `host: '127.0.0.1'` to the `server` block, above `port`:
+
+```js
+  server: {
+    // Bind IPv4 loopback explicitly. Left unset, Vite binds only [::1] on this
+    // machine, and every documented URL in docs/runtime-operations.md and in
+    // this plan says 127.0.0.1 -- so the documented commands fail with
+    // "connection refused" against a server that is running perfectly well.
+    host: '127.0.0.1',
+    port: 5173,
+```
+
+Second, add the plugin below — define it beside `twoAppDevFallback` and add
+`bundleGraph()` to the `plugins` array:
+
+```js
+/**
+ * Emit which modules ended up in which chunk.
+ *
+ * Vite's own manifest cannot answer this: it records a chunk's imports but not
+ * its contents, and a chunk shared between entries has no `src` attributing it
+ * to a source tree. Rollup only tells you inside `generateBundle`, so that is
+ * where this listens.
+ */
+function bundleGraph() {
+  return {
+    name: 'ccwebdb-bundle-graph',
+    generateBundle(_options, bundle) {
+      const root = process.cwd().replace(/\\/g, '/')
+      const chunks = {}
+      for (const [fileName, chunk] of Object.entries(bundle)) {
+        if (chunk.type !== 'chunk') continue
+        chunks[fileName] = {
+          name: chunk.name,
+          isEntry: chunk.isEntry,
+          imports: chunk.imports,
+          modules: Object.keys(chunk.modules).map((id) =>
+            id.replace(/\\/g, '/').replace(root + '/', ''),
+          ),
+        }
+      }
+      this.emitFile({
+        type: 'asset',
+        fileName: '.vite/bundle-graph.json',
+        source: JSON.stringify(chunks, null, 2),
+      })
+    },
+  }
+}
+```
+
+- [ ] **Step 2: Write the check**
 
 Create `frontend/scripts/check-bundle-isolation.mjs`:
 
@@ -1312,8 +1380,14 @@ Create `frontend/scripts/check-bundle-isolation.mjs`:
 /**
  * Assert that neither application's bundle contains the other's code.
  *
- * Reads Vite's build manifest and walks the chunk graph reachable from each
- * entry. Deliberately not a string search of the built JavaScript: Rollup
+ * Walks the chunk graph reachable from each entry and inspects the MODULES in
+ * every chunk it reaches, not the chunk's name or `src`. Chunks shared between
+ * the two entries are the whole point: Rollup puts a module imported by both
+ * into one, it belongs to neither tree by name, and it is downloaded by both
+ * applications. A check that cannot see inside it cannot see the failure it
+ * exists to catch.
+ *
+ * Deliberately not a string search of the built JavaScript either: Rollup
  * minifies identifiers, so a grep can pass because the name it looked for was
  * renamed -- and a check that passes for the wrong reason is worse than none.
  *
@@ -1324,66 +1398,56 @@ Create `frontend/scripts/check-bundle-isolation.mjs`:
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const MANIFEST = resolve(process.cwd(), 'dist/.vite/manifest.json')
+const GRAPH = resolve(process.cwd(), 'dist/.vite/bundle-graph.json')
 
 /** Every chunk reachable from one entry, following imports transitively. */
-function graph(manifest, entryKey) {
+function reachable(chunks, entryFile) {
   const seen = new Set()
-  const queue = [entryKey]
+  const queue = [entryFile]
   while (queue.length > 0) {
-    const key = queue.pop()
-    if (seen.has(key)) continue
-    seen.add(key)
-    const chunk = manifest[key]
-    if (!chunk) continue
-    for (const next of [...(chunk.imports ?? []), ...(chunk.dynamicImports ?? [])]) {
-      queue.push(next)
-    }
+    const file = queue.pop()
+    if (seen.has(file)) continue
+    seen.add(file)
+    for (const next of chunks[file]?.imports ?? []) queue.push(next)
   }
   return seen
 }
 
-let manifest
+let chunks
 try {
-  manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'))
+  chunks = JSON.parse(readFileSync(GRAPH, 'utf8'))
 } catch {
-  console.error(`Cannot read ${MANIFEST}. Run the build first.`)
+  console.error(`Cannot read ${GRAPH}. Run the build first.`)
   process.exit(1)
 }
 
-const entries = Object.entries(manifest).filter(([, chunk]) => chunk.isEntry)
+const entries = Object.entries(chunks).filter(([, c]) => c.isEntry)
+const find = (name) => entries.find(([, c]) => c.name === name)?.[0]
 
-// Selected by manifest key, not by chunk.name. For HTML inputs Vite keys the
-// manifest by the HTML path, and `name` is not reliably the rollupOptions
-// input key -- selecting on it risks reporting "no such entry" on a perfectly
-// good build, which invites someone to loosen the check rather than fix it.
-function findEntry(htmlPath, inputName) {
-  return (
-    entries.find(([key]) => key === htmlPath) ??
-    entries.find(([, chunk]) => chunk.name === inputName)
-  )
-}
-
-const store = findEntry('index.html', 'store')
-const owner = findEntry('owner.html', 'owner')
+const store = find('store')
+const owner = find('owner')
 
 if (!store || !owner) {
-  console.error('Could not find both entries in the manifest.')
-  console.error(`  entry keys present: ${entries.map(([k]) => k).join(', ') || '(none)'}`)
-  console.error('  expected: index.html (shop) and owner.html (console)')
+  console.error('Could not find both entry chunks in the bundle graph.')
+  console.error(`  entry chunks present: ${entries.map(([f, c]) => `${f} (name=${c.name})`).join(', ') || '(none)'}`)
+  console.error('  expected chunks named "store" and "owner"')
   process.exit(1)
 }
 
+// Module ids are relative to the Vite root (frontend/), so they read
+// 'src/owner/pages/AdminPeople.jsx' -- not 'frontend/src/...'. Verified
+// against a real build; a prefix with 'frontend/' in it matches nothing and
+// the check silently passes everything.
 const failures = []
-for (const [entry, label, forbidden] of [
+for (const [entryFile, label, forbidden] of [
   [store, 'shop', 'src/owner/'],
   [owner, 'console', 'src/store/'],
 ]) {
-  for (const key of graph(manifest, entry[0])) {
-    const chunk = manifest[key]
-    const sources = [key, chunk?.src ?? ''].filter(Boolean)
-    if (sources.some((s) => s.includes(forbidden))) {
-      failures.push(`${label} bundle reaches ${forbidden} via ${key}`)
+  for (const file of reachable(chunks, entryFile)) {
+    for (const module of chunks[file]?.modules ?? []) {
+      if (module.includes(forbidden)) {
+        failures.push(`${label} bundle reaches ${module} (in chunk ${file})`)
+      }
     }
   }
 }
@@ -1394,10 +1458,13 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log('Bundle isolation OK: neither entry reaches the other tree.')
+const counted = new Set([...reachable(chunks, store), ...reachable(chunks, owner)])
+console.log(
+  `Bundle isolation OK: neither entry reaches the other tree (${counted.size} chunks inspected).`,
+)
 ```
 
-- [ ] **Step 2: Run it against a clean build**
+- [ ] **Step 3: Run it against a clean build**
 
 ```
 cd frontend
@@ -1412,7 +1479,7 @@ entry keys it printed and adjust `findEntry`'s expected paths. Do **not**
 loosen the check to make it pass -- a check that cannot locate what it is
 guarding is guarding nothing.
 
-- [ ] **Step 3: Mutation-test it**
+- [ ] **Step 4: Mutation-test it**
 
 The check must be able to fail. Temporarily add to
 `frontend/src/store/StoreApp.jsx`:
@@ -1422,13 +1489,32 @@ import AdminPeople from '../owner/pages/AdminPeople'
 console.warn(AdminPeople)
 ```
 
-Rebuild and rerun. Expected: `Bundle isolation FAILED:` and exit 1. Remove the
-lines, rebuild, and confirm it passes again.
+(The `console.warn` matters -- without a use, Rollup tree-shakes the import
+away and the mutation tests nothing.)
+
+Rebuild and rerun. Expected:
+
+```
+Bundle isolation FAILED:
+  shop bundle reaches src/owner/pages/AdminPeople.jsx (in chunk assets/styles-<hash>.js)
+```
+
+and exit 1. Remove the lines, rebuild, and confirm it passes again.
+
+**Read that expected output carefully — the chunk named is the *shared* one,
+not the shop's own.** This was verified against a real build of this project
+before the task was written: a module imported by both entries is hoisted by
+Rollup into the chunk they share, which the manifest records as
+`"src": null`, belonging to no tree by name. The shop still downloads it. That
+is exactly why the check reads chunk membership rather than the manifest, and
+exactly the case an implementation that "simplified" it back to the manifest
+would wave through.
 
 If it does **not** fail, the check is decorative and must be fixed before this
-task is complete. Read the manifest by hand to see how the chunk was recorded.
+task is complete. Print the bundle graph and find which chunk the module
+actually landed in.
 
-- [ ] **Step 4: Wire it into the gate**
+- [ ] **Step 5: Wire it into the gate**
 
 In `scripts\ccweb_check.cmd`, inside the existing
 `if exist "frontend\node_modules\eslint" (` block and after the frontend tests,
@@ -1456,19 +1542,19 @@ Edit the file byte-wise to preserve its CRLF line endings, which
 
 Expected: `bare LF: 0`.
 
-- [ ] **Step 5: Confirm the gate fails and recovers**
+- [ ] **Step 6: Confirm the gate fails and recovers**
 
-Reapply the Step 3 mutation, run `.\scripts\ccweb_check.cmd`, and expect a
+Reapply the Step 4 mutation, run `.\scripts\ccweb_check.cmd`, and expect a
 non-zero exit with `FAILED:` naming `isolation` (and `eslint`, since the lint
 rules catch the same import). Remove it and expect `All checks passed.`
 
-- [ ] **Step 6: Document it**
+- [ ] **Step 7: Document it**
 
 In `docs/code-quality.md`, add `Frontend bundle isolation | custom | yes` to
 the **What runs** table, and a short section explaining the two-channel check
 and why the JavaScript side reads the manifest rather than grepping.
 
-- [ ] **Step 7: Run the full gate and commit**
+- [ ] **Step 8: Run the full gate and commit**
 
 ```
 .\scripts\ccweb_check.cmd
@@ -1476,7 +1562,7 @@ git add -A
 git commit -F <message-file>
 ```
 
-Subject: `Assert bundle isolation against the built manifest`. Record the
+Subject: `Assert bundle isolation against real chunk membership`. Record the
 mutation test and its result in the body.
 
 ---
