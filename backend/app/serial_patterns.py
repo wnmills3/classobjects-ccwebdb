@@ -105,7 +105,7 @@ def analyse(serial: str) -> set[str]:
         found.add("trinary")
     if d == d[::-1]:
         found.add("radar")
-    if d[: SERIAL_DIGITS // 2] == d[SERIAL_DIGITS // 2 :]:
+    if d.startswith(d[SERIAL_DIGITS // 2 :]):
         found.add("repeater")
     # Four of one digit then four of another -- 00005555. Named separately
     # from `binary` because collectors and grading forms treat the arrangement

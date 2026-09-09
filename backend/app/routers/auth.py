@@ -51,7 +51,7 @@ def register(payload: UserCreate, db: DbSession) -> User:
     return user
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post("/login")
 def login(
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: DbSession,
@@ -84,7 +84,7 @@ def login(
     )
 
 
-@router.post("/refresh", response_model=TokenPair)
+@router.post("/refresh")
 def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
     """Exchange a refresh token for a fresh pair.
 

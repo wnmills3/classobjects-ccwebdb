@@ -91,7 +91,7 @@ def _load(db: Session, order_id: int) -> SalesOrder | None:
     )
 
 
-@router.post("", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> OrderOut:
     """Place an order, decrementing availability atomically.
 
@@ -170,7 +170,7 @@ def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> Orde
     return _order_out(order, "pending")
 
 
-@router.get("", response_model=list[OrderOut])
+@router.get("")
 def list_orders(db: DbSession, user: CurrentUser) -> list[OrderOut]:
     """Customers see their own orders; administrators see every order."""
     stmt = (
@@ -204,14 +204,14 @@ def _visible_or_404(db: Session, order_id: int, user: User) -> SalesOrder:
     return order
 
 
-@router.get("/{order_id}", response_model=OrderOut)
+@router.get("/{order_id}")
 def get_order(order_id: int, db: DbSession, user: CurrentUser) -> OrderOut:
     """One order. A customer sees only their own; an administrator sees any."""
     order = _visible_or_404(db, order_id, user)
     return _order_out(order, _status_code(db, order))
 
 
-@router.patch("/{order_id}", response_model=OrderOut)
+@router.patch("/{order_id}")
 def update_order_status(
     order_id: int, payload: OrderStatusUpdate, db: DbSession, _admin: AdminUser
 ) -> OrderOut:

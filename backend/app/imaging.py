@@ -30,7 +30,7 @@ import io
 from dataclasses import dataclass
 from datetime import datetime
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
 from .config import settings
 
@@ -92,7 +92,9 @@ def _open(raw: bytes) -> Image.Image:
         image.load()
     except Image.DecompressionBombError as exc:
         raise ImageRejected(f"image is implausibly large: {exc}") from exc
-    except (UnidentifiedImageError, OSError) as exc:
+    # UnidentifiedImageError derives from OSError, so OSError alone covers
+    # both the not-an-image case and an unreadable file.
+    except OSError as exc:
         raise ImageRejected(f"not a readable image: {exc}") from exc
     return image
 

@@ -171,7 +171,7 @@ def _resolve_classifiers(db: Session, payload: dict[str, Any]) -> dict[str, int 
     return resolved
 
 
-@router.get("", response_model=CatalogPage)
+@router.get("")
 def list_catalog(
     db: DbSession,
     q: Annotated[
@@ -255,13 +255,13 @@ def _get_listing(db: Session, listing_id: int) -> Listing:
     return listing
 
 
-@router.get("/{listing_id}", response_model=CatalogItemOut)
+@router.get("/{listing_id}")
 def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
     """One catalogue entry. Public: it carries no cost basis or location."""
     return to_catalog_item(_get_listing(db, listing_id))
 
 
-@router.post("", response_model=CatalogItemOut, status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_catalog_item(
     payload: CatalogItemCreate, db: DbSession, _admin: AdminUser
 ) -> CatalogItemOut:
@@ -299,7 +299,7 @@ def create_catalog_item(
     return to_catalog_item(_get_listing(db, listing.id))
 
 
-@router.patch("/{listing_id}", response_model=CatalogItemOut)
+@router.patch("/{listing_id}")
 def update_catalog_item(
     listing_id: int, payload: CatalogItemUpdate, db: DbSession, _admin: AdminUser
 ) -> CatalogItemOut:

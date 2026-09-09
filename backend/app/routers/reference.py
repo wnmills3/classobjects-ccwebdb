@@ -66,13 +66,13 @@ def _to_value(row: object, model: type[ReferenceMixin]) -> ReferenceValueOut:
     )
 
 
-@router.get("", response_model=list[str])
+@router.get("")
 def list_tables() -> list[str]:
     """The vocabularies available, in dependency order."""
     return list(TABLES)
 
 
-@router.get("/{table}", response_model=ReferenceTableOut)
+@router.get("/{table}")
 def get_table(
     table: str,
     db: DbSession,
@@ -144,7 +144,22 @@ def _model_or_404(table: str) -> type:
 
 
 @router.post(
-    "/{table}", response_model=ReferenceValueOut, status_code=status.HTTP_201_CREATED
+    "/{table}",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        422: {
+            "description": "Request validation failed, or the payload names a column "
+            "the table does not have, or the row was rejected by a database "
+            "constraint.",
+            # Restates FastAPI's generated content. Passing only a description
+            # replaces the whole 422 entry and drops the schema reference.
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
+                }
+            },
+        }
+    },
 )
 def create_value(
     table: str, payload: ReferenceValueCreate, db: DbSession, _admin: AdminUser
@@ -204,7 +219,7 @@ def create_value(
     return _to_value(row, model)
 
 
-@router.patch("/{table}/{code}", response_model=ReferenceValueOut)
+@router.patch("/{table}/{code}")
 def rename_value(
     table: str,
     code: str,

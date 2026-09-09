@@ -104,7 +104,7 @@ def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
     )
 
 
-@router.get("/{view}/search", response_model=InventoryPageOut)
+@router.get("/{view}/search")
 def search_inventory(
     view: str,
     request: Request,
@@ -244,7 +244,7 @@ def _classifier_code(db: Session, model: type, fk: int | None) -> str | None:
     return row.code if row is not None else None
 
 
-@router.get("/{item_id}", response_model=ItemDetailOut)
+@router.get("/{item_id}")
 def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
     """One item, with what its lot claimed and what has been confirmed.
 
@@ -495,7 +495,7 @@ def update_item(
     return item
 
 
-@router.post("/{item_id}/split", response_model=SplitResultOut)
+@router.post("/{item_id}/split")
 def split(
     item_id: int, payload: SplitRequest, db: DbSession, _admin: AdminUser
 ) -> SplitResultOut:
@@ -597,7 +597,7 @@ def _reviewed_fields(db: Session, item_id: int) -> list[str]:
     )
 
 
-@router.get("/{item_id}/reviewed", response_model=ItemReviewOut)
+@router.get("/{item_id}/reviewed")
 def get_item_review(item_id: int, db: DbSession, _admin: AdminUser) -> ItemReviewOut:
     """Which of this item's fields a person has confirmed."""
     item = _get_item(db, item_id)
@@ -606,7 +606,7 @@ def get_item_review(item_id: int, db: DbSession, _admin: AdminUser) -> ItemRevie
     )
 
 
-@router.post("/{item_id}/reviewed", response_model=ItemReviewOut)
+@router.post("/{item_id}/reviewed")
 def set_item_review(
     item_id: int,
     payload: ReviewRequest,
