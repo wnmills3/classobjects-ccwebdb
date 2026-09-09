@@ -44,10 +44,11 @@ echo === python lint ===
 if errorlevel 1 set "FAILED=!FAILED! lint"
 
 echo === python types ===
-rem Not yet a gate: mypy still reports findings in generic SQLAlchemy code.
-rem The count is expected to fall, never rise -- see docs\code-quality.md.
+rem A gate since the backlog reached zero. It was reported-only while a
+rem standing count of findings made a new one invisible; with none left, a
+rem single new finding is the signal, so it fails the build like the rest.
 "%PY%" -m mypy
-if errorlevel 1 echo     (type findings are reported, not enforced -- see docs\code-quality.md)
+if errorlevel 1 set "FAILED=!FAILED! types"
 
 echo === tests ===
 pushd backend

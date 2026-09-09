@@ -17,7 +17,7 @@ It exits non-zero if anything fails, so CI can call it directly.
 |---|---|---|
 | Python formatting | `ruff format` | yes |
 | Python linting | `ruff check` | yes |
-| Python types | `mypy` | reported, not yet enforced |
+| Python types | `mypy` | yes |
 | Tests | `pytest` | yes |
 | Frontend linting | `eslint` | yes (errors) |
 | Frontend formatting | `prettier` | yes |
@@ -61,16 +61,56 @@ wrong for this framework.
 
 ## Types
 
-`mypy` runs but does not yet fail the build. It reports around forty findings,
-almost all friction between strict typing and SQLAlchemy's generics —
-`ColumnElement[bool]` where a `BinaryExpression[bool]` is declared, `Mapped[]`
-descriptors on mixins, protocol variance. They are not defects.
+`mypy` fails the build. It was reported-only for as long as there was a
+standing backlog — with forty-odd findings on every run, a new one is
+invisible. The backlog is now zero, so a single new finding is the signal and
+is treated like any other failing gate.
 
-It is left running because the ones that *were* defects were worth having:
-a self-referential relationship carrying a meaningless `remote_side=lambda:
-None`, a function whose return annotation had gone stale after its type
-changed, and several `Session | None` values used without narrowing. The count
-is expected to fall and never rise.
+Most of the backlog was friction between strict typing and SQLAlchemy's
+generics rather than defects: `ColumnElement[bool]` where a
+`BinaryExpression[bool]` was declared, a `Row` used as though it were a
+`tuple` (it becomes one only through `.tuples()`), containers whose element
+type could not be inferred from the first thing appended to them.
+
+The ones that *were* defects are the argument for the gate: a self-referential
+relationship carrying a meaningless `remote_side=lambda: None`, a return
+annotation gone stale after its type changed, several `Session | None` values
+used without narrowing, and a cache declared `dict[..., int]` that stored
+`None` for a deliberate miss.
+
+### Two traps worth not rediscovering
+
+**`ReferenceMixin` is a plain mixin, so a checker cannot see the declarative
+attributes.** It is always combined with `Base`, but nothing in
+`type[ReferenceMixin]` says so, and `__tablename__`, `__table__` and the
+keyword constructor all read as missing. The fix is a `TYPE_CHECKING` block in
+`models/base.py` that mirrors `DeclarativeBase`'s own declarations. It must
+*match* them, not improve on them: writing `__tablename__: ClassVar[str]`
+rather than `Any` — the obvious improvement, since it is a string — is an
+override conflict on all thirty-seven concrete tables and cost 29 findings the
+first time it was tried. It must also stay under `TYPE_CHECKING`; at runtime an
+`__init__` there would precede `Base` in the MRO and shadow the declarative
+constructor.
+
+**`__mapper_args__` as a dict literal is caught in a pincer.** `RUF012` wants
+`ClassVar` on a mutable class attribute; mypy rejects `ClassVar` for the reason
+above; `Final` escapes `RUF012` but is "cannot override writable attribute with
+a final one". A `@declared_attr.directive` is none of the three — it is not an
+attribute assignment at all — and it matches how `__table_args__` is already
+written. The tests that prove it still works are the `StaleDataError` ones in
+`test_concurrent_writes.py`: that exception cannot be raised unless
+`version_id_col` is configured, so they fail loudly if the directive stops
+firing.
+
+### Where a type is genuinely two things
+
+`seeding.py` walks `SEEDABLE`, which holds every classifier plus `Composition`.
+Composition shares the shape the seeder needs — `__tablename__`, `__table__` —
+but not `ReferenceMixin`'s `code` and `label` columns, and neither class is a
+supertype of the other. Python has no intersection type, so `SeedableModel`
+names both as a union. Where the seeder needs a column that only one of them
+has, it reads `__table__.columns` rather than the class attribute, which puts
+the runtime guard and its use in the same place.
 
 ---
 
