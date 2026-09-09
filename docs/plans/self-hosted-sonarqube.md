@@ -610,6 +610,112 @@ git commit -m "Document running the local SonarQube server"
 
 ---
 
+### Task 6: Make the MCP server reachable (amendment)
+
+Added after Task 5 revealed a defect in this plan. Tasks 1-5 assumed that
+`sonar integrate claude` plus a session restart would produce working
+`mcp__sonarqube__*` tools. It does not.
+
+`sonar run mcp` launches its container with **no `--network` flag**, so the
+container lands on the default bridge while `SONARQUBE_URL` is the stored
+`http://localhost:9000` — which inside that container's own network namespace is
+the container itself. It dies at startup with `Connection refused` and, running
+under `--rm`, removes itself before it can even be seen in `podman ps -a`.
+`sonar run mcp --help` exposes only `--debug`, `--read-only`, `--toolsets` and
+`--project`: no networking control exists.
+
+`scripts/ccweb_sonar_scan.cmd` already solves the identical problem by joining
+`sonar-net` and addressing the server by container name. The MCP path needs the
+same treatment. This has been verified working before writing this task: the
+image started cleanly on `sonar-net` and reported `All tools loaded: 29 tools`.
+
+**Files:**
+- Create: `scripts/ccweb_sonar_mcp.cmd`
+- Modify: `.mcp.json` (gitignored — changed on disk, never committed)
+- Modify: `docs/runtime-operations.md`
+
+**Interfaces:**
+- Consumes: the `sonar-net` network and `sonarqube` container from Task 1;
+  `SONAR_TOKEN` from the environment; project key from Task 3.
+- Produces: an MCP launch command that actually connects.
+
+- [ ] **Step 1: Confirm the CLI's own launcher fails**
+
+Run `sonar run mcp` and observe it exit with `Connection refused` to
+`http://localhost:9000`. This is the failing state being fixed. Do not spend
+long here — it fails within seconds.
+
+- [ ] **Step 2: Write `scripts/ccweb_sonar_mcp.cmd`**
+
+```bat
+@echo off
+rem ---------------------------------------------------------------------------
+rem  Launch the SonarQube MCP server so that it can actually reach the local
+rem  SonarQube.
+rem
+rem  `sonar run mcp` starts the container on the default bridge network with
+rem  SONARQUBE_URL=http://localhost:9000. Inside that container, localhost is
+rem  the container itself, so it dies at startup with "Connection refused".
+rem  The CLI exposes no --network flag. Joining sonar-net and addressing the
+rem  server by container name is exactly what ccweb_sonar_scan.cmd already does.
+rem
+rem  Claude Code runs this over stdio; do not echo anything to stdout here, or
+rem  it will corrupt the protocol stream.
+rem ---------------------------------------------------------------------------
+setlocal
+
+for %%I in ("%~dp0..") do set "REPO=%%~fI"
+
+if "%SONAR_TOKEN%"=="" (
+    echo ERROR: SONAR_TOKEN is not set. 1>&2
+    exit /b 1
+)
+
+podman run --init --rm -i ^
+    --network sonar-net ^
+    -e SONARQUBE_TOKEN=%SONAR_TOKEN% ^
+    -e SONARQUBE_URL=http://sonarqube:9000 ^
+    -e SONARQUBE_PROJECT_KEY=classobjects-ccwebdb ^
+    -v "%REPO%:/app/mcp-workspace:ro" ^
+    docker.io/sonarsource/sonarqube-mcp
+```
+
+Diagnostics go to stderr (`1>&2`) because stdout is the MCP protocol stream.
+
+- [ ] **Step 3: Point `.mcp.json` at it**
+
+`.mcp.json` is gitignored and must not be committed. Write:
+
+```json
+{
+  "mcpServers": {
+    "sonarqube": {
+      "command": "scripts\\ccweb_sonar_mcp.cmd"
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Verify the server starts and stays up**
+
+Run `.\scripts\ccweb_sonar_mcp.cmd` with stdin from `nul` and confirm the log
+reports `SonarQube MCP Server Started`, `URL: http://sonarqube:9000`, and a
+non-zero tool count. Expected: `All tools loaded: 29 tools`.
+
+- [ ] **Step 5: Document the trade-off**
+
+Add to the `## SonarQube (local server)` section of `docs/runtime-operations.md`:
+that `.mcp.json` is hand-managed and points at `ccweb_sonar_mcp.cmd`; **that
+re-running `sonar integrate claude` overwrites `.mcp.json` and reintroduces the
+broken `sonar run mcp` invocation**; and that the fix is to point it back.
+
+- [ ] **Step 6: Commit**
+
+Commit `scripts/ccweb_sonar_mcp.cmd` and `docs/runtime-operations.md`. Confirm
+`.mcp.json` does not appear in `git status`.
+
+---
+
 ## Done when
 
 - `.\scripts\ccweb_sonar_start.cmd` brings the server to `UP`, and `_stop.cmd` preserves the volumes.
