@@ -770,7 +770,12 @@ _CATALOG_NO = re.compile(r"#\s*(\d+)")
 #: A Sheldon-style grade: a letter prefix, a number, optional plus signs.
 #: EF is the British spelling of XF and normalises onto it.
 _NUMERIC_GRADE = re.compile(
-    r"\b(MS|PR|PF|AU|XF|EF|VF|VG|AG|FR|F|G|P)\s*-?\s*(\d{1,2})(\+*)", re.I
+    # `\s*(?:-\s*)?` rather than `\s*-?\s*`: two optional whitespace runs
+    # back to back are ambiguous, so a long run of spaces that never
+    # completes a match backtracks super-linearly. This form accepts the
+    # same strings with no ambiguity.
+    r"\b(MS|PR|PF|AU|XF|EF|VF|VG|AG|FR|F|G|P)\s*(?:-\s*)?(\d{1,2})(\+*)",
+    re.I,
 )
 
 #: Adjectival grades, longest first so "GEM BU" wins over a bare "BU" and
@@ -798,7 +803,12 @@ _ADJECTIVAL: tuple[tuple[re.Pattern[str], str], ...] = (
 # \b never fires between two word characters. A negative lookbehind for a
 # letter is the precise rule -- it still refuses to find CAM inside SCAM.
 _DESIGNATION = re.compile(
-    r"(?<![A-Za-z])(DCAM|DMPL|CAM|RD|RB|BN|FBL|FS|FB|FH|PL|EPQ|PPQ)\b", re.I
+    # The flag is scoped to the alternation instead of the whole pattern:
+    # under a global re.I the lookbehind's [A-Za-z] is a duplicated class,
+    # because each half already matches either case. Note (?i:...) does not
+    # capture, so it sits inside a capturing group -- the caller reads
+    # .group(1).
+    r"(?<![A-Za-z])((?i:DCAM|DMPL|CAM|RD|RB|BN|FBL|FS|FB|FH|PL|EPQ|PPQ))\b"
 )
 _SERVICE = re.compile(r"\b(PCGS|NGC|ANACS|ICG|PMG|SEGS|CACG)\b", re.I)
 

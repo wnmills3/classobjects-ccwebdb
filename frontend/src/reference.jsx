@@ -1,4 +1,4 @@
-import { useCallback, useContext, useState } from 'react'
+import { useCallback, useContext, useMemo, useState } from 'react'
 
 import { api } from './api'
 import { ReferenceContext, useReference } from './reference-context'
@@ -47,11 +47,12 @@ export function ReferenceProvider({ children }) {
     [tables, pending],
   )
 
-  return (
-    <ReferenceContext.Provider value={{ tables, load, invalidate }}>
-      {children}
-    </ReferenceContext.Provider>
+  const value = useMemo(
+    () => ({ tables, load, invalidate }),
+    [tables, load, invalidate],
   )
+
+  return <ReferenceContext.Provider value={value}>{children}</ReferenceContext.Provider>
 }
 
 /**
