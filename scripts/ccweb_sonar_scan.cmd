@@ -30,6 +30,24 @@ if "%SONAR_TOKEN%"=="" (
 
 pushd "%REPO%"
 
+set "ENVDIR=%USERPROFILE%\miniforge3\envs\ccwebdb"
+set "PY=%ENVDIR%\python.exe"
+
+if not exist "%PY%" (
+    echo ERROR: conda environment not found: %ENVDIR%
+    echo        see docs\environment-setup.md
+    popd
+    exit /b 1
+)
+
+echo === tests with coverage ===
+"%PY%" -m pytest -q --cov=backend/app --cov-report=xml:coverage.xml
+if errorlevel 1 (
+    echo ERROR: tests failed - refusing to publish an analysis.
+    popd
+    exit /b 1
+)
+
 echo === scanner ===
 podman run --rm --network sonar-net ^
     -e SONAR_HOST_URL=http://sonarqube:9000 ^

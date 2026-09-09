@@ -24,6 +24,7 @@ dev = [
     "pdfplumber>=0.11.10",
     "piexif>=1.1.3",
     "pytest>=9.1.1",
+    "pytest-cov>=7.0.0",
     "ruff>=0.16.6",
     "types-openpyxl>=3.1.5.20260827",
 ]
@@ -38,6 +39,16 @@ filterwarnings = [
     "error::DeprecationWarning",
     "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
 ]
+
+# coverage.py records absolute file paths by default. The scanner that reads
+# coverage.xml runs in its own container with this repository bind-mounted at
+# /usr/src, so an absolute host path like
+# C:\Users\...\classobjects-ccwebdb\backend\app never exists there and every
+# line is silently dropped from coverage. Relative paths resolve the same way
+# on the host and inside the container, so coverage stays portable across
+# both.
+[tool.coverage.run]
+relative_files = true
 
 # ---------------------------------------------------------------------------
 # Formatting and linting
