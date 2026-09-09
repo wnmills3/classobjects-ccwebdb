@@ -238,3 +238,10 @@ media/
 # Subagent-driven-development scratch: ledger, briefs, review packages.
 # Git history is the durable record; this is the controller working memory.
 .superpowers/
+
+# SonarQube agent wiring written by `sonar integrate claude` (project scope):
+# MCP server registration and the secret-scanning hooks. No credentials live
+# here -- the token is in the OS keychain -- but this is per-developer agent
+# tooling, not project source.
+.claude/
+.mcp.json
