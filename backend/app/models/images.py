@@ -50,6 +50,10 @@ __all__ = [
 ]
 
 
+# Foreign-key target.
+_FK_IMAGE = "image.id"
+
+
 class DerivativeKind(enum.StrEnum):
     """The renditions generated at ingest. Originals are never served."""
 
@@ -116,7 +120,7 @@ class ImageDerivative(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     image_id: Mapped[int] = mapped_column(
-        ForeignKey("image.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey(_FK_IMAGE, ondelete="CASCADE"), index=True, nullable=False
     )
     kind: Mapped[DerivativeKind] = mapped_column(
         enum_column(DerivativeKind, "derivative_kind"), nullable=False
@@ -150,7 +154,7 @@ class ItemImage(Base):
         nullable=True,
     )
     image_id: Mapped[int] = mapped_column(
-        ForeignKey("image.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey(_FK_IMAGE, ondelete="CASCADE"), index=True, nullable=False
     )
     image_role_id: Mapped[int | None] = mapped_column(
         ForeignKey("image_role.id", ondelete="RESTRICT"), index=True, nullable=True
@@ -189,7 +193,7 @@ class ListingImage(Base):
         ForeignKey("listing.id", ondelete="CASCADE"), index=True, nullable=False
     )
     image_id: Mapped[int] = mapped_column(
-        ForeignKey("image.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey(_FK_IMAGE, ondelete="CASCADE"), index=True, nullable=False
     )
     sort_order: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False
@@ -212,7 +216,7 @@ class ShipmentImage(Base):
         ForeignKey("shipment.id", ondelete="CASCADE"), index=True, nullable=False
     )
     image_id: Mapped[int] = mapped_column(
-        ForeignKey("image.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey(_FK_IMAGE, ondelete="CASCADE"), index=True, nullable=False
     )
     kind: Mapped[ShipmentImageKind] = mapped_column(
         enum_column(ShipmentImageKind, "shipment_image_kind"), nullable=False

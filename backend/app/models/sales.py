@@ -54,6 +54,11 @@ __all__ = [
 ]
 
 
+# SQLAlchemy cascade: delete the children with the parent, and delete
+# any child removed from the collection.
+_CASCADE_ALL_DELETE_ORPHAN = "all, delete-orphan"
+
+
 class AddressKind(enum.StrEnum):
     """What an address is for. A customer may have one of each."""
 
@@ -149,7 +154,7 @@ class Customer(TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     addresses: Mapped[list[Address]] = relationship(
-        back_populates="customer", cascade="all, delete-orphan"
+        back_populates="customer", cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
     orders: Mapped[list[SalesOrder]] = relationship(back_populates="customer")
 
@@ -236,10 +241,10 @@ class SalesOrder(TimestampMixin, Base):
 
     customer: Mapped[Customer] = relationship(back_populates="orders")
     items: Mapped[list[SalesOrderItem]] = relationship(
-        back_populates="order", cascade="all, delete-orphan"
+        back_populates="order", cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
     shipments: Mapped[list[Shipment]] = relationship(
-        back_populates="order", cascade="all, delete-orphan"
+        back_populates="order", cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
 
     __table_args__ = (

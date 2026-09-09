@@ -35,6 +35,10 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 #: must not silently return stock that has already been posted.
 SHIPPED_STATUSES = frozenset({"packed", "shipped", "delivered"})
 
+# The same 404 whether the order does not exist or belongs to another
+# customer, so order ids cannot be probed.
+_ORDER_NOT_FOUND = "Order not found"
+
 
 def _customer_for(db: Session, user: User) -> Customer:
     """Find or create the customer record behind a login.
@@ -188,14 +192,14 @@ def _visible_or_404(db: Session, order_id: int, user: User) -> SalesOrder:
     order = _load(db, order_id)
     if order is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Order not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
         )
     if user.role is not UserRole.admin:
         customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
         # 404 rather than 403 so ids of other customers' orders do not leak.
         if customer is None or order.customer_id != customer.id:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Order not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
             )
     return order
 
@@ -215,7 +219,7 @@ def update_order_status(
     order = _load(db, order_id)
     if order is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Order not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
         )
 
     previous = _status_code(db, order)
