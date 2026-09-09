@@ -111,21 +111,53 @@ def _rows_on(db: Session, fabricated: set[int]) -> list[Any]:
     )
 
 
+def _link_of(raw: object) -> str | None:
+    """The item link a staged row carried, if it carried one."""
+    return (raw or {}).get("Link") if isinstance(raw, dict) else None
+
+
+def _order_id_for(
+    db: Session,
+    key: tuple[int | None, str],
+    created: dict[tuple[int | None, str], int],
+    *,
+    link: str | None,
+    identifier: str,
+    is_order_number: bool,
+    commit: bool,
+) -> int:
+    """The order standing for this transaction, creating it the first time.
+
+    In dry-run the id is a negative placeholder: nothing is written, but the
+    count of orders that *would* be created stays real.
+    """
+    if key in created:
+        return created[key]
+    if commit:
+        order = PurchaseOrder(
+            vendor_id=key[0],
+            order_number=identifier if is_order_number else None,
+            source_url=link,
+        )
+        db.add(order)
+        db.flush()
+        created[key] = order.id
+    else:
+        created[key] = -len(created) - 1
+    return created[key]
+
+
 def _plan(
     db: Session, rows: list[Any], *, commit: bool
 ) -> tuple[list[tuple[int, int | None]], Counter]:
-    """Where each item should end up, creating the real orders on the way.
-
-    In dry-run the new order ids are negative placeholders: nothing is
-    written, but the count of orders that *would* be created is still real.
-    """
+    """Where each item should end up, creating the real orders on the way."""
     stats: Counter = Counter()
     # (vendor, identifier) -> the order row standing for that transaction.
     created: dict[tuple[int | None, str], int] = {}
     moves: list[tuple[int, int | None]] = []
 
     for item_id, _order_id, vendor_id, raw in rows:
-        link = (raw or {}).get("Link") if isinstance(raw, dict) else None
+        link = _link_of(raw)
         found = identify(link)
         if found is None:
             stats["no_identifier"] += 1
@@ -133,22 +165,21 @@ def _plan(
             continue
 
         identifier, is_order_number = found
-        key = (vendor_id, identifier)
         stats["order_number" if is_order_number else "listing_only"] += 1
-
-        if key not in created:
-            if commit:
-                order = PurchaseOrder(
-                    vendor_id=vendor_id,
-                    order_number=identifier if is_order_number else None,
-                    source_url=link,
-                )
-                db.add(order)
-                db.flush()
-                created[key] = order.id
-            else:
-                created[key] = -len(created) - 1
-        moves.append((item_id, created[key]))
+        moves.append(
+            (
+                item_id,
+                _order_id_for(
+                    db,
+                    (vendor_id, identifier),
+                    created,
+                    link=link,
+                    identifier=identifier,
+                    is_order_number=is_order_number,
+                    commit=commit,
+                ),
+            )
+        )
 
     stats["orders_created"] = len(created)
     return moves, stats

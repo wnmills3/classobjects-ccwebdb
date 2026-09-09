@@ -152,34 +152,44 @@ def _recommendation(
     )
 
 
+def _by_normalised(counts: Counter) -> dict[str, list[str]]:
+    """Spellings grouped by what they normalise to."""
+    groups: dict[str, list[str]] = defaultdict(list)
+    for value in counts:
+        key = normalise(value)
+        if key:
+            groups[key].append(value)
+    return groups
+
+
+def _group_variants(
+    name: str, spellings: list[str], counts: Counter, accepted: set[str] | None
+) -> list[Variant]:
+    """The rare spellings within one group that a dominant one covers."""
+    ranked = sorted(spellings, key=lambda v: -counts[v])
+    dominant = ranked[0]
+    out: list[Variant] = []
+    for rare in ranked[1:]:
+        if accepted and rare in accepted:
+            continue  # confirmed correct as written
+        if _is_modifier_suffix(rare, dominant):
+            continue
+        # only flag when one spelling clearly dominates
+        if counts[rare] * 3 <= counts[dominant]:
+            out.append(Variant(name, rare, counts[rare], dominant, counts[dominant]))
+    return out
+
+
 def _variants(name: str, counts: Counter, accepted: set[str] | None) -> list[Variant]:
     """Rare spellings of a value that a common one already covers.
 
     Only meaningful where a vocabulary is expected, so the caller decides
     whether to ask at all.
     """
-    groups: dict[str, list[str]] = defaultdict(list)
-    for value in counts:
-        key = normalise(value)
-        if key:
-            groups[key].append(value)
-
     variants: list[Variant] = []
-    for spellings in groups.values():
-        if len(spellings) < 2:
-            continue
-        ranked = sorted(spellings, key=lambda v: -counts[v])
-        dominant = ranked[0]
-        for rare in ranked[1:]:
-            if accepted and rare in accepted:
-                continue  # confirmed correct as written
-            if _is_modifier_suffix(rare, dominant):
-                continue
-            # only flag when one spelling clearly dominates
-            if counts[rare] * 3 <= counts[dominant]:
-                variants.append(
-                    Variant(name, rare, counts[rare], dominant, counts[dominant])
-                )
+    for spellings in _by_normalised(counts).values():
+        if len(spellings) >= 2:
+            variants.extend(_group_variants(name, spellings, counts, accepted))
     return variants
 
 

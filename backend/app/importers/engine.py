@@ -318,6 +318,95 @@ class ImportEngine:
         ]
         return row
 
+    def _open_batch(
+        self, source: Source, report: ImportReport, started: datetime
+    ) -> ImportBatch:
+        """The staging batch this run writes into."""
+        batch = ImportBatch(
+            source_path=report.source_path,
+            source_kind=source.kind,
+            sha256=source.sha256,
+            profile_name=self.profile.name,
+            mode=report.mode,
+            started_at=started,
+        )
+        assert self.session is not None
+        self.session.add(batch)
+        self.session.flush()  # assign batch.id
+        report.batch_id = batch.id
+        return batch
+
+    def _record(
+        self,
+        raw_row: RawRow,
+        result: RowResult,
+        report: ImportReport,
+        seen_columns: list[str],
+    ) -> str:
+        """Fold one inspected row into the report. Returns its kind."""
+        report.rows += 1
+        self._tally_columns(raw_row, report, seen_columns)
+
+        kind = result.classification.kind
+        report.kinds[kind] += 1
+        if result.classification.subtype:
+            report.subtypes[f"{kind}/{result.classification.subtype}"] += 1
+
+        self._tally_issues(raw_row, result, kind, report)
+
+        if result.needs_review:
+            report.review_rows += 1
+        if kind == UNKNOWN:
+            self._tally_unclassified(raw_row, result, report)
+        return kind
+
+    def _persist(
+        self,
+        session: Session,
+        batch: ImportBatch,
+        loader: SchemaLoader | None,
+        pending: list[ImportRow],
+        raw_row: RawRow,
+        result: RowResult,
+        kind: str,
+        report: ImportReport,
+    ) -> None:
+        """Stage one row, and normalise it unless that was turned off.
+
+        Staging is verbatim and always written. Normalising into the target
+        schema is separate and skippable, so a batch can be captured for
+        review before anything is interpreted.
+        """
+        row = self._staged_row(raw_row, result, kind, batch.id)
+        pending.append(row)
+        if len(pending) >= 500:
+            session.add_all(pending)
+            session.flush()
+            pending.clear()
+
+        if loader is not None:
+            item = loader.load(kind, result.classification.subtype, result.fields)
+            row.inventory_item_id = item.id
+            row.status = "needs_review" if result.needs_review else "imported"
+            report.items_created += 1
+
+    @staticmethod
+    def _close_batch(
+        session: Session,
+        batch: ImportBatch,
+        loader: SchemaLoader | None,
+        pending: list[ImportRow],
+        report: ImportReport,
+    ) -> None:
+        """Flush what is left and close the batch off."""
+        if pending:
+            session.add_all(pending)
+        batch.row_count = report.rows
+        batch.finished_at = datetime.now(UTC)
+        if loader is not None:
+            report.derived_reference_rows = dict(loader.derived)
+        session.commit()
+
     def run(
         self,
         source: Source,
@@ -342,75 +431,25 @@ class ImportEngine:
             mode=mode,
         )
 
-        batch: ImportBatch | None = None
-        if mode == COMMIT:
-            batch = ImportBatch(
-                source_path=report.source_path,
-                source_kind=source.kind,
-                sha256=source.sha256,
-                profile_name=self.profile.name,
-                mode=mode,
-                started_at=started,
-            )
-            assert session is not None
-            session.add(batch)
-            session.flush()  # assign batch.id
-            report.batch_id = batch.id
-
+        committing = mode == COMMIT
+        batch = self._open_batch(source, report, started) if committing else None
         # One loader per run: it caches every reference lookup, which turns
         # a per-row query storm into a few dozen queries for the whole file.
-        loader = SchemaLoader(self.session) if mode == COMMIT and normalise else None
+        loader = SchemaLoader(session) if committing and normalise else None
 
         seen_columns: list[str] = []
         pending: list[ImportRow] = []
 
         for raw_row in source.read_rows(limit=limit):
             result = self.profile.inspect(raw_row)
-            report.rows += 1
+            kind = self._record(raw_row, result, report, seen_columns)
+            if batch is not None and session is not None:
+                self._persist(
+                    session, batch, loader, pending, raw_row, result, kind, report
+                )
 
-            self._tally_columns(raw_row, report, seen_columns)
-
-            kind = result.classification.kind
-            report.kinds[kind] += 1
-            if result.classification.subtype:
-                report.subtypes[f"{kind}/{result.classification.subtype}"] += 1
-
-            self._tally_issues(raw_row, result, kind, report)
-
-            if result.needs_review:
-                report.review_rows += 1
-            if kind == UNKNOWN:
-                self._tally_unclassified(raw_row, result, report)
-
-            if mode == COMMIT:
-                assert batch is not None
-                row = self._staged_row(raw_row, result, kind, batch.id)
-                pending.append(row)
-                if len(pending) >= 500:
-                    session.add_all(pending)
-                    session.flush()
-                    pending.clear()
-
-                # Staging is verbatim and always written. Normalising into the
-                # target schema is separate and skippable, so a batch can be
-                # captured for review before anything is interpreted.
-                if loader is not None:
-                    item = loader.load(
-                        kind, result.classification.subtype, result.fields
-                    )
-                    row.inventory_item_id = item.id
-                    row.status = "needs_review" if result.needs_review else "imported"
-                    report.items_created += 1
-
-        if mode == COMMIT:
-            assert batch is not None
-            if pending:
-                session.add_all(pending)
-            batch.row_count = report.rows
-            batch.finished_at = datetime.now(UTC)
-            if loader is not None:
-                report.derived_reference_rows = dict(loader.derived)
-            session.commit()
+        if batch is not None and session is not None:
+            self._close_batch(session, batch, loader, pending, report)
 
         report.columns = seen_columns
         report.elapsed_seconds = (datetime.now(UTC) - started).total_seconds()
