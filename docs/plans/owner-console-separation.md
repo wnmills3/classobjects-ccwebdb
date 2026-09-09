@@ -1357,6 +1357,7 @@ function bundleGraph() {
           name: chunk.name,
           isEntry: chunk.isEntry,
           imports: chunk.imports,
+          dynamicImports: chunk.dynamicImports,
           modules: Object.keys(chunk.modules).map((id) =>
             id.replace(/\\/g, '/').replace(root + '/', ''),
           ),
@@ -1400,7 +1401,15 @@ import { resolve } from 'node:path'
 
 const GRAPH = resolve(process.cwd(), 'dist/.vite/bundle-graph.json')
 
-/** Every chunk reachable from one entry, following imports transitively. */
+/**
+ * Every chunk reachable from one entry, following imports transitively.
+ *
+ * Dynamic imports count. A lazily-loaded chunk is still the shop serving the
+ * console's code to whoever asks, and dynamic import is the one form ESLint's
+ * no-restricted-imports cannot see -- so this is the only layer that catches
+ * it. Following static imports alone would leave both layers blind to the
+ * same case.
+ */
 function reachable(chunks, entryFile) {
   const seen = new Set()
   const queue = [entryFile]
@@ -1408,7 +1417,10 @@ function reachable(chunks, entryFile) {
     const file = queue.pop()
     if (seen.has(file)) continue
     seen.add(file)
-    for (const next of chunks[file]?.imports ?? []) queue.push(next)
+    const chunk = chunks[file]
+    for (const next of [...(chunk?.imports ?? []), ...(chunk?.dynamicImports ?? [])]) {
+      queue.push(next)
+    }
   }
   return seen
 }
