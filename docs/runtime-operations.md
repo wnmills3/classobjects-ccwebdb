@@ -148,6 +148,43 @@ database, so these can be regenerated with nothing running.
 
 ---
 
+## SonarQube (local server)
+
+```cmd
+scripts\ccweb_sonar_start.cmd          start the server and its database
+scripts\ccweb_sonar_scan.cmd           run tests with coverage and publish an analysis
+scripts\ccweb_sonar_stop.cmd           stop the server, leaving its data in place
+```
+
+Dashboard: http://localhost:9000 — project `classobjects-ccwebdb`.
+
+`ccweb_sonar_scan.cmd` requires `SONAR_TOKEN` in the environment. The scanner
+runs in its own container and cannot read the host's OS keychain, so the
+credential `sonar auth login` stored there does not reach it:
+
+```cmd
+set "SONAR_TOKEN=squ_..."
+```
+
+Generate a token at http://localhost:9000/account/security.
+
+The server and database run as podman containers (`sonarqube`, `sonar-db`) on
+the `sonar-net` network, with all state held in four named podman volumes:
+
+```
+sonar-db-data           PostgreSQL data
+sonarqube-data          SonarQube state - issues, projects, users
+sonarqube-extensions    installed plugins
+sonarqube-logs          server logs
+```
+
+`ccweb_sonar_stop.cmd` only stops the containers, so this history survives a
+stop and the next start picks up where it left off. `podman volume rm` is a
+different matter — it destroys the named volume outright, taking the analysis
+history and admin account with it.
+
+---
+
 ## Design notes
 
 **PostgreSQL is stopped with `pg_ctl`, never `taskkill`.** A forced stop leaves
