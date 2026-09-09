@@ -48,10 +48,7 @@ export function CartProvider({ children }) {
           l.coin.id === coinId
             ? {
                 ...l,
-                quantity: Math.max(
-                  0,
-                  Math.min(quantity, l.coin.quantity_available_available),
-                ),
+                quantity: Math.max(0, Math.min(quantity, l.coin.quantity_available)),
               }
             : l,
         )
