@@ -10,9 +10,9 @@ import { render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 
-import { AuthContext } from '../auth-context'
-import { CartContext } from '../cart-context'
-import { ReferenceContext } from '../reference-context'
+import { AuthContext } from '../shared/auth-context'
+import { CartContext } from '../store/cart-context'
+import { ReferenceContext } from '../shared/reference-context'
 
 export function anonymousAuth(overrides = {}) {
   return {

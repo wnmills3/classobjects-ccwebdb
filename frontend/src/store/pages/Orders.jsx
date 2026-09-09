@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 
-import { api } from '../api'
-import { useAuth } from '../auth-context'
-import { date, money } from '../format'
+import { api } from '../../shared/api'
+import { useAuth } from '../../shared/auth-context'
+import { date, money } from '../../shared/format'
 
 const STATUSES = ['pending', 'paid', 'shipped', 'cancelled']
 

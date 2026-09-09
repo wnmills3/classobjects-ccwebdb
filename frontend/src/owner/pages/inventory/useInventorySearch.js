@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { api } from '../../api'
+import { api } from '../../../shared/api'
 import { PAGE_SIZE } from './specs'
 
 /**

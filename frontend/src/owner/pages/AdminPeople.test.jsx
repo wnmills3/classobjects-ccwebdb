@@ -2,7 +2,7 @@ import userEvent from '@testing-library/user-event'
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../api', () => ({
+vi.mock('../../shared/api', () => ({
   api: {
     listUsers: vi.fn(),
     listCustomers: vi.fn(),
@@ -13,9 +13,9 @@ vi.mock('../api', () => ({
   },
 }))
 
-import { api } from '../api'
+import { api } from '../../shared/api'
 import AdminPeople from './AdminPeople'
-import { adminAuth, renderWithProviders } from '../test/helpers'
+import { adminAuth, renderWithProviders } from '../../test/helpers'
 
 beforeEach(() => {
   vi.clearAllMocks()

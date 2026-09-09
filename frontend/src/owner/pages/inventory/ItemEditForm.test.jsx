@@ -2,7 +2,7 @@ import userEvent from '@testing-library/user-event'
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../api', () => ({
+vi.mock('../../../shared/api', () => ({
   api: {
     getInventoryItem: vi.fn(),
     updateInventoryItem: vi.fn(),
@@ -10,7 +10,7 @@ vi.mock('../../api', () => ({
   },
 }))
 
-import { api } from '../../api'
+import { api } from '../../../shared/api'
 import ItemEditForm from './ItemEditForm'
 
 const item = {

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { api } from '../api'
-import { useAuth } from '../auth-context'
+import { api } from '../../shared/api'
+import { useAuth } from '../../shared/auth-context'
 import { useCart } from '../cart-context'
-import { money } from '../format'
+import { money } from '../../shared/format'
 
 export default function Cart() {
   const { lines, setQuantity, remove, clear, total } = useCart()

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
-import { api } from '../api'
+import { api } from '../../shared/api'
 import { useCart } from '../cart-context'
-import { money } from '../format'
+import { money } from '../../shared/format'
 
 // Classifier values arrive as codes -- 'bullion', 'MS64', 'US' -- because
 // codes are the stable contract across installations. Human labels come later,

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 
-import { api } from '../api'
-import { money } from '../format'
-import { ReferenceSelect } from '../reference'
+import { api } from '../../shared/api'
+import { money } from '../../shared/format'
+import { ReferenceSelect } from '../../shared/reference'
 
 // Classifiers are sent as CODES, not free text: 'bullion', not 'Bullion';
 // 'US', not 'United States'; 'MS64', not 'MS-64'. An unknown code comes back

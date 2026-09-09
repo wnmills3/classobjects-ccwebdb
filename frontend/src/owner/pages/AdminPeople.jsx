@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { api } from '../api'
-import { useAuth } from '../auth-context'
+import { api } from '../../shared/api'
+import { useAuth } from '../../shared/auth-context'
 
 /**
  * People administration, in two tabs.

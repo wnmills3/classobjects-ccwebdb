@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import Register from './Register'
-import { anonymousAuth, renderWithProviders } from '../test/helpers'
+import { anonymousAuth, renderWithProviders } from '../../test/helpers'
 
 describe('Register', () => {
   it('renders the account form', () => {
