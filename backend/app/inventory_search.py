@@ -609,15 +609,18 @@ def count_facets(
             continue
 
         ids = [row.fid for row in counts]
-        labels: dict[int, str] = dict(
-            db.execute(
+        # A textual query returns untyped rows, so the pair is taken by
+        # position rather than by asking dict() to infer it.
+        labels: dict[int, str] = {
+            row[0]: row[1]
+            for row in db.execute(
                 text(
                     f"SELECT id, {facet.label_column} FROM {facet.table} "
                     "WHERE id = ANY(:ids)"
                 ),
                 {"ids": ids},
             ).all()
-        )
+        }
         results[name] = [
             {"value": labels.get(row.fid), "count": row.n}
             for row in counts

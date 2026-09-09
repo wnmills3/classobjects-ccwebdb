@@ -42,7 +42,7 @@ TABLES: dict[str, type[ReferenceMixin]] = {
 }
 
 
-def _to_value(row: object, model: type[ReferenceMixin]) -> ReferenceValueOut:
+def _to_value(row: ReferenceMixin, model: type[ReferenceMixin]) -> ReferenceValueOut:
     extra: dict[str, Any] = {}
     for column in model.__table__.columns:
         if column.name in _COMMON:
@@ -112,7 +112,9 @@ def get_table(
     )
 
 
-def _limit_to_year(model: type, stmt: Select[Any], year: int) -> Select[Any]:
+def _limit_to_year(
+    model: type[ReferenceMixin], stmt: Select[Any], year: int
+) -> Select[Any]:
     """Narrow a term-bounded vocabulary to the values valid in a given year.
 
     Signature combinations are the case this exists for. A note's series year
@@ -133,7 +135,7 @@ def _limit_to_year(model: type, stmt: Select[Any], year: int) -> Select[Any]:
     )
 
 
-def _model_or_404(table: str) -> type:
+def _model_or_404(table: str) -> type[ReferenceMixin]:
     model = TABLES.get(table)
     if model is None:
         raise HTTPException(

@@ -53,7 +53,13 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "reference"
 
 #: Tables the seeder understands, in dependency order: a table may only
 #: reference tables that appear before it.
-SEEDABLE: tuple[type[ReferenceMixin], ...] = (*REFERENCE_MODELS, Composition)
+#: A table the seeder understands. Every classifier is one, and so is
+#: Composition -- which shares the shape seeding needs (__tablename__ and
+#: __table__) but not ReferenceMixin's code and label columns. Neither
+#: class is a supertype of the other, so the union names both.
+SeedableModel = type[ReferenceMixin] | type[Composition]
+
+SEEDABLE: tuple[SeedableModel, ...] = (*REFERENCE_MODELS, Composition)
 
 #: Composition has no `code`, so its identity is the span it describes.
 NATURAL_KEYS: dict[str, tuple[str, ...]] = {
@@ -68,11 +74,11 @@ class SeedError(RuntimeError):
     """A seed file refers to something that does not exist."""
 
 
-def _model_by_table() -> dict[str, type[ReferenceMixin]]:
+def _model_by_table() -> dict[str, SeedableModel]:
     return {model.__tablename__: model for model in SEEDABLE}
 
 
-def natural_key(model: type[ReferenceMixin]) -> tuple[str, ...]:
+def natural_key(model: SeedableModel) -> tuple[str, ...]:
     """The columns identifying a row for re-loading -- `code`, or a span."""
     return NATURAL_KEYS.get(model.__tablename__, ("code",))
 
@@ -100,7 +106,7 @@ def load_seed_data(data_dir: Path = DATA_DIR) -> dict[str, list[dict[str, Any]]]
     return merged
 
 
-def _foreign_key_targets(model: type[ReferenceMixin]) -> dict[str, tuple[str, str]]:
+def _foreign_key_targets(model: SeedableModel) -> dict[str, tuple[str, str]]:
     """Map a bare data key to the column it fills and the table it points at.
 
     ``{"metal": ("metal_id", "metal")}`` -- so a seed row saying
@@ -118,7 +124,7 @@ def _foreign_key_targets(model: type[ReferenceMixin]) -> dict[str, tuple[str, st
 
 def _resolve_row(
     row: dict[str, Any],
-    model: type[ReferenceMixin],
+    model: SeedableModel,
     code_index: dict[str, dict[str, int]],
     where: str,
 ) -> dict[str, Any]:
@@ -152,9 +158,14 @@ def _build_code_index(session: Session) -> dict[str, dict[str, int]]:
     """Current code -> id for every table that has a code column."""
     index: dict[str, dict[str, int]] = {}
     for model in SEEDABLE:
-        if "code" not in {c.name for c in model.__table__.columns}:
+        columns = model.__table__.columns
+        # Composition is seedable but has no code, so it gets no entry.
+        # Taking the columns rather than the class attributes keeps this
+        # test and the select() below reading from the same place.
+        if "code" not in columns:
             continue
-        rows = session.execute(select(model.code, model.id)).all()
+        pairs = select(columns["code"], columns["id"])
+        rows = session.execute(pairs).tuples().all()
         index[model.__tablename__] = dict(rows)
     return index
 
@@ -192,7 +203,9 @@ def _upsert(
     counter["updated" if changed else "unchanged"] += 1
 
 
-def _seed_table(session: Session, model: type, rows: list[dict[str, Any]]) -> Counter:
+def _seed_table(
+    session: Session, model: SeedableModel, rows: list[dict[str, Any]]
+) -> Counter:
     """Load one table's rows, matched on its natural key."""
     table = model.__tablename__
     counter: Counter = Counter()
@@ -262,7 +275,9 @@ def _seed_series_aliases(
     if not rows:
         return counter
 
-    series_ids = dict(session.execute(select(Series.code, Series.id)).all())
+    series_ids: dict[str, int] = dict(
+        session.execute(select(Series.code, Series.id)).tuples().all()
+    )
     existing = {
         (series_id, alias)
         for series_id, alias in session.execute(
@@ -329,16 +344,19 @@ def export_reference_data(
             column: (bare, target) for bare, (column, target) in fk_targets.items()
         }
 
-        stmt = select(model)
+        # Provenance filters in SQL rather than row by row in Python. Every
+        # seedable table has a source column -- ReferenceMixin declares one and
+        # Composition declares its own -- but a select() over the SeedableModel
+        # union cannot see either, so the column comes from the table. Sorted
+        # so the generated SQL is stable between runs.
+        stmt = select(model).where(model.__table__.c.source.in_(sorted(wanted)))
         if not include_inactive and hasattr(model, "is_active"):
             stmt = stmt.filter_by(is_active=True)
         records = session.execute(stmt).scalars().all()
 
-        rows: list[dict[str, Any]] = []
-        for record in records:
-            if record.source not in wanted:
-                continue
-            rows.append(_record_to_row(record, model, by_column, session))
+        rows: list[dict[str, Any]] = [
+            _record_to_row(record, model, by_column, session) for record in records
+        ]
 
         if not rows:
             continue
@@ -397,7 +415,7 @@ def _portable(value: object) -> object:
 
 def _record_to_row(
     record: object,
-    model: type[ReferenceMixin],
+    model: SeedableModel,
     by_column: dict[str, tuple[str, str]],
     session: Session,
 ) -> dict[str, Any]:
@@ -447,7 +465,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     with SessionLocal() as session:
         if args.command == "load":
             stats = seed_all(session, args.data_dir, only=args.only)
-            total = Counter()
+            total: Counter = Counter()
             for table, counter in sorted(stats.items()):
                 total.update(counter)
                 summary = ", ".join(f"{k} {v}" for k, v in sorted(counter.items()))

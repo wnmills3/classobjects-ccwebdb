@@ -125,7 +125,16 @@ def _weights(pieces: list[SplitPiece], mode: str) -> list[Decimal]:
         )
     if any(p.relative_value is not None and p.relative_value < 0 for p in pieces):
         raise SplitError("relative_value cannot be negative")
-    return [Decimal(piece.relative_value) * piece.piece_count for piece in pieces]
+
+    weights: list[Decimal] = []
+    for piece in pieces:
+        relative = piece.relative_value
+        # Guaranteed by the `missing` check above; asserted so the type
+        # checker sees it and so a future edit that drops that check fails
+        # loudly rather than multiplying by None.
+        assert relative is not None
+        weights.append(Decimal(relative) * piece.piece_count)
+    return weights
 
 
 def split_item(

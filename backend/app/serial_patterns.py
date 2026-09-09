@@ -284,7 +284,9 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
                 ItemNoteAttribute.inventory_item_id,
                 ItemNoteAttribute.note_attribute_id,
             )
-        ).all()
+        )
+        .tuples()
+        .all()
     )
 
     rows = db.execute(

@@ -115,7 +115,7 @@ def copy_rows(source: Engine, target: Engine) -> Iterator[tuple[str, int]]:
             yield table.name, total
 
 
-def _resync_sequences(session: Session, table: object) -> None:
+def _resync_sequences(session: Session, table: Table) -> None:
     """Point each serial sequence past the ids just copied.
 
     Without this the copy accepts existing rows and then collides on the first

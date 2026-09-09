@@ -35,7 +35,11 @@ class Source(Protocol):
     """Anything the engine can read rows from."""
 
     kind: str
-    sha256: str
+
+    @property
+    def sha256(self) -> str:
+        """The digest of the source, so a re-import is recognisable."""
+        ...
 
     def read_rows(self, limit: int | None = None) -> Iterator[RawRow]:
         """Yield rows from the source, at most `limit` of them."""
@@ -435,7 +439,11 @@ class ImportEngine:
         batch = self._open_batch(source, report, started) if committing else None
         # One loader per run: it caches every reference lookup, which turns
         # a per-row query storm into a few dozen queries for the whole file.
-        loader = SchemaLoader(session) if committing and normalise else None
+        loader = (
+            SchemaLoader(session)
+            if committing and normalise and session is not None
+            else None
+        )
 
         seen_columns: list[str] = []
         pending: list[ImportRow] = []
