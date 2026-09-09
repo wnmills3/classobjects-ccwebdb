@@ -125,8 +125,8 @@ def test_detaching_leaves_a_standalone_item(
 ) -> None:
     """No parent is the normal state, not an orphan.
 
-    7,591 of 7,591 items have none, so nothing may treat a null parent as a
-    problem to be repaired.
+    Every item in the collection has none until a lot is split, so nothing
+    may treat a null parent as a problem to be repaired.
     """
     parent = lot(db)
     pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]

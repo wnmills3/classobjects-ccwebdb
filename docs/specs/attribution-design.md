@@ -1,6 +1,6 @@
 # Attribution: finding what is wrong and fixing it
 
-Design. Status: awaiting review.
+Design. Status: implemented (2026-09-08); figures refreshed after the reimport.
 
 The first of three pieces of work. Attribution comes first because nothing
 downstream is possible without it: you cannot list a coin whose year you do not
@@ -36,23 +36,28 @@ That case sets three requirements that run through everything below:
 
 ## The collection as it stands
 
-7,591 live items, $534,177.89 of cost basis, every one of them with exactly one
-detail row -- `currency_detail` for the 1,114 banknotes, `coin_detail` for the
-rest.
+Measured after the reimport of 2026-09-08. **These are a snapshot, not a
+contract** -- the spreadsheet is still being edited, and every figure here
+moves when it is reimported. Nothing in the code asserts them; they are here to
+show the shape of the work.
+
+7,653 live items, $536,063.53 of cost basis, 2,363.15 ozt of fine metal, every
+one of them with exactly one detail row -- `currency_detail` for the 1,164
+banknotes, `coin_detail` for the 6,489 others.
 
 | Anomaly | Count |
 |---|---|
-| No grade (coins and banknotes only) | 2,965 |
+| No grade (coins and banknotes only) | 3,020 |
 | No country | 2,394 |
-| No year | 1,230 |
+| No year | 1,234 |
 | Bullion with no weight | 712 |
 | `Mixed` marker in grade or description | 175 |
 | No denomination (coins and banknotes only) | 262 |
-| Kind still `unknown` | 33 |
-| Zero or missing `item_cost` | 51 |
-| Repeated banknote serials | 18 notes, 9 groups |
-| Repeated certification numbers | 108 rows, 48 numbers |
+| Kind still `unknown` | 32 |
+| Zero or missing `item_cost` | 54 |
+| Repeated identifiers (serials and certificates) | 126 |
 | Star attribute with no asterisk in the serial | 5 |
+| A serial one character from another in the same order | 4 |
 
 Nothing here is a defect of the import. These are the things that were not
 knowable, or not recorded, when a row was typed.
@@ -67,10 +72,10 @@ tests. Twelve items still hold more than one piece -- 240 pieces between them
 
 | | State |
 |---|---|
-| `purchase_order` | 3,879 real orders over 7,497 items; largest holds 85 |
+| `purchase_order` | 3,919 real orders over 7,559 items; largest holds 85 |
 | `series` / `series_alias` | 38 series, 25 aliases; 3,273 items classified |
-| `currency_detail.series_designation` | generated, 1,035 notes carry it |
-| `note_attribute` | 891 links; star, radar, binary, trinary, repeater, ladder, low and high serial, double quad |
+| `currency_detail.series_designation` | generated, recomputed on every write |
+| `note_attribute` | 903 links; star, radar, binary, trinary, repeater, ladder, low and high serial, double quad |
 | `app.serial_patterns` | derives the designations from the serial and reports malformed ones |
 | `app.order_repair` | recovers a vendor's order number from the listing URL |
 | `app.backup` | portable full-database copy; the database is the system of record |

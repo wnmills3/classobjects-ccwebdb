@@ -1,8 +1,8 @@
 """Editing an item that is not for sale.
 
-Which is all of them: the collection has 7,591 items and no listings, so
-before this endpoint existed there was no way to correct any of them through
-the API.
+Which is all of them: the collection has thousands of items and no
+listings, so before this endpoint existed there was no way to correct any of
+them through the API.
 """
 
 from __future__ import annotations
@@ -170,7 +170,7 @@ def test_a_piece_reports_what_its_lot_claimed(
 def test_an_item_with_no_parent_claims_nothing(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """7,591 of 7,591 have no parent. Absent is the normal case, not an error."""
+    """No parent is the normal case, not an error -- every item starts that way."""
     item = make_item(db)
     body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
 
