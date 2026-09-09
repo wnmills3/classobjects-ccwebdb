@@ -44,6 +44,7 @@ from .models import Base
 #: failure does not sit on one enormous uncommitted transaction.
 CHUNK = 1000
 
+
 def generated_columns(table: Table) -> set[str]:
     """The columns this table computes for itself.
 

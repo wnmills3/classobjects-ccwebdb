@@ -35,6 +35,7 @@ COL_RATING = "Rating"
 COL_PRICE = "Price"
 COL_DESCRIPTION = "Description"
 COL_VENDOR = "Vendor"
+COL_LINK = "Link"
 COL_SHIPPING = "Shipping"
 COL_GRADING = "Grading#"
 COL_VALUE = "Value"
@@ -416,8 +417,17 @@ class CollectionV1Profile:
         fields["comment"] = row.text(COL_COMMENT) or None
         fields["order_number"] = row.text(COL_ORDER_NO) or None
 
-        # The vendor column holds a URL. The host is the vendor's identity --
-        # a dozen different deep links are all one seller.
+        # Two different URLs, and the difference matters. `Vendor` is the
+        # seller's own page -- ebay.com/usr/sylvinac -- and identifies who sold
+        # it. `Link` is the item -- ebay.com/itm/315248803796 -- and carries
+        # the venue's transaction id, which is the only way to recover a
+        # purchase for the 2,644 rows whose order number was never recorded.
+        # Emitting only the first left `identify()` reading a seller page and
+        # finding nothing.
+        fields["listing_url"] = row.text(COL_LINK) or None
+
+        # The host is the vendor's identity -- a dozen different deep links are
+        # all one seller.
         vendor_url = row.text(COL_VENDOR) or None
         if vendor_url:
             fields["vendor_url"] = vendor_url

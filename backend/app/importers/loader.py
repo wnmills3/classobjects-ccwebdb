@@ -307,7 +307,9 @@ class SchemaLoader:
             vendor_id,
             fields.get("order_number"),
             fields.get("ordered_on"),
-            fields.get("vendor_url"),
+            # The *item* link, not the seller's page. Only the item URL carries
+            # the venue's transaction id that `identify()` looks for.
+            fields.get("listing_url"),
         )
 
         numismatic = _as_decimal(fields.get("numismatic_value"))

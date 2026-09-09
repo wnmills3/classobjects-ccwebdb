@@ -19,6 +19,7 @@ from app.importers.models import ImportBatch, ImportIssue, ImportRow
 from app.importers.profile import ERROR, UNKNOWN, RawRow
 from app.importers.profiles.collection_v1 import CollectionV1Profile
 from app.importers.profiling import ColumnProfile
+from app.order_repair import identify
 from sqlalchemy.orm import Session
 
 HEADERS = [
@@ -606,3 +607,44 @@ def test_a_description_that_is_not_a_grade_is_declined() -> None:
     # and flagged, rather than inventing a grade called "ACADIANP".
     for text in ("5-Coin Mint Set", "Doubling (check P mark)", "Acadian Provinces"):
         assert parse_condition(text).grade is None, text
+
+
+def test_the_item_link_is_read_and_kept_apart_from_the_seller_page() -> None:
+    """Two URLs per row, and only one carries the transaction id.
+
+    `Vendor` is the seller's own page -- ebay.com/usr/sylvinac -- and says who
+    sold it. `Link` is the item -- ebay.com/itm/315248803796 -- and is the only
+    place the venue's transaction id appears. The profile read the first and
+    ignored the second, so `identify()` was handed a seller page, matched
+    nothing, and 2,557 rows whose purchase was perfectly recoverable got no
+    order at all.
+    """
+    profile = CollectionV1Profile()
+    fields = profile.inspect(
+        make_row(
+            Vendor="https://www.ebay.com/usr/sylvinac",
+            Link="https://www.ebay.com/itm/315248803796",
+        )
+    ).fields
+
+    assert fields["vendor_url"] == "https://www.ebay.com/usr/sylvinac"
+    assert fields["vendor_name"] == "ebay.com"
+    assert fields["listing_url"] == "https://www.ebay.com/itm/315248803796"
+
+
+def test_a_lot_id_is_recoverable_from_the_link_the_profile_emits() -> None:
+    """The end of the chain: what the profile emits must satisfy identify().
+
+    Testing the two halves separately is what let them disagree -- identify()
+    had tests, the profile had tests, and nothing checked that the profile fed
+    identify() the field it reads.
+    """
+    profile = CollectionV1Profile()
+    fields = profile.inspect(
+        make_row(
+            Vendor="https://hibid.com/",
+            Link="https://hibid.com/lot/226778844/1886-morgan-silver-dollar",
+        )
+    ).fields
+
+    assert identify(fields["listing_url"]) == ("226778844", True)
