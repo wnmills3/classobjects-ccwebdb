@@ -11,6 +11,9 @@ rem  server by container name is exactly what ccweb_sonar_scan.cmd already does.
 rem
 rem  Claude Code runs this over stdio; do not echo anything to stdout here, or
 rem  it will corrupt the protocol stream.
+rem
+rem  Contract: pre-flights only SONAR_TOKEN (exits non-zero to stderr if
+rem  unset), then execs the MCP server; writes nothing else to stdout.
 rem ---------------------------------------------------------------------------
 setlocal
 
@@ -21,6 +24,10 @@ if "%SONAR_TOKEN%"=="" (
     exit /b 1
 )
 
+rem  Any pre-flight added here - e.g. copying the server/token checks from
+rem  ccweb_sonar_scan.cmd - must redirect its ERROR/echo lines with 1>&2. That
+rem  script's "echo ERROR:" lines go to stdout, which is fine there but would
+rem  corrupt the MCP protocol stream if copied in unchanged.
 podman run --init --rm -i ^
     --network sonar-net ^
     -e SONARQUBE_TOKEN=%SONAR_TOKEN% ^
