@@ -184,7 +184,17 @@ MODULES = {
     os.path.splitext(old)[0]: os.path.splitext(new)[0] for old, new in MOVES.items()
 }
 
+#: `from './x'` and bare `import './x'`.
 IMPORT_RE = re.compile(r"""(from\s+|import\s+)(['"])(\.[^'"]*)\2""")
+
+#: `vi.mock('./x', ...)`. Not an import clause, so IMPORT_RE cannot see it,
+#: but it names a module and moves with one. Five test files register an api
+#: mock this way and then import the same module normally; rewriting only the
+#: import leaves the mock keyed to a path that no longer names what the
+#: component loads, so the real module is used and the test fails with
+#: "mockResolvedValue is not a function" -- 19 failures, none of which point
+#: at the cause.
+VI_MOCK_RE = re.compile(r"""(vi\.mock\(\s*)(['"])(\.[^'"]*)\2""")
 
 
 def rewrite(text: str, old_rel: str, new_rel: str) -> str:
@@ -207,7 +217,7 @@ def rewrite(text: str, old_rel: str, new_rel: str) -> str:
             rel = "./" + rel
         return f"{match.group(1)}{match.group(2)}{rel}{match.group(2)}"
 
-    return IMPORT_RE.sub(one, text)
+    return VI_MOCK_RE.sub(one, IMPORT_RE.sub(one, text))
 
 
 def main() -> int:
@@ -290,6 +300,11 @@ cd frontend
 Expected: `Test Files 14 passed (14)`, `Tests 69 passed (69)`. Any failure here
 is a bad import path, not a behaviour change -- read the resolution error and
 fix `MOVES`.
+
+If you see `mockResolvedValue is not a function` rather than a resolution
+error, a `vi.mock()` path was missed: the mock is registered against a module
+nobody loads, so the component gets the real one. `VI_MOCK_RE` exists for
+exactly this and the failure names the symptom, never the cause.
 
 - [ ] **Step 5: Confirm git recorded renames, not rewrites**
 
