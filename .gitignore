@@ -245,3 +245,8 @@ media/
 # tooling, not project source.
 .claude/
 .mcp.json
+
+# SonarQube analysis output. The scanner's working directory and the coverage
+# report are both regenerated on every run.
+coverage.xml
+.scannerwork/
