@@ -7,7 +7,7 @@ and the one that makes it portable.
 
 from __future__ import annotations
 
-from app.backup import GENERATED, timestamped_name
+from app.backup import generated_columns, timestamped_name
 from app.models import Base
 from sqlalchemy.engine import make_url
 
@@ -26,15 +26,35 @@ def test_tables_copy_in_foreign_key_order() -> None:
     assert order.index("series") < order.index("inventory_item")
 
 
-def test_generated_columns_are_not_copied() -> None:
-    """The destination recomputes them from its own expressions.
+def test_generated_columns_are_read_from_the_models() -> None:
+    """Every column the schema computes, found without anyone listing it.
 
-    Writing them would either be refused, or accepted and then disagree with
-    the expression that is supposed to define them.
+    The previous version of this test asserted a hardcoded set against a copy
+    of itself, so it could not fail. It did not: `series_designation` was added
+    as a generated column, the set was not updated, the backup tried to insert
+    it, PostgreSQL refused, and the copy aborted partway -- leaving five tables
+    empty in every backup taken afterwards, while `--list` still showed a
+    plausible 21 MB.
+
+    So this walks the metadata the same way the backup does and asserts the
+    answer covers every table, which is what makes it fail when the next
+    generated column appears.
     """
-    assert {"sales_tax", "total_cost"} == GENERATED
-    columns = {c.name for c in Base.metadata.tables["inventory_item"].columns}
-    assert columns > GENERATED, "the generated columns must still exist to skip"
+    found = {
+        f"{table.name}.{name}"
+        for table in Base.metadata.sorted_tables
+        for name in generated_columns(table)
+    }
+
+    assert found == {
+        "inventory_item.sales_tax",
+        "inventory_item.total_cost",
+        "currency_detail.series_designation",
+    }, "a generated column was added or removed; the backup skips whatever it finds"
+
+    # And the derivation is genuinely reading the schema, not returning a
+    # constant: a table with no computed column must come back empty.
+    assert generated_columns(Base.metadata.tables["vendor"]) == set()
 
 
 def test_the_backup_url_keeps_its_password() -> None:
