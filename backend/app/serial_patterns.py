@@ -73,28 +73,24 @@ def is_incomplete(serial: str) -> bool:
     return len(digits_of(serial)) < SERIAL_DIGITS
 
 
-def analyse(serial: str) -> set[str]:
-    """Every designation this serial earns, as `note_attribute` codes."""
+def _positional_designations(d: str) -> set[str]:
+    """Designations earned by where the serial sits in the print run.
+
+    Positional rather than about what the digits spell, so these stack with
+    the pattern designations rather than replacing them -- a note can be low
+    *and* a double quad, and 00003333 is.
+    """
     found: set[str] = set()
-    if not serial:
-        return found
-
-    # The star is part of the serial, not of its digits, and is positional:
-    # a replacement note carries it at the start or the end, never inside.
-    if "*" in serial:
-        found.add("star")
-
-    d = digits_of(serial)
-    if len(d) != SERIAL_DIGITS:
-        return found  # incomplete: say nothing rather than something wrong
-
-    # Both are positional: where the serial sits in the print run, not what
-    # its digits spell. They stack with the pattern designations rather than
-    # replacing them -- a note can be low *and* a double quad, and 00003333 is.
     if d.startswith("0" * LOW_SERIAL_ZEROS):
         found.add("low_serial")
     if d.startswith(HIGH_SERIAL_FIRST_DIGIT):
         found.add("high_serial")
+    return found
+
+
+def _pattern_designations(d: str) -> set[str]:
+    """Designations earned by what the digits spell."""
+    found: set[str] = set()
 
     distinct = len(set(d))
     if distinct == 1:
@@ -103,10 +99,12 @@ def analyse(serial: str) -> set[str]:
         found.add("binary")
     elif distinct == 3:
         found.add("trinary")
+
     if d == d[::-1]:
         found.add("radar")
     if d.startswith(d[SERIAL_DIGITS // 2 :]):
         found.add("repeater")
+
     # Four of one digit then four of another -- 00005555. Named separately
     # from `binary` because collectors and grading forms treat the arrangement
     # as the point, not merely the count of distinct digits.
@@ -122,6 +120,27 @@ def analyse(serial: str) -> set[str]:
     month, day, year = d[:2], d[2:4], d[4:]
     if 1 <= int(month) <= 12 and 1 <= int(day) <= 31 and 1850 <= int(year) <= 2030:
         found.add("birthday")
+
+    return found
+
+
+def analyse(serial: str) -> set[str]:
+    """Every designation this serial earns, as `note_attribute` codes."""
+    found: set[str] = set()
+    if not serial:
+        return found
+
+    # The star is part of the serial, not of its digits, and is positional:
+    # a replacement note carries it at the start or the end, never inside.
+    if "*" in serial:
+        found.add("star")
+
+    d = digits_of(serial)
+    if len(d) != SERIAL_DIGITS:
+        return found  # incomplete: say nothing rather than something wrong
+
+    found |= _positional_designations(d)
+    found |= _pattern_designations(d)
 
     # `fancy_serial` is the umbrella over *digit patterns* only. A star note is
     # a replacement note, which is a different question on a grading form and
@@ -167,6 +186,67 @@ class SerialIssue:
     message: str
 
 
+def _shape_issues(cleaned: str) -> list[SerialIssue]:
+    """What the arrangement of letters and digits says about the serial."""
+    # An internal letter is a transposition, not a variant. Letters belong at
+    # the ends -- one or two in front, one behind -- and a serial with one in
+    # the middle is a typo every time: S97535476A entered as S9753547A6.
+    if INTERNAL_LETTER.search(cleaned):
+        return [
+            SerialIssue(
+                "warning",
+                "a letter appears among the digits. On a small-size US note "
+                "that is usually the suffix letter typed one position early "
+                "-- S9753547A6 for S97535476A -- so check it against the "
+                "note. Save anyway if that is what is printed.",
+            )
+        ]
+    if WELL_FORMED.match(cleaned):
+        return []
+
+    digits = digits_of(cleaned)
+    if len(digits) < SERIAL_DIGITS:
+        return [
+            SerialIssue(
+                "warning",
+                f"only {len(digits)} digits; a US small-size serial has "
+                f"{SERIAL_DIGITS}, so one may have been dropped.",
+            )
+        ]
+    return [
+        SerialIssue(
+            "warning",
+            "does not match the usual shape of one or two prefix "
+            "letters, eight digits and a suffix letter.",
+        )
+    ]
+
+
+def _range_issues(digits: str, series_year: int | None) -> list[SerialIssue]:
+    """What the serial's numeric value says about it."""
+    if len(digits) != SERIAL_DIGITS:
+        return []
+    value = int(digits)
+    if value > MAX_SERIAL:
+        return [
+            SerialIssue(
+                "error",
+                f"above {MAX_SERIAL:,}, which no eight-digit serial reaches.",
+            )
+        ]
+    if value > ADVISORY_CEILING:
+        year = f" for series {series_year}" if series_year else ""
+        return [
+            SerialIssue(
+                "warning",
+                f"above {ADVISORY_CEILING:,}{year}; some print runs ended "
+                "there rather than at 99,999,999, so this is worth "
+                "confirming against the note.",
+            )
+        ]
+    return []
+
+
 def check(
     serial: str, series_year: int | None = None, country: str | None = "US"
 ) -> list[SerialIssue]:
@@ -178,69 +258,16 @@ def check(
     Bank of Canada or Bundesbank note would refuse a correct entry. Passing a
     country other than "US" checks nothing structural.
     """
-    issues: list[SerialIssue] = []
     if not serial or not serial.strip():
-        return issues
+        return []
     if country is not None and country.upper() != "US":
-        return issues
+        return []
     if series_year is not None and series_year < SMALL_SIZE_FROM:
         # Large-size and obsolete issues predate the convention entirely.
-        return issues
+        return []
+
     cleaned = serial.strip().upper()
-
-    # An internal letter is a transposition, not a variant. Letters belong at
-    # the ends -- one or two in front, one behind -- and a serial with one in
-    # the middle is a typo every time: S97535476A entered as S9753547A6.
-    if INTERNAL_LETTER.search(cleaned):
-        issues.append(
-            SerialIssue(
-                "warning",
-                "a letter appears among the digits. On a small-size US note "
-                "that is usually the suffix letter typed one position early "
-                "-- S9753547A6 for S97535476A -- so check it against the "
-                "note. Save anyway if that is what is printed.",
-            )
-        )
-    elif not WELL_FORMED.match(cleaned):
-        digits = digits_of(cleaned)
-        if len(digits) < SERIAL_DIGITS:
-            issues.append(
-                SerialIssue(
-                    "warning",
-                    f"only {len(digits)} digits; a US small-size serial has "
-                    f"{SERIAL_DIGITS}, so one may have been dropped.",
-                )
-            )
-        else:
-            issues.append(
-                SerialIssue(
-                    "warning",
-                    "does not match the usual shape of one or two prefix "
-                    "letters, eight digits and a suffix letter.",
-                )
-            )
-
-    digits = digits_of(cleaned)
-    if len(digits) == SERIAL_DIGITS:
-        value = int(digits)
-        if value > MAX_SERIAL:
-            issues.append(
-                SerialIssue(
-                    "error",
-                    f"above {MAX_SERIAL:,}, which no eight-digit serial reaches.",
-                )
-            )
-        elif value > ADVISORY_CEILING:
-            year = f" for series {series_year}" if series_year else ""
-            issues.append(
-                SerialIssue(
-                    "warning",
-                    f"above {ADVISORY_CEILING:,}{year}; some print runs ended "
-                    "there rather than at 99,999,999, so this is worth "
-                    "confirming against the note.",
-                )
-            )
-
+    issues = _shape_issues(cleaned) + _range_issues(digits_of(cleaned), series_year)
     issues.sort(key=lambda i: 0 if i.severity == "error" else 1)
     return issues
 

@@ -395,6 +395,75 @@ _SOFT_DELETE_FRAGMENTS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _removal_fragments(
+    *,
+    lineage: bool,
+    item_code: bool,
+    renamed_costs: bool,
+    soft_delete: bool,
+) -> list[tuple[str, str]]:
+    """The (fragment, replacement) pairs that strip the features not wanted.
+
+    Order matters, which is why this is a list rather than a set.
+    """
+    removals: list[tuple[str, str]] = []
+    # Soft delete is stripped FIRST, before lineage. Replacements apply in
+    # list order, and the lineage fragment is
+    # ("WHERE i.split_at IS NULL\n  AND ", "WHERE ") -- which would otherwise
+    # swallow the `AND i.deleted_at IS NULL` line now sitting directly beneath
+    # it, leaving `WHERE i.deleted_at IS NULL` in a view whose revision has no
+    # such column. The assertion in _assert_stripped then fires, and the fix is
+    # this ordering rather than a wider fragment.
+    if not soft_delete:
+        removals.extend(_SOFT_DELETE_FRAGMENTS)
+
+    if not lineage:
+        removals.extend(_LINEAGE_FRAGMENTS)
+    if not item_code:
+        removals.extend(_ITEM_CODE_FRAGMENTS)
+    if not renamed_costs:
+        removals.extend(_PRE_RENAME_FRAGMENTS)
+    return removals
+
+
+def _assert_stripped(
+    statement: str,
+    *,
+    lineage: bool,
+    item_code: bool,
+    renamed_costs: bool,
+    soft_delete: bool,
+) -> None:
+    """Fail loudly if a fragment stopped matching the view SQL.
+
+    Silence here would mean a migration creating a view that names a column
+    which does not exist at its revision -- a failure at deploy time rather
+    than at import time.
+    """
+    if not lineage:
+        assert "split_at" not in statement, (
+            "the lineage-stripping fragments no longer match the view SQL; "
+            "a migration would create a view naming a column that does not "
+            "exist at its revision"
+        )
+        assert "parent_item_id" not in statement
+    if not item_code:
+        assert "item_code" not in statement
+    if not renamed_costs:
+        for column in _RENAMED_COLUMNS:
+            assert column not in statement, (
+                f"{column} survived the pre-rename rewrite; a "
+                "migration would create a view naming a column that "
+                "does not exist at its revision"
+            )
+    if not soft_delete:
+        assert "deleted_at" not in statement, (
+            "the soft-delete-stripping fragments no longer match the view "
+            "SQL; a migration would create a view naming a column that "
+            "does not exist at its revision"
+        )
+
+
 def create_views(
     *,
     lineage: bool = True,
@@ -412,50 +481,24 @@ def create_views(
     all four views. All four default to True, the current definitions, so a
     migration strips only what it names.
     """
-    removals: list[tuple[str, str]] = []
-    # Soft delete is stripped FIRST, before lineage. Replacements apply in
-    # list order, and the lineage fragment is
-    # ("WHERE i.split_at IS NULL\n  AND ", "WHERE ") -- which would otherwise
-    # swallow the `AND i.deleted_at IS NULL` line now sitting directly beneath
-    # it, leaving `WHERE i.deleted_at IS NULL` in a view whose revision has no
-    # such column. The assertion below then fires, and the fix is this
-    # ordering rather than a wider fragment.
-    if not soft_delete:
-        removals.extend(_SOFT_DELETE_FRAGMENTS)
-
-    if not lineage:
-        removals.extend(_LINEAGE_FRAGMENTS)
-    if not item_code:
-        removals.extend(_ITEM_CODE_FRAGMENTS)
-    if not renamed_costs:
-        removals.extend(_PRE_RENAME_FRAGMENTS)
+    removals = _removal_fragments(
+        lineage=lineage,
+        item_code=item_code,
+        renamed_costs=renamed_costs,
+        soft_delete=soft_delete,
+    )
 
     statements = []
     for statement in CREATE_VIEWS:
         for fragment, replacement in removals:
             statement = statement.replace(fragment, replacement)
-        if not lineage:
-            assert "split_at" not in statement, (
-                "the lineage-stripping fragments no longer match the view SQL; "
-                "a migration would create a view naming a column that does not "
-                "exist at its revision"
-            )
-            assert "parent_item_id" not in statement
-        if not item_code:
-            assert "item_code" not in statement
-        if not renamed_costs:
-            for column in _RENAMED_COLUMNS:
-                assert column not in statement, (
-                    f"{column} survived the pre-rename rewrite; a "
-                    "migration would create a view naming a column that "
-                    "does not exist at its revision"
-                )
-        if not soft_delete:
-            assert "deleted_at" not in statement, (
-                "the soft-delete-stripping fragments no longer match the view "
-                "SQL; a migration would create a view naming a column that "
-                "does not exist at its revision"
-            )
+        _assert_stripped(
+            statement,
+            lineage=lineage,
+            item_code=item_code,
+            renamed_costs=renamed_costs,
+            soft_delete=soft_delete,
+        )
         statements.append(statement)
     return tuple(statements)
 
