@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from .loader import SchemaLoader
 from .models import ImportBatch, ImportIssue, ImportRow
-from .profile import UNKNOWN, ImportProfile, RawRow
+from .profile import UNKNOWN, ImportProfile, RawRow, RowResult
 
 DRY_RUN = "dry_run"
 COMMIT = "commit"
@@ -112,93 +112,118 @@ class ImportReport:
         """Issues that name a concrete fix -- typos and the like."""
         return [i for i in self.issues if i.proposed]
 
-    def render(self, top: int = 25, example_rows: int = 6) -> str:
-        """The run as a report a human can act on, source row numbers included."""
-        out: list[str] = []
-        add = out.append
-        add(f"source   : {self.source_path}")
-        add(f"sha256   : {self.sha256[:16]}...")
-        add(f"profile  : {self.profile_name}")
-        add(
+    @staticmethod
+    def _and_more(rows: list[int], example_rows: int) -> str:
+        """The trailing "(+N more)" when a list was truncated for display."""
+        extra = len(rows) - example_rows
+        return f" (+{extra} more)" if extra > 0 else ""
+
+    def _summary_lines(self) -> list[str]:
+        """What was read, from where, and how it went."""
+        out = [
+            f"source   : {self.source_path}",
+            f"sha256   : {self.sha256[:16]}...",
+            f"profile  : {self.profile_name}",
             f"mode     : {self.mode}"
-            + (f"  (batch {self.batch_id})" if self.batch_id else "")
-        )
-        add(f"rows     : {self.rows}   in {self.elapsed_seconds:.2f}s")
+            + (f"  (batch {self.batch_id})" if self.batch_id else ""),
+            f"rows     : {self.rows}   in {self.elapsed_seconds:.2f}s",
+        ]
         if self.items_created:
-            add(f"items    : {self.items_created} inventory_item rows written")
+            out.append(f"items    : {self.items_created} inventory_item rows written")
         if self.derived_reference_rows:
             invented = ", ".join(
                 f"{t} {n}" for t, n in sorted(self.derived_reference_rows.items())
             )
-            add(f"derived  : {invented}")
-        add("")
-        add(
-            f"KIND  ({self.classified}/{self.rows} = "
-            f"{self.classified_pct:.1f}% classified)"
-        )
-        for kind, n in self.kinds.most_common():
-            add(f"  {n:>6}  {n / self.rows * 100:5.1f}%  {kind}")
-        if self.subtypes:
-            add("")
-            add("SUBTYPE")
-            for sub, n in self.subtypes.most_common(top):
-                add(f"  {n:>6}  {sub}")
+            out.append(f"derived  : {invented}")
+        return out
 
-        add("")
-        add(
+    def _kind_lines(self, top: int) -> list[str]:
+        """How many rows each profile rule claimed."""
+        out = [
+            "",
+            f"KIND  ({self.classified}/{self.rows} = "
+            f"{self.classified_pct:.1f}% classified)",
+        ]
+        for kind, n in self.kinds.most_common():
+            out.append(f"  {n:>6}  {n / self.rows * 100:5.1f}%  {kind}")
+        if self.subtypes:
+            out.append("")
+            out.append("SUBTYPE")
+            for sub, n in self.subtypes.most_common(top):
+                out.append(f"  {n:>6}  {sub}")
+        return out
+
+    def _issue_lines(self, top: int) -> list[str]:
+        """What needs a person, by severity and then by rule."""
+        out = [
+            "",
             f"ISSUES  ({sum(self.issues_by_severity.values())} across "
-            f"{self.review_rows} rows needing review)"
-        )
+            f"{self.review_rows} rows needing review)",
+        ]
         for sev in ("error", "warning", "info"):
             if self.issues_by_severity.get(sev):
-                add(f"  {self.issues_by_severity[sev]:>6}  {sev}")
+                out.append(f"  {self.issues_by_severity[sev]:>6}  {sev}")
         if self.issues_by_rule:
-            add("")
-            add("BY RULE")
+            out.append("")
+            out.append("BY RULE")
             for rule, n in self.issues_by_rule.most_common(top):
-                add(f"  {n:>6}  {rule}")
+                out.append(f"  {n:>6}  {rule}")
+        return out
 
-        # Corrections are the most actionable thing here: a known typo and the
-        # exact rows to fix it in.
+    def _correction_lines(self, top: int, example_rows: int) -> list[str]:
+        """A known typo and the exact source rows to fix it in.
+
+        The most actionable part of the report, which is why it carries the
+        row numbers rather than only a count.
+        """
         fixes = self.corrections()
-        if fixes:
-            grouped: dict[tuple[str, str], list[int]] = defaultdict(list)
-            for rec in fixes:
-                grouped[(rec.raw_value or "", rec.proposed or "")].append(
-                    rec.row_number
-                )
-            add("")
-            add(f"SUGGESTED SOURCE CORRECTIONS  ({len(grouped)} distinct)")
-            for (raw, proposed), rows in sorted(
-                grouped.items(), key=lambda kv: -len(kv[1])
-            )[:top]:
-                shown = ", ".join(str(r) for r in rows[:example_rows])
-                more = (
-                    f" (+{len(rows) - example_rows} more)"
-                    if len(rows) > example_rows
-                    else ""
-                )
-                add(f"  {len(rows):>4}  {raw!r} -> {proposed!r}")
-                add(f"        rows {shown}{more}")
+        if not fixes:
+            return []
 
-        if self.unclassified_values:
-            add("")
-            add(
-                f"UNCLASSIFIED VALUES  ({len(self.unclassified_values)} distinct, "
-                f"{sum(self.unclassified_values.values())} rows)"
-            )
-            for value, n in self.unclassified_values.most_common(top):
-                rows = self.unclassified_rows.get(value, [])
-                shown = ", ".join(str(r) for r in rows[:example_rows])
-                more = (
-                    f" (+{len(rows) - example_rows} more)"
-                    if len(rows) > example_rows
-                    else ""
+        grouped: dict[tuple[str, str], list[int]] = defaultdict(list)
+        for rec in fixes:
+            grouped[(rec.raw_value or "", rec.proposed or "")].append(rec.row_number)
+
+        out = ["", f"SUGGESTED SOURCE CORRECTIONS  ({len(grouped)} distinct)"]
+        for (raw, proposed), rows in sorted(
+            grouped.items(), key=lambda kv: -len(kv[1])
+        )[:top]:
+            shown = ", ".join(str(r) for r in rows[:example_rows])
+            out.append(f"  {len(rows):>4}  {raw!r} -> {proposed!r}")
+            out.append(f"        rows {shown}{self._and_more(rows, example_rows)}")
+        return out
+
+    def _unclassified_lines(self, top: int, example_rows: int) -> list[str]:
+        """Values no rule claimed, with where they appeared."""
+        if not self.unclassified_values:
+            return []
+
+        out = [
+            "",
+            f"UNCLASSIFIED VALUES  ({len(self.unclassified_values)} distinct, "
+            f"{sum(self.unclassified_values.values())} rows)",
+        ]
+        for value, n in self.unclassified_values.most_common(top):
+            rows = self.unclassified_rows.get(value, [])
+            shown = ", ".join(str(r) for r in rows[:example_rows])
+            out.append(f"  {n:>6}  {value!r}")
+            if shown:
+                out.append(
+                    f"          rows {shown}{self._and_more(rows, example_rows)}"
                 )
-                add(f"  {n:>6}  {value!r}")
-                if shown:
-                    add(f"          rows {shown}{more}")
-        return "\n".join(out)
+        return out
+
+    def render(self, top: int = 25, example_rows: int = 6) -> str:
+        """The run as a report a human can act on, source row numbers included."""
+        return "\n".join(
+            [
+                *self._summary_lines(),
+                *self._kind_lines(top),
+                *self._issue_lines(top),
+                *self._correction_lines(top, example_rows),
+                *self._unclassified_lines(top, example_rows),
+            ]
+        )
 
 
 class ImportEngine:
@@ -208,6 +233,90 @@ class ImportEngine:
         """A session is required only to commit; a dry run needs none."""
         self.profile = profile
         self.session = session
+
+    @staticmethod
+    def _tally_columns(
+        raw_row: RawRow, report: ImportReport, seen_columns: list[str]
+    ) -> None:
+        """Count each column's values, in the order the columns first appear."""
+        for column, value in raw_row.values.items():
+            if column not in seen_columns:
+                seen_columns.append(column)
+            counts = report.column_values[column]
+            # bounded: a pathological column must not exhaust memory
+            if value is not None and (
+                len(counts) < MAX_DISTINCT_PER_COLUMN or value in counts
+            ):
+                counts[value] += 1
+
+    @staticmethod
+    def _tally_issues(
+        raw_row: RawRow, result: RowResult, kind: str, report: ImportReport
+    ) -> None:
+        """Count every issue, and retain a bounded sample with its row."""
+        for issue in result.issues:
+            report.issues_by_rule[issue.rule] += 1
+            report.issues_by_severity[issue.severity] += 1
+            if len(report.issues) < MAX_RETAINED_ISSUES:
+                report.issues.append(
+                    IssueRecord(
+                        row_number=raw_row.row_number,
+                        kind=kind,
+                        rule=issue.rule,
+                        severity=issue.severity,
+                        column=issue.column,
+                        raw_value=issue.raw_value,
+                        proposed=issue.proposed,
+                        note=issue.note,
+                        row_values=dict(raw_row.values),
+                    )
+                )
+
+    @staticmethod
+    def _tally_unclassified(
+        raw_row: RawRow, result: RowResult, report: ImportReport
+    ) -> None:
+        """Record what an unclassified row actually said, and where it was.
+
+        The value is what a person needs in order to add the missing rule; a
+        bare count of "unknown" would not be actionable.
+        """
+        marker = (
+            next(
+                (i.raw_value for i in result.issues if i.rule == "unclassified"),
+                None,
+            )
+            or "<blank>"
+        )
+        report.unclassified_values[marker] += 1
+        report.unclassified_rows[marker].append(raw_row.row_number)
+
+    @staticmethod
+    def _staged_row(
+        raw_row: RawRow, result: RowResult, kind: str, batch_id: int
+    ) -> ImportRow:
+        """One verbatim staging row, with its issues attached."""
+        row = ImportRow(
+            batch_id=batch_id,
+            row_number=raw_row.row_number,
+            raw=raw_row.values,
+            status="needs_review" if result.needs_review else "classified",
+            item_kind=kind,
+            subtype=result.classification.subtype,
+            classified_by_rule=result.classification.rule,
+        )
+        row.issues = [
+            ImportIssue(
+                rule=i.rule,
+                severity=i.severity,
+                column_name=i.column,
+                raw_value=(i.raw_value or "")[:512] or None,
+                proposed=(i.proposed or "")[:512] or None,
+                note=i.note,
+            )
+            for i in result.issues
+        ]
+        return row
 
     def run(
         self,
@@ -259,78 +368,23 @@ class ImportEngine:
             result = self.profile.inspect(raw_row)
             report.rows += 1
 
-            for column, value in raw_row.values.items():
-                if column not in seen_columns:
-                    seen_columns.append(column)
-                counts = report.column_values[column]
-                # bounded: a pathological column must not exhaust memory
-                if value is not None and (
-                    len(counts) < MAX_DISTINCT_PER_COLUMN or value in counts
-                ):
-                    counts[value] += 1
+            self._tally_columns(raw_row, report, seen_columns)
 
             kind = result.classification.kind
             report.kinds[kind] += 1
             if result.classification.subtype:
                 report.subtypes[f"{kind}/{result.classification.subtype}"] += 1
 
-            for issue in result.issues:
-                report.issues_by_rule[issue.rule] += 1
-                report.issues_by_severity[issue.severity] += 1
-                if len(report.issues) < MAX_RETAINED_ISSUES:
-                    report.issues.append(
-                        IssueRecord(
-                            row_number=raw_row.row_number,
-                            kind=kind,
-                            rule=issue.rule,
-                            severity=issue.severity,
-                            column=issue.column,
-                            raw_value=issue.raw_value,
-                            proposed=issue.proposed,
-                            note=issue.note,
-                            row_values=dict(raw_row.values),
-                        )
-                    )
+            self._tally_issues(raw_row, result, kind, report)
 
             if result.needs_review:
                 report.review_rows += 1
-
             if kind == UNKNOWN:
-                marker = (
-                    next(
-                        (
-                            i.raw_value
-                            for i in result.issues
-                            if i.rule == "unclassified"
-                        ),
-                        None,
-                    )
-                    or "<blank>"
-                )
-                report.unclassified_values[marker] += 1
-                report.unclassified_rows[marker].append(raw_row.row_number)
+                self._tally_unclassified(raw_row, result, report)
 
             if mode == COMMIT:
-                row = ImportRow(
-                    batch_id=batch.id,
-                    row_number=raw_row.row_number,
-                    raw=raw_row.values,
-                    status="needs_review" if result.needs_review else "classified",
-                    item_kind=kind,
-                    subtype=result.classification.subtype,
-                    classified_by_rule=result.classification.rule,
-                )
-                row.issues = [
-                    ImportIssue(
-                        rule=i.rule,
-                        severity=i.severity,
-                        column_name=i.column,
-                        raw_value=(i.raw_value or "")[:512] or None,
-                        proposed=(i.proposed or "")[:512] or None,
-                        note=i.note,
-                    )
-                    for i in result.issues
-                ]
+                assert batch is not None
+                row = self._staged_row(raw_row, result, kind, batch.id)
                 pending.append(row)
                 if len(pending) >= 500:
                     session.add_all(pending)
@@ -349,6 +403,7 @@ class ImportEngine:
                     report.items_created += 1
 
         if mode == COMMIT:
+            assert batch is not None
             if pending:
                 session.add_all(pending)
             batch.row_count = report.rows
