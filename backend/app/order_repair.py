@@ -40,6 +40,7 @@ import argparse
 import re
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -80,9 +81,9 @@ def identify(link: str | None) -> tuple[str, bool] | None:
     return None
 
 
-def run(db: Session, *, commit: bool) -> Counter:
-    """Move every row off a fabricated order onto one that reflects reality."""
-    fabricated = {
+def _fabricated_ids(db: Session) -> set[int]:
+    """Every order standing in for "I do not know the number"."""
+    return {
         order_id
         for (order_id,) in db.execute(
             select(PurchaseOrder.id).where(
@@ -91,21 +92,33 @@ def run(db: Session, *, commit: bool) -> Counter:
             )
         )
     }
-    if not fabricated:
-        return Counter()
 
-    rows = db.execute(
-        select(
-            InventoryItem.id,
-            InventoryItem.purchase_order_id,
-            PurchaseOrder.vendor_id,
-            ImportRow.raw,
-        )
-        .join(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
-        .join(ImportRow, ImportRow.inventory_item_id == InventoryItem.id)
-        .where(InventoryItem.purchase_order_id.in_(fabricated))
-    ).all()
 
+def _rows_on(db: Session, fabricated: set[int]) -> list[Any]:
+    """Each item on a fabricated order, with the raw row it was imported from."""
+    return list(
+        db.execute(
+            select(
+                InventoryItem.id,
+                InventoryItem.purchase_order_id,
+                PurchaseOrder.vendor_id,
+                ImportRow.raw,
+            )
+            .join(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
+            .join(ImportRow, ImportRow.inventory_item_id == InventoryItem.id)
+            .where(InventoryItem.purchase_order_id.in_(fabricated))
+        ).all()
+    )
+
+
+def _plan(
+    db: Session, rows: list[Any], *, commit: bool
+) -> tuple[list[tuple[int, int | None]], Counter]:
+    """Where each item should end up, creating the real orders on the way.
+
+    In dry-run the new order ids are negative placeholders: nothing is
+    written, but the count of orders that *would* be created is still real.
+    """
     stats: Counter = Counter()
     # (vendor, identifier) -> the order row standing for that transaction.
     created: dict[tuple[int | None, str], int] = {}
@@ -138,6 +151,35 @@ def run(db: Session, *, commit: bool) -> Counter:
         moves.append((item_id, created[key]))
 
     stats["orders_created"] = len(created)
+    return moves, stats
+
+
+def _drop_emptied(db: Session, fabricated: set[int], stats: Counter) -> None:
+    """Remove the fabricated orders nothing points at any more.
+
+    Leaving them would keep orders that never existed in every vendor report.
+    An order still holding an item this run never saw is kept.
+    """
+    for order_id in fabricated:
+        remaining = db.scalar(
+            select(InventoryItem.id)
+            .where(InventoryItem.purchase_order_id == order_id)
+            .limit(1)
+        )
+        if remaining is None:
+            order = db.get(PurchaseOrder, order_id)
+            if order is not None:
+                db.delete(order)
+                stats["fabricated_removed"] += 1
+
+
+def run(db: Session, *, commit: bool) -> Counter:
+    """Move every row off a fabricated order onto one that reflects reality."""
+    fabricated = _fabricated_ids(db)
+    if not fabricated:
+        return Counter()
+
+    moves, stats = _plan(db, _rows_on(db, fabricated), commit=commit)
 
     if commit:
         for item_id, order_id in moves:
@@ -145,19 +187,7 @@ def run(db: Session, *, commit: bool) -> Counter:
             if item is not None:
                 item.purchase_order_id = order_id
         db.flush()
-        # The fabricated rows are now empty and must not survive: leaving them
-        # would keep twelve orders that never existed in every vendor report.
-        for order_id in fabricated:
-            remaining = db.scalar(
-                select(InventoryItem.id)
-                .where(InventoryItem.purchase_order_id == order_id)
-                .limit(1)
-            )
-            if remaining is None:
-                order = db.get(PurchaseOrder, order_id)
-                if order is not None:
-                    db.delete(order)
-                    stats["fabricated_removed"] += 1
+        _drop_emptied(db, fabricated, stats)
         db.commit()
 
     return stats

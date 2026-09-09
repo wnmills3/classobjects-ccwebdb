@@ -100,6 +100,28 @@ def slug(text: str) -> str:
     return _NON_CODE.sub("_", ascii_only.strip().lower()).strip("_")
 
 
+def _fill_from_composition(
+    composition: Composition | None,
+    metal_id: int | None,
+    fineness: Decimal | None,
+    gross: Decimal | None,
+    fine: Decimal | None,
+) -> tuple[int | None, Decimal | None, Decimal | None, Decimal | None]:
+    """Fill the gaps a source left from the published composition.
+
+    A public fact beats an absent one, but never overrides a weight the source
+    actually stated -- so each value is only taken where the source had none.
+    """
+    if composition is None:
+        return metal_id, fineness, gross, fine
+    return (
+        metal_id if metal_id is not None else composition.metal_id,
+        fineness if fineness is not None else composition.fineness,
+        gross if gross is not None else composition.gross_weight_ozt,
+        fine if fine is not None else composition.fine_weight_ozt,
+    )
+
+
 class SchemaLoader:
     """Writes one normalised row into the target schema.
 
@@ -253,6 +275,18 @@ class SchemaLoader:
 
     # -- the item ----------------------------------------------------------
 
+    def _subtype_forms(
+        self, kind: str, subtype: str | None
+    ) -> tuple[int | None, int | None]:
+        """The bullion or set form a subtype names, if its kind has one."""
+        if not subtype:
+            return None, None
+        if kind == "bullion":
+            return self.by_label(BullionForm, subtype), None
+        if kind == "set":
+            return None, self.by_label(SetForm, subtype)
+        return None, None
+
     def load(
         self, kind: str, subtype: str | None, fields: dict[str, Any]
     ) -> InventoryItem:
@@ -260,12 +294,7 @@ class SchemaLoader:
         kind_code = kind if kind else DEFAULT_ITEM_KIND
         item_kind_id = self.code_id(ItemKind, kind_code, label=kind_code.title())
 
-        bullion_form_id = None
-        set_form_id = None
-        if subtype and kind == "bullion":
-            bullion_form_id = self.by_label(BullionForm, subtype)
-        elif subtype and kind == "set":
-            set_form_id = self.by_label(SetForm, subtype)
+        bullion_form_id, set_form_id = self._subtype_forms(kind, subtype)
 
         storage_form_id = self.by_label(
             StorageForm, fields.get("storage_form") or DEFAULT_STORAGE_FORM
@@ -290,17 +319,9 @@ class SchemaLoader:
             denomination_id, country_id, fields.get("year_start")
         )
         composition_id = composition.id if composition else None
-        if composition is not None:
-            # A public fact beats an absent one, but never overrides a weight
-            # the source actually stated.
-            if metal_id is None:
-                metal_id = composition.metal_id
-            if fineness is None:
-                fineness = composition.fineness
-            if gross is None:
-                gross = composition.gross_weight_ozt
-            if fine is None:
-                fine = composition.fine_weight_ozt
+        metal_id, fineness, gross, fine = _fill_from_composition(
+            composition, metal_id, fineness, gross, fine
+        )
 
         vendor_id = self.vendor_id(fields.get("vendor_name"), fields.get("vendor_url"))
         order_id = self.purchase_order_id(

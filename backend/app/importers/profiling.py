@@ -117,6 +117,72 @@ def _is_modifier_suffix(rare: str, dominant: str) -> bool:
     return rare != dominant and rare.rstrip("+") == dominant.rstrip("+")
 
 
+def _recommendation(
+    *,
+    filled: int,
+    distinct: int,
+    ratio: float,
+    numeric_share: float,
+    date_share: float,
+    max_length: int,
+) -> tuple[str, str]:
+    """What this column looks like, and the reason to show a person.
+
+    Ordered most specific first: an empty column is not a vocabulary, and a
+    column of dates is not a numeric one just because the years parse.
+    """
+    if filled == 0:
+        return EMPTY, "no values present"
+    if date_share > 0.95:
+        return DATE, f"{date_share:.0%} of distinct values parse as dates"
+    if numeric_share > 0.95 and distinct > REFERENCE_MAX_DISTINCT:
+        return NUMERIC, f"{numeric_share:.0%} numeric, {distinct} distinct"
+    if distinct <= REFERENCE_MAX_DISTINCT and ratio <= REFERENCE_MAX_RATIO:
+        return (
+            REFERENCE,
+            f"{distinct} distinct across {filled} values (ratio {ratio:.3f})",
+        )
+    if ratio >= FREE_TEXT_MIN_RATIO and max_length > 25:
+        return FREE_TEXT, f"nearly unique (ratio {ratio:.2f}), long values"
+    if ratio >= FREE_TEXT_MIN_RATIO:
+        return IDENTIFIER, f"nearly unique (ratio {ratio:.2f}), short values"
+    return (
+        REVIEW,
+        f"{distinct} distinct, ratio {ratio:.2f} -- between a vocabulary and free text",
+    )
+
+
+def _variants(name: str, counts: Counter, accepted: set[str] | None) -> list[Variant]:
+    """Rare spellings of a value that a common one already covers.
+
+    Only meaningful where a vocabulary is expected, so the caller decides
+    whether to ask at all.
+    """
+    groups: dict[str, list[str]] = defaultdict(list)
+    for value in counts:
+        key = normalise(value)
+        if key:
+            groups[key].append(value)
+
+    variants: list[Variant] = []
+    for spellings in groups.values():
+        if len(spellings) < 2:
+            continue
+        ranked = sorted(spellings, key=lambda v: -counts[v])
+        dominant = ranked[0]
+        for rare in ranked[1:]:
+            if accepted and rare in accepted:
+                continue  # confirmed correct as written
+            if _is_modifier_suffix(rare, dominant):
+                continue
+            # only flag when one spelling clearly dominates
+            if counts[rare] * 3 <= counts[dominant]:
+                variants.append(
+                    Variant(name, rare, counts[rare], dominant, counts[dominant])
+                )
+    return variants
+
+
 def profile_column(
     name: str,
     counts: Counter,
@@ -135,51 +201,14 @@ def profile_column(
     max_length = max((len(v) for v in values), default=0)
     ratio = (distinct / filled) if filled else 0.0
 
-    if filled == 0:
-        rec, why = EMPTY, "no values present"
-    elif date_share > 0.95:
-        rec, why = DATE, f"{date_share:.0%} of distinct values parse as dates"
-    elif numeric_share > 0.95 and distinct > REFERENCE_MAX_DISTINCT:
-        rec, why = NUMERIC, f"{numeric_share:.0%} numeric, {distinct} distinct"
-    elif distinct <= REFERENCE_MAX_DISTINCT and ratio <= REFERENCE_MAX_RATIO:
-        rec, why = (
-            REFERENCE,
-            f"{distinct} distinct across {filled} values (ratio {ratio:.3f})",
-        )
-    elif ratio >= FREE_TEXT_MIN_RATIO and max_length > 25:
-        rec, why = FREE_TEXT, f"nearly unique (ratio {ratio:.2f}), long values"
-    elif ratio >= FREE_TEXT_MIN_RATIO:
-        rec, why = IDENTIFIER, f"nearly unique (ratio {ratio:.2f}), short values"
-    else:
-        rec, why = (
-            REVIEW,
-            f"{distinct} distinct, ratio {ratio:.2f} -- between a vocabulary "
-            "and free text",
-        )
-
-    # Near-duplicate detection: only meaningful where a vocabulary is expected.
-    variants: list[Variant] = []
-    if rec in (REFERENCE, REVIEW):
-        groups: dict[str, list[str]] = defaultdict(list)
-        for value in values:
-            key = normalise(value)
-            if key:
-                groups[key].append(value)
-        for spellings in groups.values():
-            if len(spellings) < 2:
-                continue
-            ranked = sorted(spellings, key=lambda v: -counts[v])
-            dominant = ranked[0]
-            for rare in ranked[1:]:
-                if accepted and rare in accepted:
-                    continue  # confirmed correct as written
-                if _is_modifier_suffix(rare, dominant):
-                    continue
-                # only flag when one spelling clearly dominates
-                if counts[rare] * 3 <= counts[dominant]:
-                    variants.append(
-                        Variant(name, rare, counts[rare], dominant, counts[dominant])
-                    )
+    rec, why = _recommendation(
+        filled=filled,
+        distinct=distinct,
+        ratio=ratio,
+        numeric_share=numeric_share,
+        date_share=date_share,
+        max_length=max_length,
+    )
 
     return ColumnProfile(
         name=name,
@@ -193,7 +222,9 @@ def profile_column(
         reason=why,
         top_values=counts.most_common(8),
         singletons=sum(1 for v in values if counts[v] == 1),
-        variants=variants,
+        variants=_variants(name, counts, accepted)
+        if rec in (REFERENCE, REVIEW)
+        else [],
     )
 
 

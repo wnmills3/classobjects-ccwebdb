@@ -159,6 +159,60 @@ def _build_code_index(session: Session) -> dict[str, dict[str, int]]:
     return index
 
 
+def _upsert(
+    session: Session,
+    model: type,
+    values: dict[str, object],
+    keys: Sequence[str],
+    counter: Counter,
+) -> None:
+    """Insert, update, or leave alone one seeded row.
+
+    A row whose `source` is `manual` is never overwritten: a hand correction
+    outranks a shipped default.
+    """
+    lookup = {k: values[k] for k in keys}
+    existing = session.execute(select(model).filter_by(**lookup)).scalar_one_or_none()
+
+    if existing is None:
+        values.setdefault("source", ProvenanceSource.seeded)
+        session.add(model(**values))
+        counter["created"] += 1
+        return
+
+    if existing.source == ProvenanceSource.manual:
+        counter["skipped_manual"] += 1
+        return
+
+    changed = False
+    for column, value in values.items():
+        if _differs(getattr(existing, column), value):
+            setattr(existing, column, value)
+            changed = True
+    counter["updated" if changed else "unchanged"] += 1
+
+
+def _seed_table(session: Session, model: type, rows: list[dict[str, Any]]) -> Counter:
+    """Load one table's rows, matched on its natural key."""
+    table = model.__tablename__
+    counter: Counter = Counter()
+    keys = natural_key(model)
+    # Rebuilt per table so a table can reference one seeded earlier in the
+    # same run.
+    code_index = _build_code_index(session)
+
+    for position, row in enumerate(rows, start=1):
+        where = f"{table}[{position}]"
+        values = _resolve_row(row, model, code_index, where)
+        missing = [k for k in keys if k not in values]
+        if missing:
+            raise SeedError(f"{where}: missing natural key {missing}")
+        _upsert(session, model, values, keys, counter)
+
+    session.flush()
+    return counter
+
+
 def seed_all(
     session: Session,
     data_dir: Path = DATA_DIR,
@@ -185,44 +239,7 @@ def seed_all(
         rows = data.get(table)
         if not rows:
             continue
-
-        counter: Counter = Counter()
-        keys = natural_key(model)
-        # Rebuilt per table so a table can reference one seeded earlier in the
-        # same run.
-        code_index = _build_code_index(session)
-
-        for position, row in enumerate(rows, start=1):
-            where = f"{table}[{position}]"
-            values = _resolve_row(row, model, code_index, where)
-            missing = [k for k in keys if k not in values]
-            if missing:
-                raise SeedError(f"{where}: missing natural key {missing}")
-
-            lookup = {k: values[k] for k in keys}
-            existing = session.execute(
-                select(model).filter_by(**lookup)
-            ).scalar_one_or_none()
-
-            if existing is None:
-                values.setdefault("source", ProvenanceSource.seeded)
-                session.add(model(**values))
-                counter["created"] += 1
-                continue
-
-            if existing.source == ProvenanceSource.manual:
-                counter["skipped_manual"] += 1
-                continue
-
-            changed = False
-            for column, value in values.items():
-                if _differs(getattr(existing, column), value):
-                    setattr(existing, column, value)
-                    changed = True
-            counter["updated" if changed else "unchanged"] += 1
-
-        session.flush()
-        stats[table] = counter
+        stats[table] = _seed_table(session, model, rows)
 
     if not only or "series_alias" in only:
         stats["series_alias"] = _seed_series_aliases(session, data)
@@ -342,6 +359,42 @@ def export_reference_data(
     return written
 
 
+def _as_code(
+    name: str,
+    value: object,
+    by_column: dict[str, tuple[str, str]],
+    models: dict[str, type],
+    session: Session,
+) -> tuple[str, Any]:
+    """A foreign key rendered as the target's code, so the row stays portable.
+
+    Falls back to the raw id under the original column name when the target
+    cannot be resolved -- an unresolvable id is still worth exporting.
+    """
+    bare, target_table = by_column[name]
+    target_model = models.get(target_table)
+    if target_model is not None:
+        target = session.get(target_model, value)
+        if target is not None:
+            return bare, target.code
+    return name, value
+
+
+def _portable(value: object) -> object:
+    """A column value in a form a seed file can carry.
+
+    Decimal becomes a string rather than a float, for the same reason it does
+    everywhere else in this schema; an enum becomes its value.
+    """
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, ProvenanceSource) or (
+        hasattr(value, "value") and not isinstance(value, (int, str, bool))
+    ):
+        return value.value
+    return value
+
+
 def _record_to_row(
     record: object,
     model: type[ReferenceMixin],
@@ -359,26 +412,11 @@ def _record_to_row(
         value = getattr(record, name)
         if value is None:
             continue
-
         if name in by_column:
-            bare, target_table = by_column[name]
-            target_model = models.get(target_table)
-            if target_model is not None:
-                code = session.get(target_model, value)
-                if code is not None:
-                    row[bare] = code.code
-                    continue
-            row[name] = value
-            continue
-
-        if isinstance(value, Decimal):
-            row[name] = str(value)
-        elif isinstance(value, ProvenanceSource) or (
-            hasattr(value, "value") and not isinstance(value, (int, str, bool))
-        ):
-            row[name] = value.value
+            key, out = _as_code(name, value, by_column, models, session)
+            row[key] = out
         else:
-            row[name] = value
+            row[name] = _portable(value)
 
     # created_at/updated_at describe this installation, not the vocabulary.
     for transient in ("created_at", "updated_at"):
