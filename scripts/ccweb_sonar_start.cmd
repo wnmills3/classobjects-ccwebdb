@@ -95,5 +95,9 @@ curl -s --max-time 3 "%~1" 2>nul | findstr "UP" >nul 2>&1
 if not errorlevel 1 exit /b 0
 set /a _tries+=1
 if !_tries! GEQ %~2 exit /b 1
-timeout /t 1 /nobreak >nul
+rem  timeout.exe needs a real console and fails instantly - with no sleep at
+rem  all - when stdin is redirected, which is exactly how an automated or
+rem  scheduled caller runs this script. Do not "simplify" this back to
+rem  timeout; ping's reply delay is a console-independent ~1 second sleep.
+ping -n 2 127.0.0.1 >nul
 goto waitup_loop
