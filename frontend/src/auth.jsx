@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { api, clearTokens, loadTokens, saveTokens } from './api'
 import { AuthContext } from './auth-context'
@@ -52,14 +52,17 @@ export function AuthProvider({ children }) {
     setUser(null)
   }, [])
 
-  const value = {
-    user,
-    loading,
-    login,
-    register,
-    logout,
-    isAdmin: user?.role === 'admin',
-  }
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      login,
+      register,
+      logout,
+      isAdmin: user?.role === 'admin',
+    }),
+    [user, loading, login, register, logout],
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

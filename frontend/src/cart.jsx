@@ -75,6 +75,9 @@ export function CartProvider({ children }) {
     return { count, total }
   }, [lines])
 
-  const value = { lines, add, setQuantity, remove, clear, count, total }
+  const value = useMemo(
+    () => ({ lines, add, setQuantity, remove, clear, count, total }),
+    [lines, add, setQuantity, remove, clear, count, total],
+  )
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }

@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from collections import Counter
 from dataclasses import dataclass
 
@@ -164,7 +163,7 @@ def run(db: Session, *, commit: bool) -> Counter:
     return stats
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> None:
     """Report or apply the repair."""
     parser = argparse.ArgumentParser(prog="order_repair", description=__doc__)
     parser.add_argument("--commit", action="store_true", help="apply the repair")
@@ -175,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not stats:
         print("no fabricated orders found")
-        return 0
+        return
     print(f"{'rows with a vendor order id':<34}{stats['order_number']:>7}")
     print(f"{'rows with a listing id only (eBay)':<34}{stats['listing_only']:>7}")
     print(f"{'rows with no identifier -> no order':<34}{stats['no_identifier']:>7}")
@@ -184,8 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{'fabricated orders removed':<34}{stats['fabricated_removed']:>7}")
     if not args.commit:
         print("\n(dry run -- nothing written; pass --commit)")
-    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

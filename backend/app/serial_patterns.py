@@ -134,7 +134,7 @@ def analyse(serial: str) -> set[str]:
 
 #: A small-size US serial: one or two prefix letters, eight digits, one suffix
 #: letter, with a star replacing either letter on a replacement note.
-WELL_FORMED = re.compile(r"^(?:\*|[A-Z]{1,2})\d{8}(?:\*|[A-Z])$")
+WELL_FORMED = re.compile(r"^(?:\*|[A-Z]{1,2})\d{8}[*A-Z]$")
 
 #: A letter with digits on both sides. Structurally impossible on a real
 #: note, so this is the one thing data entry refuses outright.
