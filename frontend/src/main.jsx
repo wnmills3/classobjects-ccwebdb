@@ -2,10 +2,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 
-import App from './App'
 import { AuthProvider } from './shared/auth'
 import { CartProvider } from './store/cart'
 import { ReferenceProvider } from './shared/reference'
+import StoreApp from './store/StoreApp'
 import './styles.css'
 
 createRoot(document.getElementById('root')).render(
@@ -14,7 +14,7 @@ createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <CartProvider>
           <ReferenceProvider>
-            <App />
+            <StoreApp />
           </ReferenceProvider>
         </CartProvider>
       </AuthProvider>
