@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -30,7 +30,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from .base import Base, ProvenanceSource, TimestampMixin, enum_column
 
@@ -187,7 +187,14 @@ class InventoryItem(TimestampMixin, Base):
         Integer, nullable=False, server_default=text("1")
     )
 
-    __mapper_args__: ClassVar[dict[str, object]] = {"version_id_col": version}
+    # A directive rather than a dict literal: see the note on __tablename__
+    # in base.py. ClassVar conflicts with DeclarativeBase's declaration and
+    # Final is a Liskov violation over it, while a bare literal trips
+    # RUF012. A directive is none of those, and matches __table_args__.
+    @declared_attr.directive
+    def __mapper_args__(cls) -> dict[str, Any]:
+        """Optimistic concurrency: every UPDATE checks the version it read."""
+        return {"version_id_col": cls.version}
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
@@ -462,7 +469,7 @@ class InventoryItem(TimestampMixin, Base):
     #: The pieces this lot was broken into, and the lot a piece came from.
     pieces: Mapped[list[InventoryItem]] = relationship(
         back_populates="parent",
-        remote_side=lambda: None,
+        remote_side=None,
         foreign_keys=lambda: [InventoryItem.parent_item_id],
     )
     parent: Mapped[InventoryItem | None] = relationship(

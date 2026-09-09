@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import enum
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from sqlalchemy import Boolean, DateTime, Enum, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
+
+if TYPE_CHECKING:
+    from sqlalchemy.sql import FromClause
 
 from ..database import Base
 
@@ -75,12 +79,32 @@ class ReferenceMixin:
     ``label`` is display text and may be reworded freely.
     """
 
-    # NOTE: __tablename__ is deliberately NOT declared here. Annotating it as
-    # ClassVar[str] looks like an improvement -- it tells a checker the
-    # attribute exists -- but SQLAlchemy's DeclarativeBase already declares it
-    # as an instance variable, and overriding that with a class variable is an
-    # error on every concrete table that inherits this mixin. It cost 29 new
-    # findings the first time it was tried.
+    if TYPE_CHECKING:
+        # Declarative machinery, for the type checker only. This mixin is
+        # always combined with Base, so every concrete classifier really does
+        # have these -- but a checker looking at `type[ReferenceMixin]` cannot
+        # see through to Base and reports the attributes and the constructor
+        # keywords as missing.
+        #
+        # These declarations mirror DeclarativeBase's own TYPE_CHECKING block
+        # and must keep matching it. A redeclaration that agrees is harmless;
+        # one that "improves" on it is an override conflict on all 37 concrete
+        # tables. Writing __tablename__ as ClassVar[str] rather than Any -- the
+        # obvious improvement, since it is a string -- cost 29 findings the
+        # first time it was tried. Only __init__ deviates, taking `object`
+        # where SQLAlchemy takes `Any` so it satisfies ANN401; `object` is the
+        # stricter of the two and `Any` overrides in either direction, so this
+        # changes nothing mypy checks.
+        #
+        # The block must also stay under TYPE_CHECKING. At runtime an __init__
+        # here would precede Base in the MRO and shadow the declarative
+        # constructor, and __table__ would be a class attribute the mapper did
+        # not put there.
+        __table__: ClassVar[FromClause]
+        __tablename__: Any
+
+        def __init__(self, **kw: object) -> None:
+            """Declarative's keyword constructor, one keyword per column."""
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String(64), nullable=False)

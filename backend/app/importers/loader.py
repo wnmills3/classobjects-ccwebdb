@@ -136,7 +136,9 @@ class SchemaLoader:
         #: When False, an unknown classifier raises instead of creating a row.
         #: Useful for a strict re-run once the vocabulary has settled.
         self.create_missing = create_missing
-        self._codes: dict[tuple[str, str], int] = {}
+        # None is a real entry: a curated vocabulary that has no row for a
+        # value is cached as a miss so it is not looked up again.
+        self._codes: dict[tuple[str, str], int | None] = {}
         self._vendors: dict[str, int] = {}
         self._orders: dict[tuple[int, str], int] = {}
         self._grades: dict[str, int] | None = None

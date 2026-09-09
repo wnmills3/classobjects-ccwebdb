@@ -18,7 +18,7 @@ from __future__ import annotations
 import enum
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -34,7 +34,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from .base import Base, TimestampMixin, enum_column, utcnow
 
@@ -84,7 +84,14 @@ class Listing(TimestampMixin, Base):
         Integer, nullable=False, server_default=text("1")
     )
 
-    __mapper_args__: ClassVar[dict[str, object]] = {"version_id_col": version}
+    # A directive rather than a dict literal: DeclarativeBase declares
+    # __mapper_args__ as an instance variable, so ClassVar is an override
+    # error and Final a Liskov violation, while a bare literal trips RUF012.
+    # See the note on __tablename__ in base.py.
+    @declared_attr.directive
+    def __mapper_args__(cls) -> dict[str, Any]:
+        """Optimistic concurrency: every UPDATE checks the version it read."""
+        return {"version_id_col": cls.version}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int] = mapped_column(

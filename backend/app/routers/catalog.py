@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -190,7 +190,9 @@ def list_catalog(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> CatalogPage:
     """Browse the catalogue. Withdrawn listings are hidden by default."""
-    filters = []
+    # or_() returns a ColumnElement, which is wider than the
+    # BinaryExpression the first append would otherwise pin this to.
+    filters: list[ColumnElement[bool]] = []
     if not include_inactive:
         filters.append(Listing.is_active.is_(True))
     if q:

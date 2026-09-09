@@ -106,7 +106,7 @@ from .valuation import Composition, MetalPrice, ValuationSnapshot
 
 #: Reference tables, in dependency order. Seeding and export both walk this
 #: list, so a new classifier table joins the process by being added here.
-REFERENCE_MODELS: tuple[type, ...] = (
+REFERENCE_MODELS: tuple[type[ReferenceMixin], ...] = (
     ItemKind,
     SetForm,
     StorageForm,
