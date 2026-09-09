@@ -101,7 +101,8 @@ def test_login_returns_token_pair(client: TestClient, customer_user: User) -> No
     assert response.status_code == 200
     body = response.json()
     assert body["token_type"] == "bearer"
-    assert body["access_token"] and body["refresh_token"]
+    assert body["access_token"]
+    assert body["refresh_token"]
     assert body["access_token"] != body["refresh_token"]
 
 

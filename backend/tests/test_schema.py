@@ -81,8 +81,10 @@ def test_taxes_and_total_are_computed_by_the_database(db: Session) -> None:
 
 def test_generated_columns_cannot_be_written(db: Session) -> None:
     """The point of generating them is that they cannot drift from their inputs."""
+    cost = Decimal("10.00")
+    tax = Decimal("999.99")
     with pytest.raises((DBAPIError, IntegrityError)):
-        make_item(db, item_cost=Decimal("10.00"), sales_tax=Decimal("999.99"))
+        make_item(db, item_cost=cost, sales_tax=tax)
     db.rollback()
 
 
@@ -140,8 +142,9 @@ def test_a_classifier_in_use_cannot_be_deleted(db: Session) -> None:
     item = make_item(db)
     kind = db.get(ItemKind, item.item_kind_id)
 
+    # delete() only stages the change; commit() is what the database refuses.
+    db.delete(kind)
     with pytest.raises(IntegrityError):
-        db.delete(kind)
         db.commit()
     db.rollback()
 
@@ -229,8 +232,10 @@ def test_coin_and_currency_views_partition_the_inventory(db: Session) -> None:
     coin_ids = {r[0] for r in db.execute(text("select id from coin_inventory"))}
     note_ids = {r[0] for r in db.execute(text("select id from currency_inventory"))}
 
-    assert coin.id in coin_ids and coin.id not in note_ids
-    assert note.id in note_ids and note.id not in coin_ids
+    assert coin.id in coin_ids
+    assert coin.id not in note_ids
+    assert note.id in note_ids
+    assert note.id not in coin_ids
 
 
 def test_item_valuation_computes_melt_from_the_latest_spot_price(db: Session) -> None:
@@ -379,8 +384,8 @@ def test_a_deleted_item_leaves_every_view(db: Session) -> None:
 
 
 def test_reference_codes_are_unique(db: Session) -> None:
+    db.add(Grade(code="MS65", label="duplicate"))
     with pytest.raises(IntegrityError):
-        db.add(Grade(code="MS65", label="duplicate"))
         db.commit()
     db.rollback()
 

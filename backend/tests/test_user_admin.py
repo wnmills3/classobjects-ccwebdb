@@ -191,5 +191,6 @@ def test_deactivated_account_cannot_sign_in(
 
     db.expire_all()
     stored = db.get(User, customer_user.id)
-    assert stored is not None and stored.is_active is False
+    assert stored is not None
+    assert stored.is_active is False
     assert stored.role is UserRole.customer

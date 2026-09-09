@@ -105,7 +105,8 @@ def test_export_writes_codes_not_ids(db: Session, tmp_path: Path) -> None:
     payload = json.loads((tmp_path / "composition.json").read_text(encoding="utf-8"))
     row = payload["composition"][0]
 
-    assert "denomination" in row and isinstance(row["denomination"], str)
+    assert "denomination" in row
+    assert isinstance(row["denomination"], str)
     assert "denomination_id" not in row
     assert "metal_id" not in row
     assert "id" not in row

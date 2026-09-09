@@ -114,13 +114,16 @@ def test_the_result_is_deterministic() -> None:
 
 
 def test_negative_weights_are_refused() -> None:
+    total = D("10.00")
+    weights = [D(1), D(-1)]
     with pytest.raises(AllocationError):
-        allocate(D("10.00"), [D(1), D(-1)])
+        allocate(total, weights)
 
 
 def test_no_parts_is_refused() -> None:
+    total = D("10.00")
     with pytest.raises(AllocationError):
-        allocate(D("10.00"), [])
+        allocate(total, [])
 
 
 def test_nothing_passes_through_a_float() -> None:
