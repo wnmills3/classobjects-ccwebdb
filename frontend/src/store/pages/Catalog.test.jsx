@@ -1,11 +1,11 @@
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../api', () => ({ api: { listCatalog: vi.fn() } }))
+vi.mock('../../shared/api', () => ({ api: { listCatalog: vi.fn() } }))
 
-import { api } from '../api'
+import { api } from '../../shared/api'
 import Catalog from './Catalog'
-import { renderWithProviders } from '../test/helpers'
+import { renderWithProviders } from '../../test/helpers'
 
 beforeEach(() => vi.clearAllMocks())
 

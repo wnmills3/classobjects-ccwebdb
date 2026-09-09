@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { api } from '../../api'
-import { ReferenceSelect } from '../../reference'
+import { api } from '../../../shared/api'
+import { ReferenceSelect } from '../../../shared/reference'
 
 /**
  * One item, every field, with what the lot claimed beside each.

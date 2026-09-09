@@ -1,13 +1,13 @@
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../api', () => ({
+vi.mock('../../shared/api', () => ({
   api: { listOrders: vi.fn(), setOrderStatus: vi.fn() },
 }))
 
-import { api } from '../api'
+import { api } from '../../shared/api'
 import Orders from './Orders'
-import { adminAuth, renderWithProviders } from '../test/helpers'
+import { adminAuth, renderWithProviders } from '../../test/helpers'
 
 beforeEach(() => vi.clearAllMocks())
 

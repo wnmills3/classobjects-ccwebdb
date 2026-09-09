@@ -1,16 +1,16 @@
 import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
 
-import { useAuth } from './auth-context'
-import { useCart } from './cart-context'
-import AdminCoins from './pages/AdminCoins'
-import AdminPeople from './pages/AdminPeople'
-import Cart from './pages/Cart'
-import Catalog from './pages/Catalog'
-import CoinDetail from './pages/CoinDetail'
-import { InventoryCoins, InventoryCurrency } from './pages/Inventory'
-import Login from './pages/Login'
-import Orders from './pages/Orders'
-import Register from './pages/Register'
+import { useAuth } from './shared/auth-context'
+import { useCart } from './store/cart-context'
+import AdminCoins from './owner/pages/AdminCoins'
+import AdminPeople from './owner/pages/AdminPeople'
+import Cart from './store/pages/Cart'
+import Catalog from './store/pages/Catalog'
+import CoinDetail from './store/pages/CoinDetail'
+import { InventoryCoins, InventoryCurrency } from './owner/pages/Inventory'
+import Login from './store/pages/Login'
+import Orders from './store/pages/Orders'
+import Register from './store/pages/Register'
 
 function RequireAuth({ children, adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth()

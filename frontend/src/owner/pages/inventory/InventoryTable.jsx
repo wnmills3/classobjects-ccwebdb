@@ -1,4 +1,4 @@
-import { money } from '../../format'
+import { money } from '../../../shared/format'
 
 function cell(row, key, kind) {
   const value = row[key]
