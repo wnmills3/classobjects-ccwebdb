@@ -18,6 +18,19 @@ skill specifies a different path, format, or workflow, this file wins.
   (A, B, C…), never edited in place. Superseded sections get a pointer, not a
   rewrite — the user tracks the original plan against later updates.
 
+## Writing files
+
+- **Use the Write tool to create or replace file content. Do not use shell
+  heredocs** (`cat > file <<'EOF'`). They have failed repeatedly here: any
+  content mixing single quotes, backticks, `%VAR%`, or Windows backslashes
+  eventually trips the shell parser, and the failure wastes a whole tool call
+  and can truncate the file.
+- For a small, surgical change to an existing file, use Edit. For a scripted
+  edit across many lines, use a Python script that **asserts the anchor text
+  matches exactly once before writing** — a failed assertion is a loud, harmless
+  error; a silent mismatch corrupts the file.
+- Never `sed` a Windows path: every backslash is a regex escape.
+
 ## Scripts and shell
 
 - **cmd/batch only. No PowerShell.** This covers runnable commands given in
