@@ -31,7 +31,7 @@ export default function Login() {
       <h1>Sign in</h1>
       <form onSubmit={submit}>
         <label>
-          Email
+          Email{/* */}
           <input
             type="email"
             autoComplete="email"
@@ -41,7 +41,7 @@ export default function Login() {
           />
         </label>
         <label>
-          Password
+          Password{/* */}
           <input
             type="password"
             autoComplete="current-password"

@@ -77,7 +77,7 @@ export default function FilterPanel({
         ))}
 
         <label>
-          Year from
+          Year from{/* */}
           <input
             type="number"
             defaultValue={current.year_min ?? ''}
@@ -85,7 +85,7 @@ export default function FilterPanel({
           />
         </label>
         <label>
-          Year to
+          Year to{/* */}
           <input
             type="number"
             defaultValue={current.year_max ?? ''}
@@ -108,7 +108,7 @@ export default function FilterPanel({
               title={issueDescriptions[code]}
               onClick={() => apply({ issue: current.issue === code ? '' : code })}
             >
-              {code.replace(/_/g, ' ')} ({issues[code].toLocaleString()})
+              {code.replaceAll('_', ' ')} ({issues[code].toLocaleString()})
             </button>
           ))}
       </div>

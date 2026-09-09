@@ -14,6 +14,12 @@ import { useAuth } from '../auth-context'
 
 const PHONE_DEFAULT_CC = '+1'
 
+/** One line of address, as the customers table shows it. */
+function addressLine(a) {
+  const region = a.region ? ' ' + a.region : ''
+  return `${a.line1}, ${a.city}${region} ${a.postal_code ?? ''}`
+}
+
 function Tabs({ active, onChange }) {
   return (
     <div className="tabs">
@@ -195,27 +201,27 @@ function AddressForm({ customerId, onSaved, onCancel, notify, setError }) {
     <div className="search-panel">
       <div className="filter-grid">
         <label>
-          Address line 1
+          Address line 1{/* */}
           <input value={form.line1} onChange={set('line1')} />
         </label>
         <label>
-          Line 2
+          Line 2{/* */}
           <input value={form.line2} onChange={set('line2')} />
         </label>
         <label>
-          City
+          City{/* */}
           <input value={form.city} onChange={set('city')} />
         </label>
         <label>
-          State / region
+          State / region{/* */}
           <input value={form.region} onChange={set('region')} />
         </label>
         <label>
-          Postal code
+          Postal code{/* */}
           <input value={form.postal_code} onChange={set('postal_code')} />
         </label>
         <label>
-          Country
+          Country{/* */}
           <input value={form.country} onChange={set('country')} placeholder="US" />
         </label>
       </div>
@@ -325,13 +331,7 @@ function Customers({ notify }) {
                 )}
               </td>
               <td>
-                {shipping ? (
-                  `${shipping.line1}, ${shipping.city}${
-                    shipping.region ? ' ' + shipping.region : ''
-                  } ${shipping.postal_code ?? ''}`
-                ) : (
-                  <span className="muted">none</span>
-                )}
+                {shipping ? addressLine(shipping) : <span className="muted">none</span>}
               </td>
               <td>
                 {isEditing ? (

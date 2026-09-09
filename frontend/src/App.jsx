@@ -30,7 +30,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <Link to="/" className="brand">
-          ccwebdb
+          ccwebdb{/* */}
           <span className="brand-sub">Numismatics &amp; Currency</span>
         </Link>
 

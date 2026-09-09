@@ -120,6 +120,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           checked={reviewed.includes(column)}
           onChange={() => toggleReview(column)}
         />
+        {/* */}
         confirmed
       </label>
     )
