@@ -1,0 +1,211 @@
+/* --- header ------------------------------------------------------------- */
+.badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+/* --- typography --------------------------------------------------------- */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* --- tables ------------------------------------------------------------- */
+.table tr.dim {
+  opacity: 0.55;
+}
+
+/* --- forms -------------------------------------------------------------- */
+.admin-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 28px;
+}
+
+.admin-form h2 {
+  margin-top: 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0 16px;
+}
+
+button.link.danger {
+  color: var(--danger);
+}
+
+/* Inventory search panel and results grid.
+
+   Every colour here comes from the theme variables. Hardcoded near-white
+   values were used originally, which looked right in light mode and rendered
+   the panel's labels as white text on a white background under
+   `prefers-color-scheme: dark` -- `--text` flips to #ece9e4 while a literal
+   #fafaf8 does not flip at all. */
+.search-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.9rem;
+  margin-bottom: 1rem;
+}
+.search-text {
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.filter-grid label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.82rem;
+  gap: 0.2rem;
+}
+/* A filter with no values left is disabled rather than hidden: a control
+   that vanishes as you narrow is more confusing than one that greys out. */
+.filter-grid select:disabled {
+  opacity: 0.45;
+}
+.inventory-table {
+  font-size: 0.86rem;
+}
+.inventory-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.inventory-table th.sortable:hover {
+  text-decoration: underline;
+}
+/* Adding a vocabulary value inline, from the picker that needed it. */
+.add-reference {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.add-reference input {
+  min-width: 0;
+  flex: 1 1 6rem;
+}
+
+/* Inventory description column.
+   `title` holds the denomination the spreadsheet recorded ("0.25", "Mint
+   Set"), so the browse screens show `description` instead -- which is long,
+   and would otherwise stretch the table past the viewport. */
+.inventory-table td.wide {
+  max-width: 34rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Two-tab pages. Accounts and customers are separate tables, so they get
+   separate tabs rather than one merged grid that would imply every customer
+   can sign in. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+}
+.tab {
+  background: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  padding: 0.45rem 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  width: auto;
+  margin: 0 0 -1px 0;
+}
+.tab-active {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+.notice {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+}
+/* Issue chips. A selected chip must be unmistakable at a glance: the panel's
+   whole job is showing which of a dozen checks is currently narrowing the
+   list. */
+.issue-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+}
+.chip {
+  background: #f2f2f2;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  color: #333;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.2rem 0.7rem;
+}
+.chip-on {
+  background: #24507a;
+  border-color: #24507a;
+  color: #fff;
+}
+.edit-form .field {
+  align-items: center;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 9rem minmax(12rem, 24rem) auto auto;
+  margin-bottom: 0.4rem;
+}
+/* The lot's claim must read as context, not as a value someone typed. */
+.lot-claim {
+  color: #8a6d3b;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+.review-mark {
+  color: #2b6a2b;
+  display: flex;
+  font-size: 0.85rem;
+  gap: 0.25rem;
+}
+.bulk-bar {
+  align-items: center;
+  background: #eef3f8;
+  border: 1px solid #c3d4e5;
+  border-radius: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.6rem 0;
+  padding: 0.5rem 0.8rem;
+}
+.review-pane {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-top: 0.8rem;
+  padding: 0.8rem;
+}
+.select-cell {
+  width: 2rem;
+}
