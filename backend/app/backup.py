@@ -18,9 +18,9 @@ unchanged, and the report says so rather than leaving it to be discovered:
 
 - `JSONB` columns (`inventory_item.attributes`, `import_row.raw`) become the
   target's JSON type, or text where it has none.
-- Generated columns (`sales_tax`, `total_cost`) are recomputed by the target from
-  their expressions rather than copied, so a dialect without them needs the
-  arithmetic doing elsewhere.
+- Generated columns are recomputed by the target from their expressions rather
+  than copied, so a dialect without them needs the arithmetic doing elsewhere.
+  Which columns those are is read from the models, never listed here.
 - Partial indexes and enum types degrade to whatever the dialect offers.
 
 None of that loses data. It changes how the target enforces it.
@@ -33,7 +33,7 @@ import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
-from sqlalchemy import create_engine, func, insert, select, text
+from sqlalchemy import Table, create_engine, func, insert, select, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 
@@ -44,10 +44,19 @@ from .models import Base
 #: failure does not sit on one enormous uncommitted transaction.
 CHUNK = 1000
 
-#: Generated columns are computed by the destination from their own
-#: expressions. Writing them would either be refused or, worse, accepted and
-#: then disagree with the expression.
-GENERATED = {"sales_tax", "total_cost"}
+def generated_columns(table: Table) -> set[str]:
+    """The columns this table computes for itself.
+
+    Asked of the model rather than listed here. A hardcoded set went stale the
+    moment `currency_detail.series_designation` was added: the backup then
+    tried to insert it, PostgreSQL refused, and the copy aborted partway --
+    silently leaving five tables empty in every backup taken afterwards.
+
+    The destination recomputes these from their own expressions, so writing
+    them would either be refused, as it was, or accepted and then disagree with
+    the expression that is supposed to define them.
+    """
+    return {c.name for c in table.columns if c.computed is not None}
 
 
 def timestamped_name(prefix: str = "ccwebdb_bak") -> str:
@@ -82,7 +91,7 @@ def copy_rows(source: Engine, target: Engine) -> Iterator[tuple[str, int]]:
     """
     with Session(source) as read, Session(target) as write:
         for table in Base.metadata.sorted_tables:
-            columns = [c for c in table.columns if c.name not in GENERATED]
+            columns = [c for c in table.columns if c.computed is None]
             names = [c.name for c in columns]
             total = 0
             offset = 0
