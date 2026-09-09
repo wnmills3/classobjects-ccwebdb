@@ -29,7 +29,9 @@ import argparse
 import re
 import sys
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -147,6 +149,42 @@ def match(text: str, denomination: str | None, rules: list[Rule]) -> set[str]:
     return found
 
 
+def _classify(
+    items: Sequence[Any], rules: list[Rule], ids: dict[str, int]
+) -> tuple[dict[int, int], Counter]:
+    """Which series each item earns, and the tally of how it went."""
+    stats: Counter = Counter()
+    assignments: dict[int, int] = {}
+    for item_id, description, title, denomination in items:
+        text = f"{title or ''} {description or ''}"
+        found = match(text, denomination, rules)
+        if not found:
+            stats["no_match"] += 1
+        elif len(found) > 1:
+            # Two series in one description is normal for a mixed lot and must
+            # not be resolved by picking one. Left for a person.
+            stats["ambiguous"] += 1
+        else:
+            assignments[item_id] = ids[next(iter(found))]
+            stats["matched"] += 1
+    return assignments, stats
+
+
+def _write(db: Session, assignments: dict[int, int]) -> None:
+    """Record the classification, and say where the value came from.
+
+    A series the matcher worked out is derived, not something that shipped
+    with the catalogue, so seeded provenance moves rather than staying.
+    """
+    for item_id, series_id in assignments.items():
+        item = db.get(InventoryItem, item_id)
+        if item is not None:
+            item.series_id = series_id
+            if item.source is ProvenanceSource.seeded:
+                item.source = ProvenanceSource.derived
+    db.commit()
+
+
 def run(db: Session, *, commit: bool) -> Counter:
     """Classify every unclassified item. Reports rather than guesses."""
     rules = build_rules(db)
@@ -165,31 +203,10 @@ def run(db: Session, *, commit: bool) -> Counter:
         .where(InventoryItem.split_at.is_(None), InventoryItem.series_id.is_(None))
     ).all()
 
-    stats: Counter = Counter()
-    assignments: dict[int, int] = {}
-    for item_id, description, title, denomination in items:
-        text = f"{title or ''} {description or ''}"
-        found = match(text, denomination, rules)
-        if not found:
-            stats["no_match"] += 1
-        elif len(found) > 1:
-            # Two series in one description is normal for a mixed lot and must
-            # not be resolved by picking one. Left for a person.
-            stats["ambiguous"] += 1
-        else:
-            assignments[item_id] = ids[next(iter(found))]
-            stats["matched"] += 1
-
+    assignments, stats = _classify(items, rules, ids)
     if commit and assignments:
-        for item_id, series_id in assignments.items():
-            item = db.get(InventoryItem, item_id)
-            if item is not None:
-                item.series_id = series_id
-                if item.source is ProvenanceSource.seeded:
-                    item.source = ProvenanceSource.derived
-        db.commit()
+        _write(db, assignments)
         stats["written"] = len(assignments)
-
     return stats
 
 

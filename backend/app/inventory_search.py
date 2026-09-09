@@ -374,6 +374,82 @@ def series_ids_matching(db: Session, query: str | None) -> list[int]:
     return [row[0] for row in rows]
 
 
+#: How a filter's `op` becomes SQL. Comparing a column to a value differs only
+#: in the operator, so the shapes live here rather than in a branch each.
+_FILTER_TEMPLATES = {
+    "ilike": "{sql} ILIKE :{placeholder}",
+    "gte": "{sql} >= :{placeholder}",
+    "lte": "{sql} <= :{placeholder}",
+}
+_FILTER_DEFAULT = "{sql} = :{placeholder}"
+
+
+def _deleted_clause(params: dict[str, Any]) -> str:
+    """The soft-delete predicate, consumed from `params` in place.
+
+    Handled here rather than in spec.filters because it selects between three
+    predicates rather than comparing a column to a value. Excluded by default,
+    so a deleted row does not reappear because someone forgot.
+    """
+    mode = params.pop("deleted", None) or "no"
+    if mode not in DELETED_MODES:
+        raise ValueError(
+            f"unknown deleted mode {mode!r}; expected one of {sorted(DELETED_MODES)}."
+        )
+    return DELETED_MODES[mode]
+
+
+def _lot_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | None:
+    """Everything split from one lot, named by the lot's item code.
+
+    The code is what is printed on the flip and what a person has in front of
+    them, rather than a database id they would have to look up.
+    """
+    lot_code = params.pop("lot", None)
+    if not lot_code:
+        return None
+    bound["p_lot"] = lot_code
+    return "i.parent_item_id = (SELECT id FROM inventory_item WHERE item_code = :p_lot)"
+
+
+def _issue_clause(
+    spec: ViewSpec, params: dict[str, Any], joins: list[tuple[str, ...]]
+) -> str | None:
+    """One of the view's named data-quality checks."""
+    issue_key = params.pop("issue", None)
+    if not issue_key:
+        return None
+    issue = spec.issues.get(issue_key)
+    if issue is None:
+        raise UnknownIssue(issue_key)
+    joins.append(issue.join)
+    # Parenthesised: a predicate containing OR would otherwise bind loosely
+    # against the other clauses and match far too much.
+    return f"({issue.sql})"
+
+
+def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> str:
+    """One column-to-value comparison from the view's filter table."""
+    placeholder = f"p_{key}"
+    template = _FILTER_TEMPLATES.get(f.op, _FILTER_DEFAULT)
+    bound[placeholder] = f"%{value}%" if f.op == "ilike" else value
+    return template.format(sql=f.sql, placeholder=placeholder)
+
+
+def _query_clause(
+    spec: ViewSpec, query: str, series_ids: list[int] | None, bound: dict[str, Any]
+) -> str:
+    """The free-text search, across the view's own columns and its series."""
+    parts = [f"coalesce({c}, '') ILIKE :p_q" for c in spec.search_columns]
+    if series_ids:
+        # An item whose description never mentions the term still matches when
+        # its series does, formally or colloquially.
+        parts.append("i.series_id = ANY(:p_series)")
+        bound["p_series"] = list(series_ids)
+    bound["p_q"] = f"%{query}%"
+    return "(" + " OR ".join(parts) + ")"
+
+
 def _conditions(
     spec: ViewSpec,
     params: dict[str, Any],
@@ -384,37 +460,11 @@ def _conditions(
     joins: list[tuple[str, ...]] = [(_J_KIND,)]  # every spec filters on kind
     bound: dict[str, Any] = {}
 
-    # Consumed here rather than in spec.filters: it selects between three
-    # predicates rather than comparing a column to a value. Excluded by
-    # default, so a deleted row does not reappear because someone forgot.
     params = dict(params)
-    mode = params.pop("deleted", None) or "no"
-    if mode not in DELETED_MODES:
-        raise ValueError(
-            f"unknown deleted mode {mode!r}; expected one of {sorted(DELETED_MODES)}."
-        )
-    clauses.append(DELETED_MODES[mode])
-
-    # Everything split from one lot, named by the lot's item code -- what is
-    # printed on the flip and what a person has in front of them, rather than
-    # a database id they would have to look up.
-    lot_code = params.pop("lot", None)
-    if lot_code:
-        clauses.append(
-            "i.parent_item_id = "
-            "(SELECT id FROM inventory_item WHERE item_code = :p_lot)"
-        )
-        bound["p_lot"] = lot_code
-
-    issue_key = params.pop("issue", None)
-    if issue_key:
-        issue = spec.issues.get(issue_key)
-        if issue is None:
-            raise UnknownIssue(issue_key)
-        # Parenthesised: a predicate containing OR would otherwise bind
-        # loosely against the other clauses and match far too much.
-        clauses.append(f"({issue.sql})")
-        joins.append(issue.join)
+    clauses.append(_deleted_clause(params))
+    for clause in (_lot_clause(params, bound), _issue_clause(spec, params, joins)):
+        if clause is not None:
+            clauses.append(clause)
 
     for key, value in params.items():
         if value in (None, ""):
@@ -424,31 +474,11 @@ def _conditions(
             # Ignoring an unknown filter silently returns the whole collection
             # and looks like a successful search.
             raise KeyError(key)
-
-        placeholder = f"p_{key}"
         joins.append(f.join)
-        if f.op == "ilike":
-            clauses.append(f"{f.sql} ILIKE :{placeholder}")
-            bound[placeholder] = f"%{value}%"
-        elif f.op == "gte":
-            clauses.append(f"{f.sql} >= :{placeholder}")
-            bound[placeholder] = value
-        elif f.op == "lte":
-            clauses.append(f"{f.sql} <= :{placeholder}")
-            bound[placeholder] = value
-        else:
-            clauses.append(f"{f.sql} = :{placeholder}")
-            bound[placeholder] = value
+        clauses.append(_value_clause(key, value, f, bound))
 
     if query:
-        parts = [f"coalesce({c}, '') ILIKE :p_q" for c in spec.search_columns]
-        if series_ids:
-            # An item whose description never mentions the term still matches
-            # when its series does, formally or colloquially.
-            parts.append("i.series_id = ANY(:p_series)")
-            bound["p_series"] = list(series_ids)
-        clauses.append("(" + " OR ".join(parts) + ")")
-        bound["p_q"] = f"%{query}%"
+        clauses.append(_query_clause(spec, query, series_ids, bound))
 
     return clauses, joins, bound
 
