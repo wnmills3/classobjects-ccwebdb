@@ -97,6 +97,18 @@ ITEM_CODE_DEFAULT = (
 )
 
 
+# Foreign-key target: a string, so SQLAlchemy resolves it at
+# mapper-configuration time rather than forcing an import.
+_FK_INVENTORY_ITEM = "inventory_item.id"
+
+# Delete children with the parent, and any child removed from the collection.
+_CASCADE_ALL_DELETE_ORPHAN = "all, delete-orphan"
+
+# Predicate shared by every partial facet index below: a split item is
+# superseded by its children and must not be counted twice.
+_LIVE_ROWS_ONLY = "split_at IS NULL"
+
+
 class Vendor(TimestampMixin, Base):
     """Where items are acquired from."""
 
@@ -297,7 +309,7 @@ class InventoryItem(TimestampMixin, Base):
         ForeignKey("series.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     parent_item_id: Mapped[int | None] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="RESTRICT"),
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="RESTRICT"),
         index=True,
         nullable=True,
     )
@@ -464,7 +476,7 @@ class InventoryItem(TimestampMixin, Base):
     images: Mapped[list[ItemImage]] = relationship(
         back_populates="item",
         order_by="(ItemImage.is_primary.desc(), ItemImage.sort_order)",
-        cascade="all, delete-orphan",
+        cascade=_CASCADE_ALL_DELETE_ORPHAN,
     )
 
     #: Every offer ever made for this item. An item may be listed,
@@ -472,10 +484,10 @@ class InventoryItem(TimestampMixin, Base):
     listings: Mapped[list[Listing]] = relationship(back_populates="inventory_item")
 
     coin_detail: Mapped[CoinDetail | None] = relationship(
-        back_populates="item", uselist=False, cascade="all, delete-orphan"
+        back_populates="item", uselist=False, cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
     currency_detail: Mapped[CurrencyDetail | None] = relationship(
-        back_populates="item", uselist=False, cascade="all, delete-orphan"
+        back_populates="item", uselist=False, cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
 
     __table_args__ = (
@@ -542,37 +554,37 @@ class InventoryItem(TimestampMixin, Base):
         Index(
             "ix_inventory_item_facet_kind",
             "item_kind_id",
-            postgresql_where=text("split_at IS NULL"),
+            postgresql_where=text(_LIVE_ROWS_ONLY),
         ),
         Index(
             "ix_inventory_item_facet_grade",
             "grade_id",
-            postgresql_where=text("split_at IS NULL"),
+            postgresql_where=text(_LIVE_ROWS_ONLY),
         ),
         Index(
             "ix_inventory_item_facet_metal",
             "metal_id",
-            postgresql_where=text("split_at IS NULL"),
+            postgresql_where=text(_LIVE_ROWS_ONLY),
         ),
         Index(
             "ix_inventory_item_facet_country",
             "country_id",
-            postgresql_where=text("split_at IS NULL"),
+            postgresql_where=text(_LIVE_ROWS_ONLY),
         ),
         Index(
             "ix_inventory_item_facet_status",
             "status_id",
-            postgresql_where=text("split_at IS NULL"),
+            postgresql_where=text(_LIVE_ROWS_ONLY),
         ),
         Index(
             "ix_inventory_item_facet_disposition",
             "disposition_id",
-            postgresql_where=text("split_at IS NULL"),
+            postgresql_where=text(_LIVE_ROWS_ONLY),
         ),
         Index(
             "ix_inventory_item_facet_bullion",
             "bullion_form_id",
-            postgresql_where=text("split_at IS NULL"),
+            postgresql_where=text(_LIVE_ROWS_ONLY),
         ),
         Index(
             "ix_inventory_item_attributes",
@@ -592,7 +604,7 @@ class CoinDetail(Base):
     __tablename__ = "coin_detail"
 
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"), primary_key=True
     )
     #: A mint mark. Structurally identical to a banknote's series letter and
     #: semantically unrelated to it -- hence separate columns on separate
@@ -624,7 +636,7 @@ class CurrencyDetail(Base):
     __tablename__ = "currency_detail"
 
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"), primary_key=True
     )
     note_type_id: Mapped[int | None] = mapped_column(
         ForeignKey("note_type.id", ondelete="RESTRICT"), index=True, nullable=True

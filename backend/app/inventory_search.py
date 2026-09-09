@@ -168,17 +168,28 @@ _J_SEAL = "LEFT JOIN seal_color sc ON sc.id = cud.seal_color_id"
 _J_DISTRICT = "LEFT JOIN fed_district fd ON fd.id = cud.fed_district_id"
 _J_FRIEDBERG = "LEFT JOIN friedberg_number fr ON fr.id = cud.friedberg_id"
 
+# Column references used by more than one view spec. Same idea as the _J_*
+# join clauses above: name it once so a rename is a single edit. Only the
+# bare references are named -- composite predicates such as
+# "k.code = 'currency'" are distinct strings and stay inline.
+_C_ITEM_CODE = "i.item_code"
+_C_SOURCE_TITLE = "i.source_title"
+_C_DESCRIPTION = "i.description"
+_C_YEAR_START = "i.year_start"
+_C_GRADE_VALUE = "g.numeric_value"
+_C_KIND_CODE = "k.code"
+
 
 _SHARED_COLUMNS: dict[str, Col] = {
     "id": Col("i.id"),
-    "item_code": Col("i.item_code"),
-    "source_title": Col("i.source_title"),
+    "item_code": Col(_C_ITEM_CODE),
+    "source_title": Col(_C_SOURCE_TITLE),
     # The spreadsheet's leftmost column was the denomination, so `title` holds
     # "0.25", "Mint Set", "5" -- not a name. What a person recognises the item
     # by lives in `description`, which is why it is returned as well and is
     # what the browse screens show.
-    "description": Col("i.description"),
-    "year_start": Col("i.year_start"),
+    "description": Col(_C_DESCRIPTION),
+    "year_start": Col(_C_YEAR_START),
     "year_end": Col("i.year_end"),
     "piece_count": Col("i.piece_count"),
     "item_cost": Col("i.item_cost"),
@@ -190,7 +201,7 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "parent_item_id": Col("i.parent_item_id"),
     "created_at": Col("i.created_at"),
     "grade": Col("g.code", (_J_GRADE,)),
-    "grade_value": Col("g.numeric_value", (_J_GRADE,)),
+    "grade_value": Col(_C_GRADE_VALUE, (_J_GRADE,)),
     "grade_designation": Col("gd.code", (_J_GRADE_DES,)),
     "grading_service": Col("gs.code", (_J_SERVICE,)),
     "country": Col("c.code", (_J_COUNTRY,)),
@@ -206,7 +217,7 @@ _SHARED_COLUMNS: dict[str, Col] = {
 }
 
 _SHARED_FILTERS: dict[str, Filt] = {
-    "item_code": Filt("i.item_code", "ilike"),
+    "item_code": Filt(_C_ITEM_CODE, "ilike"),
     "country": Filt("c.code", join=(_J_COUNTRY,)),
     "grade": Filt("g.code", join=(_J_GRADE,)),
     "grading_service": Filt("gs.code", join=(_J_SERVICE,)),
@@ -215,10 +226,10 @@ _SHARED_FILTERS: dict[str, Filt] = {
     "denomination": Filt("d.code", join=(_J_DENOM,)),
     "error_type": Filt("et.code", join=(_J_ERROR,)),
     "series": Filt("ser.code", join=(_J_SERIES,)),
-    "year_min": Filt("i.year_start", "gte"),
-    "year_max": Filt("i.year_start", "lte"),
-    "grade_min": Filt("g.numeric_value", "gte", (_J_GRADE,)),
-    "grade_max": Filt("g.numeric_value", "lte", (_J_GRADE,)),
+    "year_min": Filt(_C_YEAR_START, "gte"),
+    "year_max": Filt(_C_YEAR_START, "lte"),
+    "grade_min": Filt(_C_GRADE_VALUE, "gte", (_J_GRADE,)),
+    "grade_max": Filt(_C_GRADE_VALUE, "lte", (_J_GRADE,)),
 }
 
 _SHARED_SORT = (
@@ -255,7 +266,7 @@ COIN_VIEW = ViewSpec(
     ),
     columns={
         **_SHARED_COLUMNS,
-        "item_kind": Col("k.code", (_J_KIND,)),
+        "item_kind": Col(_C_KIND_CODE, (_J_KIND,)),
         "bullion_form": Col("bf.code", (_J_BULLION,)),
         "set_form": Col("sf.code", (_J_SET,)),
         "mint": Col("m.label", (_J_COIN_DETAIL, _J_MINT)),
@@ -269,13 +280,13 @@ COIN_VIEW = ViewSpec(
     },
     filters={
         **_SHARED_FILTERS,
-        "kind": Filt("k.code", join=(_J_KIND,)),
+        "kind": Filt(_C_KIND_CODE, join=(_J_KIND,)),
         "metal": Filt("mt.code", join=(_J_METAL,)),
         "mint": Filt("m.mark", join=(_J_COIN_DETAIL, _J_MINT)),
         "bullion_form": Filt("bf.code", join=(_J_BULLION,)),
         "set_form": Filt("sf.code", join=(_J_SET,)),
     },
-    search_columns=("i.source_title", "i.description", "i.item_code"),
+    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_ITEM_CODE),
     sortable=(*_SHARED_SORT, "fine_weight_ozt"),
     facets={
         **_SHARED_FACETS,
@@ -296,7 +307,7 @@ CURRENCY_VIEW = ViewSpec(
     where=("i.split_at IS NULL", "k.code = 'currency'"),
     columns={
         **_SHARED_COLUMNS,
-        "item_kind": Col("k.code", (_J_KIND,)),
+        "item_kind": Col(_C_KIND_CODE, (_J_KIND,)),
         "note_type": Col("nt.code", (_J_CUR_DETAIL, _J_NOTE_TYPE)),
         "series_year": Col("cud.series_year", (_J_CUR_DETAIL,)),
         "series_letter": Col("cud.series_letter", (_J_CUR_DETAIL,)),
@@ -321,7 +332,7 @@ CURRENCY_VIEW = ViewSpec(
         "friedberg_status": Filt("cud.friedberg_status", join=(_J_CUR_DETAIL,)),
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
     },
-    search_columns=("i.source_title", "i.description", "i.item_code"),
+    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_ITEM_CODE),
     sortable=(*_SHARED_SORT, "series_year", "series_designation"),
     facets={
         **_SHARED_FACETS,

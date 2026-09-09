@@ -30,6 +30,16 @@ from .reference import StorageLocationKind
 __all__ = ["ItemFieldReview", "ItemStatusHistory", "LocationHistory", "StorageLocation"]
 
 
+# Foreign-key targets stay strings so SQLAlchemy resolves them at
+# mapper-configuration time; a column object would force an import
+# between model modules.
+_FK_INVENTORY_ITEM = "inventory_item.id"
+
+_FK_USERS = "users.id"
+
+_ON_DELETE_SET_NULL = "SET NULL"
+
+
 class StorageLocation(TimestampMixin, Base):
     """Where items physically are.
 
@@ -78,7 +88,7 @@ class ItemStatusHistory(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="CASCADE"),
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
@@ -93,7 +103,7 @@ class ItemStatusHistory(Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     changed_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -117,7 +127,7 @@ class LocationHistory(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="CASCADE"),
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
@@ -128,7 +138,7 @@ class LocationHistory(Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     moved_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -163,7 +173,7 @@ class ItemFieldReview(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     inventory_item_id: Mapped[int] = mapped_column(
-        ForeignKey("inventory_item.id", ondelete="CASCADE"),
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
@@ -178,7 +188,7 @@ class ItemFieldReview(Base):
     #: SET NULL rather than CASCADE: deactivating a member of staff must not
     #: erase the record that the work was done.
     reviewed_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
 
     __table_args__ = (

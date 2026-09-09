@@ -41,6 +41,9 @@ COL_GRADING = "Grading#"
 COL_VALUE = "Value"
 COL_COMMENT = "Comment"
 
+# Series name the profile matches on.
+_SILVER_EAGLE = "Silver Eagle"
+
 # --------------------------------------------------------------------------
 # Classification. ORDER MATTERS MORE THAN THE RULES DO.
 #
@@ -48,7 +51,7 @@ COL_COMMENT = "Comment"
 # rule, because otherwise "1oz Copper Round" matches it and becomes currency.
 # --------------------------------------------------------------------------
 BULLION_FORMS: list[tuple[str, str]] = [
-    ("Silver Eagle", r"silver\s*eagle|silvereagle"),
+    (_SILVER_EAGLE, r"silver\s*eagle|silvereagle"),
     ("Gold Eagle", r"gold\s*eagle"),
     ("Silver Round", r"silver\s*round"),
     ("Copper Round", r"copper\s*round|\d+\s*oz\s*copper|copper\s*\d+\s*oz"),
@@ -91,8 +94,8 @@ CORRECTIONS: dict[str, str] = {
     "$2bill": "$2 Bill",
     "$20 b": "$20 Bill",
     "#3 bill": "$3 Bill",
-    "silvereagle": "Silver Eagle",
-    "silvre eagle": "Silver Eagle",
+    "silvereagle": _SILVER_EAGLE,
+    "silvre eagle": _SILVER_EAGLE,
     "meteoriate": "Meteorite",
     "mixxed": "Mixed",
     "coloriazed state quarters": "Colorized State Quarters",
@@ -447,7 +450,7 @@ class CollectionV1Profile:
         dime is 90% silver because the law said so. Without this the whole
         public-facts mechanism is inert.
 
-        Only unambiguous forms are read. "Silver Eagle" has a face value of
+        Only unambiguous forms are read. _SILVER_EAGLE has a face value of
         $1 but is worth its metal, and reading a face value there would
         resolve it to a composition it does not have.
         """

@@ -23,6 +23,11 @@ from ..security import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# One message for every rejection path. Distinguishing an expired
+# token from a revoked one would tell an attacker which half of the
+# check failed.
+_INVALID_REFRESH_TOKEN = "Invalid or expired refresh token"
+
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, db: DbSession) -> User:
@@ -92,14 +97,14 @@ def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
     except (jwt.PyJWTError, KeyError, TypeError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
+            detail=_INVALID_REFRESH_TOKEN,
         ) from None
 
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
+            detail=_INVALID_REFRESH_TOKEN,
         )
     # Without this the revocation is decorative: a refresh token issued before
     # the password changed would mint a brand-new access token carrying the
@@ -107,7 +112,7 @@ def refresh(payload: RefreshRequest, db: DbSession) -> TokenPair:
     if decoded.get("tv") != user.token_version:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
+            detail=_INVALID_REFRESH_TOKEN,
         )
 
     return TokenPair(
