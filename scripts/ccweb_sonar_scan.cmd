@@ -35,6 +35,7 @@ pushd "%REPO%"
 
 set "ENVDIR=%USERPROFILE%\miniforge3\envs\ccwebdb"
 set "PY=%ENVDIR%\python.exe"
+set "NODE=%ENVDIR%\node.exe"
 
 if not exist "%PY%" (
     echo ERROR: conda environment not found: %ENVDIR%
@@ -55,6 +56,19 @@ if errorlevel 1 (
     popd
     exit /b 1
 )
+
+echo === frontend tests with coverage ===
+rem  Writes frontend/coverage/lcov.info, which sonar-project.properties
+rem  points SonarQube at. Without it every .jsx line reads as uncovered.
+pushd frontend
+"%NODE%" node_modules\vitest\vitest.mjs run --coverage
+if errorlevel 1 (
+    echo ERROR: frontend tests failed - refusing to publish an analysis.
+    popd
+    popd
+    exit /b 1
+)
+popd
 
 echo === scanner ===
 podman run --rm --network sonar-net ^

@@ -14,4 +14,21 @@ export default defineConfig({
       },
     },
   },
+  // Vitest reads this file, so the test run gets the same plugin and resolution
+  // rules as the app rather than a second, drifting configuration.
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/test/setup.js',
+    coverage: {
+      provider: 'v8',
+      // lcov is what SonarQube reads; text keeps the number visible in the
+      // terminal so a drop is noticed before the scan runs.
+      reporter: ['text-summary', 'lcov'],
+      reportsDirectory: './coverage',
+      include: ['src/**/*.{js,jsx}'],
+      // main.jsx only mounts the app, and the test helpers are not the subject.
+      exclude: ['src/main.jsx', 'src/test/**'],
+    },
+  },
 })
