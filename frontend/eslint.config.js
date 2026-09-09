@@ -40,5 +40,67 @@ export default [
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
+  // Import boundaries between the two applications.
+  //
+  // A static import by path is the only way owner code can enter the shop's
+  // module graph, so this catches the cause at edit time. Written as glob
+  // patterns rather than literal relative paths: a page nested one level
+  // deeper reaches its sibling tree by '../../' rather than '../', and a
+  // literal rule would silently stop matching exactly where a new page is
+  // most likely to be added.
+  //
+  // src/test/ is deliberately unscoped. It is imported only by .test files,
+  // which never enter a bundle.
+  {
+    files: ['src/store/**/*.{js,jsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/owner/**'],
+              message:
+                'The shop must not import owner code. Move what is shared into src/shared/.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/owner/**/*.{js,jsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/store/**'],
+              message:
+                'The console must not import shop code. Move what is shared into src/shared/.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/shared/**/*.{js,jsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/store/**', '**/owner/**'],
+              message:
+                'Shared code must not depend on either application; the dependency runs one way.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   prettier,
 ]
