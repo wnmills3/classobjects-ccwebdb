@@ -1,7 +1,7 @@
 # Self-hosted SonarQube Server for ccwebdb
 
 **Date:** 2026-09-09
-**Status:** Approved, not yet implemented
+**Status:** Implemented on `feat/self-hosted-sonarqube`; see "As built" below
 
 ## Goal
 
@@ -141,3 +141,75 @@ The `wnmills3` org is left intact and simply unused; nothing is deleted.
 
 Verification is through a different channel than configuration: a written config
 file proves nothing about whether a container can start or a report can be read.
+
+## As built
+
+This project's convention is that a spec gains amendments rather than being
+rewritten in place (see `docs/data-import-plan.md`). This section records
+where the shipped implementation, on `feat/self-hosted-sonarqube`, diverges
+from the body above. The body is otherwise still accurate.
+
+**A fourth script shipped.** The "Repository artifacts" list above names three
+scripts. `scripts/ccweb_sonar_mcp.cmd` is a fourth, added by an amendment
+(originally Task 6 of the implementation plan) after Task 5 found that
+`sonar run mcp` cannot reach a server bound to `127.0.0.1`: it launches its
+container on the default bridge network with no `--network` flag, so
+`SONARQUBE_URL=http://localhost:9000` resolves to the container itself and it
+dies at startup with `Connection refused`. `ccweb_sonar_mcp.cmd` joins
+`sonar-net` and addresses the server as `http://sonarqube:9000`, exactly as
+`ccweb_sonar_scan.cmd` already does for the scanner. All four scripts are
+committed:
+
+- `scripts/ccweb_sonar_start.cmd`
+- `scripts/ccweb_sonar_stop.cmd`
+- `scripts/ccweb_sonar_scan.cmd`
+- `scripts/ccweb_sonar_mcp.cmd`
+
+**Coverage wiring is not what "Coverage wiring" above says.** The body
+prescribes `pytest --cov=app --cov-report=xml:coverage.xml`, relying on
+`pythonpath = ["backend"]` to make `app` importable. What shipped instead is:
+
+```
+pytest -q --cov=backend/app --cov-report=xml:coverage.xml
+```
+
+run from the **repository root** (`ccweb_sonar_scan.cmd` does `pushd "%REPO%"`
+first), plus
+
+```toml
+[tool.coverage.run]
+relative_files = true
+```
+
+in `pyproject.toml`. The spec's own form produces a report SonarQube cannot
+map onto `sonar.sources=backend/app`: coverage.py records absolute paths by
+default, and the scanner reads `coverage.xml` inside its own container, where
+the repository is bind-mounted at a different absolute path than on the host.
+The mismatch does not error — it silently reports 0% coverage, which reads as
+clean code rather than as a broken pipeline. `relative_files = true` makes the
+recorded paths resolve the same way on the host and inside the container.
+
+**The auth-cutover steps below are dangerous if followed as written today.**
+Step 3, `sonar integrate claude --non-interactive`, **overwrites `.mcp.json`**
+and reinstates the CLI's own `sonar run mcp` launcher — the exact form the
+"fourth script" divergence above exists to route around. A reader who runs
+that command after MCP is already working breaks it again with
+`Connection refused`, because `sonar run mcp` still has no `--network` flag.
+
+Do not run Step 3 on a machine where `.mcp.json` already points at
+`ccweb_sonar_mcp.cmd`. If it has already been run and MCP is broken again,
+restore `.mcp.json` (gitignored, hand-edited, never committed) to:
+
+```json
+{
+  "mcpServers": {
+    "sonarqube": {
+      "command": "scripts\\ccweb_sonar_mcp.cmd"
+    }
+  }
+}
+```
+
+See `docs/runtime-operations.md`, section "SonarQube (local server)", for the
+full working set of commands, and `docs/plans/self-hosted-sonarqube.md` Task 6
+for how this was found.

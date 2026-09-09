@@ -716,6 +716,52 @@ Commit `scripts/ccweb_sonar_mcp.cmd` and `docs/runtime-operations.md`. Confirm
 
 ---
 
+### Amendment: what Task 4 Step 6 actually found
+
+Task 4 Step 6 above tells the reader, on a `0.0` coverage result, to "switch to
+the other command form from Step 3 and re-run" — i.e. swap between running
+pytest from the repository root and running it from `backend`. That was never
+the fix. **This section records the decisive discovery that Step 6 is missing:**
+the actual remedy was adding
+
+```toml
+[tool.coverage.run]
+relative_files = true
+```
+
+to `pyproject.toml`, keeping the repository-root form
+(`--cov=backend/app --cov-report=xml:coverage.xml`) throughout. coverage.py
+records **absolute** host paths by default; the scanner container mounts the
+repository at a different absolute path, so those recorded paths do not exist
+inside the container and match nothing under `sonar.sources`. Switching which
+directory pytest runs from does not change that coverage.py still writes
+absolute paths — it only changes which absolute paths are wrong.
+`relative_files = true` makes the paths portable between host and container
+instead. See `docs/specs/self-hosted-sonarqube-design.md`, "As built", for the
+full explanation.
+
+Three further divergences between this plan and what shipped were never
+written down anywhere until now:
+
+- **`:waitup` no longer sleeps with `timeout`.** Step 2's script body used
+  `timeout /t 1 /nobreak >nul` inside the polling loop. The shipped
+  `scripts/ccweb_sonar_start.cmd` uses `ping -n 2 127.0.0.1 >nul` instead:
+  `timeout.exe` needs a real console and fails instantly, sleeping not at all,
+  when stdin is redirected — exactly how an automated or scheduled caller runs
+  this script. Ping's reply delay is a console-independent ~1 second sleep.
+- **Repository-root resolution is canonicalising, not string concatenation.**
+  Step 2 and Step 4's script bodies used `set "REPO=%~dp0.."`, a literal
+  `...\scripts\..` path. The shipped scripts across all four use
+  `for %%I in ("%~dp0..") do set "REPO=%%~fI"`, which resolves `%%~fI` to a
+  real absolute path with no trailing `..` segment and no trailing slash —
+  needed wherever `%REPO%` is bind-mounted into a container by path.
+- **The scanner's bind mount dropped the `:z` SELinux suffix.** Task 3 Step 4's
+  script body mounted `-v "%REPO%:/usr/src:z"`. The shipped
+  `scripts/ccweb_sonar_scan.cmd` mounts `-v "%REPO%:/usr/src"`, with no `:z`.
+  `:z` relabels the mount for SELinux label sharing between containers, which
+  the WSL2 podman machine on this Windows host does not use; it was inert here
+  and was dropped rather than carried forward as dead configuration.
+
 ## Done when
 
 - `.\scripts\ccweb_sonar_start.cmd` brings the server to `UP`, and `_stop.cmd` preserves the volumes.
