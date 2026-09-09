@@ -86,7 +86,7 @@ export default function Orders() {
           {isAdmin && (
             <div className="row">
               <label>
-                Status
+                Status{/* */}
                 <select
                   value={order.status}
                   onChange={(e) => changeStatus(order.id, e.target.value)}

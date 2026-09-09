@@ -216,11 +216,13 @@ h2 {
   color: var(--text);
 }
 
+/* Merged from two rules. The second one further down the file was
+   winning on gap and margin-top, so those values are kept. */
 .pager {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-top: 24px;
+  gap: 0.8rem;
+  margin-top: 0.9rem;
 }
 
 /* --- detail ------------------------------------------------------------- */
@@ -462,12 +464,6 @@ button.link.danger {
 .inventory-table th.sortable:hover {
   text-decoration: underline;
 }
-.pager {
-  margin-top: 0.9rem;
-  align-items: center;
-  gap: 0.8rem;
-}
-
 /* Adding a vocabulary value inline, from the picker that needed it. */
 .add-reference {
   display: flex;

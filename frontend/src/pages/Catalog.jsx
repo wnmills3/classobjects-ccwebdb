@@ -81,6 +81,7 @@ export default function Catalog() {
             checked={filters.in_stock}
             onChange={(e) => applyFilter({ in_stock: e.target.checked })}
           />
+          {/* */}
           In stock only
         </label>
       </div>

@@ -8,6 +8,12 @@ function cell(row, key, kind) {
   return String(value)
 }
 
+/** The arrow next to the column currently being sorted on, if any. */
+function sortMarker(current, key) {
+  if (current.sort !== key) return ''
+  return current.desc === 'true' ? ' v' : ' ^'
+}
+
 /**
  * The inventory results table: sortable column headers plus the rows
  * themselves.
@@ -67,7 +73,7 @@ export default function InventoryTable({
               }
             >
               {label}
-              {current.sort === key ? (current.desc === 'true' ? ' v' : ' ^') : ''}
+              {sortMarker(current, key)}
             </th>
           ))}
         </tr>

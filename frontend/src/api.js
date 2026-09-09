@@ -41,7 +41,7 @@ export class ApiError extends Error {
 
 // FastAPI returns validation errors as a list of objects; flatten to a string.
 function readDetail(body) {
-  const detail = body && body.detail
+  const detail = body?.detail
   if (!detail) return 'Request failed'
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail)) {
@@ -138,7 +138,8 @@ export const api = {
       if (v !== '' && v !== null && v !== undefined && v !== false) qs.set(k, v)
     })
     const query = qs.toString()
-    return send(`/api/catalog${query ? `?${query}` : ''}`, { auth: false })
+    const suffix = query ? `?${query}` : ''
+    return send(`/api/catalog${suffix}`, { auth: false })
   },
   getCatalogItem: (id) => send(`/api/catalog/${id}`, { auth: false }),
   createCatalogItem: (payload) =>
@@ -163,7 +164,8 @@ export const api = {
       if (v !== '' && v !== null && v !== undefined && v !== false) qs.set(k, v)
     })
     const query = qs.toString()
-    return send(`/api/inventory/${view}/search${query ? `?${query}` : ''}`)
+    const suffix = query ? `?${query}` : ''
+    return send(`/api/inventory/${view}/search${suffix}`)
   },
   splitItem: (itemId, payload) =>
     send(`/api/inventory/${itemId}/split`, { method: 'POST', body: payload }),

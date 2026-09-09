@@ -33,11 +33,11 @@ export default function Register() {
       <h1>Create an account</h1>
       <form onSubmit={submit}>
         <label>
-          Full name
+          Full name{/* */}
           <input value={form.full_name} onChange={update('full_name')} />
         </label>
         <label>
-          Email
+          Email{/* */}
           <input
             type="email"
             autoComplete="email"
@@ -47,7 +47,7 @@ export default function Register() {
           />
         </label>
         <label>
-          Password
+          Password{/* */}
           <input
             type="password"
             autoComplete="new-password"

@@ -147,7 +147,7 @@ export default function AdminCoins() {
         <h2>{editingId ? `Edit item #${editingId}` : 'Add an item'}</h2>
         <div className="form-grid">
           <label>
-            Title
+            Title{/* */}
             <input required value={form.title} onChange={update('title')} />
           </label>
           <label>
@@ -169,7 +169,7 @@ export default function AdminCoins() {
             />
           </label>
           <label>
-            Year
+            Year{/* */}
             <input
               type="number"
               value={form.year_start}
@@ -213,7 +213,7 @@ export default function AdminCoins() {
             />
           </label>
           <label>
-            Price
+            Price{/* */}
             <input
               required
               type="number"
@@ -224,7 +224,7 @@ export default function AdminCoins() {
             />
           </label>
           <label>
-            Quantity for sale
+            Quantity for sale{/* */}
             <input
               type="number"
               min="0"
@@ -234,7 +234,7 @@ export default function AdminCoins() {
           </label>
         </div>
         <label>
-          Description
+          Description{/* */}
           <textarea
             rows={3}
             value={form.description}
@@ -247,6 +247,7 @@ export default function AdminCoins() {
             checked={form.is_active}
             onChange={update('is_active')}
           />
+          {/* */}
           Listed for sale
         </label>
         <div className="row">
