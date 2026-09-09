@@ -49,6 +49,16 @@ export default [
   // literal rule would silently stop matching exactly where a new page is
   // most likely to be added.
   //
+  // no-restricted-imports only inspects ImportDeclaration /
+  // ExportNamedDeclaration source literals, so a dynamic import() --
+  // ImportExpression in the AST -- sails past it untouched. That form is a
+  // realistic way to reach across the boundary (it's the normal way to
+  // code-split a large owner page), and a dynamically imported owner module
+  // does land in a chunk the shop can reach, so no-restricted-syntax below
+  // covers ImportExpression with the same directory boundary, matched with a
+  // regex on the source literal since esquery attribute selectors don't
+  // support glob patterns.
+  //
   // src/test/ is deliberately unscoped. It is imported only by .test files,
   // which never enter a bundle.
   {
@@ -64,6 +74,14 @@ export default [
                 'The shop must not import owner code. Move what is shared into src/shared/.',
             },
           ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportExpression > Literal[value=/(^|\\/)owner\\//]',
+          message:
+            'The shop must not import owner code, dynamically either. Move what is shared into src/shared/.',
         },
       ],
     },
@@ -83,6 +101,14 @@ export default [
           ],
         },
       ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportExpression > Literal[value=/(^|\\/)store\\//]',
+          message:
+            'The console must not import shop code, dynamically either. Move what is shared into src/shared/.',
+        },
+      ],
     },
   },
   {
@@ -98,6 +124,19 @@ export default [
                 'Shared code must not depend on either application; the dependency runs one way.',
             },
           ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportExpression > Literal[value=/(^|\\/)store\\//]',
+          message:
+            'Shared code must not depend on either application, dynamically either; the dependency runs one way.',
+        },
+        {
+          selector: 'ImportExpression > Literal[value=/(^|\\/)owner\\//]',
+          message:
+            'Shared code must not depend on either application, dynamically either; the dependency runs one way.',
         },
       ],
     },
