@@ -183,6 +183,32 @@ stop and the next start picks up where it left off. `podman volume rm` is a
 different matter — it destroys the named volume outright, taking the analysis
 history and admin account with it.
 
+`scripts\ccweb_sonar_mcp.cmd` launches the SonarQube MCP server, the process
+behind the `mcp__sonarqube__*` tools, so that it can actually reach this local
+instance. `sonar run mcp` exposes no `--network` flag: it starts its container
+on the default bridge with `SONARQUBE_URL=http://localhost:9000`, which inside
+that container's own network namespace is the container itself, so it dies at
+startup with `Connection refused` — and, running under `--rm`, removes itself
+before `podman ps -a` can even show it. `ccweb_sonar_mcp.cmd` joins
+`sonar-net` and addresses the server as `http://sonarqube:9000`, the same fix
+`ccweb_sonar_scan.cmd` already applies to the scanner above. It needs
+`SONAR_TOKEN` in the environment for the same reason the scanner does.
+
+`.mcp.json` at the repo root points Claude Code at this script and is
+hand-managed: it is gitignored and never committed. **Re-running
+`sonar integrate claude` overwrites `.mcp.json`** and reintroduces the broken
+`sonar run mcp` invocation described above. If that happens, point it back:
+
+```json
+{
+  "mcpServers": {
+    "sonarqube": {
+      "command": "scripts\\ccweb_sonar_mcp.cmd"
+    }
+  }
+}
+```
+
 ---
 
 ## Design notes
