@@ -65,8 +65,14 @@ skill specifies a different path, format, or workflow, this file wins.
 - `scripts\ccweb_check.cmd` runs every gate; `ccweb_check.cmd fix` auto-fixes
   first. Non-zero exit if anything fails. Rationale in `docs/code-quality.md`.
 - Enforced and clean: `ruff` (Python format + lint), `eslint` + `prettier`
-  (frontend), `pytest`. `mypy` is reported only — watch the **count**, not
-  individual messages.
+  (frontend), `pytest`, `mypy`. All of them are at zero, so any finding is a
+  new one — there is no backlog to read past.
+- **Two typing traps, both documented in `docs/code-quality.md`.** Do not
+  annotate `ReferenceMixin.__tablename__` as `ClassVar[str]`; the
+  `TYPE_CHECKING` block in `models/base.py` must keep *matching*
+  `DeclarativeBase`'s declarations rather than improving on them. And
+  `__mapper_args__` is a `@declared_attr.directive`, not a dict literal,
+  because every annotation of the literal fails either ruff or mypy.
 - **No ignored lint issues.** Every public class, method and function carries a
   docstring and every function is annotated (ruff `D` and `ANN`). Only three
   documented exceptions exist, each because the rule does not describe the code.
