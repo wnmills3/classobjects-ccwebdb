@@ -75,10 +75,12 @@ def test_each_view_returns_the_columns_that_matter_to_it(
     coin_row = search(client, "coins", admin_headers).json()["rows"][0]
     note_row = search(client, "currency", admin_headers).json()["rows"][0]
 
-    assert "mint_mark" in coin_row and "metal" in coin_row
+    assert "mint_mark" in coin_row
+    assert "metal" in coin_row
     assert "seal_color" not in coin_row
 
-    assert "seal_color" in note_row and "serial_number" in note_row
+    assert "seal_color" in note_row
+    assert "serial_number" in note_row
     assert "mint_mark" not in note_row
 
 

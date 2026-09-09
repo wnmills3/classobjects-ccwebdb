@@ -21,7 +21,8 @@ def test_a_vocabulary_comes_back_ready_for_a_picker(client: TestClient) -> None:
     codes = [v["code"] for v in body["values"]]
 
     assert body["table"] == "item_kind"
-    assert "coin" in codes and "bullion" in codes
+    assert "coin" in codes
+    assert "bullion" in codes
     # Ordered by sort_order, so the picker shows them in a sensible sequence
     # rather than alphabetically or by insertion.
     orders = [v["sort_order"] for v in body["values"]]

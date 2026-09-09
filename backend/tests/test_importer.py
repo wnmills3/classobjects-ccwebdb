@@ -130,7 +130,8 @@ def test_correction_map_is_logged_not_silent(profile: CollectionV1Profile) -> No
     result = profile.inspect(make_row(Denom="$20 Blll"))
     assert result.classification.kind == "currency"
     issue = next(i for i in result.issues if i.rule == "denomination-corrected")
-    assert issue.raw_value == "$20 Blll" and issue.proposed == "$20 Bill"
+    assert issue.raw_value == "$20 Blll"
+    assert issue.proposed == "$20 Bill"
 
 
 # --------------------------------------------------------------------------
@@ -177,8 +178,10 @@ def test_value_column_carries_amount_or_status(profile: CollectionV1Profile) -> 
 def test_series_letter_is_not_a_mint_mark(profile: CollectionV1Profile) -> None:
     note = profile.inspect(make_row(Denom="$1 Bill", Year="2017-A")).fields
     coin = profile.inspect(make_row(Denom="0.25", Year="1921-D")).fields
-    assert note.get("series_letter") == "A" and "mint_marks" not in note
-    assert coin.get("mint_marks") == ["D"] and "series_letter" not in coin
+    assert note.get("series_letter") == "A"
+    assert "mint_marks" not in note
+    assert coin.get("mint_marks") == ["D"]
+    assert "series_letter" not in coin
 
 
 def test_year_range_and_multiplier(profile: CollectionV1Profile) -> None:
@@ -213,8 +216,12 @@ def test_dry_run_touches_no_database(profile: CollectionV1Profile, db: Session) 
 
 
 def test_commit_requires_a_session(profile: CollectionV1Profile) -> None:
+    # The ValueError comes from run(), not from the constructor, so only
+    # run() belongs inside the raises block.
+    engine = ImportEngine(profile, session=None)
+    source = FakeSource([])
     with pytest.raises(ValueError):
-        ImportEngine(profile, session=None).run(FakeSource([]), mode=COMMIT)
+        engine.run(source, mode=COMMIT)
 
 
 def test_commit_writes_batch_rows_and_issues(
@@ -275,7 +282,8 @@ def test_report_renders_without_error(profile: CollectionV1Profile) -> None:
         FakeSource([make_row(2, Denom="Zzz Nonexistent")]), mode=DRY_RUN
     )
     text = report.render()
-    assert "UNCLASSIFIED VALUES" in text and "collection_v1" in text
+    assert "UNCLASSIFIED VALUES" in text
+    assert "collection_v1" in text
 
 
 # --------------------------------------------------------------------------
@@ -340,7 +348,8 @@ def test_write_all_produces_reviewable_files(
     err = next(r for r in issues if r["severity"] == "error")
     assert err["row_number"] == "5"
     # the whole source row travels with the issue, for context
-    assert "src::Denom" in err and err["src::Denom"] == "1"
+    assert "src::Denom" in err
+    assert err["src::Denom"] == "1"
 
 
 def test_report_names_rows_for_corrections(profile: CollectionV1Profile) -> None:
@@ -453,7 +462,8 @@ def test_uncertain_and_range_years_are_not_flagged() -> None:
         "Year"
     ].variants
     flagged = {v.rare_value for v in variants}
-    assert "2024?" not in flagged and "1980's" not in flagged
+    assert "2024?" not in flagged
+    assert "1980's" not in flagged
 
 
 # --------------------------------------------------------------------------

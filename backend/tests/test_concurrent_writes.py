@@ -294,7 +294,8 @@ def test_the_conflict_message_says_what_to_do(
         headers=admin_headers,
     )
     detail = response.json()["detail"]
-    assert str(stale) in detail and "Reload" in detail
+    assert str(stale) in detail
+    assert "Reload" in detail
 
 
 def test_retrying_with_the_current_version_succeeds(

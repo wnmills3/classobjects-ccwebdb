@@ -143,8 +143,9 @@ def test_verification_rejects_an_image_it_could_not_clean(
         return buffer.getvalue(), "image/jpeg"
 
     monkeypatch.setattr(imaging, "_encode", passthrough)
+    jpeg = make_jpeg()
     with pytest.raises(MetadataRemainsError):
-        imaging.cleanse(make_jpeg())
+        imaging.cleanse(jpeg)
 
 
 # ---------------------------------------------------------------------------
