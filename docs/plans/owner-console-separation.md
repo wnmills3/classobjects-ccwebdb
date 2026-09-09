@@ -824,10 +824,16 @@ cd frontend
 "%USERPROFILE%\miniforge3\envs\ccwebdb\node.exe" node_modules\vitest\vitest.mjs run
 ```
 
-Expected: 15 test files, 79 passing (69 existing minus 4 in the deleted
-`App.test.jsx`, plus 6 in `StoreApp.test.jsx`, 5 in `OwnerApp.test.jsx` and 2 in
-`LoginForm.test.jsx`). `Login.test.jsx` must still pass unchanged -- if it does
-not, the wrapper changed the shop's sign-in behaviour, which it must not.
+Expected: **16 test files, 78 passing**. Files: 14 before, minus the deleted
+`App.test.jsx`, plus `StoreApp.test.jsx`, `OwnerApp.test.jsx` and
+`LoginForm.test.jsx`. Tests: 69 - 4 + 6 + 5 + 2 = 78.
+
+`Login.test.jsx` must still pass unchanged -- if it does not, the wrapper
+changed the shop's sign-in behaviour, which it must not.
+
+If your counts differ from these, report the actual figures. Never adjust a
+test to reach a predicted number: the prediction is arithmetic done in advance
+and is the more likely thing to be wrong.
 
 - [ ] **Step 12: Run the full gate and commit**
 
