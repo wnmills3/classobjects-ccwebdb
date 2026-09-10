@@ -78,10 +78,19 @@ if exist "frontend\node_modules\eslint" (
     rem  The eslint boundary rules check the source; this checks the artefact,
     rem  so a build-configuration mistake cannot pass unnoticed.
     pushd frontend
+    rem  Clear dist first: a failed build can leave a previous good
+    rem  build's dist\.vite\bundle-graph.json on disk, and the isolation
+    rem  check has no way to tell that graph is stale rather than
+    rem  current. Removing it here means a failed build leaves nothing
+    rem  for the check to misread, on this run or a later manual one.
+    if exist dist rmdir /s /q dist
     "%NODE%" node_modules\vite\bin\vite.js build
-    if errorlevel 1 set "FAILED=!FAILED! build"
-    "%NODE%" scripts\check-bundle-isolation.mjs
-    if errorlevel 1 set "FAILED=!FAILED! isolation"
+    if errorlevel 1 (
+        set "FAILED=!FAILED! build"
+    ) else (
+        "%NODE%" scripts\check-bundle-isolation.mjs
+        if errorlevel 1 set "FAILED=!FAILED! isolation"
+    )
     popd
 )
 
