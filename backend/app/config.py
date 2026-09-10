@@ -21,14 +21,15 @@ class Settings(BaseSettings):
     )
 
     # --- database -----------------------------------------------------------
-    database_url: str = (
-        "postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb"
+    database_url: str = Field(
+        default="postgresql+psycopg://ccwebdb:devpassword@localhost:5432/ccwebdb",
+        repr=False,
     )
 
     # --- auth ---------------------------------------------------------------
     # Overridden via JWT_SECRET in .env. The default is intentionally obvious
     # so that an unconfigured deployment is easy to spot.
-    jwt_secret: str = "dev-only-insecure-secret-change-me"
+    jwt_secret: str = Field(default="dev-only-insecure-secret-change-me", repr=False)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 14
@@ -42,7 +43,7 @@ class Settings(BaseSettings):
 
     # Seeded administrator, created by `python -m app.seed`.
     first_admin_email: str = "admin@example.com"
-    first_admin_password: str = "adminpassword"
+    first_admin_password: str = Field(default="adminpassword", repr=False)
 
     # --- image storage ------------------------------------------------------
     # Bytes never live in the database: a collection's photographs run to
