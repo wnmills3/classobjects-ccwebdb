@@ -11,9 +11,10 @@ actually arrive" survives a later correction to the status.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -106,6 +107,13 @@ class ItemStatusHistory(Base):
         ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The date the parcel actually arrived, when that differs from when
+    #: somebody recorded it. A box that sat unopened over a weekend arrived on
+    #: the Friday and was logged on the Monday, and `changed_at` is the wrong
+    #: answer to "what arrived last week". Null on every status change that is
+    #: not an arrival -- a cancellation has no arrival date, and neither does
+    #: the opening row written at import.
+    arrived_on: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     __table_args__ = (
         Index(

@@ -386,6 +386,10 @@ class SchemaLoader:
         self._add_detail(item, kind, fields)
         self._add_certification(item, fields)
 
+        # This writes the OPENING row for a newly created item, not a
+        # transition -- `from_status_id=None` is how the schema says so.
+        # `lifecycle_writes.set_status` is for changes to a status that
+        # already exists; a status change from here on must go through it.
         self.session.add(
             ItemStatusHistory(
                 inventory_item_id=item.id,
