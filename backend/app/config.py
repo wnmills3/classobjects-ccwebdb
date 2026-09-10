@@ -1,8 +1,10 @@
 """Application settings, loaded from environment variables and the repo-root .env."""
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/config.py -> backend/app -> backend -> repo root
@@ -57,6 +59,15 @@ class Settings(BaseSettings):
     # file that expands to gigabytes of pixels, so both limits are needed.
     max_upload_bytes: int = 25 * 1024 * 1024
     max_image_pixels: int = 50_000_000
+
+    # --- sales tax on acquisitions ---------------------------------------------
+    # Read when the API starts, then copied onto each item as it is created. Tax
+    # paid is a historical fact, so changing these governs purchases recorded
+    # afterwards and rewrites none recorded before. A fraction, not a
+    # percentage -- 0.0635 is 6.35% -- bounded so that 6.35 typed for 6.35% is
+    # refused at startup instead of multiplying every new cost by 7.35.
+    sales_tax_rate: Decimal = Field(default=Decimal("0.0635"), ge=0, le=1)
+    sales_tax_includes_shipping: bool = True
 
 
 @lru_cache

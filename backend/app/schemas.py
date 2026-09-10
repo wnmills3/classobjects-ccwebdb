@@ -435,6 +435,12 @@ class ItemDetailOut(InventoryItemOut):
     fineness: Decimal | None = None
     gross_weight_ozt: Decimal | None = None
     fine_weight_ozt: Decimal | None = None
+    tax_rate: Decimal
+    tax_includes_shipping: bool
+    #: The rate a new item would be stamped with today. The form's "No sales
+    #: tax charged" box restores it when unticked on an item recorded as
+    #: untaxed, which has no non-zero rate of its own to go back to.
+    default_tax_rate: Decimal
 
     # -- every classifier the edit form can set, by code. Without these the
     # form's dropdowns have nothing to preselect: a coin already graded MS65
@@ -488,6 +494,13 @@ class InventoryItemUpdate(BaseModel):
     shipping_cost: Decimal | None = Field(
         default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
     )
+    #: A fraction, not a percentage: 0.0635 is 6.35%. Zero records a purchase
+    #: that was charged no sales tax. Bounded, so 6.35 typed for 6.35% is a
+    #: 422 rather than a cost multiplied by 7.35.
+    tax_rate: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("1"), max_digits=6, decimal_places=4
+    )
+    tax_includes_shipping: bool | None = None
 
     # Classifiers, by code.
     item_kind: str | None = Field(default=None, max_length=64)

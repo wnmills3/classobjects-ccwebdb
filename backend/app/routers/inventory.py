@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
+from ..config import settings
 from ..deps import AdminUser, DbSession
 from ..inventory_search import (
     VIEWS,
@@ -438,6 +439,8 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
                 "piece_count",
                 "item_cost",
                 "shipping_cost",
+                "tax_rate",
+                "tax_includes_shipping",
                 "sales_tax",
                 "total_cost",
                 "parent_item_id",
@@ -445,6 +448,7 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
             )
         },
         **classifiers,
+        default_tax_rate=settings.sales_tax_rate,
         parent_item_code=parent_code,
         lot_claims=claims,
         reviewed=_reviewed_fields(db, item.id),
@@ -502,7 +506,25 @@ EDITABLE_SCALARS: tuple[str, ...] = (
     "piece_count",
     "item_cost",
     "shipping_cost",
+    "tax_rate",
+    "tax_includes_shipping",
 )
+
+#: EDITABLE_SCALARS refused by name when sent as null. Both columns are NOT
+#: NULL, and an explicit null would otherwise reach the database as a
+#: constraint violation -- an unhandled 500 rather than a message a caller can
+#: act on. The same reason REQUIRED_CLASSIFIERS exists.
+REQUIRED_SCALARS: frozenset[str] = frozenset({"tax_rate", "tax_includes_shipping"})
+
+
+def _refuse_null_scalars(data: dict[str, object]) -> None:
+    """Raise a 422 naming every required scalar that was sent as null."""
+    nulled = sorted(f for f in REQUIRED_SCALARS if f in data and data[f] is None)
+    if nulled:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{', '.join(nulled)} cannot be null.",
+        )
 
 
 @router.post("/bulk")
@@ -523,6 +545,7 @@ def bulk_edit(
     """
     data = payload.changes.model_dump(exclude_unset=True)
     data.pop("version", None)  # Meaningless across a set of rows.
+    _refuse_null_scalars(data)
 
     items = db.scalars(
         select(InventoryItem).where(InventoryItem.id.in_(payload.ids))
@@ -586,6 +609,7 @@ def update_item(
     # exclude_unset so an omitted field is left alone rather than nulled.
     data = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
+    _refuse_null_scalars(data)
 
     # This is what catches the ordinary lost-update case: two staff, each with
     # a form loaded at a different time, and the second one saving over the

@@ -109,6 +109,32 @@ variables or a `.env` file. Names are the field names upper-cased
 | `CORS_ORIGINS` | the two dev Vite URLs | must list the real origin once the frontend is served from anywhere else |
 | `API_PREFIX` | `/api` | changing it moves every endpoint |
 
+### Sales tax on acquisitions
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SALES_TAX_RATE` | `0.0635` | the rate a newly recorded purchase is taxed at. A fraction, not a percentage: `0.0635` is 6.35%. A value outside 0-1 is refused when the API starts, so `6.35` typed for 6.35% cannot quietly multiply every cost by 7.35 |
+| `SALES_TAX_INCLUDES_SHIPPING` | `true` | whether shipping is part of the taxed amount |
+
+**Both are copied onto each item when it is created, and never read again for
+that item.** Tax paid is a historical fact, so changing either setting governs
+purchases recorded afterwards and rewrites none recorded before. Every item
+keeps its own `tax_rate` and `tax_includes_shipping`; the database computes
+`sales_tax` and `total_cost` from those, and neither can be written directly.
+
+A purchase that was charged no tax is recorded by setting that item's
+`tax_rate` to 0: the **No sales tax charged** box on the item edit form, or
+`tax_rate` through `PATCH /api/inventory/{id}`, or `POST /api/inventory/bulk`
+for a batch of orders. Unticking the box restores the rate the item was bought
+at -- or, for an item recorded as untaxed, which has no rate of its own to go
+back to, the configured one.
+
+A rate cannot reproduce a marketplace's own rounding: Whatnot charged $0.35 on
+one order where 6.35% of $5.40 is $0.34. Those pennies stay as computed.
+
+Settings are read when the API starts. Change them in `.env` (the committed
+template is `.env.example`), then restart the API.
+
 ### Image handling
 
 | Setting | Default | Meaning |
@@ -203,7 +229,9 @@ summing one yields a number that looks like a total and means nothing.
 
 **Editable scalars:** `source_title`, `description`, `year_start`, `year_end`,
 `fineness`, `gross_weight_ozt`, `fine_weight_ozt`, `piece_count`, `item_cost`,
-`shipping_cost`.
+`shipping_cost`, `tax_rate`, `tax_includes_shipping` -- the last two described
+under *Sales tax on acquisitions* above. Those two are NOT NULL, and a null
+sent for either is refused naming the field.
 
 **Editable classifiers**, all set by code rather than id: `item_kind`,
 `country`, `denomination`, `bullion_form`, `grade`, `grade_designation`,

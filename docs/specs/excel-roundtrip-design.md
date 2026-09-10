@@ -136,6 +136,13 @@ hand-edited `total_cost` would be silently recomputed away.
 They are visually distinct, locked, and **an edit to one is reported rather
 than applied** -- silence would look like acceptance.
 
+`tax_rate` and `tax_includes_shipping` are not derived: they are the stored,
+per-row *inputs* to `taxes` and `total_cost`, and so are ordinary editable
+columns. Setting `tax_rate` to 0 is how a batch of purchases that were charged
+no tax gets corrected, and the derived columns recompute on import. Both are
+stamped from settings when an item is created; see
+`docs/system-administration.md`, *Sales tax on acquisitions*.
+
 ## Multi-valued fields are one comma-separated column
 
 Decided with the owner, 2026-09-08. A note carrying several designations gets

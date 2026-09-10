@@ -43,6 +43,7 @@ PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
         "price",
         "shipping",
         "tax_rate",
+        "tax_includes_shipping",
         "taxes",
         "total_cost",
         "numismatic_value",

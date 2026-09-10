@@ -84,6 +84,7 @@ INHERITED = (
     "weight_raw",
     "purchase_order_id",
     "tax_rate",
+    "tax_includes_shipping",
     "description",
 )
 

@@ -80,6 +80,20 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const value = (key) => draft[key] ?? item[key] ?? ''
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
 
+  // A rate of zero means no tax was charged. Unticking goes back to the rate
+  // the item was bought at, if it had one -- ticking and unticking is then no
+  // change at all. An item recorded as untaxed has no rate of its own to go
+  // back to, so it takes the configured one.
+  const taxRate = draft.tax_rate ?? item.tax_rate
+  const untaxed = taxRate !== undefined && Number(taxRate) === 0
+  function toggleTax(e) {
+    const next = { ...draft }
+    if (e.target.checked) next.tax_rate = '0'
+    else if (Number(item.tax_rate) !== 0) delete next.tax_rate
+    else next.tax_rate = item.default_tax_rate
+    setDraft(next)
+  }
+
   function toggleReview(column) {
     const before = reviewed
     const next = reviewed.includes(column)
@@ -196,6 +210,21 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           {review(REVIEWABLE[key])}
         </label>
       ))}
+
+      {item.tax_rate !== undefined && (
+        <div className="field">
+          Sales tax
+          <span title="Recalculated by the database when saved">
+            {`$${item.sales_tax}`}
+          </span>
+          <label>
+            <input type="checkbox" checked={untaxed} onChange={toggleTax} />
+            {/* */}
+            No sales tax charged
+          </label>
+          <span />
+        </div>
+      )}
 
       {CLASSIFIERS.map(([label, key, table]) => (
         <label key={key} className="field">

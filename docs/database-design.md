@@ -123,8 +123,9 @@ One row per acquired item or lot. The shared spine.
 | `notes_raw` | text null | preserved verbatim |
 | `denom_raw`, `year_raw`, `grade_raw` | text null | preserved verbatim |
 | `price`, `shipping` | numeric(12,2) | cost basis inputs |
-| `tax_rate` | numeric(6,4) | default `0.0635`, per row |
-| `taxes` | **generated** | `round((price + shipping) * tax_rate, 2)` |
+| `tax_rate` | numeric(6,4) | per row, stamped from `SALES_TAX_RATE` at creation; 0 = no tax charged |
+| `tax_includes_shipping` | boolean | per row, stamped from `SALES_TAX_INCLUDES_SHIPPING` at creation |
+| `taxes` | **generated** | `round((price + CASE WHEN tax_includes_shipping THEN shipping ELSE 0 END) * tax_rate, 2)` |
 | `total_cost` | **generated** | `price + shipping + taxes` |
 | `numismatic_value` | numeric(12,2) null | manual estimate, the collector premium |
 | `valuation_basis_id` | fk | melt, numismatic, manual |
