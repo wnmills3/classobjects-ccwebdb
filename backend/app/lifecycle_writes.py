@@ -43,6 +43,14 @@ def set_status(
     if item.status_id == to_status_id:
         return
 
+    if item.id is None:
+        # An unpersisted item has no id yet, and a NULL inventory_item_id
+        # would either violate the NOT NULL constraint or, worse, attach this
+        # row to nothing. Flushing assigns the id from the database's
+        # sequence without committing the transaction, so a caller that
+        # builds and sets status on a new item in one go still gets it.
+        session.flush()
+
     session.add(
         ItemStatusHistory(
             inventory_item_id=item.id,
@@ -72,6 +80,11 @@ def set_location(
     """
     if item.storage_location_id == storage_location_id:
         return
+
+    if item.id is None:
+        # See the matching guard in set_status: a caller may build an item
+        # and move it in the same breath, before anything else has flushed.
+        session.flush()
 
     session.add(
         LocationHistory(

@@ -382,7 +382,7 @@ EDITABLE_SCALARS: tuple[str, ...] = (
 
 @router.post("/bulk")
 def bulk_edit(
-    payload: BulkEditRequest, db: DbSession, _admin: AdminUser
+    payload: BulkEditRequest, db: DbSession, admin: AdminUser
 ) -> dict[str, int]:
     """Set the same fields across many items, all or nothing.
 
@@ -413,13 +413,22 @@ def bulk_edit(
     # Every code resolved before anything is set, so a typo in the last field
     # does not leave the first three applied.
     resolved: dict[str, object] = {}
+    # Status is the one classifier with a history table behind it. Pulled out
+    # of `resolved` so it can go through set_status below instead of the
+    # plain setattr loop -- the same reason PATCH /{item_id} special-cases it.
+    status_id: int | None = None
     for field, model in ITEM_CLASSIFIERS.items():
         if field in data:
             value = data[field]
+            value_id: int | None
             if field in REQUIRED_CLASSIFIERS:
-                resolved[f"{field}_id"] = require_code(db, model, value, field)
+                value_id = require_code(db, model, value, field)
             else:
-                resolved[f"{field}_id"] = code_to_id(db, model, value, field)
+                value_id = code_to_id(db, model, value, field)
+            if field == "status":
+                status_id = value_id
+            else:
+                resolved[f"{field}_id"] = value_id
     for field in EDITABLE_SCALARS:
         if field in data:
             resolved[field] = data[field]
@@ -427,6 +436,8 @@ def bulk_edit(
     for item in items:
         for column, value in resolved.items():
             setattr(item, column, value)
+        if status_id is not None:
+            set_status(db, item, status_id, user_id=admin.id)
 
     db.commit()
     return {"updated": len(items)}
