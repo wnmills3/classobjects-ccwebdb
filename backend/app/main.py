@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .routers import (
+    acquisitions,
     auth,
     catalog,
     customers,
@@ -39,6 +40,8 @@ app.include_router(reference.router, prefix=settings.api_prefix)
 app.include_router(orders.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(customers.router, prefix=settings.api_prefix)
+app.include_router(acquisitions.purchase_orders_router, prefix=settings.api_prefix)
+app.include_router(acquisitions.storage_locations_router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["meta"])
