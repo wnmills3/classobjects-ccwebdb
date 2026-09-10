@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.models import ItemStatus, PurchaseOrder, Vendor
+from app.models.base import utcnow
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -76,6 +77,69 @@ def test_a_customer_cannot_read_purchase_orders(
     assert (
         client.get("/api/purchase-orders", headers=customer_headers).status_code == 403
     )
+
+
+def test_a_deleted_item_does_not_count_or_appear(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A row that should never have existed must not inflate outstanding."""
+    order = _order_with_lines(db, outstanding=1, done=1)
+    ordered_id = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "ordered")
+    ).one()
+    deleted_item = make_item(db, status_id=ordered_id)
+    deleted_item.purchase_order_id = order.id
+    deleted_item.deleted_at = utcnow()
+    db.commit()
+
+    res = client.get("/api/purchase-orders", headers=admin_headers)
+    assert res.status_code == 200
+    row = next(r for r in res.json() if r["id"] == order.id)
+    assert row["outstanding"] == 1
+    assert row["total"] == 2
+
+    detail = client.get(
+        f"/api/purchase-orders/{order.id}", headers=admin_headers
+    ).json()
+    assert len(detail["lines"]) == 2
+    assert deleted_item.id not in [line["id"] for line in detail["lines"]]
+
+
+def test_a_split_parent_is_hidden_but_its_children_are_not(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A split lot's parent is superseded by its children, not alongside them."""
+    vendor = Vendor(name="Split Vendor")
+    db.add(vendor)
+    db.flush()
+    order = PurchaseOrder(vendor_id=vendor.id, order_number="27-9999")
+    db.add(order)
+    db.flush()
+    ordered_id = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "ordered")
+    ).one()
+
+    parent = make_item(db, status_id=ordered_id)
+    child_a = make_item(db, status_id=ordered_id, parent_item_id=parent.id)
+    child_b = make_item(db, status_id=ordered_id, parent_item_id=parent.id)
+    for item in (parent, child_a, child_b):
+        item.purchase_order_id = order.id
+    parent.split_at = utcnow()
+    db.commit()
+
+    res = client.get("/api/purchase-orders", headers=admin_headers)
+    assert res.status_code == 200
+    row = next(r for r in res.json() if r["id"] == order.id)
+    assert row["outstanding"] == 2
+    assert row["total"] == 2
+
+    detail = client.get(
+        f"/api/purchase-orders/{order.id}", headers=admin_headers
+    ).json()
+    line_ids = {line["id"] for line in detail["lines"]}
+    assert len(detail["lines"]) == 2
+    assert parent.id not in line_ids
+    assert {child_a.id, child_b.id} <= line_ids
 
 
 def test_a_customer_cannot_read_storage_locations(
