@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
+import FriedbergLookup from './FriedbergLookup'
 import ReviewPane from '../inventory/ReviewPane'
 
 //: Outcome value the backend expects, paired with the button's label. The
@@ -57,6 +58,13 @@ export default function ReceiptPanel({ itemIds, onDone }) {
   // out from under an index `ReviewPane` never clamps. Snapshotting here,
   // once, is what "frozen" actually requires.
   const [reviewIds, setReviewIds] = useState(null)
+  // The one selected item's `item_kind`, so the Friedberg section can be
+  // offered only for a banknote -- a coin has no Friedberg number, and
+  // offering the lookup there is an invitation to the 404 `POST
+  // .../friedberg` returns for an item with no `currency_detail`. Null both
+  // before this loads and whenever no single item is selected.
+  const [itemKind, setItemKind] = useState(null)
+  const [friedbergOpen, setFriedbergOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -82,6 +90,42 @@ export default function ReceiptPanel({ itemIds, onDone }) {
   // than the submit path having to un-guess it later.
   const singleItemSelected = itemIds.length === 1
   const photoDisabled = disabled || !singleItemSelected
+  // Attaching a Friedberg number needs one item id to name, the same
+  // ambiguity a photograph runs into with several selected -- so this is
+  // `null` whenever the selection is not exactly one item.
+  const singleItemId = singleItemSelected ? itemIds[0] : null
+
+  // Resets `itemKind`/`friedbergOpen` the moment the single-item selection
+  // changes, adjusted during render rather than in the effect below --
+  // calling setState synchronously in an effect body forces an extra render
+  // for every change; doing it here costs nothing extra, since a change to
+  // `singleItemId` was already about to re-render this component anyway.
+  const [trackedItemId, setTrackedItemId] = useState(singleItemId)
+  if (trackedItemId !== singleItemId) {
+    setTrackedItemId(singleItemId)
+    setItemKind(null)
+    setFriedbergOpen(false)
+  }
+
+  useEffect(() => {
+    if (singleItemId == null) return undefined
+    let cancelled = false
+    api
+      .getInventoryItem(singleItemId)
+      .then((body) => {
+        if (!cancelled) setItemKind(body.item_kind ?? null)
+      })
+      .catch(() => {
+        // Unknown kind, not currency: the section just stays hidden rather
+        // than offered against a fetch that failed.
+        if (!cancelled) setItemKind(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [singleItemId])
+
+  const isCurrency = singleItemId != null && itemKind === 'currency'
   // Named so the render below can tell the operator exactly what is about to
   // be silently dropped, rather than only that photos and multiple items
   // don't mix.
@@ -236,6 +280,27 @@ export default function ReceiptPanel({ itemIds, onDone }) {
           <ReviewPane ids={reviewIds} onClose={() => setReviewIds(null)} />
         )}
       </div>
+
+      {/* Offered only for currency -- a coin has no Friedberg number, and
+          this section never even mounts to ask the question for one.
+          Collapsed by default: the owner asks for a lookup explicitly,
+          nothing here runs on its own. */}
+      {isCurrency && (
+        <div className="friedberg-toggle">
+          {!friedbergOpen && (
+            <button type="button" onClick={() => setFriedbergOpen(true)}>
+              Look up Friedberg number
+            </button>
+          )}
+          {friedbergOpen && (
+            <FriedbergLookup
+              key={singleItemId}
+              itemId={singleItemId}
+              onClose={() => setFriedbergOpen(false)}
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 }
