@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
 import OrderPicker from './receiving/OrderPicker'
 import OutstandingList from './receiving/OutstandingList'
+import ReceiptPanel from './receiving/ReceiptPanel'
 import { date } from '../../shared/format'
 
 /**
@@ -49,17 +50,21 @@ export default function Receiving() {
     }
   }, [])
 
-  useEffect(() => {
-    if (orderId == null) return undefined
+  // Extracted so a receipt can pull the same order again once it lands,
+  // without duplicating the fetch-and-set-state dance a second time.
+  // `resetSelection` only fires once the fetch actually lands -- setting
+  // state synchronously in the effect body itself is what
+  // react-hooks/set-state-in-effect warns against.
+  const reloadOrder = useCallback((id, { resetSelection = false } = {}) => {
     let cancelled = false
 
     api
-      .getPurchaseOrder(orderId)
+      .getPurchaseOrder(id)
       .then((body) => {
         if (cancelled) return
-        setDetail({ id: orderId, body })
+        setDetail({ id, body })
         setDetailError('')
-        setSelected([])
+        if (resetSelection) setSelected([])
       })
       .catch((err) => {
         if (!cancelled) setDetailError(err.message)
@@ -68,10 +73,23 @@ export default function Receiving() {
     return () => {
       cancelled = true
     }
-  }, [orderId])
+  }, [])
+
+  useEffect(() => {
+    if (orderId == null) return undefined
+    return reloadOrder(orderId, { resetSelection: true })
+  }, [orderId, reloadOrder])
 
   const order = detail?.id === orderId ? detail.body : null
   const loadingOrder = orderId != null && order == null && !detailError
+
+  // A received item drops off the outstanding list, so the ids just
+  // submitted would otherwise linger in `selected` and be resubmitted --
+  // already `received`, which the backend answers with a 409.
+  function handleReceiptDone() {
+    setSelected([])
+    if (orderId != null) reloadOrder(orderId)
+  }
 
   return (
     <section>
@@ -98,6 +116,7 @@ export default function Receiving() {
                 selected={selected}
                 onChange={setSelected}
               />
+              <ReceiptPanel itemIds={selected} onDone={handleReceiptDone} />
             </>
           )}
         </div>
