@@ -142,6 +142,56 @@ once, never reused and never changed. It survives everything that happens to
 the object -- listed, sold, returned by the buyer, relisted -- because a
 returned item must resume its own history rather than start a new one.
 
+### The canonical spreadsheet
+
+The seeding import reads exactly one file:
+
+```
+C:\Users\wnmil\OneDrive\wnm3_coins.xlsx
+```
+
+**Seven files on this machine are named exactly `wnm3_coins.xlsx`** -- under
+`OneDrive\Documents\`, `OneDrive\Documents\coins\`, `OldDocuments\`,
+`OldDocuments\coins\`, `OneDrive\Imports\`, and a phone download under
+`CrossDevice\`. They are stale snapshots, not alternates: they range from
+2025-02 to 2026-09 and differ from the canonical file by hundreds of rows.
+None of them is the one to import.
+
+Two traps make picking the right file harder than it looks:
+
+- **The nearest decoys are only days old.** The `OneDrive\Documents\` pair is
+  from 2026-09-02, six days behind the canonical file -- recent enough to look
+  current and to import without any obvious complaint.
+- **Timestamped backups sit in the canonical directory.** `OneDrive\` also
+  holds eight `wnm3_coins.backup-<date>-<time>.xlsx` files, so a glob like
+  `wnm3_coins*.xlsx` in that folder matches nine files, only one of which is
+  canonical. Match the exact name, never a prefix.
+
+If the path above is ever in doubt, the canonical file is the most recently
+modified of the seven -- but confirm the date rather than assuming, because
+OneDrive sync can restat a file it did not change.
+
+Two different things are called "the spreadsheet", and conflating them loses
+data:
+
+| | `wnm3_coins.xlsx` | The export/import round trip |
+|---|---|---|
+| Purpose | one-off seeding of an empty database | editing existing records outside the app |
+| Lifetime | throwaway; the code that reads it is disposable | permanent, maintained code |
+| Columns | only what the original hand-kept sheet held | every field, so a round trip loses nothing |
+| Carries plate numbers or errors? | **no** | yes |
+
+`wnm3_coins.xlsx` has no `plate_position`, no face or back plate number, and no
+structured error types -- currency errors appear only as loose prose in its
+`Rating` column. Anything imported from it is therefore incomplete by
+construction, and a re-import after those fields are populated would discard
+them. **Re-importing is safe only into a cleared database.**
+
+**Its `Taxes`, `Total Cost`, `Profit` and `Profit %` columns are headers over
+empty cells** -- roughly nineteen of 7,653 rows carry a value. The importer is
+right to read only `Price` and `Shipping`. Treat those four columns as absent:
+summing one yields a number that looks like a total and means nothing.
+
 ### How an item changes
 
 | Endpoint | Use |
