@@ -53,29 +53,32 @@ def test_receiving_records_the_arrival(
     assert row.changed_by_id is not None
 
 
-def test_a_future_arrival_date_is_refused(
+def test_a_far_future_arrival_date_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """arrived_on records when the thing physically turned up.
 
-    A future date is a data-entry error, not a fact yet.
+    Two or more days past UTC's today is what an actual fat-fingered date
+    looks like -- a single day ahead is a legitimate "today" for anyone in a
+    timezone ahead of UTC, so the bound sits one day wider than UTC's own
+    calendar date (see the endpoint's comment).
     """
     item = _ordered(db)
     # Matches the endpoint's own reference point (UTC), not local wall-clock
     # time -- the two can disagree by a day within a few hours of midnight
     # UTC, which would make this test flaky against a fixed local `today`.
-    tomorrow = datetime.now(UTC).date() + timedelta(days=1)
+    too_far = datetime.now(UTC).date() + timedelta(days=2)
     res = client.post(
         "/api/inventory/receive",
         json={
             "item_ids": [item.id],
             "outcome": "received",
-            "arrived_on": tomorrow.isoformat(),
+            "arrived_on": too_far.isoformat(),
         },
         headers=admin_headers,
     )
     assert res.status_code == 422
-    assert tomorrow.isoformat() in res.text
+    assert too_far.isoformat() in res.text
 
 
 def test_todays_arrival_date_is_accepted(
@@ -90,6 +93,32 @@ def test_todays_arrival_date_is_accepted(
             "item_ids": [item.id],
             "outcome": "received",
             "arrived_on": today.isoformat(),
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+
+
+def test_one_day_ahead_of_utc_is_accepted(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A day ahead of UTC's today is a real local "today" somewhere.
+
+    The backend only has UTC to compare against, but a caller's local
+    calendar date can lead UTC's by up to a day (anywhere east of it, once
+    UTC has not yet reached local midnight). Refusing that would reject a
+    genuine same-day receipt for a large share of the world for several
+    hours every evening, which is exactly the bug this bound was widened to
+    fix.
+    """
+    item = _ordered(db)
+    one_ahead = datetime.now(UTC).date() + timedelta(days=1)
+    res = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_ids": [item.id],
+            "outcome": "received",
+            "arrived_on": one_ahead.isoformat(),
         },
         headers=admin_headers,
     )

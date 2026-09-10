@@ -9,7 +9,7 @@ Staff-only throughout: everything here exposes cost basis.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -272,12 +272,24 @@ def receive_items(
     # bound against the purchase order's ordered_on, which is frequently
     # null and would refuse legitimate data -- today's date is the only
     # bound with a real justification.
-    today: date = datetime.now(UTC).date()
-    if payload.arrived_on is not None and payload.arrived_on > today:
+    #
+    # "Today" is inherently local, but this check has only UTC to compare
+    # against. A caller's local calendar date can be a day ahead of UTC's
+    # (anywhere east of it, into the evening) or a day behind (anywhere
+    # west), so a bound of exactly `utc_today` would refuse a genuine,
+    # same-day receipt for a large share of the world for several hours
+    # every day. Widening the bound to `utc_today + 1 day` accepts every
+    # timezone's honest "today" -- the max offset either side of UTC is a
+    # day -- while still refusing anything two or more days out, which is
+    # what an actual fat-fingered date looks like. The tradeoff: a typo that
+    # is exactly one day ahead of the true date no longer gets caught here,
+    # because it is indistinguishable from a legitimate ahead-of-UTC today.
+    limit: date = datetime.now(UTC).date() + timedelta(days=1)
+    if payload.arrived_on is not None and payload.arrived_on > limit:
         raise HTTPException(
             status_code=422,
-            detail=f"arrived_on {payload.arrived_on.isoformat()} is in the "
-            f"future. Today is {today.isoformat()}.",
+            detail=f"arrived_on {payload.arrived_on.isoformat()} is too far "
+            f"in the future. Latest accepted: {limit.isoformat()}.",
         )
 
     items = db.scalars(
