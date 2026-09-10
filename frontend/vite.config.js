@@ -114,16 +114,20 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.js',
-    // Pinned to a real zone BEHIND UTC (not UTC itself) so tests that pin a
-    // clock instant -- see ReceiptPanel.test.jsx's arrival-date test -- keep
-    // their teeth everywhere. A UTC runner cannot distinguish "local date"
-    // from "UTC date" at all, so a bug that silently reverts a local-date
-    // default to `toISOString()`'s UTC date would slip through unnoticed on
-    // such a runner. America/New_York matches this project's operator
-    // (docs/runtime-operations.md) and keeps the existing 2026-09-09/
-    // 2026-09-10 assertions valid without touching the test.
+    // UTC, to match the database: every stored timestamp is
+    // `DateTime(timezone=True)` written by `datetime.now(UTC)`, and local time
+    // belongs only at the display/input edge. Running the suite in UTC keeps
+    // it reproducible regardless of which machine or CI runner executes it.
+    //
+    // The one deliberate exception is ReceiptPanel.test.jsx's arrival-date
+    // test: under a UTC runner, "local date" and "UTC date" are the same
+    // value, so that test cannot tell a correct local-date default apart from
+    // a regressed UTC-based one. That test overrides `process.env.TZ` for its
+    // own duration (Node re-reads TZ live, including for already-constructed
+    // `Date` objects -- verified empirically, not assumed) and restores it
+    // afterwards, rather than the whole suite paying for one test's need.
     env: {
-      TZ: 'America/New_York',
+      TZ: 'UTC',
     },
     coverage: {
       provider: 'v8',
