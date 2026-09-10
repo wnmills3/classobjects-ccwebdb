@@ -5,6 +5,7 @@ rem  ccweb_shutdown.cmd - stop the ccwebdb development runtime.
 rem
 rem  Usage:  scripts\ccweb_shutdown.cmd            stop everything
 rem          scripts\ccweb_shutdown.cmd /keepdb    stop the servers, leave PostgreSQL
+rem          scripts\ccweb_shutdown.cmd --keepdb   the same; use this from git bash
 rem
 rem  Stops the servers by recorded PID, then sweeps ports 8000 and 5173 for
 rem  survivors, then stops PostgreSQL with pg_ctl.
@@ -25,8 +26,19 @@ set "PGDATA=%REPO%\.pgdata"
 set "RUNTIME=%REPO%\.runtime"
 set "PIDFILE=%RUNTIME%\ccweb.pids"
 
+rem An unrecognised argument is refused, never ignored. Git bash rewrites
+rem /keepdb into a path such as C:/Program Files/Git/keepdb, and ignoring that
+rem once stopped a database the caller had asked to keep running.
 set "KEEPDB="
 if /I "%~1"=="/keepdb" set "KEEPDB=1"
+if /I "%~1"=="--keepdb" set "KEEPDB=1"
+if "%~1"=="" goto :args_ok
+if defined KEEPDB goto :args_ok
+echo ERROR: unrecognised argument: %1
+echo        usage: scripts\ccweb_shutdown.cmd [/keepdb ^| --keepdb]
+echo        from git bash write --keepdb: bash rewrites /keepdb into a path
+exit /b 2
+:args_ok
 
 rem The log directory must exist before anything redirects into it; otherwise
 rem the redirect fails and the command attached to it never runs at all.
@@ -117,7 +129,8 @@ call :portpid %~1 SURVIVOR
 if defined SURVIVOR (
     echo       port %~1 held by pid !SURVIVOR! - stopping
     taskkill /PID !SURVIVOR! /T /F >nul 2>&1
-    timeout /t 1 /nobreak >nul
+    rem ping, not timeout: timeout does not pause when stdin is redirected.
+    ping -n 2 127.0.0.1 >nul
 ) else (
     echo       port %~1 free
 )

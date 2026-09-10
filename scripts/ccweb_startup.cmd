@@ -49,12 +49,20 @@ if not exist "%REPO%\frontend\node_modules\vite\bin\vite.js" (
 if not exist "%RUNTIME%" mkdir "%RUNTIME%"
 
 rem --- 1. PostgreSQL --------------------------------------------------------
+rem  Started through `start`, into a console of its own, like the backend and
+rem  frontend below. The postmaster spawns a process for every connection and
+rem  background task, each inheriting its console. Started from a shell that
+rem  later goes away - Claude Code's, or a window someone closes - it keeps
+rem  running while every process it spawns afterwards dies with 0xC0000142.
+rem  On 2026-09-10 this script started all three from Claude Code's shell; the
+rem  backend and frontend survived that session ending, and PostgreSQL did not.
 "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
 if not errorlevel 1 (
     echo [1/3] postgresql   already running
 ) else (
     echo [1/3] postgresql   starting...
-    "%PGBIN%\pg_ctl.exe" -D "%PGDATA%" -l "%PGDATA%\server.log" -w start >"%RUNTIME%\pg_start.log" 2>&1
+    start "ccweb-postgres" /MIN cmd /c ""%PGBIN%\pg_ctl.exe" -D "%PGDATA%" -l "%PGDATA%\server.log" start >"%RUNTIME%\pg_start.log" 2>&1"
+    call :waitpg 60
     "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
     if errorlevel 1 (
         echo       FAILED - see %RUNTIME%\pg_start.log and %PGDATA%\server.log
@@ -134,5 +142,24 @@ curl -s -o nul --max-time 2 "%~1" >nul 2>&1
 if not errorlevel 1 goto :eof
 set /a _tries+=1
 if !_tries! GEQ %~2 goto :eof
-timeout /t 1 /nobreak >nul
+rem  ping, not timeout: timeout needs a real console and returns at once, with
+rem  no pause, when stdin is redirected - as it is for any caller that is not a
+rem  person at a keyboard - so the loop would give up almost instantly.
+ping -n 2 127.0.0.1 >nul
 goto waiturl_loop
+
+rem ---------------------------------------------------------------------------
+rem  :waitpg <max seconds>  - poll until PostgreSQL accepts connections
+rem
+rem  pg_isready says "rejecting connections" while crash recovery replays WAL.
+rem  That is progress, not failure, so this waits through it.
+rem ---------------------------------------------------------------------------
+:waitpg
+set /a _tries=0
+:waitpg_loop
+"%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
+if not errorlevel 1 goto :eof
+set /a _tries+=1
+if %_tries% GEQ %~1 goto :eof
+ping -n 2 127.0.0.1 >nul
+goto waitpg_loop
