@@ -32,11 +32,12 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base, ProvenanceSource, TimestampMixin, enum_column
+from .base import Base, ProvenanceSource, TimestampMixin, enum_column, utcnow
 
 __all__ = [
     "FriedbergNumber",
     "ItemCertification",
+    "ItemError",
     "ItemNoteAttribute",
     "PcgsType",
 ]
@@ -67,6 +68,60 @@ class ItemCertification(TimestampMixin, Base):
     cert_number: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     #: The certification string exactly as supplied, before it was split.
     raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ItemError(Base):
+    """One mint or printing error recorded on an item.
+
+    Many rows per item, not one FK on `inventory_item`: miscut and overprint
+    errors commonly appear on the same bill, and a single `error_type_id`
+    column cannot express that. Placed here rather than on the item itself
+    because it is an identification of a feature of the object, the same
+    role `ItemNoteAttribute` and `ItemCertification` play.
+
+    The unique constraint on `(inventory_item_id, error_type_id)` means the
+    same error recorded twice on one item updates one row rather than
+    creating a second -- it is the same fact, not two.
+    """
+
+    __tablename__ = "item_error"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: An error is meaningless without its item, so it is deleted with it.
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    #: RESTRICT, matching every other classifier FK here: a type in use
+    #: cannot be deleted out from under the rows that reference it.
+    error_type_id: Mapped[int] = mapped_column(
+        ForeignKey("error_type.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    #: Free text, per error -- so miscut and overprint on the same bill each
+    #: get their own note rather than sharing one field. Never inferred from
+    #: free text: see the note on `ErrorType`.
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: A machine guess must never be indistinguishable from a curated fact.
+    source: Mapped[ProvenanceSource] = mapped_column(
+        enum_column(ProvenanceSource, "provenance_source"),
+        default=ProvenanceSource.manual,
+        nullable=False,
+    )
+    #: SET NULL rather than CASCADE: deactivating a member of staff must not
+    #: erase the record that the error was noted.
+    noted_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    noted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "inventory_item_id", "error_type_id", name="uq_item_error_item_type"
+        ),
+    )
 
 
 class ItemNoteAttribute(Base):

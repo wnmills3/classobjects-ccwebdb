@@ -35,16 +35,19 @@ from ..models import (
     Country,
     Denomination,
     Disposition,
+    ErrorType,
     Grade,
     GradeDesignation,
     GradingService,
     InventoryItem,
+    ItemError,
     ItemFieldReview,
     ItemKind,
     ItemStatus,
     ItemStatusHistory,
     Listing,
     Metal,
+    ProvenanceSource,
     Series,
     StorageForm,
     StorageLocation,
@@ -57,6 +60,9 @@ from ..schemas import (
     InventoryItemUpdate,
     InventoryPageOut,
     ItemDetailOut,
+    ItemErrorOut,
+    ItemErrorsOut,
+    ItemErrorsRequest,
     ItemReviewOut,
     ReceiveRequest,
     ReviewRequest,
@@ -802,6 +808,63 @@ def set_item_review(
     return ItemReviewOut(
         inventory_item_id=item.id, reviewed=_reviewed_fields(db, item.id)
     )
+
+
+def _item_errors(db: Session, item_id: int) -> list[ItemErrorOut]:
+    """Every error recorded against an item, as the API returns them."""
+    rows = db.scalars(
+        select(ItemError)
+        .where(ItemError.inventory_item_id == item_id)
+        .order_by(ItemError.error_type_id)
+    ).all()
+    return [
+        ItemErrorOut(
+            error_type=_classifier_code(db, ErrorType, row.error_type_id) or "",
+            details=row.details,
+            source=row.source.value,
+            noted_by_id=row.noted_by_id,
+            noted_at=row.noted_at,
+        )
+        for row in rows
+    ]
+
+
+@router.get("/{item_id}/errors")
+def get_item_errors(item_id: int, db: DbSession, _admin: AdminUser) -> ItemErrorsOut:
+    """Every mint or printing error recorded against this item."""
+    item = _get_item(db, item_id)
+    return ItemErrorsOut(inventory_item_id=item.id, errors=_item_errors(db, item.id))
+
+
+@router.put("/{item_id}/errors")
+def set_item_errors(
+    item_id: int, payload: ItemErrorsRequest, db: DbSession, admin: AdminUser
+) -> ItemErrorsOut:
+    """Replace the whole set of errors recorded against this item.
+
+    A replace, not an add/remove pair: miscut and overprint commonly appear
+    on the same bill, a caller editing the set already has the current one
+    from `GET`, and sending back the whole intended set is simpler to reason
+    about than two calls that could disagree with each other mid-flight.
+    """
+    item = _get_item(db, item_id)
+
+    db.execute(delete(ItemError).where(ItemError.inventory_item_id == item.id))
+    for entry in payload.errors:
+        db.add(
+            ItemError(
+                inventory_item_id=item.id,
+                error_type_id=require_code(
+                    db, ErrorType, entry.error_type, "error_type"
+                ),
+                details=entry.details,
+                source=ProvenanceSource.manual,
+                noted_by_id=admin.id,
+            )
+        )
+    db.commit()
+
+    return ItemErrorsOut(inventory_item_id=item.id, errors=_item_errors(db, item.id))
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

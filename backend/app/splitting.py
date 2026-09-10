@@ -73,7 +73,6 @@ INHERITED = (
     "grade_designation_id",
     "grading_service_id",
     "authenticity_id",
-    "error_type_id",
     "status_id",
     "storage_location_id",
     "valuation_basis_id",

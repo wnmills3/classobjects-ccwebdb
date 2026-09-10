@@ -81,7 +81,8 @@ action -- and goes through the same guarded soft delete as the web UI.
 
 The default reports and changes nothing: rows updated, fields changed, conflicts,
 rejects, and the specific values. `?commit=true` applies it. This is the pattern
-the spreadsheet importer already uses and it has caught real problems.
+the one-off `wnm3_coins.xlsx` importer already uses and it has caught real
+problems.
 
 ## What Excel does to data, and how the export prevents it
 
@@ -100,6 +101,8 @@ the cell level, not merely as a string value:
 | `order_number` | `05-13811-93563` may be read as a date or a formula |
 | `friedberg_number` | `Fr. 1601` is safe; a bare `1601` is not |
 | `item_code` | safe only because `CC-` forces text |
+| `face_plate_number`, `back_plate_number` | `E82` is safe today, but an older, digit-only plate number is exactly as vulnerable as any other identifier here |
+| `plate_position` | a check letter plus a quadrant number, e.g. `A4` -- same risk as the plate numbers above |
 
 `openpyxl` sets `number_format = "@"` per cell. The import also **re-reads what
 it wrote** on export in a self-check, the same way image ingest verifies the
@@ -190,9 +193,10 @@ record. The direction stays one-way.
 | | Rows today |
 |---|---|
 | `inventory_item` | 7,591 |
-| `coin_detail` / `currency_detail` | 6,477 / 1,114 |
+| `coin_detail` / `currency_detail` (plate numbers included) | 6,477 / 1,114 |
 | `item_certification` | 1,456 |
 | `item_note_attribute` | 891 |
+| `item_error` | 0 |
 | `purchase_order`, `vendor` | 3,879 / 21 |
 
 **What it cannot carry**, because it is one-to-many or not item-shaped:
@@ -200,14 +204,15 @@ record. The direction stays one-way.
 | | Rows today | Why |
 |---|---|---|
 | `item_status_history` | **7,591** | an append-only event log per item |
-| `import_row` | **7,591** | the original spreadsheet row, as JSON -- the provenance chain |
+| `import_row` | **7,591** | the one-off `wnm3_coins.xlsx` row that seeded this item, as JSON -- the provenance chain |
 | `listing`, `sales_order`, `customer`, `address`, `shipment` | 0 | **the whole business goes here** |
 | `image`, `item_image` | 0 | binary |
 | `valuation_snapshot`, `location_history` | 0 | histories by design |
 
 The second table is why the direction cannot reverse. Restoring from a
 workbook today would silently drop 7,591 status rows and every item's link
-back to its spreadsheet origin. After the first sale it would drop the sale.
+back to the `wnm3_coins.xlsx` row it started from. After the first sale it
+would drop the sale.
 
 A workbook is also lossy in a way that gets worse rather than better: the
 zero-row tables are the ones the business is about to start filling.
@@ -262,13 +267,21 @@ for a copy you can query.
 
 ## Open questions
 
-- **Which columns are editable** for each view. The coin browse shows 47 and
-  not all of them should be hand-editable; the list wants going through once
-  with the owner rather than guessing.
+- ~~Which columns are editable~~ **Decided 2026-09-10: every field, for both
+  views.** The coin browse shows 47 columns, and the owner's own words: "the
+  spreadsheet we export and import should have all fields to allow for
+  external editing (albeit a dangerous task)." Nothing is withheld to make the
+  workbook safer -- the safety already in this spec (dry run first, a stale
+  version conflicts rather than silently overwriting, a derived column is
+  reported rather than applied, the database staying the system of record) is
+  what makes wide-open editing tolerable, not a shorter column list. This
+  includes the three currency plate-number columns and the multi-valued
+  errors column below; see their own sections for how each is represented.
 - ~~Multi-valued fields.~~ **Decided 2026-09-08: one comma-separated column.**
   See below.
 - **Photographs** are out of scope. A workbook cannot carry them and should
   not pretend to.
 - **Whether import should ever create items.** Editing existing rows is the
-  need. Creating from a spreadsheet is how the original import worked and
-  would reintroduce two sources of truth, so the default is no.
+  need. Creating from a spreadsheet is how the one-off `wnm3_coins.xlsx`
+  import worked and would reintroduce two sources of truth, so the default
+  is no.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import CurrencyDetail, Grade, ItemKind, SealColor
+from app.models import CurrencyDetail, ErrorType, Grade, ItemError, ItemKind, SealColor
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -120,6 +120,54 @@ def test_filters_combine(
 
     body = search(client, "coins", admin_headers, year_min=1880, year_max=1890).json()
     assert {r["id"] for r in body["rows"]} == {wanted.id}
+
+
+def test_error_type_filter_finds_an_item_with_two_errors_exactly_once(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Filtering on one error is a different question from having any error.
+
+    A join naive to the fact that an item can carry several errors would
+    either miss this item or return it twice; a correct implementation finds
+    it filtering on either of its two errors, and once each time.
+    """
+    both = coin(db, source_title="Doubled die, struck off center")
+    coin(db, source_title="An unremarkable coin")
+
+    db.add_all(
+        [
+            ItemError(
+                inventory_item_id=both.id,
+                error_type_id=code_id(db, ErrorType, "doubled_die"),
+            ),
+            ItemError(
+                inventory_item_id=both.id,
+                error_type_id=code_id(db, ErrorType, "off_center"),
+            ),
+        ]
+    )
+    db.commit()
+
+    for error_type in ("doubled_die", "off_center"):
+        body = search(client, "coins", admin_headers, error_type=error_type).json()
+        assert body["total"] == 1
+        assert [r["id"] for r in body["rows"]] == [both.id]
+
+
+def test_error_type_filter_excludes_an_item_without_that_error(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    item = coin(db)
+    db.add(
+        ItemError(
+            inventory_item_id=item.id,
+            error_type_id=code_id(db, ErrorType, "off_center"),
+        )
+    )
+    db.commit()
+
+    body = search(client, "coins", admin_headers, error_type="doubled_die").json()
+    assert body["total"] == 0
 
 
 def test_an_unknown_filter_is_refused_rather_than_ignored(
