@@ -22,13 +22,14 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..lifecycle_writes import record_initial_status
 from ..models import (
     Authenticity,
     BullionForm,
@@ -47,7 +48,6 @@ from ..models import (
     ItemKind,
     ItemNoteAttribute,
     ItemStatus,
-    ItemStatusHistory,
     Metal,
     Mint,
     NoteAttribute,
@@ -390,15 +390,7 @@ class SchemaLoader:
         # transition -- `from_status_id=None` is how the schema says so.
         # `lifecycle_writes.set_status` is for changes to a status that
         # already exists; a status change from here on must go through it.
-        self.session.add(
-            ItemStatusHistory(
-                inventory_item_id=item.id,
-                from_status_id=None,
-                to_status_id=item.status_id,
-                changed_at=datetime.now(UTC),
-                note="set at import",
-            )
-        )
+        record_initial_status(self.session, item, note="set at import")
         return item
 
     # -- pieces ------------------------------------------------------------

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .database import SessionLocal
+from .lifecycle_writes import record_initial_status
 from .models import (
     Authenticity,
     Country,
@@ -139,6 +140,10 @@ def _build(db: Session, row: dict) -> None:
     )
     db.add(item)
     db.flush()
+
+    # Every creation path writes the opening row for its item's history --
+    # see `lifecycle_writes.record_initial_status`.
+    record_initial_status(db, item, note="set at seed")
 
     db.add(
         Listing(

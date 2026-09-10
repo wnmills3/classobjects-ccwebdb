@@ -40,13 +40,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .allocation import allocate
+from .lifecycle_writes import record_initial_status
 from .models import (
     CoinDetail,
     CurrencyDetail,
     Disposition,
     InventoryItem,
     ItemKind,
-    ItemStatusHistory,
     Listing,
     ProvenanceSource,
     SalesOrderItem,
@@ -247,15 +247,7 @@ def split_item(
         # transition -- `from_status_id=None` is how the schema says so.
         # `lifecycle_writes.set_status` is for changes to a status that
         # already exists; a status change from here on must go through it.
-        db.add(
-            ItemStatusHistory(
-                inventory_item_id=child.id,
-                from_status_id=None,
-                to_status_id=child.status_id,
-                changed_at=now,
-                note=f"split from {parent.item_code}",
-            )
-        )
+        record_initial_status(db, child, note=f"split from {parent.item_code}")
         children.append(child)
 
     # The lot is no longer a thing anyone holds.

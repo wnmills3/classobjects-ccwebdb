@@ -10,6 +10,13 @@ row. A helper some callers use is a convention; a helper that is the only way
 to reach the column is a property of the code. Assign `item.status_id` or
 `item.storage_location_id` anywhere else and the history silently stops being
 true.
+
+Two different facts are recorded here. `set_status` and `set_location` record
+*changes* to a column that already holds a value. `record_initial_status`
+records the opposite fact: that an item has just come into existence and
+therefore has never had a status before. Every path that creates an
+`InventoryItem` calls it, so the invariant holds from row one: every item has
+a history, and that history's first row has `from_status_id = NULL`.
 """
 
 from __future__ import annotations
@@ -20,7 +27,41 @@ from sqlalchemy.orm import Session
 
 from .models import InventoryItem, ItemStatusHistory, LocationHistory
 
-__all__ = ["set_location", "set_status"]
+__all__ = ["record_initial_status", "set_location", "set_status"]
+
+
+def record_initial_status(
+    session: Session,
+    item: InventoryItem,
+    *,
+    user_id: int | None = None,
+    note: str | None = None,
+) -> None:
+    """Record the opening row for a newly created item.
+
+    A new item has no status before it has one, so this is not a transition
+    -- `from_status_id` is NULL, which is how the schema itself says "there
+    was nothing before this." `set_status` no-ops when the status is
+    unchanged, and a freshly created item already has `status_id` set, so it
+    would never fire here; an opening row and a transition are different
+    facts, each with its own function.
+    """
+    if item.id is None:
+        # See the matching guard in set_status: a caller may build an item
+        # and open its history in the same breath, before anything has
+        # flushed.
+        session.flush()
+
+    session.add(
+        ItemStatusHistory(
+            inventory_item_id=item.id,
+            from_status_id=None,
+            to_status_id=item.status_id,
+            changed_at=datetime.now(UTC),
+            changed_by_id=user_id,
+            note=note,
+        )
+    )
 
 
 def set_status(
