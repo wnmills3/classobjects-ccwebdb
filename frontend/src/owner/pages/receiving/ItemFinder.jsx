@@ -8,6 +8,11 @@ const VIEWS = [
   ['currency', 'Currency'],
 ]
 
+//: The statuses that mean "has not arrived yet." `missing` is included
+//: alongside `ordered` because a parcel written off as missing sometimes
+//: turns up -- see `OutstandingList`'s matching list.
+const OUTSTANDING_STATUSES = ['ordered', 'missing']
+
 const EMPTY_FILTERS = {
   denomination: '',
   year: '',
@@ -22,10 +27,14 @@ const EMPTY_FILTERS = {
  *
  * Every field here is already a filter `GET /api/inventory/{view}/search`
  * supports, so this needs no backend of its own -- it only shapes the query.
- * `status: 'ordered'` is added to every search, so the operator is never
- * offered something already received: receiving it a second time is a
- * mistake the backend would refuse with a 409, but the picker should not
- * invite it in the first place.
+ * "Not yet arrived" means `status=ordered` or `status=missing` -- a parcel
+ * written off as missing and later turning up is exactly what that code
+ * exists for -- so both are searched and merged. The search endpoint's
+ * `status` filter only ever compares to one value, so this is two requests,
+ * not one; `received`, `canceled` and `returned` items are never among
+ * either, so the operator is never offered something already received:
+ * receiving it a second time is a mistake the backend would refuse with a
+ * 409, but the picker should not invite it in the first place.
  *
  * A single "year" typed here becomes both `year_min` and `year_max`: the
  * backend has no single-year filter, only that range pair.
@@ -71,7 +80,7 @@ export default function ItemFinder({ onPick }) {
 
     setBusy(true)
     setError('')
-    const params = { status: 'ordered' }
+    const params = {}
     if (filters.denomination) params.denomination = filters.denomination
     if (view === 'coins') {
       if (filters.year) {
@@ -85,9 +94,13 @@ export default function ItemFinder({ onPick }) {
     }
 
     try {
-      const body = await api.searchInventory(view, params)
+      const bodies = await Promise.all(
+        OUTSTANDING_STATUSES.map((outstandingStatus) =>
+          api.searchInventory(view, { ...params, status: outstandingStatus }),
+        ),
+      )
       if (cancelled) return
-      setResults(body.rows)
+      setResults(bodies.flatMap((body) => body.rows))
     } catch (err) {
       if (cancelled) return
       setError(err.message)

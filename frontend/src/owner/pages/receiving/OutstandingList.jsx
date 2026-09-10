@@ -3,16 +3,22 @@ import { money } from '../../../shared/format'
 /**
  * The lines of a purchase order that have not arrived yet.
  *
- * A line already marked received has nothing left to do here, so it is
- * filtered out rather than shown disabled -- the owner is receiving a
- * shipment, not auditing the whole order.
+ * "Not yet arrived" is `ordered` or `missing` -- a parcel written off as
+ * missing and then turning up months later is exactly the case that code
+ * exists for, so it stays receivable here rather than only through a manual
+ * status edit. A line already marked `received`, `canceled` or `returned`
+ * has nothing left to do here, so it is filtered out rather than shown
+ * disabled -- the owner is receiving a shipment, not auditing the whole
+ * order.
  *
  * `selected` is an array of line ids; `onChange(ids)` replaces it wholesale,
  * the same convention `InventoryTable` uses, so the parent holds one piece of
  * state rather than this list holding a second copy able to disagree with it.
  */
+const OUTSTANDING_STATUSES = ['ordered', 'missing']
+
 export default function OutstandingList({ lines, selected, onChange }) {
-  const pending = lines.filter((line) => line.status === 'ordered')
+  const pending = lines.filter((line) => OUTSTANDING_STATUSES.includes(line.status))
   const ids = pending.map((line) => line.id)
   const allChecked = ids.length > 0 && ids.every((id) => selected.includes(id))
 
