@@ -6,7 +6,9 @@ import react from '@vitejs/plugin-react'
  *
  * Rollup builds each HTML entry as an independent module graph, which is what
  * keeps owner code out of the shop's bundle. `scripts/check-bundle-isolation.mjs`
- * asserts that against the built manifest rather than trusting it.
+ * asserts that against the emitted bundle graph (see `bundleGraph()` below)
+ * rather than trusting it -- Vite's own manifest cannot show chunk
+ * membership, only chunk imports.
  */
 function twoAppDevFallback() {
   return {
@@ -38,13 +40,53 @@ function twoAppDevFallback() {
   }
 }
 
+/**
+ * Emit which modules ended up in which chunk.
+ *
+ * Vite's own manifest cannot answer this: it records a chunk's imports but not
+ * its contents, and a chunk shared between entries has no `src` attributing it
+ * to a source tree. Rollup only tells you inside `generateBundle`, so that is
+ * where this listens.
+ */
+function bundleGraph() {
+  return {
+    name: 'ccwebdb-bundle-graph',
+    generateBundle(_options, bundle) {
+      const root = process.cwd().replace(/\\/g, '/')
+      const chunks = {}
+      for (const [fileName, chunk] of Object.entries(bundle)) {
+        if (chunk.type !== 'chunk') continue
+        chunks[fileName] = {
+          name: chunk.name,
+          isEntry: chunk.isEntry,
+          imports: chunk.imports,
+          dynamicImports: chunk.dynamicImports,
+          modules: Object.keys(chunk.modules).map((id) =>
+            id.replace(/\\/g, '/').replace(root + '/', ''),
+          ),
+        }
+      }
+      this.emitFile({
+        type: 'asset',
+        fileName: '.vite/bundle-graph.json',
+        source: JSON.stringify(chunks, null, 2),
+      })
+    },
+  }
+}
+
 export default defineConfig({
   // 'mpa' switches off the single-entry SPA fallback, which would send
   // /owner/inventory/coins to the shop. twoAppDevFallback replaces it with one
   // that knows about both entries.
   appType: 'mpa',
-  plugins: [react(), twoAppDevFallback()],
+  plugins: [react(), twoAppDevFallback(), bundleGraph()],
   server: {
+    // Bind IPv4 loopback explicitly. Left unset, Vite binds only [::1] on this
+    // machine, and every documented URL in docs/runtime-operations.md and in
+    // this plan says 127.0.0.1 -- so the documented commands fail with
+    // "connection refused" against a server that is running perfectly well.
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
       '/api': {
