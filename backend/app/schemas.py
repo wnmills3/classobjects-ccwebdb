@@ -632,3 +632,61 @@ class ReferenceValueRename(BaseModel):
     label: str = Field(min_length=1, max_length=255)
     sort_order: int | None = None
     is_active: bool | None = None
+
+
+# --------------------------------------------------------------------------
+# Acquisitions: purchase orders and storage locations
+# --------------------------------------------------------------------------
+
+
+class PurchaseOrderOut(BaseModel):
+    """One acquisition, with how much of it is still outstanding.
+
+    `outstanding` and `total` are line counts, not dollar amounts: this is
+    the row a receiving list shows before anyone opens the order.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_number: str | None
+    vendor: str
+    ordered_on: date | None
+    outstanding: int
+    total: int
+
+
+class PurchaseOrderLineOut(BaseModel):
+    """One line of a purchase order: an item and where it stands."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    item_code: str
+    description: str
+    item_cost: Decimal
+    #: An `item_status` code: ordered, received, canceled, returned, missing.
+    status: str
+
+
+class PurchaseOrderDetailOut(BaseModel):
+    """A purchase order and every line acquired on it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_number: str | None
+    vendor: str
+    ordered_on: date | None
+    lines: list[PurchaseOrderLineOut]
+
+
+class StorageLocationOut(BaseModel):
+    """Where an item physically sits. Admin-only: never customer-visible."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    label: str
+    #: A `storage_location_kind` code: safe_deposit_box, safe, home, ...
+    kind: str
