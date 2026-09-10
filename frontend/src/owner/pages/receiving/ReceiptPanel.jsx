@@ -50,7 +50,13 @@ export default function ReceiptPanel({ itemIds, onDone }) {
   const [photos, setPhotos] = useState([])
   const [photoInputKey, setPhotoInputKey] = useState(0)
   const [uploadError, setUploadError] = useState('')
-  const [reviewOpen, setReviewOpen] = useState(false)
+  // The ids under review, frozen at the moment review was opened -- null
+  // means review is closed. `ReviewPane` never re-reads its `ids` prop (see
+  // its own docstring), so handing it the live `itemIds` prop directly would
+  // let a later tick/untick on this same panel shrink or reorder the queue
+  // out from under an index `ReviewPane` never clamps. Snapshotting here,
+  // once, is what "frozen" actually requires.
+  const [reviewIds, setReviewIds] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -76,6 +82,10 @@ export default function ReceiptPanel({ itemIds, onDone }) {
   // than the submit path having to un-guess it later.
   const singleItemSelected = itemIds.length === 1
   const photoDisabled = disabled || !singleItemSelected
+  // Named so the render below can tell the operator exactly what is about to
+  // be silently dropped, rather than only that photos and multiple items
+  // don't mix.
+  const pendingPhotoNames = photos.map((file) => file.name)
 
   async function submit(outcome) {
     setBusy(true)
@@ -88,9 +98,17 @@ export default function ReceiptPanel({ itemIds, onDone }) {
         note: note || undefined,
       })
       setError('')
+      setUploadError('')
       setNote('')
       setStorageLocationId('')
       setArrivedOn(todayLocal())
+      // The section only ever has something to review while an item is
+      // selected; once the receipt clears the selection, `ReviewPane` would
+      // render nothing for an empty queue anyway, but leaving `reviewIds` set
+      // would still keep the "Confirm or correct fields" button hidden
+      // behind a review pane nobody can see. Closing it here is what makes
+      // it reappear for the next item.
+      setReviewIds(null)
       onDone?.()
 
       // The arrival above is the fact; a photograph is evidence added to it
@@ -178,10 +196,16 @@ export default function ReceiptPanel({ itemIds, onDone }) {
             disabled={photoDisabled}
             onChange={(e) => setPhotos(Array.from(e.target.files ?? []))}
           />
-          {itemIds.length > 1 && (
+          {itemIds.length > 1 && pendingPhotoNames.length === 0 && (
             <span className="muted">
               Photographs attach to a single item -- receive this one on its own to add
               one.
+            </span>
+          )}
+          {itemIds.length > 1 && pendingPhotoNames.length > 0 && (
+            <span className="muted">
+              {pendingPhotoNames.join(', ')} will not be uploaded -- receive this item
+              on its own to attach {pendingPhotoNames.length > 1 ? 'them' : 'it'}.
             </span>
           )}
         </label>
@@ -203,13 +227,13 @@ export default function ReceiptPanel({ itemIds, onDone }) {
           inventory page uses, so this never drifts from that page's idea of
           what a reviewable field is. */}
       <div className="review-toggle">
-        {!reviewOpen && (
-          <button type="button" onClick={() => setReviewOpen(true)}>
+        {reviewIds === null && (
+          <button type="button" onClick={() => setReviewIds(itemIds)}>
             Confirm or correct fields
           </button>
         )}
-        {reviewOpen && (
-          <ReviewPane ids={itemIds} onClose={() => setReviewOpen(false)} />
+        {reviewIds !== null && (
+          <ReviewPane ids={reviewIds} onClose={() => setReviewIds(null)} />
         )}
       </div>
     </div>
