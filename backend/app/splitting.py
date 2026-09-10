@@ -243,6 +243,10 @@ def split_item(
         )
         db.add(detail_model(inventory_item_id=child.id))
 
+        # This writes the OPENING row for a newly created item, not a
+        # transition -- `from_status_id=None` is how the schema says so.
+        # `lifecycle_writes.set_status` is for changes to a status that
+        # already exists; a status change from here on must go through it.
         db.add(
             ItemStatusHistory(
                 inventory_item_id=child.id,

@@ -28,6 +28,7 @@ from ..inventory_search import (
     plain,
     search,
 )
+from ..lifecycle_writes import set_status
 from ..models import (
     Authenticity,
     BullionForm,
@@ -436,7 +437,7 @@ def update_item(
     item_id: int,
     payload: InventoryItemUpdate,
     db: DbSession,
-    _admin: AdminUser,
+    admin: AdminUser,
 ) -> InventoryItem:
     """Correct an item. Send `version` to be told about conflicts.
 
@@ -469,10 +470,21 @@ def update_item(
     for field, model in ITEM_CLASSIFIERS.items():
         if field in data:
             value = data[field]
+            resolved: int | None
             if field in REQUIRED_CLASSIFIERS:
-                setattr(item, f"{field}_id", require_code(db, model, value, field))
+                resolved = require_code(db, model, value, field)
             else:
-                setattr(item, f"{field}_id", code_to_id(db, model, value, field))
+                resolved = code_to_id(db, model, value, field)
+            # Status is the one classifier with a history table behind it.
+            # Going through set_status is what keeps that table true; a plain
+            # setattr here is the bug this endpoint used to have. Status is
+            # a REQUIRED_CLASSIFIER, so require_code already refused a null
+            # code above and resolved is never None here.
+            if field == "status":
+                assert resolved is not None
+                set_status(db, item, resolved, user_id=admin.id)
+            else:
+                setattr(item, f"{field}_id", resolved)
 
     for field in EDITABLE_SCALARS:
         if field in data:
