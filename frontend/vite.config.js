@@ -114,6 +114,17 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.js',
+    // Pinned to a real zone BEHIND UTC (not UTC itself) so tests that pin a
+    // clock instant -- see ReceiptPanel.test.jsx's arrival-date test -- keep
+    // their teeth everywhere. A UTC runner cannot distinguish "local date"
+    // from "UTC date" at all, so a bug that silently reverts a local-date
+    // default to `toISOString()`'s UTC date would slip through unnoticed on
+    // such a runner. America/New_York matches this project's operator
+    // (docs/runtime-operations.md) and keeps the existing 2026-09-09/
+    // 2026-09-10 assertions valid without touching the test.
+    env: {
+      TZ: 'America/New_York',
+    },
     coverage: {
       provider: 'v8',
       // lcov is what SonarQube reads; text keeps the number visible in the
