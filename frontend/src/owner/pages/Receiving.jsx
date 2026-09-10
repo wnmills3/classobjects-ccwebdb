@@ -105,9 +105,16 @@ export default function Receiving() {
     }
   }
 
+  // `selected` is cleared too, not just `foundItemId` -- a check left over
+  // from the order path has no business surviving a switch to the search
+  // path and back. `detail` stays: the fetch effect only refires when
+  // `orderId` changes, so clearing it here with `orderId` unchanged would
+  // strand the order view on "Loading..." forever instead of ever
+  // re-fetching.
   function switchMode(next) {
     setMode(next)
     setFoundItemId(null)
+    setSelected([])
   }
 
   return (
