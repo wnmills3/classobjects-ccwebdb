@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
+import ItemFinder from './receiving/ItemFinder'
 import OrderPicker from './receiving/OrderPicker'
 import OutstandingList from './receiving/OutstandingList'
 import ReceiptPanel from './receiving/ReceiptPanel'
@@ -22,6 +23,13 @@ import { date } from '../../shared/format'
  * clicked past from landing after a faster, later one -- clicking through
  * three orders quickly is exactly the case that would otherwise show stale
  * lines under the wrong order.
+ *
+ * `mode` chooses between the two ways in to the same `ReceiptPanel`: the
+ * order path above (pick an order, check off lines) is the default, and
+ * `ItemFinder`'s attribute search is the fallback for when the object is in
+ * hand and which order it came from is not known. Both paths only ever hand
+ * `ReceiptPanel` ids for things still `ordered`, so it never has to know
+ * which path found them.
  */
 export default function Receiving() {
   const [orders, setOrders] = useState(null)
@@ -30,6 +38,8 @@ export default function Receiving() {
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState('')
   const [selected, setSelected] = useState([])
+  const [mode, setMode] = useState('order')
+  const [foundItemId, setFoundItemId] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -87,38 +97,84 @@ export default function Receiving() {
   // submitted would otherwise linger in `selected` and be resubmitted --
   // already `received`, which the backend answers with a 409.
   function handleReceiptDone() {
-    setSelected([])
-    if (orderId != null) reloadOrder(orderId)
+    if (mode === 'order') {
+      setSelected([])
+      if (orderId != null) reloadOrder(orderId)
+    } else {
+      setFoundItemId(null)
+    }
+  }
+
+  function switchMode(next) {
+    setMode(next)
+    setFoundItemId(null)
   }
 
   return (
     <section>
       <h1>Receiving</h1>
 
-      {ordersError && <p className="error">{ordersError}</p>}
-      {!ordersError && !orders && <p className="muted">Loading...</p>}
-      {orders && (
-        <OrderPicker orders={orders} selectedId={orderId} onPick={setOrderId} />
+      <div className="filter-grid">
+        <label>
+          <input
+            type="radio"
+            name="receiving-mode"
+            value="order"
+            checked={mode === 'order'}
+            onChange={() => switchMode('order')}
+          />
+          By order
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="receiving-mode"
+            value="search"
+            checked={mode === 'search'}
+            onChange={() => switchMode('search')}
+          />
+          By item
+        </label>
+      </div>
+
+      {mode === 'order' && (
+        <>
+          {ordersError && <p className="error">{ordersError}</p>}
+          {!ordersError && !orders && <p className="muted">Loading...</p>}
+          {orders && (
+            <OrderPicker orders={orders} selectedId={orderId} onPick={setOrderId} />
+          )}
+
+          {orderId != null && (
+            <div className="admin-form">
+              {detailError && <p className="error">{detailError}</p>}
+              {loadingOrder && <p className="muted">Loading...</p>}
+              {order && (
+                <>
+                  <h2>
+                    {order.order_number} &middot; {order.vendor} &middot;{' '}
+                    {date(order.ordered_on)}
+                  </h2>
+                  <OutstandingList
+                    lines={order.lines}
+                    selected={selected}
+                    onChange={setSelected}
+                  />
+                  <ReceiptPanel itemIds={selected} onDone={handleReceiptDone} />
+                </>
+              )}
+            </div>
+          )}
+        </>
       )}
 
-      {orderId != null && (
+      {mode === 'search' && (
         <div className="admin-form">
-          {detailError && <p className="error">{detailError}</p>}
-          {loadingOrder && <p className="muted">Loading...</p>}
-          {order && (
-            <>
-              <h2>
-                {order.order_number} &middot; {order.vendor} &middot;{' '}
-                {date(order.ordered_on)}
-              </h2>
-              <OutstandingList
-                lines={order.lines}
-                selected={selected}
-                onChange={setSelected}
-              />
-              <ReceiptPanel itemIds={selected} onDone={handleReceiptDone} />
-            </>
-          )}
+          <ItemFinder onPick={setFoundItemId} />
+          <ReceiptPanel
+            itemIds={foundItemId != null ? [foundItemId] : []}
+            onDone={handleReceiptDone}
+          />
         </div>
       )}
     </section>
