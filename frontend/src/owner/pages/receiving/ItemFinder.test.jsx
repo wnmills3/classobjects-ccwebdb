@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({ api: { searchInventory: vi.fn() } }))
@@ -60,5 +60,37 @@ describe('ItemFinder', () => {
     await search()
     await userEvent.click(await screen.findByText('CC-000412'))
     expect(onPick).toHaveBeenCalledWith(412)
+  })
+
+  it('drops a coins response that lands after the view was switched away', async () => {
+    // Reproduces the reviewer's probe: a coins search stalls, the operator
+    // switches to currency before it resolves, and only then does the
+    // stale coins response land. It must never reach the screen -- rendering
+    // it would leave a clickable row from a search the operator already
+    // navigated away from, which `onPick` would report as a currency pick.
+    let resolveCoins
+    api.searchInventory.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCoins = resolve
+        }),
+    )
+
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /find/i }))
+    await waitFor(() =>
+      expect(api.searchInventory).toHaveBeenCalledWith('coins', expect.anything()),
+    )
+
+    await userEvent.click(screen.getByRole('radio', { name: /currency/i }))
+
+    await act(async () => {
+      resolveCoins({
+        rows: [{ id: 412, item_code: 'CC-000412', description: '1881-S Morgan $1' }],
+        total: 1,
+      })
+    })
+
+    expect(screen.queryByText('CC-000412')).not.toBeInTheDocument()
   })
 })

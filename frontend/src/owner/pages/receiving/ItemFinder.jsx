@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { api } from '../../api'
 
@@ -29,6 +29,14 @@ const EMPTY_FILTERS = {
  *
  * A single "year" typed here becomes both `year_min` and `year_max`: the
  * backend has no single-year filter, only that range pair.
+ *
+ * `cancelRef` guards against a stale response the same way `Receiving.jsx`
+ * guards a stale order fetch: a search in flight sets a `cancelled` flag a
+ * later event can flip before the response lands. Switching the view is the
+ * case that matters -- a coins row must never render, let alone be clickable
+ * into `onPick`, once the fields on screen are currency's -- and starting a
+ * fresh search invalidates whatever the button's own last click kicked off,
+ * so two in-flight requests can never both write to `results`.
  */
 export default function ItemFinder({ onPick }) {
   const [view, setView] = useState('coins')
@@ -36,17 +44,31 @@ export default function ItemFinder({ onPick }) {
   const [results, setResults] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const cancelRef = useRef(null)
 
   function setField(field, value) {
     setFilters((prev) => ({ ...prev, [field]: value }))
   }
 
+  function invalidatePendingSearch() {
+    cancelRef.current?.()
+    cancelRef.current = null
+  }
+
   function switchView(next) {
+    invalidatePendingSearch()
+    setBusy(false)
     setView(next)
     setResults(null)
   }
 
   async function find() {
+    invalidatePendingSearch()
+    let cancelled = false
+    cancelRef.current = () => {
+      cancelled = true
+    }
+
     setBusy(true)
     setError('')
     const params = { status: 'ordered' }
@@ -64,12 +86,14 @@ export default function ItemFinder({ onPick }) {
 
     try {
       const body = await api.searchInventory(view, params)
+      if (cancelled) return
       setResults(body.rows)
     } catch (err) {
+      if (cancelled) return
       setError(err.message)
       setResults(null)
     } finally {
-      setBusy(false)
+      if (!cancelled) setBusy(false)
     }
   }
 
