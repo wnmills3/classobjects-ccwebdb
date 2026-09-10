@@ -1,23 +1,24 @@
 /**
- * The list of purchase orders still worth receiving against.
+ * The list of purchase orders to receive against.
  *
- * The backend returns every order regardless of how much of it has arrived
- * (that view is cheap to compute once for the whole list); an order with
- * nothing outstanding is filtered out here rather than there, since "is this
- * one worth showing" is a display decision, not a fact about the order.
+ * Shows every order the backend returns, including one that has fully
+ * arrived: hiding it here would remove the only way to look back at what
+ * an order contained once everything on it was received, and `OrderLines`
+ * already renders a fully-arrived order's lines just fine (all dimmed,
+ * none selectable). `outstanding` (from `GET /api/purchase-orders`, which
+ * counts `ordered` and `missing`) is shown as a hint, not a filter -- so an
+ * order whose only receivable line is `missing` is never hidden either,
+ * which a filter on `outstanding > 0` alone would still have gotten right,
+ * but a fully-received order would not have.
  */
 export default function OrderPicker({ orders, selectedId, onPick }) {
-  const outstanding = orders.filter((order) => order.outstanding > 0)
-
-  if (outstanding.length === 0) {
-    return (
-      <p className="muted">Nothing outstanding -- every order has fully arrived.</p>
-    )
+  if (orders.length === 0) {
+    return <p className="muted">No purchase orders yet.</p>
   }
 
   return (
     <ul className="order-picker">
-      {outstanding.map((order) => (
+      {orders.map((order) => (
         <li
           key={order.id}
           className={

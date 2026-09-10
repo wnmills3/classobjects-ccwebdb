@@ -107,11 +107,13 @@ hand and do not know which order it came from.
 +- Receive ----------------------------------------+
 | Order [eBay 27-1234  v]   or  [search by item v] |
 +--------------------------------------------------+
-  Outstanding (3 of 5)                  [select all]
-  [ ] CC-000412  1881-S Morgan $1        $84.00
-  [ ] CC-000413  1923 Peace $1           $91.00
-  [ ] CC-000414  $2 1976 FRN  L1234...   $12.00
-  --------------------------------------------------
+  Order 27-1234 (3 of 5 not yet arrived) [select all]
+  [ ] CC-000412  1881-S Morgan $1        $84.00  ordered
+  [ ] CC-000414  $2 1976 FRN  L1234...   $12.00  ordered
+  [ ] CC-000415  1899-O Morgan $1        $75.00  missing
+  --------------------------------------------------------
+  [x] CC-000413  1923 Peace $1           $91.00  received   (dimmed, not tickable)
+  --------------------------------------------------------
   Selected: CC-000412
     Arrived [2026-09-09]   Into [Safe deposit box v]
     Note    [edge knock not in the listing photos  ]
@@ -119,6 +121,17 @@ hand and do not know which order it came from.
     Confirm or correct fields                     v
     [ Receive ]  [ Missing ]  [ Returned ]  [ Cancelled ]
 ```
+
+`OrderLines` (named `OutstandingList` in an earlier draft, before it showed
+every line) renders every line on the order, not just the ones still coming:
+otherwise an order whose sole receivable line is `missing` had no route back
+in at all, and there was no way to see what an order had contained once
+everything on it arrived. Not-yet-arrived lines (`ordered`, `missing`) sort
+first, each line's status is shown so the two groups read apart, and only a
+not-yet-arrived line's checkbox is enabled -- a `received`/`canceled`/
+`returned` line is shown for context and cannot be ticked, individually or
+through "select all". The backend would refuse re-receiving one with a 409
+anyway, but the page should not invite the click.
 
 Ticking several lines and pressing **Receive** applies the same arrival date,
 location and note to all of them -- the common case for a box of twenty coins.
@@ -203,11 +216,18 @@ does the opening `set at import` row.
 **`GET /api/purchase-orders`** -- every purchase order, unfiltered and
 unpaginated, ordered by id descending. Each row carries the vendor, the order
 number, `ordered_on`, and counts of outstanding versus total lines, computed
-in one grouped SQL query rather than by loading every order's items. There is
-no `order_number` or vendor filter on the endpoint itself -- "worth showing"
-is decided client-side, where `OrderPicker` drops any order whose
-`outstanding` count is zero before it ever reaches the screen. There is no
-purchase-order router today; acquisition has been import-only.
+in one grouped SQL query rather than by loading every order's items.
+`outstanding` counts a line that is `ordered` **or** `missing` -- a line
+written off as missing is paid for, not cancelled, and sometimes turns up
+later, so it is exactly as outstanding as one still `ordered`; counting only
+`ordered` would make an order whose sole receivable line is `missing` report
+`outstanding=0` and vanish from `OrderPicker` with no route back to it.
+There is no `order_number` or vendor filter on the endpoint itself, and
+`OrderPicker` no longer filters by `outstanding` either -- it shows every
+order the endpoint returns, a fully-received one included, since that is the
+only way to look back at what an order contained once everything on it had
+arrived. There is no purchase-order router today; acquisition has been
+import-only.
 
 **`GET /api/purchase-orders/{id}`** -- one order with its line items: item
 code, a short description, cost, current status. This is the list the page
@@ -237,12 +257,12 @@ document put behind its own bundle; neither is an excuse to relax the view.
   re-receiving overwrites a true arrival date with today's. Correcting a
   genuine mistake is `PATCH`, which now records the correction too.
 
-  `ordered` and `missing` are both receivable -- the outstanding list and the
-  attribute search both offer either status, never `received`, `canceled` or
-  `returned`. A parcel written off as missing and then turning up months
-  later is exactly the case the `missing` code was added for -- refusing it
-  would leave the only route to the truth a manual status edit, which is the
-  untracked path this document exists to close.
+  `ordered` and `missing` are both receivable -- `OrderLines` and the
+  attribute search both let either status be selected, never `received`,
+  `canceled` or `returned`. A parcel written off as missing and then turning
+  up months later is exactly the case the `missing` code was added for --
+  refusing it would leave the only route to the truth a manual status edit,
+  which is the untracked path this document exists to close.
 - **A `storage_location_id` that does not exist:** 422 listing valid ids.
 - **An outcome other than the four codes:** 422 naming them, matching how the
   routers already refuse an unknown filter or an unknown review field.
@@ -276,9 +296,14 @@ Backend:
 
 Frontend, in `src/owner/`:
 
-- The outstanding list shows items that are `ordered` or `missing`, and
-  nothing else -- a `received` line has nothing left to do, and a missing
-  one is exactly the late-arrival case the previous section describes.
+- `OrderLines` shows every line on the order, not-yet-arrived (`ordered`,
+  `missing`) ones sorted first, with each line's status shown.
+- A `received`/`canceled`/`returned` line appears but cannot be ticked, and
+  "select all" skips it.
+- A `missing` line is selectable and sorts above a `received` one.
+- `OrderPicker` still offers an order whose only receivable line is
+  `missing` (backend: the `outstanding` count includes it; frontend: the
+  picker no longer filters on `outstanding` at all).
 - Selecting several and receiving sends one request, not several.
 - Each of the four outcomes sends its own code.
 - The shop bundle does not grow: `check-bundle-isolation.mjs` and the ESLint

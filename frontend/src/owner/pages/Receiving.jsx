@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
 import ItemFinder from './receiving/ItemFinder'
+import OrderLines from './receiving/OrderLines'
 import OrderPicker from './receiving/OrderPicker'
-import OutstandingList from './receiving/OutstandingList'
 import ReceiptPanel from './receiving/ReceiptPanel'
 import { date } from '../../shared/format'
 
@@ -11,7 +11,7 @@ import { date } from '../../shared/format'
  * Receiving: pick a purchase order, see what on it has not arrived yet.
  *
  * `selected` (the checked line ids) is held here rather than inside
- * `OutstandingList`, so a later action bar -- recording arrival, choosing a
+ * `OrderLines`, so a later action bar -- recording arrival, choosing a
  * storage location -- can read it without the list needing to know that
  * anything downstream exists.
  *
@@ -93,7 +93,7 @@ export default function Receiving() {
   const order = detail?.id === orderId ? detail.body : null
   const loadingOrder = orderId != null && order == null && !detailError
 
-  // A received item drops off the outstanding list, so the ids just
+  // A received item becomes unselectable in `OrderLines`, so the ids just
   // submitted would otherwise linger in `selected` and be resubmitted --
   // already `received`, which the backend answers with a 409.
   function handleReceiptDone() {
@@ -162,7 +162,7 @@ export default function Receiving() {
                     {order.order_number} &middot; {order.vendor} &middot;{' '}
                     {date(order.ordered_on)}
                   </h2>
-                  <OutstandingList
+                  <OrderLines
                     lines={order.lines}
                     selected={selected}
                     onChange={setSelected}

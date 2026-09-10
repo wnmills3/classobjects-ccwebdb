@@ -21,13 +21,30 @@ const orders = [
     outstanding: 0,
     total: 4,
   },
+  {
+    id: 3,
+    order_number: '27-1236',
+    vendor: 'GreatCollections',
+    ordered_on: '2026-09-01',
+    // The backend counts `missing` as outstanding too; this order's only
+    // receivable line is `missing`, so it must not be treated as fully done.
+    outstanding: 1,
+    total: 1,
+  },
 ]
 
 describe('OrderPicker', () => {
-  it('shows only orders with something outstanding', () => {
+  it('shows every order, including one that has fully arrived', () => {
+    // A fully-received order is still worth looking at -- there is no other
+    // way to see what it contained once everything on it arrived.
     render(<OrderPicker orders={orders} selectedId={null} onPick={vi.fn()} />)
     expect(screen.getByText(/27-1234/)).toBeInTheDocument()
-    expect(screen.queryByText(/27-1235/)).not.toBeInTheDocument()
+    expect(screen.getByText(/27-1235/)).toBeInTheDocument()
+  })
+
+  it('offers an order whose only receivable line is missing', () => {
+    render(<OrderPicker orders={orders} selectedId={null} onPick={vi.fn()} />)
+    expect(screen.getByText(/27-1236/)).toBeInTheDocument()
   })
 
   it('calls onPick with the order id when clicked', async () => {
@@ -38,8 +55,8 @@ describe('OrderPicker', () => {
     expect(onPick).toHaveBeenCalledWith(1)
   })
 
-  it('says so when nothing is outstanding', () => {
-    render(<OrderPicker orders={[orders[1]]} selectedId={null} onPick={vi.fn()} />)
-    expect(screen.getByText(/nothing outstanding/i)).toBeInTheDocument()
+  it('says so when there are no purchase orders at all', () => {
+    render(<OrderPicker orders={[]} selectedId={null} onPick={vi.fn()} />)
+    expect(screen.getByText(/no purchase orders/i)).toBeInTheDocument()
   })
 })

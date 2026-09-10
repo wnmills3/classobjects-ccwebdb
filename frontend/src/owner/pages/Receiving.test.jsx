@@ -60,12 +60,14 @@ describe('Receiving', () => {
     expect(screen.getByText(/3 of 5/i)).toBeInTheDocument()
   })
 
-  it('lists only the lines that have not arrived', async () => {
+  it('lists every line on the order, including one that has already arrived', async () => {
     renderWithProviders(<Receiving />, { auth: adminAuth() })
     const order = await screen.findByText(/27-1234/)
     order.click()
     await waitFor(() => expect(api.getPurchaseOrder).toHaveBeenCalledWith(1))
     expect(await screen.findByText('CC-000412')).toBeInTheDocument()
-    expect(screen.queryByText('CC-000413')).not.toBeInTheDocument()
+    // Shown for context, but not selectable -- OrderLines.test.jsx covers
+    // that in detail; this only checks the two are wired together.
+    expect(await screen.findByText('CC-000413')).toBeInTheDocument()
   })
 })
