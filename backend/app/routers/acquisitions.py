@@ -40,7 +40,14 @@ _ITEM_IS_LIVE = and_(
 
 @purchase_orders_router.get("")
 def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrderOut]:
-    """Every purchase order, with how many of its lines are still outstanding.
+    """Every purchase order, with how many of its lines have not yet arrived.
+
+    "Not yet arrived" is `ordered` or `missing` -- a line written off as
+    missing is paid for, not cancelled, and sometimes turns up later, so it
+    is exactly as outstanding as one still `ordered`. Counting only `ordered`
+    would make an order whose sole receivable line is `missing` report
+    `outstanding=0` and disappear from `OrderPicker` entirely, with no route
+    back to it.
 
     The counts are computed in SQL, one grouped query for every order, rather
     than by loading each order's items and counting in Python -- an order can
@@ -52,7 +59,9 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
     non-live still appears (with `outstanding=0, total=0`) instead of being
     dropped by the aggregation entirely.
     """
-    outstanding = func.count(case((ItemStatus.code == "ordered", InventoryItem.id)))
+    outstanding = func.count(
+        case((ItemStatus.code.in_(["ordered", "missing"]), InventoryItem.id))
+    )
     total = func.count(InventoryItem.id)
 
     rows = db.execute(

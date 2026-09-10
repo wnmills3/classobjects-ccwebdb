@@ -47,6 +47,35 @@ def test_orders_report_how_much_is_outstanding(
     assert row["total"] == 5
 
 
+def test_a_missing_line_counts_as_outstanding(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`missing` means paid for, not cancelled, never arrived -- not `outstanding=0`.
+
+    An order whose only receivable line is `missing` must still be offered by
+    `GET /api/purchase-orders`, or the late arrival has no route back in
+    through the order path at all.
+    """
+    vendor = Vendor(name="Missing-only Vendor")
+    db.add(vendor)
+    db.flush()
+    order = PurchaseOrder(vendor_id=vendor.id, order_number="27-4321")
+    db.add(order)
+    db.flush()
+    missing_id = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "missing")
+    ).one()
+    item = make_item(db, status_id=missing_id)
+    item.purchase_order_id = order.id
+    db.commit()
+
+    res = client.get("/api/purchase-orders", headers=admin_headers)
+    assert res.status_code == 200
+    row = next(r for r in res.json() if r["id"] == order.id)
+    assert row["outstanding"] == 1
+    assert row["total"] == 1
+
+
 def test_an_order_lists_its_lines_with_their_status(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
