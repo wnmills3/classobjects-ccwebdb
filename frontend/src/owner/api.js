@@ -57,6 +57,20 @@ export const api = {
     send(`/api/inventory/${id}/parent`, { method: 'DELETE' }),
   deleteInventoryItem: (id) => send(`/api/inventory/${id}`, { method: 'DELETE' }),
 
+  // acquisition -- reading what was ordered, to record what arrived
+  listPurchaseOrders: (params = {}) => {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined) qs.set(k, v)
+    })
+    const query = qs.toString()
+    return send(`/api/purchase-orders${query ? `?${query}` : ''}`)
+  },
+  getPurchaseOrder: (id) => send(`/api/purchase-orders/${id}`),
+  listStorageLocations: () => send('/api/storage-locations'),
+  receiveItems: (payload) =>
+    send('/api/inventory/receive', { method: 'POST', body: payload }),
+
   // accounts -- who can sign in
   listUsers: () => send('/api/users'),
   updateUser: (id, payload) =>

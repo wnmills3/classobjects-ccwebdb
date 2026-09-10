@@ -209,3 +209,27 @@ button.link.danger {
 .select-cell {
   width: 2rem;
 }
+
+/* Receiving: the list of orders with something outstanding. Each row is
+   clickable rather than a native <select>, so the picked order can carry its
+   own "outstanding of total" detail instead of collapsing to plain option
+   text. */
+.order-picker {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+.order-row {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 0.4rem;
+  padding: 0.5rem 0.8rem;
+}
+.order-row:hover {
+  background: var(--surface);
+}
+.order-row-active {
+  background: var(--surface);
+  border-color: var(--accent);
+}
