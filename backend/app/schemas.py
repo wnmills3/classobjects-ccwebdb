@@ -690,3 +690,73 @@ class StorageLocationOut(BaseModel):
     label: str
     #: A `storage_location_kind` code: safe_deposit_box, safe, home, ...
     kind: str
+
+
+# --------------------------------------------------------------------------
+# Friedberg numbers: the owner's own catalogue, not a licensed dataset
+# --------------------------------------------------------------------------
+
+
+class FriedbergNumberOut(BaseModel):
+    """One row of the owner's Friedberg catalogue.
+
+    `verified` mirrors whether `verified_at` is set -- a confirmed row is a
+    fact the next lookup can trust, a proposal is not.
+    """
+
+    id: int
+    fr_number: str
+    note_type: str | None
+    denomination: str | None
+    series_year: int | None
+    series_letter: str | None
+    seal_color: str | None
+    signature_combination: str | None
+    district_letter: str | None
+    size_class: str | None
+    description: str | None
+    #: A `provenance_source` value: seeded, derived, manual. Every row here is
+    #: `manual` today -- there is no licensed dataset to seed from -- but the
+    #: field is carried through so a later merge stays distinguishable.
+    source: str
+    verified: bool
+    verified_at: datetime | None
+
+
+class FriedbergNumberCreate(BaseModel):
+    """A Friedberg number read off a note or slab in the owner's hands.
+
+    The attribute tuple is the same one `GET /friedberg` filters on, and every
+    field but `fr_number` is optional -- a half-known type is a normal state
+    for a catalogue built by hand as notes arrive.
+    """
+
+    fr_number: str = Field(min_length=1, max_length=32)
+    note_type: str | None = None
+    denomination: str | None = None
+    series_year: int | None = Field(default=None, ge=1861, le=2100)
+    series_letter: str | None = Field(default=None, max_length=4)
+    seal_color: str | None = None
+    signature_combination: str | None = None
+    district_letter: str | None = Field(default=None, min_length=1, max_length=1)
+    size_class: str | None = Field(default=None, pattern="^(large|small|fractional)$")
+    description: str | None = None
+
+
+class FriedbergAttachIn(BaseModel):
+    """Attach a catalogue row to a currency item's `currency_detail`."""
+
+    friedberg_id: int
+    #: A `friedberg_status` value: unknown, proposed, confirmed, conflicting.
+    status: str
+
+
+class FriedbergAttachOut(BaseModel):
+    """The result of attaching a Friedberg number to an item."""
+
+    inventory_item_id: int
+    friedberg_id: int
+    friedberg_status: str
+    fr_number: str
+    verified: bool
+    verified_at: datetime | None

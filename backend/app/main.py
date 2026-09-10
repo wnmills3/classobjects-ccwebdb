@@ -11,6 +11,7 @@ from .routers import (
     auth,
     catalog,
     customers,
+    friedberg,
     images,
     inventory,
     orders,
@@ -42,6 +43,8 @@ app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(customers.router, prefix=settings.api_prefix)
 app.include_router(acquisitions.purchase_orders_router, prefix=settings.api_prefix)
 app.include_router(acquisitions.storage_locations_router, prefix=settings.api_prefix)
+app.include_router(friedberg.friedberg_router, prefix=settings.api_prefix)
+app.include_router(friedberg.item_router, prefix=settings.api_prefix)
 
 
 @app.get("/health", tags=["meta"])
