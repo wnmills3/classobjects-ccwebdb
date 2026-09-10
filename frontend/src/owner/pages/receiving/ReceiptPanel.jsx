@@ -68,6 +68,14 @@ export default function ReceiptPanel({ itemIds, onDone }) {
   }, [])
 
   const disabled = itemIds.length === 0 || busy
+  // A photograph is evidence of one physical object. With several items
+  // selected there is no honest way to say which of them the picture is of
+  // -- attaching it to all of them (or guessing "the first") would put a
+  // wrong provenance record on every item but one, and a wrong record reads
+  // as a right one. So the control itself refuses the ambiguous case rather
+  // than the submit path having to un-guess it later.
+  const singleItemSelected = itemIds.length === 1
+  const photoDisabled = disabled || !singleItemSelected
 
   async function submit(outcome) {
     setBusy(true)
@@ -88,22 +96,31 @@ export default function ReceiptPanel({ itemIds, onDone }) {
       // The arrival above is the fact; a photograph is evidence added to it
       // afterwards. A failed upload must not undo the receipt just recorded,
       // so it is caught on its own -- reported against the item, retryable,
-      // and never allowed to roll the receipt back or skip `onDone`.
-      if (photos.length > 0) {
-        try {
-          await Promise.all(
-            itemIds.flatMap((id) =>
-              photos.map((file, index) =>
-                api.uploadImage(id, file, { isPrimary: index === 0 }),
-              ),
-            ),
-          )
-          setPhotos([])
-          setPhotoInputKey((key) => key + 1)
-          setUploadError('')
-        } catch (err) {
-          setUploadError(err.message)
-        }
+      // and never allowed to roll the receipt back or skip `onDone`. Only
+      // ever reachable with exactly one item: the input above is disabled
+      // otherwise, and this check is the same guarantee enforced again at
+      // the point that actually names the item to attach to.
+      if (photos.length > 0 && singleItemSelected) {
+        const [itemId] = itemIds
+        const results = await Promise.allSettled(
+          photos.map((file, index) =>
+            api.uploadImage(itemId, file, { isPrimary: index === 0 }),
+          ),
+        )
+        // allSettled, not all: one bad file must not hide whether the other
+        // photos in the same batch landed. Reported by name, since "it
+        // failed" without saying which file is not something the operator
+        // can act on.
+        const failures = results
+          .map((result, index) => [result, photos[index]])
+          .filter(([result]) => result.status === 'rejected')
+        setUploadError(
+          failures
+            .map(([result, file]) => `${file.name}: ${result.reason.message}`)
+            .join('; '),
+        )
+        setPhotos([])
+        setPhotoInputKey((key) => key + 1)
       }
     } catch (err) {
       setError(err.message)
@@ -158,9 +175,15 @@ export default function ReceiptPanel({ itemIds, onDone }) {
             type="file"
             accept="image/*"
             multiple
-            disabled={disabled}
+            disabled={photoDisabled}
             onChange={(e) => setPhotos(Array.from(e.target.files ?? []))}
           />
+          {itemIds.length > 1 && (
+            <span className="muted">
+              Photographs attach to a single item -- receive this one on its own to add
+              one.
+            </span>
+          )}
         </label>
       </div>
 
