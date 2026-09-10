@@ -28,7 +28,7 @@ from ..inventory_search import (
     plain,
     search,
 )
-from ..lifecycle_writes import set_status
+from ..lifecycle_writes import set_location, set_status
 from ..models import (
     Authenticity,
     BullionForm,
@@ -46,15 +46,18 @@ from ..models import (
     Metal,
     Series,
     StorageForm,
+    StorageLocation,
 )
 from ..references import code_to_id, require_code
 from ..schemas import (
+    RECEIVE_OUTCOMES,
     BulkEditRequest,
     InventoryItemOut,
     InventoryItemUpdate,
     InventoryPageOut,
     ItemDetailOut,
     ItemReviewOut,
+    ReceiveRequest,
     ReviewRequest,
     SplitPieceIn,
     SplitRequest,
@@ -243,6 +246,72 @@ def _classifier_code(db: Session, model: type, fk: int | None) -> str | None:
         return None
     row = db.get(model, fk)
     return row.code if row is not None else None
+
+
+@router.post("/receive")
+def receive_items(
+    payload: ReceiveRequest, db: DbSession, admin: AdminUser
+) -> dict[str, int]:
+    """Record what arrived, for one item or a whole box of them.
+
+    All or nothing, in one transaction, the same as `POST /bulk` and for the
+    same reason: a partial receipt across twenty coins leaves a state nobody
+    can describe, and "which of the twenty applied?" is not a question the UI
+    should have to answer. Every id is resolved and every code checked before
+    anything is written.
+    """
+    if payload.outcome not in RECEIVE_OUTCOMES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown outcome {payload.outcome!r}. "
+            f"Known: {sorted(RECEIVE_OUTCOMES)}",
+        )
+
+    items = db.scalars(
+        select(InventoryItem).where(InventoryItem.id.in_(payload.item_ids))
+    ).all()
+    missing = sorted(set(payload.item_ids) - {i.id for i in items})
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Unknown item ids: {missing}")
+
+    received_id = require_code(db, ItemStatus, "received", "status")
+    already = [i.item_code for i in items if i.status_id == received_id]
+    if already and payload.outcome == "received":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Already received: {sorted(already)}. "
+            "Use PATCH to correct a receipt rather than repeating it.",
+        )
+
+    if payload.storage_location_id is not None:
+        exists = db.get(StorageLocation, payload.storage_location_id)
+        if exists is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown storage_location_id: {payload.storage_location_id}",
+            )
+
+    to_status = require_code(db, ItemStatus, payload.outcome, "status")
+    for item in items:
+        set_status(
+            db,
+            item,
+            to_status,
+            user_id=admin.id,
+            note=payload.note,
+            arrived_on=payload.arrived_on if payload.outcome == "received" else None,
+        )
+        if payload.outcome == "received" and payload.storage_location_id is not None:
+            set_location(
+                db,
+                item,
+                payload.storage_location_id,
+                user_id=admin.id,
+                note=payload.note,
+            )
+
+    db.commit()
+    return {"received": len(items)}
 
 
 @router.get("/{item_id}")

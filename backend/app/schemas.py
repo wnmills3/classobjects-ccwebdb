@@ -12,7 +12,7 @@ surprise several layers down.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -517,6 +517,24 @@ class BulkEditRequest(BaseModel):
     #: was lost than something anyone meant.
     ids: list[int] = Field(min_length=1)
     changes: InventoryItemUpdate
+
+
+#: The four outcomes a receipt can record. `received` is the common one;
+#: the rest close out a line that will not arrive. Without them there is no
+#: way to finish an order except to leave it permanently outstanding.
+RECEIVE_OUTCOMES: frozenset[str] = frozenset(
+    {"received", "missing", "returned", "canceled"}
+)
+
+
+class ReceiveRequest(BaseModel):
+    """One receipt, applied to one or many items at once."""
+
+    item_ids: list[int] = Field(min_length=1)
+    outcome: str
+    arrived_on: date | None = None
+    storage_location_id: int | None = None
+    note: str | None = None
 
 
 class ReviewRequest(BaseModel):
