@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
+import ReviewPane from '../inventory/ReviewPane'
 
 //: Outcome value the backend expects, paired with the button's label. The
 //: backend spells the fourth one with a single L (`canceled`); the button
@@ -46,6 +47,10 @@ export default function ReceiptPanel({ itemIds, onDone }) {
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [photos, setPhotos] = useState([])
+  const [photoInputKey, setPhotoInputKey] = useState(0)
+  const [uploadError, setUploadError] = useState('')
+  const [reviewOpen, setReviewOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -79,6 +84,27 @@ export default function ReceiptPanel({ itemIds, onDone }) {
       setStorageLocationId('')
       setArrivedOn(todayLocal())
       onDone?.()
+
+      // The arrival above is the fact; a photograph is evidence added to it
+      // afterwards. A failed upload must not undo the receipt just recorded,
+      // so it is caught on its own -- reported against the item, retryable,
+      // and never allowed to roll the receipt back or skip `onDone`.
+      if (photos.length > 0) {
+        try {
+          await Promise.all(
+            itemIds.flatMap((id) =>
+              photos.map((file, index) =>
+                api.uploadImage(id, file, { isPrimary: index === 0 }),
+              ),
+            ),
+          )
+          setPhotos([])
+          setPhotoInputKey((key) => key + 1)
+          setUploadError('')
+        } catch (err) {
+          setUploadError(err.message)
+        }
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -124,6 +150,18 @@ export default function ReceiptPanel({ itemIds, onDone }) {
             onChange={(e) => setNote(e.target.value)}
           />
         </label>
+
+        <label>
+          Photo
+          <input
+            key={photoInputKey}
+            type="file"
+            accept="image/*"
+            multiple
+            disabled={disabled}
+            onChange={(e) => setPhotos(Array.from(e.target.files ?? []))}
+          />
+        </label>
       </div>
 
       <div className="receipt-actions">
@@ -135,6 +173,22 @@ export default function ReceiptPanel({ itemIds, onDone }) {
       </div>
 
       {error && <p className="error">{error}</p>}
+      {uploadError && <p className="error">{uploadError}</p>}
+
+      {/* Collapsed by default -- expanding shows the item's reviewable
+          fields, composed from the same ReviewPane/ItemEditForm the
+          inventory page uses, so this never drifts from that page's idea of
+          what a reviewable field is. */}
+      <div className="review-toggle">
+        {!reviewOpen && (
+          <button type="button" onClick={() => setReviewOpen(true)}>
+            Confirm or correct fields
+          </button>
+        )}
+        {reviewOpen && (
+          <ReviewPane ids={itemIds} onClose={() => setReviewOpen(false)} />
+        )}
+      </div>
     </div>
   )
 }

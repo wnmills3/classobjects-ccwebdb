@@ -76,6 +76,11 @@ export async function send(path, { method = 'GET', body, form, auth = true } = {
 
   if (form) {
     payload = new URLSearchParams(body)
+  } else if (body instanceof FormData) {
+    // Multipart body (an image upload). Handed to `fetch` untouched: the
+    // browser sets `Content-Type` itself, boundary included, and setting it
+    // by hand here would produce a request the server cannot parse.
+    payload = body
   } else if (body !== undefined) {
     headers['Content-Type'] = 'application/json'
     payload = JSON.stringify(body)
