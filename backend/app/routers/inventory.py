@@ -9,7 +9,7 @@ Staff-only throughout: everything here exposes cost basis.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated
 
@@ -265,6 +265,19 @@ def receive_items(
             status_code=422,
             detail=f"Unknown outcome {payload.outcome!r}. "
             f"Known: {sorted(RECEIVE_OUTCOMES)}",
+        )
+
+    # A future arrived_on is a data-entry error, not a fact: the thing has
+    # not physically turned up yet. Checked here rather than as a lower
+    # bound against the purchase order's ordered_on, which is frequently
+    # null and would refuse legitimate data -- today's date is the only
+    # bound with a real justification.
+    today: date = datetime.now(UTC).date()
+    if payload.arrived_on is not None and payload.arrived_on > today:
+        raise HTTPException(
+            status_code=422,
+            detail=f"arrived_on {payload.arrived_on.isoformat()} is in the "
+            f"future. Today is {today.isoformat()}.",
         )
 
     items = db.scalars(

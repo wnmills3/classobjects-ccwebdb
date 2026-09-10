@@ -7,7 +7,7 @@ test here starts from an item that is already `ordered`.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from app.models import InventoryItem, ItemStatus, ItemStatusHistory
 from fastapi.testclient import TestClient
@@ -51,6 +51,49 @@ def test_receiving_records_the_arrival(
     assert row.arrived_on == date(2026, 9, 4)
     assert row.note == "edge knock not in the listing photos"
     assert row.changed_by_id is not None
+
+
+def test_a_future_arrival_date_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """arrived_on records when the thing physically turned up.
+
+    A future date is a data-entry error, not a fact yet.
+    """
+    item = _ordered(db)
+    # Matches the endpoint's own reference point (UTC), not local wall-clock
+    # time -- the two can disagree by a day within a few hours of midnight
+    # UTC, which would make this test flaky against a fixed local `today`.
+    tomorrow = datetime.now(UTC).date() + timedelta(days=1)
+    res = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_ids": [item.id],
+            "outcome": "received",
+            "arrived_on": tomorrow.isoformat(),
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 422
+    assert tomorrow.isoformat() in res.text
+
+
+def test_todays_arrival_date_is_accepted(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The boundary matters: today is a real arrival, not a future one."""
+    item = _ordered(db)
+    today = datetime.now(UTC).date()
+    res = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_ids": [item.id],
+            "outcome": "received",
+            "arrived_on": today.isoformat(),
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
 
 
 def test_one_bad_id_writes_nothing(
@@ -112,17 +155,40 @@ def test_a_parcel_written_off_as_missing_can_still_turn_up(
     And things that never arrived sometimes arrive.
     """
     item = _ordered(db)
-    client.post(
+    missing_id = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "missing")
+    ).one()
+    received_id = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "received")
+    ).one()
+
+    first = client.post(
         "/api/inventory/receive",
         json={"item_ids": [item.id], "outcome": "missing"},
         headers=admin_headers,
     )
+    assert first.status_code == 200
+
+    db.expire_all()
+    assert db.get(type(item), item.id).status_id == missing_id
+
     res = client.post(
         "/api/inventory/receive",
         json={"item_ids": [item.id], "outcome": "received"},
         headers=admin_headers,
     )
     assert res.status_code == 200
+
+    db.expire_all()
+    assert db.get(type(item), item.id).status_id == received_id
+
+    row = db.scalars(
+        select(ItemStatusHistory)
+        .where(ItemStatusHistory.inventory_item_id == item.id)
+        .order_by(ItemStatusHistory.id.desc())
+    ).first()
+    assert row.from_status_id == missing_id
+    assert row.to_status_id == received_id
 
 
 def test_an_unknown_outcome_is_refused_listing_the_known_ones(
