@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from ..deps import AdminUser, DbSession
+from ..lifecycle_writes import record_initial_status
 from ..models import (
     Authenticity,
     BullionForm,
@@ -287,6 +288,13 @@ def create_catalog_item(
     )
     db.add(item)
     db.flush()
+
+    # Every creation path writes the opening row for its item's history --
+    # see `lifecycle_writes.record_initial_status`. This one names its
+    # origin and the admin who did it, since both are known here.
+    record_initial_status(
+        db, item, user_id=_admin.id, note="created through the catalogue API"
+    )
 
     listing = Listing(
         inventory_item_id=item.id,

@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.models import Listing
+from app.models import ItemStatusHistory, Listing
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 NEW_ITEM = {
@@ -218,6 +219,27 @@ def test_creating_makes_both_an_item_and_a_listing(
     assert listing is not None
     assert listing.inventory_item_id == body["inventory_item_id"]
     assert listing.inventory_item.source_title == NEW_ITEM["title"]
+
+
+def test_creating_writes_the_opening_history_row(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """An item created through the shop has a lifecycle from row one, too.
+
+    Before `record_initial_status` was wired in here, this path created an
+    `InventoryItem` with no `item_status_history` row at all -- the importer
+    and the splitter both wrote one, this endpoint did not.
+    """
+    body = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
+
+    rows = db.scalars(
+        select(ItemStatusHistory).where(
+            ItemStatusHistory.inventory_item_id == body["inventory_item_id"]
+        )
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].from_status_id is None
+    assert rows[0].to_status_id == db.get(Listing, body["id"]).inventory_item.status_id
 
 
 def test_an_unknown_classifier_is_rejected(
