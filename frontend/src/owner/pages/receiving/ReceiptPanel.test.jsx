@@ -37,11 +37,31 @@ describe('ReceiptPanel', () => {
     expect(api.receiveItems.mock.calls[0][0].outcome).toBe('missing')
   })
 
-  it('defaults the arrival date to today but lets it be changed', async () => {
-    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
-    const field = await screen.findByLabelText(/arrived/i)
-    expect(field).toHaveValue(new Date().toISOString().slice(0, 10))
+  it('defaults the arrival date to the local calendar date, not UTC, but lets it be changed', async () => {
+    // Pinned rather than read from the real clock: at whatever instant this
+    // suite happens to run, local and UTC dates might agree, and a test that
+    // only fails during some hours of the day is worse than no test. This
+    // machine's zone is America/New_York (UTC-4 in September); the instant
+    // below is 2026-09-09 22:00 local but already 2026-09-10 in UTC, so a
+    // component that reverted to `toISOString()` would show the wrong day.
+    // Faking only `Date` (not timers) -- faking setTimeout/setInterval as
+    // well stalls React's own scheduling and testing-library's async
+    // queries, which is why an earlier draft of this test hung.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-10T02:00:00.000Z'))
+    try {
+      renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+      const field = await screen.findByLabelText(/arrived/i)
+      expect(field).toHaveValue('2026-09-09')
+      // Guards against exactly the regression this test exists to catch --
+      // without it, a revert to the UTC-based default would still pass the
+      // assertion above only by coincidence outside the pinned instant.
+      expect(field).not.toHaveValue('2026-09-10')
+    } finally {
+      vi.useRealTimers()
+    }
 
+    const field = screen.getByLabelText(/arrived/i)
     await userEvent.clear(field)
     await userEvent.type(field, '2026-09-04')
     await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
