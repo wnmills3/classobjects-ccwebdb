@@ -12,6 +12,13 @@ vi.mock('../../api', () => ({
     getInventoryItem: vi.fn(),
     setItemReview: vi.fn(),
     updateInventoryItem: vi.fn(),
+    // Reachable once a currency item is selected -- FriedbergLookup calls
+    // these itself, but it only mounts after "Look up Friedberg number" is
+    // pressed, so most tests here never touch them.
+    getSignatureCombinations: vi.fn(),
+    searchFriedberg: vi.fn(),
+    createFriedbergNumber: vi.fn(),
+    attachFriedberg: vi.fn(),
   },
 }))
 
@@ -51,6 +58,7 @@ beforeEach(() => {
   api.getInventoryItem.mockResolvedValue(ITEM)
   api.setItemReview.mockResolvedValue({ reviewed: [] })
   api.updateInventoryItem.mockResolvedValue({})
+  api.getSignatureCombinations.mockResolvedValue({ table: 'signature_combination', values: [] })
 })
 
 describe('ReceiptPanel', () => {
@@ -265,5 +273,53 @@ describe('ReceiptPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
     await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
     expect(api.uploadImage).not.toHaveBeenCalled()
+  })
+
+  it('does not offer a Friedberg lookup for a coin', async () => {
+    // A coin has no Friedberg number; offering the lookup for one is an
+    // invitation to the 404 the attach endpoint returns for an item with no
+    // currency_detail. On its own, this would still pass a component that
+    // hides the section unconditionally -- it is paired with the next test,
+    // which the same component would fail if it ignored item_kind, so
+    // together they show the gate actually reads it rather than hiding (or
+    // showing) the section no matter what the item is.
+    api.getInventoryItem.mockResolvedValue({ ...ITEM, item_kind: 'coin' })
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+
+    await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledWith(412))
+    expect(
+      screen.queryByRole('button', { name: /friedberg/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers a collapsed Friedberg lookup for a currency item', async () => {
+    // Would fail a component that always hides the section (the previous
+    // test's failure mode) or that shows the lookup form immediately instead
+    // of collapsed -- both are asserted here.
+    api.getInventoryItem.mockResolvedValue({ ...ITEM, item_kind: 'currency' })
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+
+    const toggle = await screen.findByRole('button', { name: /look up friedberg/i })
+    // Collapsed by default: nothing about the lookup form is on screen, and
+    // nothing about it has run, until the toggle is pressed.
+    expect(screen.queryByLabelText(/denomination/i)).not.toBeInTheDocument()
+    expect(api.searchFriedberg).not.toHaveBeenCalled()
+
+    await userEvent.click(toggle)
+    expect(await screen.findByLabelText(/denomination/i)).toBeInTheDocument()
+  })
+
+  it('does not offer a Friedberg lookup with several items selected', async () => {
+    // Attaching needs one item id to name -- the same ambiguity a photograph
+    // runs into with several selected. Asserting `getInventoryItem` was never
+    // called is what makes this more than a restatement of the "hides for a
+    // coin" test: a component that fetched anyway and only hid the button
+    // would still fail this.
+    renderWithProviders(<ReceiptPanel itemIds={[412, 413]} onDone={vi.fn()} />)
+    await screen.findByRole('button', { name: /^receive$/i })
+    expect(api.getInventoryItem).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('button', { name: /friedberg/i }),
+    ).not.toBeInTheDocument()
   })
 })

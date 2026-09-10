@@ -57,6 +57,32 @@ export const api = {
     send(`/api/inventory/${id}/parent`, { method: 'DELETE' }),
   deleteInventoryItem: (id) => send(`/api/inventory/${id}`, { method: 'DELETE' }),
 
+  // friedberg -- the owner's own banknote catalogue: searched by what is
+  // visible on a note in hand, recorded from a number read off one, and
+  // attached to the currency item it identifies. Ships empty by design --
+  // CLAUDE.md forbids seeding, fetching or hardcoding a publisher's Friedberg
+  // mapping, so nothing here ever does.
+  searchFriedberg: (params = {}) => {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined) qs.set(k, v)
+    })
+    const query = qs.toString()
+    return send(`/api/friedberg${query ? `?${query}` : ''}`)
+  },
+  createFriedbergNumber: (payload) =>
+    send('/api/friedberg', { method: 'POST', body: payload }),
+  attachFriedberg: (itemId, payload) =>
+    send(`/api/inventory/${itemId}/friedberg`, { method: 'POST', body: payload }),
+  // Signature combinations narrowed to the pairs whose term covers a series
+  // year -- not `getReference` (in shared/api.js), which has no way to pass
+  // `year`. Adding the param there would hand every anonymous shop visitor a
+  // query string only this console feature has a reason to use.
+  getSignatureCombinations: (year) =>
+    send(`/api/reference/signature_combination${year ? `?year=${year}` : ''}`, {
+      auth: false,
+    }),
+
   // acquisition -- reading what was ordered, to record what arrived
   listPurchaseOrders: (params = {}) => {
     const qs = new URLSearchParams()
