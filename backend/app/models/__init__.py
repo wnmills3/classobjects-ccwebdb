@@ -29,7 +29,6 @@ from .base import (
     utcnow,
 )
 from .core import (
-    DEFAULT_TAX_RATE,
     CoinDetail,
     CurrencyDetail,
     InventoryItem,
@@ -141,7 +140,6 @@ REFERENCE_MODELS: tuple[type[ReferenceMixin], ...] = (
 )
 
 __all__ = [
-    "DEFAULT_TAX_RATE",
     "REFERENCE_MODELS",
     "Address",
     "AddressKind",

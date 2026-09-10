@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Computed,
     Date,
@@ -32,6 +33,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
+from ..config import settings
 from .base import Base, ProvenanceSource, TimestampMixin, enum_column
 
 if TYPE_CHECKING:  # relationship targets only -- importing these at runtime
@@ -62,16 +64,38 @@ __all__ = [
     "Vendor",
 ]
 
-#: The default sales-tax rate applied to acquisitions. Stored per row rather
-#: than baked into the generated expression, because rates vary by
-#: jurisdiction and change over time.
-DEFAULT_TAX_RATE = Decimal("0.0635")
+#: `sales_tax` and `total_cost` are both generated. PostgreSQL forbids a
+#: generated column from referencing another generated column, so the tax
+#: expression is repeated inside the total rather than referenced -- keeping
+#: them as one constant here means the two can never drift apart.
+#:
+#: Both inputs that decide the tax -- the rate, and whether shipping is taxed
+#: -- are columns on the row: not literals, and not settings read at query
+#: time. See `_configured_tax_rate` for why.
+_TAX_EXPR = (
+    "round((item_cost + CASE WHEN tax_includes_shipping THEN shipping_cost "
+    "ELSE 0 END) * tax_rate, 2)"
+)
 
-#: `taxes` and `total_cost` are both generated. PostgreSQL forbids a generated
-#: column from referencing another generated column, so the tax expression is
-#: repeated inside the total rather than referenced -- keeping them as one
-#: constant here means the two can never drift apart.
-_TAX_EXPR = "round((item_cost + shipping_cost) * tax_rate, 2)"
+
+def _configured_tax_rate() -> Decimal:
+    """The rate a new item is stamped with: the setting as it stands now.
+
+    Called once, on INSERT, and never again. Tax paid is a historical fact, so
+    the setting is copied onto the row rather than read when tax is computed:
+    changing SALES_TAX_RATE then governs purchases recorded after the change
+    and rewrites none recorded before it.
+    """
+    return settings.sales_tax_rate
+
+
+def _configured_tax_includes_shipping() -> bool:
+    """Whether a new item's shipping is taxed, per the setting as it stands now.
+
+    Stamped on INSERT for the same reason as `_configured_tax_rate`.
+    """
+    return settings.sales_tax_includes_shipping
+
 
 #: Prefix for the permanent item code. Fixed at migration time because it is
 #: baked into a column default; changing it later renames nothing already
@@ -380,11 +404,18 @@ class InventoryItem(TimestampMixin, Base):
     shipping_cost: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), default=Decimal("0.00"), nullable=False
     )
+    #: A fraction: 0.0635 is 6.35%, and 0 records a purchase that was charged
+    #: no sales tax. Stamped from SALES_TAX_RATE when the item is created.
+    #: Deliberately no server default: a copy of the rate baked into the schema
+    #: would be a second source of truth, and a raw INSERT that omits the rate
+    #: should fail loudly rather than quietly use a stale one.
     tax_rate: Mapped[Decimal] = mapped_column(
-        Numeric(6, 4),
-        default=DEFAULT_TAX_RATE,
-        server_default=text("0.0635"),
-        nullable=False,
+        Numeric(6, 4), default=_configured_tax_rate, nullable=False
+    )
+    #: Whether shipping was part of the taxed amount. Stamped from
+    #: SALES_TAX_INCLUDES_SHIPPING, for the same reason as `tax_rate`.
+    tax_includes_shipping: Mapped[bool] = mapped_column(
+        Boolean, default=_configured_tax_includes_shipping, nullable=False
     )
     #: Sales tax paid on the purchase. Specifically that, not "taxes" --
     #: income tax on a realised gain is a different thing entirely and this
