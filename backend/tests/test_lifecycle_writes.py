@@ -58,7 +58,7 @@ def test_the_arrival_date_is_kept_apart_from_when_it_was_logged(
         .order_by(ItemStatusHistory.id.desc())
     ).first()
     assert row.arrived_on == friday
-    assert row.changed_at.date() != friday or True  # changed_at is "now"
+    assert row.changed_at.date() == date.today()
 
 
 def test_setting_the_same_status_records_nothing(db: Session) -> None:
@@ -123,3 +123,33 @@ def test_editing_the_status_through_the_api_records_it(
     ).all()
     assert rows[-1].to_status_id == _status_id(db, "received")
     assert rows[-1].changed_by_id is not None
+
+
+def test_bulk_editing_the_status_through_the_api_records_it_per_item(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A bulk edit is the likelier path to "received" than a single PATCH.
+
+    An owner marks a whole order received at once, not one coin at a time.
+    """
+    ordered = _status_id(db, "ordered")
+    items = [make_item(db, status_id=ordered) for _ in range(2)]
+    db.commit()
+
+    res = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [i.id for i in items], "changes": {"status": "received"}},
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["updated"] == 2
+
+    for item in items:
+        rows = db.scalars(
+            select(ItemStatusHistory).where(
+                ItemStatusHistory.inventory_item_id == item.id
+            )
+        ).all()
+        assert rows[-1].from_status_id == ordered
+        assert rows[-1].to_status_id == _status_id(db, "received")
+        assert rows[-1].changed_by_id is not None
