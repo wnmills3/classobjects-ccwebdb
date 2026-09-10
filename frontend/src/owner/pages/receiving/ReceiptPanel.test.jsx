@@ -58,7 +58,10 @@ beforeEach(() => {
   api.getInventoryItem.mockResolvedValue(ITEM)
   api.setItemReview.mockResolvedValue({ reviewed: [] })
   api.updateInventoryItem.mockResolvedValue({})
-  api.getSignatureCombinations.mockResolvedValue({ table: 'signature_combination', values: [] })
+  api.getSignatureCombinations.mockResolvedValue({
+    table: 'signature_combination',
+    values: [],
+  })
 })
 
 describe('ReceiptPanel', () => {
@@ -287,9 +290,7 @@ describe('ReceiptPanel', () => {
     renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
 
     await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledWith(412))
-    expect(
-      screen.queryByRole('button', { name: /friedberg/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /friedberg/i })).not.toBeInTheDocument()
   })
 
   it('offers a collapsed Friedberg lookup for a currency item', async () => {
@@ -318,8 +319,6 @@ describe('ReceiptPanel', () => {
     renderWithProviders(<ReceiptPanel itemIds={[412, 413]} onDone={vi.fn()} />)
     await screen.findByRole('button', { name: /^receive$/i })
     expect(api.getInventoryItem).not.toHaveBeenCalled()
-    expect(
-      screen.queryByRole('button', { name: /friedberg/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /friedberg/i })).not.toBeInTheDocument()
   })
 })

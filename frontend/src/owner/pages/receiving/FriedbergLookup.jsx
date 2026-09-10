@@ -243,8 +243,13 @@ export default function FriedbergLookup({ itemId, onClose }) {
       </div>
 
       <div className="row">
-        <button type="button" disabled={searching} onClick={search}>
-          Look up
+        {/* Not disabled while a search is already running: refining a filter
+            and pressing this again before a slow response lands is a normal
+            way to use the form, not a mistake to block. The stale-response
+            guard above (`searchCancelRef`) is what keeps that safe, the same
+            idiom `ItemFinder` uses for its own "Find" button. */}
+        <button type="button" onClick={search}>
+          {searching ? 'Looking up...' : 'Look up'}
         </button>
         {onClose && (
           <button type="button" className="link" onClick={onClose}>
