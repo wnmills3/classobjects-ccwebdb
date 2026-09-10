@@ -155,7 +155,6 @@ _J_STATUS = "JOIN item_status st ON st.id = i.status_id"
 _J_DISP = "JOIN disposition disp ON disp.id = i.disposition_id"
 _J_STORAGE = "JOIN storage_form stf ON stf.id = i.storage_form_id"
 _J_AUTH = "JOIN authenticity a ON a.id = i.authenticity_id"
-_J_ERROR = "LEFT JOIN error_type et ON et.id = i.error_type_id"
 _J_METAL = "LEFT JOIN metal mt ON mt.id = i.metal_id"
 _J_SERIES = "LEFT JOIN series ser ON ser.id = i.series_id"
 _J_BULLION = "LEFT JOIN bullion_form bf ON bf.id = i.bullion_form_id"
@@ -178,6 +177,19 @@ _C_DESCRIPTION = "i.description"
 _C_YEAR_START = "i.year_start"
 _C_GRADE_VALUE = "g.numeric_value"
 _C_KIND_CODE = "k.code"
+
+# An item may carry several errors (miscut and overprint on the same bill are
+# both normal), so the codes are aggregated by a correlated subquery rather
+# than reached with a join. A join would multiply the item's row once per
+# matching error -- corrupting every other column in the same SELECT, not
+# just this one -- and would still need a second aggregation step to avoid
+# it. `errors` is empty for the overwhelming majority of items, which is what
+# array_agg over zero rows already returns: NULL.
+_C_ERROR_TYPES = (
+    "(SELECT array_agg(iet.code ORDER BY iet.code) FROM item_error ie "
+    "JOIN error_type iet ON iet.id = ie.error_type_id "
+    "WHERE ie.inventory_item_id = i.id)"
+)
 
 
 _SHARED_COLUMNS: dict[str, Col] = {
@@ -211,7 +223,8 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "disposition": Col("disp.code", (_J_DISP,)),
     "storage_form": Col("stf.code", (_J_STORAGE,)),
     "authenticity": Col("a.code", (_J_AUTH,)),
-    "error_type": Col("et.code", (_J_ERROR,)),
+    # No join: see the note on _C_ERROR_TYPES.
+    "error_types": Col(_C_ERROR_TYPES),
     "series": Col("ser.code", (_J_SERIES,)),
     "series_label": Col("ser.label", (_J_SERIES,)),
 }
@@ -224,7 +237,8 @@ _SHARED_FILTERS: dict[str, Filt] = {
     "status": Filt("st.code", join=(_J_STATUS,)),
     "disposition": Filt("disp.code", join=(_J_DISP,)),
     "denomination": Filt("d.code", join=(_J_DENOM,)),
-    "error_type": Filt("et.code", join=(_J_ERROR,)),
+    # Not here: "error_type" is handled by `_error_type_clause`, an EXISTS
+    # subquery rather than a join, for the same reason as `_C_ERROR_TYPES`.
     "series": Filt("ser.code", join=(_J_SERIES,)),
     "year_min": Filt(_C_YEAR_START, "gte"),
     "year_max": Filt(_C_YEAR_START, "lte"),
@@ -412,6 +426,27 @@ def _lot_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | None:
     return "i.parent_item_id = (SELECT id FROM inventory_item WHERE item_code = :p_lot)"
 
 
+def _error_type_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | None:
+    """Items carrying at least one error of the named type.
+
+    An EXISTS subquery, not a join or the generic `Filt` machinery: an item
+    may carry more than one error, and a join would return that item once per
+    matching row, corrupting both the count and the page it belongs to.
+    "Has this error" and "has any error" are different questions -- this
+    answers only the first, and an item with two errors is still returned
+    exactly once.
+    """
+    code = params.pop("error_type", None)
+    if not code:
+        return None
+    bound["p_error_type"] = code
+    return (
+        "EXISTS (SELECT 1 FROM item_error ie "
+        "JOIN error_type et ON et.id = ie.error_type_id "
+        "WHERE ie.inventory_item_id = i.id AND et.code = :p_error_type)"
+    )
+
+
 def _issue_clause(
     spec: ViewSpec, params: dict[str, Any], joins: list[tuple[str, ...]]
 ) -> str | None:
@@ -462,7 +497,11 @@ def _conditions(
 
     params = dict(params)
     clauses.append(_deleted_clause(params))
-    for clause in (_lot_clause(params, bound), _issue_clause(spec, params, joins)):
+    for clause in (
+        _lot_clause(params, bound),
+        _issue_clause(spec, params, joins),
+        _error_type_clause(params, bound),
+    ):
         if clause is not None:
             clauses.append(clause)
 

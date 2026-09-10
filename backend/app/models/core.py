@@ -44,7 +44,6 @@ from .reference import (
     Country,
     Denomination,
     Disposition,
-    ErrorType,
     Grade,
     GradeDesignation,
     GradingService,
@@ -257,13 +256,9 @@ class InventoryItem(TimestampMixin, Base):
         ForeignKey("authenticity.id", ondelete="RESTRICT"), index=True, nullable=False
     )
 
-    # -- errors -----------------------------------------------------------
-    #: Never inferred from free text: description fields are seller prose, and
-    #: keyword matching against them is unreliable in both directions.
-    error_type_id: Mapped[int | None] = mapped_column(
-        ForeignKey("error_type.id", ondelete="RESTRICT"), index=True, nullable=True
-    )
-    error_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Mint and printing errors live in `item_error`, not here: miscut and
+    # overprint commonly appear on the same bill, and a single FK cannot
+    # express that. See `app.models.identification.ItemError`.
 
     # -- lifecycle, two independent axes ----------------------------------
     status_id: Mapped[int] = mapped_column(
@@ -461,7 +456,6 @@ class InventoryItem(TimestampMixin, Base):
     grade_designation: Mapped[GradeDesignation | None] = relationship()
     grading_service: Mapped[GradingService | None] = relationship()
     authenticity: Mapped[Authenticity] = relationship()
-    error_type: Mapped[ErrorType | None] = relationship()
     status: Mapped[ItemStatus] = relationship()
     disposition: Mapped[Disposition] = relationship()
     metal: Mapped[Metal | None] = relationship()
@@ -690,6 +684,24 @@ class CurrencyDetail(Base):
     friedberg_status: Mapped[str] = mapped_column(
         String(16), default="unknown", server_default=text("'unknown'"), nullable=False
     )
+
+    # -- plate markings -----------------------------------------------------
+    # A currency mule is a note whose face and back plates come from
+    # different design eras -- mismatched, rather than absent. Without these
+    # recorded, a mule cannot be identified at all.
+    #
+    # All three are text, not integers, for the same reason as
+    # `purchase_order.order_number`: storing them as a number destroys
+    # information irreversibly. A face plate designation carries a check
+    # letter (`E82`), a plate position is a check letter plus a quadrant
+    # number, and formats vary by era.
+    #: The plate that printed the face, e.g. `E82`.
+    face_plate_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: The plate that printed the back, e.g. `E82`.
+    back_plate_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: Where on the printing sheet this note sat: a check letter plus a
+    #: quadrant number.
+    plate_position: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     item: Mapped[InventoryItem] = relationship(back_populates="currency_detail")
 

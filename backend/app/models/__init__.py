@@ -39,6 +39,7 @@ from .core import (
 from .identification import (
     FriedbergNumber,
     ItemCertification,
+    ItemError,
     ItemNoteAttribute,
     PcgsType,
 )
@@ -171,6 +172,7 @@ __all__ = [
     "ImageRole",
     "InventoryItem",
     "ItemCertification",
+    "ItemError",
     "ItemFieldReview",
     "ItemImage",
     "ItemKind",

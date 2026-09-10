@@ -15,10 +15,13 @@ from app.models import (  # noqa: F401
     Composition,
     Country,
     Currency,
+    CurrencyDetail,
     Denomination,
     Disposition,
+    ErrorType,
     Grade,
     InventoryItem,
+    ItemError,
     ItemKind,
     ItemStatus,
     Listing,
@@ -466,3 +469,91 @@ def test_concurrent_inserts_cannot_collide_on_a_code(db: Session) -> None:
     """
     codes = {make_item(db).item_code for _ in range(20)}
     assert len(codes) == 20
+
+
+# ---------------------------------------------------------------------------
+# Currency plate numbers
+# ---------------------------------------------------------------------------
+
+
+def test_plate_numbers_accept_a_check_letter(db: Session) -> None:
+    """`E82` is a real plate designation: text, not a bare integer.
+
+    Storing it as a number would destroy the check letter irreversibly, the
+    same reasoning `purchase_order.order_number` documents.
+    """
+    item = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    detail = CurrencyDetail(
+        inventory_item_id=item.id,
+        face_plate_number="E82",
+        back_plate_number="E14",
+        plate_position="A4",
+    )
+    db.add(detail)
+    db.commit()
+    db.expire(detail)
+
+    assert detail.face_plate_number == "E82"
+    assert detail.back_plate_number == "E14"
+    assert detail.plate_position == "A4"
+
+
+# ---------------------------------------------------------------------------
+# Item errors: several per item
+# ---------------------------------------------------------------------------
+
+
+def test_an_item_can_carry_two_different_errors(db: Session) -> None:
+    """Miscut and overprint commonly appear on the same bill."""
+    item = make_item(db)
+    doubled_die = code_id(db, ErrorType, "doubled_die")
+    off_center = code_id(db, ErrorType, "off_center")
+
+    db.add_all(
+        [
+            ItemError(
+                inventory_item_id=item.id, error_type_id=doubled_die, details="a"
+            ),
+            ItemError(inventory_item_id=item.id, error_type_id=off_center, details="b"),
+        ]
+    )
+    db.commit()
+
+    rows = (
+        db.execute(select(ItemError).where(ItemError.inventory_item_id == item.id))
+        .scalars()
+        .all()
+    )
+    assert {r.error_type_id for r in rows} == {doubled_die, off_center}
+    assert {r.details for r in rows} == {"a", "b"}
+
+
+def test_the_same_error_twice_on_one_item_is_refused(db: Session) -> None:
+    """The unique constraint: the same fact recorded twice, not two facts."""
+    item = make_item(db)
+    error_type = code_id(db, ErrorType, "off_center")
+    db.add(ItemError(inventory_item_id=item.id, error_type_id=error_type))
+    db.commit()
+
+    db.add(ItemError(inventory_item_id=item.id, error_type_id=error_type))
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+
+def test_deleting_an_item_deletes_its_errors(db: Session) -> None:
+    """An error is meaningless without its item -- CASCADE, not RESTRICT."""
+    item = make_item(db)
+    error_type = code_id(db, ErrorType, "off_center")
+    db.add(ItemError(inventory_item_id=item.id, error_type_id=error_type))
+    db.commit()
+
+    db.delete(item)
+    db.commit()
+
+    remaining = (
+        db.execute(select(ItemError).where(ItemError.inventory_item_id == item.id))
+        .scalars()
+        .all()
+    )
+    assert remaining == []

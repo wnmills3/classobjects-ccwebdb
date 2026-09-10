@@ -556,6 +556,56 @@ class ItemReviewOut(BaseModel):
     reviewed: list[str]
 
 
+class ItemErrorIn(BaseModel):
+    """One mint or printing error, as part of an item's whole set."""
+
+    error_type: str = Field(max_length=64)
+    #: Free text, per error -- so miscut and overprint on the same bill each
+    #: get their own note rather than sharing one field.
+    details: str | None = None
+
+
+class ItemErrorsRequest(BaseModel):
+    """The whole set of errors an item carries.
+
+    A replace, not an add/remove pair: `PUT /inventory/{item_id}/errors`
+    stores exactly this list and discards whatever was recorded before.
+    """
+
+    errors: list[ItemErrorIn] = Field(default_factory=list)
+
+    @field_validator("errors")
+    @classmethod
+    def _no_repeated_type(cls, errors: list[ItemErrorIn]) -> list[ItemErrorIn]:
+        """The same error twice in one request is a client mistake, not two facts.
+
+        Caught here rather than left to the database's unique constraint so
+        the caller gets a 422 naming the repeat instead of a 500 from a bulk
+        insert that half-applied.
+        """
+        seen = {e.error_type for e in errors}
+        if len(seen) != len(errors):
+            raise ValueError("each error_type may appear at most once per item")
+        return errors
+
+
+class ItemErrorOut(BaseModel):
+    """One recorded error, as the API returns it."""
+
+    error_type: str
+    details: str | None = None
+    source: str
+    noted_by_id: int | None = None
+    noted_at: datetime
+
+
+class ItemErrorsOut(BaseModel):
+    """Every error recorded against one item."""
+
+    inventory_item_id: int
+    errors: list[ItemErrorOut]
+
+
 # --------------------------------------------------------------------------
 # Inventory browse
 # --------------------------------------------------------------------------

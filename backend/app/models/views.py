@@ -49,7 +49,6 @@ PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
         "purchase_order_id",
         "vendor_id",
         "notes_raw",
-        "error_details",
         "parent_item_id",
     }
 )
@@ -81,8 +80,6 @@ SELECT
     gd.code           AS grade_designation,
     gs.code           AS grading_service,
     a.code            AS authenticity,
-    et.code           AS error_type,
-    i.error_details,
     st.code           AS status,
     disp.code         AS disposition,
     i.item_code,
@@ -120,7 +117,6 @@ LEFT JOIN mint m          ON m.id  = cd.mint_id
 LEFT JOIN grade g         ON g.id  = i.grade_id
 LEFT JOIN grade_designation gd ON gd.id = i.grade_designation_id
 LEFT JOIN grading_service gs   ON gs.id = i.grading_service_id
-LEFT JOIN error_type et   ON et.id = i.error_type_id
 LEFT JOIN metal mt        ON mt.id = i.metal_id
 WHERE i.split_at IS NULL
   AND i.deleted_at IS NULL
@@ -164,8 +160,6 @@ SELECT
     gd.code           AS grade_designation,
     gs.code           AS grading_service,
     a.code            AS authenticity,
-    et.code           AS error_type,
-    i.error_details,
     st.code           AS status,
     disp.code         AS disposition,
     i.item_code,
@@ -200,7 +194,6 @@ LEFT JOIN friedberg_number fr ON fr.id = cud.friedberg_id
 LEFT JOIN grade g             ON g.id  = i.grade_id
 LEFT JOIN grade_designation gd ON gd.id = i.grade_designation_id
 LEFT JOIN grading_service gs  ON gs.id = i.grading_service_id
-LEFT JOIN error_type et       ON et.id = i.error_type_id
 WHERE i.split_at IS NULL
   AND i.deleted_at IS NULL
   AND k.code = 'currency'

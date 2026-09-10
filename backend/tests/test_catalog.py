@@ -154,7 +154,6 @@ def test_catalogue_never_exposes_cost_basis_or_location(
         "local_catalog_number",
         "purchase_order_id",
         "notes_raw",
-        "error_details",
     }
     assert not (set(body) & forbidden), f"leaked: {sorted(set(body) & forbidden)}"
 
