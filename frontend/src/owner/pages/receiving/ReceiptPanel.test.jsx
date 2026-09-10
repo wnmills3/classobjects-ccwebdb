@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import userEvent from '@testing-library/user-event'
 import { screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -24,6 +26,21 @@ const ITEM = {
   item_code: 'CC-000412',
   description: '1881-S Morgan $1',
   reviewed: [],
+}
+
+// Reproduces the shape of the real parent (`Receiving.jsx`): `itemIds` is
+// owned by something above `ReceiptPanel` and can change out from under it
+// while review is open, the same as ticking or unticking a checkbox in
+// `OutstandingList` would.
+function SelectionOwner({ initialIds }) {
+  const [ids, setIds] = useState(initialIds)
+  return (
+    <>
+      <button onClick={() => setIds((prev) => prev.slice(0, -1))}>Untick last</button>
+      <button onClick={() => setIds((prev) => [...prev, 413])}>Tick second</button>
+      <ReceiptPanel itemIds={ids} onDone={vi.fn()} />
+    </>
+  )
 }
 
 beforeEach(() => {
@@ -174,5 +191,68 @@ describe('ReceiptPanel', () => {
     await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
     expect(await screen.findByText(/upload failed/i)).toBeInTheDocument()
     expect(onDone).toHaveBeenCalled()
+  })
+
+  it('keeps the review queue frozen when the selection changes underneath it', async () => {
+    // Reproduces the reviewer's probe: two ids, open review, press Next,
+    // untick the second item. Without a frozen snapshot, ReviewPane's `ids`
+    // prop shrinks to one entry while its internal `at` index is still 1,
+    // so `ids[at]` is `undefined` and it renders "2 of 1".
+    renderWithProviders(<SelectionOwner initialIds={[412, 413]} />)
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /confirm or correct/i }),
+    )
+    expect(await screen.findByText('1 of 2')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^next$/i }))
+    expect(await screen.findByText('2 of 2')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /untick last/i }))
+
+    expect(screen.getByText('2 of 2')).toBeInTheDocument()
+    expect(screen.queryByText(/2 of 1/)).not.toBeInTheDocument()
+    expect(api.getInventoryItem).not.toHaveBeenCalledWith(undefined)
+  })
+
+  it('clears a stale upload error once a later receipt carries no photograph', async () => {
+    // A failed photo upload's message must not survive a later receipt that
+    // has no photograph of its own to fail -- that would report a failure
+    // that did not happen.
+    api.uploadImage.mockRejectedValue(new Error('upload failed'))
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+
+    await userEvent.upload(
+      await screen.findByLabelText(/photo/i),
+      new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    expect(await screen.findByText(/upload failed/i)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText(/upload failed/i)).not.toBeInTheDocument()
+  })
+
+  it('names a pending photo that a second selected item would strand', async () => {
+    // The submit-time guard already refuses to attach the photo when more
+    // than one item is selected -- that is correct, but silent. The hint
+    // must name the file so the operator knows it was dropped, not lost.
+    renderWithProviders(<SelectionOwner initialIds={[412]} />)
+
+    await userEvent.upload(
+      await screen.findByLabelText(/photo/i),
+      new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }),
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /tick second/i }))
+
+    expect(
+      await screen.findByText(/obverse\.jpg.*will not be uploaded/i),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.uploadImage).not.toHaveBeenCalled()
   })
 })
