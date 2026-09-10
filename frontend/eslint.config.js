@@ -52,6 +52,16 @@ export default [
       'no-console': 'off',
     },
   },
+  // Test files run under vitest's jsdom environment: real `window`/`document`
+  // globals, but still inside a genuine Node process, so `process` (e.g. a
+  // test that overrides `process.env.TZ` for its own duration) is real too.
+  // Neither globals set alone matches what actually exists at runtime here.
+  {
+    files: ['**/*.test.{js,jsx}', 'src/test/**/*.{js,jsx}'],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.node },
+    },
+  },
   // Import boundaries between the two applications.
   //
   // A static import by path is the only way owner code can enter the shop's

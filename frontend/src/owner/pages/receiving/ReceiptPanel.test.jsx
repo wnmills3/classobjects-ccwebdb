@@ -73,15 +73,25 @@ describe('ReceiptPanel', () => {
   })
 
   it('defaults the arrival date to the local calendar date, not UTC, but lets it be changed', async () => {
-    // Pinned rather than read from the real clock: at whatever instant this
-    // suite happens to run, local and UTC dates might agree, and a test that
-    // only fails during some hours of the day is worse than no test. This
-    // machine's zone is America/New_York (UTC-4 in September); the instant
-    // below is 2026-09-09 22:00 local but already 2026-09-10 in UTC, so a
-    // component that reverted to `toISOString()` would show the wrong day.
-    // Faking only `Date` (not timers) -- faking setTimeout/setInterval as
-    // well stalls React's own scheduling and testing-library's async
-    // queries, which is why an earlier draft of this test hung.
+    // The suite runs in UTC (see vite.config.js) so that it matches the
+    // database and stays reproducible everywhere -- but that is exactly the
+    // one zone in which "local date" and "UTC date" always agree, so a UTC
+    // runner can never catch a regression back to `toISOString()`'s date.
+    // This test is the deliberate exception: it overrides `process.env.TZ` to
+    // a real zone BEHIND UTC for its own duration and restores it afterwards,
+    // rather than pinning the whole suite away from UTC for one test's sake.
+    // Node re-reads `process.env.TZ` live -- confirmed empirically, including
+    // for a `Date` object constructed before the override -- so this is not
+    // an assumption.
+    //
+    // The instant below is 2026-09-09 22:00 in America/New_York but already
+    // 2026-09-10 in UTC, so a component that reverted to `toISOString()`
+    // would show the wrong day. Faking only `Date` (not timers) -- faking
+    // setTimeout/setInterval as well stalls React's own scheduling and
+    // testing-library's async queries, which is why an earlier draft of this
+    // test hung.
+    const previousTz = process.env.TZ
+    process.env.TZ = 'America/New_York'
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-09-10T02:00:00.000Z'))
     try {
@@ -94,6 +104,7 @@ describe('ReceiptPanel', () => {
       expect(field).not.toHaveValue('2026-09-10')
     } finally {
       vi.useRealTimers()
+      process.env.TZ = previousTz
     }
 
     const field = screen.getByLabelText(/arrived/i)
