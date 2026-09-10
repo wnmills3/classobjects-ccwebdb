@@ -9,12 +9,30 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from app.models import InventoryItem, ItemStatus, ItemStatusHistory
+from app.models import (
+    InventoryItem,
+    ItemStatus,
+    ItemStatusHistory,
+    LocationHistory,
+    StorageLocation,
+    StorageLocationKind,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.test_schema import code_id, make_item
+
+
+def _location(db: Session) -> StorageLocation:
+    location = StorageLocation(
+        storage_location_kind_id=code_id(db, StorageLocationKind, "home"),
+        identifier="test box",
+    )
+    db.add(location)
+    db.commit()
+    db.refresh(location)
+    return location
 
 
 def _ordered(db: Session) -> InventoryItem:
@@ -166,6 +184,11 @@ def test_receiving_twice_is_refused(
         headers=admin_headers,
     )
     assert again.status_code == 409
+    # The spec promises the 409 names the current status and the date it
+    # arrived, not just that it was already received -- that's what tells a
+    # double-submitted form apart from the wrong row.
+    assert "received" in again.text
+    assert "2026-09-04" in again.text
 
     db.expire_all()
     row = db.scalars(
@@ -231,6 +254,65 @@ def test_an_unknown_outcome_is_refused_listing_the_known_ones(
     )
     assert res.status_code == 422
     assert "received" in res.text
+
+
+def test_receiving_with_a_location_writes_it_and_its_history(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Location and history are written together, and only for `received`.
+
+    The other half of that guarantee is the next test.
+    """
+    item = _ordered(db)
+    location = _location(db)
+    res = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_ids": [item.id],
+            "outcome": "received",
+            "storage_location_id": location.id,
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+
+    db.expire_all()
+    assert db.get(type(item), item.id).storage_location_id == location.id
+    rows = db.scalars(
+        select(LocationHistory).where(LocationHistory.inventory_item_id == item.id)
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].storage_location_id == location.id
+
+
+def test_a_missing_outcome_with_a_location_writes_neither(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`storage_location_id` is documented as "only meaningful when received".
+
+    Sent alongside `missing` anyway, it must be ignored outright: not the
+    item's column, not a history row -- an item marked missing has not been
+    put anywhere.
+    """
+    item = _ordered(db)
+    location = _location(db)
+    res = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_ids": [item.id],
+            "outcome": "missing",
+            "storage_location_id": location.id,
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+
+    db.expire_all()
+    assert db.get(type(item), item.id).storage_location_id is None
+    rows = db.scalars(
+        select(LocationHistory).where(LocationHistory.inventory_item_id == item.id)
+    ).all()
+    assert rows == []
 
 
 def test_a_customer_cannot_receive(

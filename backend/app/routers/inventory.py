@@ -42,6 +42,7 @@ from ..models import (
     ItemFieldReview,
     ItemKind,
     ItemStatus,
+    ItemStatusHistory,
     Listing,
     Metal,
     Series,
@@ -300,11 +301,35 @@ def receive_items(
         raise HTTPException(status_code=404, detail=f"Unknown item ids: {missing}")
 
     received_id = require_code(db, ItemStatus, "received", "status")
-    already = [i.item_code for i in items if i.status_id == received_id]
+    already = [i for i in items if i.status_id == received_id]
     if already and payload.outcome == "received":
+        # Naming the status and the arrival date, not just the code, is what
+        # lets an operator tell a double-submitted form (same date, moments
+        # apart) from the wrong row (a date that means nothing to them) --
+        # "already received" alone answers neither question.
+        arrival_rows = db.execute(
+            select(
+                ItemStatusHistory.inventory_item_id,
+                func.max(ItemStatusHistory.arrived_on),
+            )
+            .where(
+                ItemStatusHistory.inventory_item_id.in_([i.id for i in already]),
+                ItemStatusHistory.to_status_id == received_id,
+            )
+            .group_by(ItemStatusHistory.inventory_item_id)
+        ).all()
+        arrivals: dict[int, date | None] = {row[0]: row[1] for row in arrival_rows}
+
+        def _arrival_label(item_id: int) -> str:
+            arrived = arrivals.get(item_id)
+            return arrived.isoformat() if arrived is not None else "unknown date"
+
+        detail_items = sorted(
+            f"{i.item_code} (received {_arrival_label(i.id)})" for i in already
+        )
         raise HTTPException(
             status_code=409,
-            detail=f"Already received: {sorted(already)}. "
+            detail=f"Already received: {detail_items}. "
             "Use PATCH to correct a receipt rather than repeating it.",
         )
 
