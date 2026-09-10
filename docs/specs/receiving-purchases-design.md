@@ -84,6 +84,15 @@ that some callers bypass is a convention; one that is the only way to reach
 the column is a property of the code. `set_location` is its counterpart for
 `storage_location_id` / `location_history`.
 
+Both flush the session when `item.id` is still `None` before writing their
+history row -- an unpersisted item has no id yet, and a NULL
+`inventory_item_id` would either violate the history table's NOT NULL
+constraint or attach the row to nothing. Flushing assigns the id from the
+database's sequence without committing the transaction, which is what makes
+both helpers usable at creation time too: a caller can build an item and set
+its status or location in the same breath, before anything else has flushed,
+and still get a correctly-linked history row.
+
 Writing history for status changes that happen through `PATCH` is a
 **behaviour change to an existing endpoint**, made deliberately: an untracked
 status change is the bug, not the baseline.
@@ -115,6 +124,13 @@ Ticking several lines and pressing **Receive** applies the same arrival date,
 location and note to all of them -- the common case for a box of twenty coins.
 Per-item notes and photographs are added in the panel for that item.
 
+**A photograph attaches only to a single-item receipt.** With several items
+selected, the photo control is disabled outright rather than left to guess
+which of them the picture is of: a photograph is evidence of one physical
+object, and attaching it to every selected item -- or to "the first" of them
+-- would put a wrong provenance record on all but one, which is worse than no
+photograph at all. Receive that item on its own to attach one to it.
+
 The four outcome buttons are the four codes. A page that can only record
 success cannot close out an order line that never showed up, and "paid for,
 not cancelled, never arrived" is a distinct state the vocabulary already
@@ -138,10 +154,31 @@ should be one transaction, not twenty:
 ```
 { "item_ids": [412, 413],
   "outcome": "received" | "missing" | "returned" | "canceled",
-  "arrived_on": "2026-09-09",          // optional; defaults to today
+  "arrived_on": "2026-09-09",          // optional; NULL in history if omitted
   "storage_location_id": 3,            // optional; only meaningful when received
   "note": "edge knock not in the listing photos" }   // optional
 ```
+
+`arrived_on` does **not** default to today. Omitted, it is written to
+`item_status_history.arrived_on` as NULL -- the fact "we don't know when this
+arrived" is a real and different answer from "it arrived today," and the
+endpoint has no business guessing between them. The page always sends one:
+`ReceiptPanel` defaults its date field to the operator's local today (see the
+UI section below), so in practice a receipt made through this page always
+carries a date. A caller that omits it deliberately gets NULL, not today.
+
+A supplied `arrived_on` more than one day ahead of UTC's own today is a 422:
+"the thing has not physically turned up yet" is what a future date would
+mean. The bound is `utc_today + 1 day`, not `utc_today` itself, because the
+endpoint only has UTC to compare against while "today" is inherently local. A
+caller's local calendar date can lead UTC's by up to a day -- anywhere east
+of UTC, for as long as UTC has not yet turned over -- so a bound of exactly
+`utc_today` would refuse a genuine same-day receipt for a large share of the
+world for several hours every evening. Widening the bound by a day accepts
+every timezone's honest "today" while still refusing what an actual
+fat-fingered date looks like: two or more days out. The tradeoff is that a
+typo exactly one day ahead of the true date is no longer caught here, because
+it is indistinguishable from a legitimate ahead-of-UTC today.
 
 All or nothing, in one transaction, exactly as `POST /api/inventory/bulk`
 already is and for the same reason: a partial receipt across twenty coins
@@ -163,11 +200,14 @@ in SQL, and a date inside prose is not a date. Nullable because most status
 changes are not arrivals -- a cancellation has no arrival date, and neither
 does the opening `set at import` row.
 
-**`GET /api/purchase-orders`** -- orders with something outstanding, newest
-first, filterable by `order_number` (partial) and vendor. Each row carries the
-vendor, the order number, `ordered_on`, and counts of outstanding versus total
-lines. There is no purchase-order router today; acquisition has been
-import-only.
+**`GET /api/purchase-orders`** -- every purchase order, unfiltered and
+unpaginated, ordered by id descending. Each row carries the vendor, the order
+number, `ordered_on`, and counts of outstanding versus total lines, computed
+in one grouped SQL query rather than by loading every order's items. There is
+no `order_number` or vendor filter on the endpoint itself -- "worth showing"
+is decided client-side, where `OrderPicker` drops any order whose
+`outstanding` count is zero before it ever reaches the screen. There is no
+purchase-order router today; acquisition has been import-only.
 
 **`GET /api/purchase-orders/{id}`** -- one order with its line items: item
 code, a short description, cost, current status. This is the list the page
@@ -187,18 +227,22 @@ document put behind its own bundle; neither is an excuse to relax the view.
 
 ## Error handling
 
-- **An unknown item id, or an id not on the named order:** 404 naming the id.
-  Resolve every id before writing anything.
+- **An unknown item id:** 404 naming the id. `POST /receive` takes no order
+  id -- an item is resolved on its own id, not scoped to a particular order --
+  so there is no "id not on this order" case to refuse separately. Every id
+  is resolved before anything is written.
 - **An item that is already `received`:** refused with 409 naming its current
   status and the date it arrived. Receiving something twice is more likely a
   double-submitted form or the wrong row than an intention, and silently
   re-receiving overwrites a true arrival date with today's. Correcting a
   genuine mistake is `PATCH`, which now records the correction too.
 
-  `ordered` and `missing` are both receivable. A parcel written off as missing
-  and then turning up months later is exactly the case the `missing` code was
-  added for -- refusing it would leave the only route to the truth a manual
-  status edit, which is the untracked path this document exists to close.
+  `ordered` and `missing` are both receivable -- the outstanding list and the
+  attribute search both offer either status, never `received`, `canceled` or
+  `returned`. A parcel written off as missing and then turning up months
+  later is exactly the case the `missing` code was added for -- refusing it
+  would leave the only route to the truth a manual status edit, which is the
+  untracked path this document exists to close.
 - **A `storage_location_id` that does not exist:** 422 listing valid ids.
 - **An outcome other than the four codes:** 422 naming them, matching how the
   routers already refuse an unknown filter or an unknown review field.
@@ -232,7 +276,9 @@ Backend:
 
 Frontend, in `src/owner/`:
 
-- The outstanding list shows only items that are `ordered`.
+- The outstanding list shows items that are `ordered` or `missing`, and
+  nothing else -- a `received` line has nothing left to do, and a missing
+  one is exactly the late-arrival case the previous section describes.
 - Selecting several and receiving sends one request, not several.
 - Each of the four outcomes sends its own code.
 - The shop bundle does not grow: `check-bundle-isolation.mjs` and the ESLint
