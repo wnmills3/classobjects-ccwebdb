@@ -33,9 +33,17 @@ describe('shop shell', () => {
     expect(screen.queryByRole('link', { name: /people/i })).not.toBeInTheDocument()
   })
 
-  it('does not confirm that owner pages exist', () => {
-    renderWithProviders(<StoreApp />, { auth: adminAuth(), route: '/admin/people' })
-    expect(screen.getByText(/page not found/i)).toBeInTheDocument()
-    expect(screen.queryByText(/administrator privileges/i)).not.toBeInTheDocument()
-  })
+  // Both former owner paths, not just one: the spec names each, and a route
+  // left behind would be found by whichever URL nobody thought to assert.
+  // adminAuth() deliberately -- for an anonymous visitor a redirect to sign-in
+  // would also satisfy "not found", so only an administrator seeing a 404
+  // proves the route is absent rather than merely guarded.
+  it.each(['/admin/people', '/inventory/coins'])(
+    'does not confirm that %s exists',
+    (route) => {
+      renderWithProviders(<StoreApp />, { auth: adminAuth(), route })
+      expect(screen.getByText(/page not found/i)).toBeInTheDocument()
+      expect(screen.queryByText(/administrator privileges/i)).not.toBeInTheDocument()
+    },
+  )
 })

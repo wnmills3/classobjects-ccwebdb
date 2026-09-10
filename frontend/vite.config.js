@@ -96,7 +96,10 @@ export default defineConfig({
     },
   },
   build: {
-    // Read by scripts/check-bundle-isolation.mjs.
+    // Not read by the isolation check -- that reads the richer bundle graph
+    // emitted above, because a manifest records a chunk's imports but never
+    // its contents. Kept because a manifest is what a server needs to map an
+    // entry to its hashed asset when these are eventually served for real.
     manifest: true,
     rollupOptions: {
       input: {

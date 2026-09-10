@@ -176,8 +176,10 @@ to `generateBundle` — the one point where Rollup exposes each chunk's actual
 module membership — and emits `dist/.vite/bundle-graph.json`: for every
 chunk, its name, whether it is an entry, its static and dynamic imports, and
 the source module ids it contains. `check-bundle-isolation.mjs` walks the
-chunk graph reachable from each entry, *following dynamic imports too* (the
-one route `eslint` cannot see), and inspects the modules inside every chunk
+chunk graph reachable from each entry, *following dynamic imports too* — the
+route `eslint` cannot see, because its rules match a plain string literal and
+a computed specifier such as ``import(`../owner/pages/${name}.jsx`)`` is not
+one — and inspects the modules inside every chunk
 it reaches — including shared chunks — for a path under the other
 application's tree. It is symmetric (shop-reaches-owner and
 owner-reaches-shop), a strict superset of what was asked for, since the lint

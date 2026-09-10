@@ -93,11 +93,34 @@ Taken from reading every page's imports rather than from assumption.
 
 | Module | Goes to | Why |
 |---|---|---|
-| `api.js`, `format.js` | shared | imported by both sides |
+| `format.js` | shared | imported by both sides |
+| `api.js` | **split** | see below |
 | `auth.jsx`, `auth-context.js` | shared | `Login`, `Register`, `Orders` and `AdminPeople` all use it |
 | `reference.jsx`, `reference-context.js` | shared | `Catalog` uses it, and so do `AdminCoins` and `ItemEditForm` |
 | `cart.jsx`, `cart-context.js` | store | only `Catalog`, `CoinDetail` and `Cart` |
 | `pages/inventory/*` (six files) | owner | already a self-contained subtree |
+
+### The API client splits too
+
+`api` is a single object literal, so nothing tree-shakes out of it: every
+endpoint written in it is downloaded by every anonymous visitor to the shop.
+Leaving it whole would have shipped `/api/inventory/{id}/split`,
+`/api/inventory/bulk`, `/api/users/{id}/password` and `/api/customers` to the
+storefront — a list of endpoint paths is a better map of the owner's tooling
+than the class names the stylesheet split removed, and removed for the same
+reason.
+
+So `shared/api.js` keeps the transport (`send`, token handling, `ApiError`)
+and the calls the shop and shared components make; `owner/api.js` holds the
+console's, spreading the shared object so a console page imports one `api` and
+never has to know which half a method came from.
+
+One exception, recorded rather than hidden: `addReferenceValue` stays in
+`shared/api.js`. It is called by `ReferenceSelect` in `shared/reference.jsx`,
+and shared code may not import from `owner/`. Only console pages render that
+component today, so a single write endpoint is visible to the shop. Moving
+`ReferenceSelect` into `owner/` would close it, and is not worth doing until
+something else needs that move.
 
 ### Sessions are shared, deliberately
 
@@ -181,11 +204,27 @@ A static import by path is the only way owner code can enter the shop's graph,
 so this catches the cause at edit time, costs nothing, and rides a gate that
 already runs.
 
-**Output level, structural.** A script reads Vite's build manifest
-(`build.manifest = true`), walks the chunk graph reachable from the `store`
-entry, and fails if any chunk originates under `src/owner/`. This inspects the
-artefact rather than the source, so it proves the lint rule *achieves* bundle
-separation rather than merely describing an intention.
+**Output level, structural.** A script walks the chunk graph reachable from
+each entry and fails if any chunk it reaches *contains* a module from the
+other application's tree. This inspects the artefact rather than the source,
+so it proves the lint rules *achieve* bundle separation rather than merely
+describing an intention.
+
+It reads a bundle graph emitted from a Rollup `generateBundle` hook, **not**
+Vite's `manifest.json`. As built, this was tried against the manifest first
+and was wrong: a manifest records a chunk's imports but never its contents,
+and the two entries share a chunk whose manifest record is `"src": null`.
+Rollup hoists any module imported by *both* entries into that shared chunk, so
+an owner page imported from shop code lands somewhere the manifest attributes
+to no tree at all, and the check reports success while the shop downloads it.
+The check must therefore read chunk membership. It also follows **dynamic**
+imports, which is the one route the lint rules cannot cover: they match a
+plain string literal, and a computed specifier such as
+``import(`../owner/pages/${name}.jsx`)`` is not one.
+
+It is symmetric — shop-reaches-owner and owner-reaches-shop — which is a
+strict superset of the one direction originally specified here. The lint rules
+are already symmetric and the second direction costs nothing.
 
 Deliberately not a string search of the built JavaScript: minification renames
 identifiers, so a grep can pass for the wrong reason, and a check that passes

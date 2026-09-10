@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { api } from '../../../shared/api'
+import { api } from '../../api'
 
 /**
  * Set one field across a selection.

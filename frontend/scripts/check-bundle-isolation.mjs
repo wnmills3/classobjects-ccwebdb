@@ -25,10 +25,13 @@ const GRAPH = resolve(process.cwd(), 'dist/.vite/bundle-graph.json')
  * Every chunk reachable from one entry, following imports transitively.
  *
  * Dynamic imports count. A lazily-loaded chunk is still the shop serving the
- * console's code to whoever asks, and dynamic import is the one form ESLint's
- * no-restricted-imports cannot see -- so this is the only layer that catches
- * it. Following static imports alone would leave both layers blind to the
- * same case.
+ * console's code to whoever asks.
+ *
+ * This is also the only layer that catches a dynamic import whose specifier
+ * is not a plain string literal -- `import(`../owner/pages/${name}.jsx`)`, or
+ * a variable. ESLint's rules match on the literal, so a template literal
+ * passes them and reaches only this check. Following static imports alone
+ * would leave both layers blind to the same case.
  */
 function reachable(chunks, entryFile) {
   const seen = new Set()

@@ -92,6 +92,14 @@ if exist "frontend\node_modules\eslint" (
         if errorlevel 1 set "FAILED=!FAILED! isolation"
     )
     popd
+) else (
+    rem  Silence here used to read as success: every frontend gate lives in
+    rem  the block above, so a missing node_modules printed "All checks
+    rem  passed" having run none of them -- including the bundle-isolation
+    rem  check. An unrun check is not a passed one.
+    echo === frontend === SKIPPED: frontend\node_modules is missing
+    echo     run: cd frontend ^&^& npm install
+    set "FAILED=!FAILED! frontend-not-installed"
 )
 
 popd
