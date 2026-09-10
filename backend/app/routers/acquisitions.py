@@ -12,7 +12,7 @@ item sits in, are neither a customer's business.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import selectinload
 
 from ..deps import AdminUser, DbSession
@@ -29,6 +29,14 @@ storage_locations_router = APIRouter(prefix="/storage-locations", tags=["acquisi
 
 _ORDER_NOT_FOUND = "Purchase order not found"
 
+#: A line that should never count towards what is outstanding, what a
+#: vendor sent, or what a receiving clerk sees: a soft-deleted row, which
+#: never should have existed, and a split parent, which has been replaced by
+#: its own children and would otherwise be received twice alongside them.
+_ITEM_IS_LIVE = and_(
+    InventoryItem.deleted_at.is_(None), InventoryItem.split_at.is_(None)
+)
+
 
 @purchase_orders_router.get("")
 def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrderOut]:
@@ -37,6 +45,12 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
     The counts are computed in SQL, one grouped query for every order, rather
     than by loading each order's items and counting in Python -- an order can
     carry hundreds of lines and this view needs none of them.
+
+    A soft-deleted item and a split lot's parent row are excluded from both
+    counts -- `_ITEM_IS_LIVE` sits in the join's `ON` clause rather than a
+    `WHERE` on the assembled query, so an order whose only lines are
+    non-live still appears (with `outstanding=0, total=0`) instead of being
+    dropped by the aggregation entirely.
     """
     outstanding = func.count(case((ItemStatus.code == "ordered", InventoryItem.id)))
     total = func.count(InventoryItem.id)
@@ -51,7 +65,10 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
             total.label("total"),
         )
         .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
-        .outerjoin(InventoryItem, InventoryItem.purchase_order_id == PurchaseOrder.id)
+        .outerjoin(
+            InventoryItem,
+            and_(InventoryItem.purchase_order_id == PurchaseOrder.id, _ITEM_IS_LIVE),
+        )
         .outerjoin(ItemStatus, ItemStatus.id == InventoryItem.status_id)
         .group_by(
             PurchaseOrder.id,
@@ -84,19 +101,30 @@ def get_purchase_order(
     Status is per item, not per order, since split shipments are normal and
     partial receipt must leave the remainder `ordered` -- so the detail view
     lists lines individually rather than folding them into one order status.
+
+    Lines are fetched with their own query rather than through
+    `PurchaseOrder.items`, so `_ITEM_IS_LIVE` can be applied in SQL: that
+    relationship is unfiltered and shared with other code, so it is not
+    touched here. A soft-deleted item and a split lot's superseded parent
+    are excluded; a split lot's children are not -- they are what a
+    receiving clerk should see and receive instead.
     """
     order = db.scalar(
         select(PurchaseOrder)
         .where(PurchaseOrder.id == order_id)
-        .options(
-            selectinload(PurchaseOrder.vendor),
-            selectinload(PurchaseOrder.items).selectinload(InventoryItem.status),
-        )
+        .options(selectinload(PurchaseOrder.vendor))
     )
     if order is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
         )
+
+    items = db.scalars(
+        select(InventoryItem)
+        .where(InventoryItem.purchase_order_id == order_id, _ITEM_IS_LIVE)
+        .options(selectinload(InventoryItem.status))
+        .order_by(InventoryItem.id)
+    ).all()
 
     return PurchaseOrderDetailOut(
         id=order.id,
@@ -111,7 +139,7 @@ def get_purchase_order(
                 item_cost=item.item_cost,
                 status=item.status.code,
             )
-            for item in order.items
+            for item in items
         ],
     )
 
