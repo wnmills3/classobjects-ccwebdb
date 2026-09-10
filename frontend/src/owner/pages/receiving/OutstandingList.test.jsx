@@ -26,6 +26,13 @@ const lines = [
     item_cost: '60.00',
     status: 'ordered',
   },
+  {
+    id: 415,
+    item_code: 'CC-000415',
+    description: '1899-O Morgan $1',
+    item_cost: '75.00',
+    status: 'missing',
+  },
 ]
 
 describe('OutstandingList', () => {
@@ -33,6 +40,15 @@ describe('OutstandingList', () => {
     render(<OutstandingList lines={lines} selected={[]} onChange={vi.fn()} />)
     expect(screen.getByText('CC-000412')).toBeInTheDocument()
     expect(screen.getByText('CC-000414')).toBeInTheDocument()
+    expect(screen.queryByText('CC-000413')).not.toBeInTheDocument()
+  })
+
+  it('offers a line written off as missing, since a late arrival can still be received', () => {
+    // `missing` means paid for, not cancelled, never arrived -- and things
+    // that never arrived sometimes turn up. `received` stays excluded: it
+    // has nothing left to do here.
+    render(<OutstandingList lines={lines} selected={[]} onChange={vi.fn()} />)
+    expect(screen.getByText('CC-000415')).toBeInTheDocument()
     expect(screen.queryByText('CC-000413')).not.toBeInTheDocument()
   })
 
@@ -51,7 +67,7 @@ describe('OutstandingList', () => {
     render(<OutstandingList lines={lines} selected={[]} onChange={onChange} />)
     const [selectAll] = screen.getAllByRole('checkbox')
     await user.click(selectAll)
-    expect(onChange).toHaveBeenCalledWith([412, 414])
+    expect(onChange).toHaveBeenCalledWith([412, 414, 415])
   })
 
   it('says so when every line has already arrived', () => {
