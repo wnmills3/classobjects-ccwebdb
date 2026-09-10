@@ -22,15 +22,34 @@ set "SQNAME=sonarqube"
 set "SQPORT=9000"
 set "DBPASS=sonar"
 
+rem  The machine is a WSL VM that does not survive a reboot, and this
+rem  script cannot do its job without it -- so start it rather than
+rem  printing the command for someone to paste. One attempt only: if it
+rem  still will not come up, that is a real fault and the caller needs to
+rem  see it rather than have the script keep trying.
 podman info >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: podman is not responding. Run: podman machine start
-    exit /b 1
+    echo [start] podman not responding - starting the machine ^(takes ~30s^)...
+    podman machine start >nul 2>&1
+    podman info >nul 2>&1
+    if errorlevel 1 (
+        echo ERROR: podman is still not responding after 'podman machine start'.
+        echo        Check:  podman machine list
+        exit /b 1
+    )
+    echo [start] podman machine is up
 )
 
 rem  Port must be free, unless it is already our own container holding it.
-podman ps --format "{{.Names}}" | findstr /x "%SQNAME%" >nul 2>&1
-if errorlevel 1 (
+rem
+rem  Matched with --filter and for/f, not `findstr /x`: podman writes
+rem  LF-only line endings, and findstr's whole-line match never matches
+rem  against those. The old check therefore always concluded the container
+rem  was absent, then found port 9000 held -- by its own SonarQube -- and
+rem  refused to start. Re-running the script while it was already up failed.
+set "SQRUNNING="
+for /f "delims=" %%N in ('podman ps --filter "name=^%SQNAME%$" --format "{{.Names}}"') do set "SQRUNNING=%%N"
+if not defined SQRUNNING (
     netstat -ano -p TCP | findstr /R /C:":%SQPORT%  *[0-9]" | findstr "LISTENING" >nul 2>&1
     if not errorlevel 1 (
         echo ERROR: port %SQPORT% is already in use by another process.
