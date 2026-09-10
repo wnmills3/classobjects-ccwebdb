@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, clearTokens, loadTokens, saveTokens } from './api'
+import { ApiError, clearTokens, loadTokens, saveTokens, send } from './api'
 
 afterEach(() => {
   localStorage.clear()
@@ -37,6 +37,48 @@ describe('token storage', () => {
       throw new Error('storage disabled')
     })
     expect(() => saveTokens({ access_token: 'a' })).not.toThrow()
+  })
+})
+
+describe('send', () => {
+  function mockFetch(body = {}) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify(body)),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hands a FormData body to fetch untouched, with no Content-Type header', async () => {
+    // The multipart trap: the browser must set Content-Type itself, boundary
+    // included. A handler that JSON-stringified this or set the header by
+    // hand would produce a request the server cannot parse -- so this checks
+    // both halves, not just that the call happened.
+    const fetchMock = mockFetch()
+    const form = new FormData()
+    form.append('file', new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }))
+
+    await send('/api/images', { method: 'POST', body: form, auth: false })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.body).toBe(form)
+    expect(init.headers['Content-Type']).toBeUndefined()
+  })
+
+  it('still JSON-encodes a plain object body and sets Content-Type', async () => {
+    // Guards the FormData branch from swallowing the existing JSON path.
+    const fetchMock = mockFetch()
+    await send('/api/orders', { method: 'POST', body: { items: [1] }, auth: false })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.body).toBe(JSON.stringify({ items: [1] }))
+    expect(init.headers['Content-Type']).toBe('application/json')
   })
 })
 

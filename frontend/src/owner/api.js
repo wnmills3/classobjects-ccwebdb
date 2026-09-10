@@ -71,6 +71,16 @@ export const api = {
   receiveItems: (payload) =>
     send('/api/inventory/receive', { method: 'POST', body: payload }),
 
+  // images -- evidence a person looked at the object, attached to an item
+  uploadImage: (inventoryItemId, file, { imageRole, isPrimary = false } = {}) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('inventory_item_id', String(inventoryItemId))
+    if (imageRole) form.append('image_role', imageRole)
+    form.append('is_primary', String(isPrimary))
+    return send('/api/images', { method: 'POST', body: form })
+  },
+
   // accounts -- who can sign in
   listUsers: () => send('/api/users'),
   updateUser: (id, payload) =>

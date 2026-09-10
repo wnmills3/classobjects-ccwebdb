@@ -3,7 +3,14 @@ import { screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
-  api: { receiveItems: vi.fn(), listStorageLocations: vi.fn() },
+  api: {
+    receiveItems: vi.fn(),
+    listStorageLocations: vi.fn(),
+    uploadImage: vi.fn(),
+    getInventoryItem: vi.fn(),
+    setItemReview: vi.fn(),
+    updateInventoryItem: vi.fn(),
+  },
 }))
 
 import { api } from '../../api'
@@ -12,10 +19,21 @@ import { renderWithProviders } from '../../../test/helpers'
 
 const LOCATIONS = [{ id: 3, label: 'Safe deposit box', kind: 'safe_deposit_box' }]
 
+const ITEM = {
+  id: 412,
+  item_code: 'CC-000412',
+  description: '1881-S Morgan $1',
+  reviewed: [],
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   api.listStorageLocations.mockResolvedValue(LOCATIONS)
   api.receiveItems.mockResolvedValue({ received: 2 })
+  api.uploadImage.mockResolvedValue({ id: 1 })
+  api.getInventoryItem.mockResolvedValue(ITEM)
+  api.setItemReview.mockResolvedValue({ reviewed: [] })
+  api.updateInventoryItem.mockResolvedValue({})
 })
 
 describe('ReceiptPanel', () => {
@@ -90,5 +108,35 @@ describe('ReceiptPanel', () => {
   it('does nothing at all when no item is selected', async () => {
     renderWithProviders(<ReceiptPanel itemIds={[]} onDone={vi.fn()} />)
     expect(await screen.findByRole('button', { name: /^receive$/i })).toBeDisabled()
+  })
+
+  it('keeps the confirm-and-correct section out of the way until asked', async () => {
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    expect(screen.queryByLabelText(/grade/i)).not.toBeInTheDocument()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /confirm or correct/i }),
+    )
+    expect(await screen.findByLabelText(/grade/i)).toBeInTheDocument()
+  })
+
+  it('a failed photograph does not undo the receipt', async () => {
+    // The arrival is the fact; the photograph is evidence added to it. Losing
+    // a recorded arrival because an upload failed is the worse trade, so the
+    // upload is reported and retryable, not rolled back.
+    api.receiveItems.mockResolvedValue({ received: 1 })
+    api.uploadImage.mockRejectedValue(new Error('upload failed'))
+
+    const onDone = vi.fn()
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={onDone} />)
+    await userEvent.upload(
+      await screen.findByLabelText(/photo/i),
+      new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(await screen.findByText(/upload failed/i)).toBeInTheDocument()
+    expect(onDone).toHaveBeenCalled()
   })
 })
