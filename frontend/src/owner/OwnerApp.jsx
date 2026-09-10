@@ -5,6 +5,7 @@ import AdminCoins from './pages/AdminCoins'
 import AdminPeople from './pages/AdminPeople'
 import { InventoryCoins, InventoryCurrency } from './pages/Inventory'
 import Login from './pages/Login'
+import Receiving from './pages/Receiving'
 
 /**
  * Guard for the whole console rather than for each route.
@@ -39,6 +40,7 @@ function Console() {
           <NavLink to="/inventory/coins">Coins</NavLink>
           <NavLink to="/inventory/currency">Currency</NavLink>
           <NavLink to="/manage/coins">Manage</NavLink>
+          <NavLink to="/receiving">Receive</NavLink>
           <NavLink to="/people">People</NavLink>
         </nav>
 
@@ -56,6 +58,7 @@ function Console() {
           <Route path="/inventory/coins" element={<InventoryCoins />} />
           <Route path="/inventory/currency" element={<InventoryCurrency />} />
           <Route path="/manage/coins" element={<AdminCoins />} />
+          <Route path="/receiving" element={<Receiving />} />
           <Route path="/people" element={<AdminPeople />} />
           <Route path="*" element={<p className="muted">Page not found.</p>} />
         </Routes>
