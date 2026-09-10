@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../shared/api', () => ({
+vi.mock('../api', () => ({
   api: {
     listCatalog: vi.fn(),
     createCatalogItem: vi.fn(),
@@ -10,7 +10,7 @@ vi.mock('../../shared/api', () => ({
   },
 }))
 
-import { api } from '../../shared/api'
+import { api } from '../api'
 import AdminCoins from './AdminCoins'
 import { adminAuth, renderWithProviders } from '../../test/helpers'
 

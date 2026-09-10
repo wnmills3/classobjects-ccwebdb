@@ -32,7 +32,8 @@ C:\Users\wnmil\dev\classobjects-ccwebdb\scripts\ccweb_startup.cmd
 
 | | |
 |---|---|
-| UI | http://127.0.0.1:5173 |
+| Shop | http://127.0.0.1:5173 |
+| Owner console | http://127.0.0.1:5173/owner |
 | API | http://127.0.0.1:8000 |
 | API docs | http://127.0.0.1:8000/docs |
 | Database | localhost:5432/ccwebdb |

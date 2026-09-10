@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { api } from '../../shared/api'
+import { api } from '../api'
 import { money } from '../../shared/format'
 import { ReferenceSelect } from '../../shared/reference'
 

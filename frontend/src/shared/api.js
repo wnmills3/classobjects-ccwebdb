@@ -66,7 +66,11 @@ async function refreshTokens() {
   return fresh
 }
 
-async function send(path, { method = 'GET', body, form, auth = true } = {}) {
+/**
+ * The one place a request is made, exported so `owner/api.js` can build the
+ * console's calls on the same token handling and error shape.
+ */
+export async function send(path, { method = 'GET', body, form, auth = true } = {}) {
   const headers = {}
   let payload
 
@@ -114,6 +118,16 @@ async function send(path, { method = 'GET', body, form, auth = true } = {}) {
   return parsed
 }
 
+/**
+ * The calls the shop makes, plus the ones shared components make.
+ *
+ * The console's calls are deliberately NOT here -- see `owner/api.js`. This
+ * object is a single literal, so nothing tree-shakes out of it: every path
+ * written here is downloaded by every anonymous visitor to the shop. A list
+ * of `/api/inventory/...` and `/api/users/...` endpoints is a map of the
+ * owner's tooling, which is the same thing the stylesheet split removed and
+ * for the same reason.
+ */
 export const api = {
   // auth
   login: (email, password) =>
@@ -142,64 +156,19 @@ export const api = {
     return send(`/api/catalog${suffix}`, { auth: false })
   },
   getCatalogItem: (id) => send(`/api/catalog/${id}`, { auth: false }),
-  createCatalogItem: (payload) =>
-    send('/api/catalog', { method: 'POST', body: payload }),
-  updateCatalogItem: (id, payload) =>
-    send(`/api/catalog/${id}`, { method: 'PATCH', body: payload }),
-  deleteCatalogItem: (id) => send(`/api/catalog/${id}`, { method: 'DELETE' }),
 
   // reference vocabularies, for dropdowns
   listReferenceTables: () => send('/api/reference', { auth: false }),
   getReference: (table) => send(`/api/reference/${table}`, { auth: false }),
-
+  // Shared because `shared/reference.jsx`'s ReferenceSelect calls it. Only
+  // console pages render that component today, but the component lives here,
+  // and shared code may not import from owner/.
   addReferenceValue: (table, payload) =>
     send(`/api/reference/${table}`, { method: 'POST', body: payload }),
-  renameReferenceValue: (table, code, payload) =>
-    send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),
-
-  // inventory (staff)
-  searchInventory: (view, params = {}) => {
-    const qs = new URLSearchParams()
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== '' && v !== null && v !== undefined && v !== false) qs.set(k, v)
-    })
-    const query = qs.toString()
-    const suffix = query ? `?${query}` : ''
-    return send(`/api/inventory/${view}/search${suffix}`)
-  },
-  splitItem: (itemId, payload) =>
-    send(`/api/inventory/${itemId}/split`, { method: 'POST', body: payload }),
-  getInventoryItem: (id) => send(`/api/inventory/${id}`),
-  updateInventoryItem: (id, payload) =>
-    send(`/api/inventory/${id}`, { method: 'PATCH', body: payload }),
-  bulkEditInventory: (ids, changes) =>
-    send('/api/inventory/bulk', { method: 'POST', body: { ids, changes } }),
-  setItemReview: (id, fields, replace = false) =>
-    send(`/api/inventory/${id}/reviewed`, {
-      method: 'POST',
-      body: { fields, replace },
-    }),
-  detachInventoryItem: (id) =>
-    send(`/api/inventory/${id}/parent`, { method: 'DELETE' }),
-  deleteInventoryItem: (id) => send(`/api/inventory/${id}`, { method: 'DELETE' }),
 
   // orders
   createOrder: (items) => send('/api/orders', { method: 'POST', body: { items } }),
   listOrders: () => send('/api/orders'),
   setOrderStatus: (id, status) =>
     send(`/api/orders/${id}`, { method: 'PATCH', body: { status } }),
-
-  // accounts -- who can sign in
-  listUsers: () => send('/api/users'),
-  updateUser: (id, payload) =>
-    send(`/api/users/${id}`, { method: 'PATCH', body: payload }),
-  setUserPassword: (id, password) =>
-    send(`/api/users/${id}/password`, { method: 'POST', body: { password } }),
-
-  // customers -- who you ship to
-  listCustomers: () => send('/api/customers'),
-  updateCustomer: (id, payload) =>
-    send(`/api/customers/${id}`, { method: 'PATCH', body: payload }),
-  addCustomerAddress: (id, payload) =>
-    send(`/api/customers/${id}/addresses`, { method: 'POST', body: payload }),
 }

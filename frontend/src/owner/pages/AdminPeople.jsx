@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { api } from '../../shared/api'
+import { api } from '../api'
 import { useAuth } from '../../shared/auth-context'
 
 /**
