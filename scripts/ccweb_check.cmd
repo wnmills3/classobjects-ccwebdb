@@ -72,6 +72,17 @@ if exist "frontend\node_modules\eslint" (
     "%NODE%" node_modules\vitest\vitest.mjs run
     if errorlevel 1 set "FAILED=!FAILED! vitest"
     popd
+
+    echo === frontend bundle isolation ===
+    rem  Builds both entries and asserts neither reaches the other's tree.
+    rem  The eslint boundary rules check the source; this checks the artefact,
+    rem  so a build-configuration mistake cannot pass unnoticed.
+    pushd frontend
+    "%NODE%" node_modules\vite\bin\vite.js build
+    if errorlevel 1 set "FAILED=!FAILED! build"
+    "%NODE%" scripts\check-bundle-isolation.mjs
+    if errorlevel 1 set "FAILED=!FAILED! isolation"
+    popd
 )
 
 popd

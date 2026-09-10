@@ -21,6 +21,7 @@ It exits non-zero if anything fails, so CI can call it directly.
 | Tests | `pytest` | yes |
 | Frontend linting | `eslint` | yes (errors) |
 | Frontend formatting | `prettier` | yes |
+| Frontend bundle isolation | custom | yes |
 
 **One tool owns layout, another owns correctness.** `ruff format` decides line
 breaks and `ruff check` is told not to have opinions about them; on the
@@ -133,6 +134,59 @@ Worth recording, because it is the argument for having them:
 - **A dead variable and a vestigial `inspect()` call** in the seeding exporter.
 - **`Image.LANCZOS`**, which moved to `Image.Resampling.LANCZOS` in Pillow 10
   and survived only because the old name still resolves.
+
+## Frontend bundle isolation
+
+The project builds two applications from one source tree, the public shop
+(`src/store/`) and the owner console (`src/owner/`), and neither is supposed
+to ship the other's code. That guarantee is checked twice, on two different
+channels, because each catches a different kind of mistake:
+
+1. **`eslint`'s `no-restricted-imports` and `no-restricted-syntax` check the
+   source.** They fire the moment a developer writes `import ... from
+   '../owner/...'` in shop code (or the reverse), including a dynamic
+   `import()` — `no-restricted-imports` only inspects static import/export
+   declarations, so the dynamic form needed a second, `no-restricted-syntax`,
+   rule matching `ImportExpression`.
+2. **`frontend/scripts/check-bundle-isolation.mjs` checks the built
+   artefact.** It catches what the source-level rules cannot: a
+   build-configuration mistake, or any other route a module takes into the
+   wrong bundle that isn't a literal import statement in the tree being
+   linted.
+
+The second check does **not** read Vite's `manifest.json`, and does not grep
+the built JavaScript. Both were tried and both are unsound for this project:
+
+- **The manifest.** A manifest entry records a chunk's own `src` only when
+  that chunk belongs to exactly one entry. Building this project's two
+  entries produces a chunk shared between them — Rollup puts any module
+  imported by *both* `store` and `owner` into it — and the manifest records
+  that chunk as `"isEntry": false, "src": null`. It never lists the modules a
+  chunk contains, so there is no manifest field that can say whether the
+  shared chunk holds an owner-only module. A manifest-based check reports
+  success in exactly the case it exists to catch: an owner module hoisted
+  into the chunk the shop already downloads.
+- **Grepping the built JavaScript.** Rollup minifies identifiers, so a text
+  search for a component or module name can pass because the build renamed
+  the very thing being searched for. A check that can pass for the wrong
+  reason is worse than no check.
+
+Instead, a small Rollup plugin (`bundleGraph()` in `vite.config.js`) listens
+to `generateBundle` — the one point where Rollup exposes each chunk's actual
+module membership — and emits `dist/.vite/bundle-graph.json`: for every
+chunk, its name, whether it is an entry, its static and dynamic imports, and
+the source module ids it contains. `check-bundle-isolation.mjs` walks the
+chunk graph reachable from each entry, *following dynamic imports too* (the
+one route `eslint` cannot see), and inspects the modules inside every chunk
+it reaches — including shared chunks — for a path under the other
+application's tree. It is symmetric (shop-reaches-owner and
+owner-reaches-shop), a strict superset of what was asked for, since the lint
+rules are already symmetric and the second direction costs nothing.
+
+Both channels have been mutation-tested: a static `import` of an owner page
+from shop code, and a dynamic `import()` of the same page, each made both
+`eslint` and the bundle-isolation check fail, and both checks pass again once
+reverted.
 
 ## Fast Refresh
 

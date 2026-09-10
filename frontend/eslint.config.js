@@ -40,6 +40,18 @@ export default [
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
+  // vite.config.js and the build-time check scripts run under Node, not the
+  // browser -- they need `process` and an unrestricted `console`, and never
+  // run in a bundle, so react-specific rules do not apply.
+  {
+    files: ['vite.config.js', 'scripts/**/*.{js,mjs}'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-console': 'off',
+    },
+  },
   // Import boundaries between the two applications.
   //
   // A static import by path is the only way owner code can enter the shop's
