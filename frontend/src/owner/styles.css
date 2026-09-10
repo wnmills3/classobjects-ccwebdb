@@ -233,3 +233,14 @@ button.link.danger {
   background: var(--surface);
   border-color: var(--accent);
 }
+
+/* Receiving: the receipt panel below the outstanding lines -- the arrival
+   date, storage location and note, plus the four outcome buttons. */
+.receipt-panel {
+  margin-top: 0.8rem;
+}
+.receipt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
