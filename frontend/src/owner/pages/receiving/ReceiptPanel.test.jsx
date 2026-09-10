@@ -120,6 +120,42 @@ describe('ReceiptPanel', () => {
     expect(await screen.findByLabelText(/grade/i)).toBeInTheDocument()
   })
 
+  it('uploads a photograph against the one item it was taken of', async () => {
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    const input = await screen.findByLabelText(/photo/i)
+    expect(input).toBeEnabled()
+
+    await userEvent.upload(
+      input,
+      new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalled())
+    expect(api.uploadImage).toHaveBeenCalledWith(
+      412,
+      expect.any(File),
+      expect.objectContaining({ isPrimary: true }),
+    )
+  })
+
+  it('will not guess which item a photograph belongs to when several are selected', async () => {
+    // A photograph is evidence of one physical object. Attaching it to
+    // every selected item (or to "the first" of them) would put a wrong
+    // provenance record on the rest, and a wrong record reads as a right
+    // one -- worse than no photograph at all. This is the regression the
+    // `flatMap` implementation had: it would fail this test.
+    renderWithProviders(<ReceiptPanel itemIds={[412, 413]} onDone={vi.fn()} />)
+
+    const input = await screen.findByLabelText(/photo/i)
+    expect(input).toBeDisabled()
+    expect(screen.getByText(/photographs attach to a single item/i)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.uploadImage).not.toHaveBeenCalled()
+  })
+
   it('a failed photograph does not undo the receipt', async () => {
     // The arrival is the fact; the photograph is evidence added to it. Losing
     // a recorded arrival because an upload failed is the worse trade, so the
