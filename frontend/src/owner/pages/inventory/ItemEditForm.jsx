@@ -217,7 +217,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           <span title="Recalculated by the database when saved">
             {`$${item.sales_tax}`}
           </span>
-          <label>
+          <label className="checkbox">
             <input type="checkbox" checked={untaxed} onChange={toggleTax} />
             {/* */}
             No sales tax charged

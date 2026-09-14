@@ -122,7 +122,7 @@ export default function Receiving() {
       <h1>Receiving</h1>
 
       <div className="filter-grid">
-        <label>
+        <label className="checkbox">
           <input
             type="radio"
             name="receiving-mode"
@@ -132,7 +132,7 @@ export default function Receiving() {
           />
           By order
         </label>
-        <label>
+        <label className="checkbox">
           <input
             type="radio"
             name="receiving-mode"
