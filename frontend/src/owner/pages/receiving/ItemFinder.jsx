@@ -114,7 +114,7 @@ export default function ItemFinder({ onPick }) {
     <div className="item-finder">
       <div className="filter-grid">
         {VIEWS.map(([value, label]) => (
-          <label key={value}>
+          <label key={value} className="checkbox">
             <input
               type="radio"
               name="item-finder-view"

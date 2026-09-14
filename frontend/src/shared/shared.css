@@ -188,7 +188,11 @@ label.checkbox {
   color: var(--text);
 }
 
-input,
+/* Text-field styling. Checkboxes and radios are excluded: given full width,
+   block display and a bordered surface box, a radio lands on a line of its
+   own, drawn as a dark rectangle above its label -- how /owner/receiving
+   looked. They take their layout from label.checkbox instead. */
+input:not([type='checkbox']):not([type='radio']),
 select,
 textarea {
   display: block;

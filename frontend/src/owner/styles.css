@@ -73,6 +73,13 @@ button.link.danger {
   font-size: 0.82rem;
   gap: 0.2rem;
 }
+/* A radio or checkbox goes before its label, on the same line. The column
+   above is for a caption over a text box; applied to a toggle it stacked the
+   control above its own label. */
+.filter-grid label.checkbox {
+  align-items: center;
+  flex-direction: row;
+}
 /* A filter with no values left is disabled rather than hidden: a control
    that vanishes as you narrow is more confusing than one that greys out. */
 .filter-grid select:disabled {
