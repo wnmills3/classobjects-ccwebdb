@@ -15,8 +15,9 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
 from ..models import User, UserRole
@@ -34,6 +35,24 @@ class UserUpdate(BaseModel):
     full_name: str | None = None
     role: UserRole | None = None
     is_active: bool | None = None
+
+
+class AccountCreate(BaseModel):
+    """An account an administrator opens for someone else.
+
+    The role has no default. Self-registration can only ever produce a
+    customer; here either role is possible, so an administrator is never made
+    by a field left out. The password is the administrator's to set and pass
+    on out of band, the same as `PasswordSet` -- there is no mail to send an
+    invitation with.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    full_name: Annotated[str, Field(max_length=255)] = ""
+    role: UserRole
+    password: Annotated[str, Field(min_length=8, max_length=128)]
 
 
 class PasswordSet(BaseModel):
@@ -88,6 +107,40 @@ def _refuse_last_admin(db: DbSession, target: User, update: UserUpdate) -> None:
 def list_users(db: DbSession, _: AdminUser) -> list[User]:
     """Every account, oldest first."""
     return list(db.scalars(select(User).order_by(User.id)))
+
+
+_EMAIL_TAKEN = "An account with that email already exists"
+
+
+@router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def create_user(body: AccountCreate, db: DbSession, _: AdminUser) -> User:
+    """Open an account for a customer or a fellow administrator.
+
+    The shop's registration makes only customers, and promotion needed the
+    person to have registered first; this is how an administrator adds either
+    directly.
+    """
+    if db.scalar(select(User.id).where(User.email == body.email)) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN)
+
+    user = User(
+        email=body.email,
+        full_name=body.full_name,
+        hashed_password=hash_password(body.password),
+        role=body.role,
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Two creations of one email at once both pass the check above; the
+        # unique index stops the second, and it should read as the same 409.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN
+        ) from exc
+    db.refresh(user)
+    return user
 
 
 @router.patch("/{user_id}", response_model=UserOut)

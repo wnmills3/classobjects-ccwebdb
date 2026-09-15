@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../api', () => ({
   api: {
     listUsers: vi.fn(),
+    createUser: vi.fn(),
     listCustomers: vi.fn(),
     updateUser: vi.fn(),
     setUserPassword: vi.fn(),
@@ -64,6 +65,69 @@ describe('AdminPeople', () => {
     expect(screen.getByLabelText(/state \/ region/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/postal code/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/^country$/i)).toBeInTheDocument()
+  })
+
+  async function openNewAccount() {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminPeople />, { auth: adminAuth() })
+    await screen.findByText('staff@example.com')
+    await user.click(screen.getByRole('button', { name: 'New account' }))
+    return user
+  }
+
+  it('creates an account from the New account form', async () => {
+    api.createUser.mockResolvedValue({ id: 9, email: 'colleague@example.com' })
+    const user = await openNewAccount()
+
+    await user.type(screen.getByLabelText(/^email$/i), 'colleague@example.com')
+    await user.type(screen.getByLabelText(/^name$/i), 'A Colleague')
+    await user.selectOptions(screen.getByLabelText(/^role$/i), 'admin')
+    await user.type(screen.getByLabelText(/initial password/i), 'long-enough-pw')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(api.createUser).toHaveBeenCalledWith({
+      email: 'colleague@example.com',
+      full_name: 'A Colleague',
+      role: 'admin',
+      password: 'long-enough-pw',
+    })
+    expect(await screen.findByText(/colleague@example.com/)).toBeInTheDocument()
+    // The list is fetched again, so the new account appears in it.
+    expect(api.listUsers).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: 'Create account' })).toBeNull()
+  })
+
+  it('offers customer as the role until an administrator is chosen', async () => {
+    await openNewAccount()
+    expect(screen.getByLabelText(/^role$/i)).toHaveValue('customer')
+  })
+
+  it('keeps what was typed when the server refuses', async () => {
+    api.createUser.mockRejectedValue(
+      new Error('An account with that email already exists'),
+    )
+    const user = await openNewAccount()
+
+    await user.type(screen.getByLabelText(/^email$/i), 'staff@example.com')
+    await user.type(screen.getByLabelText(/initial password/i), 'long-enough-pw')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    expect(
+      await screen.findByText('An account with that email already exists'),
+    ).toBeInTheDocument()
+    // Shown in the form, not in place of the page: the table and the typed
+    // details are both still there to correct and resend.
+    expect(screen.getByLabelText(/^email$/i)).toHaveValue('staff@example.com')
+    expect(screen.getByRole('table')).toBeInTheDocument()
+  })
+
+  it('closes the form on Cancel without creating anything', async () => {
+    const user = await openNewAccount()
+    await user.type(screen.getByLabelText(/^email$/i), 'nobody@example.com')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByLabelText(/^email$/i)).toBeNull()
+    expect(api.createUser).not.toHaveBeenCalled()
   })
 
   it('reports a failed load', async () => {
