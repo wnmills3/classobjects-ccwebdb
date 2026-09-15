@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -14,6 +14,7 @@ vi.mock('../api', () => ({
 }))
 
 import { api } from '../api'
+import { renderWithProviders } from '../../test/helpers'
 import NewPurchase from './NewPurchase'
 
 const VENDORS = [
@@ -55,7 +56,7 @@ describe('NewPurchase: creating a vendor inline', () => {
       url: null,
       vendor_kind: 'unknown',
     })
-    render(<NewPurchase />)
+    renderWithProviders(<NewPurchase />)
 
     await screen.findByRole('combobox', { name: 'Vendor' })
     await user.selectOptions(
@@ -73,13 +74,33 @@ describe('NewPurchase: creating a vendor inline', () => {
     )
     expect(await screen.findByRole('combobox', { name: 'Vendor' })).toHaveValue('9')
   })
+
+  it('does not submit the outer purchase form when Enter is pressed in the vendor name field', async () => {
+    const user = userEvent.setup()
+    api.createVendor.mockResolvedValue({
+      id: 9,
+      name: 'New Vendor',
+      url: null,
+      vendor_kind: 'unknown',
+    })
+    renderWithProviders(<NewPurchase />)
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+    await user.type(screen.getByPlaceholderText('Vendor name'), 'New Vendor{Enter}')
+
+    await waitFor(() => expect(api.createVendor).toHaveBeenCalled())
+    expect(api.createPurchaseOrder).not.toHaveBeenCalled()
+  })
 })
 
 describe('NewPurchase: creating a purchase', () => {
   it('creates a new purchase for the picked vendor', async () => {
     const user = userEvent.setup()
     api.createPurchaseOrder.mockResolvedValue(FRESH_PURCHASE)
-    render(<NewPurchase />)
+    renderWithProviders(<NewPurchase />)
 
     const vendorSelect = await screen.findByRole('combobox', { name: 'Vendor' })
     await user.selectOptions(vendorSelect, '3')
@@ -100,7 +121,7 @@ describe('NewPurchase: creating a purchase', () => {
     api.createPurchaseOrder.mockRejectedValue(
       new Error('ebay.com order PO-2 is already recorded'),
     )
-    render(<NewPurchase />)
+    renderWithProviders(<NewPurchase />)
 
     const vendorSelect = await screen.findByRole('combobox', { name: 'Vendor' })
     await user.selectOptions(vendorSelect, '3')
@@ -117,7 +138,7 @@ describe('NewPurchase: picking an existing purchase', () => {
     const user = userEvent.setup()
     const detail = { ...FRESH_PURCHASE, id: 11, order_number: 'PO-1', lines: [] }
     api.getPurchaseOrder.mockResolvedValue(detail)
-    render(<NewPurchase />)
+    renderWithProviders(<NewPurchase />)
 
     await user.click(
       screen.getByRole('radio', { name: /add to an existing purchase/i }),
@@ -127,13 +148,91 @@ describe('NewPurchase: picking an existing purchase', () => {
     expect(api.getPurchaseOrder).toHaveBeenCalledWith(11)
     expect(await screen.findByRole('heading', { name: /PO-1/ })).toBeInTheDocument()
   })
+
+  it('renders each row as a button, so it is reachable by keyboard', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /add to an existing purchase/i }),
+    )
+
+    expect(await screen.findByRole('button', { name: /PO-1/ })).toBeInTheDocument()
+  })
+
+  it('ignores a stale response from an earlier pick', async () => {
+    const user = userEvent.setup()
+    api.listPurchaseOrders.mockResolvedValue([
+      ...EXISTING_ORDERS,
+      {
+        id: 12,
+        order_number: 'PO-2',
+        vendor: 'Other Vendor',
+        ordered_on: '2026-01-06',
+        outstanding: 0,
+        total: 1,
+      },
+    ])
+    let resolveFirst
+    api.getPurchaseOrder.mockImplementation((id) => {
+      if (id === 11) {
+        return new Promise((resolve) => {
+          resolveFirst = () =>
+            resolve({ ...FRESH_PURCHASE, id: 11, order_number: 'PO-1' })
+        })
+      }
+      return Promise.resolve({ ...FRESH_PURCHASE, id: 12, order_number: 'PO-2' })
+    })
+    renderWithProviders(<NewPurchase />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /add to an existing purchase/i }),
+    )
+    // The slower pick (PO-1) is made first, the faster one (PO-2) second --
+    // PO-2's response lands first, and PO-1's must not overwrite it when it
+    // finally arrives.
+    await user.click(await screen.findByRole('button', { name: /PO-1/ }))
+    await user.click(screen.getByRole('button', { name: /PO-2/ }))
+    await screen.findByRole('heading', { name: /PO-2/ })
+
+    resolveFirst()
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /PO-2/ })).toBeInTheDocument(),
+    )
+  })
+
+  it('filters the list by order number or vendor, case-insensitively', async () => {
+    const user = userEvent.setup()
+    api.listPurchaseOrders.mockResolvedValue([
+      ...EXISTING_ORDERS,
+      {
+        id: 12,
+        order_number: 'PO-2',
+        vendor: 'Other Vendor',
+        ordered_on: '2026-01-06',
+        outstanding: 0,
+        total: 1,
+      },
+    ])
+    renderWithProviders(<NewPurchase />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /add to an existing purchase/i }),
+    )
+    await screen.findByRole('button', { name: /PO-1/ })
+
+    await user.type(screen.getByRole('textbox', { name: /filter/i }), 'heritage')
+
+    expect(screen.getByRole('button', { name: /PO-1/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /PO-2/ })).not.toBeInTheDocument()
+  })
 })
 
 describe('NewPurchase: items on the purchase', () => {
-  async function openPurchase() {
+  async function openPurchase(options = {}) {
     api.createPurchaseOrder.mockResolvedValue(FRESH_PURCHASE)
     const user = userEvent.setup()
-    render(<NewPurchase />)
+    renderWithProviders(<NewPurchase />, options)
     const vendorSelect = await screen.findByRole('combobox', { name: 'Vendor' })
     await user.selectOptions(vendorSelect, '3')
     await user.click(screen.getByRole('button', { name: /create purchase/i }))
@@ -156,7 +255,7 @@ describe('NewPurchase: items on the purchase', () => {
       ],
     })
     const user = userEvent.setup()
-    render(<NewPurchase />)
+    renderWithProviders(<NewPurchase />)
     const vendorSelect = await screen.findByRole('combobox', { name: 'Vendor' })
     await user.selectOptions(vendorSelect, '3')
     await user.click(screen.getByRole('button', { name: /create purchase/i }))
@@ -168,12 +267,14 @@ describe('NewPurchase: items on the purchase', () => {
     expect(within(row).getByText('ordered')).toBeInTheDocument()
   })
 
-  it('offers a Receive these link to the picked purchase', async () => {
-    await openPurchase()
-    expect(screen.getByRole('link', { name: /receive these/i })).toHaveAttribute(
-      'href',
-      '/receiving?order=22',
-    )
+  it('offers a Receive these link built from the router, not a hard-coded shop path', async () => {
+    // The console mounts at basename "/owner" (owner/main.jsx); a `<Link>`
+    // folds that into the rendered href, while a hard-coded
+    // `<a href="/receiving?...">` would not and would send the browser to
+    // the shop at the site root instead of Receiving.
+    await openPurchase({ basename: '/owner', route: '/owner/purchases/new' })
+    const link = screen.getByRole('link', { name: /receive these/i })
+    expect(link).toHaveAttribute('href', '/owner/receiving?order=22')
   })
 
   it('passes the resolved tax defaults down to the New item form', async () => {
@@ -218,5 +319,107 @@ describe('NewPurchase: items on the purchase', () => {
         expect.objectContaining({ tax_rate: null }),
       ),
     )
+  })
+
+  it('accepts a leading-dot tax rate, as the server does', async () => {
+    api.createInventoryItem.mockResolvedValue({ id: 103 })
+    const user = await openPurchase()
+
+    await user.type(screen.getByLabelText(/^tax rate/i), '.0635')
+    expect(screen.queryByText(/enter a rate between/i)).not.toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenCalledWith(
+        expect.objectContaining({ tax_rate: '.0635' }),
+      ),
+    )
+  })
+
+  it('disables saving items, with a visible reason, while the tax rate is invalid', async () => {
+    const user = await openPurchase()
+
+    await user.type(screen.getByLabelText(/^tax rate/i), 'abc')
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(
+      screen.getByText(/fix the tax rate above before saving items/i),
+    ).toBeInTheDocument()
+    expect(api.createInventoryItem).not.toHaveBeenCalled()
+  })
+
+  describe('Tax on shipping', () => {
+    it('sends null ("As configured") by default', async () => {
+      api.createInventoryItem.mockResolvedValue({ id: 200 })
+      const user = await openPurchase()
+
+      await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(api.createInventoryItem).toHaveBeenCalledWith(
+          expect.objectContaining({ tax_includes_shipping: null }),
+        ),
+      )
+    })
+
+    it('sends false once "Not taxed" is chosen', async () => {
+      api.createInventoryItem.mockResolvedValue({ id: 201 })
+      const user = await openPurchase()
+
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: /tax on shipping/i }),
+        'Not taxed',
+      )
+      await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(api.createInventoryItem).toHaveBeenCalledWith(
+          expect.objectContaining({ tax_includes_shipping: false }),
+        ),
+      )
+    })
+
+    it('sends true once "Taxed" is chosen', async () => {
+      api.createInventoryItem.mockResolvedValue({ id: 202 })
+      const user = await openPurchase()
+
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: /tax on shipping/i }),
+        'Taxed',
+      )
+      await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(api.createInventoryItem).toHaveBeenCalledWith(
+          expect.objectContaining({ tax_includes_shipping: true }),
+        ),
+      )
+    })
+  })
+
+  it('shows the error rather than swallowing it when reloading the purchase fails', async () => {
+    api.createInventoryItem.mockResolvedValue({ id: 400 })
+    const user = await openPurchase()
+    api.getPurchaseOrder.mockRejectedValueOnce(new Error('lost connection'))
+
+    await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/lost connection/i)).toBeInTheDocument()
+  })
+
+  it('offers a Start another purchase button that returns to step 1', async () => {
+    const user = await openPurchase()
+
+    await user.click(screen.getByRole('button', { name: /start another purchase/i }))
+
+    expect(
+      screen.getByRole('radio', { name: /add to an existing purchase/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /PO-2/ })).not.toBeInTheDocument()
   })
 })

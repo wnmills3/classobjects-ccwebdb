@@ -89,6 +89,52 @@ def test_an_unknown_vendor_kind_is_a_422(
     assert res.status_code == 422
 
 
+def test_a_vendor_url_sets_its_host(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    res = client.post(
+        "/api/vendors",
+        json={"name": "Heritage Host", "url": "https://www.HA.com/coins"},
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    vendor = db.get(Vendor, res.json()["id"])
+    assert vendor is not None
+    assert vendor.host == "www.ha.com"
+
+
+def test_a_vendor_with_no_url_has_no_host(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    res = client.post(
+        "/api/vendors", json={"name": "No URL Vendor"}, headers=admin_headers
+    )
+    assert res.status_code == 201, res.text
+    vendor = db.get(Vendor, res.json()["id"])
+    assert vendor is not None
+    assert vendor.host is None
+
+
+def test_a_blank_vendor_name_is_a_422(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    res = client.post("/api/vendors", json={"name": "   "}, headers=admin_headers)
+    assert res.status_code == 422
+
+
+def test_a_padded_vendor_name_is_stored_trimmed(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    res = client.post(
+        "/api/vendors", json={"name": "  Padded Vendor  "}, headers=admin_headers
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["name"] == "Padded Vendor"
+    vendor = db.get(Vendor, res.json()["id"])
+    assert vendor is not None
+    assert vendor.name == "Padded Vendor"
+
+
 def test_a_non_http_vendor_url_is_a_422(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

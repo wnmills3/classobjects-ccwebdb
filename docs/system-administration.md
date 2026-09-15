@@ -341,23 +341,28 @@ standalone buy is recorded as a purchase holding one item. See
 - The purchase itself (`POST /api/purchase-orders`) needs only a vendor --
   the order number is optional, so a walk-in or show purchase needs nothing
   else. A vendor and order number together must be unique; the date, if
-  given, cannot be in the future.
+  given, must be no later than tomorrow (to allow for time zones).
 - **Items** are entered on the purchase (`POST /api/inventory`) with a status
   of `ordered` or `received` -- `received` for something already in hand.
   A **lot** is simply an item with a piece count above 1; splitting it into
   individual pieces is a later step.
 - **Tax fields** are set per item, pre-filled from the purchase's own tax
   controls: a tax-rate field that starts empty (meaning the configured
-  default rate), "No sales tax charged" (sends a rate of 0), and "Tax
-  includes shipping". An explicit rate is validated as 0-1 with up to 4
-  decimal places.
-- **Save and add another** keeps the fields shared across items on the same
-  purchase (kind, country, denomination, series, seal, district, note type,
-  grade scale, tax fields) and clears the per-item fields (title, serial
-  number, cost, certificate number), so entering several notes from the same
-  purchase does not mean retyping the shared details each time.
+  default rate), "No sales tax charged" (sends a rate of 0), and "Tax on
+  shipping" (As configured / Taxed / Not taxed). An explicit rate is
+  validated as 0-1 with up to 4 decimal places, including a leading-dot form
+  such as `.0635`.
+- **Save and add another** keeps `item_kind`, `status`, `country`,
+  `denomination`, `series`, `series_year`, `series_letter`, `seal_color`,
+  `fed_district`, `note_type`, `grading_service`, `metal` and `mint`, plus
+  the purchase-wide tax defaults, and clears everything else (title,
+  description, year, grade, grade designation, serial number, certificate
+  number, variety, item cost, shipping cost, and piece count back to 1), so
+  entering several notes from the same purchase does not mean retyping the
+  shared details each time.
 - **Receive these**, once items are entered, opens Receiving
-  (`/receiving?order=<id>`) for that purchase.
+  (`/receiving?order=<id>`) for that purchase, and **Start another purchase**
+  returns to step one to pick or start a different one.
 
 All four endpoints above (`GET /api/vendors`, `POST /api/vendors`,
 `POST /api/purchase-orders`, `POST /api/inventory`) are administrator-only.

@@ -57,11 +57,16 @@ export function renderWithProviders(ui, options = {}) {
     cart = emptyCart(),
     reference = emptyReference(),
     route = '/',
+    // Only owner-console tests that specifically care about the console's
+    // real mount point (`basename="/owner"` in `owner/main.jsx`) need this --
+    // e.g. telling a `<Link>`'s routed href apart from a hard-coded path
+    // that happens to read the same without a basename in play.
+    basename,
     ...rest
   } = options
 
   return render(
-    <MemoryRouter initialEntries={[route]}>
+    <MemoryRouter initialEntries={[route]} basename={basename}>
       <AuthContext.Provider value={auth}>
         <CartContext.Provider value={cart}>
           <ReferenceContext.Provider value={reference}>{ui}</ReferenceContext.Provider>

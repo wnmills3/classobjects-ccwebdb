@@ -30,12 +30,12 @@ has `FriedbergLookup` for a currency item).
 | Question | Decision |
 |---|---|
 | Can an item exist without a purchase? | **No new item is entered outside a purchase.** A standalone buy is a purchase holding one item. The purchase's order number is optional, so a walk-in or show purchase needs only a vendor. |
-| Where do shipping and tax live? | **On each item, as the schema already has them** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The purchase page's tax-rate field starts empty, meaning the configured rate (sent as `tax_rate: null`); "No sales tax charged" sends 0; an explicit rate is validated as 0-1 with up to 4 places. There is no endpoint exposing the configured rate to a new page. These resolved values pre-fill each new item form. No migration. |
+| Where do shipping and tax live? | **On each item, as the schema already has them** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The purchase page's tax-rate field starts empty, meaning the configured rate (sent as `tax_rate: null`); "No sales tax charged" sends 0; an explicit rate is validated as 0-1 with up to 4 places (a leading-dot form like `.0635` accepted). "Tax on shipping" is a three-state choice -- "As configured" sends `null`, "Taxed" sends `true`, "Not taxed" sends `false` -- since a plain checkbox cannot express "not taxed" separately from "use the configured default", and the configured default is `true`. There is no endpoint exposing the configured rate to a new page. These resolved values pre-fill each new item form. No migration. |
 | A lot? | **An item with `piece_count > 1`**, as the workflow doc defines. Splitting stays a later step. |
 | Status on entry | **`ordered` or `received`**, default `ordered`; `received` for things already in hand. The opening status history row is written either way. |
 | Disposition, authenticity, valuation, source | `held`, `unverified` unless given, `numismatic`, `manual`. |
 | Vendors | Picked from a list; a missing vendor is added inline (name, kind, web address). Names are unique. |
-| Repeated entry | **"Save and add another"** keeps the kind and the shared fields (country, denomination, series, seal, district, note type, grade scale, tax fields) and clears the per-note fields (title, serial, cost, certificate). |
+| Repeated entry | **"Save and add another"** keeps exactly `item_kind`, `status`, `country`, `denomination`, `series`, `series_year`, `series_letter`, `seal_color`, `fed_district`, `note_type`, `grading_service`, `metal`, `mint` (plus the purchase-wide tax defaults, which come from the page) and clears everything else: `source_title`, `description`, year fields and the range checkbox, `grade`, `grade_designation`, `serial_number`, `cert_number`, `variety`, `item_cost`, `shipping_cost`, `piece_count` (back to 1). |
 | Web addresses | A purchase's `source_url` must start with `http://` or `https://` (422 otherwise), the same rule Receiving applies when showing it. |
 
 ## API contract (binding for backend and frontend)
@@ -62,7 +62,8 @@ duplicate name (case-insensitive). 422 unknown kind or non-http url.
 404 unknown vendor. 409 `"<vendor> order <number> is already recorded"` when that
 vendor already has that order number (the partial unique index).
 
-The existing `GET /api/purchase-orders` and `GET /api/purchase-orders/{id}` are unchanged.
+The existing `GET /api/purchase-orders` is unchanged. `GET /api/purchase-orders/{id}`'s
+line shape gained `source_title` and `item_kind`, for the items table on this page.
 
 ### Items -- `backend/app/routers/inventory.py`, `POST /api/inventory`
 
@@ -108,20 +109,27 @@ New route `/purchases/new`, nav link **New purchase** (after Receive).
 
 **`frontend/src/owner/pages/NewPurchase.jsx`** -- two steps on one page:
 
-1. *The purchase.* Either "Add to an existing purchase" (a picker over
-   `listPurchaseOrders()`, showing number, vendor, date) or a new one: vendor
-   select (from `listVendors()`, with "+ Add a vendor..." opening an inline
-   name / kind / web address form that calls `createVendor`), order number,
-   order date, web address, notes, **Create purchase**.
+1. *The purchase.* Either "Add to an existing purchase" (a filterable picker,
+   by order number or vendor, over `listPurchaseOrders()`, showing number,
+   vendor, date, as keyboard-reachable buttons) or a new one: vendor select
+   (from `listVendors()`, with "+ Add a vendor..." opening an inline name /
+   kind / web address form that calls `createVendor`, its inputs never
+   submitting the outer purchase form), order number, order date, web
+   address, notes, **Create purchase**.
    Refusals (409 duplicate order, 422) are shown in place, keeping what was typed.
 2. *Items on this purchase*, once a purchase is chosen or created: the purchase
    heading (vendor, number, date), purchase-wide defaults (a tax-rate field that
    starts empty -- meaning the configured rate, sent as `tax_rate: null`;
-   "No sales tax charged" sends 0; an explicit rate is validated as 0-1 with up
-   to 4 places; and "Tax includes shipping"),
+   accepting a leading-dot rate like `.0635`; "No sales tax charged" sends 0;
+   an explicit rate is validated as 0-1 with up to 4 places, and while it is
+   invalid the item form below refuses to save, with a visible reason; and
+   "Tax on shipping", a three-state choice -- "As configured" (`null`),
+   "Taxed" (`true`), "Not taxed" (`false`)),
    a table of items entered so far (item code, title, kind, cost, status) built
-   from `getPurchaseOrder(id).lines`, the **New item** form below it, and a link
-   **Receive these** to `/receiving?order=<id>`.
+   from `getPurchaseOrder(id).lines`, the **New item** form below it, a link
+   **Receive these** (a routed link, not a hard-coded shop path) to
+   `/receiving?order=<id>`, and a **Start another purchase** button back to
+   step 1.
 
 **`frontend/src/owner/pages/entry/NewItemForm.jsx`** -- props
 `{ purchaseOrderId, defaults, onSaved }`:
