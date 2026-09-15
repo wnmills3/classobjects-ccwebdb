@@ -108,6 +108,9 @@ export const api = {
   },
 
   // accounts -- who can sign in
+  listOrders: () => send('/api/orders'),
+  setOrderStatus: (id, status) =>
+    send(`/api/orders/${id}`, { method: 'PATCH', body: { status } }),
   listUsers: () => send('/api/users'),
   createUser: (payload) => send('/api/users', { method: 'POST', body: payload }),
   updateUser: (id, payload) =>

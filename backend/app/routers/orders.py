@@ -182,10 +182,15 @@ def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> Orde
 
 
 @router.get("")
-def list_orders(db: DbSession, user: CurrentUser) -> list[OrderOut]:
-    """Customers see their own orders; administrators see every order."""
+def list_orders(db: DbSession, user: CurrentUser, mine: bool = False) -> list[OrderOut]:
+    """Customers see their own orders; administrators see every order.
+
+    `mine=true` is the caller's own orders whatever their role. The shop's
+    "Your orders" page asks for it: an administrator browsing the shop is a
+    customer there, and everyone's orders belong in the console.
+    """
     stmt = select(SalesOrder).options(*_ORDER_DETAIL).order_by(SalesOrder.id.desc())
-    if user.role is not UserRole.admin:
+    if mine or user.role is not UserRole.admin:
         customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
         if customer is None:
             return []

@@ -173,7 +173,7 @@ export const api = {
 
   // orders
   createOrder: (items) => send('/api/orders', { method: 'POST', body: { items } }),
-  listOrders: () => send('/api/orders'),
-  setOrderStatus: (id, status) =>
-    send(`/api/orders/${id}`, { method: 'PATCH', body: { status } }),
+  // Mine even for an administrator: in the shop they are a customer. Every
+  // order, and changing status, are console tools in owner/api.js.
+  listMyOrders: () => send('/api/orders?mine=true'),
 }

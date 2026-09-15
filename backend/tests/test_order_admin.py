@@ -54,6 +54,25 @@ def test_a_customer_still_sees_only_their_own_orders_with_the_new_fields(
     assert {o["customer_email"] for o in mine} == {"customer@example.com"}
 
 
+def test_mine_is_only_the_callers_own_orders_even_for_an_administrator(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """The shop's "Your orders" asks for mine; for an admin it listed everyone's."""
+    place(client, customer_headers, listing.id, 1)
+    place(client, admin_headers, listing.id, 1)
+
+    everything = client.get("/api/orders", headers=admin_headers).json()
+    admins_own = client.get("/api/orders?mine=true", headers=admin_headers).json()
+    customers_own = client.get("/api/orders?mine=true", headers=customer_headers).json()
+
+    assert len(everything) == 2
+    assert [o["customer_email"] for o in admins_own] == ["admin@example.com"]
+    assert [o["customer_email"] for o in customers_own] == ["customer@example.com"]
+
+
 def test_a_cancelled_order_cannot_be_revived_after_its_stock_returned(
     client: TestClient,
     listing: Listing,
