@@ -241,29 +241,41 @@ def update_order_status(
     if previous == "cancelled" and payload.status != "cancelled":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Order #{order.id} is cancelled and its stock has been "
+            detail=f"Order #{order_id} is cancelled and its stock has been "
             "returned. Place a new order instead.",
         )
-    order.sales_order_status_id = require_code(
-        db, SalesOrderStatus, payload.status, "status"
-    )
-    record_status_change(db, order, previous, payload.status, admin)
 
-    # Cancelling an order that had not shipped returns stock to the catalogue.
-    if payload.status == "cancelled" and previous not in SHIPPED_STATUSES | {
-        "cancelled"
-    }:
-        return_stock(db, order)
-
+    # The status write, its history row and (on a cancellation) returning
+    # stock all sit inside this try: `return_stock` can autoflush a write to
+    # `InventoryItem.disposition`, which carries its own version column and
+    # is never locked -- a concurrent edit to that item raises
+    # `StaleDataError` here, not only at `db.commit()`. `order_id` (the
+    # path parameter), not `order.id`, appears in every message below: once
+    # a flush has failed, every instance in the session is expired, and
+    # reading an attribute off one issues a SELECT that raises
+    # `PendingRollbackError` instead of the value.
     try:
+        order.sales_order_status_id = require_code(
+            db, SalesOrderStatus, payload.status, "status"
+        )
+        record_status_change(db, order, previous, payload.status, admin)
+
+        # Cancelling an order that had not shipped returns stock to the
+        # catalogue.
+        if payload.status == "cancelled" and previous not in SHIPPED_STATUSES | {
+            "cancelled"
+        }:
+            return_stock(db, order)
+
         db.commit()
     except StaleDataError as exc:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Order #{order.id} was changed while saving. Reload and retry.",
+            detail=f"Order #{order_id} or one of its items was changed while "
+            "saving. Reload and retry.",
         ) from exc
-    return order_out(db, order.id)
+    return order_out(db, order_id)
 
 
 @router.put("/{order_id}")

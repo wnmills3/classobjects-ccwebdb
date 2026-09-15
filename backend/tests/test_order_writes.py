@@ -630,3 +630,35 @@ def test_only_an_admin_may_read_the_history(
     url = f"/api/orders/{order['id']}/changes"
     assert client.get(url).status_code == 401
     assert client.get(url, headers=customer_headers).status_code == 403
+
+
+def test_cancelling_relists_an_item_that_had_sold_out(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """Fix round 1, ruling-1 behaviour: `return_stock` must relist on its own.
+
+    `place_order` marks the item `sold` once its listing hits zero;
+    `return_stock` must reverse that when a cancellation puts the last unit
+    back, the same before/after-zero rule every stock-moving path uses --
+    not "relist whenever the listing is active", which the inline code this
+    replaced did.
+    """
+    order = _place(client, customer_headers, listing.id, 5)
+    db.refresh(listing)
+    assert listing.quantity_available == 0
+    db.expire_all()
+    assert listing.inventory_item.disposition.code == "sold"
+
+    response = client.patch(
+        f"/api/orders/{order['id']}",
+        json={"status": "cancelled"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    assert listing.inventory_item.disposition.code == "listed"
