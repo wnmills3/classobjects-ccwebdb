@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { AccessLabel, useSaveShortcut } from './shortcuts'
+import { AccessLabel } from './AccessLabel'
+import { useSaveShortcut } from './shortcuts'
 
 function Probe({ onSave, enabled }) {
   useSaveShortcut(onSave, enabled)

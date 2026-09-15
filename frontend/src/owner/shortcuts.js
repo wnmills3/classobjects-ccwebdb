@@ -7,20 +7,10 @@ import { useEffect, useRef } from 'react'
  * with the letter underlined in the label so the shortcut is discoverable and
  * `aria-keyshortcuts` announcing it. Letters avoid D, E and F, which those
  * browsers keep for the address bar and menus on Windows.
+ *
+ * The label component itself, `AccessLabel`, lives in `./AccessLabel.jsx` --
+ * it renders JSX, so it stays out of this plain module.
  */
-
-/** A label with its access key's letter underlined. */
-export function AccessLabel({ text, accessKey }) {
-  const at = text.toLowerCase().indexOf(accessKey.toLowerCase())
-  if (at < 0) return text
-  return (
-    <>
-      {text.slice(0, at)}
-      <u>{text[at]}</u>
-      {text.slice(at + 1)}
-    </>
-  )
-}
 
 /** The attributes an accelerated control carries. */
 export const accel = (key) => ({

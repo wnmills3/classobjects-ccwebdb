@@ -2,7 +2,8 @@ import { useEffect, useId, useState } from 'react'
 
 import { api } from '../../api'
 import { ReferenceSelect } from '../../../shared/reference'
-import { AccessLabel, accel, useSaveShortcut } from '../../shortcuts'
+import { AccessLabel } from '../../AccessLabel'
+import { accel, useSaveShortcut } from '../../shortcuts'
 
 /**
  * One item, every field, with what the lot claimed beside each.

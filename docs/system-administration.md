@@ -379,6 +379,9 @@ changed line by line and the total's old and new value. The console's
 **History** button on a row calls `GET /api/orders/{id}/changes` and groups
 the rows from one save into one entry, oldest first.
 
+Both edit windows -- an inventory item's and an order's -- take Alt plus the
+underlined letter to jump to a field, and Ctrl+S or Ctrl+Enter to save.
+
 ## Reference vocabularies
 
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows

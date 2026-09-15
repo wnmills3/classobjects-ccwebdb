@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../../api', () => ({ api: { listOrderChanges: vi.fn() } }))
 
 import { api } from '../../api'
-import OrderHistory, { describeChange } from './OrderHistory'
+import OrderHistory from './OrderHistory'
+import { describeChange } from './describeChange'
 
 const at = '2026-09-15T14:40:00Z'
 const row = (id, change, extra = {}) => ({
