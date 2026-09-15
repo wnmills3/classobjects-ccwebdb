@@ -629,6 +629,9 @@ class FacetValueOut(BaseModel):
 
     value: object
     count: int
+    #: What a person reads: "Cent" for `usd_coin_0_01`. The filter still takes
+    #: `value`. Absent where the value is already readable, as a series year is.
+    label: str | None = None
 
 
 class InventoryPageOut(BaseModel):

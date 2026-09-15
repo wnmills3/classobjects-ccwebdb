@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 
+import { useReference } from '../../../shared/reference-context'
 import { api } from '../../api'
 
 //: view value paired with its radio label.
@@ -14,6 +15,7 @@ const VIEWS = [
 const OUTSTANDING_STATUSES = ['ordered', 'missing']
 
 const EMPTY_FILTERS = {
+  status: '',
   denomination: '',
   year: '',
   mint: '',
@@ -22,19 +24,23 @@ const EMPTY_FILTERS = {
 }
 
 /**
- * Finds an item to receive by what it is, for when the object is in hand and
- * which order it came from is not known.
+ * Finds an item by what it is, for when the object is in hand and which order
+ * it came from is not known.
  *
  * Every field here is already a filter `GET /api/inventory/{view}/search`
  * supports, so this needs no backend of its own -- it only shapes the query.
- * "Not yet arrived" means `status=ordered` or `status=missing` -- a parcel
- * written off as missing and later turning up is exactly what that code
- * exists for -- so both are searched and merged. The search endpoint's
- * `status` filter only ever compares to one value, so this is two requests,
- * not one; `received`, `canceled` and `returned` items are never among
- * either, so the operator is never offered something already received:
- * receiving it a second time is a mistake the backend would refuse with a
- * 409, but the picker should not invite it in the first place.
+ *
+ * By default it finds only what has not arrived: `status=ordered` or
+ * `status=missing` -- a parcel written off as missing and later turning up is
+ * exactly what that code exists for. The search endpoint's `status` filter
+ * compares to one value, so that default is two requests, merged. Choosing a
+ * status searches that one instead, so an item already recorded as received
+ * can be found; receiving it a second time is still refused by the backend,
+ * which names when it arrived.
+ *
+ * Status and denomination are chosen from their vocabularies rather than
+ * typed. The filters compare codes, so a typed "Cent" never matched
+ * `usd_coin_0_01` -- a denomination box that could only ever find nothing.
  *
  * A single "year" typed here becomes both `year_min` and `year_max`: the
  * backend has no single-year filter, only that range pair.
@@ -51,9 +57,14 @@ export default function ItemFinder({ onPick }) {
   const [view, setView] = useState('coins')
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [results, setResults] = useState(null)
+  //: The status the displayed results were searched for, so the "nothing
+  //: matches" message describes that search, not a status picked since.
+  const [searchedStatus, setSearchedStatus] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const cancelRef = useRef(null)
+  const statuses = useReference('item_status')
+  const denominations = useReference('denomination')
 
   function setField(field, value) {
     setFilters((prev) => ({ ...prev, [field]: value }))
@@ -92,15 +103,15 @@ export default function ItemFinder({ onPick }) {
       if (filters.serialNumber) params.serial_number = filters.serialNumber
       if (filters.seriesYear) params.series_year = filters.seriesYear
     }
+    const wanted = filters.status ? [filters.status] : OUTSTANDING_STATUSES
 
     try {
       const bodies = await Promise.all(
-        OUTSTANDING_STATUSES.map((outstandingStatus) =>
-          api.searchInventory(view, { ...params, status: outstandingStatus }),
-        ),
+        wanted.map((status) => api.searchInventory(view, { ...params, status })),
       )
       if (cancelled) return
       setResults(bodies.flatMap((body) => body.rows))
+      setSearchedStatus(filters.status)
     } catch (err) {
       if (cancelled) return
       setError(err.message)
@@ -129,12 +140,32 @@ export default function ItemFinder({ onPick }) {
 
       <div className="filter-grid">
         <label>
+          Status
+          <select
+            value={filters.status}
+            onChange={(e) => setField('status', e.target.value)}
+          >
+            <option value="">Not yet arrived</option>
+            {(statuses ?? []).map((s) => (
+              <option key={s.code} value={s.code}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
           Denomination
-          <input
-            type="text"
+          <select
             value={filters.denomination}
             onChange={(e) => setField('denomination', e.target.value)}
-          />
+          >
+            <option value="">Any</option>
+            {(denominations ?? []).map((d) => (
+              <option key={d.code} value={d.code}>
+                {d.label}
+              </option>
+            ))}
+          </select>
         </label>
 
         {view === 'coins' ? (
@@ -185,7 +216,11 @@ export default function ItemFinder({ onPick }) {
       {error && <p className="error">{error}</p>}
 
       {results && results.length === 0 && (
-        <p className="muted">Nothing outstanding matches those attributes.</p>
+        <p className="muted">
+          {searchedStatus
+            ? 'Nothing in that status matches those attributes.'
+            : 'Nothing outstanding matches those attributes.'}
+        </p>
       )}
 
       {results && results.length > 0 && (

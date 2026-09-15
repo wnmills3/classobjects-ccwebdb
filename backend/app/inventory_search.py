@@ -257,6 +257,7 @@ _SHARED_SORT = (
 )
 
 _SHARED_FACETS: dict[str, Facet] = {
+    "denomination": Facet("denomination_id", "denomination"),
     "series": Facet("series_id", "series"),
     "grade": Facet("grade_id", "grade"),
     "country": Facet("country_id", "country"),
@@ -650,20 +651,28 @@ def count_facets(
         ids = [row.fid for row in counts]
         # A textual query returns untyped rows, so the pair is taken by
         # position rather than by asking dict() to infer it.
-        labels: dict[int, str] = {
-            row[0]: row[1]
+        # The value is what the filter compares; the label is what a person
+        # reads -- "Cent" for `usd_coin_0_01`. `to_jsonb(t) ->> 'label'` reads
+        # the label where the table has one and yields NULL where it does not,
+        # so one query serves every facet table without knowing its columns.
+        resolved: dict[int, tuple[object, str | None]] = {
+            row[0]: (row[1], row[2])
             for row in db.execute(
                 text(
-                    f"SELECT id, {facet.label_column} FROM {facet.table} "
-                    "WHERE id = ANY(:ids)"
+                    f"SELECT t.id, t.{facet.label_column}, to_jsonb(t) ->> 'label' "
+                    f"FROM {facet.table} t WHERE t.id = ANY(:ids)"
                 ),
                 {"ids": ids},
             ).all()
         }
         results[name] = [
-            {"value": labels.get(row.fid), "count": row.n}
+            {
+                "value": resolved[row.fid][0],
+                "label": resolved[row.fid][1],
+                "count": row.n,
+            }
             for row in counts
-            if labels.get(row.fid) is not None
+            if row.fid in resolved and resolved[row.fid][0] is not None
         ]
 
     return results
