@@ -71,6 +71,11 @@ export function ReferenceSelect({
   //: Optional `(entry) => boolean` narrowing what is offered -- a note's grade
   //: picker offers only the paper-money scale.
   filter,
+  //: Keyboard accelerator attributes (`accessKey`, `aria-keyshortcuts`),
+  //: passed straight to the `<select>` -- this module stays outside
+  //: `owner/`, so it takes the attributes rather than importing `shortcuts`.
+  accessKey,
+  'aria-keyshortcuts': ariaKeyshortcuts,
 }) {
   const values = useReference(table)
   const context = useContext(ReferenceContext)
@@ -124,6 +129,8 @@ export function ReferenceSelect({
         onChange={onChange}
         placeholder={placeholder}
         aria-label={table}
+        accessKey={accessKey}
+        aria-keyshortcuts={ariaKeyshortcuts}
       />
     )
   }
@@ -137,6 +144,8 @@ export function ReferenceSelect({
           else onChange(e)
         }}
         aria-label={table}
+        accessKey={accessKey}
+        aria-keyshortcuts={ariaKeyshortcuts}
       >
         {allowBlank && <option value="">--</option>}
         {/* A filter narrows what is offered, never what is shown as chosen:

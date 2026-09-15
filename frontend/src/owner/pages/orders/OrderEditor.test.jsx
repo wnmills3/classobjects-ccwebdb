@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -161,5 +161,23 @@ describe('OrderEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Save order' }))
     expect(screen.getByText('Choose a customer.')).toBeInTheDocument()
     expect(api.createOrderFor).not.toHaveBeenCalled()
+  })
+
+  it('gives the editor access keys and saves with Ctrl+Enter', async () => {
+    await setup(ORDER)
+    expect(screen.getByRole('combobox', { name: 'Customer' })).toHaveAttribute(
+      'accesskey',
+      'c',
+    )
+    expect(screen.getByRole('searchbox', { name: 'Find item' })).toHaveAttribute(
+      'accesskey',
+      'i',
+    )
+    expect(screen.getByRole('button', { name: 'Save order' })).toHaveAttribute(
+      'accesskey',
+      'v',
+    )
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(api.reviseOrder).toHaveBeenCalled())
   })
 })
