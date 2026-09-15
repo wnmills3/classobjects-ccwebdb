@@ -12,20 +12,33 @@ item sits in, are neither a customer's business.
 from __future__ import annotations
 
 import re
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import and_, case, func, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from ..deps import AdminUser, DbSession
-from ..models import InventoryItem, ItemStatus, PurchaseOrder, StorageLocation, Vendor
+from ..models import (
+    InventoryItem,
+    ItemStatus,
+    PurchaseOrder,
+    StorageLocation,
+    Vendor,
+    VendorKind,
+)
+from ..references import code_to_id, require_code
 from ..schemas import (
+    PurchaseOrderCreate,
     PurchaseOrderDetailOut,
     PurchaseOrderLineOut,
     PurchaseOrderOut,
     StorageLocationOut,
+    VendorCreate,
+    VendorOut,
 )
 
+vendors_router = APIRouter(prefix="/vendors", tags=["acquisitions"])
 purchase_orders_router = APIRouter(prefix="/purchase-orders", tags=["acquisitions"])
 storage_locations_router = APIRouter(prefix="/storage-locations", tags=["acquisitions"])
 
@@ -44,6 +57,55 @@ _ITEM_IS_LIVE = and_(
 #: "Gift". Only a value that looks like a web address is ever offered as a
 #: link; anything else, `javascript:` included, is withheld.
 _WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def _vendor_out(db: Session, vendor: Vendor) -> VendorOut:
+    """A vendor row, with its kind resolved back to a code for the wire."""
+    kind = db.get(VendorKind, vendor.vendor_kind_id) if vendor.vendor_kind_id else None
+    return VendorOut(
+        id=vendor.id,
+        name=vendor.name,
+        url=vendor.url,
+        vendor_kind=kind.code if kind is not None else None,
+    )
+
+
+@vendors_router.get("")
+def list_vendors(db: DbSession, _admin: AdminUser) -> list[VendorOut]:
+    """Every vendor, ordered by name, for picking on the entry panels."""
+    vendors = db.scalars(select(Vendor).order_by(Vendor.name)).all()
+    return [_vendor_out(db, vendor) for vendor in vendors]
+
+
+@vendors_router.post("", status_code=status.HTTP_201_CREATED)
+def create_vendor(payload: VendorCreate, db: DbSession, _admin: AdminUser) -> VendorOut:
+    """Add a vendor inline, while entering a purchase.
+
+    Names are unique -- checked here case-insensitively, so a caller typing
+    "eBay.com" against an existing "ebay.com" gets a 409 naming the vendor
+    they meant, rather than a second row the database's own constraint (which
+    is case-sensitive) would happily allow.
+    """
+    duplicate = db.scalar(
+        select(Vendor).where(func.lower(Vendor.name) == payload.name.casefold())
+    )
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A vendor named {payload.name} already exists",
+        )
+
+    vendor_kind_id = (
+        code_to_id(db, VendorKind, payload.vendor_kind, "vendor_kind")
+        if payload.vendor_kind is not None
+        else require_code(db, VendorKind, "unknown", "vendor_kind")
+    )
+
+    vendor = Vendor(name=payload.name, url=payload.url, vendor_kind_id=vendor_kind_id)
+    db.add(vendor)
+    db.commit()
+    db.refresh(vendor)
+    return _vendor_out(db, vendor)
 
 
 @purchase_orders_router.get("")
@@ -164,6 +226,62 @@ def get_purchase_order(
             for item in items
         ],
     )
+
+
+@purchase_orders_router.post("", status_code=status.HTTP_201_CREATED)
+def create_purchase_order(
+    payload: PurchaseOrderCreate, db: DbSession, admin: AdminUser
+) -> PurchaseOrderDetailOut:
+    """Start a new purchase: a vendor, and everything else optional.
+
+    Returns the same shape `GET /api/purchase-orders/{id}` does -- built by
+    calling that route's own function, so the two can never drift into
+    describing a freshly created order differently from an existing one.
+    """
+    vendor = db.get(Vendor, payload.vendor_id)
+    if vendor is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown vendor_id: {payload.vendor_id}",
+        )
+
+    # A future ordered_on is a data-entry error, not a fact -- the same
+    # reasoning `POST /api/inventory/receive` applies to arrived_on, widened
+    # by a day so a caller's honest "today" is never refused just because it
+    # is ahead of UTC's. See that endpoint's comment for the full argument.
+    limit: date = datetime.now(UTC).date() + timedelta(days=1)
+    if payload.ordered_on is not None and payload.ordered_on > limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"ordered_on {payload.ordered_on.isoformat()} is too far "
+            f"in the future. Latest accepted: {limit.isoformat()}.",
+        )
+
+    if payload.order_number is not None:
+        duplicate = db.scalar(
+            select(PurchaseOrder.id).where(
+                PurchaseOrder.vendor_id == vendor.id,
+                PurchaseOrder.order_number == payload.order_number,
+            )
+        )
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{vendor.name} order {payload.order_number} is "
+                f"already recorded",
+            )
+
+    order = PurchaseOrder(
+        vendor_id=vendor.id,
+        order_number=payload.order_number,
+        ordered_on=payload.ordered_on,
+        source_url=payload.source_url,
+        notes=payload.notes,
+    )
+    db.add(order)
+    db.commit()
+
+    return get_purchase_order(order.id, db, admin)
 
 
 def _location_label(location: StorageLocation) -> str:

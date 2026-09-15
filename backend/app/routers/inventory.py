@@ -29,18 +29,22 @@ from ..inventory_search import (
     plain,
     search,
 )
-from ..lifecycle_writes import set_location, set_status
+from ..lifecycle_writes import record_initial_status, set_location, set_status
 from ..models import (
     Authenticity,
     BullionForm,
+    CoinDetail,
     Country,
+    CurrencyDetail,
     Denomination,
     Disposition,
     ErrorType,
+    FedDistrict,
     Grade,
     GradeDesignation,
     GradingService,
     InventoryItem,
+    ItemCertification,
     ItemError,
     ItemFieldReview,
     ItemKind,
@@ -48,10 +52,15 @@ from ..models import (
     ItemStatusHistory,
     Listing,
     Metal,
+    Mint,
+    NoteType,
     ProvenanceSource,
+    PurchaseOrder,
+    SealColor,
     Series,
     StorageForm,
     StorageLocation,
+    ValuationBasis,
 )
 from ..references import code_to_id, require_code
 from ..schemas import (
@@ -60,6 +69,7 @@ from ..schemas import (
     InventoryItemOut,
     InventoryItemUpdate,
     InventoryPageOut,
+    ItemCreate,
     ItemDetailOut,
     ItemErrorOut,
     ItemErrorsOut,
@@ -371,6 +381,156 @@ def receive_items(
 
     db.commit()
     return {"received": len(items)}
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDetailOut:
+    """Add an item to an existing purchase: a coin, banknote or other object.
+
+    Mirrors `SchemaLoader.load()`: every classifier code is resolved first,
+    so a typo in the last field never leaves the earlier ones already
+    written; only then is the item built, flushed, given exactly one detail
+    row (`CurrencyDetail` for `currency`, `CoinDetail` otherwise), certified
+    if a certificate number was given, and handed its opening status-history
+    row -- all inside one transaction.
+
+    Returns the same shape `GET /api/inventory/{id}` does, built by calling
+    that route's own function, so a freshly entered item is described no
+    differently from one read back later.
+    """
+    order = db.get(PurchaseOrder, payload.purchase_order_id)
+    if order is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown purchase_order_id: {payload.purchase_order_id}",
+        )
+
+    # A year given alone is a single year; an explicit end before the start
+    # is refused rather than silently swapped. There is no existing item to
+    # name in the message yet, so the title given stands in for it.
+    given_years = {
+        field: getattr(payload, field)
+        for field in YEAR_FIELDS
+        if getattr(payload, field) is not None
+    }
+    years = resolve_years((None, None), given_years)
+    if years is not None:
+        refuse_backwards(years, payload.source_title)
+    else:
+        years = (None, None)
+
+    # Every code resolved before anything is written -- the first unknown one
+    # is the 422 the caller sees, and nothing has been added to the session
+    # yet for any of them to leave behind.
+    item_kind_id = require_code(db, ItemKind, payload.item_kind, "item_kind")
+    country_id = code_to_id(db, Country, payload.country, "country")
+    denomination_id = code_to_id(db, Denomination, payload.denomination, "denomination")
+    grade_id = code_to_id(db, Grade, payload.grade, "grade")
+    grade_designation_id = code_to_id(
+        db, GradeDesignation, payload.grade_designation, "grade_designation"
+    )
+    grading_service_id = code_to_id(
+        db, GradingService, payload.grading_service, "grading_service"
+    )
+    metal_id = code_to_id(db, Metal, payload.metal, "metal")
+    series_id = code_to_id(db, Series, payload.series, "series")
+    bullion_form_id = code_to_id(db, BullionForm, payload.bullion_form, "bullion_form")
+    storage_form_id = require_code(
+        db, StorageForm, payload.storage_form or "single", "storage_form"
+    )
+    authenticity_id = require_code(
+        db, Authenticity, payload.authenticity or "unverified", "authenticity"
+    )
+    status_id = require_code(db, ItemStatus, payload.status, "status")
+
+    is_currency = payload.item_kind == "currency"
+    mint_id = None if is_currency else code_to_id(db, Mint, payload.mint, "mint")
+    note_type_id = (
+        code_to_id(db, NoteType, payload.note_type, "note_type")
+        if is_currency
+        else None
+    )
+    seal_color_id = (
+        code_to_id(db, SealColor, payload.seal_color, "seal_color")
+        if is_currency
+        else None
+    )
+    fed_district_id = (
+        code_to_id(db, FedDistrict, payload.fed_district, "fed_district")
+        if is_currency
+        else None
+    )
+
+    tax_kwargs: dict[str, object] = {}
+    if payload.tax_rate is not None:
+        tax_kwargs["tax_rate"] = payload.tax_rate
+    if payload.tax_includes_shipping is not None:
+        tax_kwargs["tax_includes_shipping"] = payload.tax_includes_shipping
+
+    item = InventoryItem(
+        purchase_order_id=order.id,
+        item_kind_id=item_kind_id,
+        source_title=payload.source_title,
+        description=payload.description,
+        year_start=years[0],
+        year_end=years[1],
+        piece_count=payload.piece_count,
+        item_cost=payload.item_cost,
+        shipping_cost=payload.shipping_cost,
+        country_id=country_id,
+        denomination_id=denomination_id,
+        grade_id=grade_id,
+        grade_designation_id=grade_designation_id,
+        grading_service_id=grading_service_id,
+        metal_id=metal_id,
+        series_id=series_id,
+        bullion_form_id=bullion_form_id,
+        storage_form_id=storage_form_id,
+        authenticity_id=authenticity_id,
+        status_id=status_id,
+        disposition_id=require_code(db, Disposition, "held", "disposition"),
+        valuation_basis_id=require_code(
+            db, ValuationBasis, "numismatic", "valuation_basis"
+        ),
+        source=ProvenanceSource.manual,
+        **tax_kwargs,
+    )
+    db.add(item)
+    db.flush()
+
+    if is_currency:
+        db.add(
+            CurrencyDetail(
+                inventory_item_id=item.id,
+                note_type_id=note_type_id,
+                series_year=payload.series_year,
+                series_letter=payload.series_letter,
+                seal_color_id=seal_color_id,
+                fed_district_id=fed_district_id,
+                serial_number=payload.serial_number,
+            )
+        )
+    else:
+        db.add(
+            CoinDetail(
+                inventory_item_id=item.id, mint_id=mint_id, variety=payload.variety
+            )
+        )
+
+    if payload.cert_number:
+        db.add(
+            ItemCertification(
+                inventory_item_id=item.id,
+                grading_service_id=grading_service_id,
+                cert_number=payload.cert_number,
+                raw=payload.cert_number,
+            )
+        )
+
+    record_initial_status(db, item, user_id=admin.id, note="entered in the console")
+    db.commit()
+
+    return get_item(item.id, db, admin)
 
 
 @router.get("/{item_id}")

@@ -12,10 +12,18 @@ surprise several layers down.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 from pydantic_core.core_schema import ValidationInfo
 
 from .models import UserRole
@@ -622,6 +630,128 @@ class BulkEditRequest(BaseModel):
     changes: InventoryItemUpdate
 
 
+#: Coin-detail fields on `ItemCreate`, valid only when `item_kind` is not
+#: `currency`.
+_COIN_ONLY_FIELDS: tuple[str, ...] = ("mint", "variety")
+
+#: Currency-detail fields on `ItemCreate`, valid only when `item_kind` is
+#: `currency`.
+_CURRENCY_ONLY_FIELDS: tuple[str, ...] = (
+    "serial_number",
+    "series_year",
+    "series_letter",
+    "seal_color",
+    "fed_district",
+    "note_type",
+)
+
+
+class ItemCreate(BaseModel):
+    """A coin, banknote or other item bought on an existing purchase.
+
+    Distinct from `CatalogItemCreate`: that one creates an item *and* a
+    listing, for something offered for sale today. This creates the item
+    alone, with no listing, on a purchase order that must already exist --
+    entering what was bought, not putting it up for sale. See the decision in
+    `docs/specs/entry-panels-design.md`: no item is entered outside a
+    purchase, so a standalone buy is a purchase holding one item.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    purchase_order_id: int
+    item_kind: str = Field(min_length=1, max_length=64)
+    source_title: str = Field(min_length=1, max_length=500)
+    description: str = ""
+
+    year_start: int | None = Field(default=None, ge=-3000, le=2200)
+    year_end: int | None = Field(default=None, ge=-3000, le=2200)
+
+    #: Pieces in the lot itself. A lot is simply piece_count > 1 -- splitting
+    #: it into individually tracked pieces is a later step.
+    piece_count: int = Field(default=1, ge=1)
+
+    item_cost: Decimal = Field(
+        default=Decimal("0.00"), ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+    shipping_cost: Decimal = Field(
+        default=Decimal("0.00"), ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+    #: None means "use the configured default". Unlike `item_cost`, this has
+    #: no default of its own: `Decimal("0")` is a real, different answer -- a
+    #: purchase charged no sales tax at all -- so the caller must say so
+    #: explicitly rather than the field quietly defaulting to it.
+    tax_rate: Decimal | None = Field(
+        default=None, ge=Decimal("0"), le=Decimal("1"), max_digits=6, decimal_places=4
+    )
+    #: None means "use the configured default", for the same reason as
+    #: `tax_rate`.
+    tax_includes_shipping: bool | None = None
+
+    #: An `item_status` code. Only `ordered` or `received` describe an item
+    #: as it is entered -- anything else this schema would have to accept and
+    #: the router would then have to explain is wrong.
+    status: str = "ordered"
+
+    # Classifiers, by code. Unknown -> 422 naming the field, resolved by the
+    # router since that is where the database lives.
+    country: str | None = Field(default=None, max_length=64)
+    denomination: str | None = Field(default=None, max_length=64)
+    grade: str | None = Field(default=None, max_length=64)
+    grade_designation: str | None = Field(default=None, max_length=64)
+    grading_service: str | None = Field(default=None, max_length=64)
+    metal: str | None = Field(default=None, max_length=64)
+    series: str | None = Field(default=None, max_length=64)
+    bullion_form: str | None = Field(default=None, max_length=64)
+    #: null -> `single`.
+    storage_form: str | None = Field(default=None, max_length=64)
+    #: null -> `unverified`.
+    authenticity: str | None = Field(default=None, max_length=64)
+
+    #: Creates one `item_certification` row, graded by `grading_service`.
+    cert_number: str | None = Field(default=None, max_length=64)
+
+    #: Coin detail. Refused with a 422 when `item_kind` is `currency`.
+    mint: str | None = Field(default=None, max_length=64)
+    variety: str | None = Field(default=None, max_length=128)
+
+    #: Currency detail. Refused with a 422 for every `item_kind` but
+    #: `currency`.
+    serial_number: str | None = Field(default=None, max_length=64)
+    series_year: int | None = Field(default=None, ge=-3000, le=2200)
+    series_letter: str | None = Field(default=None, max_length=4)
+    seal_color: str | None = Field(default=None, max_length=64)
+    fed_district: str | None = Field(default=None, max_length=64)
+    note_type: str | None = Field(default=None, max_length=64)
+
+    @field_validator("status")
+    @classmethod
+    def _known_status(cls, value: str) -> str:
+        """Only `ordered` or `received` describe an item as it is entered."""
+        if value not in {"ordered", "received"}:
+            raise ValueError(f"status must be 'ordered' or 'received', not {value!r}")
+        return value
+
+    @model_validator(mode="after")
+    def _refuse_cross_kind_details(self) -> ItemCreate:
+        """Refuse a detail field that belongs to the other kind, by name.
+
+        A currency-detail field silently dropped for an item that turns out
+        to be a coin, or the reverse, is data loss the caller is never told
+        about -- a serial number that vanished rather than one that was
+        refused. So this is a 422 naming exactly which field does not belong,
+        not a silent no-op.
+        """
+        is_currency = self.item_kind == "currency"
+        wrong_fields = _COIN_ONLY_FIELDS if is_currency else _CURRENCY_ONLY_FIELDS
+        offending = sorted(f for f in wrong_fields if getattr(self, f) is not None)
+        if offending:
+            raise ValueError(
+                f"{', '.join(offending)}: not valid for item_kind {self.item_kind!r}"
+            )
+        return self
+
+
 #: The four outcomes a receipt can record. `received` is the common one;
 #: the rest close out a line that will not arrive. Without them there is no
 #: way to finish an order except to leave it permanently outstanding.
@@ -795,8 +925,102 @@ class ReferenceValueRename(BaseModel):
 
 
 # --------------------------------------------------------------------------
-# Acquisitions: purchase orders and storage locations
+# Acquisitions: vendors, purchase orders and storage locations
 # --------------------------------------------------------------------------
+
+#: A web address is only ever `http://` or `https://` -- the same rule
+#: `PurchaseOrderDetailOut.source_url` is filtered by before it is offered as
+#: a link. Refused at entry rather than silently stored and withheld later,
+#: since a value entered by hand (unlike imported spreadsheet text) is worth
+#: telling the caller is wrong.
+_HTTP_URL = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def _require_http_url(value: str | None) -> str | None:
+    """Refuse a URL that is not `http://` or `https://`."""
+    if value is not None and not _HTTP_URL.match(value):
+        raise ValueError("must start with http:// or https://")
+    return value
+
+
+class VendorOut(BaseModel):
+    """A vendor, for picking on the entry panels."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    url: str | None = None
+    #: A `vendor_kind` code: marketplace, auction, mint, dealer, private,
+    #: unknown.
+    vendor_kind: str | None = None
+
+
+class VendorCreate(BaseModel):
+    """A vendor added inline while entering a purchase.
+
+    Names are unique, checked case-insensitively -- "eBay.com" and "ebay.com"
+    are refused as the same vendor rather than becoming two rows a report
+    then has to know to merge.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    url: str | None = Field(default=None, max_length=500)
+    #: A `vendor_kind` code. Null becomes `unknown`, the same fallback the
+    #: importer uses for a vendor named with nothing else known about it.
+    vendor_kind: str | None = Field(default=None, max_length=64)
+
+    @field_validator("name")
+    @classmethod
+    def _trimmed_name(cls, value: str) -> str:
+        """Leading and trailing whitespace is never part of a vendor's name."""
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("name must not be blank")
+        return trimmed
+
+    @field_validator("url")
+    @classmethod
+    def _http_url(cls, value: str | None) -> str | None:
+        """Only `http://` or `https://`."""
+        return _require_http_url(value)
+
+
+class PurchaseOrderCreate(BaseModel):
+    """A new purchase: a vendor, and everything else optional.
+
+    The order number is optional because a walk-in or show purchase has
+    none -- only a vendor is required, so entering one never blocks on a
+    field most purchases genuinely lack.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    vendor_id: int
+    order_number: str | None = Field(default=None, max_length=128)
+    #: Not in the future beyond today + 1 day -- the same bound
+    #: `POST /api/inventory/receive` applies to `arrived_on`, and for the
+    #: same reason: a caller's local "today" can be a day ahead of UTC's.
+    ordered_on: date | None = None
+    source_url: str | None = Field(default=None, max_length=1000)
+    notes: str | None = None
+
+    @field_validator("order_number")
+    @classmethod
+    def _blank_to_none(cls, value: str | None) -> str | None:
+        """An empty order number is the same absence as none at all."""
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
+
+    @field_validator("source_url")
+    @classmethod
+    def _http_url(cls, value: str | None) -> str | None:
+        """Only `http://` or `https://`, as `PurchaseOrderDetailOut` requires."""
+        return _require_http_url(value)
 
 
 class PurchaseOrderOut(BaseModel):
