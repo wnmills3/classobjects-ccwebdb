@@ -559,3 +559,74 @@ def test_revising_with_an_unknown_listing_is_a_404(
     db.refresh(listing)
     assert listing.quantity_available == 4
     assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
+
+
+def test_a_status_change_is_recorded_and_bumps_the_version(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    body = client.patch(
+        f"/api/orders/{order['id']}", json={"status": "paid"}, headers=admin_headers
+    ).json()
+    assert body["version"] == order["version"] + 1
+    assert _changes(db, order["id"])[1:] == [("status", "pending", "paid")]
+
+
+def test_payment_adjustment_is_due_only_after_a_paid_total_changes(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+
+    def line(qty: int) -> list[dict[str, Any]]:
+        return [{"listing_id": listing.id, "quantity": qty, "unit_price": "189.00"}]
+
+    order = _revise(client, admin_headers, order, line(2)).json()
+    assert order["payment_adjustment_due"] is False  # still pending
+
+    order = client.patch(
+        f"/api/orders/{order['id']}", json={"status": "paid"}, headers=admin_headers
+    ).json()
+    assert order["payment_adjustment_due"] is False
+
+    order = _revise(client, admin_headers, order, line(3)).json()
+    assert order["payment_adjustment_due"] is True
+
+
+def test_the_history_reads_newest_first_with_who_and_what(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 2, "unit_price": "189.00"}],
+    )
+
+    rows = client.get(
+        f"/api/orders/{order['id']}/changes", headers=admin_headers
+    ).json()
+
+    assert [r["change"] for r in rows] == ["total", "quantity", "placed"]
+    assert rows[1]["changed_by_email"] == "admin@example.com"
+    assert rows[1]["listing_title"] == "1881-S Morgan Silver Dollar"
+    assert rows[2]["changed_by_email"] == "customer@example.com"
+
+
+def test_only_an_admin_may_read_the_history(
+    client: TestClient, listing: Listing, customer_headers: dict[str, str]
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    url = f"/api/orders/{order['id']}/changes"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers=customer_headers).status_code == 403

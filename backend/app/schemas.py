@@ -386,6 +386,19 @@ class OrderStatusUpdate(BaseModel):
     status: str = Field(min_length=1, max_length=64)
 
 
+class OrderChangeOut(BaseModel):
+    """One row of an order's history, with who made it and which line."""
+
+    id: int
+    changed_at: datetime
+    changed_by_email: str | None
+    change: str
+    listing_id: int | None
+    listing_title: str | None
+    from_value: str | None
+    to_value: str | None
+
+
 # --------------------------------------------------------------------------
 # Reference vocabularies
 # --------------------------------------------------------------------------
