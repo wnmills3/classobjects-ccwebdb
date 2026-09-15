@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from ..deps import AdminUser, CurrentUser, DbSession
 from ..models import (
@@ -24,9 +25,15 @@ from ..models import (
     User,
     UserRole,
 )
-from ..order_writes import Line, customer_for_user, payment_adjustment_due, place_order
+from ..order_writes import (
+    Line,
+    customer_for_user,
+    payment_adjustment_due,
+    place_order,
+    revise_order,
+)
 from ..references import require_code
-from ..schemas import OrderCreate, OrderOut, OrderStatusUpdate
+from ..schemas import OrderCreate, OrderOut, OrderRevision, OrderStatusUpdate
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -206,3 +213,39 @@ def update_order_status(
     db.commit()
     db.refresh(order)
     return _order_out(order, payload.status)
+
+
+@router.put("/{order_id}")
+def revise(
+    order_id: int, payload: OrderRevision, db: DbSession, admin: AdminUser
+) -> OrderOut:
+    """Replace an order's lines, prices, customer and notes, all or nothing."""
+    order = _load(db, order_id)
+    if order is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
+        )
+    customer = db.get(Customer, payload.customer_id)
+    if customer is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No such customer"
+        )
+    revise_order(
+        db,
+        order,
+        status_code=_status_code(db, order),
+        customer=customer,
+        lines=[Line(i.listing_id, i.quantity, i.unit_price) for i in payload.items],
+        notes=payload.notes,
+        version=payload.version,
+        by=admin,
+    )
+    try:
+        db.commit()
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Order #{order_id} was changed while saving. Reload and retry.",
+        ) from exc
+    return order_out(db, order_id)

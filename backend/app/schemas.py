@@ -348,6 +348,36 @@ class OrderOut(BaseModel):
     payment_adjustment_due: bool
 
 
+class OrderRevisionLineIn(BaseModel):
+    """A line of an order's desired contents, at the price it should carry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    listing_id: int
+    quantity: int = Field(ge=1)
+    unit_price: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
+
+
+class OrderRevision(BaseModel):
+    """An order's complete desired contents, and the version they were read at."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int
+    customer_id: int
+    items: list[OrderRevisionLineIn] = Field(min_length=1)
+    notes: str | None = None
+
+    @field_validator("items")
+    @classmethod
+    def no_duplicate_listings(
+        cls, items: list[OrderRevisionLineIn]
+    ) -> list[OrderRevisionLineIn]:
+        """Refuse the same listing twice in one order."""
+        _refuse_duplicate_listings([item.listing_id for item in items])
+        return items
+
+
 class OrderStatusUpdate(BaseModel):
     """Advance an order to another status, by `sales_order_status` code."""
 

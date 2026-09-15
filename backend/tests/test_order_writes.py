@@ -6,7 +6,9 @@ these tests go through the HTTP API wherever a caller would.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
+from typing import Any
 
 from app.models import (
     Customer,
@@ -18,6 +20,7 @@ from app.models import (
     User,
 )
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -184,3 +187,248 @@ def test_only_an_admin_may_create_a_customer_record_for_an_account(
     url = f"/api/users/{customer_user.id}/customer"
     assert client.post(url).status_code == 401
     assert client.post(url, headers=customer_headers).status_code == 403
+
+
+def _place(
+    client: TestClient, headers: dict[str, str], listing_id: int, qty: int
+) -> dict[str, Any]:
+    return client.post(
+        "/api/orders",
+        json={"items": [{"listing_id": listing_id, "quantity": qty}]},
+        headers=headers,
+    ).json()
+
+
+def _revise(
+    client: TestClient,
+    headers: dict[str, str],
+    order: dict[str, Any],
+    items: list[dict[str, Any]],
+    *,
+    customer_id: int | None = None,
+    notes: str | None = None,
+) -> Response:
+    return client.put(
+        f"/api/orders/{order['id']}",
+        json={
+            "version": order["version"],
+            "customer_id": order["customer_id"] if customer_id is None else customer_id,
+            "items": items,
+            "notes": order["notes"] if notes is None else notes,
+        },
+        headers=headers,
+    )
+
+
+def _changes(db: Session, order_id: int) -> list[tuple[str, str | None, str | None]]:
+    db.expire_all()
+    rows = db.scalars(
+        select(SalesOrderChange)
+        .where(SalesOrderChange.sales_order_id == order_id)
+        .order_by(SalesOrderChange.id)
+    ).all()
+    return [(c.change.value, c.from_value, c.to_value) for c in rows]
+
+
+def test_raising_a_quantity_takes_stock_and_records_it(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 2)
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 3, "unit_price": "189.00"}],
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["total_amount"] == "567.00"
+    assert response.json()["version"] == order["version"] + 1
+    db.refresh(listing)
+    assert listing.quantity_available == 2
+    assert _changes(db, order["id"])[1:] == [
+        ("quantity", "2", "3"),
+        ("total", "378.00", "567.00"),
+    ]
+
+
+def test_one_listing_swapped_for_another_at_an_agreed_price_in_one_save(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    morgan = make_listing(title="Morgan", price=Decimal("100.00"), quantity_available=5)
+    dime = make_listing(title="Dime", price=Decimal("10.00"), quantity_available=5)
+    order = _place(client, customer_headers, morgan.id, 2)
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": dime.id, "quantity": 1, "unit_price": "8.00"}],
+    )
+
+    assert response.status_code == 200, response.text
+    db.refresh(morgan)
+    db.refresh(dime)
+    assert (morgan.quantity_available, dime.quantity_available) == (5, 4)
+    kinds = [c[0] for c in _changes(db, order["id"])]
+    assert kinds == ["placed", "line_removed", "line_added", "total"]
+    assert ("line_added", None, "1 @ 8.00") in _changes(db, order["id"])
+
+
+def test_an_over_request_changes_nothing(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    plenty = make_listing(title="Plenty", quantity_available=5)
+    scarce = make_listing(title="Scarce", quantity_available=1)
+    order = _place(client, customer_headers, plenty.id, 1)
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [
+            {"listing_id": plenty.id, "quantity": 4, "unit_price": "189.00"},
+            {"listing_id": scarce.id, "quantity": 2, "unit_price": "189.00"},
+        ],
+    )
+
+    assert response.status_code == 409
+    assert f"listing {scarce.id}" in response.json()["detail"]
+    db.refresh(plenty)
+    db.refresh(scarce)
+    assert (plenty.quantity_available, scarce.quantity_available) == (4, 1)
+    assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
+
+
+def test_an_edit_that_frees_the_last_unit_relists_the_item(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    only = make_listing(title="Only one", quantity_available=1)
+    other = make_listing(title="Other", quantity_available=5)
+    order = _place(client, customer_headers, only.id, 1)
+    db.refresh(only.inventory_item)
+    assert only.inventory_item.disposition.code == "sold"
+
+    _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": other.id, "quantity": 1, "unit_price": "189.00"}],
+    )
+
+    db.expire_all()
+    assert only.inventory_item.disposition.code == "listed"
+
+
+def test_a_no_change_save_writes_nothing(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 2)
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 2, "unit_price": "189.00"}],
+    )
+    assert response.json()["version"] == order["version"]
+    assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
+
+
+def test_customer_and_notes_changes_are_recorded(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    other = _new_customer(db, "Grace Hopper")
+
+    _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 1, "unit_price": "189.00"}],
+        customer_id=other.id,
+        notes="deliver Friday",
+    )
+
+    assert _changes(db, order["id"])[1:] == [
+        ("customer", "Test Customer", "Grace Hopper"),
+        ("notes", None, "deliver Friday"),
+    ]
+
+
+def test_only_pending_or_paid_orders_can_be_revised(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    client.patch(
+        f"/api/orders/{order['id']}", json={"status": "packed"}, headers=admin_headers
+    )
+    fresh = client.get(f"/api/orders/{order['id']}", headers=admin_headers).json()
+
+    response = _revise(
+        client,
+        admin_headers,
+        fresh,
+        [{"listing_id": listing.id, "quantity": 2, "unit_price": "189.00"}],
+    )
+
+    assert response.status_code == 409
+    assert "packed" in response.json()["detail"]
+
+
+def test_a_stale_version_is_refused(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    line = [{"listing_id": listing.id, "quantity": 2, "unit_price": "189.00"}]
+    assert _revise(client, admin_headers, order, line).status_code == 200
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 3, "unit_price": "189.00"}],
+    )
+
+    assert response.status_code == 409
+    assert "reload" in response.json()["detail"].lower()
+
+
+def test_only_an_admin_may_revise(
+    client: TestClient, listing: Listing, customer_headers: dict[str, str], db: Session
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    line = [{"listing_id": listing.id, "quantity": 1, "unit_price": "0.01"}]
+    assert _revise(client, {}, order, line).status_code == 401
+    assert _revise(client, customer_headers, order, line).status_code == 403
+    assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
