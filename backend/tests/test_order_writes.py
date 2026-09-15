@@ -282,6 +282,7 @@ def test_one_listing_swapped_for_another_at_an_agreed_price_in_one_save(
     kinds = [c[0] for c in _changes(db, order["id"])]
     assert kinds == ["placed", "line_removed", "line_added", "total"]
     assert ("line_added", None, "1 @ 8.00") in _changes(db, order["id"])
+    assert morgan.id not in {line["listing_id"] for line in response.json()["items"]}
 
 
 def test_an_over_request_changes_nothing(
@@ -326,13 +327,14 @@ def test_an_edit_that_frees_the_last_unit_relists_the_item(
     db.refresh(only.inventory_item)
     assert only.inventory_item.disposition.code == "sold"
 
-    _revise(
+    response = _revise(
         client,
         admin_headers,
         order,
         [{"listing_id": other.id, "quantity": 1, "unit_price": "189.00"}],
     )
 
+    assert response.status_code == 200, response.text
     db.expire_all()
     assert only.inventory_item.disposition.code == "listed"
 
@@ -431,4 +433,129 @@ def test_only_an_admin_may_revise(
     line = [{"listing_id": listing.id, "quantity": 1, "unit_price": "0.01"}]
     assert _revise(client, {}, order, line).status_code == 401
     assert _revise(client, customer_headers, order, line).status_code == 403
+    assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
+
+
+def test_a_price_only_change_is_recorded(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 1, "unit_price": "150.00"}],
+    )
+
+    assert response.status_code == 200, response.text
+    assert _changes(db, order["id"])[1:] == [
+        ("unit_price", "189.00", "150.00"),
+        ("total", "189.00", "150.00"),
+    ]
+
+
+def test_a_change_leaving_the_total_unchanged_still_bumps_the_version(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    a = make_listing(title="A", price=Decimal("100.00"), quantity_available=5)
+    b = make_listing(title="B", price=Decimal("100.00"), quantity_available=5)
+    order = client.post(
+        "/api/orders",
+        json={
+            "items": [
+                {"listing_id": a.id, "quantity": 1},
+                {"listing_id": b.id, "quantity": 1},
+            ]
+        },
+        headers=customer_headers,
+    ).json()
+    assert order["total_amount"] == "200.00"
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [
+            {"listing_id": a.id, "quantity": 2, "unit_price": "50.00"},
+            {"listing_id": b.id, "quantity": 1, "unit_price": "100.00"},
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["total_amount"] == "200.00"
+    assert response.json()["version"] == order["version"] + 1
+    assert "total" not in [c[0] for c in _changes(db, order["id"])]
+
+
+def test_raising_a_quantity_on_an_inactive_listing_is_refused(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    listing.is_active = False
+    db.commit()
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 2, "unit_price": "189.00"}],
+    )
+
+    assert response.status_code == 409
+    db.refresh(listing)
+    assert listing.quantity_available == 4
+    assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
+
+
+def test_revising_with_an_unknown_customer_is_a_404(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 1, "unit_price": "189.00"}],
+        customer_id=999999,
+    )
+
+    assert response.status_code == 404
+
+
+def test_revising_with_an_unknown_listing_is_a_404(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": 999999, "quantity": 1, "unit_price": "189.00"}],
+    )
+
+    assert response.status_code == 404
+    db.refresh(listing)
+    assert listing.quantity_available == 4
     assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
