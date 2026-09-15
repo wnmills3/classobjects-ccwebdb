@@ -71,7 +71,10 @@ BULLION_FORMS: list[tuple[str, str]] = [
     ("Silver Panda", r"panda|^(?!.*\b(?:bill|note)\b).*\byuan\b"),
     ("Round", r"\bround\b"),
     ("Bar", r"\bbar\b"),
-    ("Bullion", r"\boz\b|bullion|ingot"),
+    # A weight in grams or grains. "50g Silver" (a pair of Berlin bars) and
+    # ".25 Grain" (quarter-grain gold bars, CC-003183) said nothing else this
+    # list knew, and the number-then-word rule filed both as banknotes.
+    ("Bullion", r"\boz\b|bullion|ingot|\d\s*(?:g|gm|grams?|grains?)\b"),
 ]
 
 SET_FORMS: list[tuple[str, str]] = [
@@ -87,8 +90,19 @@ NAMED_KINDS: list[tuple[str, str, str | None]] = [
     ("other", r"meteorite", "Meteorite"),
 ]
 
-CURRENCY_WORD = r"\bbill\b|\bnote\b|\bblll\b|\bbil\b"
+#: "Fractional" is US fractional currency -- paper, though its face value is
+#: in cents.
+CURRENCY_WORD = r"\bbill\b|\bnote\b|\bblll\b|\bbil\b|\bfractional\b"
 NUM_THEN_WORD = re.compile(r"^\$?\s*[\d,.]+\s*[A-Za-z]")
+
+#: A face value in a unit this collection only holds as coins. Tested after the
+#: currency words, so "10 Francs Note" stays a note; francs, pesos and euros
+#: were all issued on paper as well. Every unit here is one the workbook
+#: actually uses -- this is a list of what was seen, not of world coinage.
+COIN_UNIT = re.compile(
+    r"^\$?\s*[\d,.]+\s*(?:pfennigs?|ore|pesetas?|centavos?|centesim[oi]|yen|pence"
+    r"|thalers?|kreuzers?|francs?|euros?|pesos?)\b"
+)
 PURE_NUMBER = re.compile(r"^\$?\s*[\d,.]+$")
 MULTIPLIER = re.compile(r"^(\d+)\s*[xX]\b")
 
@@ -100,6 +114,7 @@ CORRECTIONS: dict[str, str] = {
     "$2bill": "$2 Bill",
     "$20 b": "$20 Bill",
     "#3 bill": "$3 Bill",
+    "3 pense": "3 Pence",
     "silvereagle": _SILVER_EAGLE,
     "silvre eagle": _SILVER_EAGLE,
     "meteoriate": "Meteorite",
@@ -296,13 +311,15 @@ UNIT_TO_OZT: dict[str, Decimal] = {
     "lb": GRAMS_PER_LB / GRAMS_PER_OZT,
     "lbs": GRAMS_PER_LB / GRAMS_PER_OZT,
     "dwt": Decimal(1) / Decimal(20),  # pennyweight
+    "grain": Decimal(1) / Decimal(480),  # exact: 480 grains to the troy ounce
+    "grains": Decimal(1) / Decimal(480),
 }
 
 #: A quantity may be decimal, a bare fraction, or start with the point --
 #: ".5 oz" is a half ounce and must not be read as 5.
 WEIGHT = re.compile(
     r"(\d+\s*/\s*\d+|\d+\.\d+|\.\d+|\d+)\s*"
-    r"(ozt|ounces|ounce|oz|grams|gram|gm|kilos|kilo|kg|lbs|lb|dwt|g)\b",
+    r"(ozt|ounces|ounce|oz|grains|grain|grams|gram|gm|kilos|kilo|kg|lbs|lb|dwt|g)\b",
     re.I,
 )
 
@@ -355,8 +372,13 @@ class CollectionV1Profile:
             return Classification("currency", None, "currency-symbol")
         if PURE_NUMBER.match(denom):
             return Classification("coin", None, "numeric-denomination")
+        if COIN_UNIT.match(low):
+            return Classification("coin", None, "coin-unit")
+        # Reads as a denomination, but not one known to be a coin or a note.
+        # This used to be filed as currency, and on the real workbook that was
+        # right for one row in 35. Unknown puts it in front of a person.
         if NUM_THEN_WORD.match(denom):
-            return Classification("currency", None, "number-then-word")
+            return Classification(kind=UNKNOWN, rule="number-then-word")
         return Classification(kind=UNKNOWN, rule="unmatched")
 
     # -- the profile contract ---------------------------------------------
@@ -388,7 +410,12 @@ class CollectionV1Profile:
                     severity=WARNING,
                     column=COL_DENOM,
                     raw_value=denom_raw or "<blank>",
-                    note="no classification rule matched",
+                    note=(
+                        "a number and a word, but not a unit known to be a coin "
+                        "or a note"
+                        if classification.rule == "number-then-word"
+                        else "no classification rule matched"
+                    ),
                 )
             )
         fields["denom_raw"] = denom_raw
