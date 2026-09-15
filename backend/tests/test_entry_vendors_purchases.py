@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from app.models import PurchaseOrder, Vendor
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 # --------------------------------------------------------------------------
@@ -97,6 +98,35 @@ def test_a_non_http_vendor_url_is_a_422(
         headers=admin_headers,
     )
     assert res.status_code == 422
+
+
+def test_a_concurrent_duplicate_vendor_name_is_a_409_not_a_500(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two racing creations of the same name must not surface as a 500.
+
+    The pre-check is a plain SELECT, not a lock: two concurrent posts can
+    both see no duplicate and both proceed to INSERT. Simulated here by
+    making the pre-check itself miss (as if it ran before the other request
+    committed) while the conflicting row already exists -- the commit must
+    then hit `uq_vendor_name` and come back as the same 409, not an
+    unhandled `IntegrityError`.
+    """
+    _vendor(db, "ebay.com")
+    monkeypatch.setattr(db, "scalar", lambda *args, **kwargs: None)
+
+    res = client.post("/api/vendors", json={"name": "ebay.com"}, headers=admin_headers)
+
+    assert res.status_code == 409
+    assert "ebay.com" in res.text
+    monkeypatch.undo()
+    count = db.scalar(
+        select(func.count()).select_from(Vendor).where(Vendor.name == "ebay.com")
+    )
+    assert count == 1
 
 
 def test_a_customer_cannot_list_or_create_vendors(
@@ -241,6 +271,44 @@ def test_a_non_http_source_url_is_a_422(
         headers=admin_headers,
     )
     assert res.status_code == 422
+
+
+def test_a_concurrent_duplicate_order_number_is_a_409_not_a_500(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two racing creations of the same vendor + order number: same fix as vendors.
+
+    `uq_purchase_order_vendor_number` is the backstop when the pre-check
+    itself misses a row committed just after it ran.
+    """
+    vendor = _vendor(db, "Race Vendor")
+    order = PurchaseOrder(vendor_id=vendor.id, order_number="R-1")
+    db.add(order)
+    db.commit()
+    monkeypatch.setattr(db, "scalar", lambda *args, **kwargs: None)
+
+    res = client.post(
+        "/api/purchase-orders",
+        json={"vendor_id": vendor.id, "order_number": "R-1"},
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 409
+    assert "Race Vendor" in res.text
+    assert "R-1" in res.text
+    monkeypatch.undo()
+    count = db.scalar(
+        select(func.count())
+        .select_from(PurchaseOrder)
+        .where(
+            PurchaseOrder.vendor_id == vendor.id,
+            PurchaseOrder.order_number == "R-1",
+        )
+    )
+    assert count == 1
 
 
 def test_an_extra_field_is_refused(

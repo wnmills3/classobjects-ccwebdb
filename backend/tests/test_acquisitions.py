@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from app.models import ItemStatus, PurchaseOrder, Vendor
+from app.models import ItemKind, ItemStatus, PurchaseOrder, Vendor
 from app.models.base import utcnow
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.test_schema import code_id, make_item
 
 
 def _order_with_lines(db: Session, outstanding: int, done: int) -> PurchaseOrder:
@@ -89,6 +89,36 @@ def test_an_order_lists_its_lines_with_their_status(
         "ordered",
         "received",
     ]
+
+
+def test_a_line_carries_its_title_and_kind(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The New purchase items table needs a title and a kind per line.
+
+    Both come straight off the item -- no per-line query -- so a line for a
+    banknote reads `item_kind: "currency"` and shows its own title rather
+    than falling back to `description`.
+    """
+    vendor = Vendor(name="Titled Vendor")
+    db.add(vendor)
+    db.flush()
+    order = PurchaseOrder(vendor_id=vendor.id, order_number="TL-1")
+    db.add(order)
+    db.flush()
+    item = make_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        source_title="Series 1928 $1 Silver Certificate",
+    )
+    item.purchase_order_id = order.id
+    db.commit()
+
+    res = client.get(f"/api/purchase-orders/{order.id}", headers=admin_headers)
+    assert res.status_code == 200
+    line = res.json()["lines"][0]
+    assert line["source_title"] == "Series 1928 $1 Silver Certificate"
+    assert line["item_kind"] == "currency"
 
 
 def test_an_unknown_order_is_a_404(

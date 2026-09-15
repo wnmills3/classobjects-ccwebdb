@@ -321,7 +321,7 @@ export default function NewPurchase() {
               {(purchase.lines ?? []).map((line) => (
                 <tr key={line.id}>
                   <td className="mono">{line.item_code}</td>
-                  <td>{line.source_title ?? line.description}</td>
+                  <td>{line.source_title}</td>
                   <td>{line.item_kind}</td>
                   <td>{line.item_cost}</td>
                   <td>{line.status}</td>

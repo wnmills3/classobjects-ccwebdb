@@ -9,9 +9,11 @@ Read `docs/project-purpose.md` first for why any of this matters.
 `docs/workflow-import-and-cleanup.md` covers the one-off job of getting an
 existing spreadsheet in.
 
-Status: the schema and the import engine exist. **The entry panels described
-here do not yet.** This document specifies what they need to do; the attribution
-design in `docs/specs/` covers the first slice of building them.
+Status: the schema and the import engine exist. **New purchase, New item and
+New lot now exist in the console** (route `/purchases/new`; see
+`docs/specs/entry-panels-design.md`) -- a lot is entered the same way as any
+other item, with a piece count above 1. **The Split panel, the Attribute walk
+and Group still do not.** This document specifies what all of them need to do.
 
 ## The starting state
 

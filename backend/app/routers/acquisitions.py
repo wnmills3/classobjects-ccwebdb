@@ -16,6 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import and_, case, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..deps import AdminUser, DbSession
@@ -103,7 +104,18 @@ def create_vendor(payload: VendorCreate, db: DbSession, _admin: AdminUser) -> Ve
 
     vendor = Vendor(name=payload.name, url=payload.url, vendor_kind_id=vendor_kind_id)
     db.add(vendor)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Two inline "+ Add a vendor..." submissions of the same name at
+        # once both pass the case-insensitive check above; `uq_vendor_name`
+        # (case-sensitive) stops the second at the database, and it should
+        # read as the same 409 rather than an unhandled 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A vendor named {payload.name} already exists",
+        ) from exc
     db.refresh(vendor)
     return _vendor_out(db, vendor)
 
@@ -201,7 +213,9 @@ def get_purchase_order(
     items = db.scalars(
         select(InventoryItem)
         .where(InventoryItem.purchase_order_id == order_id, _ITEM_IS_LIVE)
-        .options(selectinload(InventoryItem.status))
+        .options(
+            selectinload(InventoryItem.status), selectinload(InventoryItem.item_kind)
+        )
         .order_by(InventoryItem.id)
     ).all()
 
@@ -219,7 +233,9 @@ def get_purchase_order(
             PurchaseOrderLineOut(
                 id=item.id,
                 item_code=item.item_code,
+                source_title=item.source_title,
                 description=item.description,
+                item_kind=item.item_kind.code,
                 item_cost=item.item_cost,
                 status=item.status.code,
             )
@@ -279,7 +295,18 @@ def create_purchase_order(
         notes=payload.notes,
     )
     db.add(order)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Two creations of the same vendor + order number at once both pass
+        # the pre-check above; `uq_purchase_order_vendor_number` stops the
+        # second at the database, and it should read as the same 409 rather
+        # than an unhandled 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{vendor.name} order {payload.order_number} is already recorded",
+        ) from exc
 
     return get_purchase_order(order.id, db, admin)
 

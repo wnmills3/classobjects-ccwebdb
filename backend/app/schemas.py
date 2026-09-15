@@ -1047,7 +1047,13 @@ class PurchaseOrderLineOut(BaseModel):
 
     id: int
     item_code: str
+    #: The item's own title -- what `NewPurchase`'s items table shows, and
+    #: what an entry form's Title box wrote. `description` is kept alongside
+    #: it because older, imported lines can have a title-less description.
+    source_title: str
     description: str
+    #: An `item_kind` code: coin, currency, bullion, set, medal, token, other.
+    item_kind: str
     item_cost: Decimal
     #: An `item_status` code: ordered, received, canceled, returned, missing.
     status: str
