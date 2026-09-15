@@ -179,7 +179,6 @@ def revise_order(
     db: Session,
     order: SalesOrder,
     *,
-    status_code: str,
     customer: Customer,
     lines: Sequence[Line],
     notes: str | None,
@@ -192,15 +191,12 @@ def revise_order(
     writer that takes both locks takes them in the same order -- and
     re-reads it with `populate_existing`, including its items: a concurrent
     checkout or another revision may have changed the order or the stock a
-    caller read before this call. `status_code` is accepted so callers that
-    already know it (and Task 6's threaded callers) need not change, but it
-    is ignored: the status actually checked is read from the freshly locked
-    row, not from what the caller read beforehand.
+    caller read before this call. The status actually checked is read from
+    that freshly locked row, never from what a caller may have read earlier.
 
     Every check runs before anything changes, so a refused save changes no
     line and no stock. Returns whether anything changed.
     """
-    del status_code
     order = db.execute(
         select(SalesOrder)
         .where(SalesOrder.id == order.id)
