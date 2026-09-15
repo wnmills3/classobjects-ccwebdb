@@ -229,6 +229,20 @@ describe('NewItemForm: changing kind clears grade', () => {
 
     expect(screen.getByLabelText('grade')).toHaveValue('')
   })
+
+  it('keeps the grade when both kinds read the same scale', async () => {
+    // coin, bullion and medal all grade on the coin scale. Only the currency
+    // boundary makes a grade meaningless, so only it clears one.
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('grade'), 'MS64')
+
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'bullion')
+
+    expect(screen.getByLabelText('grade')).toHaveValue('MS64')
+  })
 })
 
 describe('NewItemForm: a range with no Year from', () => {

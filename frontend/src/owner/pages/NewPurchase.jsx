@@ -61,8 +61,11 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
   // Enter in a text input submits the nearest form -- the outer purchase,
   // for whatever vendor was already picked -- instead of adding the vendor
   // being typed here.
+  // A button already does the right thing with Enter -- swallowing its
+  // default here would cancel Cancel's own activation and add the vendor the
+  // user was trying to abandon.
   function onKeyDown(e) {
-    if (e.key !== 'Enter') return
+    if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return
     e.preventDefault()
     if (draft.name.trim()) addVendor()
   }
@@ -178,6 +181,8 @@ export default function NewPurchase() {
   const [creating, setCreating] = useState(false)
   const [purchaseError, setPurchaseError] = useState('')
   const [purchase, setPurchase] = useState(null)
+  //: Bumped to re-run the order-list effect. See `startAnother`.
+  const [ordersEpoch, setOrdersEpoch] = useState(0)
   const [pickError, setPickError] = useState('')
   const [reloadError, setReloadError] = useState('')
   //: Guards against a stale `getPurchaseOrder` response: only the response
@@ -190,7 +195,6 @@ export default function NewPurchase() {
   // starts empty, meaning "use the configured default" (`tax_rate: null`);
   // ticking "No sales tax charged" is what actually sends a zero rate.
   const [rateText, setRateText] = useState('')
-  const [rateError, setRateError] = useState('')
   const [noTax, setNoTax] = useState(false)
   //: '' (as configured, sends null), 'true' or 'false' -- a plain checkbox
   //: cannot say "not taxed" separately from "use the configured default",
@@ -233,7 +237,7 @@ export default function NewPurchase() {
     }
   }, [])
 
-  useEffect(loadOrders, [loadOrders])
+  useEffect(loadOrders, [loadOrders, ordersEpoch])
 
   function set(key) {
     return (e) => setForm({ ...form, [key]: e.target.value })
@@ -291,26 +295,24 @@ export default function NewPurchase() {
     setReloadError('')
     setOrderFilter('')
     setRateText('')
-    setRateError('')
     setNoTax(false)
     setTaxIncludesShipping('')
     setMode('new')
-    // The purchase just finished is not on the list this page fetched when
-    // it first loaded.
-    loadOrders()
+    // The purchase just finished is not on the list this page fetched when it
+    // first loaded. Re-run the effect rather than calling `loadOrders()` here:
+    // it returns a cancel function, and only an effect will actually call it,
+    // so an imperative call leaves a fetch able to set state after unmount.
+    setOrdersEpoch((n) => n + 1)
   }
 
-  function onRateChange(e) {
-    const text = e.target.value
-    setRateText(text)
-    setRateError(
-      text.trim() !== '' && !isValidRate(text)
-        ? 'Enter a rate between 0 and 1, with up to 4 decimal places.'
-        : '',
-    )
-  }
-
-  const rateInvalid = rateText.trim() !== '' && !isValidRate(rateText)
+  // Both derived, never stored: a remembered error and the text it was about
+  // drift apart. Ticking "No sales tax charged" disables the rate box, and a
+  // rate the user can no longer reach must not go on blocking saves -- so
+  // `noTax` settles the question before the text is looked at.
+  const rateInvalid = !noTax && rateText.trim() !== '' && !isValidRate(rateText)
+  const rateError = rateInvalid
+    ? 'Enter a rate between 0 and 1, with up to 4 decimal places.'
+    : ''
 
   // What every item entered below is created with: an explicit rate wins,
   // "No sales tax charged" forces zero, and otherwise the server's own
@@ -357,7 +359,7 @@ export default function NewPurchase() {
                 type="text"
                 inputMode="decimal"
                 value={rateText}
-                onChange={onRateChange}
+                onChange={(e) => setRateText(e.target.value)}
                 disabled={noTax}
                 placeholder="leave blank for the configured rate"
               />
