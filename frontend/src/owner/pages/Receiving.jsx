@@ -41,15 +41,16 @@ function orderIdFromParams(params) {
  * which path found them.
  *
  * The picked order id is mirrored into the `order` query parameter both
- * ways: read on mount, so a link from the inventory screens' Order column
- * (`/receiving?order=<id>`) opens straight to that order, and written on
- * every pick, so the address bar always names what is open.
+ * ways: derived from the params on every render, so a link from the
+ * inventory screens' Order column (`/receiving?order=<id>`) opens straight
+ * to that order and the browser's Back/Forward move between picked orders,
+ * and written on every pick, so the address bar always names what is open.
  */
 export default function Receiving() {
   const [params, setParams] = useSearchParams()
   const [orders, setOrders] = useState(null)
   const [ordersError, setOrdersError] = useState('')
-  const [orderId, setOrderId] = useState(() => orderIdFromParams(params))
+  const orderId = orderIdFromParams(params)
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState('')
   const [selected, setSelected] = useState([])
@@ -132,10 +133,10 @@ export default function Receiving() {
     setSelected([])
   }
 
-  // Puts the pick in the URL so opening Receiving from a link elsewhere
-  // (the inventory screens' Order column) can reopen it directly.
+  // Puts the pick in the URL -- the only place `orderId` is held -- so
+  // opening Receiving from a link elsewhere (the inventory screens' Order
+  // column) can reopen it directly, and Back/Forward move between picks.
   function pickOrder(id) {
-    setOrderId(id)
     setParams({ order: String(id) })
   }
 

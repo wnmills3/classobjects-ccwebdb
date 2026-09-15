@@ -1,5 +1,5 @@
 import { screen, waitFor } from '@testing-library/react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -19,6 +19,17 @@ import { adminAuth, renderWithProviders } from '../../test/helpers'
 function LocationProbe() {
   const location = useLocation()
   return <div data-testid="location">{location.pathname + location.search}</div>
+}
+
+/** A button that navigates like the browser's own Back/Forward would --
+ * changing the route without going through `Receiving`'s own pick handler. */
+function NavigateButton({ to }) {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      go
+    </button>
+  )
 }
 
 beforeEach(() => {
@@ -86,6 +97,21 @@ describe('opening an order from the URL', () => {
       route: '/receiving?order=42',
     })
     await waitFor(() => expect(api.getPurchaseOrder).toHaveBeenCalledWith(42))
+  })
+
+  it('follows the route when it changes after mount, as Back/Forward would', async () => {
+    renderWithProviders(
+      <>
+        <Receiving />
+        <NavigateButton to="/receiving?order=43" />
+      </>,
+      { auth: adminAuth(), route: '/receiving?order=42' },
+    )
+    await waitFor(() => expect(api.getPurchaseOrder).toHaveBeenCalledWith(42))
+
+    screen.getByText('go').click()
+
+    await waitFor(() => expect(api.getPurchaseOrder).toHaveBeenCalledWith(43))
   })
 
   it('puts the picked order in the URL', async () => {
