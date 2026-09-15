@@ -30,6 +30,7 @@ describe('owner console shell', () => {
   it('renders the console navigation for an administrator', () => {
     renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
     expect(screen.getByRole('link', { name: /coins/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^orders$/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /people/i })).toBeInTheDocument()
   })
 
