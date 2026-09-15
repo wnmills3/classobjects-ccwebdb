@@ -6,6 +6,14 @@ vi.mock('../api', () => ({
   api: {
     listOrders: vi.fn(),
     setOrderStatus: vi.fn(),
+    listOrderChanges: vi.fn(),
+    listCustomers: vi.fn(),
+    listUsers: vi.fn(),
+    getCatalogItem: vi.fn(),
+    listCatalog: vi.fn(),
+    createOrderFor: vi.fn(),
+    reviseOrder: vi.fn(),
+    customerForUser: vi.fn(),
   },
 }))
 
@@ -22,6 +30,10 @@ const ORDERS = [
     status: 'paid',
     total_amount: '378.00',
     placed_at: '2026-09-14T15:00:00Z',
+    version: 1,
+    notes: null,
+    placed_by_email: 'admin@example.com',
+    payment_adjustment_due: true,
     items: [
       {
         id: 1,
@@ -40,6 +52,10 @@ const ORDERS = [
     status: 'cancelled',
     total_amount: '42.00',
     placed_at: '2026-09-13T15:00:00Z',
+    version: 1,
+    notes: null,
+    placed_by_email: 'grace@example.com',
+    payment_adjustment_due: false,
     items: [
       {
         id: 2,
@@ -56,6 +72,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.listOrders.mockResolvedValue(ORDERS)
   api.setOrderStatus.mockResolvedValue({})
+  api.listCustomers.mockResolvedValue([])
+  api.listUsers.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -157,5 +175,35 @@ describe('owner Orders', () => {
     api.listOrders.mockRejectedValue(new Error('cannot reach the server'))
     renderWithProviders(<Orders />, { auth: adminAuth(), route: '/orders' })
     expect(await screen.findByText('cannot reach the server')).toBeInTheDocument()
+  })
+
+  it('offers Edit only on pending or paid orders', async () => {
+    await renderPage()
+    expect(within(rowFor(12)).getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(within(rowFor(11)).queryByRole('button', { name: 'Edit' })).toBeNull()
+  })
+
+  it('opens the editor for a new order', async () => {
+    const user = await renderPage()
+    await user.click(screen.getByRole('button', { name: 'New order' }))
+    expect(
+      await screen.findByRole('heading', { name: 'New order' }),
+    ).toBeInTheDocument()
+  })
+
+  it('flags a payment adjustment and who entered an order', async () => {
+    await renderPage()
+    expect(within(rowFor(12)).getByText('payment adjustment due')).toBeInTheDocument()
+    expect(
+      within(rowFor(12)).getByText('entered by admin@example.com'),
+    ).toBeInTheDocument()
+    expect(within(rowFor(11)).queryByText(/entered by/)).toBeNull()
+  })
+
+  it('opens an order history', async () => {
+    api.listOrderChanges.mockResolvedValue([])
+    const user = await renderPage()
+    await user.click(within(rowFor(12)).getByRole('button', { name: 'History' }))
+    expect(api.listOrderChanges).toHaveBeenCalledWith(12)
   })
 })
