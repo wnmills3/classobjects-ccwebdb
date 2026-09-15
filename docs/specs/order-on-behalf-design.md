@@ -1,6 +1,6 @@
 # Orders entered and edited on a customer's behalf
 
-Design. Status: approved in conversation, not yet implemented (2026-09-15).
+Design. Status: implemented (2026-09-15).
 
 ## The problem
 
