@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -51,6 +51,13 @@ async function openItem(user) {
   return screen.findByRole('heading', { name: 'CC-000007' })
 }
 
+// Scoped to the dialog: the filter panel behind it has text boxes of its own,
+// and an unscoped query types into a search filter instead of the form.
+async function typeDescription(user, text) {
+  const dialog = document.querySelector('dialog')
+  await user.type(within(dialog).getByRole('textbox', { name: /Description/ }), text)
+}
+
 describe('Inventory item editor', () => {
   it('opens in a modal dialog, not at the foot of the page', async () => {
     const user = userEvent.setup()
@@ -71,6 +78,37 @@ describe('Inventory item editor', () => {
     await user.click(screen.getByRole('button', { name: 'Close' }))
 
     await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+  })
+
+  it('closes after a save, and refreshes the results', async () => {
+    const user = userEvent.setup()
+    api.updateInventoryItem.mockResolvedValue({})
+    await openItem(user)
+    const searches = api.searchInventory.mock.calls.length
+
+    await typeDescription(user, 'Star note')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+    expect(api.updateInventoryItem).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ description: 'Star note' }),
+    )
+    await waitFor(() =>
+      expect(api.searchInventory.mock.calls.length).toBeGreaterThan(searches),
+    )
+  })
+
+  it('stays open when a save is refused, so the reason can be read', async () => {
+    const user = userEvent.setup()
+    api.updateInventoryItem.mockRejectedValue(new Error('Changed by someone else'))
+    await openItem(user)
+
+    await typeDescription(user, 'Star note')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Changed by someone else')).toBeInTheDocument()
+    expect(document.querySelector('dialog')).toHaveAttribute('open')
   })
 
   it('closes on Escape', async () => {
