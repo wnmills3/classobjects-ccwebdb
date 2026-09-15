@@ -188,6 +188,23 @@ button.link.danger {
   border-color: #24507a;
   color: #fff;
 }
+/* The item editor, over the results. Sized to the form's four-column field
+   grid, and scrolling inside itself so a long form never pushes Save off
+   the screen. */
+.edit-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  max-height: 90vh;
+  max-width: min(60rem, 95vw);
+  overflow: auto;
+  padding: 1rem 1.2rem;
+  width: 100%;
+}
+.edit-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
 .edit-form .field {
   align-items: center;
   display: grid;
