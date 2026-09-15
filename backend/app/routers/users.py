@@ -20,9 +20,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
-from ..models import User, UserRole
+from ..models import Customer, User, UserRole
+from ..order_writes import customer_for_user
 from ..schemas import UserOut
 from ..security import hash_password
+from .customers import CustomerOut
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -186,3 +188,21 @@ def set_password(user_id: int, body: PasswordSet, db: DbSession, _: AdminUser) -
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.post("/{user_id}/customer", response_model=CustomerOut)
+def customer_for_account(user_id: int, db: DbSession, _: AdminUser) -> Customer:
+    """The customer record behind an account, created if it has none yet.
+
+    Lets an administrator place an order for an account holder who has never
+    bought anything, and so has no customer record to choose.
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No such account"
+        )
+    customer = customer_for_user(db, user)
+    db.commit()
+    db.refresh(customer)
+    return customer

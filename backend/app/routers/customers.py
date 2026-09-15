@@ -23,7 +23,10 @@ from sqlalchemy.orm import selectinload
 
 from ..deps import AdminUser, DbSession
 from ..models import Address, AddressKind, Country, Customer
+from ..order_writes import Line, place_order
 from ..references import code_to_id
+from ..schemas import AdminOrderCreate, OrderOut
+from .orders import order_out
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -193,3 +196,28 @@ def add_address(
     db.commit()
     db.refresh(customer)
     return customer
+
+
+@router.post(
+    "/{customer_id}/orders",
+    response_model=OrderOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def place_order_for_customer(
+    customer_id: int, body: AdminOrderCreate, db: DbSession, admin: AdminUser
+) -> OrderOut:
+    """Place an order for a customer: a phone, walk-in or account holder's order."""
+    customer = db.get(Customer, customer_id)
+    if customer is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No such customer"
+        )
+    order = place_order(
+        db,
+        customer,
+        [Line(i.listing_id, i.quantity, i.unit_price) for i in body.items],
+        placed_by=admin,
+        notes=body.notes,
+    )
+    db.commit()
+    return order_out(db, order.id)
