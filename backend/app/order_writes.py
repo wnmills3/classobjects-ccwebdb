@@ -15,7 +15,8 @@ from typing import NoReturn
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from .models import (
     Customer,
@@ -70,12 +71,21 @@ def customer_for_user(db: Session, user: User) -> Customer:
 
 
 def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
-    """Lock listings FOR UPDATE in id order, so contenders never deadlock."""
+    """Lock listings FOR UPDATE in id order, so contenders never deadlock.
+
+    ``populate_existing`` matters as much as the lock itself: without it, a
+    listing already in the session's identity map (eagerly loaded by the
+    caller before the lock was taken) is returned unchanged -- locked, but
+    still holding pre-lock values for `quantity_available`, `is_active` and
+    `version`. With it, the locked row's current values overwrite whatever
+    was cached.
+    """
     rows = db.scalars(
         select(Listing)
         .where(Listing.id.in_(ids))
         .order_by(Listing.id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).all()
     found = {listing.id: listing for listing in rows}
     missing = sorted(ids - set(found))
@@ -159,6 +169,12 @@ def place_order(
 EDITABLE_STATUSES = frozenset({"pending", "paid"})
 
 
+def _order_status_code(db: Session, order: SalesOrder) -> str:
+    """The order's status code, read fresh from its (possibly just-locked) row."""
+    row = db.get(SalesOrderStatus, order.sales_order_status_id)
+    return row.code if row else "pending"
+
+
 def revise_order(
     db: Session,
     order: SalesOrder,
@@ -172,14 +188,33 @@ def revise_order(
 ) -> bool:
     """Make an order's contents match `lines`, moving stock by the difference.
 
+    Locks the order row first -- always before any listing lock, so every
+    writer that takes both locks takes them in the same order -- and
+    re-reads it with `populate_existing`, including its items: a concurrent
+    checkout or another revision may have changed the order or the stock a
+    caller read before this call. `status_code` is accepted so callers that
+    already know it (and Task 6's threaded callers) need not change, but it
+    is ignored: the status actually checked is read from the freshly locked
+    row, not from what the caller read beforehand.
+
     Every check runs before anything changes, so a refused save changes no
     line and no stock. Returns whether anything changed.
     """
-    if status_code not in EDITABLE_STATUSES:
+    del status_code
+    order = db.execute(
+        select(SalesOrder)
+        .where(SalesOrder.id == order.id)
+        .options(selectinload(SalesOrder.items))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
+
+    locked_status = _order_status_code(db, order)
+    if locked_status not in EDITABLE_STATUSES:
         _refuse(
             db,
             status.HTTP_409_CONFLICT,
-            f"Order #{order.id} is {status_code}; only pending or paid orders "
+            f"Order #{order.id} is {locked_status}; only pending or paid orders "
             "can be changed.",
         )
     if version != order.version:
@@ -309,7 +344,20 @@ def revise_order(
         # only moves when that row is updated -- so touch it.
         order.updated_at = stamp
         db.add_all(changes)
-        db.flush()
+        try:
+            db.flush()
+        except StaleDataError:
+            # The order and listing locks make this hard to hit -- everything
+            # this call mutates was locked and re-read above -- but a writer
+            # that updates the order row without taking that lock (e.g.
+            # `update_order_status`) can still lose the race at the flush.
+            # Surface it the same way the version check above does, rather
+            # than as an unhandled 500.
+            _refuse(
+                db,
+                status.HTTP_409_CONFLICT,
+                f"Order #{order.id} was changed while saving. Reload and retry.",
+            )
     return bool(changes)
 
 
