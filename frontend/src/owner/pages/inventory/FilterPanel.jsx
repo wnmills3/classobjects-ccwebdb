@@ -49,7 +49,9 @@ export default function FilterPanel({
                 </option>
                 {options.map((o) => (
                   <option key={String(o.value)} value={String(o.value)}>
-                    {String(o.value)} ({o.count})
+                    {/* The label is for reading; the value is what the
+                        filter compares -- "Cent" shown, usd_coin_0_01 sent. */}
+                    {o.label ?? String(o.value)} ({o.count})
                   </option>
                 ))}
               </select>

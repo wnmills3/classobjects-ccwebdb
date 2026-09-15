@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import FilterPanel from './FilterPanel'
+import { COIN_VIEW, CURRENCY_VIEW } from './specs'
 
 const config = {
   facetFilters: [['Kind', 'kind', 'item_kind']],
@@ -58,5 +59,38 @@ describe('FilterPanel', () => {
     const { props } = setup({ current: { issue: 'missing_grade' } })
     await user.click(screen.getByRole('button', { name: /missing grade/i }))
     expect(props.apply).toHaveBeenCalledWith({ issue: '' })
+  })
+
+  it('shows a value by its label but filters by its code', async () => {
+    // A denomination's code is `usd_coin_0_01`, which nobody would pick from
+    // a list; its label is "Cent". The filter still compares the code.
+    const user = userEvent.setup()
+    const { props } = setup({
+      config: {
+        ...config,
+        facetFilters: [['Denomination', 'denomination', 'denomination']],
+      },
+      facets: { denomination: [{ value: 'usd_coin_0_01', label: 'Cent', count: 353 }] },
+    })
+    const select = screen.getByRole('combobox', { name: /denomination/i })
+    expect(screen.getByRole('option', { name: 'Cent (353)' })).toBeInTheDocument()
+
+    await user.selectOptions(select, 'usd_coin_0_01')
+    expect(props.apply).toHaveBeenCalledWith({ denomination: 'usd_coin_0_01' })
+  })
+
+  it('falls back to the value when a facet has no label', () => {
+    setup()
+    expect(screen.getByRole('option', { name: 'coin (12)' })).toBeInTheDocument()
+  })
+
+  it('offers a denomination choice in both inventories', () => {
+    for (const view of [COIN_VIEW, CURRENCY_VIEW]) {
+      expect(view.facetFilters, view.view).toContainEqual([
+        'Denomination',
+        'denomination',
+        'denomination',
+      ])
+    }
   })
 })

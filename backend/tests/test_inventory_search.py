@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import CurrencyDetail, ErrorType, Grade, ItemError, ItemKind, SealColor
+from app.models import (
+    CurrencyDetail,
+    Denomination,
+    ErrorType,
+    Grade,
+    ItemError,
+    ItemKind,
+    SealColor,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -330,6 +338,31 @@ def test_facets_are_opt_in(
 ) -> None:
     coin(db)
     assert search(client, "coins", admin_headers).json()["facets"] == {}
+
+
+def test_denomination_is_offered_by_label_and_filters_by_code(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A denomination can be chosen by name; the choice filters by its code.
+
+    The panel shows each facet value's label, because `usd_coin_0_01` is what
+    the filter compares and "Cent" is what a person picks from a list.
+    """
+    cent = code_id(db, Denomination, "usd_coin_0_01")
+    quarter = code_id(db, Denomination, "usd_coin_0_25")
+    pennies = {coin(db, denomination_id=cent).id for _ in range(2)}
+    coin(db, denomination_id=quarter)
+
+    body = search(client, "coins", admin_headers, facets=True).json()
+    offered = {f["value"]: f for f in body["facets"]["denomination"]}
+
+    assert offered["usd_coin_0_01"]["count"] == 2
+    assert offered["usd_coin_0_01"]["label"] == db.get(Denomination, cent).label
+    assert offered["usd_coin_0_01"]["label"] != "usd_coin_0_01"
+    assert offered["usd_coin_0_25"]["count"] == 1
+
+    chosen = search(client, "coins", admin_headers, denomination="usd_coin_0_01")
+    assert {r["id"] for r in chosen.json()["rows"]} == pennies
 
 
 # ---------------------------------------------------------------------------

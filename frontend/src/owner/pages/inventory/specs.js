@@ -30,6 +30,7 @@ export const COIN_VIEW = {
   detail: 'description',
   textFilters: [['Item code', 'item_code', 'CC-000123']],
   facetFilters: [
+    ['Denomination', 'denomination', 'denomination'],
     ['Series', 'series', 'series'],
     ['Kind', 'kind', 'item_kind'],
     ['Metal', 'metal', 'metal'],
@@ -80,6 +81,7 @@ export const CURRENCY_VIEW = {
     ['Item code', 'item_code', 'CC-000123'],
   ],
   facetFilters: [
+    ['Denomination', 'denomination', 'denomination'],
     ['Series', 'series', 'series'],
     ['Note type', 'note_type', 'note_type'],
     ['Seal', 'seal_color', 'seal_color'],
