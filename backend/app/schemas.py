@@ -660,6 +660,10 @@ class InventoryPageOut(BaseModel):
     #: copied into the client. `no_weight_bullion` does not explain itself
     #: from its code alone; this is what a chip's tooltip reads from.
     issue_descriptions: dict[str, str] = Field(default_factory=dict)
+    #: The columns this view can be sorted by. The table makes only these
+    #: headers clickable: every header used to look sortable while the server
+    #: refused most of them, putting "cannot sort by" on the page instead.
+    sortable: list[str] = Field(default_factory=list)
 
 
 class ReferenceValueCreate(BaseModel):

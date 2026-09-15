@@ -4,6 +4,10 @@
  * Separated from the components because three of them read it -- the table,
  * the filter panel and the review pane -- and a specification imported in
  * three places should not live inside any one of them.
+ *
+ * `detail` is shown on a second line under each item, across the columns.
+ * The description is long and read rather than compared, so it no longer
+ * takes a column; that leaves room for the denomination beside the code.
  */
 
 export const COIN_VIEW = {
@@ -11,11 +15,11 @@ export const COIN_VIEW = {
   title: 'Coins & bullion',
   columns: [
     ['Code', 'item_code', 'mono'],
-    ['Description', 'description', 'wide'],
-    ['Series', 'series_label'],
-    ['Kind', 'item_kind'],
+    ['Denomination', 'denomination_label'],
     ['Year', 'year_start'],
     ['Mint', 'mint_mark'],
+    ['Series', 'series_label'],
+    ['Kind', 'item_kind'],
     ['Grade', 'grade'],
     ['Metal', 'metal'],
     ['Fine ozt', 'fine_weight_ozt'],
@@ -23,6 +27,7 @@ export const COIN_VIEW = {
     ['Cost', 'total_cost', 'money'],
     ['Status', 'status'],
   ],
+  detail: 'description',
   textFilters: [['Item code', 'item_code', 'CC-000123']],
   facetFilters: [
     ['Series', 'series', 'series'],
@@ -58,9 +63,8 @@ export const CURRENCY_VIEW = {
   title: 'Currency',
   columns: [
     ['Code', 'item_code', 'mono'],
-    ['Description', 'description', 'wide'],
-    ['Series name', 'series_label'],
     ['Denomination', 'denomination_label'],
+    ['Series name', 'series_label'],
     ['Series', 'series_designation'],
     ['Seal', 'seal_color'],
     ['District', 'fed_district_letter'],
@@ -70,6 +74,7 @@ export const CURRENCY_VIEW = {
     ['Cost', 'total_cost', 'money'],
     ['Status', 'status'],
   ],
+  detail: 'description',
   textFilters: [
     ['Serial number', 'serial_number', 'B0808450_  (_ = one char, % = any)'],
     ['Item code', 'item_code', 'CC-000123'],

@@ -3,6 +3,7 @@ import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import InventoryTable from './InventoryTable'
+import { COIN_VIEW, CURRENCY_VIEW } from './specs'
 
 const config = {
   columns: [
@@ -26,6 +27,7 @@ function setup(overrides = {}) {
     selected: [],
     onSelect: vi.fn(),
     onOpen: vi.fn(),
+    sortable: ['item_code'],
     ...overrides,
   }
   return { props, ...render(<InventoryTable {...props} />) }
@@ -69,11 +71,54 @@ describe('InventoryTable', () => {
     expect(screen.getByRole('columnheader', { name: /code v/i })).toBeInTheDocument()
   })
 
+  it('does not offer a sort the server cannot perform', async () => {
+    // The server lists what it can sort by; a header outside that list used
+    // to look clickable and put "cannot sort by" on the page.
+    const user = userEvent.setup()
+    const { props } = setup({ sortable: ['item_code'] })
+    await user.click(screen.getByRole('columnheader', { name: /cost/i }))
+    expect(props.apply).not.toHaveBeenCalled()
+  })
+
   it('selects every row on the page from the header checkbox', async () => {
     const user = userEvent.setup()
     const { props } = setup()
     const header = screen.getAllByRole('columnheader')[0]
     await user.click(within(header).getByRole('checkbox'))
     expect(props.onSelect).toHaveBeenCalledWith([1, 2])
+  })
+})
+
+describe('two lines per item', () => {
+  const twoLine = {
+    columns: [
+      ['Code', 'item_code'],
+      ['Denomination', 'denomination_label'],
+    ],
+    detail: 'description',
+  }
+
+  it('puts the description on a second line spanning the columns', () => {
+    setup({ config: twoLine })
+    const detail = screen.getByText('Morgan Dollar').closest('td')
+    expect(detail).toHaveAttribute('colspan', '2')
+    expect(
+      screen.queryByRole('columnheader', { name: /description/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('adds no second line for an item without a description', () => {
+    setup({ config: twoLine })
+    // The header row, two item rows, and one detail row: C-002 has none.
+    expect(screen.getAllByRole('row')).toHaveLength(4)
+  })
+
+  it('is how both inventories are shown, with denomination on the first line', () => {
+    for (const view of [COIN_VIEW, CURRENCY_VIEW]) {
+      expect(view.detail, view.view).toBe('description')
+      const keys = view.columns.map(([, key]) => key)
+      expect(keys, view.view).toContain('denomination_label')
+      expect(keys, view.view).not.toContain('description')
+    }
   })
 })

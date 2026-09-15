@@ -232,6 +232,28 @@ def test_an_unsortable_column_is_refused(
     assert "Sortable" in response.json()["detail"]
 
 
+def test_each_page_names_every_column_it_can_sort_by(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The table makes a header clickable only when the server lists it.
+
+    Every header used to look sortable while the server refused most of them,
+    so clicking Grade or Status put an error on the page. Each listed name is
+    actually sorted by here, so the list cannot claim a sort that would fail.
+    """
+    coin(db)
+    note(db)
+
+    for view in ("coins", "currency"):
+        listed = search(client, view, admin_headers).json()["sortable"]
+
+        assert "item_code" in listed, view
+        assert "grade" not in listed, view
+        for key in listed:
+            response = search(client, view, admin_headers, sort=key)
+            assert response.status_code == 200, (view, key)
+
+
 def test_paging_reports_the_total_not_the_page(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
