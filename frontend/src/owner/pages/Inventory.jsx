@@ -3,7 +3,7 @@ import { useState } from 'react'
 import BulkEditBar from './inventory/BulkEditBar'
 import FilterPanel from './inventory/FilterPanel'
 import InventoryTable from './inventory/InventoryTable'
-import ItemEditForm from './inventory/ItemEditForm'
+import ItemEditDialog from './inventory/ItemEditDialog'
 import ReviewPane from './inventory/ReviewPane'
 import { COIN_VIEW, CURRENCY_VIEW, PAGE_SIZE } from './inventory/specs'
 import { useInventorySearch } from './inventory/useInventorySearch'
@@ -123,7 +123,7 @@ function InventoryView({ config }) {
       )}
 
       {editing && (
-        <ItemEditForm
+        <ItemEditDialog
           key={editing}
           itemId={editing}
           onSaved={() => apply({})}
