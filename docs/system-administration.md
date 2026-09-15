@@ -36,10 +36,18 @@ the bundle split removes an information leak, it does not enforce anything.
 
 ### How accounts come to exist
 
-- **Self-service registration** (`POST /api/auth/register`) always creates a
-  `customer`. There is no way to register as an administrator.
-- **Promotion** is the only route to `admin`: an existing administrator
-  changes an account's role in the console under **People**.
+- **Self-service registration** (`POST /api/auth/register`, the shop's
+  **Register** page) always creates a `customer`. There is no way to register
+  as an administrator.
+- **An administrator creates it** (`POST /api/users`, **People → Accounts →
+  New account** in the console): email, name, role and an initial password.
+  Either role may be chosen and the role has no default in the API, so an
+  administrator is never created by omission. Administrators only -- 401
+  signed out, 403 for a customer. There is no mail configuration, so pass the
+  password on out of band, as with **Set password** below. An email already
+  in use is refused with 409.
+- **Promotion**: an existing administrator changes an account's role in the
+  console under **People**.
 - **The first administrator** is seeded by `python -m app.seed`, from
   `first_admin_email` / `first_admin_password` in the settings. Change the
   password immediately -- the default is published in this repository.

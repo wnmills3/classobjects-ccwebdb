@@ -39,12 +39,84 @@ function Tabs({ active, onChange }) {
   )
 }
 
+const NO_ACCOUNT = { email: '', full_name: '', role: 'customer', password: '' }
+
+/**
+ * Opening an account for someone else: a customer who asked, or a colleague.
+ *
+ * The shop's own registration only ever makes customers, and promotion needed
+ * the person to register first. There is no mail to send an invitation, so
+ * the administrator sets the first password and passes it on, as "Set
+ * password" already works. A refusal is shown here rather than in place of
+ * the table, so what was typed survives to be corrected.
+ */
+function NewAccountForm({ onCreated, onCancel }) {
+  const [form, setForm] = useState(NO_ACCOUNT)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+
+  async function create() {
+    setSaving(true)
+    try {
+      const created = await api.createUser(form)
+      onCreated(created)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="search-panel">
+      {error && <p className="error">{error}</p>}
+      <div className="filter-grid">
+        <label>
+          Email{/* */}
+          <input type="email" value={form.email} onChange={set('email')} />
+        </label>
+        <label>
+          Name{/* */}
+          <input value={form.full_name} onChange={set('full_name')} />
+        </label>
+        <label>
+          Role{/* */}
+          <select value={form.role} onChange={set('role')}>
+            <option value="customer">customer</option>
+            <option value="admin">admin</option>
+          </select>
+        </label>
+        <label>
+          Initial password{/* */}
+          <input
+            type="password"
+            autoComplete="new-password"
+            placeholder="at least 8 characters"
+            value={form.password}
+            onChange={set('password')}
+          />
+        </label>
+      </div>
+      <div className="row">
+        <button disabled={saving} onClick={create}>
+          {saving ? 'Creating...' : 'Create account'}
+        </button>
+        <button className="link" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Accounts({ notify }) {
   const { user: me } = useAuth()
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
   const [pwFor, setPwFor] = useState(null)
   const [pw, setPw] = useState('')
+  const [adding, setAdding] = useState(false)
 
   const load = useCallback(() => {
     api
@@ -91,6 +163,23 @@ function Accounts({ notify }) {
         Accounts are never deleted, only deactivated -- a person who has placed orders
         cannot be removed without breaking that history.
       </p>
+      {adding ? (
+        <NewAccountForm
+          onCancel={() => setAdding(false)}
+          onCreated={(created) => {
+            setAdding(false)
+            notify(
+              `Created ${created.email}. There is no email to send it, so pass ` +
+                'the password on to them yourself.',
+            )
+            load()
+          }}
+        />
+      ) : (
+        <div className="row">
+          <button onClick={() => setAdding(true)}>New account</button>
+        </div>
+      )}
       <table className="table">
         <thead>
           <tr>
