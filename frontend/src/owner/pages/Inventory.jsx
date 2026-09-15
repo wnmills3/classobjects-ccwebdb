@@ -22,9 +22,8 @@ import { useInventorySearch } from './inventory/useInventorySearch'
  * buries the ones actually present.
  */
 function InventoryView({ config }) {
-  const { current, apply, clear, page, busy, error, offset } = useInventorySearch(
-    config.view,
-  )
+  const { current, apply, clear, refresh, page, busy, error, offset } =
+    useInventorySearch(config.view)
   const [editing, setEditing] = useState(null)
   const [selected, setSelected] = useState([])
   const [reviewing, setReviewing] = useState(null)
@@ -46,7 +45,7 @@ function InventoryView({ config }) {
           ids={reviewing}
           onClose={() => {
             setReviewing(null)
-            apply({})
+            refresh()
           }}
         />
       </section>
@@ -80,7 +79,7 @@ function InventoryView({ config }) {
         ids={selected}
         onApplied={() => {
           setSelected([])
-          apply({})
+          refresh()
         }}
         onClear={() => setSelected([])}
       />
@@ -126,7 +125,13 @@ function InventoryView({ config }) {
         <ItemEditDialog
           key={editing}
           itemId={editing}
-          onSaved={() => apply({})}
+          // Closed only here, on a save the server accepted. A refused one --
+          // a 409 from a stale version -- leaves the dialog open with the
+          // reason showing, and the draft still there to retry.
+          onSaved={() => {
+            setEditing(null)
+            refresh()
+          }}
           onClose={() => setEditing(null)}
         />
       )}

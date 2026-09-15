@@ -19,6 +19,11 @@ export function useInventorySearch(view) {
   const [params, setParams] = useSearchParams()
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
+  // Bumped to fetch the same query again. After an edit the URL has not
+  // changed, so nothing the effect depends on has either; `apply({})` was
+  // used for this and rebuilt an identical query string, which re-ran
+  // nothing and left the edited row showing its old values.
+  const [reloads, setReloads] = useState(0)
 
   const current = Object.fromEntries(params.entries())
   const offset = Number(current.offset ?? 0)
@@ -51,7 +56,7 @@ export function useInventorySearch(view) {
     return () => {
       cancelled = true
     }
-  }, [view, query])
+  }, [view, query, reloads])
 
   function apply(changes) {
     const next = { ...current, ...changes }
@@ -68,6 +73,8 @@ export function useInventorySearch(view) {
     current,
     apply,
     clear: () => setParams({}),
+    // The same filters, sort and page, fetched again.
+    refresh: () => setReloads((n) => n + 1),
     page: result?.body,
     busy: result?.query !== query,
     error,
