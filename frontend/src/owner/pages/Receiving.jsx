@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import ItemFinder from './receiving/ItemFinder'
@@ -6,6 +7,14 @@ import OrderLines from './receiving/OrderLines'
 import OrderPicker from './receiving/OrderPicker'
 import ReceiptPanel from './receiving/ReceiptPanel'
 import { date } from '../../shared/format'
+
+/** A positive integer `order` query parameter, or null when absent or bad. */
+function orderIdFromParams(params) {
+  const raw = params.get('order')
+  if (!raw) return null
+  const n = Number(raw)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
 
 /**
  * Receiving: pick a purchase order, see what on it has not arrived yet.
@@ -30,11 +39,17 @@ import { date } from '../../shared/format'
  * hand and which order it came from is not known. Both paths only ever hand
  * `ReceiptPanel` ids for things still `ordered`, so it never has to know
  * which path found them.
+ *
+ * The picked order id is mirrored into the `order` query parameter both
+ * ways: read on mount, so a link from the inventory screens' Order column
+ * (`/receiving?order=<id>`) opens straight to that order, and written on
+ * every pick, so the address bar always names what is open.
  */
 export default function Receiving() {
+  const [params, setParams] = useSearchParams()
   const [orders, setOrders] = useState(null)
   const [ordersError, setOrdersError] = useState('')
-  const [orderId, setOrderId] = useState(null)
+  const [orderId, setOrderId] = useState(() => orderIdFromParams(params))
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState('')
   const [selected, setSelected] = useState([])
@@ -117,6 +132,13 @@ export default function Receiving() {
     setSelected([])
   }
 
+  // Puts the pick in the URL so opening Receiving from a link elsewhere
+  // (the inventory screens' Order column) can reopen it directly.
+  function pickOrder(id) {
+    setOrderId(id)
+    setParams({ order: String(id) })
+  }
+
   return (
     <section>
       <h1>Receiving</h1>
@@ -149,7 +171,7 @@ export default function Receiving() {
           {ordersError && <p className="error">{ordersError}</p>}
           {!ordersError && !orders && <p className="muted">Loading...</p>}
           {orders && (
-            <OrderPicker orders={orders} selectedId={orderId} onPick={setOrderId} />
+            <OrderPicker orders={orders} selectedId={orderId} onPick={pickOrder} />
           )}
 
           {orderId != null && (
@@ -161,6 +183,19 @@ export default function Receiving() {
                   <h2>
                     {order.order_number} &middot; {order.vendor} &middot;{' '}
                     {date(order.ordered_on)}
+                    {order.source_url && (
+                      <>
+                        {' '}
+                        &middot;{' '}
+                        <a
+                          href={order.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Vendor page
+                        </a>
+                      </>
+                    )}
                   </h2>
                   <OrderLines
                     lines={order.lines}

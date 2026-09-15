@@ -1,9 +1,11 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import InventoryTable from './InventoryTable'
 import { COIN_VIEW, CURRENCY_VIEW } from './specs'
+import { date } from '../../../shared/format'
+import { renderWithProviders } from '../../../test/helpers'
 
 const config = {
   columns: [
@@ -30,7 +32,7 @@ function setup(overrides = {}) {
     sortable: ['item_code'],
     ...overrides,
   }
-  return { props, ...render(<InventoryTable {...props} />) }
+  return { props, ...renderWithProviders(<InventoryTable {...props} />) }
 }
 
 describe('InventoryTable', () => {
@@ -127,5 +129,54 @@ describe('two lines per item', () => {
     const keys = CURRENCY_VIEW.columns.map(([, key]) => key)
     expect(keys).toContain('grade_label')
     expect(keys).not.toContain('grade')
+  })
+})
+
+describe('the order column', () => {
+  const orderConfig = {
+    columns: [
+      ['Code', 'item_code'],
+      ['Order', 'order_number', 'order'],
+    ],
+  }
+
+  it('links a numbered order to Receiving, named by its number', () => {
+    setup({
+      config: orderConfig,
+      rows: [
+        { id: 1, item_code: 'C-001', purchase_order_id: 7, order_number: '123-456' },
+      ],
+    })
+    const link = screen.getByRole('link', { name: '123-456' })
+    expect(link.getAttribute('href')).toMatch(/\/receiving\?order=7$/)
+  })
+
+  it('links an unnumbered order by its vendor and date', () => {
+    setup({
+      config: orderConfig,
+      rows: [
+        {
+          id: 2,
+          item_code: 'C-002',
+          purchase_order_id: 8,
+          order_number: null,
+          vendor: 'ebay.com',
+          ordered_on: '2025-01-09',
+        },
+      ],
+    })
+    const link = screen.getByRole('link')
+    expect(link).toHaveTextContent('ebay.com')
+    expect(link).toHaveTextContent(date('2025-01-09'))
+    expect(link.getAttribute('href')).toMatch(/\/receiving\?order=8$/)
+  })
+
+  it('shows a dash and no link when the item has no purchase order', () => {
+    setup({
+      config: orderConfig,
+      rows: [{ id: 3, item_code: 'C-003', purchase_order_id: null }],
+    })
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.getByText('-')).toBeInTheDocument()
   })
 })

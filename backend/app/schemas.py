@@ -838,6 +838,10 @@ class PurchaseOrderDetailOut(BaseModel):
     order_number: str | None
     vendor: str
     ordered_on: date | None
+    #: The vendor's page for the order or listing, when it is a web address.
+    #: Imported spreadsheet text, so anything else -- "Gift" -- is withheld
+    #: rather than offered as a link.
+    source_url: str | None = None
     lines: list[PurchaseOrderLineOut]
 
 

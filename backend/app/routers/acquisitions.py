@@ -11,6 +11,8 @@ item sits in, are neither a customer's business.
 
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import selectinload
@@ -36,6 +38,12 @@ _ORDER_NOT_FOUND = "Purchase order not found"
 _ITEM_IS_LIVE = and_(
     InventoryItem.deleted_at.is_(None), InventoryItem.split_at.is_(None)
 )
+
+#: `purchase_order.source_url` is imported spreadsheet text, not necessarily
+#: a URL -- an eBay listing page, an eBay order page, or the literal word
+#: "Gift". Only a value that looks like a web address is ever offered as a
+#: link; anything else, `javascript:` included, is withheld.
+_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 
 
 @purchase_orders_router.get("")
@@ -140,6 +148,11 @@ def get_purchase_order(
         order_number=order.order_number,
         vendor=order.vendor.name,
         ordered_on=order.ordered_on,
+        source_url=(
+            order.source_url
+            if order.source_url and _WEB_ADDRESS.match(order.source_url)
+            else None
+        ),
         lines=[
             PurchaseOrderLineOut(
                 id=item.id,

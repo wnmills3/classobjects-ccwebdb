@@ -171,6 +171,58 @@ def test_a_split_parent_is_hidden_but_its_children_are_not(
     assert {child_a.id, child_b.id} <= line_ids
 
 
+def _order_with_source_url(db: Session, source_url: str | None) -> PurchaseOrder:
+    vendor = Vendor(name="Source URL Vendor")
+    db.add(vendor)
+    db.flush()
+    order = PurchaseOrder(
+        vendor_id=vendor.id, order_number="27-5555", source_url=source_url
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+def test_a_web_address_source_url_is_returned_unchanged(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _order_with_source_url(db, "https://order.ebay.com/ord/show?orderId=1")
+    detail = client.get(
+        f"/api/purchase-orders/{order.id}", headers=admin_headers
+    ).json()
+    assert detail["source_url"] == "https://order.ebay.com/ord/show?orderId=1"
+
+
+def test_non_web_address_source_url_is_withheld(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Imported spreadsheet text that is not a web address is not offered as a link.
+
+    "Gift" is the literal value stored for some rows -- not a URL at all.
+    """
+    order = _order_with_source_url(db, "Gift")
+    detail = client.get(
+        f"/api/purchase-orders/{order.id}", headers=admin_headers
+    ).json()
+    assert detail["source_url"] is None
+
+
+def test_a_javascript_url_is_withheld(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The http(s) guard is what stops imported text becoming a clickable link.
+
+    Without it, a `javascript:` value in the imported source text would
+    become an executable link on the receiving page.
+    """
+    order = _order_with_source_url(db, "javascript:alert(1)")
+    detail = client.get(
+        f"/api/purchase-orders/{order.id}", headers=admin_headers
+    ).json()
+    assert detail["source_url"] is None
+
+
 def test_a_customer_cannot_read_storage_locations(
     client: TestClient, customer_headers: dict[str, str]
 ) -> None:

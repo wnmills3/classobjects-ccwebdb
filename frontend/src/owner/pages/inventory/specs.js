@@ -25,6 +25,7 @@ export const COIN_VIEW = {
     ['Fine ozt', 'fine_weight_ozt'],
     ['Qty', 'piece_count'],
     ['Cost', 'total_cost', 'money'],
+    ['Order', 'order_number', 'order'],
     ['Status', 'status'],
   ],
   detail: 'description',
@@ -74,6 +75,7 @@ export const CURRENCY_VIEW = {
     // The label, because a note grade's code (`N64`) is not what anyone reads.
     ['Grade', 'grade_label'],
     ['Cost', 'total_cost', 'money'],
+    ['Order', 'order_number', 'order'],
     ['Status', 'status'],
   ],
   detail: 'description',

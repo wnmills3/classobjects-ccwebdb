@@ -166,6 +166,8 @@ _J_NOTE_TYPE = "LEFT JOIN note_type nt ON nt.id = cud.note_type_id"
 _J_SEAL = "LEFT JOIN seal_color sc ON sc.id = cud.seal_color_id"
 _J_DISTRICT = "LEFT JOIN fed_district fd ON fd.id = cud.fed_district_id"
 _J_FRIEDBERG = "LEFT JOIN friedberg_number fr ON fr.id = cud.friedberg_id"
+_J_PURCHASE_ORDER = "LEFT JOIN purchase_order po ON po.id = i.purchase_order_id"
+_J_VENDOR = "LEFT JOIN vendor v ON v.id = po.vendor_id"
 
 # Column references used by more than one view spec. Same idea as the _J_*
 # join clauses above: name it once so a rename is a single edit. Only the
@@ -230,6 +232,12 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "error_types": Col(_C_ERROR_TYPES),
     "series": Col("ser.code", (_J_SERIES,)),
     "series_label": Col("ser.label", (_J_SERIES,)),
+    # The purchase the item arrived on, so a row can open that order in
+    # Receiving. LEFT joins: 99 items were never on a recorded order.
+    "purchase_order_id": Col("i.purchase_order_id"),
+    "order_number": Col("po.order_number", (_J_PURCHASE_ORDER,)),
+    "vendor": Col("v.name", (_J_PURCHASE_ORDER, _J_VENDOR)),
+    "ordered_on": Col("po.ordered_on", (_J_PURCHASE_ORDER,)),
 }
 
 _SHARED_FILTERS: dict[str, Filt] = {
