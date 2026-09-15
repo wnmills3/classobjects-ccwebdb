@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
+import { Link } from 'react-router-dom'
 
-import { money } from '../../../shared/format'
+import { date, money } from '../../../shared/format'
 
 function cell(row, key, kind) {
   const value = row[key]
@@ -8,6 +9,25 @@ function cell(row, key, kind) {
     return <span className="muted">-</span>
   if (kind === 'money') return money(value)
   return String(value)
+}
+
+/**
+ * The order column: a link into Receiving for the purchase order an item
+ * arrived on, or a dash when none is recorded.
+ *
+ * Named by its own number when the vendor issued one; 1,857 eBay listings
+ * never got a vendor order number, so those fall back to the vendor and the
+ * date ordered -- still enough to tell one order from another.
+ */
+function orderCell(row) {
+  if (row.purchase_order_id == null) return <span className="muted">-</span>
+  const label =
+    row.order_number ?? `${row.vendor ?? 'order'} ${date(row.ordered_on)}`.trim()
+  return (
+    <Link className="mono" to={`/receiving?order=${row.purchase_order_id}`}>
+      {label}
+    </Link>
+  )
 }
 
 /** The arrow next to the column currently being sorted on, if any. */
@@ -112,6 +132,8 @@ export default function InventoryTable({
                       <button className="link mono" onClick={() => onOpen(row.id)}>
                         {row.item_code}
                       </button>
+                    ) : key === 'order_number' ? (
+                      orderCell(row)
                     ) : (
                       cell(row, key, kind)
                     )}

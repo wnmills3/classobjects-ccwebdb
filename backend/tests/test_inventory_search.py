@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from app.models import (
@@ -11,7 +12,9 @@ from app.models import (
     Grade,
     ItemError,
     ItemKind,
+    PurchaseOrder,
     SealColor,
+    Vendor,
 )
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -90,6 +93,79 @@ def test_each_view_returns_the_columns_that_matter_to_it(
     assert "seal_color" in note_row
     assert "serial_number" in note_row
     assert "mint_mark" not in note_row
+
+
+# ---------------------------------------------------------------------------
+# The purchase order behind an item
+# ---------------------------------------------------------------------------
+
+
+def _order(
+    db: Session, *, number: str, vendor_name: str, ordered_on: date
+) -> PurchaseOrder:
+    vendor = Vendor(name=vendor_name)
+    db.add(vendor)
+    db.flush()
+    order = PurchaseOrder(
+        vendor_id=vendor.id, order_number=number, ordered_on=ordered_on
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+def test_a_coin_row_carries_its_purchase_order(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _order(
+        db, number="123-456", vendor_name="ebay.com", ordered_on=date(2025, 1, 9)
+    )
+    item = coin(db, purchase_order_id=order.id)
+
+    row = search(client, "coins", admin_headers).json()["rows"]
+    row = next(r for r in row if r["id"] == item.id)
+
+    assert row["purchase_order_id"] == order.id
+    assert row["order_number"] == "123-456"
+    assert row["vendor"] == "ebay.com"
+    assert row["ordered_on"] == "2025-01-09"
+
+
+def test_an_item_without_a_purchase_order_still_appears(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A LEFT JOIN, not an inner join -- an unordered item is not lost.
+
+    An inner join to `purchase_order` would drop this row from the results
+    entirely instead of returning it with nulls.
+    """
+    item = coin(db)
+
+    row = search(client, "coins", admin_headers).json()["rows"]
+    row = next(r for r in row if r["id"] == item.id)
+
+    assert row["purchase_order_id"] is None
+    assert row["order_number"] is None
+    assert row["vendor"] is None
+    assert row["ordered_on"] is None
+
+
+def test_a_currency_row_carries_its_purchase_order(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _order(
+        db, number="123-456", vendor_name="ebay.com", ordered_on=date(2025, 1, 9)
+    )
+    item = note(db, purchase_order_id=order.id)
+
+    row = search(client, "currency", admin_headers).json()["rows"]
+    row = next(r for r in row if r["id"] == item.id)
+
+    assert row["purchase_order_id"] == order.id
+    assert row["order_number"] == "123-456"
+    assert row["vendor"] == "ebay.com"
+    assert row["ordered_on"] == "2025-01-09"
 
 
 # ---------------------------------------------------------------------------
