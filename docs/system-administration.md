@@ -328,6 +328,40 @@ Deleting twice is not an error.
 `DELETE /api/inventory/{id}/parent` detaches a split child from its parent,
 for when the lineage itself was wrong.
 
+## Entering a purchase
+
+**New purchase** in the console (route `/purchases/new`) is the one door into
+adding an acquisition: no item is ever entered outside a purchase, so a
+standalone buy is recorded as a purchase holding one item. See
+`docs/specs/entry-panels-design.md` for the full design.
+
+- **Vendors** are picked from a list (`GET /api/vendors`) or added inline
+  (`POST /api/vendors`: name, kind, web address). Names are unique,
+  case-insensitively.
+- The purchase itself (`POST /api/purchase-orders`) needs only a vendor --
+  the order number is optional, so a walk-in or show purchase needs nothing
+  else. A vendor and order number together must be unique; the date, if
+  given, cannot be in the future.
+- **Items** are entered on the purchase (`POST /api/inventory`) with a status
+  of `ordered` or `received` -- `received` for something already in hand.
+  A **lot** is simply an item with a piece count above 1; splitting it into
+  individual pieces is a later step.
+- **Tax fields** are set per item, pre-filled from the purchase's own tax
+  controls: a tax-rate field that starts empty (meaning the configured
+  default rate), "No sales tax charged" (sends a rate of 0), and "Tax
+  includes shipping". An explicit rate is validated as 0-1 with up to 4
+  decimal places.
+- **Save and add another** keeps the fields shared across items on the same
+  purchase (kind, country, denomination, series, seal, district, note type,
+  grade scale, tax fields) and clears the per-item fields (title, serial
+  number, cost, certificate number), so entering several notes from the same
+  purchase does not mean retyping the shared details each time.
+- **Receive these**, once items are entered, opens Receiving
+  (`/receiving?order=<id>`) for that purchase.
+
+All four endpoints above (`GET /api/vendors`, `POST /api/vendors`,
+`POST /api/purchase-orders`, `POST /api/inventory`) are administrator-only.
+
 ## Orders
 
 **Orders** in the console lists every order, newest first: who placed it,

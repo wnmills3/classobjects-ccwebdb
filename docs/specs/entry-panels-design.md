@@ -1,7 +1,6 @@
 # Entry panels: New purchase and New item
 
-Design. Status: approved by the user in advance ("design and build the entry
-panels ... don't ask for my input"), not yet implemented (2026-09-15).
+Design. Status: implemented (2026-09-15).
 
 ## The problem
 
@@ -31,7 +30,7 @@ has `FriedbergLookup` for a currency item).
 | Question | Decision |
 |---|---|
 | Can an item exist without a purchase? | **No new item is entered outside a purchase.** A standalone buy is a purchase holding one item. The purchase's order number is optional, so a walk-in or show purchase needs only a vendor. |
-| Where do shipping and tax live? | **On each item, as the schema already has them** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The purchase page holds a tax-rate default, "no sales tax charged" and "tax includes shipping", and pre-fills each new item form. No migration. |
+| Where do shipping and tax live? | **On each item, as the schema already has them** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The purchase page's tax-rate field starts empty, meaning the configured rate (sent as `tax_rate: null`); "No sales tax charged" sends 0; an explicit rate is validated as 0-1 with up to 4 places. There is no endpoint exposing the configured rate to a new page. These resolved values pre-fill each new item form. No migration. |
 | A lot? | **An item with `piece_count > 1`**, as the workflow doc defines. Splitting stays a later step. |
 | Status on entry | **`ordered` or `received`**, default `ordered`; `received` for things already in hand. The opening status history row is written either way. |
 | Disposition, authenticity, valuation, source | `held`, `unverified` unless given, `numismatic`, `manual`. |
@@ -116,8 +115,10 @@ New route `/purchases/new`, nav link **New purchase** (after Receive).
    order date, web address, notes, **Create purchase**.
    Refusals (409 duplicate order, 422) are shown in place, keeping what was typed.
 2. *Items on this purchase*, once a purchase is chosen or created: the purchase
-   heading (vendor, number, date), purchase-wide defaults (tax rate pre-filled
-   with the configured default, "No sales tax charged", "Tax includes shipping"),
+   heading (vendor, number, date), purchase-wide defaults (a tax-rate field that
+   starts empty -- meaning the configured rate, sent as `tax_rate: null`;
+   "No sales tax charged" sends 0; an explicit rate is validated as 0-1 with up
+   to 4 places; and "Tax includes shipping"),
    a table of items entered so far (item code, title, kind, cost, status) built
    from `getPurchaseOrder(id).lines`, the **New item** form below it, and a link
    **Receive these** to `/receiving?order=<id>`.
