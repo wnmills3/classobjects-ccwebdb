@@ -16,7 +16,7 @@ import pytest
 from app.importers.engine import COMMIT, DRY_RUN, ImportEngine
 from app.importers.loader import parse_condition
 from app.importers.models import ImportBatch, ImportIssue, ImportRow
-from app.importers.profile import ERROR, UNKNOWN, RawRow
+from app.importers.profile import ERROR, UNKNOWN, WARNING, RawRow
 from app.importers.profiles.collection_v1 import CollectionV1Profile
 from app.importers.profiling import ColumnProfile
 from app.order_repair import identify
@@ -157,6 +157,43 @@ def test_grading_column_routes_by_kind(profile: CollectionV1Profile) -> None:
     coin = profile.inspect(make_row(Denom="0.25", **{"Grading#": "45141114"}))
     assert note.fields["serial_number"] == "L10861665*"
     assert coin.fields["cert_number"] == "45141114"
+
+
+@pytest.mark.parametrize("marker", ["x", "X", "Returned", "canceled"])
+def test_a_status_marker_in_the_grading_column_is_warned_about(
+    profile: CollectionV1Profile, marker: str
+) -> None:
+    """A Value status marker typed one column to the left is a slip.
+
+    Grading# sits directly left of Value. On 2026-09-14 thirteen rows carried
+    the received marker `x` in Grading# with Value empty: each imported as a
+    certificate numbered "x", none as received, and nothing said so.
+    """
+    result = profile.inspect(make_row(Denom="0.25", **{"Grading#": marker}))
+
+    issue = next(
+        i for i in result.issues if i.rule == "status-marker-in-grading-column"
+    )
+    assert issue.severity == WARNING
+    assert issue.column == "Grading#"
+    assert issue.raw_value == marker
+    assert "Value" in (issue.note or "")
+
+
+@pytest.mark.parametrize(
+    ("denom", "field"), [("0.25", "cert_number"), ("$1 Bill", "serial_number")]
+)
+def test_a_status_marker_is_not_recorded_as_a_certificate_or_serial(
+    profile: CollectionV1Profile, denom: str, field: str
+) -> None:
+    """Stored, it becomes junk: a certificate, or a note's serial, numbered "x".
+
+    The warning is the fix a person makes; the importer does not guess that
+    the row was received, because the marker was not where it would say so.
+    """
+    result = profile.inspect(make_row(Denom=denom, **{"Grading#": "x"}))
+
+    assert field not in result.fields
 
 
 def test_value_column_carries_amount_or_status(profile: CollectionV1Profile) -> None:

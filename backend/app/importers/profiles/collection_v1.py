@@ -609,7 +609,24 @@ class CollectionV1Profile:
         # The grading column means different things depending on the kind:
         # a note's own printed serial, or a grading certificate serial.
         grading = row.text(COL_GRADING)
-        if grading and not SCIENTIFIC.match(grading):
+        if grading and grading.casefold() in VALUE_MARKERS:
+            # A Value status marker typed one column to the left, where Grading#
+            # sits. Stored, it would become a certificate or serial numbered
+            # "x"; on 2026-09-14 thirteen rows did exactly that, and were never
+            # marked received. Warn, and store nothing: the marker is not where
+            # it would say what happened to the row, so this does not guess.
+            issues.append(
+                Issue(
+                    rule="status-marker-in-grading-column",
+                    severity=WARNING,
+                    column=COL_GRADING,
+                    raw_value=grading,
+                    proposed=f"{COL_VALUE}: {grading}",
+                    note=f"a {COL_VALUE} status marker, not a certificate or "
+                    f"serial number; move it to the {COL_VALUE} column",
+                )
+            )
+        elif grading and not SCIENTIFIC.match(grading):
             fields["serial_number" if kind == "currency" else "cert_number"] = grading
 
     def _read_value_column(
