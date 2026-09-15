@@ -15,8 +15,10 @@ describe('cents', () => {
   })
 
   it('totals exactly where floats would not', () => {
-    // 19.99 * 3 in floating point is 59.97000000000001.
-    expect(totalCents([{ quantity: '3', unit_price: '19.99' }])).toBe(5997)
+    // 0.1 * 3 * 100 in floating point is 30.000000000000004, and
+    // 1.15 * 100 is 114.99999999999999.
+    expect(totalCents([{ quantity: '3', unit_price: '0.10' }])).toBe(30)
+    expect(totalCents([{ quantity: '1', unit_price: '1.15' }])).toBe(115)
   })
 
   it('knows money text from anything else', () => {
