@@ -136,7 +136,9 @@ New route `/purchases/new`, nav link **New purchase** (after Receive).
 - Kind (select over the `item_kind` vocabulary), title, description, year (with
   "Range of years" like the item editor), piece count, cost, shipping, status
   (ordered / received radio), country, denomination, grade (note-grade scale for
-  currency, coin scales otherwise, as the item editor filters), grade designation,
+  currency, coin scales otherwise, as the item editor filters; changing the kind
+  across that boundary clears a grade already picked, while a change that stays
+  on one side of it -- coin to bullion, say -- keeps it), grade designation,
   grading service, certificate number, metal (non-currency), series.
 - Coin block (kind not currency): mint, variety.
 - Banknote block (kind currency): serial number, series year, series letter, seal

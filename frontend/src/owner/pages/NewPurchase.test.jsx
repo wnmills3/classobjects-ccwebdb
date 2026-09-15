@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -93,6 +93,23 @@ describe('NewPurchase: creating a vendor inline', () => {
 
     await waitFor(() => expect(api.createVendor).toHaveBeenCalled())
     expect(api.createPurchaseOrder).not.toHaveBeenCalled()
+  })
+
+  it('cancels the vendor draft when Enter activates Cancel, without creating it', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+    await user.type(screen.getByPlaceholderText('Vendor name'), 'Abandoned')
+    // Tab to Cancel and press Enter, as a keyboard user would.
+    screen.getByRole('button', { name: 'Cancel' }).focus()
+    await user.keyboard('{Enter}')
+
+    expect(api.createVendor).not.toHaveBeenCalled()
+    expect(await screen.findByRole('combobox', { name: 'Vendor' })).toBeInTheDocument()
   })
 })
 
@@ -195,10 +212,15 @@ describe('NewPurchase: picking an existing purchase', () => {
     await user.click(screen.getByRole('button', { name: /PO-2/ }))
     await screen.findByRole('heading', { name: /PO-2/ })
 
-    resolveFirst()
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: /PO-2/ })).toBeInTheDocument(),
-    )
+    // `act` is what makes this test able to fail. A bare `resolveFirst()`
+    // followed by `waitFor` passes even with the guard deleted: waitFor runs
+    // its callback synchronously first, before PO-1's `.then` microtask has
+    // flushed, so it only ever sees the state from before the late response.
+    await act(async () => {
+      resolveFirst()
+    })
+    expect(screen.getByRole('heading', { name: /PO-2/ })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /PO-1/ })).not.toBeInTheDocument()
   })
 
   it('filters the list by order number or vendor, case-insensitively', async () => {
@@ -347,6 +369,31 @@ describe('NewPurchase: items on the purchase', () => {
       screen.getByText(/fix the tax rate above before saving items/i),
     ).toBeInTheDocument()
     expect(api.createInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it('unblocks saving when "No sales tax charged" settles an invalid rate', async () => {
+    // Ticking the box disables the rate box. A refusal that points at a field
+    // the user can no longer edit is a dead end: the only way out would be to
+    // untick, fix the rate, and tick again.
+    api.createInventoryItem.mockResolvedValue({ id: 104 })
+    const user = await openPurchase()
+
+    await user.type(screen.getByLabelText(/^tax rate/i), 'abc')
+    await user.click(screen.getByRole('checkbox', { name: /no sales tax charged/i }))
+
+    expect(
+      screen.queryByText(/fix the tax rate above before saving items/i),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/enter a rate between/i)).not.toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenCalledWith(
+        expect.objectContaining({ tax_rate: '0' }),
+      ),
+    )
   })
 
   describe('Tax on shipping', () => {

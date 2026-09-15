@@ -77,6 +77,9 @@ const BLANK = {
 /** An emptied number box clears the year rather than sending "". */
 const yearValue = (text) => (text === '' ? '' : text)
 
+/** Whether `kind` is graded and detailed as a banknote rather than a coin. */
+const isCurrencyKind = (kind) => kind === 'currency'
+
 export default function NewItemForm({
   purchaseOrderId,
   defaults,
@@ -91,7 +94,7 @@ export default function NewItemForm({
   const yearId = useId()
   const yearEndId = useId()
 
-  const isCurrency = form.item_kind === 'currency'
+  const isCurrency = isCurrencyKind(form.item_kind)
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -110,10 +113,16 @@ export default function NewItemForm({
 
   // The coin scales and the note scale do not share values (MS64 means
   // nothing for a banknote), so a grade picked under one kind is cleared
-  // rather than carried over, silently wrong, to the other.
+  // rather than carried over, silently wrong, to the other. Only that
+  // boundary matters: coin, bullion and medal all read the same scale, and
+  // clearing between them would throw away a grade for nothing.
   function setKind(e) {
     const kind = e.target.value
-    setForm((f) => ({ ...f, item_kind: kind, grade: '' }))
+    setForm((f) => ({
+      ...f,
+      item_kind: kind,
+      grade: isCurrencyKind(kind) === isCurrencyKind(f.item_kind) ? f.grade : '',
+    }))
   }
 
   /** The `ItemCreate` body, or a thrown `Error` naming the first bad field. */
