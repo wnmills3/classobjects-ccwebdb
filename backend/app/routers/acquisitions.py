@@ -59,6 +59,20 @@ _ITEM_IS_LIVE = and_(
 #: link; anything else, `javascript:` included, is withheld.
 _WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 
+#: Mirrors `_host_of` in `app/importers/loader.py`: the same rule for turning
+#: a vendor's web address into the plain hostname stored in `Vendor.host`, so
+#: a vendor added inline here is indistinguishable from one the importer
+#: created from the same URL.
+_HOST = re.compile(r"https?://([^/]+)")
+
+
+def _host_of(url: str | None) -> str | None:
+    """The lowercase hostname of `url`, or `None` when there isn't one."""
+    if not url:
+        return None
+    match = _HOST.search(url)
+    return match.group(1).lower() if match else None
+
 
 def _vendor_out(db: Session, vendor: Vendor) -> VendorOut:
     """A vendor row, with its kind resolved back to a code for the wire."""
@@ -83,9 +97,10 @@ def create_vendor(payload: VendorCreate, db: DbSession, _admin: AdminUser) -> Ve
     """Add a vendor inline, while entering a purchase.
 
     Names are unique -- checked here case-insensitively, so a caller typing
-    "eBay.com" against an existing "ebay.com" gets a 409 naming the vendor
-    they meant, rather than a second row the database's own constraint (which
-    is case-sensitive) would happily allow.
+    "eBay.com" against an existing "ebay.com" gets a 409 echoing the name as
+    typed ("A vendor named eBay.com already exists"), rather than a second
+    row the database's own constraint (which is case-sensitive) would
+    happily allow.
     """
     duplicate = db.scalar(
         select(Vendor).where(func.lower(Vendor.name) == payload.name.casefold())
@@ -102,7 +117,12 @@ def create_vendor(payload: VendorCreate, db: DbSession, _admin: AdminUser) -> Ve
         else require_code(db, VendorKind, "unknown", "vendor_kind")
     )
 
-    vendor = Vendor(name=payload.name, url=payload.url, vendor_kind_id=vendor_kind_id)
+    vendor = Vendor(
+        name=payload.name,
+        url=payload.url,
+        host=_host_of(payload.url),
+        vendor_kind_id=vendor_kind_id,
+    )
     db.add(vendor)
     try:
         db.commit()

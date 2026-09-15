@@ -15,23 +15,35 @@ import { isMoney } from '../orders/cents'
  * rejects sending both at once.
  *
  * A purchase is rarely one item, so "Save and add another" exists beside
- * "Save": it keeps the fields a run of items from the same purchase share
- * (kind, country, denomination, series, seal, district, note type, grade)
- * and clears the ones that vary piece to piece (title, serial number, cost,
- * certificate), then focuses the title box for the next one. Plain "Save"
- * clears the whole form -- the next item is not assumed to be like this one.
+ * "Save": it keeps the exact fields listed in `SHARED_ON_REPEAT` -- kind,
+ * status, country, denomination, series, series year/letter, seal, district,
+ * note type, grading service, metal and mint -- and clears everything that
+ * varies piece to piece (title, description, year, grade, serial number,
+ * certificate, cost, shipping, piece count), then focuses the title box for
+ * the next one. Plain "Save" clears the whole form -- the next item is not
+ * assumed to be like this one.
  */
 
 //: Kept across "Save and add another"; everything else in BLANK is cleared.
+//: This exact set is a controller ruling (see the "Repeated entry" row in
+//: `docs/specs/entry-panels-design.md`), not a guess at what "feels shared":
+//: `grade`, `grade_designation`, `serial_number`, `cert_number`, `variety`,
+//: `item_cost`, `shipping_cost` and `piece_count` are per-piece and always
+//: clear, even though some of them often repeat in practice.
 const SHARED_ON_REPEAT = [
   'item_kind',
+  'status',
   'country',
   'denomination',
   'series',
+  'series_year',
+  'series_letter',
   'seal_color',
   'fed_district',
   'note_type',
-  'grade',
+  'grading_service',
+  'metal',
+  'mint',
 ]
 
 const BLANK = {
@@ -65,7 +77,12 @@ const BLANK = {
 /** An emptied number box clears the year rather than sending "". */
 const yearValue = (text) => (text === '' ? '' : text)
 
-export default function NewItemForm({ purchaseOrderId, defaults, onSaved }) {
+export default function NewItemForm({
+  purchaseOrderId,
+  defaults,
+  onSaved,
+  disabledReason = '',
+}) {
   const [form, setForm] = useState(BLANK)
   const [ranged, setRanged] = useState(false)
   const [error, setError] = useState('')
@@ -91,10 +108,21 @@ export default function NewItemForm({ purchaseOrderId, defaults, onSaved }) {
     setForm((f) => ({ ...f, year_end: f.year_start }))
   }
 
+  // The coin scales and the note scale do not share values (MS64 means
+  // nothing for a banknote), so a grade picked under one kind is cleared
+  // rather than carried over, silently wrong, to the other.
+  function setKind(e) {
+    const kind = e.target.value
+    setForm((f) => ({ ...f, item_kind: kind, grade: '' }))
+  }
+
   /** The `ItemCreate` body, or a thrown `Error` naming the first bad field. */
   function buildPayload() {
     if (!form.source_title.trim()) {
       throw new Error('Title is required.')
+    }
+    if (ranged && form.year_start === '' && form.year_end !== '') {
+      throw new Error('Enter Year from, or clear Year to.')
     }
     const payload = {
       purchase_order_id: purchaseOrderId,
@@ -181,12 +209,15 @@ export default function NewItemForm({ purchaseOrderId, defaults, onSaved }) {
     }
   }
 
-  useSaveShortcut(() => submit(false), !saving && form.source_title.trim() !== '')
+  const disabled = saving || Boolean(disabledReason)
+
+  useSaveShortcut(() => submit(false), !disabled && form.source_title.trim() !== '')
 
   return (
     <div className="admin-form">
       <h3>New item</h3>
       {error && <p className="error">{error}</p>}
+      {disabledReason && <p className="error">{disabledReason}</p>}
 
       <div className="form-grid">
         <label>
@@ -194,7 +225,7 @@ export default function NewItemForm({ purchaseOrderId, defaults, onSaved }) {
           <ReferenceSelect
             table="item_kind"
             value={form.item_kind}
-            onChange={set('item_kind')}
+            onChange={setKind}
             allowBlank={false}
             {...accel('k')}
           />
@@ -468,7 +499,7 @@ export default function NewItemForm({ purchaseOrderId, defaults, onSaved }) {
       <div className="row">
         <button
           type="button"
-          disabled={saving}
+          disabled={disabled}
           onClick={() => submit(false)}
           {...accel('v')}
         >
@@ -476,7 +507,7 @@ export default function NewItemForm({ purchaseOrderId, defaults, onSaved }) {
         </button>
         <button
           type="button"
-          disabled={saving}
+          disabled={disabled}
           onClick={() => submit(true)}
           {...accel('n')}
         >

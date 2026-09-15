@@ -213,6 +213,73 @@ def test_tax_rate_can_be_set_to_explicit_zero(
     assert Decimal(res.json()["tax_rate"]) == Decimal("0.0000")
 
 
+def test_tax_includes_shipping_false_is_stored_and_excludes_shipping(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(
+            order.id,
+            item_cost="50.00",
+            shipping_cost="10.00",
+            tax_rate="0.1000",
+            tax_includes_shipping=False,
+        ),
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    item = db.get(InventoryItem, res.json()["id"])
+    assert item is not None
+    assert item.tax_includes_shipping is False
+    assert item.sales_tax == Decimal("5.00")
+
+
+def test_tax_includes_shipping_true_is_stored_and_includes_shipping(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(
+            order.id,
+            item_cost="50.00",
+            shipping_cost="10.00",
+            tax_rate="0.1000",
+            tax_includes_shipping=True,
+        ),
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    item = db.get(InventoryItem, res.json()["id"])
+    assert item is not None
+    assert item.tax_includes_shipping is True
+    assert item.sales_tax == Decimal("6.00")
+
+
+def test_a_bullion_item_gets_a_coin_detail(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(order.id, item_kind="bullion"),
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    item_id = res.json()["id"]
+    assert (
+        db.scalar(select(CoinDetail).where(CoinDetail.inventory_item_id == item_id))
+        is not None
+    )
+    assert (
+        db.scalar(
+            select(CurrencyDetail).where(CurrencyDetail.inventory_item_id == item_id)
+        )
+        is None
+    )
+
+
 def test_a_certificate_number_creates_one_certification_row(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
@@ -282,7 +349,11 @@ def test_currency_fields_on_a_coin_are_refused(
         headers=admin_headers,
     )
     assert res.status_code == 422
-    assert "serial_number" in res.text
+    # The field name must appear in the error message itself -- not merely
+    # somewhere in the response body, which a 422 also echoes back as the
+    # rejected input regardless of which field was actually named.
+    detail = res.json()["detail"]
+    assert any("serial_number" in str(err.get("msg", "")) for err in detail)
 
 
 def test_coin_fields_on_a_currency_item_are_refused(
@@ -295,7 +366,8 @@ def test_coin_fields_on_a_currency_item_are_refused(
         headers=admin_headers,
     )
     assert res.status_code == 422
-    assert "mint" in res.text
+    detail = res.json()["detail"]
+    assert any("mint" in str(err.get("msg", "")) for err in detail)
 
 
 def test_an_unknown_purchase_order_is_a_404(

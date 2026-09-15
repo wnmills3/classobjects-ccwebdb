@@ -155,9 +155,12 @@ describe('NewItemForm: Save and add another', () => {
 
     await user.clear(screen.getByLabelText('item_kind'))
     await user.type(screen.getByLabelText('item_kind'), 'currency')
+    await user.click(screen.getByRole('radio', { name: 'Received' }))
     await user.type(screen.getByLabelText('country'), 'US')
     await user.type(screen.getByLabelText('denomination'), 'usd_note_1_00')
     await user.type(screen.getByLabelText('series'), 'series_1957')
+    await user.type(screen.getByRole('spinbutton', { name: /series year/i }), '1957')
+    await user.type(screen.getByRole('textbox', { name: /series letter/i }), 'B')
     await user.type(screen.getByLabelText('seal_color'), 'blue')
     await user.type(screen.getByLabelText('fed_district'), 'ny')
     await user.type(screen.getByLabelText('note_type'), 'silver_certificate')
@@ -174,19 +177,23 @@ describe('NewItemForm: Save and add another', () => {
 
     expect(onSaved).toHaveBeenCalledWith({ id: 5, item_code: 'CC-000005' })
 
-    // Shared fields kept.
+    // Shared fields kept, per the controller's exact list -- status and
+    // series year among them.
     expect(screen.getByLabelText('item_kind')).toHaveValue('currency')
+    expect(screen.getByRole('radio', { name: 'Received' })).toBeChecked()
     expect(screen.getByLabelText('country')).toHaveValue('US')
     expect(screen.getByLabelText('denomination')).toHaveValue('usd_note_1_00')
     expect(screen.getByLabelText('series')).toHaveValue('series_1957')
+    expect(screen.getByRole('spinbutton', { name: /series year/i })).toHaveValue(1957)
+    expect(screen.getByRole('textbox', { name: /series letter/i })).toHaveValue('B')
     expect(screen.getByLabelText('seal_color')).toHaveValue('blue')
     expect(screen.getByLabelText('fed_district')).toHaveValue('ny')
     expect(screen.getByLabelText('note_type')).toHaveValue('silver_certificate')
-    expect(screen.getByLabelText('grade')).toHaveValue('N64')
 
-    // Per-note fields cleared.
+    // Per-note fields cleared -- grade and serial number among them, not kept.
     const title = screen.getByRole('textbox', { name: /title/i })
     expect(title).toHaveValue('')
+    expect(screen.getByLabelText('grade')).toHaveValue('')
     expect(screen.getByRole('textbox', { name: /serial number/i })).toHaveValue('')
     expect(screen.getByRole('textbox', { name: /item cost/i })).toHaveValue('')
     expect(screen.getByRole('textbox', { name: /certificate number/i })).toHaveValue('')
@@ -206,6 +213,57 @@ describe('NewItemForm: Save and add another', () => {
 
     expect(screen.getByLabelText('country')).toHaveValue('')
     expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue('')
+  })
+})
+
+describe('NewItemForm: changing kind clears grade', () => {
+  it('clears a grade entered under one scale when the kind changes', async () => {
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('grade'), 'MS64')
+    expect(screen.getByLabelText('grade')).toHaveValue('MS64')
+
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+
+    expect(screen.getByLabelText('grade')).toHaveValue('')
+  })
+})
+
+describe('NewItemForm: a range with no Year from', () => {
+  it('refuses a Year to with an empty Year from, rather than dropping it', async () => {
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+
+    await fillTitle(user, 'Ranged item with no start')
+    await user.click(screen.getByRole('checkbox', { name: /range of years/i }))
+    await user.type(screen.getByLabelText(/year to/i), '1925')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(
+      await screen.findByText(/year from.*year to|enter.*year from/i),
+    ).toBeInTheDocument()
+    expect(api.createInventoryItem).not.toHaveBeenCalled()
+  })
+})
+
+describe('NewItemForm: disabled while the purchase-wide tax rate is invalid', () => {
+  it('disables both Save buttons and shows the reason', () => {
+    render(
+      <NewItemForm
+        purchaseOrderId={7}
+        defaults={{}}
+        onSaved={vi.fn()}
+        disabledReason="Fix the tax rate above before saving items."
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /save and add another/i })).toBeDisabled()
+    expect(
+      screen.getByText(/fix the tax rate above before saving items/i),
+    ).toBeInTheDocument()
   })
 })
 

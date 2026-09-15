@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { api } from '../api'
 import NewItemForm from './entry/NewItemForm'
@@ -16,7 +17,9 @@ import { date } from '../../shared/format'
  * open for as many items as the purchase actually had.
  */
 
-const RATE = /^(0(\.\d{1,4})?|1(\.0{1,4})?)$/
+//: 0..1 with up to 4 decimal places, the leading digit optional -- the server
+//: (a Pydantic `Decimal`) accepts ".0635" exactly as it accepts "0.0635".
+const RATE = /^(1(\.0{1,4})?|0?\.\d{1,4}|0)$/
 
 /** Whether `text` is a tax rate the schema accepts: 0..1, up to 4 places. */
 function isValidRate(text) {
@@ -54,9 +57,19 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
     }
   }
 
+  // This block sits inside the purchase's own <form>: without this handler,
+  // Enter in a text input submits the nearest form -- the outer purchase,
+  // for whatever vendor was already picked -- instead of adding the vendor
+  // being typed here.
+  function onKeyDown(e) {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    if (draft.name.trim()) addVendor()
+  }
+
   if (adding) {
     return (
-      <div className="add-reference">
+      <div className="add-reference" onKeyDown={onKeyDown}>
         <input
           placeholder="Vendor name"
           value={draft.name}
@@ -104,20 +117,41 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
   )
 }
 
-/** The list of purchase orders to add to, newest concerns first. */
-function ExistingPurchasePicker({ orders, onPick }) {
+/** Whether `order` matches a filter typed against its number or vendor. */
+function matchesFilter(order, filterText) {
+  const q = filterText.trim().toLowerCase()
+  if (!q) return true
+  return (
+    (order.order_number ?? '').toLowerCase().includes(q) ||
+    order.vendor.toLowerCase().includes(q)
+  )
+}
+
+/**
+ * The list of purchase orders to add to, newest concerns first.
+ *
+ * Rows are buttons, not bare `<li onClick>`s, so the list is reachable and
+ * operable from the keyboard, not only a mouse.
+ */
+function ExistingPurchasePicker({ orders, filterText, onPick }) {
   if (orders.length === 0) {
     return <p className="muted">No purchases recorded yet.</p>
   }
+  const shown = orders.filter((order) => matchesFilter(order, filterText))
+  if (shown.length === 0) {
+    return <p className="muted">No purchases match "{filterText}".</p>
+  }
   return (
     <ul className="order-picker">
-      {orders.map((order) => (
-        <li key={order.id} className="order-row" onClick={() => onPick(order.id)}>
-          {order.order_number || <span className="muted">no order number</span>}
-          {' · '}
-          {order.vendor}
-          {' · '}
-          {date(order.ordered_on)}
+      {shown.map((order) => (
+        <li key={order.id}>
+          <button type="button" className="order-row" onClick={() => onPick(order.id)}>
+            {order.order_number || <span className="muted">no order number</span>}
+            {' · '}
+            {order.vendor}
+            {' · '}
+            {date(order.ordered_on)}
+          </button>
         </li>
       ))}
     </ul>
@@ -139,11 +173,18 @@ export default function NewPurchase() {
   const [vendorsError, setVendorsError] = useState('')
   const [orders, setOrders] = useState(null)
   const [ordersError, setOrdersError] = useState('')
+  const [orderFilter, setOrderFilter] = useState('')
   const [form, setForm] = useState(BLANK_PURCHASE)
   const [creating, setCreating] = useState(false)
   const [purchaseError, setPurchaseError] = useState('')
   const [purchase, setPurchase] = useState(null)
   const [pickError, setPickError] = useState('')
+  const [reloadError, setReloadError] = useState('')
+  //: Guards against a stale `getPurchaseOrder` response: only the response
+  //: matching the most recently requested pick is ever applied, so the
+  //: older of two racing picks cannot overwrite the newer one just because
+  //: its response happens to arrive last.
+  const pickToken = useRef(0)
 
   // Tax defaults for every item entered on this purchase. The rate box
   // starts empty, meaning "use the configured default" (`tax_rate: null`);
@@ -151,7 +192,10 @@ export default function NewPurchase() {
   const [rateText, setRateText] = useState('')
   const [rateError, setRateError] = useState('')
   const [noTax, setNoTax] = useState(false)
-  const [taxIncludesShipping, setTaxIncludesShipping] = useState(false)
+  //: '' (as configured, sends null), 'true' or 'false' -- a plain checkbox
+  //: cannot say "not taxed" separately from "use the configured default",
+  //: and the configured default here is true.
+  const [taxIncludesShipping, setTaxIncludesShipping] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -197,10 +241,15 @@ export default function NewPurchase() {
 
   function pickExisting(id) {
     setPickError('')
+    const token = ++pickToken.current
     api
       .getPurchaseOrder(id)
-      .then(setPurchase)
-      .catch((err) => setPickError(err.message))
+      .then((body) => {
+        if (pickToken.current === token) setPurchase(body)
+      })
+      .catch((err) => {
+        if (pickToken.current === token) setPickError(err.message)
+      })
   }
 
   async function createPurchase(e) {
@@ -227,7 +276,28 @@ export default function NewPurchase() {
   }
 
   function reloadPurchase() {
-    if (purchase) api.getPurchaseOrder(purchase.id).then(setPurchase)
+    if (!purchase) return
+    api
+      .getPurchaseOrder(purchase.id)
+      .then(setPurchase)
+      .catch((err) => setReloadError(err.message))
+  }
+
+  function startAnother() {
+    setPurchase(null)
+    setPurchaseError('')
+    setForm(BLANK_PURCHASE)
+    setPickError('')
+    setReloadError('')
+    setOrderFilter('')
+    setRateText('')
+    setRateError('')
+    setNoTax(false)
+    setTaxIncludesShipping('')
+    setMode('new')
+    // The purchase just finished is not on the list this page fetched when
+    // it first loaded.
+    loadOrders()
   }
 
   function onRateChange(e) {
@@ -240,13 +310,22 @@ export default function NewPurchase() {
     )
   }
 
+  const rateInvalid = rateText.trim() !== '' && !isValidRate(rateText)
+
   // What every item entered below is created with: an explicit rate wins,
   // "No sales tax charged" forces zero, and otherwise the server's own
   // configured default is used -- there is no endpoint that exposes it here.
+  // An invalid rate is never passed down at all: saving is disabled instead
+  // (see `itemDisabledReason`), so this only has to describe a valid state.
   const itemDefaults = {
-    tax_rate: noTax ? '0' : rateText.trim() === '' ? null : rateText.trim(),
-    tax_includes_shipping: taxIncludesShipping ? true : null,
+    tax_rate: noTax ? '0' : rateInvalid ? null : rateText.trim() || null,
+    tax_includes_shipping:
+      taxIncludesShipping === '' ? null : taxIncludesShipping === 'true',
   }
+
+  const itemDisabledReason = rateInvalid
+    ? 'Fix the tax rate above before saving items.'
+    : ''
 
   if (purchase) {
     return (
@@ -268,6 +347,7 @@ export default function NewPurchase() {
               </>
             )}
           </h2>
+          {reloadError && <p className="error">{reloadError}</p>}
 
           <div className="filter-grid">
             <div>
@@ -296,14 +376,16 @@ export default function NewPurchase() {
               {/* */}
               No sales tax charged
             </label>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={taxIncludesShipping}
-                onChange={(e) => setTaxIncludesShipping(e.target.checked)}
-              />
-              {/* */}
-              Tax includes shipping
+            <label>
+              Tax on shipping{/* */}
+              <select
+                value={taxIncludesShipping}
+                onChange={(e) => setTaxIncludesShipping(e.target.value)}
+              >
+                <option value="">As configured</option>
+                <option value="true">Taxed</option>
+                <option value="false">Not taxed</option>
+              </select>
             </label>
           </div>
 
@@ -341,10 +423,18 @@ export default function NewPurchase() {
             purchaseOrderId={purchase.id}
             defaults={itemDefaults}
             onSaved={reloadPurchase}
+            disabledReason={itemDisabledReason}
           />
 
-          <p>
-            <a href={`/receiving?order=${purchase.id}`}>Receive these</a>
+          <p className="row">
+            {/* A routed link, not a hard-coded shop path: the console mounts
+                under basename "/owner" (owner/main.jsx), and a plain
+                `href="/receiving?..."` would send the browser to the shop at
+                the site root instead. */}
+            <Link to={`/receiving?order=${purchase.id}`}>Receive these</Link>
+            <button type="button" className="link" onClick={startAnother}>
+              Start another purchase
+            </button>
           </p>
         </div>
       </section>
@@ -385,7 +475,24 @@ export default function NewPurchase() {
           {ordersError && <p className="error">{ordersError}</p>}
           {pickError && <p className="error">{pickError}</p>}
           {!ordersError && !orders && <p className="muted">Loading...</p>}
-          {orders && <ExistingPurchasePicker orders={orders} onPick={pickExisting} />}
+          {orders && orders.length > 0 && (
+            <label>
+              Filter{/* */}
+              <input
+                type="text"
+                value={orderFilter}
+                onChange={(e) => setOrderFilter(e.target.value)}
+                placeholder="Order number or vendor"
+              />
+            </label>
+          )}
+          {orders && (
+            <ExistingPurchasePicker
+              orders={orders}
+              filterText={orderFilter}
+              onPick={pickExisting}
+            />
+          )}
         </div>
       )}
 

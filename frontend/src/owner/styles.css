@@ -268,9 +268,15 @@ button.link.danger {
   padding: 0;
 }
 .order-row {
+  display: block;
+  width: 100%;
+  background: none;
   border: 1px solid var(--border);
   border-radius: 4px;
   cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
   margin-bottom: 0.4rem;
   padding: 0.5rem 0.8rem;
 }
