@@ -205,6 +205,19 @@ button.link.danger {
 .edit-dialog::backdrop {
   background: rgb(0 0 0 / 45%);
 }
+/* The year box with its "Range of years" switch beside it, in one column. */
+.year-input {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+}
+.year-input input[type='number'] {
+  flex: 1;
+  min-width: 0;
+}
+.year-input label.checkbox {
+  white-space: nowrap;
+}
 .edit-form .field {
   align-items: center;
   display: grid;

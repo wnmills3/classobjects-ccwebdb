@@ -47,7 +47,8 @@ describe('ItemEditForm', () => {
 
     // By role rather than by label: the label's title also contains
     // "confirmed", so a text query can return the label instead of the input.
-    const box = screen.getAllByRole('checkbox')[0]
+    // By name as well: "Range of years" is a checkbox too, ahead of these.
+    const box = screen.getAllByRole('checkbox', { name: /confirmed/ })[0]
     expect(box).not.toBeChecked()
     await user.click(box)
 
@@ -191,5 +192,132 @@ describe('Grade choices', () => {
     expect(options).toContain('MS-65')
     expect(options).toContain('UNC')
     expect(options).not.toContain('Choice Uncirculated 64')
+  })
+})
+
+describe('ItemEditForm years', () => {
+  // A single year is stored as start == end; a range is for a multi-year set
+  // or a coin dated only to an era. 13 items in the collection have a range,
+  // so the form asks for one year unless the item has, or is given, a range.
+  async function open(years) {
+    api.getInventoryItem.mockResolvedValue({ ...item, ...years })
+    api.updateInventoryItem.mockResolvedValue({})
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    return user
+  }
+
+  const rangeBox = () => screen.getByRole('checkbox', { name: 'Range of years' })
+
+  it('asks for one year when the item has one', async () => {
+    await open({ year_start: 1878, year_end: 1878 })
+    expect(screen.getByRole('spinbutton', { name: 'Year' })).toHaveValue(1878)
+    expect(screen.queryByRole('spinbutton', { name: 'Year to' })).toBeNull()
+    expect(rangeBox()).not.toBeChecked()
+  })
+
+  it('treats a start year with no end as one year', async () => {
+    await open({ year_start: 1881, year_end: null })
+    expect(screen.getByRole('spinbutton', { name: 'Year' })).toHaveValue(1881)
+    expect(rangeBox()).not.toBeChecked()
+  })
+
+  it('opens a stored range as a range, so it cannot be collapsed unseen', async () => {
+    await open({ year_start: 1999, year_end: 2008 })
+    expect(rangeBox()).toBeChecked()
+    expect(screen.getByRole('spinbutton', { name: 'Year from' })).toHaveValue(1999)
+    expect(screen.getByRole('spinbutton', { name: 'Year to' })).toHaveValue(2008)
+  })
+
+  it('saves one year as both ends', async () => {
+    const user = await open({ year_start: 1878, year_end: 1878 })
+    const year = screen.getByRole('spinbutton', { name: 'Year' })
+    await user.clear(year)
+    await user.type(year, '1964')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ year_start: '1964', year_end: '1964' }),
+      ),
+    )
+  })
+
+  it('clears both ends when the one year is emptied', async () => {
+    const user = await open({ year_start: 1878, year_end: 1878 })
+    const year = screen.getByRole('spinbutton', { name: 'Year' })
+    await user.clear(year)
+    // Empty, not the stored year shown back: a cleared draft is null.
+    expect(year).toHaveValue(null)
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ year_start: null, year_end: null }),
+      ),
+    )
+  })
+
+  it('reveals the end year when Range of years is ticked', async () => {
+    const user = await open({ year_start: 1878, year_end: 1878 })
+    await user.click(rangeBox())
+    const to = screen.getByRole('spinbutton', { name: 'Year to' })
+    expect(to).toHaveValue(1878)
+    await user.clear(to)
+    await user.type(to, '1885')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ year_end: '1885' }),
+      ),
+    )
+  })
+
+  it('collapses a stored range to its start year when unticked', async () => {
+    const user = await open({ year_start: 1999, year_end: 2008 })
+    await user.click(rangeBox())
+    expect(screen.queryByRole('spinbutton', { name: 'Year to' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ year_end: 1999 }),
+      ),
+    )
+  })
+
+  it('keeps focus on Range of years while the end year comes and goes', async () => {
+    // Found in a real browser: the two layouts were separate branches, so
+    // ticking replaced the checkbox itself and a keyboard user lost their place.
+    const user = await open({ year_start: 1878, year_end: 1878 })
+    const box = rangeBox()
+    await user.click(box)
+    expect(rangeBox()).toBe(box)
+    expect(document.activeElement).toBe(box)
+    await user.click(box)
+    expect(rangeBox()).toBe(box)
+  })
+
+  it('ticking and unticking on a single year is no change at all', async () => {
+    const user = await open({ year_start: 1878, year_end: 1878 })
+    await user.click(rangeBox())
+    await user.click(rangeBox())
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('confirms one year as both ends with one box', async () => {
+    const user = await open({ year_start: 1878, year_end: 1878 })
+    api.setItemReview.mockResolvedValue({})
+    const boxes = screen.getAllByRole('checkbox', { name: /confirmed/ })
+    await user.click(boxes[0])
+    await waitFor(() =>
+      expect(api.setItemReview).toHaveBeenCalledWith(
+        12,
+        expect.arrayContaining(['year_start', 'year_end']),
+        true,
+      ),
+    )
   })
 })
