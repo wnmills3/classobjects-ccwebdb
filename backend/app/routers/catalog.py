@@ -34,6 +34,7 @@ from ..models import (
     Listing,
     Metal,
     ProvenanceSource,
+    SalesOrderChange,
     SalesOrderItem,
     StorageForm,
     ValuationBasis,
@@ -391,7 +392,10 @@ def delete_catalog_item(listing_id: int, db: DbSession, _admin: AdminUser) -> No
     """Remove a listing, and the item behind it when nothing else refers to it.
 
     An item that has been ordered is never deleted: order history must keep
-    resolving to what was actually bought.
+    resolving to what was actually bought. That history survives a revision
+    that drops the listing's order line -- `sales_order_change.listing_id`
+    keeps referring to it -- so the guard below counts both tables, not just
+    current order lines.
     """
     listing = _get_listing(db, listing_id)
 
@@ -400,7 +404,12 @@ def delete_catalog_item(listing_id: int, db: DbSession, _admin: AdminUser) -> No
         .select_from(SalesOrderItem)
         .where(SalesOrderItem.listing_id == listing.id)
     )
-    if ordered:
+    in_history = db.scalar(
+        select(func.count())
+        .select_from(SalesOrderChange)
+        .where(SalesOrderChange.listing_id == listing.id)
+    )
+    if ordered or in_history:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(

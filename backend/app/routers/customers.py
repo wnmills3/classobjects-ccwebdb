@@ -220,4 +220,4 @@ def place_order_for_customer(
         notes=body.notes,
     )
     db.commit()
-    return order_out(db, order.id)
+    return order_out(db, order.id, for_admin=True)

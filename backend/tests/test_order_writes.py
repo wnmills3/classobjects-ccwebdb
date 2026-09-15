@@ -66,7 +66,11 @@ def test_checkout_records_the_buyer_as_placer_and_writes_placed(
     body = place(client, customer_headers, listing.id, 2).json()
 
     assert body["version"] == 1
-    assert body["placed_by_email"] == "customer@example.com"
+    # placed_by_email is admin-only (see test_orders.py::
+    # test_notes_and_placed_by_email_are_admin_only) -- a shopper's own
+    # checkout response never carries it, even though the placer was
+    # recorded, as the history query below confirms.
+    assert body["placed_by_email"] is None
     assert body["payment_adjustment_due"] is False
     changes = db.scalars(
         select(SalesOrderChange).where(SalesOrderChange.sales_order_id == body["id"])
@@ -182,11 +186,17 @@ def test_an_account_can_be_given_a_customer_record(
 
 
 def test_only_an_admin_may_create_a_customer_record_for_an_account(
-    client: TestClient, customer_headers: dict[str, str], customer_user: User
+    client: TestClient,
+    customer_headers: dict[str, str],
+    customer_user: User,
+    db: Session,
 ) -> None:
     url = f"/api/users/{customer_user.id}/customer"
     assert client.post(url).status_code == 401
     assert client.post(url, headers=customer_headers).status_code == 403
+    assert (
+        db.scalar(select(Customer).where(Customer.user_id == customer_user.id)) is None
+    )
 
 
 def _place(
@@ -283,6 +293,41 @@ def test_one_listing_swapped_for_another_at_an_agreed_price_in_one_save(
     assert kinds == ["placed", "line_removed", "line_added", "total"]
     assert ("line_added", None, "1 @ 8.00") in _changes(db, order["id"])
     assert morgan.id not in {line["listing_id"] for line in response.json()["items"]}
+
+
+def test_a_listing_swapped_out_of_an_order_cannot_be_deleted(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """A listing kept alive only by order history must not be deletable.
+
+    `revise_order`'s line-removed branch drops the `sales_order_item` row but
+    keeps the listing id in `sales_order_change`, and that foreign key is
+    `ON DELETE RESTRICT` -- history must keep resolving to what was actually
+    bought. A guard that only counted `SalesOrderItem` would see nothing left
+    once the swap above has run, let the delete through, and hit that
+    RESTRICT as an unhandled `IntegrityError`.
+    """
+    morgan = make_listing(title="Morgan", price=Decimal("100.00"), quantity_available=5)
+    dime = make_listing(title="Dime", price=Decimal("10.00"), quantity_available=5)
+    order = _place(client, customer_headers, morgan.id, 2)
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": dime.id, "quantity": 1, "unit_price": "8.00"}],
+    )
+    assert response.status_code == 200, response.text
+
+    delete = client.delete(f"/api/catalog/{morgan.id}", headers=admin_headers)
+
+    assert delete.status_code == 409
+    assert "is_active" in delete.json()["detail"]
+    db.expire_all()
+    assert db.get(Listing, morgan.id) is not None
 
 
 def test_an_over_request_changes_nothing(

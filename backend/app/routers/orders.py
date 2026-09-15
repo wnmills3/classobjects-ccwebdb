@@ -53,7 +53,14 @@ SHIPPED_STATUSES = frozenset({"packed", "shipped", "delivered"})
 _ORDER_NOT_FOUND = "Order not found"
 
 
-def _order_out(order: SalesOrder, status_code: str) -> OrderOut:
+def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> OrderOut:
+    """Build the API view of one order.
+
+    `notes` (an administrator's internal remark) and `placed_by_email` (a
+    staff address) are admin-only: a shopper's own order view carries
+    neither, even though both fields stay in the response shape for every
+    caller.
+    """
     return OrderOut(
         id=order.id,
         customer_id=order.customer_id,
@@ -73,8 +80,10 @@ def _order_out(order: SalesOrder, status_code: str) -> OrderOut:
             for line in order.items
         ],
         version=order.version,
-        notes=order.notes,
-        placed_by_email=order.placed_by.email if order.placed_by else None,
+        notes=order.notes if for_admin else None,
+        placed_by_email=(order.placed_by.email if order.placed_by else None)
+        if for_admin
+        else None,
         payment_adjustment_due=payment_adjustment_due(status_code, order.changes),
     )
 
@@ -102,7 +111,7 @@ def _load(db: Session, order_id: int) -> SalesOrder | None:
     )
 
 
-def order_out(db: Session, order_id: int) -> OrderOut:
+def order_out(db: Session, order_id: int, *, for_admin: bool) -> OrderOut:
     """One order, freshly loaded, as the API returns it."""
     db.expire_all()
     order = _load(db, order_id)
@@ -110,7 +119,7 @@ def order_out(db: Session, order_id: int) -> OrderOut:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
         )
-    return _order_out(order, _status_code(db, order))
+    return _order_out(order, _status_code(db, order), for_admin=for_admin)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -132,7 +141,7 @@ def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> Orde
         placed_by=user,
     )
     db.commit()
-    return order_out(db, order.id)
+    return order_out(db, order.id, for_admin=user.role is UserRole.admin)
 
 
 @router.get("")
@@ -143,15 +152,19 @@ def list_orders(db: DbSession, user: CurrentUser, mine: bool = False) -> list[Or
     "Your orders" page asks for it: an administrator browsing the shop is a
     customer there, and everyone's orders belong in the console.
     """
+    is_admin = user.role is UserRole.admin
     stmt = select(SalesOrder).options(*_ORDER_DETAIL).order_by(SalesOrder.id.desc())
-    if mine or user.role is not UserRole.admin:
+    if mine or not is_admin:
         customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
         if customer is None:
             return []
         stmt = stmt.where(SalesOrder.customer_id == customer.id)
 
     orders = list(db.scalars(stmt).unique().all())
-    return [_order_out(order, _status_code(db, order)) for order in orders]
+    return [
+        _order_out(order, _status_code(db, order), for_admin=is_admin)
+        for order in orders
+    ]
 
 
 def _visible_or_404(db: Session, order_id: int, user: User) -> SalesOrder:
@@ -174,7 +187,9 @@ def _visible_or_404(db: Session, order_id: int, user: User) -> SalesOrder:
 def get_order(order_id: int, db: DbSession, user: CurrentUser) -> OrderOut:
     """One order. A customer sees only their own; an administrator sees any."""
     order = _visible_or_404(db, order_id, user)
-    return _order_out(order, _status_code(db, order))
+    return _order_out(
+        order, _status_code(db, order), for_admin=user.role is UserRole.admin
+    )
 
 
 @router.get("/{order_id}/changes")
@@ -275,7 +290,7 @@ def update_order_status(
             detail=f"Order #{order_id} or one of its items was changed while "
             "saving. Reload and retry.",
         ) from exc
-    return order_out(db, order_id)
+    return order_out(db, order_id, for_admin=True)
 
 
 @router.put("/{order_id}")
@@ -296,7 +311,6 @@ def revise(
     revise_order(
         db,
         order,
-        status_code=_status_code(db, order),
         customer=customer,
         lines=[Line(i.listing_id, i.quantity, i.unit_price) for i in payload.items],
         notes=payload.notes,
@@ -311,4 +325,4 @@ def revise(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Order #{order_id} was changed while saving. Reload and retry.",
         ) from exc
-    return order_out(db, order_id)
+    return order_out(db, order_id, for_admin=True)

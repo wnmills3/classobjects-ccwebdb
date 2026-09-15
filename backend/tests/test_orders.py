@@ -261,6 +261,51 @@ def test_admin_sees_all_orders(
     assert len(client.get("/api/orders", headers=admin_headers).json()) == 2
 
 
+def test_notes_and_placed_by_email_are_admin_only(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """Notes are an internal remark and `placed_by` is a staff address.
+
+    Both are written and read in the console only -- a shopper's own view of
+    an order an admin has annotated must show neither, even though the
+    fields stay in the response shape for everyone.
+    """
+    order = place(client, customer_headers, listing.id, 1).json()
+    assert order["placed_by_email"] is None
+    revised = client.put(
+        f"/api/orders/{order['id']}",
+        json={
+            "version": order["version"],
+            "customer_id": order["customer_id"],
+            "items": [
+                {"listing_id": listing.id, "quantity": 1, "unit_price": "189.00"}
+            ],
+            "notes": "phone order",
+        },
+        headers=admin_headers,
+    ).json()
+    assert revised["notes"] == "phone order"
+    assert revised["placed_by_email"] == "customer@example.com"
+
+    mine = client.get(
+        "/api/orders", params={"mine": "true"}, headers=customer_headers
+    ).json()
+    assert mine[0]["notes"] is None
+    assert mine[0]["placed_by_email"] is None
+
+    detail = client.get(f"/api/orders/{order['id']}", headers=customer_headers).json()
+    assert detail["notes"] is None
+    assert detail["placed_by_email"] is None
+
+    admin_list = client.get("/api/orders", headers=admin_headers).json()
+    admin_order = next(o for o in admin_list if o["id"] == order["id"])
+    assert admin_order["notes"] == "phone order"
+    assert admin_order["placed_by_email"] == "customer@example.com"
+
+
 def test_other_customers_order_returns_404_not_403(
     client: TestClient, listing: Listing, customer_headers: dict[str, str], db: Session
 ) -> None:

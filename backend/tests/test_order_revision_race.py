@@ -41,6 +41,7 @@ from app.schemas import OrderStatusUpdate
 from fastapi import HTTPException
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm.util import identity_key
 
 from tests.test_concurrency import RACE_TITLE, _code_id, _seed
 
@@ -141,7 +142,6 @@ def test_a_stale_read_is_refused_not_a_lost_update(
             revise_order(
                 session_a,
                 order,
-                status_code=_status_code(session_a, order),
                 customer=order.customer,
                 lines=[Line(listing_id, 2)],
                 notes=None,
@@ -201,13 +201,11 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
         try:
             o = s.get(SalesOrder, order_id)
             admin_user = s.get(User, admin_id)
-            code = _status_code(s, o)
             customer = o.customer
             barrier.wait(timeout=10)
             revise_order(
                 s,
                 o,
-                status_code=code,
                 customer=customer,
                 lines=[Line(listing_id, 2, Decimal("100.00"))],
                 notes=None,
@@ -291,13 +289,11 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
         try:
             o = s.get(SalesOrder, order_id)
             admin = s.get(User, admin_id)
-            code = _status_code(s, o)
             customer = o.customer
             barrier.wait(timeout=10)
             revise_order(
                 s,
                 o,
-                status_code=code,
                 customer=customer,
                 lines=[Line(listing_id, 3)],
                 notes=None,
@@ -397,7 +393,6 @@ def test_a_stale_item_write_in_revise_order_is_refused_not_a_500(
             revise_order(
                 session_a,
                 order,
-                status_code=_status_code(session_a, order),
                 customer=order.customer,
                 lines=[Line(listing_id, 2)],
                 notes=None,
@@ -422,11 +417,15 @@ def test_a_stale_autoflush_mid_cancel_is_refused_not_a_500(
     """A concurrently edited item, hit mid-`return_stock`, must not be a 500.
 
     Two lines: the first listing's stock is fully sold, so cancelling flips
-    its item's disposition from `sold` back to `listed`. `return_stock`
-    processes listings in id order, so that write happens while the loop is
-    still working through it -- and the autoflush that surfaces the
-    conflict fires while `return_stock` is locking and touching the
-    *second* listing's item, well before `update_order_status` reaches its
+    its item's disposition from `sold` back to `listed`, via the write
+    `_after_stock_change` queues for it. `return_stock` processes listings
+    in id order, and the pending write to the *first* listing's item is
+    still unflushed when the loop reaches `_after_stock_change` for the
+    *second* listing -- whose item was never loaded into this session, so
+    `db.get(InventoryItem, ...)` there must issue a query and, with it, an
+    autoflush. That autoflush -- not the locking of either listing, which
+    is a single upfront `SELECT ... FOR UPDATE` over both -- is what
+    surfaces the conflict, well before `update_order_status` reaches its
     own `db.commit()`. Fix round 1: wrapping only `commit()` in a
     try/except missed this -- the failing flush is this earlier autoflush,
     not the final commit -- so it escaped as an unhandled 500.
@@ -461,6 +460,16 @@ def test_a_stale_autoflush_mid_cancel_is_refused_not_a_500(
             item_b = session_b.get(InventoryItem, item_id)
             item_b.description = "touched by session B"
             session_b.commit()
+
+        # Pins the path this test targets: the second listing's item must
+        # still be unknown to session A when the PATCH runs, so the
+        # `db.get(InventoryItem, ...)` for it inside `_after_stock_change`
+        # has to hit the database -- and autoflush pending work -- rather
+        # than returning an already-loaded instance for free. Fetched
+        # through a separate session so this check does not itself load it.
+        with committed() as probe:
+            other_item_id = probe.get(Listing, other_listing_id).inventory_item_id
+        assert identity_key(InventoryItem, other_item_id) not in session_a.identity_map
 
         admin = session_a.get(User, admin_id)
         payload = OrderStatusUpdate(status="cancelled")
