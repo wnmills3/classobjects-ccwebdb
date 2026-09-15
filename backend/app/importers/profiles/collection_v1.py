@@ -63,6 +63,12 @@ BULLION_FORMS: list[tuple[str, str]] = [
     ("Britannia", r"britannia"),
     ("Philharmonic", r"philharmonic"),
     ("Buffalo", r"buffalo"),
+    # China's Panda. "10 yuan" is its face value, and with nothing here to match
+    # it fell through to the number-then-word currency rule: 18 Pandas were
+    # imported as banknotes. China issues 10-yuan notes too, so text that says
+    # bill or note is left to the currency rules. Every yuan row in the
+    # collection is a silver 10-yuan Panda; a gold Panda would need its own form.
+    ("Silver Panda", r"panda|^(?!.*\b(?:bill|note)\b).*\byuan\b"),
     ("Round", r"\bround\b"),
     ("Bar", r"\bbar\b"),
     ("Bullion", r"\boz\b|bullion|ingot"),

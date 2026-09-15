@@ -31,6 +31,8 @@
      "metal": "silver", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9990"},
     {"code": "buffalo", "label": "Buffalo", "sort_order": 80,
      "metal": "gold", "typical_fine_weight_ozt": "1.000000", "typical_fineness": "0.9999"},
+    {"code": "silver_panda", "label": "Silver Panda", "sort_order": 85,
+     "metal": "silver", "typical_fineness": "0.9990"},
     {"code": "silver_round", "label": "Silver Round", "sort_order": 90,
      "metal": "silver", "typical_fineness": "0.9990"},
     {"code": "copper_round", "label": "Copper Round", "sort_order": 100,
