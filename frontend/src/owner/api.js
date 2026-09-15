@@ -111,6 +111,13 @@ export const api = {
   listOrders: () => send('/api/orders'),
   setOrderStatus: (id, status) =>
     send(`/api/orders/${id}`, { method: 'PATCH', body: { status } }),
+  createOrderFor: (customerId, payload) =>
+    send(`/api/customers/${customerId}/orders`, { method: 'POST', body: payload }),
+  reviseOrder: (orderId, payload) =>
+    send(`/api/orders/${orderId}`, { method: 'PUT', body: payload }),
+  listOrderChanges: (orderId) => send(`/api/orders/${orderId}/changes`),
+  customerForUser: (userId) =>
+    send(`/api/users/${userId}/customer`, { method: 'POST' }),
   listUsers: () => send('/api/users'),
   createUser: (payload) => send('/api/users', { method: 'POST', body: payload }),
   updateUser: (id, payload) =>
