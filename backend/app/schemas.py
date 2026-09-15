@@ -284,6 +284,8 @@ class OrderItemOut(BaseModel):
 
     id: int
     listing_id: int
+    #: The listing's public title, so a line says what was bought.
+    title: str
     quantity: int
     unit_price: Decimal
 
@@ -295,6 +297,10 @@ class OrderOut(BaseModel):
 
     id: int
     customer_id: int
+    #: Who placed it. A customer only ever sees their own orders, so this adds
+    #: nothing they did not know; the owner console needs it to say who.
+    customer_name: str
+    customer_email: str | None
     status: str
     total_amount: Decimal
     placed_at: datetime

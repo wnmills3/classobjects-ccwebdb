@@ -5,6 +5,7 @@ import AdminCoins from './pages/AdminCoins'
 import AdminPeople from './pages/AdminPeople'
 import { InventoryCoins, InventoryCurrency } from './pages/Inventory'
 import Login from './pages/Login'
+import Orders from './pages/Orders'
 import Receiving from './pages/Receiving'
 
 /**
@@ -41,6 +42,7 @@ function Console() {
           <NavLink to="/inventory/currency">Currency</NavLink>
           <NavLink to="/manage/coins">Manage</NavLink>
           <NavLink to="/receiving">Receive</NavLink>
+          <NavLink to="/orders">Orders</NavLink>
           <NavLink to="/people">People</NavLink>
         </nav>
 
@@ -59,6 +61,7 @@ function Console() {
           <Route path="/inventory/currency" element={<InventoryCurrency />} />
           <Route path="/manage/coins" element={<AdminCoins />} />
           <Route path="/receiving" element={<Receiving />} />
+          <Route path="/orders" element={<Orders />} />
           <Route path="/people" element={<AdminPeople />} />
           <Route path="*" element={<p className="muted">Page not found.</p>} />
         </Routes>

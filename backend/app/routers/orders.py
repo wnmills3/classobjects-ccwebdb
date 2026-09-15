@@ -63,6 +63,8 @@ def _order_out(order: SalesOrder, status_code: str) -> OrderOut:
     return OrderOut(
         id=order.id,
         customer_id=order.customer_id,
+        customer_name=order.customer.display_name,
+        customer_email=order.customer.email,
         status=status_code,
         total_amount=order.total_amount,
         placed_at=order.placed_at,
@@ -70,12 +72,23 @@ def _order_out(order: SalesOrder, status_code: str) -> OrderOut:
             {
                 "id": line.id,
                 "listing_id": line.listing_id,
+                "title": line.listing.inventory_item.source_title,
                 "quantity": line.quantity,
                 "unit_price": line.unit_price,
             }
             for line in order.items
         ],
     )
+
+
+#: What `_order_out` reads, loaded up front: a page of orders would otherwise
+#: cost a query per order for its customer and two per line for its title.
+_ORDER_DETAIL = (
+    selectinload(SalesOrder.customer),
+    selectinload(SalesOrder.items)
+    .selectinload(SalesOrderItem.listing)
+    .selectinload(Listing.inventory_item),
+)
 
 
 def _status_code(db: Session, order: SalesOrder) -> str:
@@ -85,9 +98,7 @@ def _status_code(db: Session, order: SalesOrder) -> str:
 
 def _load(db: Session, order_id: int) -> SalesOrder | None:
     return db.scalar(
-        select(SalesOrder)
-        .where(SalesOrder.id == order_id)
-        .options(selectinload(SalesOrder.items))
+        select(SalesOrder).where(SalesOrder.id == order_id).options(*_ORDER_DETAIL)
     )
 
 
@@ -173,11 +184,7 @@ def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> Orde
 @router.get("")
 def list_orders(db: DbSession, user: CurrentUser) -> list[OrderOut]:
     """Customers see their own orders; administrators see every order."""
-    stmt = (
-        select(SalesOrder)
-        .options(selectinload(SalesOrder.items))
-        .order_by(SalesOrder.id.desc())
-    )
+    stmt = select(SalesOrder).options(*_ORDER_DETAIL).order_by(SalesOrder.id.desc())
     if user.role is not UserRole.admin:
         customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
         if customer is None:
@@ -223,6 +230,15 @@ def update_order_status(
         )
 
     previous = _status_code(db, order)
+    # Cancelling an unshipped order put its stock back on sale. Moving it on
+    # again would leave an order standing on stock already offered to the next
+    # buyer -- the same coins sold twice. Re-sending "cancelled" stays harmless.
+    if previous == "cancelled" and payload.status != "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Order #{order.id} is cancelled and its stock has been "
+            "returned. Place a new order instead.",
+        )
     order.sales_order_status_id = require_code(
         db, SalesOrderStatus, payload.status, "status"
     )

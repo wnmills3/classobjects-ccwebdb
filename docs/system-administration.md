@@ -328,6 +328,25 @@ Deleting twice is not an error.
 `DELETE /api/inventory/{id}/parent` detaches a split child from its parent,
 for when the lineage itself was wrong.
 
+## Orders
+
+**Orders** in the console lists every order, newest first: who placed it,
+what is in it at the price paid, the total, and its status. A customer sees
+only their own in the shop; `GET /api/orders` gives an administrator all of
+them, each naming its customer and every line's listing title.
+
+Status is changed from the order's row (`PATCH /api/orders/{id}`, administrators
+only), through the whole `sales_order_status` vocabulary: pending, paid,
+packed, shipped, delivered, cancelled, refunded.
+
+**Cancelling is one way.** Cancelling an order that has not shipped returns its
+stock to the catalogue. After that the order cannot be moved to any other
+status -- the API refuses with 409, and the console locks the row and asks
+before cancelling. Allowing it would leave an order standing on stock already
+offered to the next buyer, the same coins sold twice. Place a new order
+instead. Cancelling after packing or shipping returns no stock, and re-sending
+`cancelled` is harmless.
+
 ## Reference vocabularies
 
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows
