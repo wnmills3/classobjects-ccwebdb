@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -319,5 +319,42 @@ describe('ItemEditForm years', () => {
         true,
       ),
     )
+  })
+})
+
+describe('ItemEditForm keyboard accelerators', () => {
+  it('gives each field and Save an access key, shown in its label', async () => {
+    api.getInventoryItem.mockResolvedValue({
+      ...item,
+      year_start: 1878,
+      year_end: 1878,
+    })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    const expected = [
+      [screen.getByRole('textbox', { name: /Title/ }), 't'],
+      [screen.getByRole('textbox', { name: /Description/ }), 'c'],
+      [screen.getByRole('spinbutton', { name: 'Year' }), 'y'],
+      [screen.getByRole('checkbox', { name: 'Range of years' }), 'r'],
+      [screen.getByRole('button', { name: 'Save' }), 'v'],
+    ]
+    for (const [element, key] of expected) {
+      expect(element).toHaveAttribute('accesskey', key)
+      expect(element).toHaveAttribute('aria-keyshortcuts', `Alt+${key.toUpperCase()}`)
+    }
+  })
+
+  it('saves with Ctrl+S once there is something to save', async () => {
+    api.updateInventoryItem.mockResolvedValue({})
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+
+    await user.type(screen.getByRole('textbox', { name: /Description/ }), '!')
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
   })
 })

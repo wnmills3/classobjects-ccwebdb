@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react'
 
 import { api } from '../../api'
 import { ReferenceSelect } from '../../../shared/reference'
+import { AccessLabel, accel, useSaveShortcut } from '../../shortcuts'
 
 /**
  * One item, every field, with what the lot claimed beside each.
@@ -14,11 +15,11 @@ import { ReferenceSelect } from '../../../shared/reference'
  */
 
 const TEXT_FIELDS = [
-  ['Title', 'source_title'],
-  ['Description', 'description'],
+  ['Title', 'source_title', 't'],
+  ['Description', 'description', 'c'],
 ]
 
-const NUMBER_FIELDS = [['Pieces', 'piece_count']]
+const NUMBER_FIELDS = [['Pieces', 'piece_count', 'p']]
 
 /**
  * Whether stored years are a range rather than one year.
@@ -37,8 +38,8 @@ function isRange(start, end) {
 const yearValue = (text) => (text === '' ? null : text)
 
 const MONEY_FIELDS = [
-  ['Item cost', 'item_cost'],
-  ['Shipping', 'shipping_cost'],
+  ['Item cost', 'item_cost', 'i'],
+  ['Shipping', 'shipping_cost', 'h'],
 ]
 
 //: Form field -> the column a review record names. Only these can be
@@ -54,10 +55,10 @@ const REVIEWABLE = {
 }
 
 const CLASSIFIERS = [
-  ['Grade', 'grade', 'grade'],
-  ['Denomination', 'denomination', 'denomination'],
-  ['Country', 'country', 'country'],
-  ['Metal', 'metal', 'metal'],
+  ['Grade', 'grade', 'grade', 'g'],
+  ['Denomination', 'denomination', 'denomination', 'm'],
+  ['Country', 'country', 'country', 'u'],
+  ['Metal', 'metal', 'metal', 'l'],
 ]
 
 export default function ItemEditForm({ itemId, onSaved, onClose }) {
@@ -69,6 +70,11 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const [ranged, setRanged] = useState(false)
   const yearId = useId()
   const yearEndId = useId()
+
+  // `save` is a function declaration below, hoisted for the whole component
+  // scope, so it is safe to reference here even though it is defined later --
+  // this hook must sit above every early return.
+  useSaveShortcut(save, !saving && Object.keys(draft).length > 0)
 
   useEffect(() => {
     let cancelled = false
@@ -195,9 +201,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
 
   const rangeToggle = (
     <label className="checkbox">
-      <input type="checkbox" checked={ranged} onChange={toggleRange} />
+      <input type="checkbox" checked={ranged} onChange={toggleRange} {...accel('r')} />
       {/* */}
-      Range of years
+      <AccessLabel text="Range of years" accessKey="r" />
     </label>
   )
 
@@ -232,10 +238,15 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
 
       {error && <p className="error">{error}</p>}
 
-      {TEXT_FIELDS.map(([label, key]) => (
+      {TEXT_FIELDS.map(([label, key, letter]) => (
         <label key={key} className="field">
-          {label}
-          <input type="text" value={value(key)} onChange={set(key)} />
+          <AccessLabel text={label} accessKey={letter} />
+          <input
+            type="text"
+            value={value(key)}
+            onChange={set(key)}
+            {...accel(letter)}
+          />
           {claim(key)}
           {review(REVIEWABLE[key])}
         </label>
@@ -248,7 +259,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           Two separate layouts replaced the checkbox itself on every tick, and
           a keyboard user's focus went with it. */}
       <div className="field">
-        <label htmlFor={yearId}>{ranged ? 'Year from' : 'Year'}</label>
+        <label htmlFor={yearId}>
+          <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
+        </label>
         <span className="year-input">
           <input
             id={yearId}
@@ -259,6 +272,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
                 ? (e) => setDraft({ ...draft, year_start: yearValue(e.target.value) })
                 : setYear
             }
+            {...accel('y')}
           />
           {rangeToggle}
         </span>
@@ -267,7 +281,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       </div>
       {ranged && (
         <div className="field">
-          <label htmlFor={yearEndId}>Year to</label>
+          <label htmlFor={yearEndId}>
+            <AccessLabel text="Year to" accessKey="o" />
+          </label>
           <input
             id={yearEndId}
             type="number"
@@ -281,24 +297,30 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             onChange={(e) =>
               setDraft({ ...draft, year_end: yearValue(e.target.value) })
             }
+            {...accel('o')}
           />
           {claim('year_end')}
           {review('year_end')}
         </div>
       )}
 
-      {NUMBER_FIELDS.map(([label, key]) => (
+      {NUMBER_FIELDS.map(([label, key, letter]) => (
         <label key={key} className="field">
-          {label}
-          <input type="number" value={value(key)} onChange={set(key)} />
+          <AccessLabel text={label} accessKey={letter} />
+          <input
+            type="number"
+            value={value(key)}
+            onChange={set(key)}
+            {...accel(letter)}
+          />
           {claim(key)}
           {review(REVIEWABLE[key])}
         </label>
       ))}
 
-      {MONEY_FIELDS.map(([label, key]) => (
+      {MONEY_FIELDS.map(([label, key, letter]) => (
         <label key={key} className="field">
-          {label}
+          <AccessLabel text={label} accessKey={letter} />
           {/* Text, not number. Money crosses the API as a string and a number
               input would hand back a float, which is the one thing this
               schema is careful never to do. */}
@@ -307,6 +329,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             inputMode="decimal"
             value={value(key)}
             onChange={set(key)}
+            {...accel(letter)}
           />
           {/* No lot ever claims a cost -- a piece's cost is allocated at
               split time, not inherited -- but `.field` is a four-column grid
@@ -325,17 +348,22 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             {`$${item.sales_tax}`}
           </span>
           <label className="checkbox">
-            <input type="checkbox" checked={untaxed} onChange={toggleTax} />
+            <input
+              type="checkbox"
+              checked={untaxed}
+              onChange={toggleTax}
+              {...accel('n')}
+            />
             {/* */}
-            No sales tax charged
+            <AccessLabel text="No sales tax charged" accessKey="n" />
           </label>
           <span />
         </div>
       )}
 
-      {CLASSIFIERS.map(([label, key, table]) => (
+      {CLASSIFIERS.map(([label, key, table, letter]) => (
         <label key={key} className="field">
-          {label}
+          <AccessLabel text={label} accessKey={letter} />
           <ReferenceSelect
             table={table}
             value={value(key)}
@@ -349,6 +377,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
                     (value('item_kind') === 'currency')
                 : undefined
             }
+            {...accel(letter)}
           />
           {claim(key)}
           {review(REVIEWABLE[key])}
@@ -356,8 +385,12 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       ))}
 
       <div className="row">
-        <button disabled={saving || Object.keys(draft).length === 0} onClick={save}>
-          {saving ? 'Saving...' : 'Save'}
+        <button
+          disabled={saving || Object.keys(draft).length === 0}
+          onClick={save}
+          {...accel('v')}
+        >
+          <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />
         </button>
       </div>
     </div>

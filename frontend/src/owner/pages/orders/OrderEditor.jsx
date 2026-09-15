@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
 import { money } from '../../../shared/format'
+import { AccessLabel, accel, useSaveShortcut } from '../../shortcuts'
 import { fromCents, isMoney, toCents, totalCents } from './cents'
 
 /**
@@ -32,6 +33,10 @@ export default function OrderEditor({ order, onSaved, onClose }) {
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // `save` is a function declaration below, hoisted for the whole component
+  // scope, so it is safe to reference here even though it is defined later.
+  useSaveShortcut(save, !saving)
 
   useEffect(() => {
     let cancelled = false
@@ -178,11 +183,13 @@ export default function OrderEditor({ order, onSaved, onClose }) {
           placeholder="Find customer"
           value={find}
           onChange={(e) => setFind(e.target.value)}
+          {...accel('n')}
         />
         <select
           aria-label="Customer"
           value={customerKey}
           onChange={(e) => setCustomerKey(e.target.value)}
+          {...accel('c')}
         >
           <option value="">Choose a customer</option>
           {shown.map((o) => (
@@ -257,8 +264,11 @@ export default function OrderEditor({ order, onSaved, onClose }) {
           placeholder="Find item"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          {...accel('i')}
         />
-        <button onClick={search}>Search</button>
+        <button onClick={search} {...accel('h')}>
+          <AccessLabel text="Search" accessKey="h" />
+        </button>
       </div>
       {results.map((listing) => (
         <div key={listing.id} className="row">
@@ -279,14 +289,18 @@ export default function OrderEditor({ order, onSaved, onClose }) {
       ))}
 
       <label className="field">
-        Notes
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <AccessLabel text="Notes" accessKey="o" />
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          {...accel('o')}
+        />
       </label>
 
       <div className="row">
         <strong>Total {money(fromCents(totalCents(lines)))}</strong>
-        <button disabled={saving} onClick={save}>
-          {saving ? 'Saving...' : 'Save order'}
+        <button disabled={saving} onClick={save} {...accel('v')}>
+          <AccessLabel text={saving ? 'Saving...' : 'Save order'} accessKey="v" />
         </button>
       </div>
     </div>
