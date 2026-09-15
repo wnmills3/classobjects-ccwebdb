@@ -30,4 +30,16 @@ describe('cents', () => {
   it('leaves out a line that is not yet valid', () => {
     expect(totalCents([{ quantity: '', unit_price: '5.00' }])).toBe(0)
   })
+
+  it('refuses to read text that is not money', () => {
+    expect(() => toCents('1.')).toThrow(RangeError)
+    expect(() => toCents('')).toThrow(RangeError)
+    expect(() => toCents('-5')).toThrow(RangeError)
+    expect(() => toCents('1.239')).toThrow(RangeError)
+    expect(() => toCents('1e5')).toThrow(RangeError)
+  })
+
+  it('excludes a line with an invalid price instead of throwing', () => {
+    expect(totalCents([{ quantity: '3', unit_price: '1.239' }])).toBe(0)
+  })
 })

@@ -10,10 +10,15 @@ const MONEY = /^\d+(\.\d{1,2})?$/
 export const isMoney = (text) => MONEY.test(String(text).trim())
 
 export function toCents(text) {
+  if (!isMoney(text)) {
+    throw new RangeError(`not a money amount: ${JSON.stringify(text)}`)
+  }
   const [whole, fraction = ''] = String(text).trim().split('.')
   return Number(whole) * 100 + Number(`${fraction}00`.slice(0, 2))
 }
 
+// `cents` is always a non-negative integer here -- order money (prices,
+// quantities, totals) is never negative in this editor.
 export function fromCents(cents) {
   return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
 }
