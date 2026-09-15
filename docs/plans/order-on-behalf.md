@@ -2648,3 +2648,119 @@ The two counts on `ccwebdb` must match (0 today).
 - [ ] **Step 3: Gate.** `scripts\ccweb_check.cmd` exit 0.
 
 - [ ] **Step 4: Report** results to the user and wait for "merge it into main and push".
+
+---
+
+### Task 12: The purchase order behind each inventory item, linked to the console
+
+Added 2026-09-15 at the user's request: "add the original order number of the item when it was purchased to the inventory screen, possibly as a link to the order page". The user chose the link target: the purchase order inside the console, not the vendor's site.
+
+Measured on the live database: 7,559 of 7,658 items have a purchase order; 5,702 of those have a vendor order number; 1,857 have a stored vendor link but no number (eBay listings). `purchase_order.source_url` is imported spreadsheet text -- 2,973 are eBay listing pages, 74 eBay order pages, and one is the word `Gift` -- so it is shown as a link only when it starts with `http://` or `https://`.
+
+**Files:**
+- Modify: `backend/app/inventory_search.py` (columns), `backend/app/schemas.py` (`PurchaseOrderDetailOut.source_url`), `backend/app/routers/acquisitions.py` (populate it)
+- Modify: `frontend/src/owner/pages/inventory/specs.js`, `frontend/src/owner/pages/inventory/InventoryTable.jsx`, `frontend/src/owner/pages/Receiving.jsx`
+- Test: `backend/tests/test_inventory_search.py` (or the existing search test file -- find it with `grep -rln "inventory/coins/search" backend/tests`), the acquisitions test file (`grep -rln "purchase-orders\|purchase_orders" backend/tests`), `frontend/src/owner/pages/inventory/InventoryTable.test.jsx`, `frontend/src/owner/pages/Receiving.test.jsx`
+
+**Interfaces:**
+- Produces: inventory search rows (both views) gain `purchase_order_id: int | null`, `order_number: str | null`, `vendor: str | null`, `ordered_on: date | null`.
+- Produces: `GET /api/purchase-orders/{id}` detail gains `source_url: str | null` -- null unless the stored value starts with `http://` or `https://` (case-insensitive).
+- Produces: the console route `/receiving?order=<id>` opens that purchase order.
+- Consumes: nothing from Tasks 1-11.
+
+- [ ] **Step 1: Write the failing tests**
+
+Backend, in the inventory search test file (use its existing fixtures for creating an item and calling the search; create a `Vendor` and `PurchaseOrder` the way the acquisitions tests do):
+- An item on a purchase order with number `123-456` from vendor `ebay.com` ordered `2025-01-09` comes back from `/api/inventory/coins/search` with `purchase_order_id`, `order_number == "123-456"`, `vendor == "ebay.com"`, `ordered_on == "2025-01-09"`.
+- An item with no purchase order comes back with all four null, and is still returned (a LEFT JOIN, not an inner join, would lose it otherwise).
+- The same fields on `/api/inventory/currency/search`.
+
+Backend, in the acquisitions test file:
+- Detail for an order with `source_url = "https://order.ebay.com/ord/show?orderId=1"` returns it unchanged.
+- Detail for an order with `source_url = "Gift"` returns `source_url: null`.
+- Detail for `javascript:alert(1)` returns `source_url: null`.
+
+Frontend, `InventoryTable.test.jsx`:
+- A row with `purchase_order_id: 7, order_number: '123-456'` in a config whose columns include `['Order', 'order_number', 'order']` renders a link named `123-456` whose `href` ends with `/receiving?order=7`.
+- A row with `purchase_order_id: 8, order_number: null, vendor: 'ebay.com', ordered_on: '2025-01-09'` renders a link whose text contains `ebay.com` and the formatted date, pointing at `/receiving?order=8`.
+- A row with `purchase_order_id: null` renders the muted `-`, and no link.
+(`InventoryTable` renders `<Link>`, so render it inside a router -- `renderWithProviders` from `src/test/helpers.jsx` provides one.)
+
+Frontend, `Receiving.test.jsx`:
+- Rendered at route `/receiving?order=42`, the page requests that order's detail (the existing detail API mock is called with 42) without a pick.
+- Detail with `source_url: 'https://www.ebay.com/itm/1'` renders a link named `Vendor page` with that `href`, `target="_blank"` and `rel="noopener noreferrer"`; detail with `source_url: null` renders no such link.
+- Picking an order in the picker puts `?order=<id>` in the URL (assert via the rendered location, e.g. a tiny `useLocation` probe or by checking the picker's selected state after re-render at that route -- follow whatever pattern `Receiving.test.jsx` already uses for routing).
+
+- [ ] **Step 2: Run to verify they fail.**
+
+- [ ] **Step 3: Implement**
+
+`backend/app/inventory_search.py` -- beside the other `_J_*` joins:
+
+```python
+_J_PURCHASE_ORDER = "LEFT JOIN purchase_order po ON po.id = i.purchase_order_id"
+_J_VENDOR = "LEFT JOIN vendor v ON v.id = po.vendor_id"
+```
+
+A `Col` takes a tuple of join clauses; `vendor` needs both, purchase order first. Add to `_SHARED_COLUMNS`:
+
+```python
+    # The purchase the item arrived on, so a row can open that order in
+    # Receiving. LEFT joins: 99 items were never on a recorded order.
+    "purchase_order_id": Col("i.purchase_order_id"),
+    "order_number": Col("po.order_number", (_J_PURCHASE_ORDER,)),
+    "vendor": Col("v.name", (_J_PURCHASE_ORDER, _J_VENDOR)),
+    "ordered_on": Col("po.ordered_on", (_J_PURCHASE_ORDER,)),
+```
+
+Confirm by reading the search builder that join tuples are de-duplicated before use; if they are not, de-duplicate them there (preserving order) and say so in the report.
+
+`backend/app/schemas.py`, `PurchaseOrderDetailOut`, after `ordered_on`:
+
+```python
+    #: The vendor's page for the order or listing, when it is a web address.
+    #: Imported spreadsheet text, so anything else -- "Gift" -- is withheld
+    #: rather than offered as a link.
+    source_url: str | None = None
+```
+
+`backend/app/routers/acquisitions.py`, where the detail is built:
+
+```python
+_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
+...
+source_url=order.source_url if order.source_url and _WEB_ADDRESS.match(order.source_url) else None,
+```
+
+`frontend/src/owner/pages/inventory/specs.js` -- add `['Order', 'order_number', 'order']` to both `COIN_VIEW.columns` and `CURRENCY_VIEW.columns`, directly after the `Cost`/`total_cost` column.
+
+`frontend/src/owner/pages/inventory/InventoryTable.jsx` -- import `Link` from `react-router-dom` and `date` from `../../../shared/format`; in the cell renderer, before the generic `cell(...)` fallback:
+
+```jsx
+key === 'order_number' ? (
+  row.purchase_order_id == null ? (
+    <span className="muted">-</span>
+  ) : (
+    <Link className="mono" to={`/receiving?order=${row.purchase_order_id}`}>
+      {row.order_number ?? `${row.vendor ?? 'order'} ${date(row.ordered_on)}`.trim()}
+    </Link>
+  )
+) : ...
+```
+
+Keep the existing `item_code` branch; restructure the ternary into a small `renderCell(row, key, kind)` function if nesting three levels deep hurts readability.
+
+`frontend/src/owner/pages/Receiving.jsx`:
+- `const [params, setParams] = useSearchParams()`; initialise `orderId` from `Number(params.get('order'))` when present and a positive integer, else `null`.
+- When an order is picked, set it and `setParams({ order: String(id) })` (preserve nothing else -- Receiving has no other query parameters today; if it does, merge).
+- In the order header after the date: `{order.source_url && (<a href={order.source_url} target="_blank" rel="noopener noreferrer">Vendor page</a>)}`.
+
+- [ ] **Step 4: Run the new and existing inventory, acquisitions, receiving and table tests**, then the full vitest suite.
+
+- [ ] **Step 5: Gate and commit**
+
+```
+git commit -m "Show each item's purchase order in inventory, opening it in Receiving"
+```
+
+(add exactly the files changed).
