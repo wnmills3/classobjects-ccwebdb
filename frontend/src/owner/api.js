@@ -97,6 +97,15 @@ export const api = {
   receiveItems: (payload) =>
     send('/api/inventory/receive', { method: 'POST', body: payload }),
 
+  // entry -- recording an acquisition that has not been seen anywhere else:
+  // a vendor, the purchase made from them, and the items bought on it.
+  listVendors: () => send('/api/vendors'),
+  createVendor: (payload) => send('/api/vendors', { method: 'POST', body: payload }),
+  createPurchaseOrder: (payload) =>
+    send('/api/purchase-orders', { method: 'POST', body: payload }),
+  createInventoryItem: (payload) =>
+    send('/api/inventory', { method: 'POST', body: payload }),
+
   // images -- evidence a person looked at the object, attached to an item
   uploadImage: (inventoryItemId, file, { imageRole, isPrimary = false } = {}) => {
     const form = new FormData()
