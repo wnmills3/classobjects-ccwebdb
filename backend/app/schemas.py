@@ -305,6 +305,13 @@ class OrderOut(BaseModel):
     total_amount: Decimal
     placed_at: datetime
     items: list[OrderItemOut]
+    version: int
+    notes: str | None
+    #: The account that entered the order, when known.
+    placed_by_email: str | None
+    #: A paid order whose total changed after it was paid. Payments are not
+    #: recorded, so this prompts a person; it never charges or refunds.
+    payment_adjustment_due: bool
 
 
 class OrderStatusUpdate(BaseModel):
