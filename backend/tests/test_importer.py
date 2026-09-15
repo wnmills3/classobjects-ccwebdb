@@ -19,6 +19,7 @@ from app.importers.models import ImportBatch, ImportIssue, ImportRow
 from app.importers.profile import ERROR, UNKNOWN, WARNING, RawRow
 from app.importers.profiles.collection_v1 import CollectionV1Profile
 from app.importers.profiling import ColumnProfile
+from app.models import InventoryItem
 from app.order_repair import identify
 from sqlalchemy.orm import Session
 
@@ -89,6 +90,10 @@ def profile() -> CollectionV1Profile:
         ("Silver Eagle", "bullion"),
         ("Silver Round 1oz", "bullion"),
         ("Copper Bar 1oz", "bullion"),
+        ("10 yuan", "bullion"),
+        ("30g Yuan", "bullion"),
+        ("10 Yuan Bill", "currency"),
+        ("10 Yuan Note", "currency"),
         ("Mint Set", "set"),
         ("Proof Set", "set"),
         ("Medal", "medal"),
@@ -113,6 +118,52 @@ def test_bullion_is_tested_before_number_then_word(
     """
     for denom in ("1oz Copper Round", "20x 1oz Copper", "5 oz Silver Bar"):
         assert profile.inspect(make_row(Denom=denom)).classification.kind == "bullion"
+
+
+def test_a_yuan_coin_is_a_silver_panda_but_a_yuan_note_is_currency(
+    profile: CollectionV1Profile,
+) -> None:
+    """China's 10-yuan Panda is silver bullion; a 10-yuan banknote is not.
+
+    "10 yuan" fell through to the number-then-word currency rule, and 18
+    Silver Pandas were imported as banknotes. Bullion is tested first, so the
+    Panda rule has to step aside when the text says bill or note, or a real
+    banknote would become a Panda instead.
+    """
+    for denom in ("10 yuan", "30g Yuan", "Silver Panda"):
+        classification = profile.inspect(make_row(Denom=denom)).classification
+        assert (classification.kind, classification.subtype) == (
+            "bullion",
+            "Silver Panda",
+        ), denom
+
+    note = profile.inspect(make_row(Denom="10 Yuan Note")).classification
+    assert note.kind == "currency"
+
+
+def test_a_committed_panda_is_silver_with_a_fine_weight(
+    profile: CollectionV1Profile, db: Session
+) -> None:
+    """The bullion form carries metal and fineness, so melt value works.
+
+    The Panda's weight changed from 1 oz to 30 g in 2016, so the form gives no
+    typical weight; a row that states one gets fine weight from it.
+    """
+    row = make_row(2, Denom="30g Yuan", Price="45")
+    report = ImportEngine(profile, session=db).run(FakeSource([row]), mode=COMMIT)
+    staged = db.query(ImportRow).filter(ImportRow.batch_id == report.batch_id).one()
+    item = db.get(InventoryItem, staged.inventory_item_id)
+
+    assert item is not None
+    assert item.bullion_form is not None and item.bullion_form.code == "silver_panda"
+    assert item.metal is not None and item.metal.code == "silver"
+    assert item.fineness == Decimal("0.9990")
+    # 30 g is 0.964522 ozt; the fine weight is that at 0.999.
+    assert item.gross_weight_ozt is not None
+    assert abs(item.gross_weight_ozt - Decimal("0.964522")) < Decimal("0.000002")
+    assert item.fine_weight_ozt == (item.gross_weight_ozt * Decimal("0.9990")).quantize(
+        Decimal("0.000001")
+    )
 
 
 def test_sets_are_tested_before_currency(profile: CollectionV1Profile) -> None:
