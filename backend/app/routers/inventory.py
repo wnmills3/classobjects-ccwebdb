@@ -204,6 +204,7 @@ def search_inventory(
         offset=offset,
         sort=sort or spec.default_sort,
         descending=desc,
+        sortable=sorted(spec.sortable),
         facets=count_facets(db, spec, params=params, query=q) if facets else {},
         issues=count_issues(db, spec, params=params, query=q) if facets else {},
         issue_descriptions=(

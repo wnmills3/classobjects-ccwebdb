@@ -96,6 +96,17 @@ button.link.danger {
 .inventory-table th.sortable:hover {
   text-decoration: underline;
 }
+/* Two lines per item: the attributes, then the description under them. The
+   pair reads as one item -- no rule between the lines, the usual one after. */
+.inventory-table tr.has-detail td {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+.inventory-table tr.item-detail td {
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding-top: 0;
+}
 /* Adding a vocabulary value inline, from the picker that needed it. */
 .add-reference {
   display: flex;

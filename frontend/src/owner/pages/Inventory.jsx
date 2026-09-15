@@ -97,6 +97,7 @@ function InventoryView({ config }) {
           selected={selected}
           onSelect={setSelected}
           onOpen={setEditing}
+          sortable={page?.sortable ?? []}
         />
       )}
 
