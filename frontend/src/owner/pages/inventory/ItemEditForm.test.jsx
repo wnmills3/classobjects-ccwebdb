@@ -11,6 +11,7 @@ vi.mock('../../api', () => ({
 }))
 
 import { api } from '../../api'
+import { emptyReference, renderWithProviders } from '../../../test/helpers'
 import ItemEditForm from './ItemEditForm'
 
 const item = {
@@ -135,5 +136,60 @@ describe('No sales tax charged', () => {
         expect.objectContaining({ tax_rate: '0.0700' }),
       ),
     )
+  })
+})
+
+describe('Grade choices', () => {
+  // One grade from each scale, as the reference context holds them.
+  const vocabularies = emptyReference({
+    tables: {
+      grade: [
+        {
+          code: 'MS65',
+          label: 'MS-65',
+          source: 'seeded',
+          extra: { grade_scale: 'sheldon' },
+        },
+        {
+          code: 'UNC',
+          label: 'UNC',
+          source: 'seeded',
+          extra: { grade_scale: 'adjectival' },
+        },
+        {
+          code: 'N64',
+          label: 'Choice Uncirculated 64',
+          source: 'seeded',
+          extra: { grade_scale: 'note' },
+        },
+      ],
+    },
+  })
+
+  async function gradeOptions(kind) {
+    api.getInventoryItem.mockResolvedValue({ ...item, item_kind: kind })
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      {
+        reference: vocabularies,
+      },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    const select = screen.getByRole('combobox', { name: 'grade' })
+    return Array.from(select.querySelectorAll('option')).map((o) => o.textContent)
+  }
+
+  it('offers a note only paper-money grades', async () => {
+    const options = await gradeOptions('currency')
+    expect(options).toContain('Choice Uncirculated 64')
+    expect(options).not.toContain('MS-65')
+    expect(options).not.toContain('UNC')
+  })
+
+  it('offers a coin only coin grades', async () => {
+    const options = await gradeOptions('coin')
+    expect(options).toContain('MS-65')
+    expect(options).toContain('UNC')
+    expect(options).not.toContain('Choice Uncirculated 64')
   })
 })

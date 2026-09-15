@@ -121,4 +121,11 @@ describe('two lines per item', () => {
       expect(keys, view.view).not.toContain('description')
     }
   })
+
+  it('shows a note grade by its label, not its code', () => {
+    // A note's grade code is `N64`; "Choice Uncirculated 64" is what is read.
+    const keys = CURRENCY_VIEW.columns.map(([, key]) => key)
+    expect(keys).toContain('grade_label')
+    expect(keys).not.toContain('grade')
+  })
 })

@@ -68,6 +68,9 @@ export function ReferenceSelect({
   onChange,
   allowBlank = true,
   placeholder,
+  //: Optional `(entry) => boolean` narrowing what is offered -- a note's grade
+  //: picker offers only the paper-money scale.
+  filter,
 }) {
   const values = useReference(table)
   const context = useContext(ReferenceContext)
@@ -136,14 +139,18 @@ export function ReferenceSelect({
         aria-label={table}
       >
         {allowBlank && <option value="">--</option>}
-        {values.map((entry) => (
-          <option key={entry.code} value={entry.code}>
-            {entry.label}
-            {/* Values an import invented are marked, so a curated vocabulary
+        {/* A filter narrows what is offered, never what is shown as chosen:
+            a value already set stays visible even if it no longer fits. */}
+        {(filter ? values.filter((e) => filter(e) || e.code === value) : values).map(
+          (entry) => (
+            <option key={entry.code} value={entry.code}>
+              {entry.label}
+              {/* Values an import invented are marked, so a curated vocabulary
                 can be told apart from one collection's guesses. */}
-            {entry.source === 'seeded' ? '' : ' *'}
-          </option>
-        ))}
+              {entry.source === 'seeded' ? '' : ' *'}
+            </option>
+          ),
+        )}
         <option value="__add__">+ Add a new value...</option>
       </select>
     </div>

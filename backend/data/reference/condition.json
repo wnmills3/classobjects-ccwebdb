@@ -424,6 +424,249 @@
       "label": "Ungraded",
       "grade_scale": "adjectival",
       "sort_order": 999
+    },
+    {
+      "code": "N70",
+      "label": "Gem Unc 70",
+      "grade_scale": "note",
+      "numeric_value": 70,
+      "sort_order": 500
+    },
+    {
+      "code": "N69",
+      "label": "Superb Gem Unc 69",
+      "grade_scale": "note",
+      "numeric_value": 69,
+      "sort_order": 501
+    },
+    {
+      "code": "N68",
+      "label": "Superb Gem Unc 68",
+      "grade_scale": "note",
+      "numeric_value": 68,
+      "sort_order": 502
+    },
+    {
+      "code": "N67",
+      "label": "Superb Gem Unc 67",
+      "grade_scale": "note",
+      "numeric_value": 67,
+      "sort_order": 503
+    },
+    {
+      "code": "N66",
+      "label": "Gem Uncirculated 66",
+      "grade_scale": "note",
+      "numeric_value": 66,
+      "sort_order": 504
+    },
+    {
+      "code": "N65",
+      "label": "Gem Uncirculated 65",
+      "grade_scale": "note",
+      "numeric_value": 65,
+      "sort_order": 505
+    },
+    {
+      "code": "N64",
+      "label": "Choice Uncirculated 64",
+      "grade_scale": "note",
+      "numeric_value": 64,
+      "sort_order": 506
+    },
+    {
+      "code": "N63",
+      "label": "Choice Uncirculated 63",
+      "grade_scale": "note",
+      "numeric_value": 63,
+      "sort_order": 507
+    },
+    {
+      "code": "N62",
+      "label": "Uncirculated 62",
+      "grade_scale": "note",
+      "numeric_value": 62,
+      "sort_order": 508
+    },
+    {
+      "code": "N61",
+      "label": "Uncirculated 61",
+      "grade_scale": "note",
+      "numeric_value": 61,
+      "sort_order": 509
+    },
+    {
+      "code": "N60",
+      "label": "Uncirculated 60",
+      "grade_scale": "note",
+      "numeric_value": 60,
+      "sort_order": 510
+    },
+    {
+      "code": "N58",
+      "label": "Choice About Unc 58",
+      "grade_scale": "note",
+      "numeric_value": 58,
+      "sort_order": 512
+    },
+    {
+      "code": "N55",
+      "label": "About Uncirculated 55",
+      "grade_scale": "note",
+      "numeric_value": 55,
+      "sort_order": 515
+    },
+    {
+      "code": "N53",
+      "label": "About Uncirculated 53",
+      "grade_scale": "note",
+      "numeric_value": 53,
+      "sort_order": 517
+    },
+    {
+      "code": "N50",
+      "label": "About Uncirculated 50",
+      "grade_scale": "note",
+      "numeric_value": 50,
+      "sort_order": 520
+    },
+    {
+      "code": "N45",
+      "label": "Choice Extremely Fine 45",
+      "grade_scale": "note",
+      "numeric_value": 45,
+      "sort_order": 525
+    },
+    {
+      "code": "N40",
+      "label": "Extremely Fine 40",
+      "grade_scale": "note",
+      "numeric_value": 40,
+      "sort_order": 530
+    },
+    {
+      "code": "N35",
+      "label": "Choice Very Fine 35",
+      "grade_scale": "note",
+      "numeric_value": 35,
+      "sort_order": 535
+    },
+    {
+      "code": "N30",
+      "label": "Very Fine 30",
+      "grade_scale": "note",
+      "numeric_value": 30,
+      "sort_order": 540
+    },
+    {
+      "code": "N25",
+      "label": "Very Fine 25",
+      "grade_scale": "note",
+      "numeric_value": 25,
+      "sort_order": 545
+    },
+    {
+      "code": "N20",
+      "label": "Very Fine 20",
+      "grade_scale": "note",
+      "numeric_value": 20,
+      "sort_order": 550
+    },
+    {
+      "code": "N15",
+      "label": "Choice Fine 15",
+      "grade_scale": "note",
+      "numeric_value": 15,
+      "sort_order": 555
+    },
+    {
+      "code": "N12",
+      "label": "Fine 12",
+      "grade_scale": "note",
+      "numeric_value": 12,
+      "sort_order": 558
+    },
+    {
+      "code": "N10",
+      "label": "Very Good 10",
+      "grade_scale": "note",
+      "numeric_value": 10,
+      "sort_order": 560
+    },
+    {
+      "code": "N8",
+      "label": "Very Good 8",
+      "grade_scale": "note",
+      "numeric_value": 8,
+      "sort_order": 562
+    },
+    {
+      "code": "N6",
+      "label": "Good 6",
+      "grade_scale": "note",
+      "numeric_value": 6,
+      "sort_order": 564
+    },
+    {
+      "code": "N4",
+      "label": "Good 4",
+      "grade_scale": "note",
+      "numeric_value": 4,
+      "sort_order": 566
+    },
+    {
+      "code": "N_GEM_UNC",
+      "label": "Gem Uncirculated",
+      "grade_scale": "note",
+      "sort_order": 600
+    },
+    {
+      "code": "N_CHOICE_UNC",
+      "label": "Choice Uncirculated",
+      "grade_scale": "note",
+      "sort_order": 601
+    },
+    {
+      "code": "N_UNC",
+      "label": "Uncirculated",
+      "grade_scale": "note",
+      "sort_order": 602
+    },
+    {
+      "code": "N_AU",
+      "label": "About Uncirculated",
+      "grade_scale": "note",
+      "sort_order": 603
+    },
+    {
+      "code": "N_XF",
+      "label": "Extremely Fine",
+      "grade_scale": "note",
+      "sort_order": 604
+    },
+    {
+      "code": "N_VF",
+      "label": "Very Fine",
+      "grade_scale": "note",
+      "sort_order": 605
+    },
+    {
+      "code": "N_F",
+      "label": "Fine",
+      "grade_scale": "note",
+      "sort_order": 606
+    },
+    {
+      "code": "N_VG",
+      "label": "Very Good",
+      "grade_scale": "note",
+      "sort_order": 607
+    },
+    {
+      "code": "N_G",
+      "label": "Good",
+      "grade_scale": "note",
+      "sort_order": 608
     }
   ],
   "grade_designation": [

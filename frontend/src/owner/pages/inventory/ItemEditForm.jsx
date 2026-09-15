@@ -229,7 +229,20 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       {CLASSIFIERS.map(([label, key, table]) => (
         <label key={key} className="field">
           {label}
-          <ReferenceSelect table={table} value={value(key)} onChange={set(key)} />
+          <ReferenceSelect
+            table={table}
+            value={value(key)}
+            onChange={set(key)}
+            // Paper money is graded on its own scale: a note is offered only
+            // note grades, and anything else only the coin scales.
+            filter={
+              key === 'grade'
+                ? (grade) =>
+                    (grade.extra?.grade_scale === 'note') ===
+                    (value('item_kind') === 'currency')
+                : undefined
+            }
+          />
           {claim(key)}
           {review(REVIEWABLE[key])}
         </label>

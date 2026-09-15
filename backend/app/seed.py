@@ -86,7 +86,8 @@ SAMPLE_CATALOG: list[dict] = [
         "item_kind": "currency",
         "country": "US",
         "denomination": "usd_note_1",
-        "grade": "UNC",
+        # The paper-money scale's Uncirculated: a note is never given a coin grade.
+        "grade": "N_UNC",
         "year_start": 1957,
         "price": Decimal("24.00"),
         "quantity_available": 8,

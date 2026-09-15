@@ -213,6 +213,9 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "parent_item_id": Col("i.parent_item_id"),
     "created_at": Col("i.created_at"),
     "grade": Col("g.code", (_J_GRADE,)),
+    # What is read, rather than what is filtered on: a note's grade code is
+    # `N64` and its label "Choice Uncirculated 64".
+    "grade_label": Col("g.label", (_J_GRADE,)),
     "grade_value": Col(_C_GRADE_VALUE, (_J_GRADE,)),
     "grade_designation": Col("gd.code", (_J_GRADE_DES,)),
     "grading_service": Col("gs.code", (_J_SERVICE,)),

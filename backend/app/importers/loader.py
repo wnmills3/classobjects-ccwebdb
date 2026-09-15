@@ -306,7 +306,7 @@ class SchemaLoader:
             str(fields.get("status_marker", "")).casefold(), DEFAULT_STATUS
         )
 
-        grade_id = self._grade_id(fields.get("grade_raw"), fields)
+        grade_id = self._grade_id(fields.get("grade_raw"), fields, kind)
         metal_id, fineness = self._metal_and_fineness(bullion_form_id, fields)
 
         # Face value -> denomination -> composition is the chain that makes
@@ -440,7 +440,9 @@ class SchemaLoader:
                 )
             )
 
-    def _grade_id(self, grade_raw: str | None, fields: dict) -> int | None:
+    def _grade_id(
+        self, grade_raw: str | None, fields: dict, kind: str | None = None
+    ) -> int | None:
         """Resolve a condition string to a grade, or decline to.
 
         Two things this must get right, and both were caught by looking at
@@ -484,6 +486,17 @@ class SchemaLoader:
             fields.setdefault("seal_color", parsed.seal_color)
         if parsed.note_attributes:
             fields.setdefault("note_attributes", list(parsed.note_attributes))
+
+        # Paper money has its own scale. A note is never given a coin grade
+        # and never invents a vocabulary row: its grade is found on the note
+        # scale or left for a person, with the text kept in grade_raw.
+        if kind == "currency":
+            code = _note_grade_code(text, parsed.grade)
+            if code is None:
+                if not (parsed.seal_color or parsed.note_attributes):
+                    fields["rating_unparsed"] = text
+                return None
+            return self._grade_index().get(_grade_key(code))
 
         # A value that named only a seal colour or a star note said nothing
         # about condition, and that is not a parse failure.
@@ -833,6 +846,54 @@ _SERVICE = re.compile(r"\b(PCGS|NGC|ANACS|ICG|PMG|SEGS|CACG)\b", re.I)
 
 #: PR and PF are the same thing written two ways; so are XF and EF.
 _GRADE_PREFIX_ALIAS = {"PF": "PR", "EF": "XF"}
+
+#: The points PMG and PCGS both grade paper money on, Good 4 to 70. A number
+#: outside this set is not a note grade: "UNC 5 2s" is five $2 notes.
+_NOTE_NUMBERS = frozenset(
+    {4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50, 53, 55, 58, *range(60, 71)}
+)
+
+#: A number set against a paper-quality designation or a grader, the way PMG
+#: and PCGS labels write it: "64 EPQ", "50 PPQ", "12 PCGS".
+_NOTE_NUMBER_BEFORE = re.compile(r"(?<![\d$.])(\d{1,2})\s*(?:EPQ|PPQ|PMG|PCGS)\b", re.I)
+#: A number following a grade word: "UNC 64", "Gem Unc 65", "Very Fine 30".
+_NOTE_NUMBER_AFTER = re.compile(
+    r"\b(?:UNC|UNCIRCULATED|GEM|CHOICE|AU|XF|EF|VF|VG|FINE|GOOD)\s*(?:-\s*)?(\d{1,2})\b",
+    re.I,
+)
+
+#: A note grade written with no number. Most specific first: About
+#: Uncirculated before Uncirculated, Very Fine before Fine.
+_NOTE_TERMS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bGEM\s*(?:UNC|UNCIRCULATED|BU|CU)\b", re.I), "N_GEM_UNC"),
+    (re.compile(r"\bCHOICE\s*(?:UNC|UNCIRCULATED|BU|CU)\b", re.I), "N_CHOICE_UNC"),
+    (re.compile(r"\bABOUT\s*UNC(?:IRCULATED)?\b|\bAU\b", re.I), "N_AU"),
+    (re.compile(r"\b(?:UNC|UNCIRCULATED|BU|CU)\b", re.I), "N_UNC"),
+    (re.compile(r"\bEXTREMELY\s*FINE\b|\b(?:XF|EF)\b", re.I), "N_XF"),
+    (re.compile(r"\bVERY\s*FINE\b|\bVF\b", re.I), "N_VF"),
+    (re.compile(r"\bVERY\s*GOOD\b|\bVG\b", re.I), "N_VG"),
+    (re.compile(r"\bFINE\b", re.I), "N_F"),
+    (re.compile(r"\bGOOD\b", re.I), "N_G"),
+)
+
+
+def _note_grade_code(text: str, sheldon: str | None) -> str | None:
+    """The note-scale grade code a rating names, or None when it names none.
+
+    A number wins over a bare term, and only a number on the scale counts --
+    from a coin-style grade ("VF-30", PCGS's "MS65 PPQ"), from beside a
+    designation or grader ("64 EPQ"), or after a grade word ("UNC 64").
+    """
+    candidates = re.findall(r"\d{1,2}", sheldon) if sheldon else []
+    candidates += _NOTE_NUMBER_BEFORE.findall(text)
+    candidates += _NOTE_NUMBER_AFTER.findall(text)
+    for number in candidates:
+        if int(number) in _NOTE_NUMBERS:
+            return f"N{int(number)}"
+    for pattern, code in _NOTE_TERMS:
+        if pattern.search(text):
+            return code
+    return None
 
 
 def parse_condition(text: str) -> ParsedCondition:
