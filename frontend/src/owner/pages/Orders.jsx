@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { date, money } from '../../shared/format'
+import OrderDialog from './orders/OrderDialog'
+import OrderEditor from './orders/OrderEditor'
+import OrderHistory from './orders/OrderHistory'
 
 /**
  * Every order, for working through them.
@@ -28,6 +31,10 @@ export default function Orders() {
   const [show, setShow] = useState('')
   // Bumped to fetch again; the effect is the only place the list is set.
   const [reloads, setReloads] = useState(0)
+  // 'new' or an order being placed or revised; null when the editor is closed.
+  const [editing, setEditing] = useState(null)
+  // The order whose history dialog is open; null when it is closed.
+  const [historyOf, setHistoryOf] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -75,6 +82,10 @@ export default function Orders() {
       <h1>Orders</h1>
 
       <div className="row">
+        <button onClick={() => setEditing('new')}>New order</button>
+      </div>
+
+      <div className="row">
         <label>
           Show{/* */}
           <select value={show} onChange={(e) => setShow(e.target.value)}>
@@ -104,6 +115,7 @@ export default function Orders() {
               <th>Items</th>
               <th>Total</th>
               <th>Status</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -116,6 +128,10 @@ export default function Orders() {
                   {order.customer_email && (
                     <div className="muted">{order.customer_email}</div>
                   )}
+                  {order.placed_by_email &&
+                    order.placed_by_email !== order.customer_email && (
+                      <div className="muted">entered by {order.placed_by_email}</div>
+                    )}
                 </td>
                 <td>
                   {order.items.map((line) => (
@@ -125,7 +141,12 @@ export default function Orders() {
                     </div>
                   ))}
                 </td>
-                <td>{money(order.total_amount)}</td>
+                <td>
+                  {money(order.total_amount)}
+                  {order.payment_adjustment_due && (
+                    <span className="badge">payment adjustment due</span>
+                  )}
+                </td>
                 <td>
                   <select
                     aria-label={`Status of order ${order.id}`}
@@ -145,10 +166,38 @@ export default function Orders() {
                     ))}
                   </select>
                 </td>
+                <td>
+                  {['pending', 'paid'].includes(order.status) && (
+                    <button className="link" onClick={() => setEditing(order)}>
+                      Edit
+                    </button>
+                  )}{' '}
+                  <button className="link" onClick={() => setHistoryOf(order)}>
+                    History
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {editing && (
+        <OrderDialog label="Order" onClose={() => setEditing(null)}>
+          <OrderEditor
+            order={editing === 'new' ? null : editing}
+            onClose={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null)
+              setReloads((n) => n + 1)
+            }}
+          />
+        </OrderDialog>
+      )}
+      {historyOf && (
+        <OrderDialog label="Order history" onClose={() => setHistoryOf(null)}>
+          <OrderHistory order={historyOf} onClose={() => setHistoryOf(null)} />
+        </OrderDialog>
       )}
     </section>
   )

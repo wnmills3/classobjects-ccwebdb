@@ -352,6 +352,33 @@ offered to the next buyer, the same coins sold twice. Place a new order
 instead. Cancelling after packing or shipping returns no stock, and re-sending
 `cancelled` is harmless.
 
+**Placing an order for a customer.** The console's **New order** button opens
+an editor that searches customers (and accounts that have no customer row
+yet) and the catalogue, and saves with `POST /api/customers/{id}/orders`.
+Item prices default to the listing's current price but can be overridden line
+by line, for the cases -- a phone order, a show sale, a price matched to
+another dealer -- where the sale price is not what is currently listed.
+
+**Revising a pending or paid order.** The same editor, opened from a pending
+or paid order's **Edit** button, sends the whole desired contents to
+`PUT /api/orders/{id}` -- not a patch of one field, because stock moves by the
+difference between the old and new line items, all or nothing. The request
+carries the `version` the order was loaded at; a save over someone else's
+change in the meantime is refused rather than silently applied, and the
+editor asks the user to reload. Orders past `paid` cannot be revised this
+way -- packed, shipped and later stock has already left the shelf.
+
+**`payment_adjustment_due`** is set when a paid order's total changes after
+payment -- the console flags the order and shows the badge until someone
+handles the refund or additional charge outside the system; nothing in
+ccwebdb moves money.
+
+**History.** Every save -- the initial placement, and each revision -- is
+recorded as one or more rows: who placed the order, and for a revision, what
+changed line by line and the total's old and new value. The console's
+**History** button on a row calls `GET /api/orders/{id}/changes` and groups
+the rows from one save into one entry, oldest first.
+
 ## Reference vocabularies
 
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows
