@@ -8,8 +8,6 @@ need two nullable foreign keys and a constraint saying exactly one is set.
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -26,6 +24,7 @@ from ..models import (
     User,
     UserRole,
 )
+from ..order_writes import Line, customer_for_user, payment_adjustment_due, place_order
 from ..references import require_code
 from ..schemas import OrderCreate, OrderOut, OrderStatusUpdate
 
@@ -38,25 +37,6 @@ SHIPPED_STATUSES = frozenset({"packed", "shipped", "delivered"})
 # The same 404 whether the order does not exist or belongs to another
 # customer, so order ids cannot be probed.
 _ORDER_NOT_FOUND = "Order not found"
-
-
-def _customer_for(db: Session, user: User) -> Customer:
-    """Find or create the customer record behind a login.
-
-    `customer` is separate from `users` because a buyer can exist without an
-    account -- a walk-in or a phone order -- and because customer PII belongs
-    on the sales side of the schema, not on the authentication table.
-    """
-    customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
-    if customer is None:
-        customer = Customer(
-            user_id=user.id,
-            display_name=user.full_name or user.email,
-            email=user.email,
-        )
-        db.add(customer)
-        db.flush()
-    return customer
 
 
 def _order_out(order: SalesOrder, status_code: str) -> OrderOut:
@@ -78,6 +58,10 @@ def _order_out(order: SalesOrder, status_code: str) -> OrderOut:
             }
             for line in order.items
         ],
+        version=order.version,
+        notes=order.notes,
+        placed_by_email=order.placed_by.email if order.placed_by else None,
+        payment_adjustment_due=payment_adjustment_due(status_code, order.changes),
     )
 
 
@@ -88,6 +72,8 @@ _ORDER_DETAIL = (
     selectinload(SalesOrder.items)
     .selectinload(SalesOrderItem.listing)
     .selectinload(Listing.inventory_item),
+    selectinload(SalesOrder.placed_by),
+    selectinload(SalesOrder.changes),
 )
 
 
@@ -102,83 +88,37 @@ def _load(db: Session, order_id: int) -> SalesOrder | None:
     )
 
 
+def order_out(db: Session, order_id: int) -> OrderOut:
+    """One order, freshly loaded, as the API returns it."""
+    db.expire_all()
+    order = _load(db, order_id)
+    if order is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
+        )
+    return _order_out(order, _status_code(db, order))
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> OrderOut:
     """Place an order, decrementing availability atomically.
 
-    Listings are locked with SELECT ... FOR UPDATE and taken in a stable id
-    order, so two concurrent buyers can neither oversell the same listing nor
-    deadlock against each other. This is verified by tests that drive the
-    handler from real threads -- a test that serialises its requests would
-    pass even with the lock removed.
+    Routes through `order_writes.place_order`, which locks listings with
+    SELECT ... FOR UPDATE and takes them in a stable id order, so two
+    concurrent buyers can neither oversell the same listing nor deadlock
+    against each other. This is verified by tests that drive the handler from
+    real threads -- a test that serialises its requests would pass even with
+    the lock removed.
     """
-    wanted = {line.listing_id: line.quantity for line in payload.items}
-
-    listings = db.scalars(
-        select(Listing)
-        .where(Listing.id.in_(wanted))
-        .order_by(Listing.id)
-        .with_for_update()
-    ).all()
-
-    found = {listing.id for listing in listings}
-    missing = sorted(set(wanted) - found)
-    if missing:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown listing id(s): {missing}",
-        )
-
-    customer = _customer_for(db, user)
-    order = SalesOrder(
-        customer_id=customer.id,
-        sales_order_status_id=require_code(db, SalesOrderStatus, "pending", "status"),
+    customer = customer_for_user(db, user)
+    order = place_order(
+        db,
+        customer,
+        [Line(line.listing_id, line.quantity) for line in payload.items],
+        placed_by=user,
     )
-    total = Decimal("0.00")
-
-    for listing in listings:
-        quantity = wanted[listing.id]
-        if not listing.is_active:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Listing {listing.id} is not currently for sale",
-            )
-        if listing.quantity_available < quantity:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Only {listing.quantity_available} of listing "
-                    f"{listing.id} remain (requested {quantity})"
-                ),
-            )
-
-        listing.quantity_available -= quantity
-        total += listing.price * quantity
-        order.items.append(
-            SalesOrderItem(
-                listing_id=listing.id,
-                quantity=quantity,
-                unit_price=listing.price,
-            )
-        )
-
-        # Selling the last unit moves the item along its disposition axis.
-        # Status (how it came in) is untouched: the two are independent.
-        if listing.quantity_available == 0:
-            item = db.get(InventoryItem, listing.inventory_item_id)
-            if item is not None:
-                item.disposition_id = require_code(
-                    db, Disposition, "sold", "disposition"
-                )
-
-    order.total_amount = total
-    db.add(order)
     db.commit()
-    db.refresh(order)
-    return _order_out(order, "pending")
+    return order_out(db, order.id)
 
 
 @router.get("")
