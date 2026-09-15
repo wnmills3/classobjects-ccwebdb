@@ -258,6 +258,16 @@ class OrderLineIn(BaseModel):
     quantity: int = Field(ge=1)
 
 
+def _refuse_duplicate_listings(listing_ids: list[int]) -> None:
+    """Refuse the same listing twice in one order.
+
+    Two lines for one listing would each be checked against stock separately,
+    so together they could pass while overselling it.
+    """
+    if len(set(listing_ids)) != len(listing_ids):
+        raise ValueError("each listing_id may appear at most once per order")
+
+
 class OrderCreate(BaseModel):
     """An order as placed. At least one line, and no listing twice."""
 
@@ -266,14 +276,38 @@ class OrderCreate(BaseModel):
     @field_validator("items")
     @classmethod
     def no_duplicate_listings(cls, items: list[OrderLineIn]) -> list[OrderLineIn]:
-        """Refuse the same listing twice in one order.
+        """Refuse the same listing twice in one order."""
+        _refuse_duplicate_listings([item.listing_id for item in items])
+        return items
 
-        Two lines for one listing would each be checked against stock
-        separately, so together they could pass while overselling it.
-        """
-        seen = {item.listing_id for item in items}
-        if len(seen) != len(items):
-            raise ValueError("each listing_id may appear at most once per order")
+
+class AdminOrderLineIn(BaseModel):
+    """A line an administrator enters. No price means the listing's price."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    listing_id: int
+    quantity: int = Field(ge=1)
+    unit_price: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+
+
+class AdminOrderCreate(BaseModel):
+    """An order an administrator places for a customer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[AdminOrderLineIn] = Field(min_length=1)
+    notes: str | None = None
+
+    @field_validator("items")
+    @classmethod
+    def no_duplicate_listings(
+        cls, items: list[AdminOrderLineIn]
+    ) -> list[AdminOrderLineIn]:
+        """Refuse the same listing twice in one order."""
+        _refuse_duplicate_listings([item.listing_id for item in items])
         return items
 
 
