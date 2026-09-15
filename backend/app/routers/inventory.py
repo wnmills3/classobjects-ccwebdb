@@ -72,6 +72,7 @@ from ..schemas import (
     SplitResultOut,
 )
 from ..splitting import SplitError, SplitPiece, split_item
+from ..years import YEAR_FIELDS, backwards, refuse_backwards, resolve_years
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -579,12 +580,32 @@ def bulk_edit(
             else:
                 resolved[f"{field}_id"] = value_id
     for field in EDITABLE_SCALARS:
-        if field in data:
+        if field in data and field not in YEAR_FIELDS:
             resolved[field] = data[field]
+
+    # Per item, not once for the set: the same Year moves a single year's end
+    # with it and leaves a range's end alone. Checked across every item before
+    # any is changed, the same all-or-nothing as the codes above.
+    years = {
+        item.id: resolve_years((item.year_start, item.year_end), data) for item in items
+    }
+    broken = sorted(
+        item.item_code
+        for item in items
+        if (pair := years[item.id]) is not None and backwards(pair)
+    )
+    if broken:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"That year would end a range before it starts on {broken}. "
+            "Nothing was changed.",
+        )
 
     for item in items:
         for column, value in resolved.items():
             setattr(item, column, value)
+        if (pair := years[item.id]) is not None:
+            item.year_start, item.year_end = pair
         if status_id is not None:
             set_status(db, item, status_id, user_id=admin.id)
 
@@ -628,6 +649,11 @@ def update_item(
             ),
         )
 
+    # Before anything is set: a refused year leaves the item untouched.
+    years = resolve_years((item.year_start, item.year_end), data)
+    if years is not None:
+        refuse_backwards(years, item.item_code)
+
     for field, model in ITEM_CLASSIFIERS.items():
         if field in data:
             value = data[field]
@@ -648,8 +674,10 @@ def update_item(
                 setattr(item, f"{field}_id", resolved)
 
     for field in EDITABLE_SCALARS:
-        if field in data:
+        if field in data and field not in YEAR_FIELDS:
             setattr(item, field, data[field])
+    if years is not None:
+        item.year_start, item.year_end = years
 
     try:
         db.commit()

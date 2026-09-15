@@ -45,6 +45,7 @@ from ..schemas import (
     CatalogItemUpdate,
     CatalogPage,
 )
+from ..years import YEAR_FIELDS, refuse_backwards, resolve_years
 from .images import image_urls
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -271,6 +272,11 @@ def create_catalog_item(
     """Create the inventory item and the listing that offers it, together."""
     data = payload.model_dump()
     classifiers = _resolve_classifiers(db, data)
+    # A year given alone is a single year. model_dump fills an unsent end with
+    # None, so only the years actually given are passed to be resolved.
+    given = {field: data[field] for field in YEAR_FIELDS if data[field] is not None}
+    if (years := resolve_years((None, None), given)) is not None:
+        data["year_start"], data["year_end"] = years
 
     item = InventoryItem(
         **{column: data[field] for field, column in ITEM_SCALARS.items()},
@@ -339,11 +345,18 @@ def update_catalog_item(
             ),
         )
 
+    # Before anything is set: a refused year leaves the entry untouched.
+    years = resolve_years((item.year_start, item.year_end), data)
+    if years is not None:
+        refuse_backwards(years, item.item_code)
+
     for field, value in _resolve_classifiers(db, data).items():
         setattr(item, field, value)
     for field, column in ITEM_SCALARS.items():
-        if field in data:
+        if field in data and field not in YEAR_FIELDS:
             setattr(item, column, data[field])
+    if years is not None:
+        item.year_start, item.year_end = years
 
     for field in ("price", "quantity_available", "is_active"):
         if field in data:
