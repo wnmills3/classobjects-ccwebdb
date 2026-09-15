@@ -331,9 +331,14 @@ for when the lineage itself was wrong.
 ## Orders
 
 **Orders** in the console lists every order, newest first: who placed it,
-what is in it at the price paid, the total, and its status. A customer sees
-only their own in the shop; `GET /api/orders` gives an administrator all of
-them, each naming its customer and every line's listing title.
+what is in it at the price paid, the total, and its status. `GET /api/orders`
+gives an administrator all of them, each naming its customer and every line's
+listing title.
+
+The shop's **Your orders** page is only ever the signed-in person's own orders
+(`GET /api/orders?mine=true`), an administrator's included, and has no status
+control: order administration lives in the console alone, and the calls for it
+are in `owner/api.js`, out of the shop's bundle.
 
 Status is changed from the order's row (`PATCH /api/orders/{id}`, administrators
 only), through the whole `sales_order_status` vocabulary: pending, paid,

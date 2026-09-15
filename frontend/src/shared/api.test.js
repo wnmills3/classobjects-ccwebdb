@@ -1,6 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, clearTokens, loadTokens, saveTokens, send } from './api'
+import { ApiError, api, clearTokens, loadTokens, saveTokens, send } from './api'
+
+describe("the shop's api object", () => {
+  // Everything here ships to every anonymous visitor of the shop. Listing
+  // every order and changing an order's status are console tools, and belong
+  // in owner/api.js, which the bundle-isolation check keeps out of the shop.
+  it('carries no order administration', () => {
+    expect(api.setOrderStatus).toBeUndefined()
+    expect(api.listOrders).toBeUndefined()
+    expect(api.listMyOrders).toBeTypeOf('function')
+  })
+
+  it("asks for the caller's own orders, which for an admin is not every order", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: () => Promise.resolve('[]'),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      await api.listMyOrders()
+      expect(fetchMock.mock.calls[0][0]).toMatch(/\/api\/orders\?mine=true$/)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
 
 afterEach(() => {
   localStorage.clear()
