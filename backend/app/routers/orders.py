@@ -16,10 +16,9 @@ from sqlalchemy.orm.exc import StaleDataError
 from ..deps import AdminUser, CurrentUser, DbSession
 from ..models import (
     Customer,
-    Disposition,
-    InventoryItem,
     Listing,
     SalesOrder,
+    SalesOrderChange,
     SalesOrderItem,
     SalesOrderStatus,
     User,
@@ -30,10 +29,18 @@ from ..order_writes import (
     customer_for_user,
     payment_adjustment_due,
     place_order,
+    record_status_change,
+    return_stock,
     revise_order,
 )
 from ..references import require_code
-from ..schemas import OrderCreate, OrderOut, OrderRevision, OrderStatusUpdate
+from ..schemas import (
+    OrderChangeOut,
+    OrderCreate,
+    OrderOut,
+    OrderRevision,
+    OrderStatusUpdate,
+)
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -170,12 +177,58 @@ def get_order(order_id: int, db: DbSession, user: CurrentUser) -> OrderOut:
     return _order_out(order, _status_code(db, order))
 
 
+@router.get("/{order_id}/changes")
+def list_order_changes(
+    order_id: int, db: DbSession, _admin: AdminUser
+) -> list[OrderChangeOut]:
+    """An order's history, newest first."""
+    if db.get(SalesOrder, order_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
+        )
+    rows = db.scalars(
+        select(SalesOrderChange)
+        .where(SalesOrderChange.sales_order_id == order_id)
+        .options(
+            selectinload(SalesOrderChange.changed_by),
+            selectinload(SalesOrderChange.listing).selectinload(Listing.inventory_item),
+        )
+        .order_by(SalesOrderChange.id.desc())
+    ).all()
+    return [
+        OrderChangeOut(
+            id=row.id,
+            changed_at=row.changed_at,
+            changed_by_email=row.changed_by.email if row.changed_by else None,
+            change=row.change.value,
+            listing_id=row.listing_id,
+            listing_title=row.listing.inventory_item.source_title
+            if row.listing
+            else None,
+            from_value=row.from_value,
+            to_value=row.to_value,
+        )
+        for row in rows
+    ]
+
+
 @router.patch("/{order_id}")
 def update_order_status(
-    order_id: int, payload: OrderStatusUpdate, db: DbSession, _admin: AdminUser
+    order_id: int, payload: OrderStatusUpdate, db: DbSession, admin: AdminUser
 ) -> OrderOut:
-    """Advance an order. Cancelling an unshipped one returns its stock."""
-    order = _load(db, order_id)
+    """Advance an order. Cancelling an unshipped one returns its stock.
+
+    Locks and re-reads the `sales_order` row -- order first, listings second
+    (inside `return_stock`), the same sequence `revise_order` uses -- so the
+    two routes can never deadlock waiting on each other's locks.
+    """
+    order = db.execute(
+        select(SalesOrder)
+        .where(SalesOrder.id == order_id)
+        .options(selectinload(SalesOrder.items))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
     if order is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
@@ -194,25 +247,23 @@ def update_order_status(
     order.sales_order_status_id = require_code(
         db, SalesOrderStatus, payload.status, "status"
     )
+    record_status_change(db, order, previous, payload.status, admin)
 
     # Cancelling an order that had not shipped returns stock to the catalogue.
     if payload.status == "cancelled" and previous not in SHIPPED_STATUSES | {
         "cancelled"
     }:
-        for line in order.items:
-            listing = db.get(Listing, line.listing_id, with_for_update=True)
-            if listing is None:
-                continue
-            listing.quantity_available += line.quantity
-            item = db.get(InventoryItem, listing.inventory_item_id)
-            if item is not None and listing.is_active:
-                item.disposition_id = require_code(
-                    db, Disposition, "listed", "disposition"
-                )
+        return_stock(db, order)
 
-    db.commit()
-    db.refresh(order)
-    return _order_out(order, payload.status)
+    try:
+        db.commit()
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Order #{order.id} was changed while saving. Reload and retry.",
+        ) from exc
+    return order_out(db, order.id)
 
 
 @router.put("/{order_id}")

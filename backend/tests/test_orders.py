@@ -353,6 +353,42 @@ def test_cancelling_twice_does_not_double_restore(
     assert listing.quantity_available == 5, "stock restored once, not twice"
 
 
+def test_cancelling_restores_stock_for_every_line(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """A two-line order's cancellation must restock every line, not just one."""
+    first = make_listing(title="First", quantity_available=5)
+    second = make_listing(title="Second", quantity_available=5)
+    order = client.post(
+        "/api/orders",
+        json={
+            "items": [
+                {"listing_id": first.id, "quantity": 2},
+                {"listing_id": second.id, "quantity": 3},
+            ]
+        },
+        headers=customer_headers,
+    ).json()
+    db.refresh(first)
+    db.refresh(second)
+    assert (first.quantity_available, second.quantity_available) == (3, 2)
+
+    response = client.patch(
+        f"/api/orders/{order['id']}",
+        json={"status": "cancelled"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+
+    db.refresh(first)
+    db.refresh(second)
+    assert (first.quantity_available, second.quantity_available) == (5, 5)
+
+
 def test_cancelling_after_shipping_does_not_return_stock(
     client: TestClient,
     listing: Listing,

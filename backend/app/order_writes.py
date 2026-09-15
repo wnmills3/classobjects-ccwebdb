@@ -228,137 +228,181 @@ def revise_order(
     current = {item.listing_id: item for item in order.items}
     desired = {line.listing_id: line for line in lines}
     ids = set(current) | set(desired)
-    listings = _lock_listings(db, ids)
 
-    deltas: dict[int, int] = {}
-    for listing_id in sorted(ids):
-        have = current[listing_id].quantity if listing_id in current else 0
-        want = desired[listing_id].quantity if listing_id in desired else 0
-        deltas[listing_id] = want - have
-        listing = listings[listing_id]
-        if deltas[listing_id] > 0:
-            if not listing.is_active:
-                _refuse(
-                    db,
-                    status.HTTP_409_CONFLICT,
-                    f"Listing {listing_id} is not currently for sale",
-                )
-            if listing.quantity_available < deltas[listing_id]:
-                _refuse(
-                    db,
-                    status.HTTP_409_CONFLICT,
-                    f"Only {listing.quantity_available} more of listing {listing_id} "
-                    f"are available (this change needs {deltas[listing_id]})",
-                )
-
-    stamp = utcnow()
     changes: list[SalesOrderChange] = []
+    try:
+        listings = _lock_listings(db, ids)
 
-    def record(
-        kind: SalesOrderChangeKind,
-        listing_id: int | None = None,
-        before: str | None = None,
-        after: str | None = None,
-    ) -> None:
-        """Queue one history row for this save."""
-        changes.append(
-            SalesOrderChange(
-                sales_order_id=order.id,
-                changed_at=stamp,
-                changed_by_id=by.id,
-                change=kind,
-                listing_id=listing_id,
-                from_value=before,
-                to_value=after,
-            )
-        )
+        deltas: dict[int, int] = {}
+        for listing_id in sorted(ids):
+            have = current[listing_id].quantity if listing_id in current else 0
+            want = desired[listing_id].quantity if listing_id in desired else 0
+            deltas[listing_id] = want - have
+            listing = listings[listing_id]
+            if deltas[listing_id] > 0:
+                if not listing.is_active:
+                    _refuse(
+                        db,
+                        status.HTTP_409_CONFLICT,
+                        f"Listing {listing_id} is not currently for sale",
+                    )
+                if listing.quantity_available < deltas[listing_id]:
+                    _refuse(
+                        db,
+                        status.HTTP_409_CONFLICT,
+                        f"Only {listing.quantity_available} more of listing "
+                        f"{listing_id} are available (this change needs "
+                        f"{deltas[listing_id]})",
+                    )
 
-    old_total = order.total_amount
-    for listing_id in sorted(ids):
-        listing = listings[listing_id]
-        delta = deltas[listing_id]
-        if delta:
-            before = listing.quantity_available
-            listing.quantity_available -= delta
-            _after_stock_change(db, listing, before)
-        existing = current.get(listing_id)
-        line = desired.get(listing_id)
-        if existing is None and line is not None:
-            price = listing.price if line.unit_price is None else line.unit_price
-            order.items.append(
-                SalesOrderItem(
-                    listing_id=listing_id, quantity=line.quantity, unit_price=price
+        stamp = utcnow()
+
+        def record(
+            kind: SalesOrderChangeKind,
+            listing_id: int | None = None,
+            before: str | None = None,
+            after: str | None = None,
+        ) -> None:
+            """Queue one history row for this save."""
+            changes.append(
+                SalesOrderChange(
+                    sales_order_id=order.id,
+                    changed_at=stamp,
+                    changed_by_id=by.id,
+                    change=kind,
+                    listing_id=listing_id,
+                    from_value=before,
+                    to_value=after,
                 )
             )
-            record(
-                SalesOrderChangeKind.line_added,
-                listing_id,
-                after=f"{line.quantity} @ {money(price)}",
-            )
-        elif existing is not None and line is None:
-            order.items.remove(existing)
-            record(
-                SalesOrderChangeKind.line_removed,
-                listing_id,
-                before=f"{existing.quantity} @ {money(existing.unit_price)}",
-            )
-        elif existing is not None and line is not None:
+
+        old_total = order.total_amount
+        for listing_id in sorted(ids):
+            listing = listings[listing_id]
+            delta = deltas[listing_id]
             if delta:
-                record(
-                    SalesOrderChangeKind.quantity,
-                    listing_id,
-                    str(existing.quantity),
-                    str(line.quantity),
+                before = listing.quantity_available
+                listing.quantity_available -= delta
+                _after_stock_change(db, listing, before)
+            existing = current.get(listing_id)
+            line = desired.get(listing_id)
+            if existing is None and line is not None:
+                price = listing.price if line.unit_price is None else line.unit_price
+                order.items.append(
+                    SalesOrderItem(
+                        listing_id=listing_id, quantity=line.quantity, unit_price=price
+                    )
                 )
-                existing.quantity = line.quantity
-            if line.unit_price is not None and line.unit_price != existing.unit_price:
                 record(
-                    SalesOrderChangeKind.unit_price,
+                    SalesOrderChangeKind.line_added,
                     listing_id,
-                    money(existing.unit_price),
-                    money(line.unit_price),
+                    after=f"{line.quantity} @ {money(price)}",
                 )
-                existing.unit_price = line.unit_price
+            elif existing is not None and line is None:
+                order.items.remove(existing)
+                record(
+                    SalesOrderChangeKind.line_removed,
+                    listing_id,
+                    before=f"{existing.quantity} @ {money(existing.unit_price)}",
+                )
+            elif existing is not None and line is not None:
+                if delta:
+                    record(
+                        SalesOrderChangeKind.quantity,
+                        listing_id,
+                        str(existing.quantity),
+                        str(line.quantity),
+                    )
+                    existing.quantity = line.quantity
+                if (
+                    line.unit_price is not None
+                    and line.unit_price != existing.unit_price
+                ):
+                    record(
+                        SalesOrderChangeKind.unit_price,
+                        listing_id,
+                        money(existing.unit_price),
+                        money(line.unit_price),
+                    )
+                    existing.unit_price = line.unit_price
 
-    if customer.id != order.customer_id:
-        record(
-            SalesOrderChangeKind.customer,
-            None,
-            order.customer.display_name,
-            customer.display_name,
-        )
-        order.customer = customer
-    if (notes or None) != (order.notes or None):
-        record(SalesOrderChangeKind.notes, None, order.notes, notes)
-        order.notes = notes
-
-    new_total = sum(
-        (item.unit_price * item.quantity for item in order.items), Decimal("0.00")
-    )
-    if new_total != old_total:
-        record(SalesOrderChangeKind.total, None, money(old_total), money(new_total))
-        order.total_amount = new_total
-
-    if changes:
-        # A line-only edit leaves the order row untouched, and the version
-        # only moves when that row is updated -- so touch it.
-        order.updated_at = stamp
-        db.add_all(changes)
-        try:
-            db.flush()
-        except StaleDataError:
-            # The order and listing locks make this hard to hit -- everything
-            # this call mutates was locked and re-read above -- but a writer
-            # that updates the order row without taking that lock (e.g.
-            # `update_order_status`) can still lose the race at the flush.
-            # Surface it the same way the version check above does, rather
-            # than as an unhandled 500.
-            _refuse(
-                db,
-                status.HTTP_409_CONFLICT,
-                f"Order #{order.id} was changed while saving. Reload and retry.",
+        if customer.id != order.customer_id:
+            record(
+                SalesOrderChangeKind.customer,
+                None,
+                order.customer.display_name,
+                customer.display_name,
             )
+            order.customer = customer
+        if (notes or None) != (order.notes or None):
+            record(SalesOrderChangeKind.notes, None, order.notes, notes)
+            order.notes = notes
+
+        new_total = sum(
+            (item.unit_price * item.quantity for item in order.items), Decimal("0.00")
+        )
+        if new_total != old_total:
+            record(SalesOrderChangeKind.total, None, money(old_total), money(new_total))
+            order.total_amount = new_total
+
+        if changes:
+            # A line-only edit leaves the order row untouched, and the version
+            # only moves when that row is updated -- so touch it.
+            order.updated_at = stamp
+            db.add_all(changes)
+            db.flush()
+    except StaleDataError:
+        # The order lock makes a stale write to the `sales_order` row itself
+        # hard to hit here -- it was locked and re-read above, and
+        # `update_order_status` takes the same lock before it writes.  What
+        # isn't locked is `InventoryItem.disposition`, written by
+        # `_after_stock_change` above and carrying its own version column: a
+        # concurrent edit to that item's inventory row (outside the order
+        # path) can still lose the race at any of this section's flushes,
+        # explicit or implicit (`require_code`, `db.get(InventoryItem, ...)`,
+        # a lazy load). Surface it the same way the version check above does,
+        # rather than as an unhandled 500.
+        _refuse(
+            db,
+            status.HTTP_409_CONFLICT,
+            f"Order #{order.id} was changed while saving. Reload and retry.",
+        )
     return bool(changes)
+
+
+def record_status_change(
+    db: Session, order: SalesOrder, before: str, after: str, by: User
+) -> None:
+    """Write a `status` history row when the status actually changed."""
+    if before == after:
+        return
+    db.add(
+        SalesOrderChange(
+            sales_order_id=order.id,
+            changed_at=utcnow(),
+            changed_by_id=by.id,
+            change=SalesOrderChangeKind.status,
+            from_value=before,
+            to_value=after,
+        )
+    )
+
+
+def return_stock(db: Session, order: SalesOrder) -> None:
+    """Add each line's quantity back to its listing.
+
+    Locks the order's listings the same way `place_order` and `revise_order`
+    do -- FOR UPDATE, in id order, re-read -- so this cannot deadlock against
+    a concurrent checkout or revision touching the same listings. The caller
+    locks and re-reads `order` itself first, before calling this, the same
+    order-first, listings-second sequence `revise_order` uses.
+    """
+    listings = _lock_listings(db, {item.listing_id for item in order.items})
+    for item in sorted(order.items, key=lambda item: item.listing_id):
+        listing = listings[item.listing_id]
+        before = listing.quantity_available
+        listing.quantity_available += item.quantity
+        _after_stock_change(db, listing, before)
 
 
 def payment_adjustment_due(
