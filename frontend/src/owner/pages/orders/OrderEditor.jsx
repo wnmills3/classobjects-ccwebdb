@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
 import { money } from '../../../shared/format'
-import { AccessLabel, accel, useSaveShortcut } from '../../shortcuts'
+import { AccessLabel } from '../../AccessLabel'
+import { accel, useSaveShortcut } from '../../shortcuts'
 import { fromCents, isMoney, toCents, totalCents } from './cents'
 
 /**
