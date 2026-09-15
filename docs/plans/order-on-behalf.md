@@ -2386,7 +2386,226 @@ git commit -m "Place, edit and trace orders from the console's Orders page"
 
 ---
 
-### Task 10: Mutation checks and a live check on a copy
+### Task 10: Keyboard accelerators in both edit windows
+
+Added 2026-09-15 at the user's request ("add keyboard accelerators to the fields in the edit window and for the save button"), applied to both edit windows: the item editor (`inventory/ItemEditForm.jsx`, shown in `ItemEditDialog` and inline in `ReviewPane`) and the order editor (`orders/OrderEditor.jsx`).
+
+**Files:**
+- Create: `frontend/src/owner/shortcuts.jsx`, `frontend/src/owner/shortcuts.test.jsx`
+- Modify: `frontend/src/owner/pages/inventory/ItemEditForm.jsx`, `frontend/src/owner/pages/inventory/ItemEditForm.test.jsx`, `frontend/src/shared/reference.jsx` (pass `accessKey` through `ReferenceSelect`), `frontend/src/owner/pages/orders/OrderEditor.jsx`, `frontend/src/owner/pages/orders/OrderEditor.test.jsx`, `docs/system-administration.md`
+
+**Interfaces:**
+- Produces: `<AccessLabel text accessKey />` -- renders `text` with the first occurrence (case-insensitive) of `accessKey` wrapped in `<u>`; `useSaveShortcut(onSave, enabled)` -- while mounted, a `keydown` on `document` with Ctrl or Meta plus `s`/`S`/`Enter` calls `onSave()` and `preventDefault()`s, only when `enabled`.
+- Every accelerated control carries `accessKey="<letter>"` and `aria-keyshortcuts="Alt+<LETTER>"`.
+
+**Letters (never D, E or F -- Chrome and Edge on Windows reserve Alt+D, Alt+E, Alt+F):**
+
+| Item editor | key | Order editor | key |
+|---|---|---|---|
+| Title | t | Find customer | n |
+| Description | c | Customer | c |
+| Year / Year from | y | Find item | i |
+| Year to | o | Search | h |
+| Range of years | r | Notes | o |
+| Pieces | p | Save order | v |
+| Item cost | i | | |
+| Shipping | h | | |
+| No sales tax charged | n | | |
+| Grade | g | | |
+| Denomination | m | | |
+| Country | u | | |
+| Metal | l | | |
+| Save | v | | |
+
+- [ ] **Step 1: Write the failing tests**
+
+`frontend/src/owner/shortcuts.test.jsx`:
+
+```jsx
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+
+import { AccessLabel, useSaveShortcut } from './shortcuts'
+
+function Probe({ onSave, enabled }) {
+  useSaveShortcut(onSave, enabled)
+  return <p>probe</p>
+}
+
+describe('AccessLabel', () => {
+  it('underlines the access key letter and keeps the full text', () => {
+    const { container } = render(<AccessLabel text="Shipping" accessKey="h" />)
+    expect(container.textContent).toBe('Shipping')
+    expect(container.querySelector('u').textContent).toBe('h')
+  })
+
+  it('renders plain text when the letter is absent', () => {
+    const { container } = render(<AccessLabel text="Grade" accessKey="z" />)
+    expect(container.querySelector('u')).toBeNull()
+  })
+})
+
+describe('useSaveShortcut', () => {
+  it('saves on Ctrl+S and Ctrl+Enter, and stops the browser saving the page', () => {
+    const onSave = vi.fn()
+    render(<Probe onSave={onSave} enabled />)
+    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true })
+    document.dispatchEvent(event)
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    expect(onSave).toHaveBeenCalledTimes(2)
+    expect(event.defaultPrevented).toBe(true)
+    expect(screen.getByText('probe')).toBeInTheDocument()
+  })
+
+  it('does nothing when disabled or without the modifier', () => {
+    const onSave = vi.fn()
+    const { rerender } = render(<Probe onSave={onSave} enabled={false} />)
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    rerender(<Probe onSave={onSave} enabled />)
+    fireEvent.keyDown(document, { key: 's' })
+    expect(onSave).not.toHaveBeenCalled()
+  })
+})
+```
+
+Append to `ItemEditForm.test.jsx`:
+
+```jsx
+describe('ItemEditForm keyboard accelerators', () => {
+  it('gives each field and Save an access key, shown in its label', async () => {
+    api.getInventoryItem.mockResolvedValue({ ...item, year_start: 1878, year_end: 1878 })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    const expected = [
+      [screen.getByRole('textbox', { name: /Title/ }), 't'],
+      [screen.getByRole('textbox', { name: /Description/ }), 'c'],
+      [screen.getByRole('spinbutton', { name: 'Year' }), 'y'],
+      [screen.getByRole('checkbox', { name: 'Range of years' }), 'r'],
+      [screen.getByRole('button', { name: 'Save' }), 'v'],
+    ]
+    for (const [element, key] of expected) {
+      expect(element).toHaveAttribute('accesskey', key)
+      expect(element).toHaveAttribute('aria-keyshortcuts', `Alt+${key.toUpperCase()}`)
+    }
+  })
+
+  it('saves with Ctrl+S once there is something to save', async () => {
+    api.updateInventoryItem.mockResolvedValue({})
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+
+    await user.type(screen.getByRole('textbox', { name: /Description/ }), '!')
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+  })
+})
+```
+
+(add `fireEvent` to that file's `@testing-library/react` import).
+
+Append to `OrderEditor.test.jsx`:
+
+```jsx
+  it('gives the editor access keys and saves with Ctrl+Enter', async () => {
+    await setup(ORDER)
+    expect(screen.getByRole('combobox', { name: 'Customer' })).toHaveAttribute('accesskey', 'c')
+    expect(screen.getByRole('searchbox', { name: 'Find item' })).toHaveAttribute('accesskey', 'i')
+    expect(screen.getByRole('button', { name: 'Save order' })).toHaveAttribute('accesskey', 'v')
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(api.reviseOrder).toHaveBeenCalled())
+  })
+```
+
+(add `fireEvent` to its imports).
+
+- [ ] **Step 2: Run to verify they fail** (`shortcuts` unresolved; attributes missing).
+
+- [ ] **Step 3: Implement `frontend/src/owner/shortcuts.jsx`**
+
+```jsx
+import { useEffect, useRef } from 'react'
+
+/**
+ * Keyboard accelerators for the console's edit windows.
+ *
+ * Fields use the browser's own `accesskey` (Alt+letter in Chrome and Edge),
+ * with the letter underlined in the label so the shortcut is discoverable and
+ * `aria-keyshortcuts` announcing it. Letters avoid D, E and F, which those
+ * browsers keep for the address bar and menus on Windows.
+ */
+
+/** A label with its access key's letter underlined. */
+export function AccessLabel({ text, accessKey }) {
+  const at = text.toLowerCase().indexOf(accessKey.toLowerCase())
+  if (at < 0) return text
+  return (
+    <>
+      {text.slice(0, at)}
+      <u>{text[at]}</u>
+      {text.slice(at + 1)}
+    </>
+  )
+}
+
+/** The attributes an accelerated control carries. */
+export const accel = (key) => ({
+  accessKey: key,
+  'aria-keyshortcuts': `Alt+${key.toUpperCase()}`,
+})
+
+/**
+ * Ctrl+S or Ctrl+Enter (Cmd on macOS) saves while the editor is open.
+ *
+ * On `document` rather than the form: the edit windows are modal, so one is
+ * open at a time, and a listener on the form would miss the shortcut before
+ * focus has entered it. The latest `onSave` is read through a ref, so the
+ * listener is attached once rather than on every render.
+ */
+export function useSaveShortcut(onSave, enabled) {
+  const latest = useRef({ onSave, enabled })
+  useEffect(() => {
+    latest.current = { onSave, enabled }
+  })
+
+  useEffect(() => {
+    function handle(e) {
+      if (!(e.ctrlKey || e.metaKey)) return
+      if (e.key !== 's' && e.key !== 'S' && e.key !== 'Enter') return
+      e.preventDefault()
+      if (latest.current.enabled) latest.current.onSave()
+    }
+    document.addEventListener('keydown', handle)
+    return () => document.removeEventListener('keydown', handle)
+  }, [])
+}
+```
+
+Note `preventDefault` runs even when disabled, so Ctrl+S never opens the browser's Save Page dialog over an editor that has nothing to save.
+
+- [ ] **Step 4: Apply to both editors**
+
+In `ItemEditForm.jsx`: call `useSaveShortcut(save, !saving && Object.keys(draft).length > 0)` among the other hooks, before any early return (hooks may not follow a conditional return; `save` is declared later as a function declaration and is hoisted). Replace each label text with `<AccessLabel text=... accessKey=... />` and spread `{...accel(key)}` onto its control, using the table's letters. `TEXT_FIELDS`, `NUMBER_FIELDS`, `MONEY_FIELDS` and `CLASSIFIERS` each gain a key as their last tuple element (e.g. `['Title', 'source_title', 't']`). The Year row uses `y` whether labelled Year or Year from; Year to uses `o`. `ReferenceSelect` in `shared/reference.jsx` gains `accessKey` and `aria-keyshortcuts` props passed to its `<select>`. The Save button gets `{...accel('v')}` and `<AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />`.
+
+In `OrderEditor.jsx`: `useSaveShortcut(save, !saving)`; apply the order editor letters to Find customer, Customer, Find item, Search, Notes (label text via `AccessLabel`) and Save order.
+
+In `docs/system-administration.md`, under the Orders section and beside the item editor's description if one exists, add: "Both edit windows take Alt+ the underlined letter to jump to a field, and Ctrl+S or Ctrl+Enter to save."
+
+- [ ] **Step 5: Run the shortcuts, item editor, order editor, review pane and inventory page tests**, then the full vitest suite. Existing tests query labels by accessible name, which the underline does not change; if one breaks, fix the query only when the accessible name is genuinely unchanged.
+
+- [ ] **Step 6: Gate and commit**
+
+```
+git add frontend/src/owner/shortcuts.jsx frontend/src/owner/shortcuts.test.jsx frontend/src/owner/pages/inventory/ItemEditForm.jsx frontend/src/owner/pages/inventory/ItemEditForm.test.jsx frontend/src/shared/reference.jsx frontend/src/owner/pages/orders/OrderEditor.jsx frontend/src/owner/pages/orders/OrderEditor.test.jsx docs/system-administration.md
+git commit -m "Add keyboard accelerators to the item and order edit windows"
+```
+
+---
+
+### Task 11: Mutation checks and a live check on a copy
 
 **Files:** none committed except fixes the checks reveal.
 
@@ -2400,6 +2619,8 @@ git commit -m "Place, edit and trace orders from the console's Orders page"
   7. `payment_adjustment_due`: `c.id > max(paid)` -> `True`.
   8. `cents.js` `toCents`: return `Math.round(Number(text) * 100)` and `totalCents` using `Number(line.unit_price) * Number(quantity) * 100` -- `cents.test.js`.
   9. `OrderEditor`: send `version: order.version` -> omitted.
+  10. `useSaveShortcut`: `e.preventDefault()` -> removed -- `shortcuts.test.jsx`.
+  11. `useSaveShortcut`: `if (latest.current.enabled)` -> `if (true)` -- `shortcuts.test.jsx`, `ItemEditForm.test.jsx`.
 
 - [ ] **Step 2: Live check on a copy.** The working database is never written. From cmd, with `PGBIN=%USERPROFILE%\miniforge3\envs\ccwebdb\Library\bin` and `PGPASSWORD=devpassword`:
 
