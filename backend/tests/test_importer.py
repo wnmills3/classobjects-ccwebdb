@@ -85,8 +85,20 @@ def profile() -> CollectionV1Profile:
         ("1 Bill", "currency"),
         ("Dollar Bill", "currency"),
         ("10c Bill", "currency"),
-        ("5 Rupees", "currency"),
-        ("20 Pound", "currency"),
+        ("25c Fractional", "currency"),
+        ("10 pfennig", "coin"),
+        ("10 ore", "coin"),
+        ("1 yen", "coin"),
+        (".50 Euro", "coin"),
+        ("10 Francs", "coin"),
+        ("20 Peso", "coin"),
+        ("5 Pesos Note", "currency"),
+        (".25 Grain", "bullion"),
+        ("50g Silver", "bullion"),
+        # India and Britain issue both coins and notes; nothing in the text
+        # says which, so these are left for a person rather than guessed.
+        ("5 Rupees", UNKNOWN),
+        ("20 Pound", UNKNOWN),
         ("Silver Eagle", "bullion"),
         ("Silver Round 1oz", "bullion"),
         ("Copper Bar 1oz", "bullion"),
@@ -162,6 +174,49 @@ def test_a_committed_panda_is_silver_with_a_fine_weight(
     assert item.gross_weight_ozt is not None
     assert abs(item.gross_weight_ozt - Decimal("0.964522")) < Decimal("0.000002")
     assert item.fine_weight_ozt == (item.gross_weight_ozt * Decimal("0.9990")).quantize(
+        Decimal("0.000001")
+    )
+
+
+def test_a_number_and_a_word_is_not_assumed_to_be_a_banknote(
+    profile: CollectionV1Profile,
+) -> None:
+    """The fallback used to call any "number followed by a word" currency.
+
+    On the real workbook that was right for one row in 35: pfennigs, pesetas,
+    yen and slabbed centavos were filed as banknotes, and a lot of quarter-grain
+    gold bars (CC-003183) sat in the currency inventory. A denomination no rule
+    recognises is now unknown and flagged, which puts it in the kind_unknown
+    check instead of hiding it in currency.
+    """
+    result = profile.inspect(make_row(Denom="5 Rupees"))
+    assert result.classification.kind == UNKNOWN
+    assert result.classification.rule == "number-then-word"
+    assert result.needs_review
+    assert any(i.rule == "unclassified" for i in result.issues)
+
+
+def test_a_foreign_coin_unit_is_a_coin_unless_the_text_says_note(
+    profile: CollectionV1Profile,
+) -> None:
+    """Francs and pesos were issued as notes too; bill or note decides."""
+
+    def kind(denom: str) -> str:
+        return profile.inspect(make_row(Denom=denom)).classification.kind
+
+    for denom in ("5 pesetas", "50 centavos", "1 centesimo", "10 Kreuzer", "3 Pense"):
+        assert kind(denom) == "coin", denom
+    for denom in ("10 Francs Note", "20 Peso Bill"):
+        assert kind(denom) == "currency", denom
+
+
+def test_a_weight_in_grains_is_bullion_with_a_troy_weight(
+    profile: CollectionV1Profile,
+) -> None:
+    """A troy ounce is exactly 480 grains."""
+    result = profile.inspect(make_row(Denom=".25 Grain"))
+    assert result.classification.kind == "bullion"
+    assert result.fields["weight_ozt"] == (Decimal("0.25") / 480).quantize(
         Decimal("0.000001")
     )
 
