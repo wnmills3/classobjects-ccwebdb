@@ -71,7 +71,8 @@ export const CURRENCY_VIEW = {
     ['District', 'fed_district_letter'],
     ['Serial', 'serial_number', 'mono'],
     ['Fr#', 'friedberg_number'],
-    ['Grade', 'grade'],
+    // The label, because a note grade's code (`N64`) is not what anyone reads.
+    ['Grade', 'grade_label'],
     ['Cost', 'total_cost', 'money'],
     ['Status', 'status'],
   ],
