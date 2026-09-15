@@ -42,6 +42,7 @@ if TYPE_CHECKING:  # relationship targets only -- importing them at
     # runtime would make core and sales import each other in a cycle.
     from .core import InventoryItem
     from .reference import Currency
+    from .scaffold import User
 
 __all__ = [
     "Address",
@@ -49,6 +50,8 @@ __all__ = [
     "Customer",
     "Listing",
     "SalesOrder",
+    "SalesOrderChange",
+    "SalesOrderChangeKind",
     "SalesOrderItem",
     "Shipment",
 ]
@@ -64,6 +67,20 @@ class AddressKind(enum.StrEnum):
 
     shipping = "shipping"
     billing = "billing"
+
+
+class SalesOrderChangeKind(enum.StrEnum):
+    """What one row of an order's history records."""
+
+    placed = "placed"
+    line_added = "line_added"
+    line_removed = "line_removed"
+    quantity = "quantity"
+    unit_price = "unit_price"
+    customer = "customer"
+    notes = "notes"
+    status = "status"
+    total = "total"
 
 
 class Listing(TimestampMixin, Base):
@@ -245,6 +262,15 @@ class SalesOrder(TimestampMixin, Base):
         DateTime(timezone=True), default=utcnow, nullable=False, index=True
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The account that entered the order: the buyer, or an administrator
+    #: acting for them. Null for orders placed before this was recorded.
+    placed_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Optimistic concurrency, as on Listing and InventoryItem.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
 
     customer: Mapped[Customer] = relationship(back_populates="orders")
     items: Mapped[list[SalesOrderItem]] = relationship(
@@ -253,6 +279,17 @@ class SalesOrder(TimestampMixin, Base):
     shipments: Mapped[list[Shipment]] = relationship(
         back_populates="order", cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
+    placed_by: Mapped[User | None] = relationship()
+    changes: Mapped[list[SalesOrderChange]] = relationship(
+        back_populates="order",
+        cascade=_CASCADE_ALL_DELETE_ORPHAN,
+        order_by="SalesOrderChange.id",
+    )
+
+    @declared_attr.directive
+    def __mapper_args__(cls) -> dict[str, Any]:
+        """Optimistic concurrency: every UPDATE checks the version it read."""
+        return {"version_id_col": cls.version}
 
     __table_args__ = (
         CheckConstraint("total_amount >= 0", name="ck_sales_order_total_non_negative"),
@@ -287,6 +324,39 @@ class SalesOrderItem(Base):
             "unit_price >= 0", name="ck_sales_order_item_price_non_negative"
         ),
     )
+
+
+class SalesOrderChange(Base):
+    """One change to an order: who, when, and what it was before and after.
+
+    One save writes several rows sharing `changed_at` and `changed_by_id`.
+    Values are text because they are of mixed kinds; `change` is closed.
+    """
+
+    __tablename__ = "sales_order_change"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sales_order_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_order.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    changed_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    change: Mapped[SalesOrderChangeKind] = mapped_column(
+        enum_column(SalesOrderChangeKind, "sales_order_change_kind"), nullable=False
+    )
+    listing_id: Mapped[int | None] = mapped_column(
+        ForeignKey("listing.id", ondelete="RESTRICT"), nullable=True
+    )
+    from_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    to_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    order: Mapped[SalesOrder] = relationship(back_populates="changes")
+    changed_by: Mapped[User | None] = relationship()
+    listing: Mapped[Listing | None] = relationship()
 
 
 class Shipment(TimestampMixin, Base):

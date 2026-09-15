@@ -98,6 +98,8 @@ from .sales import (
     Customer,
     Listing,
     SalesOrder,
+    SalesOrderChange,
+    SalesOrderChangeKind,
     SalesOrderItem,
     Shipment,
 )
@@ -190,6 +192,8 @@ __all__ = [
     "PurchaseOrder",
     "ReferenceMixin",
     "SalesOrder",
+    "SalesOrderChange",
+    "SalesOrderChangeKind",
     "SalesOrderItem",
     "SalesOrderStatus",
     "SealColor",
