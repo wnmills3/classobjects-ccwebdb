@@ -208,20 +208,27 @@ def revise_order(
         .with_for_update()
         .execution_options(populate_existing=True)
     ).scalar_one()
+    # Captured once, up front: after a flush fails below, every instance in
+    # the session is expired, and reading an ORM attribute -- even a plain
+    # id -- issues a SELECT that raises `PendingRollbackError` instead of
+    # returning the cached value, because the transaction is awaiting
+    # rollback. Every message built after mutations begin uses this plain
+    # int, never `order.id`.
+    order_id = order.id
 
     locked_status = _order_status_code(db, order)
     if locked_status not in EDITABLE_STATUSES:
         _refuse(
             db,
             status.HTTP_409_CONFLICT,
-            f"Order #{order.id} is {locked_status}; only pending or paid orders "
+            f"Order #{order_id} is {locked_status}; only pending or paid orders "
             "can be changed.",
         )
     if version != order.version:
         _refuse(
             db,
             status.HTTP_409_CONFLICT,
-            f"Order #{order.id} was changed by someone else (you have version "
+            f"Order #{order_id} was changed by someone else (you have version "
             f"{version}, current is {order.version}). Reload and reapply your changes.",
         )
 
@@ -266,7 +273,7 @@ def revise_order(
             """Queue one history row for this save."""
             changes.append(
                 SalesOrderChange(
-                    sales_order_id=order.id,
+                    sales_order_id=order_id,
                     changed_at=stamp,
                     changed_by_id=by.id,
                     change=kind,
@@ -361,11 +368,15 @@ def revise_order(
         # path) can still lose the race at any of this section's flushes,
         # explicit or implicit (`require_code`, `db.get(InventoryItem, ...)`,
         # a lazy load). Surface it the same way the version check above does,
-        # rather than as an unhandled 500.
+        # rather than as an unhandled 500 -- using `order_id`, not `order.id`:
+        # every instance in the session is expired once the flush has
+        # failed, and reading an attribute off one issues a SELECT that
+        # raises `PendingRollbackError` instead of the value.
         _refuse(
             db,
             status.HTTP_409_CONFLICT,
-            f"Order #{order.id} was changed while saving. Reload and retry.",
+            f"Order #{order_id} or one of its items was changed while saving. "
+            "Reload and retry.",
         )
     return bool(changes)
 
