@@ -120,6 +120,24 @@ describe('OrderLines', () => {
     expect(onPick).not.toHaveBeenCalled()
   })
 
+  it("shows the item's own title, falling back to the description", () => {
+    // `source_title` is what an entry form's Title box wrote; older imported
+    // lines have only a description. The fixture above sets both to the same
+    // string, so this uses its own rows to tell the two apart.
+    render(
+      <OrderLines
+        lines={[
+          { ...lines[0], source_title: '1881-S Morgan Dollar', description: 'Lot 44' },
+          { ...lines[2], source_title: '', description: 'Auction #652' },
+        ]}
+        onPick={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('1881-S Morgan Dollar')).toBeInTheDocument()
+    expect(screen.queryByText('Lot 44')).not.toBeInTheDocument()
+    expect(screen.getByText('Auction #652')).toBeInTheDocument()
+  })
+
   it('says so when an order has no lines at all', () => {
     render(<OrderLines lines={[]} onPick={vi.fn()} />)
     expect(screen.getByText(/no lines/i)).toBeInTheDocument()

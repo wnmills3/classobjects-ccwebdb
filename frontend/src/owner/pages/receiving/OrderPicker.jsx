@@ -10,8 +10,13 @@
  * order whose only receivable line is `missing` is never hidden either,
  * which a filter on `outstanding > 0` alone would still have gotten right,
  * but a fully-received order would not have.
+ *
+ * Rows are buttons, not bare `<li onClick>`s, so the list is reachable and
+ * operable from the keyboard. There is no "selected" row to mark: picking an
+ * order puts it in the URL, and the page then shows that order alone instead
+ * of this list.
  */
-export default function OrderPicker({ orders, selectedId, onPick }) {
+export default function OrderPicker({ orders, onPick }) {
   if (orders.length === 0) {
     return <p className="muted">No purchase orders yet.</p>
   }
@@ -19,15 +24,11 @@ export default function OrderPicker({ orders, selectedId, onPick }) {
   return (
     <ul className="order-picker">
       {orders.map((order) => (
-        <li
-          key={order.id}
-          className={
-            order.id === selectedId ? 'order-row order-row-active' : 'order-row'
-          }
-          onClick={() => onPick(order.id)}
-        >
-          {order.order_number} &middot; {order.vendor} &middot; {order.outstanding} of{' '}
-          {order.total}
+        <li key={order.id}>
+          <button type="button" className="order-row" onClick={() => onPick(order.id)}>
+            {order.order_number} &middot; {order.vendor} &middot; {order.outstanding} of{' '}
+            {order.total}
+          </button>
         </li>
       ))}
     </ul>

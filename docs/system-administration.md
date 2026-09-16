@@ -310,6 +310,24 @@ hands it one id. Recording twenty items is twenty dialogs, which is the trade
 accepted for the panel always being on screen: rendered under a long table it
 sat below the fold, so clicking appeared to do nothing.
 
+To keep that trade cheap, the **arrival date and storage location carry to the
+next line** -- a parcel of twenty into one safe deposit box is picked once, not
+twenty times. The **note does not carry**: a date and a location describe the
+parcel, but a note describes the object ("corner bent"), and repeating one onto
+the next item would record a fact about a coin nobody checked.
+
+The dialog closes only when everything landed. If a **photograph fails to
+upload** the receipt still stands -- the arrival is the fact, the photograph is
+evidence added to it -- but the dialog stays open naming the file that failed,
+rather than closing over an error nobody would ever see. There is no in-app
+retry for that upload: the item is now `received`, so its line no longer opens.
+Re-attaching it needs the status set back to `ordered` from the item editor.
+
+An item's **status can be corrected from the item editor** (Alt+S on the edit
+dialog), which is the only way back: receiving moves an item forward only. That
+path writes a status-history row like any other transition, so the item's
+history stays a true account including the correction.
+
 Following `/receiving?order=<id>` -- what the inventory screens' purchase-order
 column and New purchase's **Receive these** both link to -- shows **only that
 order**, with no picker over every other one. **Choose another order** goes back

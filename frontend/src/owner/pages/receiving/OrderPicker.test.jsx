@@ -37,26 +37,31 @@ describe('OrderPicker', () => {
   it('shows every order, including one that has fully arrived', () => {
     // A fully-received order is still worth looking at -- there is no other
     // way to see what it contained once everything on it arrived.
-    render(<OrderPicker orders={orders} selectedId={null} onPick={vi.fn()} />)
+    render(<OrderPicker orders={orders} onPick={vi.fn()} />)
     expect(screen.getByText(/27-1234/)).toBeInTheDocument()
     expect(screen.getByText(/27-1235/)).toBeInTheDocument()
   })
 
   it('offers an order whose only receivable line is missing', () => {
-    render(<OrderPicker orders={orders} selectedId={null} onPick={vi.fn()} />)
+    render(<OrderPicker orders={orders} onPick={vi.fn()} />)
     expect(screen.getByText(/27-1236/)).toBeInTheDocument()
   })
 
   it('calls onPick with the order id when clicked', async () => {
     const user = userEvent.setup()
     const onPick = vi.fn()
-    render(<OrderPicker orders={orders} selectedId={null} onPick={onPick} />)
+    render(<OrderPicker orders={orders} onPick={onPick} />)
     await user.click(screen.getByText(/27-1234/))
     expect(onPick).toHaveBeenCalledWith(1)
   })
 
+  it('renders each order as a button, so the list is keyboard reachable', () => {
+    render(<OrderPicker orders={orders} onPick={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /27-1234/ })).toBeInTheDocument()
+  })
+
   it('says so when there are no purchase orders at all', () => {
-    render(<OrderPicker orders={[]} selectedId={null} onPick={vi.fn()} />)
+    render(<OrderPicker orders={[]} onPick={vi.fn()} />)
     expect(screen.getByText(/no purchase orders/i)).toBeInTheDocument()
   })
 })

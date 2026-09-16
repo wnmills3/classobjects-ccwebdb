@@ -14,6 +14,8 @@ vi.mock('../api', () => ({
     //: Friedberg lookup is offered. Under the old bulk panel an empty
     //: selection meant this was never called.
     getInventoryItem: vi.fn(),
+    uploadImage: vi.fn(),
+    searchInventory: vi.fn(),
   },
 }))
 
@@ -166,6 +168,74 @@ describe('receiving one line at a time', () => {
     expect(api.receiveItems).not.toHaveBeenCalled()
   })
 
+  it('keeps the dialog open and says so when a photograph fails to upload', async () => {
+    // The receipt is recorded; the photograph is not. Closing on `onDone`
+    // unmounts the panel, so reporting the failure after that would write it
+    // to a component nobody can see -- the operator would be told the receipt
+    // landed and never learn the provenance photo did not.
+    const user = userEvent.setup()
+    api.receiveItems.mockResolvedValue({ received: 1 })
+    api.uploadImage.mockRejectedValue(new Error('file too large'))
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.upload(
+      within(dialog).getByLabelText(/photo/i),
+      new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }),
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Receive' }))
+
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalled())
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(await screen.findByText(/obverse\.jpg.*file too large/i)).toBeInTheDocument()
+  })
+
+  it('offers the previous line’s location again on the next one', async () => {
+    // A parcel of twenty into one safe deposit box must not be twenty
+    // identical dropdown picks.
+    const user = userEvent.setup()
+    api.receiveItems.mockResolvedValue({ received: 1 })
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    let dialog = await screen.findByRole('dialog')
+    await user.selectOptions(within(dialog).getByLabelText(/storage location/i), '3')
+    await user.click(within(dialog).getByRole('button', { name: 'Receive' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'CC-000412' }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText(/storage location/i)).toHaveValue('3')
+  })
+
+  it('does not carry a note from one line to the next', async () => {
+    // A location describes the parcel; a note describes the object. Repeating
+    // one writes a fact about a coin nobody checked.
+    const user = userEvent.setup()
+    api.receiveItems.mockResolvedValue({ received: 1 })
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    let dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/note/i), 'corner bent')
+    await user.click(within(dialog).getByRole('button', { name: 'Receive' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'CC-000412' }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText(/note/i)).toHaveValue('')
+  })
+
   it('no longer offers a bulk selection', async () => {
     renderWithProviders(<Receiving />, {
       auth: adminAuth(),
@@ -177,6 +247,61 @@ describe('receiving one line at a time', () => {
     // two radios choosing the way in are the only inputs of that shape left.
     expect(screen.queryByLabelText(/select all/i)).not.toBeInTheDocument()
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+  })
+})
+
+describe('an open dialog belongs to the order it was opened from', () => {
+  it('closes when the route moves to another order, as Back/Forward would', async () => {
+    // Neither Back/Forward nor an `?order=` link goes through a handler here,
+    // and a modal does not block browser chrome. Held as a bare line, the
+    // dialog for order 1 stayed open over order 2's table and would have
+    // submitted against it -- then reloaded the order on screen, so the line
+    // actually received was refreshed nowhere.
+    const user = userEvent.setup()
+    renderWithProviders(
+      <>
+        <Receiving />
+        <NavigateButton to="/receiving?order=2" />
+      </>,
+      { auth: adminAuth(), route: '/receiving?order=1' },
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByText('go'))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('closes when "Choose another order" goes back to the picker', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /choose another order/i }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('closes when the operator switches to searching by item', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: /by item/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 

@@ -31,12 +31,26 @@ function orderIdFromParams(params) {
  * lines under the wrong order.
  *
  * `receiving` holds the line whose receipt dialog is open -- the whole line,
- * so the dialog can name it -- and null when none is. The `ReceiptPanel`
- * inside it is the same component both ways in, handed exactly one id: the
- * order path picks a line off the table, and `ItemFinder`'s attribute search
- * is the fallback for when the object is in hand and which order it came
- * from is not known. Both only ever hand it something still outstanding, so
- * it never has to know which path found it.
+ * so the dialog can name it -- together with the `scope` it was opened from.
+ * The dialog is rendered only while that scope still matches what is on
+ * screen, which is the same "derive, don't synchronise" rule `detail` uses by
+ * being keyed on the order id it answers. Held as a bare line instead, the
+ * dialog outlived its order: Back/Forward and `?order=` links do not go
+ * through any handler here, so an open dialog for order 1's line stayed up
+ * over order 2's table and would submit against it -- then reload the order
+ * on screen, so the line actually received was never refreshed anywhere.
+ * Scoping it also means switching between the two ways in closes it, with no
+ * second piece of state to remember to clear.
+ *
+ * The `ReceiptPanel` inside is the same component both ways in, handed
+ * exactly one id: the order path picks a line off the table, and
+ * `ItemFinder`'s attribute search is the fallback for when the object is in
+ * hand and which order it came from is not known. Both only ever hand it
+ * something still outstanding, so it never has to know which path found it.
+ *
+ * What the last receipt was recorded against (`lastReceipt`) seeds the next
+ * dialog, so a parcel of twenty into one location is not twenty identical
+ * dropdown picks. The note is not carried -- see `ReceiptPanel`.
  *
  * **The `order` query parameter scopes the page.** With `?order=<id>` --
  * which is how the inventory screens' Order column and New purchase's
@@ -54,6 +68,10 @@ export default function Receiving() {
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState('')
   const [receiving, setReceiving] = useState(null)
+  const [lastReceipt, setLastReceipt] = useState({})
+  //: Bumped to re-run the order fetch through its effect, which is what
+  //: gives that fetch a cancel function. See `handleReceiptDone`.
+  const [detailEpoch, setDetailEpoch] = useState(0)
   const [mode, setMode] = useState('order')
 
   useEffect(() => {
@@ -99,26 +117,49 @@ export default function Receiving() {
   useEffect(() => {
     if (orderId == null) return undefined
     return reloadOrder(orderId)
-  }, [orderId, reloadOrder])
+  }, [orderId, reloadOrder, detailEpoch])
 
   const order = detail?.id === orderId ? detail.body : null
   const loadingOrder = orderId != null && order == null && !detailError
 
+  //: What the open dialog must still belong to. The order path is scoped to
+  //: the order on screen; the search path has no order, so it is its own
+  //: scope and a mode switch changes it.
+  const scope = mode === 'order' ? `order:${orderId}` : 'search'
+  const openLine = receiving?.scope === scope ? receiving.line : null
+
+  function openReceipt(line) {
+    setReceiving({ scope, line })
+  }
+
+  function closeReceipt() {
+    setReceiving(null)
+  }
+
   // The dialog closes on success and the order is pulled again, so the line
   // just recorded reappears in its new status rather than still reading
   // `ordered` behind a dialog that has already gone.
-  function handleReceiptDone() {
+  //
+  // Through the effect, not by calling `reloadOrder` here: it returns a
+  // cancel function and only an effect will call it. Left uncancelled, a
+  // reload landing after a later order's fetch writes `detail` for the
+  // previous order, which makes `order` null and `loadingOrder` true with no
+  // effect left to re-fire -- the page then sits on "Loading..." for good.
+  // One receipt per line means one such fetch per line, so an uncancelled
+  // one is twenty chances at that, not one.
+  function handleReceiptDone(used) {
     setReceiving(null)
-    if (mode === 'order' && orderId != null) reloadOrder(orderId)
+    if (used) setLastReceipt(used)
+    if (mode === 'order' && orderId != null) setDetailEpoch((n) => n + 1)
   }
 
-  // An open dialog has no business surviving a switch between the two ways
-  // in. `detail` stays: the fetch effect only refires when `orderId` changes,
-  // so clearing it here with `orderId` unchanged would strand the order view
-  // on "Loading..." forever instead of ever re-fetching.
+  // `detail` is deliberately left alone: the fetch effect only refires when
+  // `orderId` or the epoch changes, so clearing it here with `orderId`
+  // unchanged would strand the order view on "Loading..." forever instead of
+  // ever re-fetching. An open dialog needs no clearing either -- it is scoped
+  // to the mode and stops rendering on its own.
   function switchMode(next) {
     setMode(next)
-    setReceiving(null)
   }
 
   // Puts the pick in the URL -- the only place `orderId` is held -- so
@@ -165,9 +206,7 @@ export default function Receiving() {
             <>
               {ordersError && <p className="error">{ordersError}</p>}
               {!ordersError && !orders && <p className="muted">Loading...</p>}
-              {orders && (
-                <OrderPicker orders={orders} selectedId={null} onPick={pickOrder} />
-              )}
+              {orders && <OrderPicker orders={orders} onPick={pickOrder} />}
             </>
           )}
 
@@ -194,7 +233,7 @@ export default function Receiving() {
                       </>
                     )}
                   </h2>
-                  <OrderLines lines={order.lines} onPick={setReceiving} />
+                  <OrderLines lines={order.lines} onPick={openReceipt} />
                 </>
               )}
               <button type="button" className="link" onClick={clearOrder}>
@@ -207,21 +246,22 @@ export default function Receiving() {
 
       {mode === 'search' && (
         <div className="admin-form">
-          <ItemFinder onPick={setReceiving} />
+          <ItemFinder onPick={openReceipt} />
         </div>
       )}
 
-      {receiving && (
-        <ModalDialog
-          label={`Receive ${receiving.item_code}`}
-          onClose={() => setReceiving(null)}
-        >
+      {openLine && (
+        <ModalDialog label={`Receive ${openLine.item_code}`} onClose={closeReceipt}>
           <h2>
-            <span className="mono">{receiving.item_code}</span>{' '}
-            {receiving.source_title || receiving.description}
+            <span className="mono">{openLine.item_code}</span>{' '}
+            {openLine.source_title || openLine.description}
           </h2>
-          <ReceiptPanel itemIds={[receiving.id]} onDone={handleReceiptDone} />
-          <button type="button" className="link" onClick={() => setReceiving(null)}>
+          <ReceiptPanel
+            itemIds={[openLine.id]}
+            initial={lastReceipt}
+            onDone={handleReceiptDone}
+          />
+          <button type="button" className="link" onClick={closeReceipt}>
             Close
           </button>
         </ModalDialog>
