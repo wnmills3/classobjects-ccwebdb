@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import NewPurchase from './pages/NewPurchase'
 import Orders from './pages/Orders'
 import Receiving from './pages/Receiving'
+import Vocabularies from './pages/Vocabularies'
 
 /**
  * Guard for the whole console rather than for each route.
@@ -46,6 +47,7 @@ function Console() {
           <NavLink to="/purchases/new">New purchase</NavLink>
           <NavLink to="/orders">Orders</NavLink>
           <NavLink to="/people">People</NavLink>
+          <NavLink to="/vocabularies">Vocabularies</NavLink>
         </nav>
 
         <div className="account">
@@ -66,6 +68,7 @@ function Console() {
           <Route path="/purchases/new" element={<NewPurchase />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/people" element={<AdminPeople />} />
+          <Route path="/vocabularies" element={<Vocabularies />} />
           <Route path="*" element={<p className="muted">Page not found.</p>} />
         </Routes>
       </main>

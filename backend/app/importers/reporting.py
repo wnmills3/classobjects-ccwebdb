@@ -135,6 +135,8 @@ def write_summary_json(report: ImportReport, path: str | Path) -> None:
                 "issues_by_rule": dict(report.issues_by_rule),
                 "issues_by_severity": dict(report.issues_by_severity),
                 "unclassified_values": dict(report.unclassified_values),
+                "derived_reference_rows": report.derived_reference_rows,
+                "aliased_reference_values": report.aliased_reference_values,
                 "batch_id": report.batch_id,
                 "elapsed_seconds": round(report.elapsed_seconds, 3),
             },

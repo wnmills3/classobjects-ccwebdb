@@ -28,7 +28,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import Base, ReferenceMixin, enum_column
+from .base import Base, ProvenanceSource, ReferenceMixin, enum_column
 
 __all__ = [
     "AppliesTo",
@@ -262,6 +262,17 @@ class SeriesAlias(Base):
         ForeignKey("series.id", ondelete="CASCADE"), index=True, nullable=False
     )
     alias: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: False once someone removed a shipped alias: seed loads only add, so
+    #: the row is kept to remember the removal (app.aliases).
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    source: Mapped[ProvenanceSource] = mapped_column(
+        enum_column(ProvenanceSource, "provenance_source"),
+        default=ProvenanceSource.seeded,
+        server_default=text("'seeded'"),
+        nullable=False,
+    )
 
     series: Mapped[Series] = relationship(back_populates="aliases")
 
@@ -512,6 +523,17 @@ class ReferenceAlias(Base):
     table_name: Mapped[str] = mapped_column(String(64), nullable=False)
     row_id: Mapped[int] = mapped_column(Integer, nullable=False)
     alias: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: False once someone removed a shipped alias: seed loads only add, so
+    #: the row is kept to remember the removal (app.aliases).
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
+    source: Mapped[ProvenanceSource] = mapped_column(
+        enum_column(ProvenanceSource, "provenance_source"),
+        default=ProvenanceSource.seeded,
+        server_default=text("'seeded'"),
+        nullable=False,
+    )
 
     __table_args__ = (
         UniqueConstraint("table_name", "row_id", "alias", name="uq_reference_alias"),

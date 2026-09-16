@@ -141,7 +141,9 @@ def build_rules(db: Session) -> list[Rule]:
     ).all()
     aliases: dict[int, list[str]] = {}
     for series_id, alias in db.execute(
-        select(SeriesAlias.series_id, SeriesAlias.alias)
+        select(SeriesAlias.series_id, SeriesAlias.alias).where(
+            SeriesAlias.is_active.is_(True)
+        )
     ).all():
         aliases.setdefault(series_id, []).append(alias)
 

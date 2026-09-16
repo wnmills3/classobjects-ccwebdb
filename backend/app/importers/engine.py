@@ -100,6 +100,8 @@ class ImportReport:
     #: reference rows the loader had to invent, by table. A large number
     #: here means the seeded vocabulary is missing something real.
     derived_reference_rows: dict[str, int] = field(default_factory=dict)
+    #: rows whose value was read through an alias, as "table: value -> code".
+    aliased_reference_values: dict[str, int] = field(default_factory=dict)
     elapsed_seconds: float = 0.0
 
     @property
@@ -139,6 +141,8 @@ class ImportReport:
                 f"{t} {n}" for t, n in sorted(self.derived_reference_rows.items())
             )
             out.append(f"derived  : {invented}")
+        for name, rows in sorted(self.aliased_reference_values.items()):
+            out.append(f"aliased  : {name}  ({rows} rows)")
         return out
 
     def _kind_lines(self, top: int) -> list[str]:
@@ -409,6 +413,10 @@ class ImportEngine:
         batch.finished_at = datetime.now(UTC)
         if loader is not None:
             report.derived_reference_rows = dict(loader.derived)
+            report.aliased_reference_values = {
+                f"{table}: {word} -> {code}": rows
+                for (table, word, code), rows in loader.aliased.items()
+            }
         session.commit()
 
     def run(

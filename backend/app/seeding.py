@@ -281,7 +281,8 @@ def _seed_series_aliases(
 
     `series_alias` has no `code` and no `label`, so it is not a classifier in
     the sense the rest of this module means. It is a lookup that exists purely
-    so a search for "Mercury" finds a Winged Liberty Head Dime.
+    so a search for "Mercury" finds a Winged Liberty Head Dime. As with
+    `reference_alias`, a retired row counts as present, so a removal sticks.
     """
     counter: Counter = Counter()
     rows = data.get("series_alias") or []
@@ -415,7 +416,9 @@ def _seed_reference_aliases(
     """Load other names for classifier rows: {table, code, alias}.
 
     Added, never removed, like `series_alias`: a nickname someone adds in the
-    console is as good as one shipped, and a load must not take it away.
+    console is as good as one shipped, and a load must not take it away. A
+    retired row (`is_active` false) still counts as present, so one removed
+    in the console is not brought back (app.aliases).
     """
     counter: Counter = Counter()
     rows = data.get("reference_alias") or []

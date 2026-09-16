@@ -33,6 +33,7 @@ describe('owner console shell', () => {
     expect(screen.getByRole('link', { name: /new purchase/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^orders$/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /people/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /vocabularies/i })).toBeInTheDocument()
   })
 
   it('offers sign-in without a guard, so the guard cannot lock everyone out', () => {

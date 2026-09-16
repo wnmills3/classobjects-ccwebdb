@@ -29,7 +29,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import grades
+from .. import aliases, grades
 from ..composition import composition_for
 from ..field_sources import COMPOSITION, record_derived
 from ..lifecycle_writes import record_initial_status
@@ -153,6 +153,10 @@ class SchemaLoader:
         self._grades: dict[str, int] | None = None
         #: Counts of reference rows this loader invented, by table.
         self.derived: dict[str, int] = {}
+        #: Rows whose value was found only by another name for a row, keyed
+        #: by (table, the value as written, the code it resolved to).
+        self.aliased: dict[tuple[str, str, str], int] = {}
+        self._aliased_keys: dict[tuple[str, str], tuple[str, str, str]] = {}
 
     # -- reference resolution ---------------------------------------------
 
@@ -170,11 +174,14 @@ class SchemaLoader:
         table = model.__tablename__
         key = (table, code)
         if key in self._codes:
+            self._count_alias(key)
             return self._codes[key]
 
         found = self.session.execute(
             select(model.id).where(model.code == code)
         ).scalar_one_or_none()
+        if found is None:
+            found = self._other_name(model, key, label, code)
 
         if found is None:
             if not self.create_missing:
@@ -192,6 +199,37 @@ class SchemaLoader:
 
         self._codes[key] = found
         return found
+
+    def _other_name(
+        self,
+        model: type[ReferenceMixin],
+        key: tuple[str, str],
+        *words: str | None,
+    ) -> int | None:
+        """The row a value names by its label or an alias, before inventing one.
+
+        "UCAM" is DCAM and "Legal Tender" a United States Note
+        (app.aliases). A value found by alias is counted for the report, so
+        the owner can see which of their words were read as which term.
+        """
+        for word in words:
+            if not word:
+                continue
+            hit = aliases.resolve(self.session, model, word)
+            if hit is None:
+                continue
+            if hit.by == "alias":
+                target = self.session.get(model, hit.row_id)
+                code = target.code if target is not None else str(hit.row_id)
+                self._aliased_keys[key] = (key[0], word, code)
+                self._count_alias(key)
+            return hit.row_id
+        return None
+
+    def _count_alias(self, key: tuple[str, str]) -> None:
+        found = self._aliased_keys.get(key)
+        if found is not None:
+            self.aliased[found] = self.aliased.get(found, 0) + 1
 
     def by_label(
         self, model: type[ReferenceMixin], label: str | None, **extra: object

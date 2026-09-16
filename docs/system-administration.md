@@ -164,12 +164,16 @@ The **Coins** and **Currency** screens (`/owner/inventory/coins`,
 
 **The search box has no field syntax.** Whatever you type is one term, matched
 anywhere in an item's title, description, **rating** (the spreadsheet's
-`Rating` text, as written) or item code, ignoring case. It also matches any
-design series whose name or nickname contains it, so `mercury` finds Winged
-Liberty Head dimes whose listings never say "Mercury", and `funnyback` finds
-every $1 Series 1928 and 1934 note -- once those items have been classified
-(below). **Search tips**, under the box, lists examples for each screen;
-clicking one runs it.
+`Rating` text, as written) or item code, ignoring case. It also matches items
+by the **name or alias of what they are**: design series, strike type, grade
+designation and, on coins, mint; on currency, note class and serial features.
+So `mercury` finds Winged Liberty Head dimes whose listings never say
+"Mercury", `denver` finds coins whose listings give only the D, `legal tender`
+finds United States Notes, and `funnyback` finds every $1 Series 1928 and 1934
+note -- once those items have been classified (below). A term under three
+letters must be a whole name: `PR` finds proofs and `D` Denver, but `s` does
+not find every strike with an s in it. **Search tips**, under the box, lists
+examples for each screen; clicking one runs it.
 
 The rating is searched because it is often the only descriptive text an item
 has: a Whatnot row's title is its denomination and its description a lot
@@ -635,8 +639,35 @@ underlined letter to jump to a field, and Ctrl+S or Ctrl+Enter to save.
 ## Reference vocabularies
 
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows
-in reference tables, not free text. Administrators add and rename values in
-the console.
+in reference tables, not free text. Administrators add values in the console,
+from the dropdown where they are needed.
+
+### Other names (aliases)
+
+The standard term is a value's label -- DCAM, United States Note, Walking
+Liberty Half Dollar. What people actually write is an **alias**: UCAM, Legal
+Tender, Walker. **Vocabularies** in the console (`/owner/vocabularies`) lists
+every vocabulary's values with their aliases, and adds or removes them. An
+alias works at once:
+
+| Where | What it does |
+|---|---|
+| The search box | finds items of that value, as above |
+| The importer | reads the alias as the value, before inventing a new row, and lists each one in the report (`aliased  : note_type: Legal Tender -> us_note (3 rows)`) |
+| Dropdowns | a long list has a **Find** box beside it; typing an alias offers the value, with the alias in brackets, and Enter picks the first |
+
+**Two values may share an alias.** "Cartwheel" is any large silver dollar,
+and "National Currency" two note classes. Search finds both; the importer,
+which cannot choose, uses neither and records the word as it would an
+unknown one. The console marks a shared alias.
+
+**An alias may not be a value's own label or code**, since the label or code
+is always matched first.
+
+**Removing a shipped alias retires it.** Seed loads only ever add, so a
+deleted alias would come back on the next load; a retired one is kept, shown
+struck through, and a click restores it. An alias added in the console is
+deleted outright.
 
 Every row records how it came to exist: `seeded` (shipped), `derived`
 (inferred by the importer), or `manual` (typed by a person). A machine guess
