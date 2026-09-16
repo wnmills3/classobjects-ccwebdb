@@ -3,7 +3,17 @@
     "Banknote-specific vocabulary.",
     "Note attributes are a many-to-many link, not a grade: 'Star Note' describes",
     "the note, not its condition, and putting it in the grade column is what",
-    "makes condition unqueryable."
+    "makes condition unqueryable.",
+    "",
+    "Note types use the Bureau of Engraving and Printing's class names",
+    "(bep.gov/currency/history and /faqs), 2026-09-16. 'Legal Tender Note' was",
+    "folded into 'United States Note': BEP uses legal tender for every class",
+    "(31 USC 5103), so it names no class of its own. 'National Currency' is",
+    "the legend printed on National Bank Notes -- and on the Series 1929",
+    "Federal Reserve Bank Notes, so it is a nickname of both.",
+    "",
+    "reference_alias: other names for a row of any table here, matched by",
+    "import and search. {table, code, alias}."
   ],
   "note_type": [
     {
@@ -27,14 +37,9 @@
       "sort_order": 40
     },
     {
-      "code": "national_currency",
-      "label": "National Currency",
+      "code": "national_bank_note",
+      "label": "National Bank Note",
       "sort_order": 50
-    },
-    {
-      "code": "legal_tender",
-      "label": "Legal Tender Note",
-      "sort_order": 60
     },
     {
       "code": "frbn",
@@ -45,6 +50,16 @@
       "code": "fractional",
       "label": "Fractional Currency",
       "sort_order": 80
+    },
+    {
+      "code": "demand_note",
+      "label": "Demand Note",
+      "sort_order": 90
+    },
+    {
+      "code": "treasury_note",
+      "label": "Treasury Note",
+      "sort_order": 100
     }
   ],
   "note_attribute": [
@@ -262,6 +277,63 @@
       "city": "San Francisco",
       "number": 12,
       "sort_order": 12
+    }
+  ],
+  "reference_alias": [
+    {
+      "table": "note_type",
+      "code": "us_note",
+      "alias": "Legal Tender Note"
+    },
+    {
+      "table": "note_type",
+      "code": "us_note",
+      "alias": "Legal Tender"
+    },
+    {
+      "table": "note_type",
+      "code": "national_bank_note",
+      "alias": "National Currency"
+    },
+    {
+      "table": "note_type",
+      "code": "national_bank_note",
+      "alias": "National Banknote"
+    },
+    {
+      "table": "note_type",
+      "code": "frbn",
+      "alias": "National Currency"
+    },
+    {
+      "table": "note_type",
+      "code": "treasury_note",
+      "alias": "Coin Note"
+    },
+    {
+      "table": "note_type",
+      "code": "treasury_note",
+      "alias": "Treasury Coin Note"
+    },
+    {
+      "table": "note_type",
+      "code": "frn",
+      "alias": "FRN"
+    },
+    {
+      "table": "note_type",
+      "code": "frbn",
+      "alias": "FRBN"
+    },
+    {
+      "table": "note_type",
+      "code": "silver_certificate",
+      "alias": "Silver Cert"
+    },
+    {
+      "table": "note_type",
+      "code": "gold_certificate",
+      "alias": "Gold Cert"
     }
   ]
 }

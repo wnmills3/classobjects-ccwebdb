@@ -28,7 +28,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base, TimestampMixin, utcnow
 from .reference import StorageLocationKind
 
-__all__ = ["ItemFieldReview", "ItemStatusHistory", "LocationHistory", "StorageLocation"]
+__all__ = [
+    "ItemFieldReview",
+    "ItemFieldSource",
+    "ItemStatusHistory",
+    "LocationHistory",
+    "StorageLocation",
+]
 
 
 # Foreign-key targets stay strings so SQLAlchemy resolves them at
@@ -202,5 +208,47 @@ class ItemFieldReview(Base):
     __table_args__ = (
         UniqueConstraint(
             "inventory_item_id", "field_name", name="uq_item_field_review"
+        ),
+    )
+
+
+class ItemFieldSource(Base):
+    """One field of one item holding a default derived from known facts.
+
+    A row means "the machine filled this in": a note type looked up from the
+    note's denomination and series, a composition from a coin's denomination
+    and year. A pass may refresh such a field when the facts improve. No row
+    means the value is a person's, or came with the data -- and no pass ever
+    touches it. Saving a field by hand deletes its row.
+
+    Per field, like `ItemFieldReview`, and for the same reason: an item is
+    partly derived and partly typed as a normal state. The two answer
+    different questions -- where a value came from, and whether a person has
+    confirmed it -- and a derived value can also be confirmed.
+
+    `field_name` is the column, as in `ItemFieldReview` -- `note_type_id`,
+    `series_id`, `fineness` -- whether the column is on the item or on its
+    currency detail.
+    """
+
+    __tablename__ = "item_field_source"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Which rule filled it: `note_issue`, `serial_district`, `composition`,
+    #: `series_classify`. Shown in the report and the editor's tooltip.
+    derived_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    derived_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "inventory_item_id", "field_name", name="uq_item_field_source"
         ),
     )

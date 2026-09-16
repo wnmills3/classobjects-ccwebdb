@@ -18,6 +18,7 @@ from decimal import Decimal
 from sqlalchemy import (
     Boolean,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -50,7 +51,9 @@ __all__ = [
     "Metal",
     "Mint",
     "NoteAttribute",
+    "NoteIssue",
     "NoteType",
+    "ReferenceAlias",
     "SalesOrderStatus",
     "SealColor",
     "SetForm",
@@ -389,6 +392,86 @@ class NoteType(ReferenceMixin, Base):
     """Federal Reserve Note, Silver Certificate, United States Note, ..."""
 
     __tablename__ = "note_type"
+
+
+class NoteIssue(Base):
+    """One small-size issue: a denomination and series, and what it was.
+
+    A $1 Series 1957 is a Silver Certificate with a blue seal, signed Priest
+    and Anderson. Those are facts of the issue, not observations of a note, so
+    they are recorded once here and looked up by `app.classifier_defaults`
+    rather than typed on every note (docs/specs/classifier-defaults-design.md).
+
+    One row per class and seal a series was issued in: $5 Series 1934A was
+    both a green-seal Federal Reserve Note and a yellow-seal Silver
+    Certificate, and those are two rows. When a note's facts match more than
+    one row, its class is for a person to decide.
+
+    Owned by the seed file: a load makes the rows match it exactly.
+    """
+
+    __tablename__ = "note_issue"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    denomination_id: Mapped[int] = mapped_column(
+        ForeignKey("denomination.id", ondelete="RESTRICT"), nullable=False
+    )
+    series_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: The series letter, or null for a plain series (1935, not 1935A).
+    series_letter: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    note_type_id: Mapped[int] = mapped_column(
+        ForeignKey("note_type.id", ondelete="RESTRICT"), nullable=False
+    )
+    seal_color_id: Mapped[int] = mapped_column(
+        ForeignKey("seal_color.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: Null where the issue was not signed by a Treasurer and Secretary pair
+    #: (the Series 1929 bank notes carry bank officers' signatures).
+    signature_combination_id: Mapped[int | None] = mapped_column(
+        ForeignKey("signature_combination.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: What sets this row apart within its series, when something does:
+    #: "Hawaii", "North Africa".
+    variant: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "denomination_id",
+            "series_year",
+            "series_letter",
+            "note_type_id",
+            "seal_color_id",
+            name="uq_note_issue",
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index("ix_note_issue_lookup", "denomination_id", "series_year"),
+    )
+
+
+class ReferenceAlias(Base):
+    """Another name for a row of any classifier table.
+
+    "Legal Tender Note" is a United States Note; "National Currency" is a
+    National Bank Note. Text uses the other names, so import and search must
+    recognise them. One table serves every vocabulary (note types now, grade
+    designations next: UCAM for DCAM) rather than one alias table per
+    classifier. `series_alias` predates it and stays.
+
+    The row is named by table and id, not by a foreign key -- a key cannot
+    point at "any table". Seed files name it by code, as everywhere else.
+    """
+
+    __tablename__ = "reference_alias"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    table_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    row_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    alias: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("table_name", "row_id", "alias", name="uq_reference_alias"),
+        Index("ix_reference_alias_table_row", "table_name", "row_id"),
+    )
 
 
 class NoteAttribute(ReferenceMixin, Base):

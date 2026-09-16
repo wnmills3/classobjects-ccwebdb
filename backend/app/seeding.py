@@ -43,11 +43,16 @@ from .models import (
     REFERENCE_MODELS,
     Composition,
     Denomination,
+    NoteIssue,
+    NoteType,
     ProvenanceSource,
+    ReferenceAlias,
     ReferenceMixin,
+    SealColor,
     Series,
     SeriesAlias,
     SeriesYearRange,
+    SignatureCombination,
 )
 
 #: backend/data/reference
@@ -260,6 +265,10 @@ def seed_all(
         stats["series_alias"] = _seed_series_aliases(session, data)
     if not only or "series_year_range" in only:
         stats["series_year_range"] = _seed_series_year_ranges(session, data)
+    if not only or "reference_alias" in only:
+        stats["reference_alias"] = _seed_reference_aliases(session, data)
+    if not only or "note_issue" in only:
+        stats["note_issue"] = _seed_note_issues(session, data)
 
     session.commit()
     return stats
@@ -389,6 +398,160 @@ def _seed_series_year_ranges(
                 counter["updated"] += 1
             else:
                 counter["unchanged"] += 1
+
+    session.flush()
+    return counter
+
+
+def _codes(session: Session, model: SeedableModel) -> dict[str, int]:
+    """Code to id for one classifier table."""
+    table = model.__table__
+    return dict(session.execute(select(table.c.code, table.c.id)).tuples().all())
+
+
+def _seed_reference_aliases(
+    session: Session, data: dict[str, list[dict[str, Any]]]
+) -> Counter:
+    """Load other names for classifier rows: {table, code, alias}.
+
+    Added, never removed, like `series_alias`: a nickname someone adds in the
+    console is as good as one shipped, and a load must not take it away.
+    """
+    counter: Counter = Counter()
+    rows = data.get("reference_alias") or []
+    if not rows:
+        return counter
+
+    models = _model_by_table()
+    codes: dict[str, dict[str, int]] = {}
+    existing = set(
+        session.execute(
+            select(
+                ReferenceAlias.table_name, ReferenceAlias.row_id, ReferenceAlias.alias
+            )
+        )
+        .tuples()
+        .all()
+    )
+    for position, row in enumerate(rows, start=1):
+        where = f"reference_alias[{position}]"
+        table, code, alias = row.get("table"), row.get("code"), row.get("alias")
+        if not table or not code or not alias:
+            raise SeedError(f"{where}: needs 'table', 'code' and 'alias'")
+        model = models.get(table)
+        if model is None or "code" not in model.__table__.c:
+            raise SeedError(f"{where}: {table!r} is not a classifier table")
+        if table not in codes:
+            codes[table] = _codes(session, model)
+        row_id = codes[table].get(code)
+        if row_id is None:
+            raise SeedError(f"{where}: unknown {table} {code!r}")
+        key = (table, row_id, alias)
+        if key in existing:
+            counter["unchanged"] += 1
+            continue
+        session.add(ReferenceAlias(table_name=table, row_id=row_id, alias=alias))
+        existing.add(key)
+        counter["created"] += 1
+
+    session.flush()
+    return counter
+
+
+#: A note_issue row's identity: denomination, year, letter, class, seal.
+_IssueKey = tuple[int, int, str | None, int, int]
+
+
+def _seed_note_issues(
+    session: Session, data: dict[str, list[dict[str, Any]]]
+) -> Counter:
+    """Make `note_issue` match the file exactly.
+
+    These are published facts, owned by the file like series year ranges: a
+    row corrected in the file is corrected here, and a row removed from the
+    file is removed, so a fact found wrong cannot linger and keep deriving
+    wrong defaults. A file with no `note_issue` block leaves the table alone.
+    """
+    counter: Counter = Counter()
+    rows = data.get("note_issue")
+    if not rows:
+        return counter
+
+    lookups = {
+        "denomination": _codes(session, Denomination),
+        "note_type": _codes(session, NoteType),
+        "seal_color": _codes(session, SealColor),
+        "signatures": _codes(session, SignatureCombination),
+    }
+
+    def resolve(where: str, kind: str, code: object) -> int:
+        found = lookups[kind].get(str(code))
+        if found is None:
+            raise SeedError(f"{where}: unknown {kind} {code!r}")
+        return found
+
+    wanted: dict[_IssueKey, tuple[int | None, str | None]] = {}
+    for position, row in enumerate(rows, start=1):
+        where = f"note_issue[{position}]"
+        year = row.get("series_year")
+        if not isinstance(year, int):
+            raise SeedError(f"{where}: series_year must be a year")
+        letter = row.get("series_letter") or None
+        if letter is not None and (len(letter) != 1 or not letter.isupper()):
+            raise SeedError(f"{where}: series_letter must be one capital letter")
+        key: _IssueKey = (
+            resolve(where, "denomination", row.get("denomination")),
+            year,
+            letter,
+            resolve(where, "note_type", row.get("note_type")),
+            resolve(where, "seal_color", row.get("seal_color")),
+        )
+        if key in wanted:
+            raise SeedError(f"{where}: that issue is listed twice")
+        signatures = row.get("signatures")
+        wanted[key] = (
+            None if signatures is None else resolve(where, "signatures", signatures),
+            row.get("variant") or None,
+        )
+
+    have = {
+        (
+            r.denomination_id,
+            r.series_year,
+            r.series_letter,
+            r.note_type_id,
+            r.seal_color_id,
+        ): r
+        for r in session.execute(select(NoteIssue)).scalars()
+    }
+    for key, stale in have.items():
+        if key not in wanted:
+            session.delete(stale)
+            counter["removed"] += 1
+    for key, (signatures, variant) in wanted.items():
+        record = have.get(key)
+        if record is None:
+            denomination_id, year, letter, note_type_id, seal_color_id = key
+            session.add(
+                NoteIssue(
+                    denomination_id=denomination_id,
+                    series_year=year,
+                    series_letter=letter,
+                    note_type_id=note_type_id,
+                    seal_color_id=seal_color_id,
+                    signature_combination_id=signatures,
+                    variant=variant,
+                )
+            )
+            counter["created"] += 1
+        elif (record.signature_combination_id, record.variant) != (
+            signatures,
+            variant,
+        ):
+            record.signature_combination_id, record.variant = signatures, variant
+            counter["updated"] += 1
+        else:
+            counter["unchanged"] += 1
 
     session.flush()
     return counter
