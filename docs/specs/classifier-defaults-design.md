@@ -313,7 +313,9 @@ researched:
   - *The machine takes back its own guesses.* A derived value the facts no
     longer support -- a series corrected to a large-size year, a class that
     is no longer a Federal Reserve Note (and so has no Bank), a signature an
-    issue does not have, a coin whose year became a range -- is cleared with
+    issue does not have, a coin whose years now span two compositions (a
+    range keeps one only if it covers every year: a 1999-2008 quarter set is
+    clad throughout, a 1909-2022 cent lot is not) -- is cleared with
     its record, and counted as *retracted* in the report. A person's value
     is never cleared; one the facts contradict is reported.
   - *Emptying is a choice.* A person who empties a field the pass fills

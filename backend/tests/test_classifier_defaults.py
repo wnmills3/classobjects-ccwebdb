@@ -786,6 +786,26 @@ def test_a_year_range_takes_back_a_derived_composition(
     assert derived_fields(db, dime.id) == {}
 
 
+def test_a_range_one_composition_covers_keeps_it(
+    db: Session, make_item: ItemFactory
+) -> None:
+    # A 1999-2008 quarter set is clad throughout.
+    quarters = make_item(
+        title="State quarter set",
+        denomination_id=_id(db, Denomination, "usd_coin_0_25"),
+        year_start=1999,
+        year_end=2008,
+    )
+
+    run(db, commit=True)
+
+    db.refresh(quarters)
+    composition = db.get(Composition, quarters.composition_id)
+    assert composition is not None
+    assert composition.year_from <= 1999
+    assert composition.year_to is None or composition.year_to >= 2008
+
+
 def test_a_stated_value_the_composition_contradicts_is_reported(
     db: Session, make_item: ItemFactory
 ) -> None:
