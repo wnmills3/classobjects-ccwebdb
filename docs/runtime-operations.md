@@ -54,6 +54,15 @@ a script from a shell where you activated it by hand adds no further layer
 exactly once. The activation lives only as long as the script: your own shell
 is left as it was.
 
+"Already active" is checked against `PATH`, not only against the variables
+that describe it, because the two can disagree. Git Bash rebuilds `PATH` when
+it starts and drops the conda entries, while `CONDA_DEFAULT_ENV`,
+`CONDA_PREFIX` and `CONDA_SHLVL` survive -- so a shell can report `ccwebdb`
+while a bare `python` is base's and tools installed in `ccwebdb`, such as
+`gh`, are not found at all. The helper accepts the claim only when the first
+`python` on `PATH` is the environment's own, and otherwise activates again.
+Re-activating the same environment rebuilds `PATH` without adding a layer.
+
 Activating matters even though the scripts name their programs by full path.
 The full path fixes *which* python runs, not what environment it runs in.
 Packages go wherever the environment in play points -- uv follows
