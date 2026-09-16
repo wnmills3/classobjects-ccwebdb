@@ -173,6 +173,9 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
+    # Dropped before any grade row is added: it is NOT NULL with no default,
+    # and the strike type now says what it said.
+    op.drop_column("grade", "is_proof")
     op.add_column(
         "inventory_item", sa.Column("strike_type_id", sa.Integer(), nullable=True)
     )
@@ -268,8 +271,6 @@ def upgrade() -> None:
             ),
             {"ids": obsolete},
         )
-
-    op.drop_column("grade", "is_proof")
 
     for statement in create_views():
         op.execute(statement)
