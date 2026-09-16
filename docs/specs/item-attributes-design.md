@@ -200,6 +200,8 @@ every miss visible rather than defaulted.
    68. A grade is a Sheldon number, optionally with a plus.
 2. **Plus grades are allowed** as part of the grade number (`64+`), wherever
    they occur, including where the services would not give one (`69+`).
+   **A plus ranks above its number** (owner): 64+ sorts and filters between
+   64 and 65, and AU+ (55+) above AU (55).
 3. **Adjectival grades take the bottom of their standard range** (the
    owner's answers, 2026-09-16, taken together):
 
