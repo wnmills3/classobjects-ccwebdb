@@ -150,8 +150,7 @@ commemoratives. Proposed: `MS64+` etc. become proper grade rows on the
 Sheldon scale with `numeric_value` 64 and a `plus` flag, so "MS64 and better"
 finds them. Found in the data and outside every service's range: `PR69+`
 (plus stops at 68), and `AU+`, `UNC+`, `BU++` (no service puts a plus on an
-adjectival grade). Those are the owner's own shorthand: kept, as aliases of
-AU, UNC and BU with the plus noted, or reported. **Decision.**
+adjectival grade). Those are the owner's own shorthand, mapped by decision 3.
 
 **Paper money.** The note labels match PMG exactly. PCGS Banknote also grades
 3 (About Good), 2 (Fair) and 1 (Poor), which the vocabulary lacks: add N3, N2,
@@ -165,8 +164,8 @@ Choice without a number.
 
 **CAC is not a grading service.** A CAC sticker verifies a grade another
 service gave; CACG, which grades, is already a service. The 24 "CAC" ratings
-don't say green or gold: proposed as the green sticker (the common one),
-reported for a person to confirm. **Decision.**
+don't say green or gold: they are the green sticker unless CAC graded the
+coin (decision 4).
 
 ## 4. The importer
 
