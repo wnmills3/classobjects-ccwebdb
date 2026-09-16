@@ -135,7 +135,11 @@ rem ---------------------------------------------------------------------------
 :killpid
 rem  %1 = pid, %2 = label.  /T also takes child processes.
 if "%~1"=="" goto :eof
-tasklist /FI "PID eq %~1" 2>nul | find "%~1" >nul
+rem  find.exe by full path. Run from Git Bash -- Claude Code's shell, or the
+rem  `!` prefix -- a bare `find` is Git Bash's Unix find, which took the PID
+rem  for a path, printed "No such file or directory" and failed, so every live
+rem  PID was reported "already gone" and only the port sweep below stopped it.
+tasklist /FI "PID eq %~1" 2>nul | "%SystemRoot%\System32\find.exe" "%~1" >nul
 if errorlevel 1 (
     echo [1/3] %~2      pid %~1 already gone
 ) else (
