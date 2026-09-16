@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -356,5 +356,66 @@ describe('ItemEditForm keyboard accelerators', () => {
     await user.type(screen.getByRole('textbox', { name: /Description/ }), '!')
     fireEvent.keyDown(document, { key: 's', ctrlKey: true })
     await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+  })
+})
+
+describe('changing an item status', () => {
+  const statuses = emptyReference({
+    tables: {
+      item_status: [
+        { code: 'ordered', label: 'Ordered', source: 'seeded' },
+        { code: 'received', label: 'Received', source: 'seeded' },
+      ],
+    },
+  })
+
+  function renderReceived() {
+    api.getInventoryItem.mockResolvedValue({ ...item, status: 'received' })
+    return renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: statuses },
+    )
+  }
+
+  it('shows the status of an item that has already arrived', async () => {
+    renderReceived()
+    expect(await screen.findByRole('combobox', { name: 'item_status' })).toHaveValue(
+      'received',
+    )
+  })
+
+  it('sends the new status, so something received in error can be put back', async () => {
+    // Receiving only ever moves an item forward. Before this field there was
+    // no way to undo a receipt recorded against the wrong row.
+    api.updateInventoryItem.mockResolvedValue({})
+    const user = userEvent.setup()
+    renderReceived()
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'item_status' }),
+      'ordered',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ status: 'ordered' }),
+      ),
+    )
+  })
+
+  it('does not let a new status code be invented from the picker', async () => {
+    // Receiving, the outstanding lists and the inventory views all branch on
+    // the known status codes; an invented one is a row nothing downstream can
+    // reason about. Descriptive vocabularies still grow with use.
+    renderReceived()
+    const select = await screen.findByRole('combobox', { name: 'item_status' })
+
+    expect(
+      within(select).queryByRole('option', { name: /add a new value/i }),
+    ).not.toBeInTheDocument()
+    // Status is NOT NULL, so there is no blank option to clear it with either.
+    expect(within(select).queryByRole('option', { name: '--' })).not.toBeInTheDocument()
   })
 })
