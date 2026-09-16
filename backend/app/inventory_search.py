@@ -406,6 +406,31 @@ def series_ids_matching(db: Session, query: str | None) -> list[int]:
     return [row[0] for row in rows]
 
 
+def note_type_ids_matching(db: Session, query: str | None) -> list[int]:
+    """Note classes whose name or nickname contains the search text.
+
+    "Legal Tender" finds United States Notes and "Coin Note" finds Treasury
+    Notes, through `reference_alias`, once a note's class is recorded.
+    """
+    if not query or not query.strip():
+        return []
+    rows = db.execute(
+        text(
+            "SELECT DISTINCT t.id FROM note_type t "
+            "LEFT JOIN reference_alias a "
+            "ON a.table_name = 'note_type' AND a.row_id = t.id "
+            "WHERE t.label ILIKE :p OR a.alias ILIKE :p"
+        ),
+        {"p": f"%{query.strip()}%"},
+    ).all()
+    return [row[0] for row in rows]
+
+
+def names_matching(db: Session, query: str | None) -> tuple[list[int], list[int]]:
+    """The series and the note classes a search term names."""
+    return series_ids_matching(db, query), note_type_ids_matching(db, query)
+
+
 #: How a filter's `op` becomes SQL. Comparing a column to a value differs only
 #: in the operator, so the shapes live here rather than in a branch each.
 _FILTER_TEMPLATES = {
@@ -490,15 +515,28 @@ def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> st
 
 
 def _query_clause(
-    spec: ViewSpec, query: str, series_ids: list[int] | None, bound: dict[str, Any]
+    spec: ViewSpec,
+    query: str,
+    series_ids: list[int] | None,
+    bound: dict[str, Any],
+    note_type_ids: list[int] | None = None,
 ) -> str:
-    """The free-text search, across the view's own columns and its series."""
+    """The free-text search, across the view's own columns and its names."""
     parts = [f"coalesce({c}, '') ILIKE :p_q" for c in spec.search_columns]
     if series_ids:
         # An item whose description never mentions the term still matches when
         # its series does, formally or colloquially.
         parts.append("i.series_id = ANY(:p_series)")
         bound["p_series"] = list(series_ids)
+    if note_type_ids:
+        # EXISTS rather than the view's own join, so a view that does not
+        # join the currency detail can still match a note by its class.
+        parts.append(
+            "EXISTS (SELECT 1 FROM currency_detail nt_q "
+            "WHERE nt_q.inventory_item_id = i.id "
+            "AND nt_q.note_type_id = ANY(:p_note_types))"
+        )
+        bound["p_note_types"] = list(note_type_ids)
     bound["p_q"] = f"%{query}%"
     return "(" + " OR ".join(parts) + ")"
 
@@ -508,6 +546,7 @@ def _conditions(
     params: dict[str, Any],
     query: str | None,
     series_ids: list[int] | None = None,
+    note_type_ids: list[int] | None = None,
 ) -> tuple[list[str], list[tuple[str, ...]], dict[str, Any]]:
     clauses = list(spec.where)
     joins: list[tuple[str, ...]] = [(_J_KIND,)]  # every spec filters on kind
@@ -535,7 +574,7 @@ def _conditions(
         clauses.append(_value_clause(key, value, f, bound))
 
     if query:
-        clauses.append(_query_clause(spec, query, series_ids, bound))
+        clauses.append(_query_clause(spec, query, series_ids, bound, note_type_ids))
 
     return clauses, joins, bound
 
@@ -569,9 +608,7 @@ def search(
     if sort_key not in spec.sortable:
         raise ValueError(f"cannot sort by {sort_key!r}")
 
-    clauses, joins, bound = _conditions(
-        spec, params, query, series_ids_matching(db, query)
-    )
+    clauses, joins, bound = _conditions(spec, params, query, *names_matching(db, query))
     where = " WHERE " + " AND ".join(clauses)
 
     # The count needs no display joins at all -- only whatever the filters
@@ -633,9 +670,7 @@ def count_facets(
     to codes in one small lookup per table. Grouping by the code instead would
     force every join first, which was most of the old cost.
     """
-    clauses, joins, bound = _conditions(
-        spec, params, query, series_ids_matching(db, query)
-    )
+    clauses, joins, bound = _conditions(spec, params, query, *names_matching(db, query))
     where = " WHERE " + " AND ".join(clauses)
 
     results: dict[str, list[dict[str, Any]]] = {}
@@ -708,9 +743,7 @@ def count_issues(
     and the panel would stop being a way to see what work is left.
     """
     params = {k: v for k, v in params.items() if k != "issue"}
-    clauses, joins, bound = _conditions(
-        spec, params, query, series_ids_matching(db, query)
-    )
+    clauses, joins, bound = _conditions(spec, params, query, *names_matching(db, query))
     # All checks are counted at once, so every check's joins must be present.
     joins = list(joins) + [issue.join for issue in spec.issues.values()]
 

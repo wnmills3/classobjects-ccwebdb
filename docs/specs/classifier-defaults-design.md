@@ -274,6 +274,42 @@ researched:
   on 2026-09-16 and to follow as series additions, now that note type exists as
   evidence.
 
+## As built (2026-09-16)
+
+- **The facts.** `note_issue.json` holds 332 issues ($1 through $1000,
+  Series 1928-2021) and `signatures.json` is now the complete list of 39
+  signer pairs. Every row names two independent sources: Wikipedia's series
+  tables, USPaperMoney.info's chronology and delivery dates, BEP's serial
+  table for 1996 on (agreeing on all 58 rows it covers), and the SPMC wiki
+  for the Series 1929 National Bank Notes. The six $500/$1000 Federal Reserve
+  Note rows rest on search-result summaries and are the weakest. The build
+  corrected Wikipedia where a second source disagreed: its Federal Reserve
+  Bank Notes are Series 1929, not 1928A; the $10 Hawaii note is 1934A only,
+  with a brown seal; the $100 1969A is Kabis/Connally; there is no $100 1969B.
+  Two rows outlast an officer's term on real notes (Woods/Woodin on the $1
+  1928 United States Note, Granahan/Barr on the $1 1963B).
+- **More than one seal per class** occurs only in the WWII emergency issues:
+  brown (Hawaii) and yellow (North Africa) beside the ordinary seal, Series
+  1934-1935A. A note from those series needs its seal to be decided.
+- **`serial_prefix`** joined `note_issue`: the first serial letter of a $5-or-
+  higher Federal Reserve Note from 1996, from BEP's table only.
+- **Text as evidence.** Where a series was issued in several classes, a
+  note's **rating** that names exactly one of them decides it ("Legal
+  Tender"). Titles and descriptions are not read: on notes they are too often
+  a lot's listing (see the series-classification spec).
+- **Defaults are refreshed as items change.** Creating an item, a single edit
+  and a bulk edit each bring that item's defaults up to date in the same
+  transaction, so a corrected series year corrects the class derived from it.
+- **The editor** shows the note's own fields for a banknote -- Note class,
+  Seal, Signatures, Reserve Bank, series year and letter, serial -- with a
+  *suggested* mark beside derived values. Only "Note class" (Alt+A) and
+  "Reserve Bank" (Alt+B) have accelerators: no other free letter is in their
+  labels.
+- **The New item form** asks `GET /api/defaults/note` or `/coin` as facts are
+  entered (after a 250 ms pause), sends only the person's own picks with the
+  facts, and reports the suggestions left untouched in `suggested`.
+- **Search** matches a note class by name or nickname, as it matches series.
+
 ## Decisions (owner, 2026-09-16: "yes to all, go with option B")
 
 1. **Codes:** `national_currency` is renamed `national_bank_note` (label

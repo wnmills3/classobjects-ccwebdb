@@ -246,6 +246,53 @@ The designs, their year ranges and nicknames are seeded from
 Run the report and read the counts before running with `--commit` on the live
 database.
 
+### Classifier defaults: what the facts fill in
+
+Most classifiers follow from a few facts. A $1 note of Series 1957 is a Silver
+Certificate with a blue seal, signed Priest and Anderson; a Federal Reserve
+Note's serial names its Reserve Bank; a 1964 dime is 90% silver. The console
+fills these in so nobody types them
+(`docs/specs/classifier-defaults-design.md`):
+
+| Filled | From | Facts table |
+|---|---|---|
+| note class, seal, signatures | denomination, series year and letter | `note_issue.json` (Series 1928-2021) |
+| Reserve Bank | a Federal Reserve Note's serial number | BEP's serial rules |
+| composition, metal, fineness, weights | denomination, country and year | `composition.json` |
+
+**A person always wins.** A filled-in value shows a small *suggested* mark in
+the item editor, with a tooltip saying where it came from. Change the field
+and save, and the value is yours: the mark goes, and nothing fills that field
+again. A value a person or the spreadsheet recorded is never replaced -- but it
+does narrow the facts: a $1 Series 1928 note recorded with a red seal is a
+United States Note.
+
+**When it happens.** As an item is created or saved, its defaults are brought
+up to date: correct a note's series year and its class follows. The **New item**
+form asks as you type: choose $1 and Series 1957 and the class, seal and
+signatures appear, marked as suggestions. For everything already recorded:
+
+    python -m app.classifier_defaults            report, touching nothing
+    python -m app.classifier_defaults --commit   write the defaults
+
+The report lists, by item code, what a person should look at:
+
+- **ambiguous** -- the series was issued in more than one class and nothing
+  recorded says which (a $1 Series 1928 with no seal);
+- **disagrees** -- a recorded class, seal, signature or Reserve Bank the facts
+  rule out;
+- **unknown issue** -- a series the facts table has no such note for, usually
+  a mistyped series year;
+- **serial prefix** -- a $5-or-higher note from Series 1996 on whose serial
+  does not start with its series' letter;
+- **stale default** -- a filled-in value the facts no longer support.
+
+Note classes use BEP's names: United States Note (formerly also listed as
+"Legal Tender Note", now a nickname of it), National Bank Note, Federal
+Reserve Note, Federal Reserve Bank Note, Silver and Gold Certificate,
+Fractional Currency, Demand Note, Treasury Note. Searching any class name or
+nickname finds the notes of that class.
+
 ### How an item comes into being
 
 Four paths create an `inventory_item`, and only two are routine.

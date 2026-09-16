@@ -1,10 +1,11 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../../api'
 import { ReferenceSelect } from '../../../shared/reference'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import { isMoney } from '../orders/cents'
+import { withSuggestions, without } from './suggestions'
 
 /**
  * One coin, banknote or lot bought on a purchase.
@@ -41,6 +42,7 @@ const SHARED_ON_REPEAT = [
   'seal_color',
   'fed_district',
   'note_type',
+  'signature_combination',
   'grading_service',
   'metal',
   'mint',
@@ -72,7 +74,21 @@ const BLANK = {
   seal_color: '',
   fed_district: '',
   note_type: '',
+  signature_combination: '',
 }
+
+//: Fields the facts can fill in, by kind. What the form fills is marked as a
+//: suggestion and sent back as one; what the person picks is theirs.
+const NOTE_SUGGESTED = [
+  'note_type',
+  'seal_color',
+  'signature_combination',
+  'fed_district',
+]
+const COIN_SUGGESTED = ['metal']
+
+/** How long typing must pause before the facts are looked up again. */
+const SUGGEST_DELAY_MS = 250
 
 /** An emptied number box clears the year rather than sending "". */
 const yearValue = (text) => (text === '' ? '' : text)
@@ -86,7 +102,16 @@ export default function NewItemForm({
   onSaved,
   disabledReason = '',
 }) {
-  const [form, setForm] = useState(BLANK)
+  // The form and its suggestion marks change together, so they are one state:
+  // `suggested` maps a field to the code the facts filled in, for as long as
+  // the person has not changed it.
+  const [entry, setEntry] = useState({ form: BLANK, suggested: {} })
+  const { form, suggested } = entry
+  const setForm = (next) =>
+    setEntry((e) => ({
+      ...e,
+      form: typeof next === 'function' ? next(e.form) : next,
+    }))
   const [ranged, setRanged] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -96,7 +121,59 @@ export default function NewItemForm({
 
   const isCurrency = isCurrencyKind(form.item_kind)
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  // Picking a value, even the suggested one, makes it the person's.
+  const set = (key) => (e) => {
+    const next = e.target.value
+    setEntry((current) => ({
+      form: { ...current.form, [key]: next },
+      suggested: without(current.suggested, key),
+    }))
+  }
+
+  // The facts that decide the suggestions. Only the person's own picks are
+  // sent with them: a value the form filled in must not narrow the next one.
+  const fields = isCurrency ? NOTE_SUGGESTED : COIN_SUGGESTED
+  const chosen = Object.fromEntries(
+    fields.filter((k) => form[k] && !(k in suggested)).map((k) => [k, form[k]]),
+  )
+  const facts = isCurrency
+    ? {
+        denomination: form.denomination,
+        series_year: form.series_year,
+        series_letter: form.series_letter,
+        serial_number: form.serial_number,
+        ...chosen,
+      }
+    : { denomination: form.denomination, country: form.country, year: form.year_start }
+  const factsKey = JSON.stringify([isCurrency, facts])
+
+  useEffect(() => {
+    const [currency, params] = JSON.parse(factsKey)
+    if (!params.denomination) return undefined
+    let cancelled = false
+    const timer = setTimeout(() => {
+      const ask = currency ? api.suggestNote : api.suggestCoin
+      ask(params)
+        .then((found) => {
+          if (!cancelled) setEntry((current) => withSuggestions(current, found))
+        })
+        // A suggestion is a convenience: a failed lookup leaves the form as
+        // the person left it rather than interrupting them.
+        .catch(() => {})
+    }, SUGGEST_DELAY_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [factsKey])
+
+  /** The "suggested" mark beside a field the facts filled in. */
+  const mark = (key) =>
+    key in suggested && form[key] ? (
+      <span className="suggested" title="Filled in from the facts entered">
+        suggested
+      </span>
+    ) : null
 
   // One year is both ends, as in the item editor: sending both is what keeps
   // an item with a start and no end reading as one year.
@@ -184,11 +261,19 @@ export default function NewItemForm({
       if (form.seal_color) payload.seal_color = form.seal_color
       if (form.fed_district) payload.fed_district = form.fed_district
       if (form.note_type) payload.note_type = form.note_type
+      if (form.signature_combination) {
+        payload.signature_combination = form.signature_combination
+      }
     } else {
       if (form.metal) payload.metal = form.metal
       if (form.mint) payload.mint = form.mint
       if (form.variety) payload.variety = form.variety
     }
+
+    const accepted = Object.keys(suggested).filter(
+      (key) => fields.includes(key) && payload[key],
+    )
+    if (accepted.length) payload.suggested = accepted
 
     return payload
   }
@@ -201,11 +286,23 @@ export default function NewItemForm({
       setError('')
       if (addAnother) {
         const kept = Object.fromEntries(SHARED_ON_REPEAT.map((k) => [k, form[k]]))
-        setForm({ ...BLANK, ...kept })
+        // A kept suggestion stays a suggestion. The Bank came from the serial,
+        // which is cleared, so it is dropped and asked for again.
+        const marks = Object.fromEntries(
+          Object.entries(suggested).filter(([k]) => k in kept && k !== 'fed_district'),
+        )
+        setEntry({
+          form: {
+            ...BLANK,
+            ...kept,
+            ...('fed_district' in suggested && { fed_district: '' }),
+          },
+          suggested: marks,
+        })
         setRanged(false)
         titleRef.current?.focus()
       } else {
-        setForm(BLANK)
+        setEntry({ form: BLANK, suggested: {} })
         setRanged(false)
       }
       onSaved?.(created)
@@ -351,6 +448,7 @@ export default function NewItemForm({
               onChange={set('metal')}
               {...accel('l')}
             />
+            {mark('metal')}
           </label>
         )}
 
@@ -405,28 +503,42 @@ export default function NewItemForm({
               />
             </label>
             <label>
+              <AccessLabel text="Note class" accessKey="a" />
+              <ReferenceSelect
+                table="note_type"
+                value={form.note_type}
+                onChange={set('note_type')}
+                {...accel('a')}
+              />
+              {mark('note_type')}
+            </label>
+            <label>
               Seal colour
               <ReferenceSelect
                 table="seal_color"
                 value={form.seal_color}
                 onChange={set('seal_color')}
               />
+              {mark('seal_color')}
             </label>
             <label>
-              Federal Reserve district
+              Signatures
+              <ReferenceSelect
+                table="signature_combination"
+                value={form.signature_combination}
+                onChange={set('signature_combination')}
+              />
+              {mark('signature_combination')}
+            </label>
+            <label>
+              <AccessLabel text="Reserve Bank" accessKey="b" />
               <ReferenceSelect
                 table="fed_district"
                 value={form.fed_district}
                 onChange={set('fed_district')}
+                {...accel('b')}
               />
-            </label>
-            <label>
-              Note type
-              <ReferenceSelect
-                table="note_type"
-                value={form.note_type}
-                onChange={set('note_type')}
-              />
+              {mark('fed_district')}
             </label>
           </>
         )}

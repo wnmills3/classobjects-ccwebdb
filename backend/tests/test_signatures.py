@@ -34,11 +34,13 @@ def test_a_year_narrows_to_the_possible_pairs(client: TestClient) -> None:
     """The point of the filter.
 
     A 1935A note was printed in 1936 and can only carry Julian/Morgenthau.
-    Offering the other ten invites a wrong catalogue lookup.
+    Offering the other pairs invites a wrong catalogue lookup.
     """
     assert _labels(client, "?year=1936") == ["Julian / Morgenthau"]
     assert _labels(client, "?year=1954") == ["Priest / Humphrey"]
-    assert _labels(client, "?year=1969") == ["Elston / Kennedy"]
+    # Two pairs signed in 1969: Granahan/Barr until January (the $1 1963B),
+    # then Elston/Kennedy. Both are possible, in the order they were used.
+    assert _labels(client, "?year=1969") == ["Granahan / Barr", "Elston / Kennedy"]
 
 
 def test_a_year_outside_every_term_offers_nothing(client: TestClient) -> None:
