@@ -281,6 +281,7 @@ Two of the suites are worth knowing about:
 
 | Task                        | Command                                          |
 | --------------------------- | ------------------------------------------------ |
+| See what is running         | `scripts\ccweb_status.cmd`                       |
 | Start everything            | `scripts\ccweb_startup.cmd`                      |
 | Stop everything             | `scripts\ccweb_shutdown.cmd`                     |
 | Add a Python dependency     | `uv add <pkg>` (from repo root)                  |
