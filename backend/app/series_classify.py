@@ -68,6 +68,8 @@ class Design:
     needs_evidence: bool
     seal_color_id: int | None
     spans: tuple[Span, ...]
+    #: The note class the design belongs to, when it names one.
+    note_type_id: int | None = None
 
     def covers(self, denomination_id: int, year: int, letter: str | None) -> bool:
         """Whether an item of this denomination, year and letter can be this."""
@@ -142,6 +144,7 @@ def load_designs(db: Session) -> list[Design]:
                     needs_evidence=series.needs_evidence,
                     seal_color_id=series.seal_color_id,
                     spans=spans,
+                    note_type_id=series.note_type_id,
                 )
             )
     return designs
@@ -153,6 +156,7 @@ def decide(
     known: set[str],
     seal_color_id: int | None,
     lot_named: frozenset[str] = frozenset(),
+    note_type_id: int | None = None,
 ) -> tuple[Design | None, str, tuple[str, ...]]:
     """The design an item is, or the reason it is left and the designs in play.
 
@@ -161,8 +165,16 @@ def decide(
     says nothing the facts can contradict. `lot_named` is what the lot's text
     names: never evidence for a design, but a lot of commemoratives may hold
     this piece, so an evidence-only candidate it names sends the piece to
-    review rather than to the common design.
+    review rather than to the common design. `note_type_id` is the note's
+    recorded class: a design of another class is not a candidate, and a
+    design of this class has its evidence.
     """
+    if note_type_id is not None:
+        candidates = [
+            d
+            for d in candidates
+            if d.note_type_id is None or d.note_type_id == note_type_id
+        ]
     possible = {d.code for d in candidates}
     named = named & known
     if named - possible and not named & possible:
@@ -174,6 +186,7 @@ def decide(
         if not d.needs_evidence
         or d.code in named
         or (seal_color_id is not None and d.seal_color_id == seal_color_id)
+        or (note_type_id is not None and d.note_type_id == note_type_id)
     ]
     if not eligible:
         return None, "ordinary" if candidates else "no_candidate", ()
@@ -223,6 +236,7 @@ def _items(db: Session) -> Sequence[tuple[Any, ...]]:
                 InventoryItem.description,
                 InventoryItem.grade_raw,
                 lot_text,
+                CurrencyDetail.note_type_id,
             )
             .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
             .join(
@@ -262,6 +276,7 @@ def disagreements(db: Session, designs: list[Design]) -> list[Case]:
             InventoryItem.year_end,
             CurrencyDetail.series_year,
             CurrencyDetail.series_letter,
+            CurrencyDetail.note_type_id,
         )
         .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
         .join(
@@ -274,7 +289,17 @@ def disagreements(db: Session, designs: list[Design]) -> list[Case]:
     ).tuples()
 
     cases = []
-    for code, kind, series_id, denomination_id, start, end, s_year, s_letter in rows:
+    for (
+        code,
+        kind,
+        series_id,
+        denomination_id,
+        start,
+        end,
+        s_year,
+        s_letter,
+        note_type_id,
+    ) in rows:
         design = None if series_id is None else by_id.get(series_id)
         if design is None or denomination_id is None:
             continue  # a design without facts, or an item without them
@@ -284,8 +309,15 @@ def disagreements(db: Session, designs: list[Design]) -> list[Case]:
             year, letter = (start if end is None or end == start else None), None
         if year is None:
             continue
-        if design.applies_to != inventory_of(kind) or not design.covers(
-            denomination_id, year, letter
+        wrong_class = (
+            design.note_type_id is not None
+            and note_type_id is not None
+            and design.note_type_id != note_type_id
+        )
+        if (
+            wrong_class
+            or design.applies_to != inventory_of(kind)
+            or not design.covers(denomination_id, year, letter)
         ):
             cases.append(Case(code, "disagrees", (design.code,)))
     return cases
@@ -313,6 +345,7 @@ def classify(db: Session) -> Report:
         description,
         rating,
         lot_text,
+        note_type_id,
     ) in _items(db):
         inventory = inventory_of(kind)
         if inventory == "currency":
@@ -337,7 +370,7 @@ def classify(db: Session) -> Report:
             lot = " ".join(part for part in (title, description) if part)
             lot_named = frozenset(match(lot, denomination, rules, inventory))
         design, outcome, in_play = decide(
-            candidates, named, known, seal_color_id, lot_named
+            candidates, named, known, seal_color_id, lot_named, note_type_id
         )
 
         report.counts[outcome] += 1

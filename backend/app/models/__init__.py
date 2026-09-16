@@ -123,15 +123,15 @@ REFERENCE_MODELS: tuple[type[ReferenceMixin], ...] = (
     BullionForm,
     Mint,
     # Before Series: a note design names the seal colour that is evidence
-    # for it.
+    # for it, and the note class it belongs to.
     SealColor,
+    NoteType,
     Series,
     GradeScale,
     Grade,
     GradeDesignation,
     GradingService,
     Authenticity,
-    NoteType,
     NoteAttribute,
     FedDistrict,
     SignatureCombination,

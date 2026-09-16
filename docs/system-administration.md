@@ -234,6 +234,15 @@ them (for a note, also a brown or yellow seal). A piece that says nothing is
 taken for the common design, so an unworded commemorative half is filed as a
 Kennedy.
 
+**Series 1929 National Bank Notes** ($5-$100, nicknamed *Brown Seal*, *1929
+National*, *Small Size National*) share their series and brown seal with the
+Series 1929 Federal Reserve Bank Notes. A note is filed as one when its text
+names a national bank ("National", "Natl") or its class is recorded as
+National Bank Note -- never when its class is Federal Reserve Bank Note, even
+if its text says "Brown Seal". The class is filled first (from a rating such
+as "Fed Res Boston" or "First National Bank of ..."), which is why the
+rebuild runs `app.classifier_defaults` before `app.series_classify`.
+
 A lot's pieces are imported carrying the lot's listing, so a title and
 description shared with another piece of the same order are not read as
 evidence about the piece; only its rating is. If the lot's text names an
