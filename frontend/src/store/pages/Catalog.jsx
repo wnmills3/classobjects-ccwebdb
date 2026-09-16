@@ -109,7 +109,7 @@ export default function Catalog() {
                 <Link to={`/coins/${coin.id}`}>{coin.title}</Link>
               </h3>
               <p className="muted small">
-                {[coin.country, coin.year_start, coin.grade]
+                {[coin.country, coin.year_start, coin.grade_display]
                   .filter(Boolean)
                   .join(' - ')}
               </p>

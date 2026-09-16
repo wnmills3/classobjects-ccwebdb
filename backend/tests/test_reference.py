@@ -62,7 +62,7 @@ def test_foreign_keys_come_through_as_codes_not_ids(client: TestClient) -> None:
     an id, because ids differ between installations.
     """
     grades = client.get("/api/reference/grade").json()["values"]
-    ms65 = next(v for v in grades if v["code"] == "MS65")
+    ms65 = next(v for v in grades if v["code"] == "65")
 
     assert ms65["extra"]["grade_scale"] == "sheldon"
     assert "grade_scale_id" not in ms65["extra"]
@@ -72,12 +72,12 @@ def test_grades_carry_the_number_that_makes_them_sortable(
     client: TestClient,
 ) -> None:
     grades = client.get("/api/reference/grade").json()["values"]
-    ms65 = next(v for v in grades if v["code"] == "MS65")
-    bu = next(v for v in grades if v["code"] == "BU")
+    ms65 = next(v for v in grades if v["code"] == "65")
+    circulated = next(v for v in grades if v["code"] == "CIRC")
 
     assert ms65["extra"]["numeric_value"] == 65
-    # Adjectival grades carry no number rather than a fictional one.
-    assert "numeric_value" not in bu["extra"]
+    # A grade with no number carries none rather than a fictional one.
+    assert "numeric_value" not in circulated["extra"]
 
 
 def test_provenance_is_visible(client: TestClient, db: Session) -> None:
@@ -91,7 +91,7 @@ def test_provenance_is_visible(client: TestClient, db: Session) -> None:
 
     values = client.get("/api/reference/grade").json()["values"]
     local = next(v for v in values if v["code"] == "LOCAL_X")
-    seeded = next(v for v in values if v["code"] == "MS65")
+    seeded = next(v for v in values if v["code"] == "65")
 
     assert local["source"] == "derived"
     assert seeded["source"] == "seeded"
@@ -197,7 +197,7 @@ def test_adding_a_duplicate_code_is_refused(
 ) -> None:
     response = client.post(
         "/api/reference/grade",
-        json={"code": "MS65", "label": "Another MS-65"},
+        json={"code": "65", "label": "Another MS-65"},
         headers=admin_headers,
     )
     assert response.status_code == 409
@@ -278,11 +278,11 @@ def test_renaming_a_label_takes_effect_everywhere_at_once(
     item = make_item(
         db,
         item_kind_id=code_id(db, ItemKind, "coin"),
-        grade_id=code_id(db, Grade, "MS65"),
+        grade_id=code_id(db, Grade, "65"),
     )
 
     response = client.patch(
-        "/api/reference/grade/MS65",
+        "/api/reference/grade/65",
         json={"label": "MS-65 (Gem Uncirculated)"},
         headers=admin_headers,
     )
@@ -292,7 +292,7 @@ def test_renaming_a_label_takes_effect_everywhere_at_once(
     refreshed = db.get(InventoryItem, item.id)
     assert refreshed.grade.label == "MS-65 (Gem Uncirculated)"
     # ...and the code, which is the contract, is untouched.
-    assert refreshed.grade.code == "MS65"
+    assert refreshed.grade.code == "65"
 
 
 def test_renaming_does_not_change_the_code(
@@ -304,10 +304,10 @@ def test_renaming_does_not_change_the_code(
     the label is precisely the operation that must not break them.
     """
     client.patch(
-        "/api/reference/grade/MS64", json={"label": "Renamed"}, headers=admin_headers
+        "/api/reference/grade/64", json={"label": "Renamed"}, headers=admin_headers
     )
     values = client.get("/api/reference/grade").json()["values"]
-    entry = next(v for v in values if v["code"] == "MS64")
+    entry = next(v for v in values if v["code"] == "64")
     assert entry["label"] == "Renamed"
 
 
@@ -326,19 +326,19 @@ def test_a_value_can_be_retired_without_breaking_existing_records(
     make_item(
         db,
         item_kind_id=code_id(db, ItemKind, "coin"),
-        grade_id=code_id(db, Grade, "VG8"),
+        grade_id=code_id(db, Grade, "8"),
     )
 
     client.patch(
-        "/api/reference/grade/VG8",
+        "/api/reference/grade/8",
         json={"label": "VG-8", "is_active": False},
         headers=admin_headers,
     )
 
     offered = {v["code"] for v in client.get("/api/reference/grade").json()["values"]}
-    assert "VG8" not in offered
+    assert "8" not in offered
     everything = client.get("/api/reference/grade?include_inactive=true").json()
-    assert "VG8" in {v["code"] for v in everything["values"]}
+    assert "8" in {v["code"] for v in everything["values"]}
 
 
 def test_renaming_an_unknown_value_is_a_404(
@@ -354,6 +354,6 @@ def test_renaming_requires_an_administrator(
     client: TestClient, customer_headers: dict[str, str]
 ) -> None:
     response = client.patch(
-        "/api/reference/grade/MS65", json={"label": "x"}, headers=customer_headers
+        "/api/reference/grade/65", json={"label": "x"}, headers=customer_headers
     )
     assert response.status_code == 403

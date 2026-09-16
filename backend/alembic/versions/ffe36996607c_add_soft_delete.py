@@ -15,7 +15,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-from app.models.views import CREATE_VIEWS, DROP_VIEWS, create_views
+from app.models.views import DROP_VIEWS, create_views
 
 revision: str = "ffe36996607c"
 down_revision: str | None = "3f3559d49a9f"
@@ -33,7 +33,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_inventory_item_deleted_at", "inventory_item", ["deleted_at"])
 
-    for statement in CREATE_VIEWS:
+    for statement in create_views(strike_type=False):
         op.execute(statement)
 
 
@@ -46,5 +46,5 @@ def downgrade() -> None:
 
     # The pre-soft-delete view text, so the downgrade leaves a consistent
     # database rather than four views naming a dropped column.
-    for statement in create_views(soft_delete=False):
+    for statement in create_views(soft_delete=False, strike_type=False):
         op.execute(statement)

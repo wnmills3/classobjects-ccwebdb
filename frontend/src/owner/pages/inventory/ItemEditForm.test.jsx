@@ -164,6 +164,10 @@ describe('Grade choices', () => {
           extra: { grade_scale: 'note' },
         },
       ],
+      strike_type: [
+        { code: 'business', label: 'Business Strike', source: 'seeded', extra: {} },
+        { code: 'proof', label: 'Proof', source: 'seeded', extra: {} },
+      ],
     },
   })
 
@@ -192,6 +196,17 @@ describe('Grade choices', () => {
     expect(options).toContain('MS-65')
     expect(options).toContain('UNC')
     expect(options).not.toContain('Choice Uncirculated 64')
+  })
+
+  // 65 is MS65 or PR65 by its strike type; a note has none to choose.
+  it('asks a coin for its strike type', async () => {
+    await gradeOptions('coin')
+    expect(screen.getByRole('combobox', { name: 'strike_type' })).toBeInTheDocument()
+  })
+
+  it('does not ask a note for a strike type', async () => {
+    await gradeOptions('currency')
+    expect(screen.queryByRole('combobox', { name: 'strike_type' })).toBeNull()
   })
 })
 

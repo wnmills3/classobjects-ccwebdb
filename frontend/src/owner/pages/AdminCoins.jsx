@@ -13,6 +13,7 @@ const BLANK = {
   item_kind: 'coin',
   country: '',
   denomination: '',
+  strike_type: '',
   grade: '',
   grading_service: '',
   metal: '',
@@ -95,6 +96,7 @@ export default function AdminCoins() {
     for (const key of [
       'country',
       'denomination',
+      'strike_type',
       'grade',
       'grading_service',
       'metal',
@@ -186,12 +188,21 @@ export default function AdminCoins() {
             />
           </label>
           <label>
+            Strike type
+            <ReferenceSelect
+              table="strike_type"
+              value={form.strike_type}
+              onChange={update('strike_type')}
+              allowAdd={false}
+            />
+          </label>
+          <label>
             Grade
             <ReferenceSelect
               table="grade"
               value={form.grade}
               onChange={update('grade')}
-              placeholder="MS64"
+              placeholder="64"
             />
           </label>
           <label>

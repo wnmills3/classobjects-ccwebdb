@@ -417,15 +417,15 @@ def test_facets_count_what_is_actually_present(
     A search panel over thousands of items needs to offer the values that
     exist, not the fifty-odd grades the vocabulary defines.
     """
-    coin(db, grade_id=code_id(db, Grade, "MS64"))
-    coin(db, grade_id=code_id(db, Grade, "MS64"))
-    coin(db, grade_id=code_id(db, Grade, "MS65"))
+    coin(db, grade_id=code_id(db, Grade, "64"))
+    coin(db, grade_id=code_id(db, Grade, "64"))
+    coin(db, grade_id=code_id(db, Grade, "65"))
 
     body = search(client, "coins", admin_headers, facets=True).json()
     grades = {f["value"]: f["count"] for f in body["facets"]["grade"]}
 
-    assert grades["MS64"] == 2
-    assert grades["MS65"] == 1
+    assert grades["64"] == 2
+    assert grades["65"] == 1
 
 
 def test_facets_reflect_the_current_filters(

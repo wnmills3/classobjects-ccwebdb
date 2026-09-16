@@ -17,6 +17,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    Computed,
     ForeignKey,
     Index,
     Integer,
@@ -61,6 +62,7 @@ __all__ = [
     "SignatureCombination",
     "StorageForm",
     "StorageLocationKind",
+    "StrikeType",
     "ValuationBasis",
     "VendorKind",
 ]
@@ -353,12 +355,34 @@ class GradeScale(ReferenceMixin, Base):
     __tablename__ = "grade_scale"
 
 
-class Grade(ReferenceMixin, Base):
-    """A condition grade.
+class StrikeType(ReferenceMixin, Base):
+    """How a coin was struck: business strike, proof, specimen, reverse proof.
 
-    ``numeric_value`` is what makes "all my MS65-and-better Morgans" an
-    answerable question. Adjectival grades such as BU carry no number and stay
-    null rather than being assigned a fictional one.
+    Split from the grade (docs/specs/item-attributes-design.md): PR69+ is a
+    proof with grade 69+, SP68 a specimen with 68. A strike is a way of
+    making the coin, not a rank, and the services pair any of them with the
+    same Sheldon numbers.
+
+    ``prefix`` and ``suffix`` compose the familiar display -- "PR69+",
+    "PR70 Reverse Proof". A strike with no prefix (the business strike) takes
+    its prefix from the number: MS from 60, AU from 50, down to PO 1.
+    """
+
+    __tablename__ = "strike_type"
+
+    prefix: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    suffix: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class Grade(ReferenceMixin, Base):
+    """A condition grade: a Sheldon number, a note grade, or an adjectival one.
+
+    Coin grades are numbers alone -- ``65``, ``64+`` -- and the strike type
+    says whether that is MS65 or PR65. ``numeric_value`` is what makes "all
+    my 65-and-better Morgans" an answerable question; ``is_plus`` ranks a plus
+    grade above its number, so 64+ falls between 64 and 65. The few grades
+    with no number (Circulated, Ungraded) stay null rather than being given a
+    fictional one.
     """
 
     __tablename__ = "grade"
@@ -367,8 +391,17 @@ class Grade(ReferenceMixin, Base):
         ForeignKey("grade_scale.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     numeric_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    #: True for proof grades (PR/PF), which are a striking method, not a rank.
-    is_proof: Mapped[bool] = mapped_column(default=False, nullable=False)
+    is_plus: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    #: The grade's place in order: the number, and half a point for a plus.
+    grade_rank: Mapped[Decimal | None] = mapped_column(
+        Numeric(4, 1),
+        Computed(
+            "numeric_value + CASE WHEN is_plus THEN 0.5 ELSE 0 END", persisted=True
+        ),
+        nullable=True,
+    )
 
     grade_scale: Mapped[GradeScale | None] = relationship()
 

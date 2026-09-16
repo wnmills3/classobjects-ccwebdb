@@ -387,7 +387,7 @@ def test_a_deleted_item_leaves_every_view(db: Session) -> None:
 
 
 def test_reference_codes_are_unique(db: Session) -> None:
-    db.add(Grade(code="MS65", label="duplicate"))
+    db.add(Grade(code="65", label="duplicate"))
     with pytest.raises(IntegrityError):
         db.commit()
     db.rollback()

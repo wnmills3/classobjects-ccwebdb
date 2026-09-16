@@ -50,12 +50,16 @@ const REVIEWABLE = {
   year_end: 'year_end',
   piece_count: 'piece_count',
   grade: 'grade_id',
+  strike_type: 'strike_type_id',
   denomination: 'denomination_id',
   country: 'country_id',
   metal: 'metal_id',
 }
 
 const CLASSIFIERS = [
+  // A coin's grade is a number; its strike type says whether 65 is MS65 or
+  // PR65. A note has no strike type, so the box is not shown for one.
+  ['Strike type', 'strike_type', 'strike_type', 'k'],
   ['Grade', 'grade', 'grade', 'g'],
   ['Denomination', 'denomination', 'denomination', 'm'],
   ['Country', 'country', 'country', 'u'],
@@ -104,7 +108,7 @@ const keys = (letter) => (letter ? accel(letter) : {})
 //: Vocabularies this form must not let anyone extend. `item_status` is a
 //: lifecycle the code branches on, not a descriptive list that grows with
 //: use -- see `ReferenceSelect`'s `allowAdd`.
-const FIXED_VOCABULARIES = new Set(['item_status'])
+const FIXED_VOCABULARIES = new Set(['item_status', 'strike_type'])
 
 export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const [item, setItem] = useState(null)
@@ -429,7 +433,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         </div>
       )}
 
-      {CLASSIFIERS.map(([label, key, table, letter]) => (
+      {CLASSIFIERS.filter(
+        ([, key]) => key !== 'strike_type' || value('item_kind') !== 'currency',
+      ).map(([label, key, table, letter]) => (
         <label key={key} className="field">
           <AccessLabel text={label} accessKey={letter} />
           <ReferenceSelect

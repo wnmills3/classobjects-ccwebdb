@@ -29,6 +29,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import grades
 from ..composition import composition_for
 from ..field_sources import COMPOSITION, record_derived
 from ..lifecycle_writes import record_initial_status
@@ -44,6 +45,7 @@ from ..models import (
     Disposition,
     Grade,
     GradeDesignation,
+    GradeScale,
     GradingService,
     InventoryItem,
     ItemCertification,
@@ -59,6 +61,7 @@ from ..models import (
     SealColor,
     SetForm,
     StorageForm,
+    StrikeType,
     ValuationBasis,
     Vendor,
     VendorKind,
@@ -373,6 +376,7 @@ class SchemaLoader:
             year_start=fields.get("year_start"),
             year_end=fields.get("year_end"),
             grade_id=grade_id,
+            strike_type_id=self.code_id(StrikeType, fields.get("strike_type")),
             grade_designation_id=self.code_id(
                 GradeDesignation, _upper_or_none(fields.get("grade_designation"))
             ),
@@ -523,7 +527,9 @@ class SchemaLoader:
                 if not (parsed.seal_color or parsed.note_attributes):
                     fields["rating_unparsed"] = text
                 return None
-            return self._grade_index().get(_grade_key(code))
+            # An adjectival note grade is the bottom of its range (N_UNC is 60).
+            note = grades.split(code)
+            return self._grade_index().get(_grade_key(note.grade if note else code))
 
         # A value that named only a seal colour or a star note said nothing
         # about condition, and that is not a parse failure.
@@ -534,13 +540,32 @@ class SchemaLoader:
             fields["rating_unparsed"] = text
             return None
 
+        # MS65 is a business strike graded 65, PR69+ a proof graded 69+, BU
+        # an uncirculated 60 (docs/specs/item-attributes-design.md).
+        split = grades.split(parsed.grade)
+        if split is None:
+            fields["rating_unparsed"] = text
+            return None
+        if split.strike_type:
+            fields.setdefault("strike_type", split.strike_type)
+
         index = self._grade_index()
-        key = _grade_key(parsed.grade)
+        key = _grade_key(split.grade)
         if key in index:
             return index[key]
 
+        # A number grade the seed file does not list -- 20+, 61+ -- is a real
+        # point on the scale, added as derived rather than refused.
+        number = int(split.grade.rstrip("+"))
+        plus = split.grade.endswith("+")
         row = Grade(
-            code=parsed.grade, label=parsed.grade, source=ProvenanceSource.derived
+            code=split.grade,
+            label=split.grade,
+            grade_scale_id=self.code_id(GradeScale, "sheldon"),
+            numeric_value=number,
+            is_plus=plus,
+            sort_order=100 + (70 - number) * 2 - (1 if plus else 0),
+            source=ProvenanceSource.derived,
         )
         self.session.add(row)
         self.session.flush()

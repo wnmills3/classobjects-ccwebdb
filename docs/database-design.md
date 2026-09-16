@@ -108,7 +108,8 @@ One row per acquired item or lot. The shared spine.
 | `storage_quantity` | int | pieces in the lot; 1 for a single item |
 | `country_id` | fk null | issuing country |
 | `year_start`, `year_end` | int null | a range covers multi-year sets |
-| `grade_id` | fk null | |
+| `strike_type_id` | fk null | business, proof, specimen, reverse proof, SMS -- what makes 65 read MS65 or PR65 |
+| `grade_id` | fk null | a number, `65` or `64+`; a note's `N64` |
 | `grade_designation_id` | fk null | DCAM, CAM, RD, RB, BN, FS, FB |
 | `grading_service_id` | fk null | who graded it, distinct from the grade |
 | `authenticity_id` | fk | unverified, genuine, counterfeit, questionable |
@@ -225,7 +226,8 @@ and `source` (`seeded | derived | manual`). `code` is stable and machine-facing;
 | `country` | issuer | United States, Canada, Mexico, United Kingdom, … |
 | `mint` | coin mint mark | P, D, S, O, W, CC, C |
 | `grade_scale` | grading system | Sheldon numeric (1–70), adjectival |
-| `grade` | condition | MS60–MS70, PR/PF60–70, AU50–58, XF40–45, VF20–35, F12–15, VG8–10, G4–6, plus UNC, BU, GEM BU, Choice BU |
+| `strike_type` | how it was struck | business, proof (PR), specimen (SP), reverse proof, enhanced reverse proof, SMS; `prefix` and `suffix` compose the grade shown |
+| `grade` | condition | Sheldon numbers 1–70 with `is_plus` (`64+`) and a generated `grade_rank`; note grades N1–N70; Circulated, Ungraded. Adjectival grades were folded into numbers (item-attributes design) |
 | `grade_designation` | grade suffix | DCAM, CAM, RD, RB, BN, FS, FB |
 | `grading_service` | grader | PCGS, NGC, ANACS, ICG, PMG, SEGS |
 | `note_attribute` | banknote features (m:n) | Star Note, Blue Seal, Red Seal, Green Seal, Consecutive, Fancy Serial, Error |

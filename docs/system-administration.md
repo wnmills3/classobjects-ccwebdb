@@ -192,6 +192,23 @@ reading **None recorded** is disabled because no matching item has that field
 filled in -- a gap in the data, not in the filter. The **Item code** box, and on
 currency the **Serial number** box, take the same `%` and `_` wildcards.
 
+The **Grade** box takes a grade, not text:
+
+| Type | Finds |
+|---|---|
+| `55` | exactly 55 -- not 55+ |
+| `55+` | exactly 55+ |
+| `55%` | 55 and 55+ |
+| `BU`, `BU+`, `BU++` | 60-62, 63-64, 65-66 (pluses included) |
+| `BU%` | all three: 60 to 66+ (`UNC` reads the same) |
+| `MS65`, `PR69+`, `PR69%` | the number, shown with that prefix |
+| `AU`, `AU+` | 50 to 58+, or only the plus grades in it |
+| `PROOF` | every proof |
+
+Anything else is refused with the examples. The API's `grade_min` and
+`grade_max` read the same terms: `grade_max=64` stops below 64+.
+Coins also have a **Strike type** dropdown (Alt+P).
+
 **Every field has an Alt+letter shortcut**, underlined in its label: Alt+S for
 the search box, Alt+H for the tips, Alt+C to clear the filters, Alt+Y and
 Alt+O for the years (as in the item editor). No field uses D, E or F, which
@@ -387,11 +404,20 @@ under *Sales tax on acquisitions* above. Those two are NOT NULL, and a null
 sent for either is refused naming the field.
 
 **Editable classifiers**, all set by code rather than id: `item_kind`,
-`country`, `denomination`, `bullion_form`, `grade`, `grade_designation`,
+`country`, `denomination`, `bullion_form`, `strike_type`, `grade`,
+`grade_designation`,
 `grading_service`, `metal`, `series`, `storage_form`, `authenticity`,
 `status`, `disposition`. Five of those are NOT NULL (`item_kind`,
 `storage_form`, `authenticity`, `status`, `disposition`) and refuse a null or
 empty code rather than failing with an unhandled database error.
+
+**A grade is a number and a strike type.** `grade` takes `65` or `64+`; a
+compound grade such as `MS65` or `PR69+` is split into the number and
+`strike_type` (business, proof, specimen, reverse_proof,
+enhanced_reverse_proof, sms), unless the request names a strike type of
+its own. Responses carry `grade`, `strike_type` and `grade_display`
+(`PR69+`). Adjectival words are read at the bottom of their range: BU is
+60, BU+ 63, BU++ 65, PROOF PR63, AU 55.
 
 An unknown field name is **refused**, not ignored -- a typo in a bulk edit
 must not silently do nothing.

@@ -17,6 +17,7 @@ from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
+from .. import grades
 from ..deps import AdminUser, DbSession
 from ..lifecycle_writes import record_initial_status
 from ..models import (
@@ -37,6 +38,7 @@ from ..models import (
     SalesOrderChange,
     SalesOrderItem,
     StorageForm,
+    StrikeType,
     ValuationBasis,
 )
 from ..references import code_to_id, require_code
@@ -57,6 +59,7 @@ CLASSIFIERS: dict[str, type] = {
     "country": Country,
     "denomination": Denomination,
     "bullion_form": BullionForm,
+    "strike_type": StrikeType,
     "grade": Grade,
     "grading_service": GradingService,
     "metal": Metal,
@@ -95,7 +98,8 @@ def _eager(stmt: Select[Any]) -> Select[Any]:
             selectinload(InventoryItem.country),
             selectinload(InventoryItem.denomination),
             selectinload(InventoryItem.bullion_form),
-            selectinload(InventoryItem.grade),
+            selectinload(InventoryItem.strike_type),
+            selectinload(InventoryItem.grade).selectinload(Grade.grade_scale),
             selectinload(InventoryItem.grading_service),
             selectinload(InventoryItem.metal),
             selectinload(InventoryItem.images),
@@ -143,6 +147,8 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         denomination=code(item.denomination),
         bullion_form=code(item.bullion_form),
         grade=code(item.grade),
+        strike_type=code(item.strike_type),
+        grade_display=grades.display_item(item),
         grading_service=code(item.grading_service),
         metal=code(item.metal),
         year_start=item.year_start,
@@ -161,7 +167,18 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
 
 
 def _resolve_classifiers(db: Session, payload: dict[str, Any]) -> dict[str, int | None]:
-    """Turn the classifier codes in a payload into foreign key values."""
+    """Turn the classifier codes in a payload into foreign key values.
+
+    A compound grade (MS65) is split into its number and strike type first.
+    """
+    payload = dict(payload)
+    if payload.get("grade"):
+        grade, strike = grades.split_fields(
+            payload["grade"], payload.get("strike_type")
+        )
+        payload["grade"] = grade
+        if strike is not None:
+            payload["strike_type"] = strike
     resolved: dict[str, int | None] = {}
     for field, model in CLASSIFIERS.items():
         if field not in payload:

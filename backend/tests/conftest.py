@@ -16,6 +16,7 @@ from decimal import Decimal
 import pytest
 from app.config import settings
 from app.database import Base, get_db
+from app.grades import GRADE_DISPLAY_SQL, split_fields
 from app.main import app
 from app.models import (
     Authenticity,
@@ -28,6 +29,7 @@ from app.models import (
     ItemStatus,
     Listing,
     StorageForm,
+    StrikeType,
     User,
     UserRole,
     ValuationBasis,
@@ -93,6 +95,9 @@ def engine() -> Iterator[Engine]:
     # this, a test of the public_catalog authorisation boundary would silently
     # have nothing to check.
     with test_engine.begin() as conn:
+        # The views compose grades with this function, which the migration
+        # that split strike type from grade creates.
+        conn.execute(text(GRADE_DISPLAY_SQL))
         for statement in CREATE_VIEWS:
             conn.execute(text(statement))
 
@@ -228,6 +233,15 @@ def _code_id(db: Session, model: type, code: str) -> int:
     return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
+def _grade_ids(db: Session, grade: object) -> dict[str, int | None]:
+    """A fixture grade as collectors write it (MS64), as the two columns."""
+    code, strike = split_fields(str(grade), None) if grade else (None, None)
+    return {
+        "grade_id": _code_id(db, Grade, code) if code else None,
+        "strike_type_id": _code_id(db, StrikeType, strike) if strike else None,
+    }
+
+
 def build_item(db: Session, **overrides: object) -> InventoryItem:
     """One inventory item, with every NOT NULL classifier resolved.
 
@@ -243,13 +257,15 @@ def build_item(db: Session, **overrides: object) -> InventoryItem:
         piece_count=overrides.pop("storage_quantity", 1),
         item_kind_id=_code_id(db, ItemKind, overrides.pop("kind", "coin")),
         country_id=_code_id(db, Country, "US"),
-        grade_id=_code_id(db, Grade, "MS64"),
         storage_form_id=_code_id(db, StorageForm, "single"),
         authenticity_id=_code_id(db, Authenticity, "unverified"),
         status_id=_code_id(db, ItemStatus, "received"),
         disposition_id=_code_id(db, Disposition, "held"),
         valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
-        **overrides,
+        **{
+            **_grade_ids(db, "MS64"),
+            **overrides,
+        },
     )
     db.add(item)
     db.commit()
@@ -284,7 +300,7 @@ def build_listing(db: Session, **overrides: object) -> Listing:
         **item_fields,
         item_kind_id=_code_id(db, ItemKind, kind),
         country_id=_code_id(db, Country, country) if country else None,
-        grade_id=_code_id(db, Grade, grade) if grade else None,
+        **_grade_ids(db, grade),
         storage_form_id=_code_id(db, StorageForm, "single"),
         authenticity_id=_code_id(db, Authenticity, "unverified"),
         status_id=_code_id(db, ItemStatus, "received"),

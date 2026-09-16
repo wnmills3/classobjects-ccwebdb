@@ -50,6 +50,7 @@ def test_generated_columns_are_read_from_the_models() -> None:
         "inventory_item.sales_tax",
         "inventory_item.total_cost",
         "currency_detail.series_designation",
+        "grade.grade_rank",
     }, "a generated column was added or removed; the backup skips whatever it finds"
 
     # And the derivation is genuinely reading the schema, not returning a

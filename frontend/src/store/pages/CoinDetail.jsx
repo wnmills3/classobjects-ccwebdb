@@ -14,7 +14,8 @@ const FIELDS = [
   ['Country', 'country'],
   ['Year', 'year_start'],
   ['Denomination', 'denomination'],
-  ['Grade', 'grade'],
+  // MS65, not the stored 65 and business strike.
+  ['Grade', 'grade_display'],
   ['Graded by', 'grading_service'],
   ['Metal', 'metal'],
   ['Fineness', 'fineness'],

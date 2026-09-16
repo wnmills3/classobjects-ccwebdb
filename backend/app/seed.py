@@ -15,6 +15,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import grades
 from .config import settings
 from .database import SessionLocal
 from .lifecycle_writes import record_initial_status
@@ -34,6 +35,7 @@ from .models import (
     ProvenanceSource,
     ReferenceMixin,
     StorageForm,
+    StrikeType,
     User,
     UserRole,
     ValuationBasis,
@@ -87,7 +89,7 @@ SAMPLE_CATALOG: list[dict] = [
         "country": "US",
         "denomination": "usd_note_1",
         # The paper-money scale's Uncirculated: a note is never given a coin grade.
-        "grade": "N_UNC",
+        "grade": "N60",
         "year_start": 1957,
         "price": Decimal("24.00"),
         "quantity_available": 8,
@@ -119,6 +121,8 @@ def _code_id(db: Session, model: type[ReferenceMixin], code: str | None) -> int 
 
 
 def _build(db: Session, row: dict) -> None:
+    # Demo rows name grades as collectors write them: MS64 is 64, business.
+    grade, strike = grades.split_fields(row.get("grade"), None)
     item = InventoryItem(
         source_title=row["title"],
         description=row.get("description", ""),
@@ -133,7 +137,8 @@ def _build(db: Session, row: dict) -> None:
         item_kind_id=_code_id(db, ItemKind, row["item_kind"]),
         country_id=_code_id(db, Country, row.get("country")),
         denomination_id=_code_id(db, Denomination, row.get("denomination")),
-        grade_id=_code_id(db, Grade, row.get("grade")),
+        grade_id=_code_id(db, Grade, grade),
+        strike_type_id=_code_id(db, StrikeType, strike),
         grading_service_id=_code_id(db, GradingService, row.get("grading_service")),
         metal_id=_code_id(db, Metal, row.get("metal")),
         storage_form_id=_code_id(db, StorageForm, "single"),
