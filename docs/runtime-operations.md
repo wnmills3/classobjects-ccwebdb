@@ -12,6 +12,7 @@ All commands here are **cmd**, not PowerShell.
 Run from the repository root:
 
 ```cmd
+scripts\ccweb_status.cmd               what is running, and what to run next
 scripts\ccweb_startup.cmd              start database, backend and frontend
 scripts\ccweb_shutdown.cmd             stop everything
 scripts\ccweb_shutdown.cmd /keepdb     stop the servers, leave PostgreSQL running
@@ -38,6 +39,41 @@ C:\Users\wnmil\dev\classobjects-ccwebdb\scripts\ccweb_startup.cmd
 | API docs | http://127.0.0.1:8000/docs |
 | Database | localhost:5432/ccwebdb |
 | Sign in | `admin@example.com` / `adminpassword` |
+
+---
+
+## Checking what is running
+
+```cmd
+scripts\ccweb_status.cmd
+```
+
+Reports each service, then either the URLs or the command to start what is
+missing. It starts and stops nothing.
+
+Each service is checked **twice** where it can be. A listening port only says
+something holds it, not that it answers: a backend that is wedged, still
+starting, or serving from a database it can no longer reach holds port 8000
+exactly like a healthy one. So the port check is paired with a request to
+`/api/reference/item_status`, which is public and reads the database -- a 200
+means the backend is up *and* talking to PostgreSQL. A port held with no answer
+is reported as **LISTENING but not answering** rather than being rounded up to
+RUNNING.
+
+SonarQube is listed but never counted as down. It is inspected on demand, not
+part of the runtime, and reporting it as missing would train the reader to
+ignore the whole list.
+
+Exit codes, so a caller can branch on it:
+
+| Code | Meaning |
+|---|---|
+| 0 | everything required is up |
+| 1 | something required is down or degraded |
+| 2 | the environment itself is not ready -- missing conda env, no PostgreSQL cluster, or no `node_modules` |
+
+A code of 2 is checked only when something is already down: a missing cluster
+matters when you are about to start PostgreSQL and is noise when it is running.
 
 ---
 
