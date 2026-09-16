@@ -668,6 +668,19 @@ class CollectionV1Profile:
         """The value column carries either an appraisal or a status marker."""
         text = row.text(COL_VALUE)
         if not text:
+            # An empty Value means the row has not arrived. The loader's own
+            # default is `received`, which made every unmarked row arrived and
+            # left no way for this spreadsheet to say otherwise: removing an
+            # `x` changed nothing, and 7,651 of 7,658 items imported as
+            # received. The owner's convention, confirmed 2026-09-15, is that
+            # `x` marks an arrival -- so a blank is the absence of one.
+            #
+            # An appraised amount below is NOT a blank and stays `received`:
+            # putting a value on a coin means having the coin. Applied to the
+            # collection as it stands this marks 1,009 rows `ordered` (902
+            # ordered in 2026, 107 in 2025) and leaves 6,039 appraised ones
+            # alone -- the `x` convention itself only starts in 2026.
+            fields["status_marker"] = "ordered"
             return
         if (value := _decimal(text)) is not None:
             fields["numismatic_value"] = value
