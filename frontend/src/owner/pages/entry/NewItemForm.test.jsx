@@ -374,6 +374,18 @@ describe('NewItemForm suggestions from the facts', () => {
     expect(sent.suggested).not.toContain('seal_color')
   })
 
+  it('takes its suggestions back when the denomination is cleared', async () => {
+    const user = userEvent.setup()
+    api.suggestNote.mockResolvedValue(FOUND)
+    await openNote(user)
+    await waitFor(() => expect(screen.getByLabelText('seal_color')).toHaveValue('blue'))
+
+    await user.clear(screen.getByLabelText('denomination'))
+
+    await waitFor(() => expect(screen.getByLabelText('seal_color')).toHaveValue(''))
+    expect(screen.queryByText('suggested')).toBeNull()
+  })
+
   it('asks for a coins metal', async () => {
     const user = userEvent.setup()
     api.suggestCoin.mockResolvedValue({ metal: 'silver' })

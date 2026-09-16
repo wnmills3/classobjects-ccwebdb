@@ -6,6 +6,8 @@ The rule (docs/specs/classifier-defaults-design.md, option B):
 - A pass may later refresh a field recorded here, and never touches one
   that is not.
 - A person saving a field removes its record: from then on it is theirs.
+- A person emptying a field records it as `held`: it stays empty, and no pass
+  fills it, until someone sets it again.
 
 Field names are columns (`note_type_id`, `fineness`), as `item_field_review`
 uses, whether the column lives on the item or on its currency detail.
@@ -13,7 +15,7 @@ uses, whether the column lives on the item or on its currency detail.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
@@ -27,7 +29,11 @@ SERIAL_DISTRICT = "serial_district"
 COMPOSITION = "composition"
 SERIES_MATCH = "series_match"
 SERIES_CLASSIFY = "series_classify"
+SERIES_BACKFILL = "series_backfill"
 SUGGESTION = "suggestion"
+
+#: Not a rule: a person emptied the field, and it is to stay empty.
+HELD = "held"
 
 
 def record_derived(
@@ -70,12 +76,20 @@ def forget(db: Session, item_ids: Iterable[int], fields: Iterable[str]) -> None:
     )
 
 
+def hold(db: Session, item_ids: Iterable[int], fields: Iterable[str]) -> None:
+    """A person has emptied these fields: keep them empty."""
+    names = list(fields)
+    for item_id in item_ids:
+        record_derived(db, item_id, names, HELD)
+
+
 def derived_fields(db: Session, item_id: int) -> dict[str, str]:
     """Field name to the rule that filled it, for one item."""
     return dict(
         db.execute(
             select(ItemFieldSource.field_name, ItemFieldSource.derived_by).where(
-                ItemFieldSource.inventory_item_id == item_id
+                ItemFieldSource.inventory_item_id == item_id,
+                ItemFieldSource.derived_by != HELD,
             )
         )
         .tuples()
@@ -83,20 +97,22 @@ def derived_fields(db: Session, item_id: int) -> dict[str, str]:
     )
 
 
-def derived_by_item(db: Session) -> dict[int, set[str]]:
-    """Every item's derived fields, for a pass deciding what it may refresh."""
-    found: dict[int, set[str]] = {}
-    for item_id, field in db.execute(
-        select(ItemFieldSource.inventory_item_id, ItemFieldSource.field_name)
-    ).tuples():
-        found.setdefault(item_id, set()).add(field)
-    return found
+def sources_by_item(
+    db: Session, item_ids: Iterable[int] | None = None
+) -> dict[int, dict[str, str]]:
+    """Every item's recorded sources (field to rule), or only the given items'.
 
-
-def columns_set(data: Mapping[str, object], columns: Mapping[str, str]) -> list[str]:
-    """The columns a request sets, from its field names.
-
-    `columns` maps an API field name to its column (`grade` -> `grade_id`);
-    a name it does not list is its own column.
+    Scoped when a single save asks, so saving one item does not read the
+    provenance of the whole collection.
     """
-    return [columns.get(field, field) for field in data]
+    query = select(
+        ItemFieldSource.inventory_item_id,
+        ItemFieldSource.field_name,
+        ItemFieldSource.derived_by,
+    )
+    if item_ids is not None:
+        query = query.where(ItemFieldSource.inventory_item_id.in_(list(item_ids)))
+    found: dict[int, dict[str, str]] = {}
+    for item_id, field, rule in db.execute(query).tuples():
+        found.setdefault(item_id, {})[field] = rule
+    return found

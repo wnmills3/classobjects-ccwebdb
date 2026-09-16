@@ -15,6 +15,9 @@ The rules, per field:
   but it does narrow the facts: a note recorded with a red seal is not the
   blue-seal issue of its series.
 - A recorded value the facts rule out is reported, not changed.
+- A derived value the facts no longer support is retracted: cleared, with
+  its record. The machine may take back its own guess; nobody else's.
+- A field a person emptied (`held`) stays empty.
 
     python -m app.classifier_defaults            report, touching nothing
     python -m app.classifier_defaults --commit   write the defaults
@@ -37,10 +40,12 @@ from sqlalchemy.orm import Session
 from .database import SessionLocal
 from .field_sources import (
     COMPOSITION,
+    HELD,
     NOTE_ISSUE,
     SERIAL_DISTRICT,
-    derived_by_item,
+    forget,
     record_derived,
+    sources_by_item,
 )
 from .models import (
     Composition,
@@ -79,6 +84,17 @@ TWO_LETTER_FROM_FACE = Decimal("5")
 #: A Federal Reserve Bank's letter, A (Boston) through L (San Francisco).
 BANK_LETTERS = frozenset("ABCDEFGHIJKL")
 
+#: The rule of a Change that clears a derived value the facts dropped.
+RETRACT = "retract"
+
+#: A note's columns the pass fills, the Bank included.
+NOTE_FILLED: tuple[str, ...] = (
+    "note_type_id",
+    "seal_color_id",
+    "signature_combination_id",
+    "fed_district_id",
+)
+
 #: One issue, as the facts table records it.
 IssueKey = tuple[int, int, str | None]
 
@@ -104,7 +120,10 @@ class Case:
 
 @dataclass(frozen=True)
 class Change:
-    """One default to write: which row, which column, what value, which rule."""
+    """One default to write, or to retract: row, column, value, rule.
+
+    A retraction has `value` None and `rule` RETRACT.
+    """
 
     item_id: int
     on_note: bool
@@ -121,9 +140,13 @@ class Report:
     counts: Counter = field(default_factory=Counter)
     review: list[Case] = field(default_factory=list)
 
-    def by_column(self) -> Counter:
-        """Writes per column: `note_type_id` 907."""
-        return Counter(change.column for change in self.changes)
+    def by_column(self, *, retracted: bool = False) -> Counter:
+        """Writes (or retractions) per column: `note_type_id` 907."""
+        return Counter(
+            change.column
+            for change in self.changes
+            if (change.rule == RETRACT) == retracted
+        )
 
 
 def load_issues(db: Session) -> dict[IssueKey, list[Issue]]:
@@ -144,27 +167,40 @@ def load_issues(db: Session) -> dict[IssueKey, list[Issue]]:
 
 
 def decide(
-    current: dict[str, Any], derived: set[str], options: dict[str, set[object]]
+    current: dict[str, Any],
+    derived: set[str],
+    options: dict[str, set[object]],
+    held: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, object], list[str]]:
     """What to write, given what is recorded and what the facts allow.
 
     `options` is, per column, every value the facts allow. Returns the columns
-    to write and the columns whose derived value the facts no longer support.
+    to write and the derived columns whose value the facts no longer support.
+    A held column is a person's choice to leave it empty, and is skipped.
     """
     writes: dict[str, object] = {}
     stale: list[str] = []
     for column, allowed in options.items():
         value = current.get(column)
         mine = column in derived
-        if value is not None and not mine:
+        if column in held or (value is not None and not mine):
             continue  # a person's value, or the data's: never touched
-        if len(allowed) == 1:
-            (only,) = allowed
-            if only is not None and only != value:
+        only = next(iter(allowed)) if len(allowed) == 1 else None
+        if only is not None:
+            if only != value:
                 writes[column] = only
-        elif mine and value is not None and value not in allowed:
+        elif mine and value is not None and value not in allowed - {None}:
             stale.append(column)
     return writes, stale
+
+
+def _retract(
+    out: Outcome, current: dict[str, Any], derived: set[str], columns: tuple[str, ...]
+) -> None:
+    """Take back derived values the facts no longer decide."""
+    for column in columns:
+        if column in derived and current.get(column) is not None:
+            out.retracts.append(column)
 
 
 def _note_options(
@@ -276,6 +312,8 @@ class Outcome:
     """What the facts say about one item."""
 
     writes: list[tuple[str, object, str]] = field(default_factory=list)
+    #: Derived columns to clear: the facts no longer support them.
+    retracts: list[str] = field(default_factory=list)
     cases: list[tuple[str, str]] = field(default_factory=list)
     count: str = ""
 
@@ -317,11 +355,18 @@ def load_facts(db: Session) -> Facts:
     )
 
 
-def note_outcome(facts: Facts, note: NoteFacts, derived: set[str]) -> Outcome:
+def note_outcome(
+    facts: Facts,
+    note: NoteFacts,
+    derived: set[str],
+    held: frozenset[str] = frozenset(),
+) -> Outcome:
     """Note type, seal and signatures from the issue; the Bank from the serial."""
     out = Outcome()
+    current = note.current
     if note.denomination_id is None or note.series_year is None:
         out.count = "note: no denomination or series year"
+        _retract(out, current, derived, NOTE_FILLED)
         return out
     letter = (note.series_letter or "").strip().upper() or None
     series = f"{note.series_year}{letter or ''}"
@@ -330,14 +375,15 @@ def note_outcome(facts: Facts, note: NoteFacts, derived: set[str]) -> Outcome:
         out.count = "note: series not in the facts"
         if note.series_year >= facts.first_issue_year:
             out.cases.append(("unknown issue", series))
+        _retract(out, current, derived, NOTE_FILLED)
         return out
 
-    current = note.current
     matches, contradicted = _note_options(known, current, derived)
     if contradicted:
         out.count = "note: recorded value the facts rule out"
         names = ", ".join(c.removesuffix("_id") for c in contradicted)
         out.cases.append(("disagrees", f"{series}: {names}"))
+        _retract(out, current, derived, NOTE_FILLED)
         return out
 
     # Several classes, and the rating names exactly one of them: that one.
@@ -354,11 +400,15 @@ def note_outcome(facts: Facts, note: NoteFacts, derived: set[str]) -> Outcome:
     options = {
         column: {getattr(issue, column) for issue in matches} for column in NOTE_COLUMNS
     }
-    writes, stale = decide(current, derived, options)
+    writes, stale = decide(current, derived, options, held)
     out.writes += [(column, value, NOTE_ISSUE) for column, value in writes.items()]
-    out.cases += [("stale default", column.removesuffix("_id")) for column in stale]
-    note_type = writes.get("note_type_id", current.get("note_type_id"))
+    out.retracts += stale
+    note_type = writes.get(
+        "note_type_id",
+        None if "note_type_id" in stale else current.get("note_type_id"),
+    )
     if note_type is None:
+        _retract(out, current, derived, ("fed_district_id",))
         out.count = "note: class undecided (seal would decide)"
         labels = sorted(facts.note_type_labels[t] for t in options["note_type_id"])
         out.cases.append(("ambiguous", f"{series}: {' / '.join(labels)}"))
@@ -366,11 +416,13 @@ def note_outcome(facts: Facts, note: NoteFacts, derived: set[str]) -> Outcome:
     out.count = "note: class known"
 
     if note_type != facts.frn_id or note.face is None:
+        _retract(out, current, derived, ("fed_district_id",))
         return out
     bank, series_letter = district_letter(
         note.serial_number, note.face, note.series_year
     )
     if not bank:
+        _retract(out, current, derived, ("fed_district_id",))
         return out
     prefixes = {issue.serial_prefix for issue in matches} - {None}
     if series_letter and len(prefixes) == 1 and series_letter not in prefixes:
@@ -384,10 +436,14 @@ def note_outcome(facts: Facts, note: NoteFacts, derived: set[str]) -> Outcome:
     district = facts.districts.get(bank) if bank in BANK_LETTERS else None
     if district is None:
         out.cases.append(("serial prefix", f"{note.serial_number}: no Bank {bank}"))
+        _retract(out, current, derived, ("fed_district_id",))
         return out
     recorded = current.get("fed_district_id")
     writes, _ = decide(
-        {"fed_district_id": recorded}, derived, {"fed_district_id": {district}}
+        {"fed_district_id": recorded},
+        derived,
+        {"fed_district_id": {district}},
+        held,
     )
     out.writes += [(c, v, SERIAL_DISTRICT) for c, v in writes.items()]
     if recorded not in (None, district) and "fed_district_id" not in derived:
@@ -399,9 +455,11 @@ def coin_outcome(
     facts: Facts,
     item: InventoryItem,
     derived: set[str],
+    held: frozenset[str] = frozenset(),
 ) -> Outcome:
     """Composition, metal, fineness and weights from denomination and year."""
     out = Outcome()
+    current = {column: getattr(item, column) for column in COMPOSITION_COLUMNS}
     single = item.year_end is None or item.year_end == item.year_start
     if (
         item.denomination_id is None
@@ -409,6 +467,7 @@ def coin_outcome(
         or item.year_start is None
         or not single
     ):
+        _retract(out, current, derived, COMPOSITION_COLUMNS)
         return out
     year = item.year_start
     found = next(
@@ -423,17 +482,27 @@ def coin_outcome(
         None,
     )
     if found is None:
-        if "composition_id" in derived:
-            out.cases.append(("stale default", "composition"))
+        _retract(out, current, derived, COMPOSITION_COLUMNS)
         return out
-    options: dict[str, set[object]] = {"composition_id": {found.id}}
-    for column in COMPOSITION_COLUMNS[1:]:
-        value = getattr(found, column)
-        if value is not None:
-            options[column] = {value}
-    current = {column: getattr(item, column) for column in COMPOSITION_COLUMNS}
-    writes, _ = decide(current, derived, options)
+    options: dict[str, set[object]] = {
+        column: {getattr(found, column if column != "composition_id" else "id")}
+        for column in COMPOSITION_COLUMNS
+    }
+    writes, stale = decide(current, derived, options, held)
     out.writes += [(column, value, COMPOSITION) for column, value in writes.items()]
+    out.retracts += stale
+    differs = [
+        column.removesuffix("_id")
+        for column, allowed in options.items()
+        if column not in derived
+        and current[column] is not None
+        and None not in allowed
+        and current[column] not in allowed
+    ]
+    if differs:
+        out.cases.append(
+            ("disagrees", f"composition says otherwise: {', '.join(differs)}")
+        )
     out.count = "coin: composition known"
     return out
 
@@ -456,24 +525,34 @@ def _note_facts(
 def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
     """Decide the defaults of every item, or of the given ones, writing nothing."""
     facts = load_facts(db)
-    derived = derived_by_item(db)
+    sources = sources_by_item(db, item_ids)
     report = Report()
     for item, kind, face, detail in _items(db, item_ids):
-        mine = derived.get(item.id, set())
+        recorded = sources.get(item.id, {})
+        mine = {f for f, rule in recorded.items() if rule != HELD}
+        held = frozenset(f for f, rule in recorded.items() if rule == HELD)
         if kind == "currency":
             if detail is None:
                 report.counts["note: no currency detail"] += 1
                 continue
-            outcome = note_outcome(facts, _note_facts(item, detail, face), mine)
+            outcome = note_outcome(facts, _note_facts(item, detail, face), mine, held)
             on_note = True
         else:
-            outcome = coin_outcome(facts, item, mine)
+            outcome = coin_outcome(facts, item, mine, held)
             on_note = False
         if outcome.count:
             report.counts[outcome.count] += 1
         report.changes += [
             Change(item.id, on_note, column, value, rule)
             for column, value, rule in outcome.writes
+        ]
+        report.changes += [
+            Change(item.id, on_note, column, None, RETRACT)
+            for column in dict.fromkeys(outcome.retracts)
+        ]
+        report.review += [
+            Case(item.item_code, "retracted", column.removesuffix("_id"))
+            for column in dict.fromkeys(outcome.retracts)
         ]
         report.review += [
             Case(item.item_code, reason, detail) for reason, detail in outcome.cases
@@ -493,7 +572,8 @@ def apply(db: Session, report: Report, *, commit: bool = True) -> None:
         for change in changes:
             target = item.currency_detail if change.on_note else item
             setattr(target, change.column, change.value)
-        for rule in {c.rule for c in changes}:
+        forget(db, [item_id], [c.column for c in changes if c.rule == RETRACT])
+        for rule in {c.rule for c in changes} - {RETRACT}:
             record_derived(
                 db, item_id, [c.column for c in changes if c.rule == rule], rule
             )
@@ -539,10 +619,14 @@ def _print(report: Report, *, commit: bool) -> None:
     """The counts the owner reviews before anything is written."""
     for key, n in sorted(report.counts.items()):
         print(f"  {key:<45} {n:>6}")
-    columns = report.by_column()
-    print("\nwritten, by field:" if commit else "\nwould write, by field:")
-    for column, n in columns.most_common():
-        print(f"  {column.removesuffix('_id'):<30} {n:>6}")
+    for retracted, heading in ((False, "write"), (True, "retract")):
+        columns = report.by_column(retracted=retracted)
+        if not columns:
+            continue
+        verb = f"{heading.rstrip('e')}ed" if commit else f"would {heading}"
+        print(f"\n{verb}, by field:")
+        for column, n in columns.most_common():
+            print(f"  {column.removesuffix('_id'):<30} {n:>6}")
 
     reasons = Counter(case.reason for case in report.review)
     for reason, total in reasons.most_common():

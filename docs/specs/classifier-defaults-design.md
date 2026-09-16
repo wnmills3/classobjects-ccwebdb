@@ -309,6 +309,26 @@ researched:
   entered (after a 250 ms pause), sends only the person's own picks with the
   facts, and reports the suggestions left untouched in `suggested`.
 - **Search** matches a note class by name or nickname, as it matches series.
+- **After review** (a code review of the branch, 2026-09-16):
+  - *The machine takes back its own guesses.* A derived value the facts no
+    longer support -- a series corrected to a large-size year, a class that
+    is no longer a Federal Reserve Note (and so has no Bank), a signature an
+    issue does not have, a coin whose year became a range -- is cleared with
+    its record, and counted as *retracted* in the report. A person's value
+    is never cleared; one the facts contradict is reported.
+  - *Emptying is a choice.* A person who empties a field the pass fills
+    records it as `held` in `item_field_source`: it stays empty through
+    refreshes and batch runs until someone sets it again. Emptying a field no
+    pass fills records nothing.
+  - *The migration marks less.* It records `composition_id` (no edit path
+    sets it) and series, skipping any series a person has confirmed, labelled
+    `series_backfill` rather than naming a pass it cannot prove. Metal,
+    fineness and weights on existing items are not marked: the importer's
+    values and later edits cannot be told apart. A recorded one the
+    composition contradicts is reported instead.
+  - *A save reads only its own items' provenance.*
+  - *The New item form* withdraws its suggestions when the denomination is
+    cleared.
 
 ## Decisions (owner, 2026-09-16: "yes to all, go with option B")
 

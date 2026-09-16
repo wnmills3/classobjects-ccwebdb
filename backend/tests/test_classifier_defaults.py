@@ -362,8 +362,10 @@ def test_editing_a_derived_field_makes_it_the_persons(
     body = client.get(f"/api/inventory/{note.id}", headers=admin_headers).json()
     assert body["note_type"] == "us_note"
     assert body["serial_number"] == "A00000001A"
-    assert "note_type_id" not in body["derived"]
-    assert "seal_color_id" in body["derived"]
+    # The person's class stands. The facts know no such note, so the seal
+    # derived from the class they replaced is withdrawn, not left behind.
+    assert body["seal_color"] is None
+    assert body["derived"] == {}
     # And the pass leaves it alone from now on.
     run(db, commit=True)
     assert _code(db, NoteType, _detail(db, note).note_type_id) == "us_note"
@@ -409,6 +411,7 @@ def test_a_bulk_edit_makes_the_fields_the_persons(
 def test_a_new_items_suggestions_are_recorded_as_derived(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
+    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     vendor = Vendor(name="Suggestion seller")
     db.add(vendor)
     db.flush()
@@ -425,7 +428,7 @@ def test_a_new_items_suggestions_are_recorded_as_derived(
             "denomination": "usd_note_1",
             "series_year": 1957,
             "note_type": "silver_certificate",
-            "seal_color": "red",
+            "seal_color": "blue",
             "suggested": ["note_type", "seal_color", "signature_combination"],
         },
         headers=admin_headers,
@@ -682,3 +685,161 @@ def test_search_finds_a_note_by_its_class_nickname(
     rows, _ = search(db, CURRENCY_VIEW, params={}, query="legal tender")
 
     assert note.item_code in {row["item_code"] for row in rows}
+
+
+# -- retracting what the facts no longer support ------------------------------
+
+
+def test_a_series_the_facts_do_not_cover_takes_back_the_defaults(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    _issue(
+        db,
+        "usd_note_1",
+        1957,
+        "silver_certificate",
+        "blue",
+        signatures="priest_anderson",
+    )
+    note = _note(db, make_item, "usd_note_1", 1957)
+    run(db, commit=True)
+
+    # Corrected to a large-size year: nothing in the facts says what it is.
+    response = client.patch(
+        f"/api/inventory/{note.id}", json={"series_year": 1917}, headers=admin_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = client.get(f"/api/inventory/{note.id}", headers=admin_headers).json()
+    assert (body["note_type"], body["seal_color"], body["signature_combination"]) == (
+        None,
+        None,
+        None,
+    )
+    assert body["derived"] == {}
+
+
+def test_a_derived_district_goes_when_the_class_changes(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    _issue(db, "usd_note_1", 1969, "frn", "green")
+    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    note = _note(db, make_item, "usd_note_1", 1969, serial="B12345678A")
+    run(db, commit=True)
+    assert _detail(db, note).fed_district_id is not None
+
+    client.patch(
+        f"/api/inventory/{note.id}", json={"series_year": 1957}, headers=admin_headers
+    )
+
+    detail = _detail(db, note)
+    assert _code(db, NoteType, detail.note_type_id) == "silver_certificate"
+    assert detail.fed_district_id is None
+    assert "fed_district_id" not in derived_fields(db, note.id)
+
+
+def test_a_signature_the_issue_does_not_have_is_taken_back(
+    db: Session, make_item: ItemFactory
+) -> None:
+    # Series 1929 bank notes were signed by bank officers: the facts say no pair.
+    _issue(db, "usd_note_10", 1929, "frbn", "brown")
+    note = _note(
+        db,
+        make_item,
+        "usd_note_10",
+        1929,
+        signature_combination_id=_id(db, SignatureCombination, "julian_morgenthau"),
+    )
+    record_derived(db, note.id, ["signature_combination_id"], "note_issue")
+    db.commit()
+
+    run(db, commit=True)
+
+    assert _detail(db, note).signature_combination_id is None
+
+
+def test_a_year_range_takes_back_a_derived_composition(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    dime = _dime(db, make_item, 1964)
+    run(db, commit=True)
+    assert dime.composition_id is not None
+
+    client.patch(
+        f"/api/inventory/{dime.id}",
+        json={"year_start": 1960, "year_end": 1970},
+        headers=admin_headers,
+    )
+
+    db.refresh(dime)
+    assert dime.composition_id is None
+    assert dime.fineness is None
+    assert derived_fields(db, dime.id) == {}
+
+
+def test_a_stated_value_the_composition_contradicts_is_reported(
+    db: Session, make_item: ItemFactory
+) -> None:
+    dime = _dime(db, make_item, 1964, fineness=Decimal("0.5000"))
+
+    assert ("disagrees", "composition says otherwise: fineness") in _cases(db, dime)
+
+
+# -- a person emptying a field -----------------------------------------------
+
+
+def test_an_emptied_field_stays_empty(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    note = _note(db, make_item, "usd_note_1", 1957)
+    run(db, commit=True)
+
+    response = client.patch(
+        f"/api/inventory/{note.id}", json={"note_type": None}, headers=admin_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = client.get(f"/api/inventory/{note.id}", headers=admin_headers).json()
+    assert body["note_type"] is None
+    assert "note_type_id" not in body["derived"]
+    # Not refilled by a batch run either...
+    run(db, commit=True)
+    assert _detail(db, note).note_type_id is None
+
+    # ...until the person sets it again, which makes it theirs.
+    client.patch(
+        f"/api/inventory/{note.id}", json={"note_type": "frn"}, headers=admin_headers
+    )
+    assert _code(db, NoteType, _detail(db, note).note_type_id) == "frn"
+    assert "note_type_id" not in derived_fields(db, note.id)
+
+
+def test_emptying_a_field_no_pass_fills_holds_nothing(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    from app.field_sources import sources_by_item
+
+    dime = _dime(db, make_item, 1964)
+
+    response = client.patch(
+        f"/api/inventory/{dime.id}", json={"grade": None}, headers=admin_headers
+    )
+
+    assert response.status_code == 200, response.text
+    assert "grade_id" not in sources_by_item(db, [dime.id]).get(dime.id, {})
