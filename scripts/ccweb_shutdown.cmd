@@ -34,6 +34,7 @@ if errorlevel 1 (
 set "PGDATA=%REPO%\.pgdata"
 set "RUNTIME=%REPO%\.runtime"
 set "PIDFILE=%RUNTIME%\ccweb.pids"
+call "%~dp0ccweb_logdir.cmd"
 
 rem An unrecognised argument is refused, never ignored. Git bash rewrites
 rem /keepdb into a path such as C:/Program Files/Git/keepdb, and ignoring that
@@ -52,6 +53,7 @@ exit /b 2
 rem The log directory must exist before anything redirects into it; otherwise
 rem the redirect fails and the command attached to it never runs at all.
 if not exist "%RUNTIME%" mkdir "%RUNTIME%"
+if not exist "%LOGS%" mkdir "%LOGS%"
 
 echo ============================================
 echo   ccwebdb runtime shutdown
@@ -87,14 +89,17 @@ if not defined PGBIN (
         echo [3/3] postgresql   already stopped
     ) else (
         echo [3/3] postgresql   stopping ^(fast^)...
-        "%PGBIN%\pg_ctl.exe" -D "%PGDATA%" -m fast -w stop >"%RUNTIME%\pg_stop.log" 2>&1
+        rem  Keep the last few stop logs, like every other log. The server
+        rem  still holds postgres.log open, so the stop writes a file of its own.
+        if exist "%ENVDIR%\python.exe" "%ENVDIR%\python.exe" "%REPO%\backend\app\logpipe.py" "%LOGS%\pg_stop.log" --rotate
+        "%PGBIN%\pg_ctl.exe" -D "%PGDATA%" -m fast -w stop >"%LOGS%\pg_stop.log" 2>&1
         rem Trust pg_isready over the exit code: a failed redirect can mask it.
         "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
         if errorlevel 1 (
             echo       stopped cleanly
         ) else (
             echo       FAILED - still accepting connections
-            echo       see %RUNTIME%\pg_stop.log and %PGDATA%\server.log
+            echo       see %LOGS%\pg_stop.log and %LOGS%\postgres.log
         )
     )
 )

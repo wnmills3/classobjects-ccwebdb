@@ -201,18 +201,23 @@ claude       2.1.261 (Claude Code)
 ## Files it produces
 
 ```
-.runtime\ccweb.pids       backend / frontend PIDs and start time
-.runtime\backend.log      uvicorn output
-.runtime\frontend.log     vite output
-.runtime\pg_start.log     pg_ctl start output
-.runtime\pg_stop.log      pg_ctl stop output
-.pgdata\server.log        PostgreSQL server log
-logs\import\              import review files (see below)
+.runtime\ccweb.pids            backend / frontend PIDs and start time
+logs\backend.log               uvicorn output
+logs\frontend.log              vite output
+logs\postgres.log              pg_ctl start output, then the server log
+logs\pg_stop.log               pg_ctl stop output
+logs\import\                   import review files (see below)
 ```
 
-`.runtime\`, `.pgdata\` and `logs\` are all gitignored. When something fails to
-start, those logs are the first place to look — the scripts print the relevant
-path on failure.
+The log directory is `CCWEB_LOG_DIR`, `.\logs` when that is unset; a relative
+path is taken from the repo root. Each type keeps its last three files
+(`backend.log`, `backend.1.log`, `backend.2.log`), and none grows past 1 GB.
+[logs/README.md](../logs/README.md) describes every file and the
+`CCWEB_LOG_KEEP` and `CCWEB_LOG_MAX_BYTES` settings.
+
+`.runtime\` and `.pgdata\` are gitignored, and so is everything in `logs\` but
+its README. When something fails to start, those logs are the first place to
+look — the scripts print the relevant path on failure.
 
 ## Import review files
 
@@ -221,7 +226,8 @@ cd backend
 uv run python -m app.importers.cli --file <source.xlsx>
 ```
 
-Writes to `logs\import\` by default — inside the project and gitignored, so
+Writes to `import\` in the log directory by default (`logs\import\` unless
+`CCWEB_LOG_DIR` says otherwise) — inside the project and gitignored, so
 generated output never lands somewhere unexpected and never reaches version
 control. Override with `--out-dir`, or suppress with `--no-files`.
 
@@ -324,8 +330,25 @@ transactions and writes a shutdown checkpoint; the server log should end with
 cleanly" while PostgreSQL was still running: `.runtime\` did not exist, so the
 log redirect failed, and because the redirect failed the `pg_ctl` command
 attached to it never ran at all. The exit code reflected the redirect rather
-than the command. Both scripts now create `.runtime\` before anything writes
-there, and shutdown trusts `pg_isready` over the exit code.
+than the command. Both scripts now create `.runtime\` and the log directory
+before anything writes there, and shutdown trusts `pg_isready` over the exit
+code.
+
+**Every server writes through a pipe.** The output of the backend, the
+frontend and PostgreSQL goes to `backend\app\logpipe.py`, which rolls the file
+over at the size limit and keeps the last few. The pipe sits inside the quoted
+command that `start` hands to the new console, so it runs there. When the
+server exits, the reader sees the end of its input and exits too, and the
+console closes. `PYTHONUNBUFFERED=1` keeps uvicorn's lines from waiting in a
+buffer before they reach the log.
+
+**PostgreSQL logs through that pipe too, not its own collector.** Without
+`-l`, `pg_ctl start` passes its output handle on to the server, which keeps
+writing into the pipe for as long as it runs (`scripts\ccweb_pgstart.cmd`).
+PostgreSQL's logging collector can cap a file's size but not how many files it
+leaves, so it is turned off on the command line. Stopping is different: the
+server holds the start pipe, so `pg_ctl stop` writes to a file of its own,
+`pg_stop.log`.
 
 **No `--reload`.** The script runs uvicorn as a single process so the PID that
 holds the port is the one to kill. `--reload` adds a supervisor plus a worker,
@@ -346,7 +369,7 @@ first, then in separate windows:
 ```cmd
 :: database
 conda activate ccwebdb
-pg_ctl -D .pgdata -l .pgdata\server.log start
+pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
 
 :: backend, with auto-reload
 cd backend
@@ -387,7 +410,7 @@ absolute path and do not care.
 
 **Startup reports FAILED but a service seems fine** — the readiness probe waits
 60 seconds. A first Vite run after `npm install` can exceed that while it
-pre-bundles dependencies. Check `.runtime\frontend.log`, then simply re-run
+pre-bundles dependencies. Check `logs\frontend.log`, then simply re-run
 startup; it will adopt whatever is already listening.
 
 **Stale PID file** — if the machine was rebooted without a clean shutdown,
