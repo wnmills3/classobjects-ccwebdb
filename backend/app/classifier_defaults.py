@@ -457,27 +457,30 @@ def coin_outcome(
     derived: set[str],
     held: frozenset[str] = frozenset(),
 ) -> Outcome:
-    """Composition, metal, fineness and weights from denomination and year."""
+    """Composition, metal, fineness and weights from denomination and year.
+
+    A range of years has a composition only when one covers all of it: a
+    1999-2008 quarter set is clad throughout, a 1909-2022 cent lot is not.
+    """
     out = Outcome()
     current = {column: getattr(item, column) for column in COMPOSITION_COLUMNS}
-    single = item.year_end is None or item.year_end == item.year_start
     if (
         item.denomination_id is None
         or item.country_id is None
         or item.year_start is None
-        or not single
     ):
         _retract(out, current, derived, COMPOSITION_COLUMNS)
         return out
-    year = item.year_start
+    first = item.year_start
+    last = item.year_end if item.year_end is not None else first
     found = next(
         (
             c
             for c in facts.compositions
             if c.denomination_id == item.denomination_id
             and c.country_id == item.country_id
-            and c.year_from <= year
-            and (c.year_to is None or c.year_to >= year)
+            and c.year_from <= first
+            and (c.year_to is None or c.year_to >= last)
         ),
         None,
     )
