@@ -1,6 +1,49 @@
+import { useRef } from 'react'
+
+import { AccessLabel } from '../../AccessLabel'
+import { accel } from '../../shortcuts'
+
+//: For a view that names no placeholder of its own.
+const DEFAULT_PLACEHOLDER = 'Search title, description or item code'
+
+/**
+ * Accelerators every view shares. Each view's own filters carry their letter
+ * as the last element of their spec entry, chosen to avoid these; the test
+ * checks each view as a whole for repeats and for D, E and F, which the
+ * browsers keep for the address bar and menus. Year from and Year to match
+ * the item editor's Y and O, so a key means the same thing in both places.
+ */
+export const SHARED_KEYS = {
+  search: 's',
+  tips: 'h',
+  yearFrom: 'y',
+  yearTo: 'o',
+  clear: 'c',
+}
+
+/** A label with its underlined letter, or plain text when it has none. */
+function Label({ text, letter }) {
+  return letter ? <AccessLabel text={text} accessKey={letter} /> : text
+}
+
+/** `accel` attributes, or none for a filter that was given no letter. */
+const keys = (letter) => (letter ? accel(letter) : {})
+
 /**
  * The search box, facet dropdowns, text filters and year range for an
  * inventory view, plus the "N matching" / "Clear filters" row.
+ *
+ * The search box has no field syntax to learn -- one term, matched anywhere,
+ * ignoring case -- but it has two behaviours nobody guesses: several words are
+ * one phrase in that order, and `%` and `_` are wildcards. A placeholder
+ * cannot hold that, so the view's `searchExamples` are listed underneath,
+ * each one runnable with a click. The box is uncontrolled, so a clicked
+ * example is written into it directly before being applied; otherwise the
+ * results would change while the box still showed the old text.
+ *
+ * Every field has an Alt+letter accelerator, underlined in its label. The
+ * search box gained a visible "Search" label for that reason: an underline
+ * needs somewhere to be.
  */
 export default function FilterPanel({
   config,
@@ -13,24 +56,71 @@ export default function FilterPanel({
   busy,
   clear,
 }) {
+  const box = useRef(null)
+  const examples = config.searchExamples ?? []
+
+  function tryExample(term) {
+    box.current.value = term
+    apply({ q: term })
+  }
+
   return (
     <div className="search-panel">
-      <input
-        className="search-text"
-        placeholder="Search descriptions and series, e.g. mercury, buffalo, morgan"
-        defaultValue={current.q ?? ''}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') apply({ q: e.target.value })
-        }}
-        onBlur={(e) => apply({ q: e.target.value })}
-      />
+      <label className="search-row">
+        <span className="search-label">
+          <AccessLabel text="Search" accessKey={SHARED_KEYS.search} />
+        </span>
+        <input
+          ref={box}
+          className="search-text"
+          placeholder={config.searchPlaceholder ?? DEFAULT_PLACEHOLDER}
+          defaultValue={current.q ?? ''}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') apply({ q: e.target.value })
+          }}
+          onBlur={(e) => apply({ q: e.target.value })}
+          {...accel(SHARED_KEYS.search)}
+        />
+      </label>
+
+      {examples.length > 0 && (
+        <details className="search-help">
+          <summary {...accel(SHARED_KEYS.tips)}>
+            <AccessLabel text="Search tips" accessKey={SHARED_KEYS.tips} />
+          </summary>
+          <ul>
+            {examples.map(([term, why]) => (
+              <li key={term}>
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => tryExample(term)}
+                  // Names the action; it still contains the visible term, so
+                  // speech input that says what it sees still finds it.
+                  aria-label={`Search for ${term}`}
+                  title={`Search for ${term}`}
+                >
+                  <code>{term}</code>
+                </button>
+                {' - '}
+                {why}
+              </li>
+            ))}
+          </ul>
+          <p className="muted">
+            Case is ignored. Click an example to run it. The dropdowns and year boxes
+            below narrow whatever the search finds. Every field has an Alt+letter
+            shortcut: the underlined letter in its label.
+          </p>
+        </details>
+      )}
 
       <div className="filter-grid">
-        {config.facetFilters.map(([label, param, facetKey]) => {
+        {config.facetFilters.map(([label, param, facetKey, letter]) => {
           const options = facets[facetKey] ?? []
           return (
             <label key={param}>
-              {label}
+              <Label text={label} letter={letter} />
               <select
                 value={current[param] ?? ''}
                 onChange={(e) => apply({ [param]: e.target.value })}
@@ -40,6 +130,7 @@ export default function FilterPanel({
                     ? `No ${label.toLowerCase()} has been recorded on any matching item yet`
                     : undefined
                 }
+                {...keys(letter)}
               >
                 {/* A disabled control with no explanation reads as broken.
                     Empty here means the field is unrecorded on every
@@ -63,9 +154,9 @@ export default function FilterPanel({
             partial serial finds the note. `%` and `_` reach the SQL pattern
             unescaped and work as wildcards -- `_` for one character, which
             is what finds a run of consecutive notes. */}
-        {(config.textFilters ?? []).map(([label, param, placeholder]) => (
+        {(config.textFilters ?? []).map(([label, param, placeholder, letter]) => (
           <label key={param}>
-            {label}
+            <Label text={label} letter={letter} />
             <input
               type="text"
               placeholder={placeholder}
@@ -74,24 +165,27 @@ export default function FilterPanel({
                 if (e.key === 'Enter') apply({ [param]: e.target.value })
               }}
               onBlur={(e) => apply({ [param]: e.target.value })}
+              {...keys(letter)}
             />
           </label>
         ))}
 
         <label>
-          Year from{/* */}
+          <AccessLabel text="Year from" accessKey={SHARED_KEYS.yearFrom} />
           <input
             type="number"
             defaultValue={current.year_min ?? ''}
             onBlur={(e) => apply({ year_min: e.target.value })}
+            {...accel(SHARED_KEYS.yearFrom)}
           />
         </label>
         <label>
-          Year to{/* */}
+          <AccessLabel text="Year to" accessKey={SHARED_KEYS.yearTo} />
           <input
             type="number"
             defaultValue={current.year_max ?? ''}
             onBlur={(e) => apply({ year_max: e.target.value })}
+            {...accel(SHARED_KEYS.yearTo)}
           />
         </label>
       </div>
@@ -116,8 +210,8 @@ export default function FilterPanel({
       </div>
 
       <div className="row">
-        <button className="link" onClick={clear}>
-          Clear filters
+        <button className="link" onClick={clear} {...accel(SHARED_KEYS.clear)}>
+          <AccessLabel text="Clear filters" accessKey={SHARED_KEYS.clear} />
         </button>
         <span className="muted">
           {busy ? 'Searching...' : `${total.toLocaleString()} matching`}

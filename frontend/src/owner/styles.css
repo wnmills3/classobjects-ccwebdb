@@ -57,9 +57,46 @@ button.link.danger {
   padding: 0.9rem;
   margin-bottom: 1rem;
 }
-.search-text {
-  width: 100%;
+/* The search box with its visible label beside it. The label exists so the
+   accelerator letter has somewhere to be underlined. */
+.search-row {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
   margin-bottom: 0.75rem;
+}
+.search-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.search-text {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+/* Search tips: collapsed under the box until asked for, so the panel stays
+   compact for anyone who already knows how the search behaves. */
+.search-help {
+  font-size: 0.82rem;
+  margin: -0.4rem 0 0.75rem;
+}
+.search-help summary {
+  color: var(--muted);
+  cursor: pointer;
+  width: fit-content;
+}
+.search-help ul {
+  margin: 0.4rem 0;
+  padding-left: 1.2rem;
+}
+.search-help li {
+  margin: 0.2rem 0;
+}
+.search-help code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.search-help p {
+  margin: 0.3rem 0 0;
 }
 .filter-grid {
   display: grid;
