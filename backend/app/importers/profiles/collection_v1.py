@@ -349,9 +349,19 @@ RECEIVED_MARKERS = {
     "counterfeit": "counterfeit",
 }
 
-#: Kept for the `Grading#` check below: these are the words that belong in
-#: `Received`, and finding one a column to the left is a typo worth naming.
-VALUE_MARKERS = RECEIVED_MARKERS
+#: Words that belong in `Received` and are nonsense as a serial or
+#: certificate number, so finding one in `Grading#` is a typo worth naming.
+#:
+#: `missing` is deliberately NOT here. In `Grading#` it describes the note
+#: rather than the purchase: CC-007246 is a 1963-A $1 whose serial and
+#: treasury seal were never printed, and reading that as "the parcel went
+#: missing" is a different claim about a different thing.
+MISPLACED_IN_GRADING = {"x", "canceled", "cancelled", "returned", "counterfeit"}
+
+#: `Grading#` text saying the identifier is absent rather than giving one.
+#: Stored, these become a note serial-numbered "Missing"; the absence is real
+#: and usually a printing error, so it is reported and nothing is stored.
+ABSENT_IDENTIFIER = {"missing", "none", "n/a", "na", "no serial"}
 
 
 def _decimal(text: str) -> Decimal | None:
@@ -667,8 +677,8 @@ class CollectionV1Profile:
         # The grading column means different things depending on the kind:
         # a note's own printed serial, or a grading certificate serial.
         grading = row.text(COL_GRADING)
-        if grading and grading.casefold() in VALUE_MARKERS:
-            # A Value status marker typed one column to the left, where Grading#
+        if grading and grading.casefold() in MISPLACED_IN_GRADING:
+            # An arrival marker typed one column to the left, where Grading#
             # sits. Stored, it would become a certificate or serial numbered
             # "x"; on 2026-09-14 thirteen rows did exactly that, and were never
             # marked received. Warn, and store nothing: the marker is not where
@@ -679,9 +689,31 @@ class CollectionV1Profile:
                     severity=WARNING,
                     column=COL_GRADING,
                     raw_value=grading,
-                    proposed=f"{COL_VALUE}: {grading}",
-                    note=f"a {COL_VALUE} status marker, not a certificate or "
-                    f"serial number; move it to the {COL_VALUE} column",
+                    proposed=f"{COL_RECEIVED}: {grading}",
+                    note=f"an arrival marker, not a certificate or serial "
+                    f"number; move it to the {COL_RECEIVED} column",
+                )
+            )
+        elif grading and grading.casefold() in ABSENT_IDENTIFIER:
+            # The cell says there is no identifier rather than giving one --
+            # on a banknote usually because it was never printed, which is an
+            # error worth recording about the note itself. Reported, not
+            # stored: a note whose serial number is the word "Missing" reads
+            # as a note that has one.
+            issues.append(
+                Issue(
+                    rule="identifier-absent",
+                    severity=WARNING,
+                    column=COL_GRADING,
+                    raw_value=grading,
+                    note=(
+                        "says the serial number is absent rather than giving "
+                        "one; if the note was printed without it, that belongs "
+                        "on the item as an error"
+                        if kind == "currency"
+                        else "says the certificate number is absent rather "
+                        "than giving one"
+                    ),
                 )
             )
         elif grading and not SCIENTIFIC.match(grading):

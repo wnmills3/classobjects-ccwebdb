@@ -270,11 +270,12 @@ def test_grading_column_routes_by_kind(profile: CollectionV1Profile) -> None:
 def test_a_status_marker_in_the_grading_column_is_warned_about(
     profile: CollectionV1Profile, marker: str
 ) -> None:
-    """A Value status marker typed one column to the left is a slip.
+    """An arrival marker typed in the wrong column is a slip.
 
-    Grading# sits directly left of Value. On 2026-09-14 thirteen rows carried
-    the received marker `x` in Grading# with Value empty: each imported as a
-    certificate numbered "x", none as received, and nothing said so.
+    On 2026-09-14 thirteen rows carried the received marker `x` in Grading#:
+    each imported as a certificate numbered "x", none as received, and
+    nothing said so. The marker's home is the `Received` column since
+    2026-09-15; the slip and the guard against it are unchanged.
     """
     result = profile.inspect(make_row(Denom="0.25", **{"Grading#": marker}))
 
@@ -284,7 +285,7 @@ def test_a_status_marker_in_the_grading_column_is_warned_about(
     assert issue.severity == WARNING
     assert issue.column == "Grading#"
     assert issue.raw_value == marker
-    assert "Value" in (issue.note or "")
+    assert "Received" in (issue.note or "")
 
 
 @pytest.mark.parametrize(
@@ -367,6 +368,34 @@ def test_an_unreadable_received_cell_is_warned_and_left_unarrived(
     result = profile.inspect(make_row(Denom="1", Received="?"))
     assert result.fields["status_marker"] == "ordered"
     assert any(i.rule == "received-not-understood" for i in result.issues)
+
+
+def test_an_absent_serial_number_is_reported_not_stored(
+    profile: CollectionV1Profile,
+) -> None:
+    """A Grading# of "Missing" describes the note, not the parcel.
+
+    CC-007246 is a 1963-A $1 whose serial and treasury seal were never
+    printed. Stored, the note would have a serial number reading "Missing",
+    which reads exactly like a note that has one; treated as an arrival
+    marker, it would claim the purchase went astray. Neither is true.
+    """
+    result = profile.inspect(
+        make_row(Denom="$1 Bill", Received="x", **{"Grading#": "Missing"})
+    )
+    assert "serial_number" not in result.fields
+    assert result.fields["status_marker"] == "received"
+    assert any(i.rule == "identifier-absent" for i in result.issues)
+    assert not any(i.rule == "status-marker-in-grading-column" for i in result.issues)
+
+
+def test_an_arrival_marker_in_the_grading_column_is_still_caught(
+    profile: CollectionV1Profile,
+) -> None:
+    """An `x` there would become a certificate numbered "x"."""
+    result = profile.inspect(make_row(Denom="0.25", **{"Grading#": "x"}))
+    assert "cert_number" not in result.fields
+    assert any(i.rule == "status-marker-in-grading-column" for i in result.issues)
 
 
 def test_the_owners_own_grade_is_carried_across(
