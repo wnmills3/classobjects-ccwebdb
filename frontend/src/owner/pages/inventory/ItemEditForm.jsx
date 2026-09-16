@@ -60,7 +60,19 @@ const CLASSIFIERS = [
   ['Denomination', 'denomination', 'denomination', 'm'],
   ['Country', 'country', 'country', 'u'],
   ['Metal', 'metal', 'metal', 'l'],
+  // Status is editable here because Receiving only moves an item forward.
+  // Nothing else could put one back: a parcel recorded as received in error,
+  // or against the wrong row, had no way home. `PATCH /api/inventory/{id}`
+  // has always accepted it and routes it through `set_status`, so the
+  // status-history row is written either way -- an item's history stays a
+  // true account of where it has been, including the correction.
+  ['Status', 'status', 'item_status', 's'],
 ]
+
+//: Vocabularies this form must not let anyone extend. `item_status` is a
+//: lifecycle the code branches on, not a descriptive list that grows with
+//: use -- see `ReferenceSelect`'s `allowAdd`.
+const FIXED_VOCABULARIES = new Set(['item_status'])
 
 export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const [item, setItem] = useState(null)
@@ -369,6 +381,10 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             table={table}
             value={value(key)}
             onChange={set(key)}
+            allowAdd={!FIXED_VOCABULARIES.has(table)}
+            // Status is NOT NULL on the item, so there is no blank to pick:
+            // clearing it would be a 422 the operator cannot act on.
+            allowBlank={key !== 'status'}
             // Paper money is graded on its own scale: a note is offered only
             // note grades, and anything else only the coin scales.
             filter={

@@ -67,6 +67,12 @@ export function ReferenceSelect({
   value,
   onChange,
   allowBlank = true,
+  //: Whether this picker may add a value to the vocabulary. True for the
+  //: descriptive tables, which grow with use. False for one the code itself
+  //: branches on: receiving, the outstanding lists and the inventory views
+  //: all key on the known `item_status` codes, so a status invented from a
+  //: dropdown would be a row nothing downstream can reason about.
+  allowAdd = true,
   placeholder,
   //: Optional `(entry) => boolean` narrowing what is offered -- a note's grade
   //: picker offers only the paper-money scale.
@@ -140,7 +146,7 @@ export function ReferenceSelect({
       <select
         value={value ?? ''}
         onChange={(e) => {
-          if (e.target.value === '__add__') setAdding(true)
+          if (allowAdd && e.target.value === '__add__') setAdding(true)
           else onChange(e)
         }}
         aria-label={table}
@@ -160,7 +166,7 @@ export function ReferenceSelect({
             </option>
           ),
         )}
-        <option value="__add__">+ Add a new value...</option>
+        {allowAdd && <option value="__add__">+ Add a new value...</option>}
       </select>
     </div>
   )
