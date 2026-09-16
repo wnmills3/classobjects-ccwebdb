@@ -1,7 +1,7 @@
 # Classifier defaults from known facts -- currency first
 
-Design. Status: **draft for the owner's review, 2026-09-16.** Decisions still
-open are marked **Decision** and gathered at the end.
+Design. Status: **approved by the owner 2026-09-16**; the decisions are
+gathered at the end.
 
 ## The idea
 
@@ -276,16 +276,31 @@ researched:
   on 2026-09-16 and to follow as series additions, now that note type exists as
   evidence.
 
-## Decisions for the owner
+## Decisions (owner, 2026-09-16: "yes to all, go with option B")
 
-1. Rename the code `national_currency` to `national_bank_note` (and merge
-   `legal_tender` into `us_note`)? Free now; costly once used.
-2. Note-type nicknames: a `note_type_alias` table, or one general alias table?
-3. A `note_issue` table as the home for the small-size facts?
-4. Provenance: **A** fill blanks only, or **B** per-field provenance
-   (recommended)?
-5. Entry-time suggestions in the New item form: first version, or later?
-6. Record coin composition and metal as derived defaults too?
+1. **Codes:** `national_currency` is renamed `national_bank_note` (label
+   "National Bank Note") and `legal_tender` is merged into `us_note`, both in
+   place by migration -- no row references either. The old names become
+   nicknames.
+2. **Nicknames: one general alias table**, `reference_alias` (table, code,
+   alias), for note types and every vocabulary after them. "Yes to all" did
+   not choose between the two options, so this was decided in the build:
+   the grade vocabulary that follows needs nicknames too (UCAM for DCAM, DPL
+   for DMPL), and one table serves both. `series_alias` stays as it is.
+3. **`note_issue`** holds the small-size facts: denomination, series year,
+   series letter, class, seal, signature combination.
+4. **Provenance: option B**, per-field. `item_field_source` records which
+   fields of an item hold a derived default. A pass may refresh those and
+   never touches any other; saving a field by hand removes its row, which
+   makes it the person's. `series_classify` records the series it assigns
+   the same way.
+5. **Entry-time suggestions ship in the first version**: the New item form
+   fills note type, seal and signatures as the facts are chosen, marked as
+   suggestions.
+6. **Coin composition is a derived default too.** The importer already fills
+   composition, metal, fineness and fine weight for 3,188 of 4,387 coins
+   (measured 2026-09-16); those fields are recorded as derived, and the pass
+   fills the coins that lack them.
 
 ## Sources
 
