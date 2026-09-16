@@ -19,6 +19,7 @@ produced with nothing running.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -30,9 +31,15 @@ from .sources import XlsxSource
 
 PROFILES = {"collection_v1": CollectionV1Profile}
 
-#: Inside the project and gitignored, so review output never lands somewhere
-#: surprising and never reaches version control.
-DEFAULT_OUT_DIR = REPO_ROOT / "logs" / "import"
+
+def default_out_dir() -> Path:
+    """``import`` under the log directory, found as the runtime scripts find it.
+
+    CCWEB_LOG_DIR, defaulting to ``logs`` and taken from the repo root when
+    relative (scripts/ccweb_logdir.cmd). The default is inside the project and
+    gitignored, so review output never reaches version control.
+    """
+    return REPO_ROOT / (os.environ.get("CCWEB_LOG_DIR") or "logs") / "import"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out-dir",
         default=None,
-        help=f"where to write review files (default: {DEFAULT_OUT_DIR})",
+        help=f"where to write review files (default: {default_out_dir()})",
     )
     parser.add_argument(
         "--no-files", action="store_true", help="console report only, write nothing"
@@ -77,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         print(report.render(top=args.top))
 
     if not args.no_files:
-        out_dir = Path(args.out_dir) if args.out_dir else DEFAULT_OUT_DIR
+        out_dir = Path(args.out_dir) if args.out_dir else default_out_dir()
         paths = reporting.write_all(
             report, out_dir, accepted=getattr(profile, "known_good", None)
         )

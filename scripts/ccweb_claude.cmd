@@ -23,6 +23,7 @@ rem This script lives in scripts\, so the repo root is one level up.
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 set "ENVNAME=ccwebdb"
 set "PGDATA=%REPO%\.pgdata"
+call "%REPO%\scripts\ccweb_logdir.cmd"
 
 set "CHECKONLY="
 set "SKIPDB="
@@ -51,11 +52,11 @@ if not defined SKIPDB (
     ) else (
         "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
         if errorlevel 1 (
-            start "ccweb-postgres" /MIN cmd /c ""%PGBIN%\pg_ctl.exe" -D "%PGDATA%" -l "%PGDATA%\server.log" start >nul 2>&1"
+            call "%REPO%\scripts\ccweb_pgstart.cmd"
             call :waitpg 60
             "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
             if errorlevel 1 (
-                set "DBSTATE=FAILED TO START - see .pgdata\server.log"
+                set "DBSTATE=FAILED TO START - see %LOGS%\postgres.log"
             ) else (
                 set "DBSTATE=started"
             )

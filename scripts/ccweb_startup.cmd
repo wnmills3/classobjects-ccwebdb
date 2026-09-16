@@ -8,6 +8,8 @@ rem    2. FastAPI      127.0.0.1:8000
 rem    3. Vite         127.0.0.1:5173
 rem
 rem  PIDs are written to .runtime\ccweb.pids for ccweb_shutdown.cmd.
+rem  Logs go to %CCWEB_LOG_DIR% (default .\logs), three files per type of
+rem  at most 1 GB each; logs\README.md lists the files and the settings.
 rem  Safe to re-run: anything already listening is left alone.
 rem
 rem  Pure cmd - no PowerShell. Uses netstat for PIDs and curl for readiness
@@ -26,6 +28,12 @@ call "%~dp0ccweb_env.cmd" || exit /b 2
 set "PGDATA=%REPO%\.pgdata"
 set "RUNTIME=%REPO%\.runtime"
 set "PIDFILE=%RUNTIME%\ccweb.pids"
+call "%~dp0ccweb_logdir.cmd"
+rem  The log writer: a plain script, run with the environment's Python.
+set "LOGPIPE=%REPO%\backend\app\logpipe.py"
+rem  Without this a piped Python holds its output back in a buffer, and
+rem  the backend log would lag behind what the server has done.
+set "PYTHONUNBUFFERED=1"
 set "BPORT=8000"
 set "FPORT=5173"
 
@@ -50,25 +58,23 @@ if not exist "%REPO%\frontend\node_modules\vite\bin\vite.js" (
     exit /b 1
 )
 if not exist "%RUNTIME%" mkdir "%RUNTIME%"
+if not exist "%LOGS%" mkdir "%LOGS%"
 
 rem --- 1. PostgreSQL --------------------------------------------------------
-rem  Started through `start`, into a console of its own, like the backend and
-rem  frontend below. The postmaster spawns a process for every connection and
-rem  background task, each inheriting its console. Started from a shell that
-rem  later goes away - Claude Code's, or a window someone closes - it keeps
-rem  running while every process it spawns afterwards dies with 0xC0000142.
-rem  On 2026-09-10 this script started all three from Claude Code's shell; the
-rem  backend and frontend survived that session ending, and PostgreSQL did not.
+rem  Started into a console of its own, like the backend and frontend below;
+rem  ccweb_pgstart.cmd says why. On 2026-09-10 this script started all three
+rem  from Claude Code's shell; the backend and frontend survived that session
+rem  ending, and PostgreSQL did not.
 "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
 if not errorlevel 1 (
     echo [1/3] postgresql   already running
 ) else (
     echo [1/3] postgresql   starting...
-    start "ccweb-postgres" /MIN cmd /c ""%PGBIN%\pg_ctl.exe" -D "%PGDATA%" -l "%PGDATA%\server.log" start >"%RUNTIME%\pg_start.log" 2>&1"
+    call "%~dp0ccweb_pgstart.cmd" || exit /b 1
     call :waitpg 60
     "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
     if errorlevel 1 (
-        echo       FAILED - see %RUNTIME%\pg_start.log and %PGDATA%\server.log
+        echo       FAILED - see %LOGS%\postgres.log
         exit /b 1
     )
     echo       started
@@ -80,11 +86,12 @@ if defined BPID (
     echo [2/3] backend      already running on %BPORT% ^(pid !BPID!^)
 ) else (
     echo [2/3] backend      starting on %BPORT%...
-    start "ccweb-backend" /MIN /D "%REPO%\backend" cmd /c ""%ENVDIR%\Scripts\uvicorn.exe" app.main:app --host 127.0.0.1 --port %BPORT% >"%RUNTIME%\backend.log" 2>&1"
+    rem  The pipe is inside the quoted part, so the new console runs it.
+    start "ccweb-backend" /MIN /D "%REPO%\backend" cmd /c ""%ENVDIR%\Scripts\uvicorn.exe" app.main:app --host 127.0.0.1 --port %BPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\backend.log""
     call :waiturl "http://127.0.0.1:%BPORT%/health" 60
     call :portpid %BPORT% BPID
     if not defined BPID (
-        echo       FAILED - see %RUNTIME%\backend.log
+        echo       FAILED - see %LOGS%\backend.log
         exit /b 1
     )
     echo       pid !BPID!
@@ -96,11 +103,11 @@ if defined FPID (
     echo [3/3] frontend     already running on %FPORT% ^(pid !FPID!^)
 ) else (
     echo [3/3] frontend     starting on %FPORT%...
-    start "ccweb-frontend" /MIN /D "%REPO%\frontend" cmd /c ""%ENVDIR%\node.exe" .\node_modules\vite\bin\vite.js --host 127.0.0.1 --port %FPORT% >"%RUNTIME%\frontend.log" 2>&1"
+    start "ccweb-frontend" /MIN /D "%REPO%\frontend" cmd /c ""%ENVDIR%\node.exe" .\node_modules\vite\bin\vite.js --host 127.0.0.1 --port %FPORT% 2>&1 | "%ENVDIR%\python.exe" "%LOGPIPE%" "%LOGS%\frontend.log""
     call :waiturl "http://127.0.0.1:%FPORT%/" 60
     call :portpid %FPORT% FPID
     if not defined FPID (
-        echo       FAILED - see %RUNTIME%\frontend.log
+        echo       FAILED - see %LOGS%\frontend.log
         exit /b 1
     )
     echo       pid !FPID!
@@ -121,7 +128,7 @@ echo   database    localhost:5432/ccwebdb
 echo.
 echo   sign in     admin@example.com / adminpassword
 echo.
-echo   logs        .runtime\backend.log  .runtime\frontend.log
+echo   logs        %LOGS%
 echo   PIDs        .runtime\ccweb.pids
 echo   stop with   scripts\ccweb_shutdown.cmd
 echo ============================================

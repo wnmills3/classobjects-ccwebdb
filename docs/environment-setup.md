@@ -159,7 +159,7 @@ so only the `host` rules (`scram-sha-256`) apply.
 ### Start and stop the server
 
 ```cmd
-pg_ctl -D .pgdata -l .pgdata\server.log start
+pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
 pg_ctl -D .pgdata -m fast stop
 pg_isready -h localhost -p 5432
 ```
@@ -167,6 +167,10 @@ pg_isready -h localhost -p 5432
 > In an automated or non-interactive shell, `pg_ctl start` can appear to hang
 > because the postmaster inherits stdout. The server *is* running — check with
 > `pg_isready` rather than waiting.
+
+`scripts\ccweb_startup.cmd` starts it differently, into `logs\postgres.log`
+with rotation; see [logs/README.md](../logs/README.md). A log written by hand
+as above is not rotated.
 
 Day to day, `scripts\ccweb_startup.cmd` handles this for you.
 

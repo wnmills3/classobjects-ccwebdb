@@ -227,7 +227,11 @@ dist/
 .vite/
 .runtime/
 .semgrep/
-logs/
+# Runtime and import logs stay local; only the README describing them is kept.
+# `logs/*` rather than `logs/`: git cannot re-include a file inside an ignored
+# directory, only among an ignored directory's contents.
+logs/*
+!logs/README.md
 
 # Image storage: bytes never go in git, any more than they go in the database.
 media/
