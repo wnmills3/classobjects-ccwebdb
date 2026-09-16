@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { date, money } from '../../shared/format'
-import OrderDialog from './orders/OrderDialog'
+import ModalDialog from '../ModalDialog'
 import OrderEditor from './orders/OrderEditor'
 import OrderHistory from './orders/OrderHistory'
 
@@ -183,7 +183,7 @@ export default function Orders() {
       )}
 
       {editing && (
-        <OrderDialog label="Order" onClose={() => setEditing(null)}>
+        <ModalDialog label="Order" onClose={() => setEditing(null)}>
           <OrderEditor
             order={editing === 'new' ? null : editing}
             onClose={() => setEditing(null)}
@@ -192,12 +192,12 @@ export default function Orders() {
               setReloads((n) => n + 1)
             }}
           />
-        </OrderDialog>
+        </ModalDialog>
       )}
       {historyOf && (
-        <OrderDialog label="Order history" onClose={() => setHistoryOf(null)}>
+        <ModalDialog label="Order history" onClose={() => setHistoryOf(null)}>
           <OrderHistory order={historyOf} onClose={() => setHistoryOf(null)} />
-        </OrderDialog>
+        </ModalDialog>
       )}
     </section>
   )

@@ -288,8 +288,18 @@ button.link.danger {
   border-color: var(--accent);
 }
 
-/* Receiving: the receipt panel below the outstanding lines -- the arrival
-   date, storage location and note, plus the four outcome buttons. */
+/* Receiving: a line that can still be received opens its receipt dialog.
+   The whole row is a click target for the mouse; the item code inside it is
+   a real button, which is what makes the row reachable by keyboard. */
+.row-pick {
+  cursor: pointer;
+}
+.row-pick:hover {
+  background: var(--surface);
+}
+
+/* Receiving: the receipt panel, now inside the line's own dialog -- the
+   arrival date, storage location and note, plus the four outcome buttons. */
 .receipt-panel {
   margin-top: 0.8rem;
 }

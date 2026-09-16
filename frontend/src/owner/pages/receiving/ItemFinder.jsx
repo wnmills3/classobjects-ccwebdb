@@ -52,6 +52,10 @@ const EMPTY_FILTERS = {
  * into `onPick`, once the fields on screen are currency's -- and starting a
  * fresh search invalidates whatever the button's own last click kicked off,
  * so two in-flight requests can never both write to `results`.
+ *
+ * `onPick(row)` receives the whole result row, not its id: the receipt dialog
+ * it opens names what it is about, and the caller has no other copy of the
+ * item code and description to look it up from.
  */
 export default function ItemFinder({ onPick }) {
   const [view, setView] = useState('coins')
@@ -226,8 +230,10 @@ export default function ItemFinder({ onPick }) {
       {results && results.length > 0 && (
         <ul className="order-picker">
           {results.map((row) => (
-            <li key={row.id} className="order-row" onClick={() => onPick(row.id)}>
-              <span className="mono">{row.item_code}</span> {row.description}
+            <li key={row.id}>
+              <button type="button" className="order-row" onClick={() => onPick(row)}>
+                <span className="mono">{row.item_code}</span> {row.description}
+              </button>
             </li>
           ))}
         </ul>

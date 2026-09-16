@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import ItemFinder from './receiving/ItemFinder'
+import ModalDialog from '../ModalDialog'
 import OrderLines from './receiving/OrderLines'
 import OrderPicker from './receiving/OrderPicker'
 import ReceiptPanel from './receiving/ReceiptPanel'
@@ -17,12 +18,8 @@ function orderIdFromParams(params) {
 }
 
 /**
- * Receiving: pick a purchase order, see what on it has not arrived yet.
- *
- * `selected` (the checked line ids) is held here rather than inside
- * `OrderLines`, so a later action bar -- recording arrival, choosing a
- * storage location -- can read it without the list needing to know that
- * anything downstream exists.
+ * Receiving: pick a purchase order, then record what arrived, one line at a
+ * time.
  *
  * The picked order's detail is stored keyed by the order id it answers, the
  * same shape `useInventorySearch` uses for its result: "still loading" is
@@ -33,18 +30,21 @@ function orderIdFromParams(params) {
  * three orders quickly is exactly the case that would otherwise show stale
  * lines under the wrong order.
  *
- * `mode` chooses between the two ways in to the same `ReceiptPanel`: the
- * order path above (pick an order, check off lines) is the default, and
- * `ItemFinder`'s attribute search is the fallback for when the object is in
- * hand and which order it came from is not known. Both paths only ever hand
- * `ReceiptPanel` ids for things still `ordered`, so it never has to know
- * which path found them.
+ * `receiving` holds the line whose receipt dialog is open -- the whole line,
+ * so the dialog can name it -- and null when none is. The `ReceiptPanel`
+ * inside it is the same component both ways in, handed exactly one id: the
+ * order path picks a line off the table, and `ItemFinder`'s attribute search
+ * is the fallback for when the object is in hand and which order it came
+ * from is not known. Both only ever hand it something still outstanding, so
+ * it never has to know which path found it.
  *
- * The picked order id is mirrored into the `order` query parameter both
- * ways: derived from the params on every render, so a link from the
- * inventory screens' Order column (`/receiving?order=<id>`) opens straight
- * to that order and the browser's Back/Forward move between picked orders,
- * and written on every pick, so the address bar always names what is open.
+ * **The `order` query parameter scopes the page.** With `?order=<id>` --
+ * which is how the inventory screens' Order column and New purchase's
+ * "Receive these" both link here -- the picker is not shown at all and only
+ * that order's lines are, so following a link about one purchase does not
+ * open onto a list of every other one. Without it, the picker is the way in.
+ * Either way the parameter names what is open, so Back/Forward move between
+ * orders and the address bar can be copied.
  */
 export default function Receiving() {
   const [params, setParams] = useSearchParams()
@@ -53,9 +53,8 @@ export default function Receiving() {
   const orderId = orderIdFromParams(params)
   const [detail, setDetail] = useState(null)
   const [detailError, setDetailError] = useState('')
-  const [selected, setSelected] = useState([])
+  const [receiving, setReceiving] = useState(null)
   const [mode, setMode] = useState('order')
-  const [foundItemId, setFoundItemId] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -78,10 +77,7 @@ export default function Receiving() {
 
   // Extracted so a receipt can pull the same order again once it lands,
   // without duplicating the fetch-and-set-state dance a second time.
-  // `resetSelection` only fires once the fetch actually lands -- setting
-  // state synchronously in the effect body itself is what
-  // react-hooks/set-state-in-effect warns against.
-  const reloadOrder = useCallback((id, { resetSelection = false } = {}) => {
+  const reloadOrder = useCallback((id) => {
     let cancelled = false
 
     api
@@ -90,7 +86,6 @@ export default function Receiving() {
         if (cancelled) return
         setDetail({ id, body })
         setDetailError('')
-        if (resetSelection) setSelected([])
       })
       .catch((err) => {
         if (!cancelled) setDetailError(err.message)
@@ -103,41 +98,38 @@ export default function Receiving() {
 
   useEffect(() => {
     if (orderId == null) return undefined
-    return reloadOrder(orderId, { resetSelection: true })
+    return reloadOrder(orderId)
   }, [orderId, reloadOrder])
 
   const order = detail?.id === orderId ? detail.body : null
   const loadingOrder = orderId != null && order == null && !detailError
 
-  // A received item becomes unselectable in `OrderLines`, so the ids just
-  // submitted would otherwise linger in `selected` and be resubmitted --
-  // already `received`, which the backend answers with a 409.
+  // The dialog closes on success and the order is pulled again, so the line
+  // just recorded reappears in its new status rather than still reading
+  // `ordered` behind a dialog that has already gone.
   function handleReceiptDone() {
-    if (mode === 'order') {
-      setSelected([])
-      if (orderId != null) reloadOrder(orderId)
-    } else {
-      setFoundItemId(null)
-    }
+    setReceiving(null)
+    if (mode === 'order' && orderId != null) reloadOrder(orderId)
   }
 
-  // `selected` is cleared too, not just `foundItemId` -- a check left over
-  // from the order path has no business surviving a switch to the search
-  // path and back. `detail` stays: the fetch effect only refires when
-  // `orderId` changes, so clearing it here with `orderId` unchanged would
-  // strand the order view on "Loading..." forever instead of ever
-  // re-fetching.
+  // An open dialog has no business surviving a switch between the two ways
+  // in. `detail` stays: the fetch effect only refires when `orderId` changes,
+  // so clearing it here with `orderId` unchanged would strand the order view
+  // on "Loading..." forever instead of ever re-fetching.
   function switchMode(next) {
     setMode(next)
-    setFoundItemId(null)
-    setSelected([])
+    setReceiving(null)
   }
 
   // Puts the pick in the URL -- the only place `orderId` is held -- so
-  // opening Receiving from a link elsewhere (the inventory screens' Order
-  // column) can reopen it directly, and Back/Forward move between picks.
+  // opening Receiving from a link elsewhere reopens it directly, and
+  // Back/Forward move between picks.
   function pickOrder(id) {
     setParams({ order: String(id) })
+  }
+
+  function clearOrder() {
+    setParams({})
   }
 
   return (
@@ -169,10 +161,14 @@ export default function Receiving() {
 
       {mode === 'order' && (
         <>
-          {ordersError && <p className="error">{ordersError}</p>}
-          {!ordersError && !orders && <p className="muted">Loading...</p>}
-          {orders && (
-            <OrderPicker orders={orders} selectedId={orderId} onPick={pickOrder} />
+          {orderId == null && (
+            <>
+              {ordersError && <p className="error">{ordersError}</p>}
+              {!ordersError && !orders && <p className="muted">Loading...</p>}
+              {orders && (
+                <OrderPicker orders={orders} selectedId={null} onPick={pickOrder} />
+              )}
+            </>
           )}
 
           {orderId != null && (
@@ -198,14 +194,12 @@ export default function Receiving() {
                       </>
                     )}
                   </h2>
-                  <OrderLines
-                    lines={order.lines}
-                    selected={selected}
-                    onChange={setSelected}
-                  />
-                  <ReceiptPanel itemIds={selected} onDone={handleReceiptDone} />
+                  <OrderLines lines={order.lines} onPick={setReceiving} />
                 </>
               )}
+              <button type="button" className="link" onClick={clearOrder}>
+                Choose another order
+              </button>
             </div>
           )}
         </>
@@ -213,12 +207,24 @@ export default function Receiving() {
 
       {mode === 'search' && (
         <div className="admin-form">
-          <ItemFinder onPick={setFoundItemId} />
-          <ReceiptPanel
-            itemIds={foundItemId != null ? [foundItemId] : []}
-            onDone={handleReceiptDone}
-          />
+          <ItemFinder onPick={setReceiving} />
         </div>
+      )}
+
+      {receiving && (
+        <ModalDialog
+          label={`Receive ${receiving.item_code}`}
+          onClose={() => setReceiving(null)}
+        >
+          <h2>
+            <span className="mono">{receiving.item_code}</span>{' '}
+            {receiving.source_title || receiving.description}
+          </h2>
+          <ReceiptPanel itemIds={[receiving.id]} onDone={handleReceiptDone} />
+          <button type="button" className="link" onClick={() => setReceiving(null)}>
+            Close
+          </button>
+        </ModalDialog>
       )}
     </section>
   )

@@ -8,6 +8,7 @@ const lines = [
   {
     id: 412,
     item_code: 'CC-000412',
+    source_title: '1881-S Morgan $1',
     description: '1881-S Morgan $1',
     item_cost: '84.00',
     status: 'ordered',
@@ -15,6 +16,7 @@ const lines = [
   {
     id: 413,
     item_code: 'CC-000413',
+    source_title: '1923 Peace $1',
     description: '1923 Peace $1',
     item_cost: '91.00',
     status: 'received',
@@ -22,6 +24,7 @@ const lines = [
   {
     id: 414,
     item_code: 'CC-000414',
+    source_title: '1921 Morgan $1',
     description: '1921 Morgan $1',
     item_cost: '60.00',
     status: 'ordered',
@@ -29,6 +32,7 @@ const lines = [
   {
     id: 415,
     item_code: 'CC-000415',
+    source_title: '1899-O Morgan $1',
     description: '1899-O Morgan $1',
     item_cost: '75.00',
     status: 'missing',
@@ -37,7 +41,7 @@ const lines = [
 
 describe('OrderLines', () => {
   it('shows every line on the order, arrived ones included', () => {
-    render(<OrderLines lines={lines} selected={[]} onChange={vi.fn()} />)
+    render(<OrderLines lines={lines} onPick={vi.fn()} />)
     expect(screen.getByText('CC-000412')).toBeInTheDocument()
     expect(screen.getByText('CC-000414')).toBeInTheDocument()
     // Unlike the old OutstandingList, an already-arrived line is shown too --
@@ -49,59 +53,75 @@ describe('OrderLines', () => {
   it('offers a line written off as missing, since a late arrival can still be received', () => {
     // `missing` means paid for, not cancelled, never arrived -- and things
     // that never arrived sometimes turn up.
-    render(<OrderLines lines={lines} selected={[]} onChange={vi.fn()} />)
-    expect(screen.getByText('CC-000415')).toBeInTheDocument()
+    render(<OrderLines lines={lines} onPick={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'CC-000415' })).toBeInTheDocument()
   })
 
   it('sorts not-yet-arrived lines before the rest, missing above received', () => {
-    render(<OrderLines lines={lines} selected={[]} onChange={vi.fn()} />)
+    render(<OrderLines lines={lines} onPick={vi.fn()} />)
     const codes = screen
       .getAllByRole('row')
       .slice(1)
-      .map((row) => row.cells[1].textContent)
+      .map((row) => row.cells[0].textContent)
     // ordered, ordered, missing (not-yet-arrived, item-code order), then received.
     expect(codes).toEqual(['CC-000412', 'CC-000414', 'CC-000415', 'CC-000413'])
   })
 
   it('shows each line status so the two groups read apart', () => {
-    render(<OrderLines lines={lines} selected={[]} onChange={vi.fn()} />)
+    render(<OrderLines lines={lines} onPick={vi.fn()} />)
     const rows = screen.getAllByRole('row').slice(1)
-    const statusCells = rows.map((row) => row.cells[row.cells.length - 1].textContent)
+    const statusCells = rows.map((row) => row.cells[3].textContent)
     expect(statusCells).toEqual(['ordered', 'ordered', 'missing', 'received'])
   })
 
-  it('lifts the checked set when a not-yet-arrived line is toggled', async () => {
+  it('hands the whole picked line up, not just its id', async () => {
     const user = userEvent.setup()
-    const onChange = vi.fn()
-    render(<OrderLines lines={lines} selected={[]} onChange={onChange} />)
-    const [, firstLineCheckbox] = screen.getAllByRole('checkbox')
-    await user.click(firstLineCheckbox)
-    expect(onChange).toHaveBeenCalledWith([412])
+    const onPick = vi.fn()
+    render(<OrderLines lines={lines} onPick={onPick} />)
+
+    await user.click(screen.getByRole('button', { name: 'CC-000412' }))
+
+    // The dialog names what it is about, so it needs the code and title too.
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 412 }))
   })
 
-  it('does not let a received line be ticked', async () => {
+  it('opens a line exactly once when its own button is clicked', async () => {
+    // The row carries a click handler for the mouse and the item code is a
+    // button for the keyboard; without stopPropagation the button's click
+    // would bubble to the row and open the dialog twice.
     const user = userEvent.setup()
-    const onChange = vi.fn()
-    render(<OrderLines lines={lines} selected={[]} onChange={onChange} />)
-    const row = screen.getByText('CC-000413').closest('tr')
-    const checkbox = row.querySelector('input[type="checkbox"]')
-    expect(checkbox).toBeDisabled()
-    expect(checkbox).not.toBeChecked()
-    await user.click(checkbox)
-    expect(onChange).not.toHaveBeenCalled()
+    const onPick = vi.fn()
+    render(<OrderLines lines={lines} onPick={onPick} />)
+
+    await user.click(screen.getByRole('button', { name: 'CC-000414' }))
+
+    expect(onPick).toHaveBeenCalledTimes(1)
   })
 
-  it('selects every not-yet-arrived line from the header checkbox, skipping received', async () => {
+  it('opens the line when the row itself is clicked', async () => {
     const user = userEvent.setup()
-    const onChange = vi.fn()
-    render(<OrderLines lines={lines} selected={[]} onChange={onChange} />)
-    const [selectAll] = screen.getAllByRole('checkbox')
-    await user.click(selectAll)
-    expect(onChange).toHaveBeenCalledWith([412, 414, 415])
+    const onPick = vi.fn()
+    render(<OrderLines lines={lines} onPick={onPick} />)
+
+    await user.click(screen.getByText('1921 Morgan $1'))
+
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 414 }))
+  })
+
+  it('does not open a line that has already arrived', async () => {
+    const user = userEvent.setup()
+    const onPick = vi.fn()
+    render(<OrderLines lines={lines} onPick={onPick} />)
+
+    // Inert: no button to tab to, and clicking the row does nothing either.
+    expect(screen.queryByRole('button', { name: 'CC-000413' })).not.toBeInTheDocument()
+    await user.click(screen.getByText('CC-000413'))
+
+    expect(onPick).not.toHaveBeenCalled()
   })
 
   it('says so when an order has no lines at all', () => {
-    render(<OrderLines lines={[]} selected={[]} onChange={vi.fn()} />)
+    render(<OrderLines lines={[]} onPick={vi.fn()} />)
     expect(screen.getByText(/no lines/i)).toBeInTheDocument()
   })
 })
