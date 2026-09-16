@@ -61,7 +61,13 @@ const setup = async (order = null) => {
 describe('OrderEditor', () => {
   it('prefills an order being edited and shows the paid warning', async () => {
     await setup(ORDER)
-    expect(screen.getByRole('combobox', { name: 'Customer' })).toHaveValue('c:5')
+    // Waited for, not read once: `setup` only waits for the select to exist,
+    // and a select reports '' until an <option> matching its value has
+    // rendered -- which needs both customer and account lists to resolve. Under
+    // a full parallel run that landed a tick late and the test failed.
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Customer' })).toHaveValue('c:5'),
+    )
     expect(screen.getByRole('spinbutton', { name: 'Quantity of Morgan' })).toHaveValue(
       2,
     )
