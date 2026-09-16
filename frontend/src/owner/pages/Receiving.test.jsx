@@ -1,4 +1,5 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -8,6 +9,11 @@ vi.mock('../api', () => ({
     getPurchaseOrder: vi.fn(),
     listStorageLocations: vi.fn(),
     receiveItems: vi.fn(),
+    //: One line at a time means `ReceiptPanel` always has exactly one item,
+    //: so it always looks the kind up -- that is what decides whether the
+    //: Friedberg lookup is offered. Under the old bulk panel an empty
+    //: selection meant this was never called.
+    getInventoryItem: vi.fn(),
   },
 }))
 
@@ -47,6 +53,7 @@ beforeEach(() => {
   api.listStorageLocations.mockResolvedValue([
     { id: 3, label: 'Safe deposit box', kind: 'safe_deposit_box' },
   ])
+  api.getInventoryItem.mockResolvedValue({ id: 412, item_kind: 'coin' })
   api.getPurchaseOrder.mockResolvedValue({
     id: 1,
     order_number: '27-1234',
@@ -87,6 +94,122 @@ describe('Receiving', () => {
     // Shown for context, but not selectable -- OrderLines.test.jsx covers
     // that in detail; this only checks the two are wired together.
     expect(await screen.findByText('CC-000413')).toBeInTheDocument()
+  })
+})
+
+describe('receiving one line at a time', () => {
+  it('opens the picked line in a dialog that names it', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+
+    const dialog = await screen.findByRole('dialog')
+    // Named, so a mis-click is obvious before a location is typed into it.
+    expect(dialog).toHaveAccessibleName(/CC-000412/)
+    expect(within(dialog).getByText('1881-S Morgan $1')).toBeInTheDocument()
+    expect(within(dialog).getByLabelText(/arrived/i)).toBeInTheDocument()
+  })
+
+  it('records the receipt for that one line only', async () => {
+    const user = userEvent.setup()
+    api.receiveItems.mockResolvedValue({ received: 1 })
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Receive' }))
+
+    await waitFor(() =>
+      expect(api.receiveItems).toHaveBeenCalledWith(
+        expect.objectContaining({ item_ids: [412] }),
+      ),
+    )
+  })
+
+  it('closes the dialog and pulls the order again once the receipt lands', async () => {
+    const user = userEvent.setup()
+    api.receiveItems.mockResolvedValue({ received: 1 })
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Receive' }))
+
+    // Closed: the line behind it must not still read `ordered` under a dialog
+    // that has already gone, so the order is re-fetched as well.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(api.getPurchaseOrder).toHaveBeenCalledTimes(2)
+  })
+
+  it('closes without recording anything when Close is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000412' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(api.receiveItems).not.toHaveBeenCalled()
+  })
+
+  it('no longer offers a bulk selection', async () => {
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+    await screen.findByText('CC-000412')
+
+    // The checkbox column and the select-all went with the bulk panel; the
+    // two radios choosing the way in are the only inputs of that shape left.
+    expect(screen.queryByLabelText(/select all/i)).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+  })
+})
+
+describe('an order named in the URL scopes the page', () => {
+  it('shows only that order, not the list of every other one', async () => {
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+    await screen.findByText('CC-000412')
+
+    // The picker's "3 of 5 outstanding" summary is how the list renders; a
+    // link about one purchase must not open onto all of them.
+    expect(screen.queryByText(/3 of 5/i)).not.toBeInTheDocument()
+  })
+
+  it('offers the picker again on "Choose another order"', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<Receiving />, {
+      auth: adminAuth(),
+      route: '/receiving?order=1',
+    })
+    await screen.findByText('CC-000412')
+
+    await user.click(screen.getByRole('button', { name: /choose another order/i }))
+
+    expect(await screen.findByText(/3 of 5/i)).toBeInTheDocument()
+    expect(screen.queryByText('CC-000412')).not.toBeInTheDocument()
+  })
+
+  it('shows the picker when no order is named', async () => {
+    renderWithProviders(<Receiving />, { auth: adminAuth(), route: '/receiving' })
+    expect(await screen.findByText(/3 of 5/i)).toBeInTheDocument()
   })
 })
 

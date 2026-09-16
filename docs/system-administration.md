@@ -297,6 +297,25 @@ can still be received later when it turns up.
   status and the date it arrived, so a double submission is distinguishable
   from the wrong row.
 
+**In the console** (`/owner/receiving`), receipts are recorded **one line at a
+time**. Clicking a line -- the item code, or anywhere on its row -- opens a
+dialog named for that item, holding the arrival date, storage location, note,
+photographs, the four outcome buttons, the field-review pane, and the Friedberg
+lookup for a banknote. It closes on success and the order is read again, so the
+line reappears in its new status. An already resolved line is shown for context
+and does not open.
+
+The endpoint still takes a list and is still all-or-nothing; the console simply
+hands it one id. Recording twenty items is twenty dialogs, which is the trade
+accepted for the panel always being on screen: rendered under a long table it
+sat below the fold, so clicking appeared to do nothing.
+
+Following `/receiving?order=<id>` -- what the inventory screens' purchase-order
+column and New purchase's **Receive these** both link to -- shows **only that
+order**, with no picker over every other one. **Choose another order** goes back
+to the list. Without the parameter the picker is the way in, and **By item**
+searches by attribute for when the object is in hand and its order is unknown.
+
 ### Optimistic concurrency
 
 `inventory_item` and `listing` carry a `version` column. An update sends the

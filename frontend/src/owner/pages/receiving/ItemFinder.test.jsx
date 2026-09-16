@@ -142,12 +142,22 @@ describe('ItemFinder', () => {
     expect(api.searchInventory.mock.calls[0][1].status).toBe('received')
   })
 
-  it('hands a chosen result back to the page', async () => {
+  it('hands the whole chosen row back to the page, not just its id', async () => {
+    // The receipt dialog it opens names what it is about, and the page has
+    // no other copy of the item code and description to look it up from.
     const onPick = vi.fn()
     renderWithProviders(<ItemFinder onPick={onPick} />)
     await search()
-    await userEvent.click(await screen.findByText('CC-000412'))
-    expect(onPick).toHaveBeenCalledWith(412)
+    await userEvent.click(await screen.findByRole('button', { name: /CC-000412/ }))
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 412, item_code: 'CC-000412' }),
+    )
+  })
+
+  it('renders each result as a button, so it is reachable by keyboard', async () => {
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    await search()
+    expect(await screen.findByRole('button', { name: /CC-000412/ })).toBeInTheDocument()
   })
 
   it('drops a coins response that lands after the view was switched away', async () => {

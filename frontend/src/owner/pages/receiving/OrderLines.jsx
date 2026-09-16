@@ -13,15 +13,22 @@ import { money } from '../../../shared/format'
  * making the two groups visually distinguishable (a dimmed row for one
  * already resolved).
  *
- * Only a not-yet-arrived line (`ordered` or `missing`) is selectable -- a
- * `received`/`canceled`/`returned` line is shown for context only and its
- * checkbox is disabled, never checked, and skipped by "select all". The
- * backend would refuse re-receiving one with a 409 anyway, but the UI
- * should not invite the click.
+ * **One line at a time.** The checkbox column and the bulk receipt below the
+ * table were replaced by opening the picked line's own receipt dialog: the
+ * panel used to render under a long table, below the fold, so clicking
+ * appeared to do nothing -- the same complaint the item editor answered with
+ * a modal. The receipt endpoint still takes a list and is still
+ * all-or-nothing, so nothing about the request shape changed; this hands it
+ * one id.
  *
- * `selected` is an array of line ids; `onChange(ids)` replaces it wholesale,
- * the same convention `InventoryTable` uses, so the parent holds one piece of
- * state rather than this list holding a second copy able to disagree with it.
+ * Only a not-yet-arrived line (`ordered` or `missing`) opens: a
+ * `received`/`canceled`/`returned` line is shown for context only and is
+ * inert. The backend would refuse re-receiving one with a 409 anyway, but
+ * the UI should not invite the click.
+ *
+ * `onPick(line)` takes the whole line, not its id -- the dialog names what it
+ * is about ("CC-001234 - 1928 $2 Red Seal"), and the caller would otherwise
+ * have to look the row back up to say so.
  */
 const NOT_ARRIVED_STATUSES = ['ordered', 'missing']
 
@@ -39,66 +46,54 @@ function sortedLines(lines) {
   })
 }
 
-export default function OrderLines({ lines, selected, onChange }) {
+export default function OrderLines({ lines, onPick }) {
   if (lines.length === 0) {
     return <p className="muted">This order has no lines.</p>
-  }
-
-  const ordered = sortedLines(lines)
-  const selectableIds = ordered.filter(isSelectable).map((line) => line.id)
-  const allChecked =
-    selectableIds.length > 0 && selectableIds.every((id) => selected.includes(id))
-
-  function toggle(id) {
-    onChange(
-      selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id],
-    )
-  }
-
-  function toggleAll() {
-    onChange(
-      allChecked
-        ? selected.filter((id) => !selectableIds.includes(id))
-        : [...new Set([...selected, ...selectableIds])],
-    )
   }
 
   return (
     <table className="table">
       <thead>
         <tr>
-          <th className="select-cell">
-            <input
-              type="checkbox"
-              aria-label="Select all outstanding lines"
-              checked={allChecked}
-              disabled={selectableIds.length === 0}
-              onChange={toggleAll}
-            />
-          </th>
           <th>Item</th>
           <th>Description</th>
           <th>Cost</th>
           <th>Status</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
-        {ordered.map((line) => {
+        {sortedLines(lines).map((line) => {
           const selectable = isSelectable(line)
           return (
-            <tr key={line.id} className={selectable ? '' : 'dim'}>
-              <td className="select-cell">
-                <input
-                  type="checkbox"
-                  checked={selectable && selected.includes(line.id)}
-                  disabled={!selectable}
-                  onChange={() => toggle(line.id)}
-                />
+            <tr
+              key={line.id}
+              className={selectable ? 'row-pick' : 'dim'}
+              onClick={selectable ? () => onPick(line) : undefined}
+            >
+              <td className="mono">
+                {selectable ? (
+                  // A real button, so the row is reachable by keyboard and
+                  // not only by mouse. `stopPropagation` keeps the row's own
+                  // click from firing this a second time.
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onPick(line)
+                    }}
+                  >
+                    {line.item_code}
+                  </button>
+                ) : (
+                  line.item_code
+                )}
               </td>
-              <td className="mono">{line.item_code}</td>
-              <td>{line.description}</td>
+              <td>{line.source_title || line.description}</td>
               <td>{money(line.item_cost)}</td>
               <td>{line.status}</td>
+              <td>{selectable && <span className="muted">Receive...</span>}</td>
             </tr>
           )
         })}
