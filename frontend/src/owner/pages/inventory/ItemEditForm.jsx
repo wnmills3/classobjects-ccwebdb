@@ -91,6 +91,7 @@ const DERIVED_FROM = {
   composition: 'Filled from the published composition for its year',
   series_classify: 'Filled from the denomination and year',
   series_match: 'Filled from the description',
+  series_backfill: 'Filled from the description or from denomination and year',
   suggestion: 'Suggested when the item was entered',
 }
 

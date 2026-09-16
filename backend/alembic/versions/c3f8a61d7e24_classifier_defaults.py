@@ -14,15 +14,19 @@ Any row pointing at `legal_tender` is repointed first (none did when this was
 written). Both old names return as aliases through the seed file.
 
 Existing derived values are recorded, so the editor can mark them and the
-pass can refresh them:
+pass can refresh them -- but only where that cannot claim a person's value:
 
-- `series_id` on every item not entered by hand: the importer never sets a
-  series, so each one came from `series_match` or `series_classify`.
-- `composition_id` on every such item, and `metal_id`, `fineness`,
-  `gross_weight_ozt` and `fine_weight_ozt` where they equal the composition's
-  own values. A weight the seller stated and the composition happens to
-  match is indistinguishable, and harmless to mark: a refresh would write
-  the same value.
+- `composition_id` on every item not entered by hand. No edit path sets it,
+  so it is always the importer's.
+- `series_id` on the same items, unless a person has confirmed the series:
+  the importer never sets one, so it came from `series_match` or
+  `series_classify` -- or from an edit, which leaves no other trace. Labelled
+  `series_backfill` rather than claiming which pass it was.
+
+Metal, fineness and weights are not marked. The importer's own values and a
+person's later edits cannot be told apart here, and a marked field may be
+overwritten when a year correction points at another composition. Imports
+from now on record them as they are filled.
 
 Revision ID: c3f8a61d7e24
 Revises: b5e2c9d41a07
@@ -42,8 +46,6 @@ down_revision: str | None = "b5e2c9d41a07"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-#: Item columns a composition fills, beside composition_id itself.
-_COMPOSITION_COLUMNS = ("metal_id", "fineness", "gross_weight_ozt", "fine_weight_ozt")
 
 
 def upgrade() -> None:
@@ -148,8 +150,10 @@ def upgrade() -> None:
     op.execute(
         "INSERT INTO item_field_source "
         "(inventory_item_id, field_name, derived_by, derived_at) "
-        "SELECT id, 'series_id', 'series_classify', now() FROM inventory_item "
-        "WHERE series_id IS NOT NULL AND source <> 'manual'"
+        "SELECT i.id, 'series_id', 'series_backfill', now() FROM inventory_item i "
+        "WHERE i.series_id IS NOT NULL AND i.source <> 'manual' "
+        "AND NOT EXISTS (SELECT 1 FROM item_field_review r "
+        "WHERE r.inventory_item_id = i.id AND r.field_name = 'series_id')"
     )
     op.execute(
         "INSERT INTO item_field_source "
@@ -157,15 +161,6 @@ def upgrade() -> None:
         "SELECT id, 'composition_id', 'composition', now() FROM inventory_item "
         "WHERE composition_id IS NOT NULL AND source <> 'manual'"
     )
-    for column in _COMPOSITION_COLUMNS:
-        op.execute(
-            "INSERT INTO item_field_source "
-            "(inventory_item_id, field_name, derived_by, derived_at) "
-            f"SELECT i.id, '{column}', 'composition', now() "
-            "FROM inventory_item i JOIN composition c ON c.id = i.composition_id "
-            f"WHERE i.source <> 'manual' AND i.{column} IS NOT NULL "
-            f"AND i.{column} = c.{column}"
-        )
 
 
 def downgrade() -> None:

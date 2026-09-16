@@ -86,6 +86,9 @@ const NOTE_SUGGESTED = [
   'fed_district',
 ]
 const COIN_SUGGESTED = ['metal']
+const NO_SUGGESTIONS = Object.fromEntries(
+  [...NOTE_SUGGESTED, ...COIN_SUGGESTED].map((key) => [key, null]),
+)
 
 /** How long typing must pause before the facts are looked up again. */
 const SUGGEST_DELAY_MS = 250
@@ -121,13 +124,20 @@ export default function NewItemForm({
 
   const isCurrency = isCurrencyKind(form.item_kind)
 
-  // Picking a value, even the suggested one, makes it the person's.
+  // Picking a value, even the suggested one, makes it the person's. Clearing
+  // the denomination leaves no facts to suggest from, so the form takes back
+  // whatever it filled in.
   const set = (key) => (e) => {
     const next = e.target.value
-    setEntry((current) => ({
-      form: { ...current.form, [key]: next },
-      suggested: without(current.suggested, key),
-    }))
+    setEntry((current) => {
+      const updated = {
+        form: { ...current.form, [key]: next },
+        suggested: without(current.suggested, key),
+      }
+      return key === 'denomination' && !next
+        ? withSuggestions(updated, NO_SUGGESTIONS)
+        : updated
+    })
   }
 
   // The facts that decide the suggestions. Only the person's own picks are

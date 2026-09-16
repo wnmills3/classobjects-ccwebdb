@@ -22,7 +22,13 @@ from sqlalchemy.orm.exc import StaleDataError
 from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
-from ..field_sources import SUGGESTION, derived_fields, forget, record_derived
+from ..field_sources import (
+    SUGGESTION,
+    derived_fields,
+    forget,
+    hold,
+    record_derived,
+)
 from ..inventory_search import (
     VIEWS,
     UnknownIssue,
@@ -729,7 +735,21 @@ NOTE_CLASSIFIERS: dict[str, type] = {
 #: Plain columns on a note's currency detail a client may set.
 NOTE_SCALARS: tuple[str, ...] = ("series_year", "series_letter", "serial_number")
 
-#: Fields the New item form may fill from `/api/reference/suggestions` and
+#: Columns `app.classifier_defaults` fills, and so may hold empty.
+DEFAULTED_COLUMNS: frozenset[str] = frozenset(
+    {
+        "note_type_id",
+        "seal_color_id",
+        "signature_combination_id",
+        "fed_district_id",
+        "metal_id",
+        "fineness",
+        "gross_weight_ozt",
+        "fine_weight_ozt",
+    }
+)
+
+#: Fields the New item form may fill from `/api/defaults` and
 #: report back as suggestions the person left alone.
 SUGGESTABLE_FIELDS: frozenset[str] = frozenset(
     {"note_type", "seal_color", "fed_district", "signature_combination", "metal"}
@@ -741,6 +761,18 @@ def _column(field: str) -> str:
     if field in ITEM_CLASSIFIERS or field in NOTE_CLASSIFIERS:
         return f"{field}_id"
     return field
+
+
+def _emptied(data: dict[str, Any]) -> list[str]:
+    """The columns a request empties, which a pass must then leave empty.
+
+    Only fields a pass could fill: emptying a description holds nothing.
+    """
+    return [
+        _column(field)
+        for field, value in data.items()
+        if value is None and _column(field) in DEFAULTED_COLUMNS
+    ]
 
 
 def _note_changes(db: Session, data: dict[str, Any]) -> dict[str, object]:
@@ -877,6 +909,7 @@ def bulk_edit(
     # What a person sets is theirs from now on: no pass refreshes it. What
     # follows from the new facts is refreshed now.
     forget(db, found, [_column(field) for field in data])
+    hold(db, found, _emptied(data))
     refresh_items(db, found)
 
     db.commit()
@@ -950,6 +983,7 @@ def update_item(
     if years is not None:
         item.year_start, item.year_end = years
     forget(db, [item.id], [_column(field) for field in data])
+    hold(db, [item.id], _emptied(data))
 
     try:
         # Inside the try: the refresh flushes, and a version conflict found
