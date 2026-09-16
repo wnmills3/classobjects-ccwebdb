@@ -18,8 +18,11 @@ rem This script lives in scripts\, so the repo root is one level up.
 rem %%~fI resolves the "..\" to a real absolute path with no trailing slash.
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 
-set "ENVDIR=%USERPROFILE%\miniforge3\envs\ccwebdb"
-set "PGBIN=%ENVDIR%\Library\bin"
+rem  Put the ccwebdb conda environment in play and take ENVDIR and PGBIN
+rem  from it, rather than from a guessed path. See ccweb_env.cmd.
+rem  Everything started below inherits it: `start` passes this environment
+rem  on to the consoles it opens.
+call "%~dp0ccweb_env.cmd" || exit /b 2
 set "PGDATA=%REPO%\.pgdata"
 set "RUNTIME=%REPO%\.runtime"
 set "PIDFILE=%RUNTIME%\ccweb.pids"

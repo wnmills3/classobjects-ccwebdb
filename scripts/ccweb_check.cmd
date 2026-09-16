@@ -10,7 +10,9 @@ rem ---------------------------------------------------------------------------
 setlocal enabledelayedexpansion
 
 set "REPO=%~dp0.."
-set "ENVDIR=%USERPROFILE%\miniforge3\envs\ccwebdb"
+rem  Put the ccwebdb conda environment in play and take ENVDIR and PGBIN
+rem  from it, rather than from a guessed path. See ccweb_env.cmd.
+call "%~dp0ccweb_env.cmd" || exit /b 2
 set "PY=%ENVDIR%\python.exe"
 set "NODE=%ENVDIR%\node.exe"
 set "FAILED="

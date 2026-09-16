@@ -22,8 +22,6 @@ rem ---------------------------------------------------------------------------
 rem This script lives in scripts\, so the repo root is one level up.
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 set "ENVNAME=ccwebdb"
-set "CONDABAT=%USERPROFILE%\miniforge3\condabin\conda.bat"
-set "PGBIN=%USERPROFILE%\miniforge3\envs\%ENVNAME%\Library\bin"
 set "PGDATA=%REPO%\.pgdata"
 
 set "CHECKONLY="
@@ -32,29 +30,16 @@ set "SKIPDB="
 if /I "%~1"=="/check" ( set "CHECKONLY=1" & shift & goto parseargs )
 if /I "%~1"=="/nodb"  ( set "SKIPDB=1"    & shift & goto parseargs )
 
-rem --- preflight ------------------------------------------------------------
-if not exist "%CONDABAT%" (
-    echo ERROR: conda not found at %CONDABAT%
-    echo        see docs\environment-setup.md
-    exit /b 1
-)
-
 rem --- activate -------------------------------------------------------------
-call "%CONDABAT%" activate %ENVNAME%
-if errorlevel 1 (
-    echo ERROR: could not activate the "%ENVNAME%" conda environment
-    echo        create it with:  conda create -n %ENVNAME% python=3.13
-    exit /b 1
-)
-
-if /I not "%CONDA_DEFAULT_ENV%"=="%ENVNAME%" (
-    echo ERROR: expected CONDA_DEFAULT_ENV=%ENVNAME%, got "%CONDA_DEFAULT_ENV%"
-    exit /b 1
-)
+rem  Uses ccwebdb if it is already active, and activates it if not. The helper
+rem  finds conda and makes sure USERPROFILE is set, and says why when it cannot.
+rem  %REPO%, not %~dp0: the argument loop above uses a plain `shift`, which
+rem  shifts %0 as well, so by now %~dp0 names the folder of an argument.
+call "%REPO%\scripts\ccweb_env.cmd" || exit /b 1
 
 cd /d "%REPO%"
 
-echo environment  %CONDA_DEFAULT_ENV%
+echo environment  %CONDA_DEFAULT_ENV%  (%CCWEB_ENV_STATE%)
 echo directory    %CD%
 for /f "delims=" %%V in ('python --version 2^>^&1') do echo python       %%V
 
@@ -82,10 +67,15 @@ if not defined SKIPDB (
 echo postgres     %DBSTATE%
 
 rem --- claude present? ------------------------------------------------------
+rem  The installer puts claude in %USERPROFILE%\.local\bin and adds that to
+rem  PATH. A shell whose profile variables were not loaded may lack the PATH
+rem  entry too, so the install folder is tried before giving up.
+where claude >nul 2>&1
+if errorlevel 1 if exist "%USERPROFILE%\.local\bin\claude.exe" set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 where claude >nul 2>&1
 if errorlevel 1 (
     echo ERROR: "claude" is not on PATH
-    echo        expected in %%USERPROFILE%%\.local\bin
+    echo        expected in %USERPROFILE%\.local\bin
     exit /b 1
 )
 

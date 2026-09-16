@@ -24,6 +24,10 @@ rem ---------------------------------------------------------------------------
 rem This script lives in scripts\, so the repo root is one level up.
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 
+rem  pgAdmin lives in its own uv tool environment, not in ccwebdb, but the
+rem  helper is still what makes sure USERPROFILE and APPDATA are set, rather
+rem  than assuming the shell set them.
+call "%~dp0ccweb_env.cmd" || exit /b 2
 set "PGADMIN=%USERPROFILE%\.local\bin\pgadmin4.exe"
 set "PGADMIN_CLI=%USERPROFILE%\.local\bin\pgadmin4-cli.exe"
 set "PKG=%APPDATA%\uv\tools\pgadmin4\Lib\site-packages\pgadmin4"

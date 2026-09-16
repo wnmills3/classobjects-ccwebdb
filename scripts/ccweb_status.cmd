@@ -15,7 +15,8 @@ rem
 rem  Exit codes, so a caller can branch on this:
 rem    0  everything required is up
 rem    1  something required is down or degraded
-rem    2  the environment itself is not ready (see the preflight section)
+rem    2  the environment itself is not ready: ccwebdb cannot be activated,
+rem       or the preflight section found something missing
 rem
 rem  Pure cmd - no PowerShell. netstat for PIDs, curl for readiness (curl.exe
 rem  ships with Windows 10 1803 and later).
@@ -23,8 +24,6 @@ rem ---------------------------------------------------------------------------
 
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 
-set "ENVDIR=%USERPROFILE%\miniforge3\envs\ccwebdb"
-set "PGBIN=%ENVDIR%\Library\bin"
 set "PGDATA=%REPO%\.pgdata"
 set "BPORT=8000"
 set "FPORT=5173"
@@ -37,16 +36,38 @@ echo ============================================
 echo   ccwebdb runtime status
 echo ============================================
 
+rem --- 0. Environment -------------------------------------------------------
+rem  Put ccwebdb in play the same way ccweb_startup.cmd does, and say whether
+rem  the shell running this already had it. A failure is reported rather than
+rem  fatal: "why can't I start?" is the question this script exists to answer,
+rem  and the rest of the list is still worth seeing.
+set "ENVOK="
+set "PGBIN="
+call "%~dp0ccweb_env.cmd" && set "ENVOK=1"
+if not defined ENVOK (
+    echo   Environment  conda ccwebdb    NOT AVAILABLE
+    set "BLOCKED=1"
+) else if /i "!CCWEB_ENV_STATE!"=="already active" (
+    echo   Environment  conda ccwebdb    active in this shell
+) else (
+    echo   Environment  conda ccwebdb    activated for this check ^(not active in this shell^)
+)
+
 rem --- 1. PostgreSQL --------------------------------------------------------
 rem  pg_isready asks the postmaster, rather than looking for a listening
 rem  socket: a cluster still starting up answers "rejecting connections", and
-rem  that is not the same as being up.
+rem  that is not the same as being up. Without the environment there is no
+rem  pg_isready to ask, and a failed call looks exactly like "stopped" -- so
+rem  that case says UNKNOWN instead of guessing.
 set "PGUP="
-if exist "%PGBIN%\pg_isready.exe" (
+if defined PGBIN (
     "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
     if not errorlevel 1 set "PGUP=1"
 )
-if defined PGUP (
+if not defined PGBIN (
+    echo   PostgreSQL   localhost:5432   UNKNOWN - no environment to ask with
+    set "DOWN=!DOWN! postgresql"
+) else if defined PGUP (
     echo   PostgreSQL   localhost:5432   RUNNING
 ) else (
     echo   PostgreSQL   localhost:5432   stopped
@@ -107,13 +128,6 @@ rem --- preflight: things that would make a start fail ------------------------
 rem  Checked only when something is actually down. A missing cluster matters
 rem  when you are about to start PostgreSQL; it is noise when it is running.
 if defined DOWN (
-    if not exist "%ENVDIR%\python.exe" (
-        echo.
-        echo   BLOCKED: conda environment not found
-        echo            %ENVDIR%
-        echo            see docs\environment-setup.md
-        set "BLOCKED=1"
-    )
     if not exist "%PGDATA%\PG_VERSION" (
         echo.
         echo   BLOCKED: no PostgreSQL cluster at %PGDATA%

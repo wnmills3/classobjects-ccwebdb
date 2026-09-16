@@ -15,8 +15,9 @@ rem  series matches and 498 serial designations -- with nothing to say so.
 rem ---------------------------------------------------------------------------
 setlocal
 set "REPO=%~dp0.."
-set "ENVDIR=%USERPROFILE%\miniforge3\envs\ccwebdb"
-set "PGBIN=%ENVDIR%\Library\bin"
+rem  Put the ccwebdb conda environment in play and take ENVDIR and PGBIN
+rem  from it, rather than from a guessed path. See ccweb_env.cmd.
+call "%~dp0ccweb_env.cmd" || exit /b 2
 set "PY=%ENVDIR%\python.exe"
 set "TARGET=ccwebdb_rebuild"
 if "%~1" neq "" set "BOOK=%~1"

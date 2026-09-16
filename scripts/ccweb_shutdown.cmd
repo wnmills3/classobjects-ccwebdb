@@ -20,8 +20,17 @@ rem This script lives in scripts\, so the repo root is one level up.
 rem %%~fI resolves the "..\" to a real absolute path with no trailing slash.
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 
-set "ENVDIR=%USERPROFILE%\miniforge3\envs\ccwebdb"
-set "PGBIN=%ENVDIR%\Library\bin"
+rem  Put ccwebdb in play for pg_ctl. Unlike the other scripts a failure here
+rem  does NOT abort: stopping things by port needs no environment, and a
+rem  broken environment is exactly when you most want a way out. Only the
+rem  PostgreSQL step depends on it, and it says so when skipped.
+set "PGBIN="
+call "%~dp0ccweb_env.cmd"
+if errorlevel 1 (
+    echo WARNING: ccwebdb environment unavailable - PostgreSQL cannot be
+    echo          stopped from here; the servers still will be.
+    set "PGBIN="
+)
 set "PGDATA=%REPO%\.pgdata"
 set "RUNTIME=%REPO%\.runtime"
 set "PIDFILE=%RUNTIME%\ccweb.pids"
@@ -64,7 +73,13 @@ call :killport 8000
 call :killport 5173
 
 rem --- 3. PostgreSQL --------------------------------------------------------
-if defined KEEPDB (
+rem  With no environment there is no pg_isready to ask, and a failed call to it
+rem  looks exactly like "not running". Say it was skipped instead of guessing.
+set "PGSKIP="
+if not defined PGBIN (
+    echo [3/3] postgresql   SKIPPED - no ccwebdb environment to stop it with
+    set "PGSKIP=1"
+) else if defined KEEPDB (
     echo [3/3] postgresql   left running ^(/keepdb^)
 ) else (
     "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
@@ -100,12 +115,18 @@ for %%P in (8000 5173) do (
     )
     set "HOLDER="
 )
+if defined PGSKIP (
+    echo   postgres  NOT CHECKED - no ccwebdb environment
+    set "PROBLEM=1"
+    goto :verified
+)
 "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
 if errorlevel 1 (
     echo   postgres  stopped
 ) else (
     if defined KEEPDB ( echo   postgres  running ^(as requested^) ) else ( echo   postgres  STILL RUNNING & set "PROBLEM=1" )
 )
+:verified
 echo ============================================
 if defined PROBLEM exit /b 1
 exit /b 0
