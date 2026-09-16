@@ -9,10 +9,10 @@ rem  Order matters. `app.seed` creates five DEMO items with listings; run before
 rem  the import they take CC-000002..CC-000006 and every real item is silently
 rem  offset by five. Migrate, load reference data, import, derive, then seed.
 rem
-rem  `app.series_match`, `app.series_classify` and `app.serial_patterns` are
-rem  NOT part of the import pipeline. Skipped, their work is simply absent
-rem  from the result -- 3,273 series matches and 498 serial designations --
-rem  with nothing to say so.
+rem  `app.series_match`, `app.series_classify`, `app.classifier_defaults` and
+rem  `app.serial_patterns` are NOT part of the import pipeline. Skipped,
+rem  their work is simply absent from the result -- 3,273 series matches and
+rem  498 serial designations -- with nothing to say so.
 rem ---------------------------------------------------------------------------
 setlocal
 set "REPO=%~dp0.."
@@ -64,6 +64,12 @@ if errorlevel 1 goto :failed
 rem  After series_match: text first, then the facts for what text left.
 echo === series classify ===
 "%PY%" -m app.series_classify --commit
+if errorlevel 1 goto :failed
+
+rem  Then what the facts decide: a note's class, seal, signatures and
+rem  Reserve Bank, a coin's composition.
+echo === classifier defaults ===
+"%PY%" -m app.classifier_defaults --commit
 if errorlevel 1 goto :failed
 
 echo === serial patterns ===

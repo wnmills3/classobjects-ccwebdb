@@ -10,6 +10,8 @@ vi.mock('../api', () => ({
     getPurchaseOrder: vi.fn(),
     createPurchaseOrder: vi.fn(),
     createInventoryItem: vi.fn(),
+    suggestNote: vi.fn(() => Promise.resolve({})),
+    suggestCoin: vi.fn(() => Promise.resolve({})),
   },
 }))
 

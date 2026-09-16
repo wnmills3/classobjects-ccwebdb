@@ -18,6 +18,15 @@
  */
 import { api as shared, send } from '../shared/api'
 
+/** A query string from the parameters that have a value. */
+function query(params) {
+  const qs = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== '' && v !== null && v !== undefined) qs.set(k, v)
+  })
+  return qs.toString()
+}
+
 export const api = {
   ...shared,
 
@@ -105,6 +114,10 @@ export const api = {
     send('/api/purchase-orders', { method: 'POST', body: payload }),
   createInventoryItem: (payload) =>
     send('/api/inventory', { method: 'POST', body: payload }),
+  // What the facts entered so far decide: a note's class, seal, signatures
+  // and Reserve Bank, or a coin's metal. See app/routers/defaults.py.
+  suggestNote: (params = {}) => send(`/api/defaults/note?${query(params)}`),
+  suggestCoin: (params = {}) => send(`/api/defaults/coin?${query(params)}`),
 
   // images -- evidence a person looked at the object, attached to an item
   uploadImage: (inventoryItemId, file, { imageRole, isPrimary = false } = {}) => {

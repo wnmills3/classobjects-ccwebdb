@@ -1,18 +1,23 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
   api: {
     createInventoryItem: vi.fn(),
+    suggestNote: vi.fn(),
+    suggestCoin: vi.fn(),
   },
 }))
 
 import { api } from '../../api'
 import NewItemForm from './NewItemForm'
+import { withSuggestions } from './suggestions'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.suggestNote.mockResolvedValue({})
+  api.suggestCoin.mockResolvedValue({})
 })
 
 async function fillTitle(user, text) {
@@ -302,5 +307,117 @@ describe('NewItemForm keyboard accelerators', () => {
     document.querySelectorAll('[accesskey]').forEach((el) => {
       expect(banned).not.toContain(el.getAttribute('accesskey').toLowerCase())
     })
+  })
+})
+
+describe('NewItemForm suggestions from the facts', () => {
+  const FOUND = {
+    note_type: 'silver_certificate',
+    seal_color: 'blue',
+    signature_combination: 'priest_anderson',
+    fed_district: null,
+  }
+
+  async function openNote(user) {
+    render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+    await user.type(screen.getByLabelText('denomination'), 'usd_note_1')
+    await user.type(screen.getByRole('spinbutton', { name: /series year/i }), '1957')
+  }
+
+  it('fills what the facts decide and marks it as a suggestion', async () => {
+    const user = userEvent.setup()
+    api.suggestNote.mockResolvedValue(FOUND)
+    await openNote(user)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('note_type')).toHaveValue('silver_certificate'),
+    )
+    expect(api.suggestNote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ denomination: 'usd_note_1', series_year: '1957' }),
+    )
+    expect(screen.getByLabelText('seal_color')).toHaveValue('blue')
+    expect(screen.getAllByText('suggested')).toHaveLength(3)
+
+    api.createInventoryItem.mockResolvedValue({ id: 8 })
+    await fillTitle(user, 'A 1957 dollar')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    const sent = api.createInventoryItem.mock.calls[0][0]
+    expect(sent.note_type).toBe('silver_certificate')
+    expect(new Set(sent.suggested)).toEqual(
+      new Set(['note_type', 'seal_color', 'signature_combination']),
+    )
+  })
+
+  it('treats a changed suggestion as the persons own', async () => {
+    const user = userEvent.setup()
+    api.suggestNote.mockResolvedValue(FOUND)
+    await openNote(user)
+    await waitFor(() => expect(screen.getByLabelText('seal_color')).toHaveValue('blue'))
+
+    await user.clear(screen.getByLabelText('seal_color'))
+    await user.type(screen.getByLabelText('seal_color'), 'red')
+
+    // The person's pick is sent with the facts, and not replaced by them.
+    await waitFor(() =>
+      expect(api.suggestNote).toHaveBeenLastCalledWith(
+        expect.objectContaining({ seal_color: 'red' }),
+      ),
+    )
+    expect(screen.getByLabelText('seal_color')).toHaveValue('red')
+    api.createInventoryItem.mockResolvedValue({ id: 9 })
+    await fillTitle(user, 'A red seal')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    const sent = api.createInventoryItem.mock.calls[0][0]
+    expect(sent.seal_color).toBe('red')
+    expect(sent.suggested).not.toContain('seal_color')
+  })
+
+  it('asks for a coins metal', async () => {
+    const user = userEvent.setup()
+    api.suggestCoin.mockResolvedValue({ metal: 'silver' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+
+    await user.type(screen.getByLabelText('denomination'), 'usd_coin_0_10')
+    await user.type(screen.getByRole('spinbutton', { name: 'Year' }), '1964')
+
+    await waitFor(() => expect(screen.getByLabelText('metal')).toHaveValue('silver'))
+    expect(api.suggestNote).not.toHaveBeenCalled()
+  })
+})
+
+describe('withSuggestions', () => {
+  const blank = { note_type: '', seal_color: '', fed_district: '' }
+
+  it('fills empty fields and marks them', () => {
+    const next = withSuggestions(
+      { form: blank, suggested: {} },
+      { note_type: 'frn', seal_color: null },
+    )
+    expect(next.form.note_type).toBe('frn')
+    expect(next.suggested).toEqual({ note_type: 'frn' })
+  })
+
+  it('never replaces a value the person picked', () => {
+    const next = withSuggestions(
+      { form: { ...blank, seal_color: 'red' }, suggested: {} },
+      { seal_color: 'blue' },
+    )
+    expect(next.form.seal_color).toBe('red')
+    expect(next.suggested).toEqual({})
+  })
+
+  it('replaces or clears an earlier suggestion when the facts change', () => {
+    const before = {
+      form: { ...blank, note_type: 'frn', fed_district: 'B' },
+      suggested: { note_type: 'frn', fed_district: 'B' },
+    }
+    const next = withSuggestions(before, {
+      note_type: 'silver_certificate',
+      fed_district: null,
+    })
+    expect(next.form).toEqual({ ...blank, note_type: 'silver_certificate' })
+    expect(next.suggested).toEqual({ note_type: 'silver_certificate' })
   })
 })

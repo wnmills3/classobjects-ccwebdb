@@ -69,6 +69,37 @@ const CLASSIFIERS = [
   ['Status', 'status', 'item_status', 's'],
 ]
 
+//: A note's own fields, shown only for a banknote. Letters are scarce by
+//: here: only these two labels hold one that is still free.
+const NOTE_CLASSIFIERS = [
+  ['Note class', 'note_type', 'note_type', 'a'],
+  ['Seal', 'seal_color', 'seal_color', null],
+  ['Signatures', 'signature_combination', 'signature_combination', null],
+  ['Reserve Bank', 'fed_district', 'fed_district', 'b'],
+]
+
+const NOTE_TEXT_FIELDS = [
+  ['Series year', 'series_year', 'number'],
+  ['Series letter', 'series_letter', 'text'],
+  ['Serial number', 'serial_number', 'text'],
+]
+
+//: Where a derived value came from, as the "suggested" mark's tooltip says it.
+const DERIVED_FROM = {
+  note_issue: "Filled from the note's denomination and series",
+  serial_district: 'Filled from the serial number',
+  composition: 'Filled from the published composition for its year',
+  series_classify: 'Filled from the denomination and year',
+  series_match: 'Filled from the description',
+  suggestion: 'Suggested when the item was entered',
+}
+
+/** The column a form field is stored in, as `derived` and reviews name it. */
+const columnOf = (key, isClassifier) => (isClassifier ? `${key}_id` : key)
+
+/** `accel` attributes, or none for a field that has no letter. */
+const keys = (letter) => (letter ? accel(letter) : {})
+
 //: Vocabularies this form must not let anyone extend. `item_status` is a
 //: lifecycle the code branches on, not a descriptive list that grows with
 //: use -- see `ReferenceSelect`'s `allowAdd`.
@@ -187,6 +218,29 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   }
 
   const claim = (column) => claimed(item.lot_claims?.[column])
+
+  // A value the facts filled in, until someone changes it: saving a field by
+  // hand makes it theirs, and the server drops the mark.
+  function suggested(key, column) {
+    const rule = item.derived?.[column]
+    if (!rule || key in draft) return null
+    return (
+      <span className="suggested" title={DERIVED_FROM[rule] ?? rule}>
+        suggested
+      </span>
+    )
+  }
+
+  // The third grid cell: what the lot claimed, and whether the value was
+  // filled in from the facts. One element either way, so the grid holds.
+  function side(key, column) {
+    return (
+      <span>
+        {claim(key)}
+        {suggested(key, column)}
+      </span>
+    )
+  }
 
   // The lot's years in the same shape as the one Year box: its range if it
   // claimed one, otherwise its year.
@@ -396,10 +450,49 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             }
             {...accel(letter)}
           />
-          {claim(key)}
+          {side(key, columnOf(key, true))}
           {review(REVIEWABLE[key])}
         </label>
       ))}
+
+      {item.item_kind === 'currency' && (
+        <>
+          {NOTE_CLASSIFIERS.map(([label, key, table, letter]) => (
+            <label key={key} className="field">
+              {letter ? (
+                <AccessLabel text={label} accessKey={letter} />
+              ) : (
+                <span>{label}</span>
+              )}
+              <ReferenceSelect
+                table={table}
+                value={value(key)}
+                onChange={set(key)}
+                allowAdd={false}
+                {...keys(letter)}
+              />
+              {side(key, columnOf(key, true))}
+              <span />
+            </label>
+          ))}
+          {NOTE_TEXT_FIELDS.map(([label, key, type]) => (
+            <label key={key} className="field">
+              <span>{label}</span>
+              <input
+                type={type}
+                value={value(key)}
+                onChange={
+                  type === 'number'
+                    ? (e) => setDraft({ ...draft, [key]: yearValue(e.target.value) })
+                    : set(key)
+                }
+              />
+              {side(key, key)}
+              <span />
+            </label>
+          ))}
+        </>
+      )}
 
       <div className="row">
         <button

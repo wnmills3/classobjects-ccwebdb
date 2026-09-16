@@ -666,3 +666,19 @@ def test_suggestions_are_staff_only(client: TestClient) -> None:
     response = client.get("/api/defaults/coin", params={"year": 1964})
 
     assert response.status_code == 401
+
+
+def test_search_finds_a_note_by_its_class_nickname(
+    db: Session, make_item: ItemFactory
+) -> None:
+    # The note's own text says nothing about its class; the recorded class,
+    # reached through the "Legal Tender" alias, is what matches.
+    from app.inventory_search import CURRENCY_VIEW, search
+
+    note = _note(
+        db, make_item, "usd_note_1", 1928, note_type_id=_id(db, NoteType, "us_note")
+    )
+
+    rows, _ = search(db, CURRENCY_VIEW, params={}, query="legal tender")
+
+    assert note.item_code in {row["item_code"] for row in rows}

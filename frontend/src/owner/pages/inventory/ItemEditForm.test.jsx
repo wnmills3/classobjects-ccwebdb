@@ -440,3 +440,63 @@ describe('changing an item status', () => {
     expect(within(select).queryByRole('option', { name: '--' })).not.toBeInTheDocument()
   })
 })
+
+describe('a banknote in the editor', () => {
+  const note = {
+    ...item,
+    item_kind: 'currency',
+    denomination: 'usd_note_1',
+    note_type: 'silver_certificate',
+    seal_color: 'blue',
+    signature_combination: null,
+    fed_district: null,
+    series_year: 1957,
+    series_letter: null,
+    serial_number: 'A12345678B',
+    derived: { note_type_id: 'note_issue', seal_color_id: 'note_issue' },
+  }
+
+  it('shows the note fields, marking what the facts filled in', async () => {
+    api.getInventoryItem.mockResolvedValue(note)
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+
+    expect(await screen.findByDisplayValue('A12345678B')).toBeInTheDocument()
+    expect(screen.getByLabelText('note_type')).toHaveValue('silver_certificate')
+    const marks = screen.getAllByText('suggested')
+    expect(marks).toHaveLength(2)
+    expect(marks[0]).toHaveAttribute(
+      'title',
+      "Filled from the note's denomination and series",
+    )
+    expect(screen.getByLabelText('note_type')).toHaveAttribute('accesskey', 'a')
+  })
+
+  it('drops the mark once the field is changed, and saves the change', async () => {
+    api.getInventoryItem.mockResolvedValue(note)
+    api.updateInventoryItem.mockResolvedValue({})
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('A12345678B')
+
+    await user.clear(screen.getByLabelText('seal_color'))
+    await user.type(screen.getByLabelText('seal_color'), 'red')
+    expect(screen.getAllByText('suggested')).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ seal_color: 'red' }),
+      ),
+    )
+  })
+
+  it('keeps the note fields off a coin', async () => {
+    api.getInventoryItem.mockResolvedValue({ ...item, item_kind: 'coin' })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+
+    expect(screen.queryByLabelText('note_type')).toBeNull()
+    expect(screen.queryByText('Serial number')).toBeNull()
+  })
+})
