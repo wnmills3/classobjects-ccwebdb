@@ -359,6 +359,27 @@ describe('ItemEditForm keyboard accelerators', () => {
   })
 })
 
+describe('field labels in the grid', () => {
+  it('keeps each label whole as one grid item, accelerator letter and all', async () => {
+    // `.field` is `display: grid` with four columns, and every direct child
+    // is a grid item. A label built from loose text around a `<u>` put each
+    // piece of the word in a different column -- the owner saw
+    // "T      i      tle" and "Des   c   ription". Asserted here, on the real
+    // form, and not only on AccessLabel in isolation: the bug lived in the
+    // relationship between the two.
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const title = await screen.findByRole('textbox', { name: /Title/ })
+    const field = title.closest('.field')
+
+    // The whole word in the first cell, with the accelerator letter marked
+    // inside it rather than beside it.
+    expect(field.children[0].textContent).toBe('Title')
+    expect(field.children[0].querySelector('u')).toHaveTextContent('T')
+    // ...and the input is the next cell, not the fourth.
+    expect(field.children[1]).toBe(title)
+  })
+})
+
 describe('changing an item status', () => {
   const statuses = emptyReference({
     tables: {
