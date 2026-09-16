@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import Grade
+from app.models import Grade, StrikeType
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -228,18 +228,23 @@ def test_a_piece_reports_the_lot_s_claimed_grade_as_a_code(
     year_start -- the one field where a raw database id and the value a
     person would type happen to look alike, so a lot_claims keyed by id
     (`{"grade_id": 1}`) would still pass them. This checks a classifier, where
-    that distinction actually shows: the form must render "lot says MS64",
+    that distinction actually shows: the form must render "lot says 64",
     not "lot says 1".
     """
     from tests.test_split import TUBE, do_split, lot
 
-    parent = lot(db, grade_id=code_id(db, Grade, "MS64"))
+    parent = lot(
+        db,
+        grade_id=code_id(db, Grade, "64"),
+        strike_type_id=code_id(db, StrikeType, "business"),
+    )
     piece_id = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"][0][
         "id"
     ]
 
     body = client.get(f"/api/inventory/{piece_id}", headers=admin_headers).json()
-    assert body["lot_claims"]["grade"] == "MS64"
+    assert body["lot_claims"]["grade"] == "64"
+    assert body["lot_claims"]["strike_type"] == "business"
 
 
 def test_the_detail_payload_covers_every_editable_field(

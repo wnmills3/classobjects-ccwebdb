@@ -60,6 +60,7 @@ const BLANK = {
   status: 'ordered',
   country: '',
   denomination: '',
+  strike_type: '',
   grade: '',
   grade_designation: '',
   grading_service: '',
@@ -209,6 +210,8 @@ export default function NewItemForm({
       ...f,
       item_kind: kind,
       grade: isCurrencyKind(kind) === isCurrencyKind(f.item_kind) ? f.grade : '',
+      // A note has no strike type.
+      strike_type: isCurrencyKind(kind) ? '' : f.strike_type,
     }))
   }
 
@@ -253,6 +256,7 @@ export default function NewItemForm({
     for (const key of [
       'country',
       'denomination',
+      'strike_type',
       'grade',
       'grade_designation',
       'grading_service',
@@ -411,6 +415,21 @@ export default function NewItemForm({
             {...accel('m')}
           />
         </label>
+
+        {/* A coin's grade is a number and its strike type says whether 65
+            is MS65 or PR65. A note has none. No free accelerator letter is
+            left in "Strike type". */}
+        {!isCurrency && (
+          <label>
+            Strike type
+            <ReferenceSelect
+              table="strike_type"
+              value={form.strike_type}
+              onChange={set('strike_type')}
+              allowAdd={false}
+            />
+          </label>
+        )}
 
         <label>
           <AccessLabel text="Grade" accessKey="g" />

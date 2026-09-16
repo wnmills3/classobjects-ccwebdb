@@ -81,7 +81,8 @@ def test_a_coin_gets_exactly_one_coin_detail_row_with_its_mint(
     body = res.json()
     assert body["item_code"].startswith("CC-")
     assert body["item_kind"] == "coin"
-    assert body["grade"] == "MS64"
+    assert (body["grade"], body["strike_type"]) == ("64", "business")
+    assert body["grade_display"] == "MS64"
 
     item_id = body["id"]
     detail = db.scalars(

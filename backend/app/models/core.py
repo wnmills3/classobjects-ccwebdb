@@ -54,6 +54,7 @@ from .reference import (
     Metal,
     SetForm,
     StorageForm,
+    StrikeType,
 )
 
 __all__ = [
@@ -263,6 +264,11 @@ class InventoryItem(TimestampMixin, Base):
     year_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # -- condition --------------------------------------------------------
+    #: Business strike, proof, specimen... -- the "PR" of PR69, kept apart
+    #: from the number. Null for notes, bullion and anything unstruck.
+    strike_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("strike_type.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
     grade_id: Mapped[int | None] = mapped_column(
         ForeignKey("grade.id", ondelete="RESTRICT"), index=True, nullable=True
     )
@@ -483,6 +489,7 @@ class InventoryItem(TimestampMixin, Base):
     set_form: Mapped[SetForm | None] = relationship()
     storage_form: Mapped[StorageForm] = relationship()
     country: Mapped[Country | None] = relationship()
+    strike_type: Mapped[StrikeType | None] = relationship()
     grade: Mapped[Grade | None] = relationship()
     grade_designation: Mapped[GradeDesignation | None] = relationship()
     grading_service: Mapped[GradingService | None] = relationship()

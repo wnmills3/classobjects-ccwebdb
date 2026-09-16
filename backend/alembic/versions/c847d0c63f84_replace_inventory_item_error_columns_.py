@@ -25,7 +25,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-from app.models.views import CREATE_VIEWS, DROP_VIEWS
+from app.models.views import DROP_VIEWS, create_views
 from sqlalchemy.dialects import postgresql
 
 revision: str = 'c847d0c63f84'
@@ -201,7 +201,7 @@ WHERE i.split_at IS NULL
 _CREATE_VIEWS_WITH_ERROR_TYPE: tuple[str, ...] = (
     _COIN_INVENTORY_WITH_ERROR_TYPE,
     _CURRENCY_INVENTORY_WITH_ERROR_TYPE,
-    *CREATE_VIEWS[2:],
+    *create_views(strike_type=False)[2:],
 )
 
 
@@ -232,7 +232,7 @@ def upgrade() -> None:
     op.drop_column('inventory_item', 'error_details')
     # ### end Alembic commands ###
 
-    for statement in CREATE_VIEWS:
+    for statement in create_views(strike_type=False):
         op.execute(statement)
 
 

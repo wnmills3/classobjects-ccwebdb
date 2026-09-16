@@ -79,13 +79,20 @@ export const COIN_VIEW = {
   // uses SHARED_KEYS, above, for the ones common to both views (search, tips,
   // clear, years); FilterPanel.test.jsx checks every view for repeats, for D/E/F,
   // and that each letter appears in its label so it can be underlined.
-  textFilters: [['Item code', 'item_code', 'CC-000123', 'i']],
+  // Grade is typed, not picked: 55 is exactly 55, 55+ exactly 55+, 55% both;
+  // BU is 60-62, BU+ 63-64, BU++ 65-66 and BU% all three; MS65 and PR69+
+  // name the strike too (app.grades.search_term). Not matched anywhere in
+  // the value like the other text filters -- a term is a range of grades.
+  textFilters: [
+    ['Item code', 'item_code', 'CC-000123', 'i'],
+    ['Grade', 'grade', '65, 55%, BU+, BU%, PR69+', 'g'],
+  ],
   facetFilters: [
     ['Denomination', 'denomination', 'denomination', 'm'],
     ['Series', 'series', 'series', 'r'],
     ['Kind', 'kind', 'item_kind', 'k'],
     ['Metal', 'metal', 'metal', 'l'],
-    ['Grade', 'grade', 'grade', 'g'],
+    ['Strike type', 'strike_type', 'strike_type', 'p'],
     ['Mint', 'mint', 'mint_mark', 't'],
     ['Country', 'country', 'country', 'u'],
     // A, not U as on the currency view: Country can only take U here.
@@ -161,6 +168,8 @@ export const CURRENCY_VIEW = {
   textFilters: [
     ['Serial number', 'serial_number', 'B0808450_  (_ = one char, % = any)', 'b'],
     ['Item code', 'item_code', 'CC-000123', 'i'],
+    // Typed, as on the coin view: 64, 64%, UNC, UNC%.
+    ['Grade', 'grade', '64, 58%, UNC, UNC%', 'g'],
   ],
   facetFilters: [
     ['Denomination', 'denomination', 'denomination', 'm'],
@@ -168,7 +177,6 @@ export const CURRENCY_VIEW = {
     ['Note type', 'note_type', 'note_type', 'p'],
     ['Seal', 'seal_color', 'seal_color', 'l'],
     ['District', 'fed_district', 'fed_district_letter', 't'],
-    ['Grade', 'grade', 'grade', 'g'],
     // A is the only free letter in "Series year", so Status takes U here.
     ['Series year', 'series_year', 'series_year', 'a'],
     ['Status', 'status', 'status', 'u'],

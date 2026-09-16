@@ -144,7 +144,7 @@ def test_export_excludes_one_installations_private_rows(
     codes = {row["code"] for row in payload["grade"]}
 
     assert "LOCAL_ONLY" not in codes
-    assert "MS65" in codes
+    assert "65" in codes
 
     # ...but asking for them explicitly does include them.
     export_reference_data(db, tmp_path, sources=["seeded", "manual"])

@@ -36,6 +36,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from . import grades
 from .issues import COIN_ISSUES, CURRENCY_ISSUES, Issue
 
 __all__ = [
@@ -146,6 +147,8 @@ DELETED_MODES: dict[str, str] = {
 
 # --- joins, named once -----------------------------------------------------
 _J_GRADE = "LEFT JOIN grade g ON g.id = i.grade_id"
+_J_GRADE_SCALE = "LEFT JOIN grade_scale gsc ON gsc.id = g.grade_scale_id"
+_J_STRIKE = "LEFT JOIN strike_type stk ON stk.id = i.strike_type_id"
 _J_GRADE_DES = "LEFT JOIN grade_designation gd ON gd.id = i.grade_designation_id"
 _J_SERVICE = "LEFT JOIN grading_service gs ON gs.id = i.grading_service_id"
 _J_KIND = "JOIN item_kind k ON k.id = i.item_kind_id"
@@ -184,6 +187,11 @@ _C_DESCRIPTION = "i.description"
 _C_GRADE_RAW = "i.grade_raw"
 _C_YEAR_START = "i.year_start"
 _C_GRADE_VALUE = "g.numeric_value"
+#: MS65, PR69+ -- composed the same way the inventory views compose it.
+_C_GRADE_DISPLAY = (
+    "grade_display(stk.prefix, stk.suffix, g.numeric_value, g.is_plus, "
+    "g.label, gsc.code = 'sheldon')"
+)
 _C_KIND_CODE = "k.code"
 
 # An item may carry several errors (miscut and overprint on the same bill are
@@ -220,11 +228,16 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "local_catalog_number": Col("i.local_catalog_number"),
     "parent_item_id": Col("i.parent_item_id"),
     "created_at": Col("i.created_at"),
-    "grade": Col("g.code", (_J_GRADE,)),
+    # As collectors write it: MS65 is a business strike graded 65. The
+    # parts are `strike_type` and `grade_code`.
+    "grade": Col(_C_GRADE_DISPLAY, (_J_GRADE, _J_GRADE_SCALE, _J_STRIKE)),
+    "grade_code": Col("g.code", (_J_GRADE,)),
+    "strike_type": Col("stk.code", (_J_STRIKE,)),
     # What is read, rather than what is filtered on: a note's grade code is
     # `N64` and its label "Choice Uncirculated 64".
     "grade_label": Col("g.label", (_J_GRADE,)),
     "grade_value": Col(_C_GRADE_VALUE, (_J_GRADE,)),
+    "grade_rank": Col("g.grade_rank", (_J_GRADE,)),
     "grade_designation": Col("gd.code", (_J_GRADE_DES,)),
     "grading_service": Col("gs.code", (_J_SERVICE,)),
     "country": Col("c.code", (_J_COUNTRY,)),
@@ -249,7 +262,9 @@ _SHARED_COLUMNS: dict[str, Col] = {
 _SHARED_FILTERS: dict[str, Filt] = {
     "item_code": Filt(_C_ITEM_CODE, "ilike"),
     "country": Filt("c.code", join=(_J_COUNTRY,)),
-    "grade": Filt("g.code", join=(_J_GRADE,)),
+    # Not here: `grade`, `grade_min` and `grade_max` are search terms
+    # (55%, BU+), read by `_grade_clause`.
+    "strike_type": Filt("stk.code", join=(_J_STRIKE,)),
     "grading_service": Filt("gs.code", join=(_J_SERVICE,)),
     "status": Filt("st.code", join=(_J_STATUS,)),
     "disposition": Filt("disp.code", join=(_J_DISP,)),
@@ -259,8 +274,6 @@ _SHARED_FILTERS: dict[str, Filt] = {
     "series": Filt("ser.code", join=(_J_SERIES,)),
     "year_min": Filt(_C_YEAR_START, "gte"),
     "year_max": Filt(_C_YEAR_START, "lte"),
-    "grade_min": Filt(_C_GRADE_VALUE, "gte", (_J_GRADE,)),
-    "grade_max": Filt(_C_GRADE_VALUE, "lte", (_J_GRADE,)),
 }
 
 _SHARED_SORT = (
@@ -270,6 +283,7 @@ _SHARED_SORT = (
     "item_cost",
     "total_cost",
     "grade_value",
+    "grade_rank",
     "created_at",
 )
 
@@ -277,6 +291,7 @@ _SHARED_FACETS: dict[str, Facet] = {
     "denomination": Facet("denomination_id", "denomination"),
     "series": Facet("series_id", "series"),
     "grade": Facet("grade_id", "grade"),
+    "strike_type": Facet("strike_type_id", "strike_type"),
     "country": Facet("country_id", "country"),
     "status": Facet("status_id", "item_status"),
     "disposition": Facet("disposition_id", "disposition"),
@@ -490,6 +505,66 @@ def _error_type_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | N
     )
 
 
+#: The grade parameters, read as search terms rather than codes.
+GRADE_PARAMS = ("grade", "grade_min", "grade_max")
+
+
+def _grade_term(key: str, value: str) -> grades.GradeTerm:
+    term = grades.search_term(value)
+    if term is None:
+        raise ValueError(
+            f"{key}={value!r} is not a grade. Try 55, 55+, 55%, MS65, PR69+, "
+            "BU, BU+, BU++ or BU%."
+        )
+    return term
+
+
+def _grade_clause(
+    params: dict[str, Any], bound: dict[str, Any], joins: list[tuple[str, ...]]
+) -> str | None:
+    """The grade filters, as ranges of grade rank.
+
+    `grade` is a search term: 55 is exactly 55, 55+ exactly 55+, 55% both,
+    BU the owner's 60-62, BU% the whole ladder (`app.grades.search_term`).
+    `grade_min` takes the bottom of its term and `grade_max` the top, so
+    `grade_max=64` stops below 64+ and `grade_max=64%` includes it.
+    """
+    given = {key: params.pop(key, None) for key in GRADE_PARAMS}
+    parts: list[str] = []
+    if given["grade"]:
+        term = _grade_term("grade", given["grade"])
+        if term.code is not None:
+            bound["p_grade_code"] = term.code
+            parts.append("g.code = :p_grade_code")
+        if term.low is not None:
+            bound["p_grade_low"] = term.low
+            bound["p_grade_high"] = term.high
+            parts.append("g.grade_rank BETWEEN :p_grade_low AND :p_grade_high")
+        if term.plus is not None:
+            parts.append("g.is_plus" if term.plus else "NOT g.is_plus")
+        if term.prefix is None:
+            joins.append((_J_STRIKE,))
+            parts.append("stk.prefix IS NULL")
+        elif term.prefix != grades.ANY_PREFIX:
+            joins.append((_J_STRIKE,))
+            bound["p_grade_prefix"] = term.prefix
+            parts.append("stk.prefix = :p_grade_prefix")
+    if given["grade_min"]:
+        low = _grade_term("grade_min", given["grade_min"]).low
+        if low is not None:
+            bound["p_grade_min"] = low
+            parts.append("g.grade_rank >= :p_grade_min")
+    if given["grade_max"]:
+        high = _grade_term("grade_max", given["grade_max"]).high
+        if high is not None:
+            bound["p_grade_max"] = high
+            parts.append("g.grade_rank <= :p_grade_max")
+    if not parts:
+        return None
+    joins.append((_J_GRADE,))
+    return "(" + " AND ".join(parts) + ")"
+
+
 def _issue_clause(
     spec: ViewSpec, params: dict[str, Any], joins: list[tuple[str, ...]]
 ) -> str | None:
@@ -558,6 +633,7 @@ def _conditions(
         _lot_clause(params, bound),
         _issue_clause(spec, params, joins),
         _error_type_clause(params, bound),
+        _grade_clause(params, bound, joins),
     ):
         if clause is not None:
             clauses.append(clause)

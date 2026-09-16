@@ -200,7 +200,9 @@ def test_admin_can_create(client: TestClient, admin_headers: dict[str, str]) -> 
     assert response.status_code == 201
     body = response.json()
     assert body["price"] == "1450.00"
-    assert body["grade"] == "VF20"
+    # VF20 is sent, and stored as its parts.
+    assert (body["grade"], body["strike_type"]) == ("20", "business")
+    assert body["grade_display"] == "VF20"
     assert body["inventory_item_id"] > 0
 
 
@@ -292,7 +294,7 @@ def test_patch_only_changes_supplied_fields(
     body = response.json()
     assert body["price"] == "200.00"
     assert body["title"] == original_title
-    assert body["grade"] == "MS64"
+    assert body["grade_display"] == "MS64"
 
 
 def test_patch_404_for_unknown_id(

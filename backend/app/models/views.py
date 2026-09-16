@@ -55,6 +55,15 @@ PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
 )
 
 
+#: The composed grade -- MS65, PR69+ -- from `grade_display()`, created by
+#: the migration that split strike type from grade.
+_GRADE_DISPLAY = (
+    "grade_display(\n"
+    "        stk.prefix, stk.suffix, g.numeric_value, g.is_plus, g.label,\n"
+    "        gsc.code = 'sheldon'\n"
+    "    )"
+)
+
 _COIN_INVENTORY = """
 CREATE VIEW coin_inventory AS
 SELECT
@@ -76,8 +85,13 @@ SELECT
     cd.variety,
     cd.pcgs_type_id,
     cd.pcgs_status,
-    g.code            AS grade,
+    stk.code          AS strike_type,
+    grade_display(
+        stk.prefix, stk.suffix, g.numeric_value, g.is_plus, g.label,
+        gsc.code = 'sheldon'
+    ) AS grade,
     g.numeric_value   AS grade_value,
+    g.grade_rank,
     gd.code           AS grade_designation,
     gs.code           AS grading_service,
     a.code            AS authenticity,
@@ -116,6 +130,8 @@ LEFT JOIN set_form sf     ON sf.id = i.set_form_id
 LEFT JOIN country c       ON c.id  = i.country_id
 LEFT JOIN mint m          ON m.id  = cd.mint_id
 LEFT JOIN grade g         ON g.id  = i.grade_id
+LEFT JOIN grade_scale gsc ON gsc.id = g.grade_scale_id
+LEFT JOIN strike_type stk ON stk.id = i.strike_type_id
 LEFT JOIN grade_designation gd ON gd.id = i.grade_designation_id
 LEFT JOIN grading_service gs   ON gs.id = i.grading_service_id
 LEFT JOIN metal mt        ON mt.id = i.metal_id
@@ -276,7 +292,10 @@ SELECT
     c.label             AS country,
     i.year_start,
     i.year_end,
-    g.code              AS grade,
+    grade_display(
+        stk.prefix, stk.suffix, g.numeric_value, g.is_plus, g.label,
+        gsc.code = 'sheldon'
+    ) AS grade,
     gs.code             AS grading_service,
     bf.label            AS bullion_form,
     mt.code             AS metal,
@@ -290,6 +309,8 @@ JOIN currency cur         ON cur.id = l.currency_id
 LEFT JOIN denomination d  ON d.id  = i.denomination_id
 LEFT JOIN country c       ON c.id  = i.country_id
 LEFT JOIN grade g         ON g.id  = i.grade_id
+LEFT JOIN grade_scale gsc ON gsc.id = g.grade_scale_id
+LEFT JOIN strike_type stk ON stk.id = i.strike_type_id
 LEFT JOIN grading_service gs ON gs.id = i.grading_service_id
 LEFT JOIN bullion_form bf ON bf.id = i.bullion_form_id
 LEFT JOIN metal mt        ON mt.id = i.metal_id
@@ -389,18 +410,37 @@ _SOFT_DELETE_FRAGMENTS: tuple[tuple[str, str], ...] = (
 )
 
 
+#: Strike types and composed grades came later (item-attributes design): a
+#: view created by an earlier revision names the grade code and no strike.
+_STRIKE_TYPE_FRAGMENTS: tuple[tuple[str, str], ...] = (
+    ("    stk.code          AS strike_type,\n", ""),
+    (
+        f"    {_GRADE_DISPLAY} AS grade,\n"
+        "    g.numeric_value   AS grade_value,\n"
+        "    g.grade_rank,\n",
+        "    g.code            AS grade,\n    g.numeric_value   AS grade_value,\n",
+    ),
+    (f"    {_GRADE_DISPLAY} AS grade,\n", "    g.code              AS grade,\n"),
+    ("LEFT JOIN grade_scale gsc ON gsc.id = g.grade_scale_id\n", ""),
+    ("LEFT JOIN strike_type stk ON stk.id = i.strike_type_id\n", ""),
+)
+
+
 def _removal_fragments(
     *,
     lineage: bool,
     item_code: bool,
     renamed_costs: bool,
     soft_delete: bool,
+    strike_type: bool = True,
 ) -> list[tuple[str, str]]:
     """The (fragment, replacement) pairs that strip the features not wanted.
 
     Order matters, which is why this is a list rather than a set.
     """
     removals: list[tuple[str, str]] = []
+    if not strike_type:
+        removals.extend(_STRIKE_TYPE_FRAGMENTS)
     # Soft delete is stripped FIRST, before lineage. Replacements apply in
     # list order, and the lineage fragment is
     # ("WHERE i.split_at IS NULL\n  AND ", "WHERE ") -- which would otherwise
@@ -427,6 +467,7 @@ def _assert_stripped(
     item_code: bool,
     renamed_costs: bool,
     soft_delete: bool,
+    strike_type: bool = True,
 ) -> None:
     """Fail loudly if a fragment stopped matching the view SQL.
 
@@ -450,6 +491,11 @@ def _assert_stripped(
                 "migration would create a view naming a column that "
                 "does not exist at its revision"
             )
+    if not strike_type:
+        assert "strike_type" not in statement, (
+            "the strike-type-stripping fragments no longer match the view SQL"
+        )
+        assert "grade_display" not in statement
     if not soft_delete:
         assert "deleted_at" not in statement, (
             "the soft-delete-stripping fragments no longer match the view "
@@ -464,6 +510,7 @@ def create_views(
     item_code: bool = True,
     renamed_costs: bool = True,
     soft_delete: bool = True,
+    strike_type: bool = True,
 ) -> tuple[str, ...]:
     """The view SQL as it stood before the named columns were introduced.
 
@@ -472,14 +519,17 @@ def create_views(
     `item_cost`, `shipping_cost`, `sales_tax`, `piece_count` and
     `source_title` (`price`, `shipping`, `taxes`, `storage_quantity`,
     `title`); ``soft_delete`` covers `deleted_at` and its `WHERE` clause in
-    all four views. All four default to True, the current definitions, so a
-    migration strips only what it names.
+    all four views; ``strike_type`` covers the strike type column and the
+    composed grade (`grade_display()`), which replaced the grade code. All
+    default to True, the current definitions, so a migration strips only what
+    it names.
     """
     removals = _removal_fragments(
         lineage=lineage,
         item_code=item_code,
         renamed_costs=renamed_costs,
         soft_delete=soft_delete,
+        strike_type=strike_type,
     )
 
     statements = []
@@ -492,6 +542,7 @@ def create_views(
             item_code=item_code,
             renamed_costs=renamed_costs,
             soft_delete=soft_delete,
+            strike_type=strike_type,
         )
         statements.append(statement)
     return tuple(statements)
@@ -500,10 +551,14 @@ def create_views(
 #: What the views looked like before lot lineage existed. Used by the
 #: downgrade of the migration that added it.
 CREATE_VIEWS_WITHOUT_LINEAGE: tuple[str, ...] = create_views(
-    lineage=False, renamed_costs=False, soft_delete=False
+    lineage=False, renamed_costs=False, soft_delete=False, strike_type=False
 )
 
 #: What they looked like when first created, before either addition.
 CREATE_VIEWS_ORIGINAL: tuple[str, ...] = create_views(
-    lineage=False, item_code=False, renamed_costs=False, soft_delete=False
+    lineage=False,
+    item_code=False,
+    renamed_costs=False,
+    soft_delete=False,
+    strike_type=False,
 )

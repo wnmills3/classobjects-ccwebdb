@@ -189,7 +189,8 @@ every miss visible rather than defaulted.
 2. `item_attribute` replacing `note_attribute`, with groups, `applies_to` and
    link provenance; the editor lists an item's attributes.
 3. Grade vocabulary: equivalences as aliases, the new designations, strike
-   type, plus grades, N1-N3.
+   type, plus grades, N1-N3. (Strike type, plus grades and N1-N3 are
+   built; see *As built* below.)
 4. Importer rules and a re-derivation over the live data (report first).
 5. Attribute rules in the defaults pass (No Motto).
 
@@ -232,6 +233,36 @@ every miss visible rather than defaulted.
 6. **The console page for aliases ships in the first version** (not answered
    explicitly; the owner console is to be a superset of what the data files
    can say).
+7. **Searching a grade** (owner): `55` finds only 55, and `55%` finds 55
+   and 55+. The same goes for the ladder: `BU`, `BU+`, `BU++` and `BU%`.
+   As built, `BU` is 60-62, `BU+` 63-64, `BU++` 65-66 and `BU%` all three
+   (60-66+); `55+` is exactly 55+. A prefix names the strike too: `PR65`
+   is a proof, `MS65` anything shown as MS (business, SMS, or no strike
+   recorded). Any other word is its whole range -- `AU` is 50 to 58+ --
+   and a plus after it narrows to the plus grades. `grade_min` takes the
+   bottom of its term and `grade_max` the top, so `grade_max=64` stops
+   below 64+ and `64%` includes it. A term that is not a grade (`MS55`,
+   `BU+++`) is refused, not matched against nothing.
+
+## As built: strike type and number grades
+
+Migration `e4b8c1d27f63` adds `strike_type` (business, proof, specimen,
+reverse proof, enhanced reverse proof, SMS, each with the prefix and
+suffix it is shown with), `grade.is_plus`, the generated `grade.grade_rank`
+(the number, plus a half for a plus) and `inventory_item.strike_type_id`.
+It moves every item from its old grade to the number and strike type in
+decision 3, and removes the old rows nothing references. Downgrade
+recomposes MS/PR codes but cannot restore an adjectival grade.
+
+`app.grades` holds the rules: `split` takes a grade apart (the importer,
+and any API client sending `MS65`), `display` composes it, mirrored by
+the database's `grade_display()`, which the inventory views and the
+search use, and `search_term` reads a grade filter. The API returns
+`grade` (the code, `65`), `strike_type` and `grade_display` (`MS65`); a
+strike type the client names wins over the one a compound grade implies.
+The item editor, New item form and shop console offer a strike type for
+anything but a note, and the inventory views type the grade filter
+rather than pick it.
 
 ## Sources
 

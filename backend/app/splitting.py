@@ -69,6 +69,7 @@ INHERITED = (
     "country_id",
     "year_start",
     "year_end",
+    "strike_type_id",
     "grade_id",
     "grade_designation_id",
     "grading_service_id",

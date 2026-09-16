@@ -90,7 +90,10 @@ class CatalogItemBase(BaseModel):
     country: str | None = Field(default=None, max_length=64)
     denomination: str | None = Field(default=None, max_length=64)
     bullion_form: str | None = Field(default=None, max_length=64)
+    #: A number (65, 64+) or a compound grade (MS65, PR69+), which is split
+    #: into the number and `strike_type`.
     grade: str | None = Field(default=None, max_length=64)
+    strike_type: str | None = Field(default=None, max_length=64)
     grading_service: str | None = Field(default=None, max_length=64)
     metal: str | None = Field(default=None, max_length=64)
 
@@ -157,7 +160,10 @@ class CatalogItemUpdate(BaseModel):
     country: str | None = Field(default=None, max_length=64)
     denomination: str | None = Field(default=None, max_length=64)
     bullion_form: str | None = Field(default=None, max_length=64)
+    #: A number (65, 64+) or a compound grade (MS65, PR69+), which is split
+    #: into the number and `strike_type`.
     grade: str | None = Field(default=None, max_length=64)
+    strike_type: str | None = Field(default=None, max_length=64)
     grading_service: str | None = Field(default=None, max_length=64)
     metal: str | None = Field(default=None, max_length=64)
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
@@ -221,6 +227,9 @@ class CatalogItemOut(BaseModel):
     denomination: str | None = None
     bullion_form: str | None = None
     grade: str | None = None
+    strike_type: str | None = None
+    #: As collectors write it: MS65, PR69+. `grade` is the code alone.
+    grade_display: str | None = None
     grading_service: str | None = None
     metal: str | None = None
 
@@ -453,7 +462,10 @@ class SplitPieceIn(BaseModel):
     #: Classifier overrides for this piece, by code. A mint set's pieces have
     #: different denominations from each other and from the set.
     denomination: str | None = Field(default=None, max_length=64)
+    #: A number (65, 64+) or a compound grade (MS65, PR69+), which is split
+    #: into the number and `strike_type`.
     grade: str | None = Field(default=None, max_length=64)
+    strike_type: str | None = Field(default=None, max_length=64)
     metal: str | None = Field(default=None, max_length=64)
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
 
@@ -553,6 +565,9 @@ class ItemDetailOut(InventoryItemOut):
     denomination: str | None = None
     bullion_form: str | None = None
     grade: str | None = None
+    strike_type: str | None = None
+    #: As collectors write it: MS65, PR69+. `grade` is the code alone.
+    grade_display: str | None = None
     grade_designation: str | None = None
     grading_service: str | None = None
     metal: str | None = None
@@ -618,7 +633,10 @@ class InventoryItemUpdate(BaseModel):
     country: str | None = Field(default=None, max_length=64)
     denomination: str | None = Field(default=None, max_length=64)
     bullion_form: str | None = Field(default=None, max_length=64)
+    #: A number (65, 64+) or a compound grade (MS65, PR69+), which is split
+    #: into the number and `strike_type`.
     grade: str | None = Field(default=None, max_length=64)
+    strike_type: str | None = Field(default=None, max_length=64)
     grade_designation: str | None = Field(default=None, max_length=64)
     grading_service: str | None = Field(default=None, max_length=64)
     metal: str | None = Field(default=None, max_length=64)
@@ -721,7 +739,10 @@ class ItemCreate(BaseModel):
     # router since that is where the database lives.
     country: str | None = Field(default=None, max_length=64)
     denomination: str | None = Field(default=None, max_length=64)
+    #: A number (65, 64+) or a compound grade (MS65, PR69+), which is split
+    #: into the number and `strike_type`.
     grade: str | None = Field(default=None, max_length=64)
+    strike_type: str | None = Field(default=None, max_length=64)
     grade_designation: str | None = Field(default=None, max_length=64)
     grading_service: str | None = Field(default=None, max_length=64)
     metal: str | None = Field(default=None, max_length=64)

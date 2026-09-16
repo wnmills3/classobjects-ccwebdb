@@ -1,6 +1,6 @@
 """Paper money is graded on its own scale, not a coin's.
 
-PMG and PCGS both grade banknotes on the same 27 points, Good 4 to 70, in
+PMG and PCGS both grade banknotes on the same points, Poor 1 to 70, in
 their own words -- "Choice Uncirculated 64", "Very Fine 30" -- with their own
 paper-quality designations, EPQ and PPQ. A note given a coin grade (MS65) is
 described in the wrong vocabulary, and a note whose grade the importer could
@@ -24,8 +24,8 @@ from sqlalchemy.orm import Session
 from tests.test_importer import FakeSource, make_row
 from tests.test_schema import code_id, make_item
 
-#: The points both graders use, Good 4 to 70.
-NOTE_NUMBERS = {4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50, 53, 55, 58}
+#: The points the graders use, Poor 1 to 70 (PCGS Banknote grades 1-3).
+NOTE_NUMBERS = {1, 2, 3, 4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50, 53, 55, 58}
 NOTE_NUMBERS |= set(range(60, 71))
 
 
@@ -68,7 +68,7 @@ def committed(profile: CollectionV1Profile, db: Session, **values: str) -> Row[A
 # ---------------------------------------------------------------------------
 
 
-def test_the_note_scale_is_the_graders_27_points_from_good_4_to_70(
+def test_the_note_scale_is_the_graders_points_from_poor_1_to_70(
     db: Session,
 ) -> None:
     numbered = {n: label for _code, label, n in note_scale(db) if n is not None}
@@ -82,15 +82,12 @@ def test_the_note_scale_is_the_graders_27_points_from_good_4_to_70(
     assert numbered[4] == "Good 4"
 
 
-def test_a_note_can_be_graded_without_a_number(db: Session) -> None:
-    """A bare "UNC" on a note is a grade on the note scale, not a coin's UNC."""
-    terms = {label for _code, label, n in note_scale(db) if n is None}
-    assert {
-        "Uncirculated",
-        "About Uncirculated",
-        "Extremely Fine",
-        "Very Fine",
-    } <= terms
+def test_every_note_grade_has_a_number(db: Session) -> None:
+    """A bare "UNC" on a note is the bottom of its range, N60 (the owner).
+
+    The words once had rows of their own, which no range search could find.
+    """
+    assert {code for code, _label, n in note_scale(db) if n is None} == set()
 
 
 # ---------------------------------------------------------------------------
@@ -106,10 +103,10 @@ def test_a_note_can_be_graded_without_a_number(db: Session) -> None:
         ("VF-30", "N30", None),
         # PCGS writes coin-style prefixes on its banknote labels.
         ("MS65 PPQ", "N65", "PPQ"),
-        ("UNC", "N_UNC", None),
+        ("UNC", "N60", None),
         # Five $2 notes, not a grade of 5: 5 is not a point on the scale.
-        ("UNC 5 2s", "N_UNC", None),
-        ("AU+", "N_AU", None),
+        ("UNC 5 2s", "N60", None),
+        ("AU+", "N50", None),
         # A seal colour says nothing about condition.
         ("Blue Seal", None, None),
     ],
@@ -126,7 +123,7 @@ def test_a_note_rating_is_read_onto_the_note_scale(
 
 
 def test_a_coin_keeps_its_coin_grade(profile: CollectionV1Profile, db: Session) -> None:
-    assert committed(profile, db, Denom="0.25", Rating="MS65").grade == "MS65"
+    assert committed(profile, db, Denom="0.25", Rating="MS65").grade == "65"
 
 
 def test_reading_a_note_grade_never_invents_a_vocabulary_row(

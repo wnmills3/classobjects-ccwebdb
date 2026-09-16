@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
+from .. import grades
 from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
@@ -69,6 +70,7 @@ from ..models import (
     SignatureCombination,
     StorageForm,
     StorageLocation,
+    StrikeType,
     ValuationBasis,
 )
 from ..references import code_to_id, require_code
@@ -99,6 +101,7 @@ router = APIRouter(prefix="/inventory", tags=["inventory"])
 PIECE_CLASSIFIERS: dict[str, type] = {
     "denomination": Denomination,
     "grade": Grade,
+    "strike_type": StrikeType,
     "metal": Metal,
 }
 
@@ -114,8 +117,12 @@ def _get_item(db: Session, item_id: int) -> InventoryItem:
 
 def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
     overrides: dict[str, object] = {}
+    codes = {field: getattr(spec, field) for field in PIECE_CLASSIFIERS}
+    codes["grade"], codes["strike_type"] = grades.split_fields(
+        spec.grade, spec.strike_type
+    )
     for field, model in PIECE_CLASSIFIERS.items():
-        value = getattr(spec, field)
+        value = codes[field]
         if value is not None:
             overrides[f"{field}_id"] = code_to_id(db, model, value, field)
     if spec.year_start is not None:
@@ -249,6 +256,7 @@ def search_inventory(
 LOT_CLAIM_FIELDS: tuple[str, ...] = (
     "year_start",
     "year_end",
+    "strike_type",
     "grade",
     "grade_designation",
     "grading_service",
@@ -434,7 +442,9 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     item_kind_id = require_code(db, ItemKind, payload.item_kind, "item_kind")
     country_id = code_to_id(db, Country, payload.country, "country")
     denomination_id = code_to_id(db, Denomination, payload.denomination, "denomination")
-    grade_id = code_to_id(db, Grade, payload.grade, "grade")
+    grade_code, strike_code = grades.split_fields(payload.grade, payload.strike_type)
+    grade_id = code_to_id(db, Grade, grade_code, "grade")
+    strike_type_id = code_to_id(db, StrikeType, strike_code, "strike_type")
     grade_designation_id = code_to_id(
         db, GradeDesignation, payload.grade_designation, "grade_designation"
     )
@@ -505,6 +515,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         shipping_cost=payload.shipping_cost,
         country_id=country_id,
         denomination_id=denomination_id,
+        strike_type_id=strike_type_id,
         grade_id=grade_id,
         grade_designation_id=grade_designation_id,
         grading_service_id=grading_service_id,
@@ -655,6 +666,7 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
         },
         **classifiers,
         **note,
+        grade_display=grades.display_item(item),
         default_tax_rate=settings.sales_tax_rate,
         parent_item_code=parent_code,
         lot_claims=claims,
@@ -673,6 +685,7 @@ ITEM_CLASSIFIERS: dict[str, type] = {
     "country": Country,
     "denomination": Denomination,
     "bullion_form": BullionForm,
+    "strike_type": StrikeType,
     "grade": Grade,
     "grade_designation": GradeDesignation,
     "grading_service": GradingService,
@@ -754,6 +767,18 @@ DEFAULTED_COLUMNS: frozenset[str] = frozenset(
 SUGGESTABLE_FIELDS: frozenset[str] = frozenset(
     {"note_type", "seal_color", "fed_district", "signature_combination", "metal"}
 )
+
+
+def _split_grade(data: dict[str, Any]) -> None:
+    """A compound grade in a change set, taken apart in place: MS65 -> 65.
+
+    The strike type it implies is set too, unless the change names one.
+    """
+    if data.get("grade"):
+        grade, strike = grades.split_fields(data["grade"], data.get("strike_type"))
+        data["grade"] = grade
+        if strike is not None:
+            data["strike_type"] = strike
 
 
 def _column(field: str) -> str:
@@ -844,6 +869,7 @@ def bulk_edit(
     data = payload.changes.model_dump(exclude_unset=True)
     data.pop("version", None)  # Meaningless across a set of rows.
     _refuse_null_scalars(data)
+    _split_grade(data)
 
     items = db.scalars(
         select(InventoryItem).where(InventoryItem.id.in_(payload.ids))
@@ -935,6 +961,7 @@ def update_item(
     data = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
     _refuse_null_scalars(data)
+    _split_grade(data)
 
     # This is what catches the ordinary lost-update case: two staff, each with
     # a form loaded at a different time, and the second one saving over the
@@ -1073,6 +1100,7 @@ REVIEWABLE_FIELDS: frozenset[str] = frozenset(
     {
         "year_start",
         "year_end",
+        "strike_type_id",
         "grade_id",
         "grade_designation_id",
         "grading_service_id",

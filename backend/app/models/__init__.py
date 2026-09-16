@@ -93,6 +93,7 @@ from .reference import (
     SignatureCombination,
     StorageForm,
     StorageLocationKind,
+    StrikeType,
     ValuationBasis,
     VendorKind,
 )
@@ -128,6 +129,7 @@ REFERENCE_MODELS: tuple[type[ReferenceMixin], ...] = (
     NoteType,
     Series,
     GradeScale,
+    StrikeType,
     Grade,
     GradeDesignation,
     GradingService,
@@ -218,6 +220,7 @@ __all__ = [
     "StorageForm",
     "StorageLocation",
     "StorageLocationKind",
+    "StrikeType",
     "TimestampMixin",
     "User",
     "UserRole",
