@@ -107,9 +107,8 @@ class, denomination, series range, needs evidence), applied by
 `app.classifier_defaults` and recorded as derived. A person can remove a
 derived attribute, and it stays removed.
 
-**Decision:** whether "Godless" should apply beyond the $1 -- strictly, every
-note before its denomination gained the motto lacks it, but collectors use
-the word for the $1 Series 1935 run.
+"Godless" is kept to that $1 run (decision 5), which is where collectors use
+the word.
 
 ## 3. The grade vocabulary
 
@@ -143,8 +142,7 @@ nickel, and never shortens First Strike to FS.
 Enhanced Reverse Proof and SMS are a way of striking, with a Sheldon number
 beside it -- `SP68`, `REVERSE PF 70`. `grade.is_proof` cannot say this. A
 `strike_type` vocabulary replaces it, and grades become (strike type,
-number) pairs: MS65 is MS + 65, SP68 is SP + 68. **Decision:** a new column on
-the item, or strike-typed grade rows.
+number) pairs: MS65 is MS + 65, SP68 is SP + 68 (decision 1).
 
 **Plus is a qualifier on a numbered grade.** PCGS grades plus from XF45 to 68,
 never 60 or 61; NGC from 45 to 68, not on Details, bullion or modern
