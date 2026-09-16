@@ -95,7 +95,7 @@ its History page (bep.gov/currency/history) and FAQ. Compared with
 | `gold_certificate` -- Gold Certificate | Gold Certificates | none |
 | `us_note` -- United States Note | United States Notes ("characterized by a red seal", FAQ) | none |
 | `legal_tender` -- Legal Tender Note | -- | **merge into `us_note`**; keep "Legal Tender Note" as a nickname. BEP uses *legal tender* in its statutory sense (31 USC 5103), which covers every class, so as a class name it is misleading |
-| `national_currency` -- National Currency | National Bank Notes (National Banknotes) | **relabel "National Bank Note"**; keep "National Currency", the wording printed on the notes, as a nickname. **Decision:** also rename the code to `national_bank_note` |
+| `national_currency` -- National Currency | National Bank Notes (National Banknotes) | **relabel "National Bank Note"**; keep "National Currency", the wording printed on the notes, as a nickname. The code becomes `national_bank_note` |
 | `fractional` -- Fractional Currency | Fractional Currency | none |
 | -- | Demand Notes (1861) | **add** `demand_note` |
 | -- | Treasury Notes, also Treasury Coin Notes (1890) | **add** `treasury_note`; nickname "Coin Note" |
@@ -105,9 +105,8 @@ saved URL uses a note-type code yet (measured: all eight have zero
 references). The frontend reads the list from the API; it names no code.
 
 Note types need **nicknames**, as series do, so text such as "Legal Tender"
-or "Coin Note" is recognised on import and in search. **Decision:** a
-`note_type_alias` table shaped like `series_alias`, or a general alias table
-for every classifier.
+or "Coin Note" is recognised on import and in search. They live in a general
+`reference_alias` table (decision 2).
 
 Seal colours (blue, red, brown, green, gold, yellow) and the twelve Federal
 Reserve districts already match BEP's serial-number page exactly: A Boston
@@ -153,9 +152,9 @@ Sources and their standing:
 These are historical facts -- who signed, which class, which seal -- and are
 safe to seed. No Friedberg numbers are involved or implied.
 
-**Decision:** where the facts live. A new `note_issue` table (denomination,
-series year, series letter, class, seal, signature combination) is the
-natural shape: one row per issue, from which every note default is looked up.
+The facts live in a new `note_issue` table (denomination, series year,
+series letter, class, seal, signature combination): one row per issue, from
+which every note default is looked up (decision 3).
 
 ### Signature combinations
 
@@ -211,10 +210,9 @@ Order matters: note type first, because seal and signatures depend on it.
 
 **At entry time**, the same lookups fill the New item form as its facts are
 typed: choose $1 and Series 1957 and the note type, seal and signatures appear,
-marked as suggestions and editable. **Decision:** whether this ships with the
-first version or follows it.
+marked as suggestions and editable. This ships in the first version.
 
-## Decision: how a default is told apart from a person's value
+## How a default is told apart from a person's value
 
 Provenance today is per row (`inventory_item.source`), not per field, and
 `item_field_review` records only that a person *confirmed* a field. Two ways:
@@ -229,7 +227,7 @@ Provenance today is per row (`inventory_item.source`), not per field, and
   "suggested" beside a derived value, and saving a field by hand turns it
   `manual`.
 
-**Recommended: B.** It is what "these could be overridden, but the default
+**Chosen: B** (decision 4). It is what "these could be overridden, but the default
 values would be applied" asks for, and it is the only way the defaults can
 improve when the facts do.
 
@@ -241,7 +239,7 @@ researched:
 - **Series** -- done (`series_classify`).
 - **Composition and metal** -- already resolved from denomination and year;
   under this design they would be recorded as derived defaults rather than
-  looked up only at valuation time. **Decision.**
+  looked up only at valuation time (decision 6).
 - **Key date** -- a flag from series, year and mint, researched on 2026-09-16
   and to be its own spec: about 60 dates two independent sources agree on;
   varieties need text evidence; tier disputes are the owner's call, with US
