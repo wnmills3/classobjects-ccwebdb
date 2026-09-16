@@ -31,20 +31,32 @@ function todayLocal() {
 /**
  * Records what arrived: one request per click, covering every selected item.
  *
- * All-or-nothing on the backend (`POST /api/inventory/receive`), so this
- * panel never turns a selection into a loop of per-item calls -- a box of
- * twenty coins is one transaction, and twenty requests would leave a partial
- * state nobody could describe if the tenth failed.
+ * All-or-nothing on the backend (`POST /api/inventory/receive`), so whatever
+ * this panel is given is one transaction rather than a loop of per-item
+ * calls -- a partial state nobody could describe if the tenth of twenty
+ * failed is the thing that endpoint exists to prevent.
+ *
+ * The console now mounts one panel per line, so `itemIds` is a single id in
+ * practice; the plural is the endpoint's shape, kept because it is what
+ * makes each submission atomic. Recording twenty items is twenty dialogs and
+ * twenty requests -- each one still all-or-nothing in itself -- which is the
+ * trade `docs/system-administration.md` records for the panel always being
+ * on screen instead of below the fold.
  *
  * On a refused request (409 already received, 422 future date, network) the
  * catch block only ever sets `error` -- every field the operator typed stays
  * exactly as they left it. Retyping a note after a rejected click is exactly
  * the friction that stops people writing notes at all.
  */
-export default function ReceiptPanel({ itemIds, onDone }) {
+export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   const [locations, setLocations] = useState([])
-  const [arrivedOn, setArrivedOn] = useState(todayLocal)
-  const [storageLocationId, setStorageLocationId] = useState('')
+  // `initial` seeds the fields once, at mount. One panel is mounted per item
+  // now, so "once at mount" is exactly "per line" -- what the previous line
+  // was recorded against is offered again rather than re-picked.
+  const [arrivedOn, setArrivedOn] = useState(() => initial.arrivedOn || todayLocal())
+  const [storageLocationId, setStorageLocationId] = useState(
+    initial.storageLocationId ?? '',
+  )
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -143,6 +155,15 @@ export default function ReceiptPanel({ itemIds, onDone }) {
       })
       setError('')
       setUploadError('')
+      // What was used, kept before the fields are cleared, so the caller can
+      // offer it again on the next line -- a box of twenty into one safe
+      // deposit box is otherwise twenty identical dropdown picks.
+      //
+      // The note is deliberately NOT carried: a location and an arrival date
+      // describe the parcel, and are the same for everything in it, but a
+      // note describes the object ("corner bent"), and repeating one onto the
+      // next item writes a fact about a coin nobody checked.
+      const used = { arrivedOn, storageLocationId }
       setNote('')
       setStorageLocationId('')
       setArrivedOn(todayLocal())
@@ -153,15 +174,20 @@ export default function ReceiptPanel({ itemIds, onDone }) {
       // behind a review pane nobody can see. Closing it here is what makes
       // it reappear for the next item.
       setReviewIds(null)
-      onDone?.()
 
       // The arrival above is the fact; a photograph is evidence added to it
       // afterwards. A failed upload must not undo the receipt just recorded,
       // so it is caught on its own -- reported against the item, retryable,
-      // and never allowed to roll the receipt back or skip `onDone`. Only
-      // ever reachable with exactly one item: the input above is disabled
-      // otherwise, and this check is the same guarantee enforced again at
-      // the point that actually names the item to attach to.
+      // and never allowed to roll the receipt back.
+      //
+      // It runs BEFORE `onDone`, and `onDone` is skipped when it fails. The
+      // caller closes a dialog on `onDone`, which unmounts this component:
+      // reporting the failure first and then unmounting would write
+      // `uploadError` to a component nobody can see, and the operator would
+      // be told the receipt landed while the photograph silently did not.
+      // Leaving the panel open with the error on it is the whole point of
+      // catching this separately.
+      let uploadFailed = false
       if (photos.length > 0 && singleItemSelected) {
         const [itemId] = itemIds
         const results = await Promise.allSettled(
@@ -176,14 +202,24 @@ export default function ReceiptPanel({ itemIds, onDone }) {
         const failures = results
           .map((result, index) => [result, photos[index]])
           .filter(([result]) => result.status === 'rejected')
+        uploadFailed = failures.length > 0
         setUploadError(
           failures
             .map(([result, file]) => `${file.name}: ${result.reason.message}`)
             .join('; '),
         )
+        // Every photograph is cleared, the failed ones included. Keeping one
+        // in the picker would suggest a retry that does not exist: the only
+        // button that would send it also re-sends the receipt, which the
+        // backend refuses with a 409 now that the item is received.
         setPhotos([])
         setPhotoInputKey((key) => key + 1)
       }
+
+      // The receipt is recorded either way. `onDone` is the caller's cue to
+      // close and move on, which is only honest when there is nothing left
+      // on this panel to read.
+      if (!uploadFailed) onDone?.(used)
     } catch (err) {
       setError(err.message)
     } finally {

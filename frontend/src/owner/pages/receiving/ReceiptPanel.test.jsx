@@ -195,10 +195,17 @@ describe('ReceiptPanel', () => {
     expect(api.uploadImage).not.toHaveBeenCalled()
   })
 
-  it('a failed photograph does not undo the receipt', async () => {
+  it('a failed photograph does not undo the receipt, and does not signal done', async () => {
     // The arrival is the fact; the photograph is evidence added to it. Losing
     // a recorded arrival because an upload failed is the worse trade, so the
-    // upload is reported and retryable, not rolled back.
+    // upload is reported, not rolled back.
+    //
+    // `onDone` is withheld, and that is the whole point: the caller closes a
+    // dialog on it, which unmounts this panel. Reporting the failure and then
+    // being unmounted writes the error where nobody can read it -- the
+    // operator is told the receipt landed and never learns the photograph did
+    // not. This test asserts against a mounted panel, so it cannot see that
+    // on its own; `Receiving.test.jsx` covers the dialog staying open.
     api.receiveItems.mockResolvedValue({ received: 1 })
     api.uploadImage.mockRejectedValue(new Error('upload failed'))
 
@@ -212,7 +219,35 @@ describe('ReceiptPanel', () => {
 
     await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
     expect(await screen.findByText(/upload failed/i)).toBeInTheDocument()
-    expect(onDone).toHaveBeenCalled()
+    expect(onDone).not.toHaveBeenCalled()
+  })
+
+  it('signals done, with what it was recorded against, when everything lands', async () => {
+    api.receiveItems.mockResolvedValue({ received: 1 })
+    const onDone = vi.fn()
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={onDone} />)
+
+    await userEvent.selectOptions(await screen.findByLabelText(/storage/i), '3')
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    // The caller offers these again on the next line.
+    await waitFor(() =>
+      expect(onDone).toHaveBeenCalledWith(
+        expect.objectContaining({ storageLocationId: '3' }),
+      ),
+    )
+  })
+
+  it('starts from the values it is given, so a parcel is picked once', async () => {
+    renderWithProviders(
+      <ReceiptPanel
+        itemIds={[412]}
+        onDone={vi.fn()}
+        initial={{ storageLocationId: '3', arrivedOn: '2026-09-01' }}
+      />,
+    )
+    expect(await screen.findByLabelText(/storage/i)).toHaveValue('3')
+    expect(screen.getByLabelText(/arrived/i)).toHaveValue('2026-09-01')
   })
 
   it('keeps the review queue frozen when the selection changes underneath it', async () => {

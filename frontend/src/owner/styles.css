@@ -283,11 +283,6 @@ button.link.danger {
 .order-row:hover {
   background: var(--surface);
 }
-.order-row-active {
-  background: var(--surface);
-  border-color: var(--accent);
-}
-
 /* Receiving: a line that can still be received opens its receipt dialog.
    The whole row is a click target for the mouse; the item code inside it is
    a real button, which is what makes the row reachable by keyboard. */
