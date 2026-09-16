@@ -58,6 +58,7 @@ def upgrade() -> None:
         sa.Column("seal_color_id", sa.Integer(), nullable=False),
         sa.Column("signature_combination_id", sa.Integer(), nullable=True),
         sa.Column("variant", sa.String(length=64), nullable=True),
+        sa.Column("serial_prefix", sa.String(length=1), nullable=True),
         sa.ForeignKeyConstraint(
             ["denomination_id"],
             ["denomination.id"],

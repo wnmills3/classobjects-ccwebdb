@@ -14,16 +14,19 @@
     "instead of all of them. That is the intended use -- 'signature choices",
     "based on series'.",
     "",
-    "THIS LIST IS PARTIAL AND DELIBERATELY SO. Every pair here was confirmed",
-    "against published sources during a session on 2026-09-07: the 1935 series",
-    "run A-H, the 1957 run, 1963 and 1963A, and 1969. An attempt to extract a",
-    "complete chronology returned obviously corrupt rows -- six pairs with the",
-    "same surname in both columns -- and was discarded rather than seeded.",
+    "Complete for Series 1928 through 2021, in order of use, as of 2026-09-16.",
+    "The first eleven pairs were confirmed on 2026-09-07; the rest were added",
+    "with note_issue.json, whose every row names two independent sources",
+    "(Wikipedia's series tables, USPaperMoney's chronology, and BEP's serial",
+    "table for Series 1996 on, which agrees throughout). An earlier attempt at",
+    "a complete chronology returned corrupt rows and was discarded; this one",
+    "was checked row by row against officers' terms. Two pairs outlast a term",
+    "on real notes: Woods/Woodin on the $1 1928 United States Note (printed in",
+    "1933) and Granahan/Barr on the $1 1963B.",
     "",
-    "The gaps are the point of the seed-and-extend model: add what is missing",
-    "from the note in hand, and it is marked `manual` so a later reload never",
-    "overwrites it. Anything added by hand should be checked against the note",
-    "itself before it is trusted for a catalogue lookup.",
+    "A pair added by hand is marked `manual`, and a later reload never",
+    "overwrites it. Check it against the note itself before trusting it for a",
+    "catalogue lookup.",
     "",
     "Naming: `code` is treasurer_secretary in lower case, which is how dealers",
     "write it (Julian/Morgenthau). `label` is the same pair as displayed."
@@ -31,13 +34,58 @@
 
   "signature_combination": [
     {
+      "code": "tate_mellon",
+      "label": "Tate / Mellon",
+      "treasurer": "Harold Theodore Tate",
+      "secretary": "Andrew Mellon",
+      "term_from": 1928,
+      "term_to": 1929,
+      "sort_order": 10
+    },
+    {
+      "code": "woods_mellon",
+      "label": "Woods / Mellon",
+      "treasurer": "W. O. Woods",
+      "secretary": "Andrew Mellon",
+      "term_from": 1929,
+      "term_to": 1932,
+      "sort_order": 20
+    },
+    {
+      "code": "woods_mills",
+      "label": "Woods / Mills",
+      "treasurer": "W. O. Woods",
+      "secretary": "Ogden L. Mills",
+      "term_from": 1932,
+      "term_to": 1933,
+      "sort_order": 30
+    },
+    {
+      "code": "woods_woodin",
+      "label": "Woods / Woodin",
+      "treasurer": "W. O. Woods",
+      "secretary": "William H. Woodin",
+      "term_from": 1933,
+      "term_to": 1933,
+      "sort_order": 40
+    },
+    {
+      "code": "julian_woodin",
+      "label": "Julian / Woodin",
+      "treasurer": "William A. Julian",
+      "secretary": "William H. Woodin",
+      "term_from": 1933,
+      "term_to": 1934,
+      "sort_order": 50
+    },
+    {
       "code": "julian_morgenthau",
       "label": "Julian / Morgenthau",
       "treasurer": "William A. Julian",
       "secretary": "Henry Morgenthau Jr.",
       "term_from": 1934,
       "term_to": 1945,
-      "sort_order": 10
+      "sort_order": 60
     },
     {
       "code": "julian_vinson",
@@ -46,7 +94,7 @@
       "secretary": "Fred M. Vinson",
       "term_from": 1945,
       "term_to": 1946,
-      "sort_order": 20
+      "sort_order": 70
     },
     {
       "code": "julian_snyder",
@@ -55,7 +103,7 @@
       "secretary": "John W. Snyder",
       "term_from": 1946,
       "term_to": 1949,
-      "sort_order": 30
+      "sort_order": 80
     },
     {
       "code": "clark_snyder",
@@ -64,7 +112,7 @@
       "secretary": "John W. Snyder",
       "term_from": 1949,
       "term_to": 1953,
-      "sort_order": 40
+      "sort_order": 90
     },
     {
       "code": "priest_humphrey",
@@ -73,7 +121,7 @@
       "secretary": "George M. Humphrey",
       "term_from": 1953,
       "term_to": 1957,
-      "sort_order": 50
+      "sort_order": 100
     },
     {
       "code": "priest_anderson",
@@ -82,7 +130,7 @@
       "secretary": "Robert B. Anderson",
       "term_from": 1957,
       "term_to": 1961,
-      "sort_order": 60
+      "sort_order": 110
     },
     {
       "code": "smith_dillon",
@@ -91,7 +139,7 @@
       "secretary": "C. Douglas Dillon",
       "term_from": 1961,
       "term_to": 1962,
-      "sort_order": 70
+      "sort_order": 120
     },
     {
       "code": "granahan_dillon",
@@ -100,7 +148,7 @@
       "secretary": "C. Douglas Dillon",
       "term_from": 1963,
       "term_to": 1965,
-      "sort_order": 80
+      "sort_order": 130
     },
     {
       "code": "granahan_fowler",
@@ -109,7 +157,16 @@
       "secretary": "Henry H. Fowler",
       "term_from": 1965,
       "term_to": 1968,
-      "sort_order": 90
+      "sort_order": 140
+    },
+    {
+      "code": "granahan_barr",
+      "label": "Granahan / Barr",
+      "treasurer": "Kathryn O'Hay Granahan",
+      "secretary": "Joseph W. Barr",
+      "term_from": 1968,
+      "term_to": 1969,
+      "sort_order": 150
     },
     {
       "code": "elston_kennedy",
@@ -118,7 +175,7 @@
       "secretary": "David M. Kennedy",
       "term_from": 1969,
       "term_to": 1970,
-      "sort_order": 100
+      "sort_order": 160
     },
     {
       "code": "kabis_kennedy",
@@ -127,7 +184,205 @@
       "secretary": "David M. Kennedy",
       "term_from": 1970,
       "term_to": 1971,
-      "sort_order": 110
+      "sort_order": 170
+    },
+    {
+      "code": "kabis_connally",
+      "label": "Kabis / Connally",
+      "treasurer": "Dorothy Andrews Kabis",
+      "secretary": "John Connally",
+      "term_from": 1971,
+      "term_to": 1971,
+      "sort_order": 180
+    },
+    {
+      "code": "banuelos_connally",
+      "label": "Bañuelos / Connally",
+      "treasurer": "Romana Acosta Bañuelos",
+      "secretary": "John Connally",
+      "term_from": 1971,
+      "term_to": 1972,
+      "sort_order": 190
+    },
+    {
+      "code": "banuelos_shultz",
+      "label": "Bañuelos / Shultz",
+      "treasurer": "Romana Acosta Bañuelos",
+      "secretary": "George Shultz",
+      "term_from": 1972,
+      "term_to": 1974,
+      "sort_order": 200
+    },
+    {
+      "code": "neff_simon",
+      "label": "Neff / Simon",
+      "treasurer": "Francine Irving Neff",
+      "secretary": "William E. Simon",
+      "term_from": 1974,
+      "term_to": 1977,
+      "sort_order": 210
+    },
+    {
+      "code": "morton_blumenthal",
+      "label": "Morton / Blumenthal",
+      "treasurer": "Azie Taylor Morton",
+      "secretary": "W. Michael Blumenthal",
+      "term_from": 1977,
+      "term_to": 1979,
+      "sort_order": 220
+    },
+    {
+      "code": "morton_miller",
+      "label": "Morton / Miller",
+      "treasurer": "Azie Taylor Morton",
+      "secretary": "G. William Miller",
+      "term_from": 1979,
+      "term_to": 1981,
+      "sort_order": 230
+    },
+    {
+      "code": "buchanan_regan",
+      "label": "Buchanan / Regan",
+      "treasurer": "Angela Marie Buchanan",
+      "secretary": "Donald Regan",
+      "term_from": 1981,
+      "term_to": 1983,
+      "sort_order": 240
+    },
+    {
+      "code": "ortega_regan",
+      "label": "Ortega / Regan",
+      "treasurer": "Katherine D. Ortega",
+      "secretary": "Donald Regan",
+      "term_from": 1983,
+      "term_to": 1985,
+      "sort_order": 250
+    },
+    {
+      "code": "ortega_baker",
+      "label": "Ortega / Baker",
+      "treasurer": "Katherine D. Ortega",
+      "secretary": "James Baker",
+      "term_from": 1985,
+      "term_to": 1988,
+      "sort_order": 260
+    },
+    {
+      "code": "ortega_brady",
+      "label": "Ortega / Brady",
+      "treasurer": "Katherine D. Ortega",
+      "secretary": "Nicholas F. Brady",
+      "term_from": 1988,
+      "term_to": 1989,
+      "sort_order": 270
+    },
+    {
+      "code": "villalpando_brady",
+      "label": "Villalpando / Brady",
+      "treasurer": "Catalina Vasquez Villalpando",
+      "secretary": "Nicholas F. Brady",
+      "term_from": 1989,
+      "term_to": 1993,
+      "sort_order": 280
+    },
+    {
+      "code": "withrow_bentsen",
+      "label": "Withrow / Bentsen",
+      "treasurer": "Mary Ellen Withrow",
+      "secretary": "Lloyd Bentsen",
+      "term_from": 1994,
+      "term_to": 1995,
+      "sort_order": 290
+    },
+    {
+      "code": "withrow_rubin",
+      "label": "Withrow / Rubin",
+      "treasurer": "Mary Ellen Withrow",
+      "secretary": "Robert Rubin",
+      "term_from": 1995,
+      "term_to": 1999,
+      "sort_order": 300
+    },
+    {
+      "code": "withrow_summers",
+      "label": "Withrow / Summers",
+      "treasurer": "Mary Ellen Withrow",
+      "secretary": "Lawrence Summers",
+      "term_from": 1999,
+      "term_to": 2001,
+      "sort_order": 310
+    },
+    {
+      "code": "marin_oneill",
+      "label": "Marin / O'Neill",
+      "treasurer": "Rosario Marin",
+      "secretary": "Paul H. O'Neill",
+      "term_from": 2001,
+      "term_to": 2003,
+      "sort_order": 320
+    },
+    {
+      "code": "marin_snow",
+      "label": "Marin / Snow",
+      "treasurer": "Rosario Marin",
+      "secretary": "John W. Snow",
+      "term_from": 2003,
+      "term_to": 2005,
+      "sort_order": 330
+    },
+    {
+      "code": "cabral_snow",
+      "label": "Cabral / Snow",
+      "treasurer": "Anna Escobedo Cabral",
+      "secretary": "John W. Snow",
+      "term_from": 2005,
+      "term_to": 2006,
+      "sort_order": 340
+    },
+    {
+      "code": "cabral_paulson",
+      "label": "Cabral / Paulson",
+      "treasurer": "Anna Escobedo Cabral",
+      "secretary": "Henry Paulson",
+      "term_from": 2006,
+      "term_to": 2009,
+      "sort_order": 350
+    },
+    {
+      "code": "rios_geithner",
+      "label": "Rios / Geithner",
+      "treasurer": "Rosa Gumataotao Rios",
+      "secretary": "Timothy Geithner",
+      "term_from": 2009,
+      "term_to": 2013,
+      "sort_order": 360
+    },
+    {
+      "code": "rios_lew",
+      "label": "Rios / Lew",
+      "treasurer": "Rosa Gumataotao Rios",
+      "secretary": "Jack Lew",
+      "term_from": 2013,
+      "term_to": 2017,
+      "sort_order": 370
+    },
+    {
+      "code": "carranza_mnuchin",
+      "label": "Carranza / Mnuchin",
+      "treasurer": "Jovita Carranza",
+      "secretary": "Steven Mnuchin",
+      "term_from": 2017,
+      "term_to": 2021,
+      "sort_order": 380
+    },
+    {
+      "code": "malerba_yellen",
+      "label": "Malerba / Yellen",
+      "treasurer": "Marilynn Malerba",
+      "secretary": "Janet Yellen",
+      "term_from": 2022,
+      "term_to": 2025,
+      "sort_order": 390
     }
   ]
 }

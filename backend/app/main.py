@@ -11,6 +11,7 @@ from .routers import (
     auth,
     catalog,
     customers,
+    defaults,
     friedberg,
     images,
     inventory,
@@ -38,6 +39,7 @@ app.include_router(catalog.router, prefix=settings.api_prefix)
 app.include_router(images.router, prefix=settings.api_prefix)
 app.include_router(inventory.router, prefix=settings.api_prefix)
 app.include_router(reference.router, prefix=settings.api_prefix)
+app.include_router(defaults.router, prefix=settings.api_prefix)
 app.include_router(orders.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(customers.router, prefix=settings.api_prefix)
