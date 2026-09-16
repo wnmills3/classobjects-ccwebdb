@@ -318,6 +318,36 @@ def test_value_column_carries_amount_or_status(profile: CollectionV1Profile) -> 
     assert any(i.rule == "value-not-understood" for i in unknown.issues)
 
 
+def test_a_blank_value_means_the_row_has_not_arrived(
+    profile: CollectionV1Profile,
+) -> None:
+    """An empty Value is the absence of the `x` that marks an arrival.
+
+    The loader's own default is `received`, so before this an unmarked row
+    imported as arrived and the spreadsheet had no way to say otherwise --
+    removing an `x` changed nothing at all.
+    """
+    assert (
+        profile.inspect(make_row(Denom="1", Value="")).fields["status_marker"]
+        == "ordered"
+    )
+    assert profile.inspect(make_row(Denom="1")).fields["status_marker"] == "ordered"
+
+
+def test_an_appraised_row_is_arrived_even_though_it_has_no_marker(
+    profile: CollectionV1Profile,
+) -> None:
+    """Putting a value on a coin means having the coin.
+
+    6,039 of 7,653 rows carry an amount here rather than a marker, and the
+    `x` convention only starts in 2026 -- reading "not an x" as "not arrived"
+    would report the whole collection as still on its way.
+    """
+    fields = profile.inspect(make_row(Denom="1", Value="50")).fields
+    assert fields.get("status_marker") != "ordered"
+    assert fields["numismatic_value"] == Decimal("50")
+
+
 def test_series_letter_is_not_a_mint_mark(profile: CollectionV1Profile) -> None:
     note = profile.inspect(make_row(Denom="$1 Bill", Year="2017-A")).fields
     coin = profile.inspect(make_row(Denom="0.25", Year="1921-D")).fields
