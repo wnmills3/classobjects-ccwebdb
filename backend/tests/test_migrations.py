@@ -89,6 +89,159 @@ def round_trip_url() -> str:
         admin.dispose()
 
 
+@pytest.fixture
+def grade_migration_url() -> str:
+    """A throwaway database for migrating real grades, not an empty table."""
+    url = TEST_URL
+    name = f"{url.database}_migrations_grades"
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    target = url.set(database=name).render_as_string(hide_password=False)
+    try:
+        yield target
+    finally:
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :name AND pid <> pg_backend_pid() "
+                    "AND backend_type = 'client backend'"
+                ),
+                {"name": name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()
+
+
+#: Old grade code -> (grade code, strike type) after the split.
+GRADES_BEFORE_AND_AFTER = {
+    "MS65": ("65", "business"),
+    "PR69+": ("69+", "proof"),
+    "BU": ("60", "business"),
+    "BU+": ("63", "business"),
+    "GEM_BU": ("65", "business"),
+    "PROOF": ("63", "proof"),
+    "AU": ("55", "business"),
+    "AU+": ("55+", "business"),
+    "N_UNC": ("N60", None),
+    "N64": ("N64", None),
+    "CIRC": ("CIRC", None),
+    # Not a grade the split knows: left where it is.
+    "MS64PL": ("MS64PL", None),
+}
+
+
+def test_the_grade_migration_moves_real_items(grade_migration_url: str) -> None:
+    """Upgrade with grades and items in place, then downgrade again.
+
+    An empty database proves only that the DDL runs. The first attempt on a
+    copy of the live collection failed where this one would have: the old
+    `grade.is_proof` is NOT NULL with no default, and the migration inserted
+    number grades before dropping it.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", grade_migration_url)
+    upgrade(config, "d9a2e47b1c05")
+
+    engine = create_engine(grade_migration_url)
+    reference = (
+        "INSERT INTO {table} (code, label, sort_order, is_active, source) "
+        "VALUES (:code, :code, 0, true, 'seeded') RETURNING id"
+    )
+    scales = {"MS65": "sheldon", "PR69+": "sheldon", "N_UNC": "note"}
+    scales |= {"N64": "note", "N60": "note", "MS64PL": "sheldon"}
+    numbers = {"MS65": 65, "PR69+": 69, "N64": 64, "N60": 60}
+    with engine.begin() as conn:
+
+        def add(table: str, code: str) -> int:
+            return conn.execute(
+                text(reference.format(table=table)), {"code": code}
+            ).scalar_one()
+
+        required = {
+            column: add(table, "x")
+            for column, table in {
+                "item_kind_id": "item_kind",
+                "storage_form_id": "storage_form",
+                "authenticity_id": "authenticity",
+                "status_id": "item_status",
+                "disposition_id": "disposition",
+                "valuation_basis_id": "valuation_basis",
+            }.items()
+        }
+        scale_ids = {code: add("grade_scale", code) for code in ("sheldon", "note")}
+        for code in [*GRADES_BEFORE_AND_AFTER, "N60"]:
+            conn.execute(
+                text(
+                    "INSERT INTO grade (code, label, grade_scale_id, numeric_value, "
+                    "is_proof, sort_order, is_active, source) VALUES (:c, :c, :s, "
+                    ":n, :p, 0, true, 'seeded')"
+                ),
+                {
+                    "c": code,
+                    "s": scale_ids.get(scales.get(code, "")),
+                    "n": numbers.get(code),
+                    "p": code.startswith("PR"),
+                },
+            )
+        for code in GRADES_BEFORE_AND_AFTER:
+            conn.execute(
+                text(
+                    "INSERT INTO inventory_item (item_kind_id, storage_form_id, "
+                    "authenticity_id, status_id, disposition_id, valuation_basis_id, "
+                    "item_cost, shipping_cost, tax_rate, tax_includes_shipping, "
+                    "source, created_at, updated_at, grade_raw, grade_id) VALUES "
+                    "(:item_kind_id, :storage_form_id, :authenticity_id, :status_id, "
+                    ":disposition_id, :valuation_basis_id, 0, 0, 0, false, 'manual', "
+                    "now(), now(), :raw, (SELECT id FROM grade WHERE code = :raw))"
+                ),
+                {**required, "raw": code},
+            )
+
+    upgrade(config, "e4b8c1d27f63")
+    moved_sql = (
+        "SELECT i.grade_raw, g.code, stk.code, "
+        "grade_display(stk.prefix, stk.suffix, g.numeric_value, g.is_plus, "
+        "g.label, gs.code = 'sheldon') FROM inventory_item i "
+        "LEFT JOIN grade g ON g.id = i.grade_id "
+        "LEFT JOIN grade_scale gs ON gs.id = g.grade_scale_id "
+        "LEFT JOIN strike_type stk ON stk.id = i.strike_type_id"
+    )
+    with engine.connect() as conn:
+        moved = {
+            raw: (grade, strike)
+            for raw, grade, strike, _ in conn.execute(text(moved_sql))
+        }
+        shown = {raw: display for raw, _, _, display in conn.execute(text(moved_sql))}
+        left = set(conn.scalars(text("SELECT code FROM grade")))
+    assert moved == GRADES_BEFORE_AND_AFTER
+    assert shown["PR69+"] == "PR69+"
+    assert shown["BU+"] == "MS63"
+    # The adjectival rows went with their items; the unknown one stayed.
+    assert not left & {"MS65", "BU", "GEM_BU", "PROOF", "N_UNC"}
+    assert "MS64PL" in left
+
+    downgrade(config, "d9a2e47b1c05")
+    with engine.connect() as conn:
+        back = dict(
+            conn.execute(
+                text(
+                    "SELECT i.grade_raw, g.code FROM inventory_item i "
+                    "LEFT JOIN grade g ON g.id = i.grade_id"
+                )
+            ).all()
+        )
+    engine.dispose()
+    assert back["MS65"] == "MS65"
+    assert back["PR69+"] == "PR69+"
+    # An adjectival grade comes back as the number it became.
+    assert back["BU"] == "MS60"
+    assert back["N64"] == "N64"
+
+
 def test_migrations_round_trip(round_trip_url: str) -> None:
     """`alembic downgrade base` must complete after `alembic upgrade head`.
 
@@ -186,7 +339,22 @@ HISTORICAL_VIEW_CALLS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "b78d71343405_rename_cost_columns_and_add_series_designation",
         "upgrade",
-        ("deleted_at",),
+        ("deleted_at", "strike_type", "grade_display"),
+    ),
+    (
+        "c847d0c63f84_replace_inventory_item_error_columns_",
+        "upgrade",
+        ("strike_type", "grade_display"),
+    ),
+    (
+        "ffe36996607c_add_soft_delete",
+        "upgrade",
+        ("strike_type", "grade_display"),
+    ),
+    (
+        "e4b8c1d27f63_strike_type_and_number_grades",
+        "downgrade",
+        ("strike_type", "grade_display", "grade_rank"),
     ),
     (
         "b78d71343405_rename_cost_columns_and_add_series_designation",
@@ -198,6 +366,8 @@ HISTORICAL_VIEW_CALLS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "sales_tax",
             "piece_count",
             "source_title",
+            "strike_type",
+            "grade_display",
         ),
     ),
     (
@@ -210,12 +380,14 @@ HISTORICAL_VIEW_CALLS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "sales_tax",
             "piece_count",
             "source_title",
+            "strike_type",
+            "grade_display",
         ),
     ),
     (
         "ffe36996607c_add_soft_delete",
         "downgrade",
-        ("deleted_at",),
+        ("deleted_at", "strike_type", "grade_display"),
     ),
 )
 
