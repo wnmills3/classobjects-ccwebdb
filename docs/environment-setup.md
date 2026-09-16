@@ -106,14 +106,25 @@ the one you typed it in.
 > flatten the `%USERPROFILE%` token this machine's `PATH` relies on. Edit `PATH`
 > through *System Properties → Environment Variables* instead.
 
-## 4. Node.js and PostgreSQL (both inside the conda env)
+## 4. Node.js, PostgreSQL and the GitHub CLI (all inside the conda env)
 
-Neither of these is a Python package, so `uv sync` will never prune them.
+None of these is a Python package, so `uv sync` will never prune them. This
+list is the record of what conda owns in `ccwebdb` -- Python packages are
+recorded in `pyproject.toml` and `uv.lock` instead, and must never be
+installed with conda (see *Gotchas* below).
 
 ```cmd
-conda install -n ccwebdb nodejs=24.19.0 postgresql
+conda install -n ccwebdb -c conda-forge nodejs=24.19.0 postgresql gh=2.100.0
 ```
 
+Preview with `--dry-run` first when the environment is already in use: a
+conda solve can update or downgrade packages the running servers have
+loaded, and the plan should show only what you asked for.
+
+> `gh` lands in `envs\ccwebdb\Library\bin`, so it is only on `PATH` with the
+> environment active -- which the project scripts arrange themselves. Sign in
+> once with `gh auth login`.
+>
 > Pin `nodejs=24.19.0`. conda-forge's newest `nodejs` at time of writing was
 > `26.8.0`, which reports itself as `v26.8.0-alpha.0.0.0` — a pre-release. The
 > 24.x line is the current LTS.
@@ -124,6 +135,7 @@ Verify, with the environment activated:
 node --version     -> v24.19.0
 npm --version      -> 11.17.0
 psql --version     -> psql (PostgreSQL) 18.6
+gh --version       -> gh version 2.100.0
 ```
 
 ## 5. Create the local database cluster
