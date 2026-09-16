@@ -433,6 +433,10 @@ class NoteIssue(Base):
     #: What sets this row apart within its series, when something does:
     #: "Hawaii", "North Africa".
     variant: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: The first serial letter a Federal Reserve Note of this issue carries,
+    #: for $5 and higher from Series 1996 (BEP: A = 1996, B = 1999, ...).
+    #: Null where the serial carries no series letter.
+    serial_prefix: Mapped[str | None] = mapped_column(String(1), nullable=True)
 
     __table_args__ = (
         UniqueConstraint(

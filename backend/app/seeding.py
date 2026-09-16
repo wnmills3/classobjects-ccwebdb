@@ -490,7 +490,7 @@ def _seed_note_issues(
             raise SeedError(f"{where}: unknown {kind} {code!r}")
         return found
 
-    wanted: dict[_IssueKey, tuple[int | None, str | None]] = {}
+    wanted: dict[_IssueKey, tuple[int | None, str | None, str | None]] = {}
     for position, row in enumerate(rows, start=1):
         where = f"note_issue[{position}]"
         year = row.get("series_year")
@@ -512,6 +512,7 @@ def _seed_note_issues(
         wanted[key] = (
             None if signatures is None else resolve(where, "signatures", signatures),
             row.get("variant") or None,
+            row.get("serial_prefix") or None,
         )
 
     have = {
@@ -528,7 +529,7 @@ def _seed_note_issues(
         if key not in wanted:
             session.delete(stale)
             counter["removed"] += 1
-    for key, (signatures, variant) in wanted.items():
+    for key, (signatures, variant, prefix) in wanted.items():
         record = have.get(key)
         if record is None:
             denomination_id, year, letter, note_type_id, seal_color_id = key
@@ -541,14 +542,18 @@ def _seed_note_issues(
                     seal_color_id=seal_color_id,
                     signature_combination_id=signatures,
                     variant=variant,
+                    serial_prefix=prefix,
                 )
             )
             counter["created"] += 1
-        elif (record.signature_combination_id, record.variant) != (
-            signatures,
-            variant,
-        ):
-            record.signature_combination_id, record.variant = signatures, variant
+        elif (
+            record.signature_combination_id,
+            record.variant,
+            record.serial_prefix,
+        ) != (signatures, variant, prefix):
+            record.signature_combination_id = signatures
+            record.variant = variant
+            record.serial_prefix = prefix
             counter["updated"] += 1
         else:
             counter["unchanged"] += 1

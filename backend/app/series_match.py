@@ -41,6 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
+from .field_sources import SERIES_MATCH, record_derived
 from .models import (
     Denomination,
     InventoryItem,
@@ -205,11 +206,15 @@ def _classify(
     return assignments, stats
 
 
-def record_series(db: Session, assignments: dict[int, int]) -> None:
+def record_series(
+    db: Session, assignments: dict[int, int], derived_by: str = SERIES_MATCH
+) -> None:
     """Record the classification, and say where the value came from.
 
     A series the matcher worked out is derived, not something that shipped
-    with the catalogue, so seeded provenance moves rather than staying.
+    with the catalogue, so seeded provenance moves rather than staying -- and
+    the field itself is recorded as derived, so the editor can mark it and a
+    person's later choice replaces it.
     """
     for item_id, series_id in assignments.items():
         item = db.get(InventoryItem, item_id)
@@ -217,6 +222,7 @@ def record_series(db: Session, assignments: dict[int, int]) -> None:
             item.series_id = series_id
             if item.source is ProvenanceSource.seeded:
                 item.source = ProvenanceSource.derived
+            record_derived(db, item_id, ["series_id"], derived_by)
     db.commit()
 
 

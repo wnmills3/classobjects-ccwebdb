@@ -525,6 +525,10 @@ class ItemDetailOut(InventoryItemOut):
     lot_claims: dict[str, object] = Field(default_factory=dict)
     #: Fields a person has confirmed by examination.
     reviewed: list[str] = Field(default_factory=list)
+    #: Fields holding a default filled from known facts, as column to the rule
+    #: that filled it (`note_type_id`: `note_issue`). The form marks them as
+    #: suggestions; saving one by hand makes it the person's.
+    derived: dict[str, str] = Field(default_factory=dict)
 
     # -- the rest of EDITABLE_SCALARS: not on InventoryItemOut, which is the
     # shape a split's pieces come back as and has no reason to carry these.
@@ -557,6 +561,15 @@ class ItemDetailOut(InventoryItemOut):
     authenticity: str | None = None
     status: str | None = None
     disposition: str | None = None
+
+    # -- the note's currency detail; all null for anything but a note.
+    note_type: str | None = None
+    seal_color: str | None = None
+    fed_district: str | None = None
+    signature_combination: str | None = None
+    series_year: int | None = None
+    series_letter: str | None = None
+    serial_number: str | None = None
 
 
 class InventoryItemUpdate(BaseModel):
@@ -615,6 +628,16 @@ class InventoryItemUpdate(BaseModel):
     status: str | None = Field(default=None, max_length=64)
     disposition: str | None = Field(default=None, max_length=64)
 
+    # Banknote fields, on the note's currency detail. Refused by name for an
+    # item that is not a note, as `ItemCreate` refuses them.
+    note_type: str | None = Field(default=None, max_length=64)
+    seal_color: str | None = Field(default=None, max_length=64)
+    fed_district: str | None = Field(default=None, max_length=64)
+    signature_combination: str | None = Field(default=None, max_length=64)
+    series_year: int | None = Field(default=None, ge=1861, le=2200)
+    series_letter: str | None = Field(default=None, max_length=4)
+    serial_number: str | None = Field(default=None, max_length=64)
+
 
 class BulkEditRequest(BaseModel):
     """One set of changes, applied to many items in one transaction.
@@ -643,6 +666,7 @@ _CURRENCY_ONLY_FIELDS: tuple[str, ...] = (
     "seal_color",
     "fed_district",
     "note_type",
+    "signature_combination",
 )
 
 
@@ -723,6 +747,12 @@ class ItemCreate(BaseModel):
     seal_color: str | None = Field(default=None, max_length=64)
     fed_district: str | None = Field(default=None, max_length=64)
     note_type: str | None = Field(default=None, max_length=64)
+    signature_combination: str | None = Field(default=None, max_length=64)
+
+    #: Fields whose value is a suggestion the form filled from the facts and
+    #: the person left as it was, by field name. They are recorded as derived
+    #: defaults; everything else sent is the person's.
+    suggested: list[str] = Field(default_factory=list)
 
     @field_validator("status")
     @classmethod
@@ -750,6 +780,21 @@ class ItemCreate(BaseModel):
                 f"{', '.join(offending)}: not valid for item_kind {self.item_kind!r}"
             )
         return self
+
+
+class NoteSuggestionOut(BaseModel):
+    """Classifier codes the facts decide for a note being entered; null if open."""
+
+    note_type: str | None = None
+    seal_color: str | None = None
+    signature_combination: str | None = None
+    fed_district: str | None = None
+
+
+class CoinSuggestionOut(BaseModel):
+    """The metal a coin's denomination, country and year decide; null if open."""
+
+    metal: str | None = None
 
 
 #: The four outcomes a receipt can record. `received` is the common one;

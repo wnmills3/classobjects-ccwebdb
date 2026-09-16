@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, func, select
@@ -19,8 +19,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
+from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
+from ..field_sources import SUGGESTION, derived_fields, forget, record_derived
 from ..inventory_search import (
     VIEWS,
     UnknownIssue,
@@ -58,6 +60,7 @@ from ..models import (
     PurchaseOrder,
     SealColor,
     Series,
+    SignatureCombination,
     StorageForm,
     StorageLocation,
     ValuationBasis,
@@ -460,6 +463,23 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         if is_currency
         else None
     )
+    signature_combination_id = (
+        code_to_id(
+            db,
+            SignatureCombination,
+            payload.signature_combination,
+            "signature_combination",
+        )
+        if is_currency
+        else None
+    )
+    unknown_suggestions = sorted(set(payload.suggested) - SUGGESTABLE_FIELDS)
+    if unknown_suggestions:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Not a suggestable field: {unknown_suggestions}. "
+            f"Available: {sorted(SUGGESTABLE_FIELDS)}",
+        )
 
     tax_kwargs: dict[str, object] = {}
     if payload.tax_rate is not None:
@@ -507,6 +527,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
                 series_letter=payload.series_letter,
                 seal_color_id=seal_color_id,
                 fed_district_id=fed_district_id,
+                signature_combination_id=signature_combination_id,
                 serial_number=payload.serial_number,
             )
         )
@@ -528,6 +549,16 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         )
 
     record_initial_status(db, item, user_id=admin.id, note="entered in the console")
+    # Only a suggestion that was actually filled is a derived default.
+    record_derived(
+        db,
+        item.id,
+        [_column(f) for f in payload.suggested if getattr(payload, f) is not None],
+        SUGGESTION,
+    )
+    # Whatever the form did not fill, the facts may: a coin's composition, a
+    # note's signatures. Nothing the person sent is replaced.
+    refresh_items(db, [item.id])
     db.commit()
 
     return get_item(item.id, db, admin)
@@ -583,6 +614,13 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
         field: _classifier_code(db, model, getattr(item, f"{field}_id"))
         for field, model in ITEM_CLASSIFIERS.items()
     }
+    note: dict[str, object] = {}
+    if (detail := item.currency_detail) is not None:
+        note = {
+            field: _classifier_code(db, model, getattr(detail, f"{field}_id"))
+            for field, model in NOTE_CLASSIFIERS.items()
+        }
+        note.update({field: getattr(detail, field) for field in NOTE_SCALARS})
 
     return ItemDetailOut(
         **{
@@ -610,10 +648,12 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
             )
         },
         **classifiers,
+        **note,
         default_tax_rate=settings.sales_tax_rate,
         parent_item_code=parent_code,
         lot_claims=claims,
         reviewed=_reviewed_fields(db, item.id),
+        derived=derived_fields(db, item.id),
     )
 
 
@@ -677,6 +717,70 @@ EDITABLE_SCALARS: tuple[str, ...] = (
 #: constraint violation -- an unhandled 500 rather than a message a caller can
 #: act on. The same reason REQUIRED_CLASSIFIERS exists.
 REQUIRED_SCALARS: frozenset[str] = frozenset({"tax_rate", "tax_includes_shipping"})
+
+#: Classifiers on a note's currency detail, and where each code resolves.
+NOTE_CLASSIFIERS: dict[str, type] = {
+    "note_type": NoteType,
+    "seal_color": SealColor,
+    "fed_district": FedDistrict,
+    "signature_combination": SignatureCombination,
+}
+
+#: Plain columns on a note's currency detail a client may set.
+NOTE_SCALARS: tuple[str, ...] = ("series_year", "series_letter", "serial_number")
+
+#: Fields the New item form may fill from `/api/reference/suggestions` and
+#: report back as suggestions the person left alone.
+SUGGESTABLE_FIELDS: frozenset[str] = frozenset(
+    {"note_type", "seal_color", "fed_district", "signature_combination", "metal"}
+)
+
+
+def _column(field: str) -> str:
+    """The column an API field sets: `grade` -> `grade_id`, `fineness` itself."""
+    if field in ITEM_CLASSIFIERS or field in NOTE_CLASSIFIERS:
+        return f"{field}_id"
+    return field
+
+
+def _note_changes(db: Session, data: dict[str, Any]) -> dict[str, object]:
+    """The currency-detail columns a request sets, with codes resolved.
+
+    Resolved before anything is written, like every other code here, so an
+    unknown seal colour is a 422 that leaves the item untouched.
+    """
+    changes: dict[str, object] = {}
+    for field, model in NOTE_CLASSIFIERS.items():
+        if field in data:
+            changes[f"{field}_id"] = code_to_id(db, model, data[field], field)
+    for field in NOTE_SCALARS:
+        if field in data:
+            value = data[field]
+            if field == "series_letter" and isinstance(value, str):
+                value = value.strip().upper() or None
+            changes[field] = value
+    return changes
+
+
+def _apply_note_changes(items: list[InventoryItem], changes: dict[str, object]) -> None:
+    """Set currency-detail columns, refusing items that are not notes.
+
+    A serial number sent for a coin is refused by name rather than dropped:
+    the same rule `ItemCreate` applies, for the same reason.
+    """
+    if not changes:
+        return
+    not_notes = sorted(i.item_code for i in items if i.currency_detail is None)
+    if not_notes:
+        fields = sorted(c.removesuffix("_id") for c in changes)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{', '.join(fields)}: only a banknote has these, and "
+            f"{not_notes} are not banknotes. Nothing was changed.",
+        )
+    for item in items:
+        for column, value in changes.items():
+            setattr(item.currency_detail, column, value)
 
 
 def _refuse_null_scalars(data: dict[str, object]) -> None:
@@ -742,6 +846,7 @@ def bulk_edit(
     for field in EDITABLE_SCALARS:
         if field in data and field not in YEAR_FIELDS:
             resolved[field] = data[field]
+    note_changes = _note_changes(db, data)
 
     # Per item, not once for the set: the same Year moves a single year's end
     # with it and leaves a range's end alone. Checked across every item before
@@ -761,6 +866,7 @@ def bulk_edit(
             "Nothing was changed.",
         )
 
+    _apply_note_changes(list(items), note_changes)
     for item in items:
         for column, value in resolved.items():
             setattr(item, column, value)
@@ -768,6 +874,10 @@ def bulk_edit(
             item.year_start, item.year_end = pair
         if status_id is not None:
             set_status(db, item, status_id, user_id=admin.id)
+    # What a person sets is theirs from now on: no pass refreshes it. What
+    # follows from the new facts is refreshed now.
+    forget(db, found, [_column(field) for field in data])
+    refresh_items(db, found)
 
     db.commit()
     return {"updated": len(items)}
@@ -813,6 +923,7 @@ def update_item(
     years = resolve_years((item.year_start, item.year_end), data)
     if years is not None:
         refuse_backwards(years, item.item_code)
+    _apply_note_changes([item], _note_changes(db, data))
 
     for field, model in ITEM_CLASSIFIERS.items():
         if field in data:
@@ -838,8 +949,12 @@ def update_item(
             setattr(item, field, data[field])
     if years is not None:
         item.year_start, item.year_end = years
+    forget(db, [item.id], [_column(field) for field in data])
 
     try:
+        # Inside the try: the refresh flushes, and a version conflict found
+        # there is the same 409 as one found at commit.
+        refresh_items(db, [item.id])
         db.commit()
     except StaleDataError as exc:
         # A narrower race than the check above: another commit landed inside

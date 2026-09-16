@@ -29,6 +29,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..composition import composition_for
+from ..field_sources import COMPOSITION, record_derived
 from ..lifecycle_writes import record_initial_status
 from ..models import (
     Authenticity,
@@ -98,6 +100,10 @@ def slug(text: str) -> str:
     normalised = unicodedata.normalize("NFKD", text)
     ascii_only = normalised.encode("ascii", "ignore").decode("ascii")
     return _NON_CODE.sub("_", ascii_only.strip().lower()).strip("_")
+
+
+#: The item columns `_fill_from_composition` fills, in its argument order.
+_COMPOSITION_COLUMNS = ("metal_id", "fineness", "gross_weight_ozt", "fine_weight_ozt")
 
 
 def _fill_from_composition(
@@ -321,9 +327,25 @@ class SchemaLoader:
             denomination_id, country_id, fields.get("year_start")
         )
         composition_id = composition.id if composition else None
+        stated = (metal_id, fineness, gross, fine)
         metal_id, fineness, gross, fine = _fill_from_composition(
             composition, metal_id, fineness, gross, fine
         )
+        # What the composition filled, as opposed to what the source stated,
+        # is a derived default: a later pass may refresh it, and a person's
+        # edit replaces it.
+        from_composition = [
+            column
+            for column, before, after in zip(
+                _COMPOSITION_COLUMNS,
+                stated,
+                (metal_id, fineness, gross, fine),
+                strict=True,
+            )
+            if before is None and after is not None
+        ]
+        if composition_id is not None:
+            from_composition.append("composition_id")
 
         vendor_id = self.vendor_id(fields.get("vendor_name"), fields.get("vendor_url"))
         order_id = self.purchase_order_id(
@@ -386,6 +408,7 @@ class SchemaLoader:
         )
         self.session.add(item)
         self.session.flush()
+        record_derived(self.session, item.id, from_composition, COMPOSITION)
 
         self._add_detail(item, kind, fields)
         self._add_certification(item, fields)
@@ -627,19 +650,7 @@ class SchemaLoader:
 
         Returns None rather than guessing when the year is unknown.
         """
-        if denomination_id is None or country_id is None or year is None:
-            return None
-        return self.session.execute(
-            select(Composition)
-            .where(
-                Composition.denomination_id == denomination_id,
-                Composition.country_id == country_id,
-                Composition.year_from <= year,
-                (Composition.year_to.is_(None)) | (Composition.year_to >= year),
-            )
-            .order_by(Composition.year_from.desc())
-            .limit(1)
-        ).scalar_one_or_none()
+        return composition_for(self.session, denomination_id, country_id, year)
 
 
 # ---------------------------------------------------------------------------

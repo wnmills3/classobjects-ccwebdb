@@ -42,6 +42,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session, aliased
 
 from .database import SessionLocal
+from .field_sources import SERIES_CLASSIFY
 from .models import (
     CurrencyDetail,
     Denomination,
@@ -354,7 +355,7 @@ def run(db: Session, *, commit: bool) -> Report:
     """Classify every unclassified item, writing only when asked."""
     report = classify(db)
     if commit and report.assignments:
-        record_series(db, report.assignments)
+        record_series(db, report.assignments, SERIES_CLASSIFY)
         report.counts["written"] = len(report.assignments)
     return report
 
