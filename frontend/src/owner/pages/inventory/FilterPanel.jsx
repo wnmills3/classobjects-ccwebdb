@@ -2,24 +2,10 @@ import { useRef } from 'react'
 
 import { AccessLabel } from '../../AccessLabel'
 import { accel } from '../../shortcuts'
+import { SHARED_KEYS } from './specs'
 
 //: For a view that names no placeholder of its own.
 const DEFAULT_PLACEHOLDER = 'Search title, description or item code'
-
-/**
- * Accelerators every view shares. Each view's own filters carry their letter
- * as the last element of their spec entry, chosen to avoid these; the test
- * checks each view as a whole for repeats and for D, E and F, which the
- * browsers keep for the address bar and menus. Year from and Year to match
- * the item editor's Y and O, so a key means the same thing in both places.
- */
-export const SHARED_KEYS = {
-  search: 's',
-  tips: 'h',
-  yearFrom: 'y',
-  yearTo: 'o',
-  clear: 'c',
-}
 
 /** A label with its underlined letter, or plain text when it has none. */
 function Label({ text, letter }) {

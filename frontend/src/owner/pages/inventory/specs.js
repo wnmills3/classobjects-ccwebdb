@@ -11,14 +11,28 @@
  *
  * `searchExamples` are the "Search tips" under the search box, and each one
  * runs when clicked. The box has no field syntax: one term, matched anywhere
- * in the title, description, rating or item code, ignoring case -- plus, on
- * the coin
- * view, any series whose name or nickname contains it. Every example here was
- * run against the collection on 2026-09-16 and chosen for what it teaches;
+ * in the title, description, rating or item code, ignoring case -- plus any
+ * series whose name or nickname contains it. Every example here was run
+ * against the collection on 2026-09-16 and chosen for what it teaches;
  * the counts in the comments are from that run. The one most worth showing is
  * that several words are a single phrase in order: "1921 morgan" found 27
  * items and "morgan 1921" found none.
  */
+
+/**
+ * Accelerators every view shares. Each view's own filters carry their letter
+ * as the last element of their spec entry, chosen to avoid these; the test
+ * checks each view as a whole for repeats and for D, E and F, which the
+ * browsers keep for the address bar and menus. Year from and Year to match
+ * the item editor's Y and O, so a key means the same thing in both places.
+ */
+export const SHARED_KEYS = {
+  search: 's',
+  tips: 'h',
+  yearFrom: 'y',
+  yearTo: 'o',
+  clear: 'c',
+}
 
 export const COIN_VIEW = {
   view: 'coins',
@@ -62,8 +76,8 @@ export const COIN_VIEW = {
     ['cc-0012', 'part of an item code'],
   ],
   // The last element of each filter is its Alt+letter accelerator. FilterPanel
-  // holds the ones common to both views (search, tips, clear, years, item
-  // code); FilterPanel.test.jsx checks every view for repeats, for D/E/F,
+  // uses SHARED_KEYS, above, for the ones common to both views (search, tips,
+  // clear, years); FilterPanel.test.jsx checks every view for repeats, for D/E/F,
   // and that each letter appears in its label so it can be underlined.
   textFilters: [['Item code', 'item_code', 'CC-000123', 'i']],
   facetFilters: [
@@ -116,7 +130,8 @@ export const CURRENCY_VIEW = {
     ['Status', 'status'],
   ],
   detail: 'description',
-  // No series matching here: the series table holds coin designs. A note's
+  // Series names match here too, once app.series_classify has assigned the
+  // note designs (Funnyback, Barr Note, Hawaii, North Africa). A note's
   // series year is its own dropdown.
   searchPlaceholder:
     'Search title, description, rating or item code, e.g. funny%back (tips below)',
