@@ -185,7 +185,8 @@ every miss visible rather than defaulted.
 
 ## 5. Order of work
 
-1. Aliases: import, search, pickers, console page.
+1. Aliases: import, search, pickers, console page. (Built; see *As built:
+   aliases* below.)
 2. `item_attribute` replacing `note_attribute`, with groups, `applies_to` and
    link provenance; the editor lists an item's attributes.
 3. Grade vocabulary: equivalences as aliases, the new designations, strike
@@ -263,6 +264,63 @@ strike type the client names wins over the one a compound grade implies.
 The item editor, New item form and shop console offer a strike type for
 anything but a note, and the inventory views type the grade filter
 rather than pick it.
+
+## As built: aliases
+
+Migration `f3c5d8a91b20` gives `series_alias` and `reference_alias` an
+`is_active` flag and a `source`. Removing a shipped alias sets `is_active`
+false, and the seed loaders count a retired row as present, so a removal
+survives the next load; an alias added in the console is `manual` and is
+deleted. `app.aliases` hides the two tables from its callers:
+
+- `resolve` names the row a word means: an exact code, then a code or label
+  ignoring case, then an active alias. An alias two rows share resolves to
+  neither. **Sharing is allowed**: the live data already has five shared
+  series aliases (Cartwheel, Commemorative and its spellings) and "National
+  Currency" on two note classes.
+- `add_alias` refuses an alias that is any value's label or code, since
+  `resolve` would never reach it.
+- `ids_named` is the search's lookup. Text of three letters or more matches
+  part of a label, code or alias; shorter text must match one whole, so `s`
+  does not name the strike aliased `MS`.
+
+**Search** (`inventory_search`): each view lists the vocabularies it
+searches by name (`Named`): series, strike type and grade designation for
+both; mint for coins; note class and note attribute for currency. A value
+on a detail or link table is matched with `i.id IN (subquery)`, which
+PostgreSQL hashes once; a correlated EXISTS took twice as long on the live
+data. Measured on a copy of live (2026-09-16), before and after:
+
+| Search | Coins | Currency |
+|---|---|---|
+| `denver` | 66 -> 535 | |
+| `san francisco` | 11 -> 1,348 | |
+| `business` | 1 -> 2,098 | |
+| `PF` | 306 -> 1,245 | |
+| `deep cameo` | 69 -> 386 | |
+| `star note` | | 130 -> 224 |
+| `fancy` | | 129 -> 287 |
+| `BU` | 1,390 -> 1,381 | |
+
+`BU` fell because a short term no longer matches part of a series name
+(Buffalo). Nickname searches such as `mercury`, `walker` and `cartwheel`
+are unchanged. A page with facets took 94 ms for `denver`, against 81 ms
+before, while finding eight times as many items.
+
+**Import**: `SchemaLoader.code_id` tries `resolve` before inventing a
+`derived` row, and counts each row read through an alias; the report
+prints them as `aliased` lines, and `summary.json` carries them with the
+derived counts.
+
+**API**: every reference value carries `aliases`; with `include_inactive`,
+also `retired_aliases` and its own `is_active`. `POST
+/api/reference/{table}/{code}/aliases` adds one, `DELETE ...?alias=`
+removes one; both are staff only and return the value.
+
+**Console**: `ReferenceSelect` shows a Find box on a vocabulary of more
+than ten values, matching label, code or alias and showing the alias that
+matched. The Vocabularies page lists, adds, removes and restores aliases,
+and marks a shared one.
 
 ## Sources
 

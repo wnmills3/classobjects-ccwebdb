@@ -36,8 +36,17 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import grades
+from . import aliases, grades
 from .issues import COIN_ISSUES, CURRENCY_ISSUES, Issue
+from .models import (
+    GradeDesignation,
+    Mint,
+    NoteAttribute,
+    NoteType,
+    ReferenceMixin,
+    Series,
+    StrikeType,
+)
 
 __all__ = [
     "COIN_VIEW",
@@ -103,6 +112,41 @@ class Facet:
 
 
 @dataclass(frozen=True)
+class Named:
+    """A vocabulary the free-text search also finds items by.
+
+    An item whose description never says "Mercury" or "Legal Tender" still
+    matches when its series or note class is called that, formally or by
+    an alias (app.aliases). `match` is true for an item holding one of the
+    ids bound to `{p}`; a subquery, where the value is on a detail or link
+    table, so a match never multiplies rows.
+    """
+
+    key: str
+    model: type[ReferenceMixin]
+    match: str
+
+
+def _held_in(table: str, column: str) -> str:
+    """Items with a matching row in a detail or link table.
+
+    IN, not a correlated EXISTS: PostgreSQL evaluates the subquery once, as a
+    hashed set, where EXISTS looked up every item in turn -- a "Denver"
+    search over the live collection took 178 ms that way.
+    """
+    return (
+        f"i.id IN (SELECT inventory_item_id FROM {table} WHERE {column} = ANY(:{{p}}))"
+    )
+
+
+_NAMED_SHARED = (
+    Named("series", Series, "i.series_id = ANY(:{p})"),
+    Named("strike_type", StrikeType, "i.strike_type_id = ANY(:{p})"),
+    Named("grade_designation", GradeDesignation, "i.grade_designation_id = ANY(:{p})"),
+)
+
+
+@dataclass(frozen=True)
 class ViewSpec:
     """One searchable inventory: its columns, filters, sorts and facets."""
 
@@ -113,6 +157,8 @@ class ViewSpec:
     columns: dict[str, Col] = field(default_factory=dict)
     filters: dict[str, Filt] = field(default_factory=dict)
     search_columns: tuple[str, ...] = ()
+    #: Vocabularies whose names and aliases the free-text search matches.
+    named: tuple[Named, ...] = ()
     sortable: tuple[str, ...] = ()
     facets: dict[str, Facet] = field(default_factory=dict)
     default_sort: str = "item_code"
@@ -334,6 +380,10 @@ COIN_VIEW = ViewSpec(
         "set_form": Filt("sf.code", join=(_J_SET,)),
     },
     search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_GRADE_RAW, _C_ITEM_CODE),
+    named=(
+        *_NAMED_SHARED,
+        Named("mint", Mint, _held_in("coin_detail", "mint_id")),
+    ),
     sortable=(*_SHARED_SORT, "fine_weight_ozt"),
     facets={
         **_SHARED_FACETS,
@@ -380,6 +430,15 @@ CURRENCY_VIEW = ViewSpec(
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
     },
     search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_GRADE_RAW, _C_ITEM_CODE),
+    named=(
+        *_NAMED_SHARED,
+        Named("note_type", NoteType, _held_in("currency_detail", "note_type_id")),
+        Named(
+            "note_attribute",
+            NoteAttribute,
+            _held_in("item_note_attribute", "note_attribute_id"),
+        ),
+    ),
     sortable=(*_SHARED_SORT, "series_year", "series_designation"),
     facets={
         **_SHARED_FACETS,
@@ -398,10 +457,12 @@ CURRENCY_VIEW = ViewSpec(
 VIEWS: dict[str, ViewSpec] = {v.name: v for v in (COIN_VIEW, CURRENCY_VIEW)}
 
 
-def series_ids_matching(db: Session, query: str | None) -> list[int]:
-    """Series whose formal name or nickname contains the search text.
+def names_matching(
+    db: Session, spec: ViewSpec, query: str | None
+) -> list[tuple[Named, list[int]]]:
+    """The rows of each named vocabulary whose name or alias the search contains.
 
-    This is what makes the alias table do anything. The formal name and the
+    This is what makes aliases do anything in search. The formal name and the
     colloquial one are often disjoint in practice -- nothing in this
     collection's descriptions says "Winged Liberty Head", and 104 rows say
     "Mercury" -- so matching description text alone finds whichever name the
@@ -409,41 +470,8 @@ def series_ids_matching(db: Session, query: str | None) -> list[int]:
     """
     if not query or not query.strip():
         return []
-    pattern = f"%{query.strip()}%"
-    rows = db.execute(
-        text(
-            "SELECT DISTINCT s.id FROM series s "
-            "LEFT JOIN series_alias a ON a.series_id = s.id "
-            "WHERE s.label ILIKE :p OR a.alias ILIKE :p"
-        ),
-        {"p": pattern},
-    ).all()
-    return [row[0] for row in rows]
-
-
-def note_type_ids_matching(db: Session, query: str | None) -> list[int]:
-    """Note classes whose name or nickname contains the search text.
-
-    "Legal Tender" finds United States Notes and "Coin Note" finds Treasury
-    Notes, through `reference_alias`, once a note's class is recorded.
-    """
-    if not query or not query.strip():
-        return []
-    rows = db.execute(
-        text(
-            "SELECT DISTINCT t.id FROM note_type t "
-            "LEFT JOIN reference_alias a "
-            "ON a.table_name = 'note_type' AND a.row_id = t.id "
-            "WHERE t.label ILIKE :p OR a.alias ILIKE :p"
-        ),
-        {"p": f"%{query.strip()}%"},
-    ).all()
-    return [row[0] for row in rows]
-
-
-def names_matching(db: Session, query: str | None) -> tuple[list[int], list[int]]:
-    """The series and the note classes a search term names."""
-    return series_ids_matching(db, query), note_type_ids_matching(db, query)
+    found = [(named, aliases.ids_named(db, named.model, query)) for named in spec.named]
+    return [(named, ids) for named, ids in found if ids]
 
 
 #: How a filter's `op` becomes SQL. Comparing a column to a value differs only
@@ -592,26 +620,15 @@ def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> st
 def _query_clause(
     spec: ViewSpec,
     query: str,
-    series_ids: list[int] | None,
+    names: list[tuple[Named, list[int]]],
     bound: dict[str, Any],
-    note_type_ids: list[int] | None = None,
 ) -> str:
     """The free-text search, across the view's own columns and its names."""
     parts = [f"coalesce({c}, '') ILIKE :p_q" for c in spec.search_columns]
-    if series_ids:
-        # An item whose description never mentions the term still matches when
-        # its series does, formally or colloquially.
-        parts.append("i.series_id = ANY(:p_series)")
-        bound["p_series"] = list(series_ids)
-    if note_type_ids:
-        # EXISTS rather than the view's own join, so a view that does not
-        # join the currency detail can still match a note by its class.
-        parts.append(
-            "EXISTS (SELECT 1 FROM currency_detail nt_q "
-            "WHERE nt_q.inventory_item_id = i.id "
-            "AND nt_q.note_type_id = ANY(:p_note_types))"
-        )
-        bound["p_note_types"] = list(note_type_ids)
+    for named, ids in names:
+        placeholder = f"p_named_{named.key}"
+        parts.append(named.match.format(p=placeholder))
+        bound[placeholder] = list(ids)
     bound["p_q"] = f"%{query}%"
     return "(" + " OR ".join(parts) + ")"
 
@@ -620,8 +637,7 @@ def _conditions(
     spec: ViewSpec,
     params: dict[str, Any],
     query: str | None,
-    series_ids: list[int] | None = None,
-    note_type_ids: list[int] | None = None,
+    names: list[tuple[Named, list[int]]] | None = None,
 ) -> tuple[list[str], list[tuple[str, ...]], dict[str, Any]]:
     clauses = list(spec.where)
     joins: list[tuple[str, ...]] = [(_J_KIND,)]  # every spec filters on kind
@@ -650,7 +666,7 @@ def _conditions(
         clauses.append(_value_clause(key, value, f, bound))
 
     if query:
-        clauses.append(_query_clause(spec, query, series_ids, bound, note_type_ids))
+        clauses.append(_query_clause(spec, query, names or [], bound))
 
     return clauses, joins, bound
 
@@ -684,7 +700,9 @@ def search(
     if sort_key not in spec.sortable:
         raise ValueError(f"cannot sort by {sort_key!r}")
 
-    clauses, joins, bound = _conditions(spec, params, query, *names_matching(db, query))
+    clauses, joins, bound = _conditions(
+        spec, params, query, names_matching(db, spec, query)
+    )
     where = " WHERE " + " AND ".join(clauses)
 
     # The count needs no display joins at all -- only whatever the filters
@@ -746,7 +764,9 @@ def count_facets(
     to codes in one small lookup per table. Grouping by the code instead would
     force every join first, which was most of the old cost.
     """
-    clauses, joins, bound = _conditions(spec, params, query, *names_matching(db, query))
+    clauses, joins, bound = _conditions(
+        spec, params, query, names_matching(db, spec, query)
+    )
     where = " WHERE " + " AND ".join(clauses)
 
     results: dict[str, list[dict[str, Any]]] = {}
@@ -819,7 +839,9 @@ def count_issues(
     and the panel would stop being a way to see what work is left.
     """
     params = {k: v for k, v in params.items() if k != "issue"}
-    clauses, joins, bound = _conditions(spec, params, query, *names_matching(db, query))
+    clauses, joins, bound = _conditions(
+        spec, params, query, names_matching(db, spec, query)
+    )
     # All checks are counted at once, so every check's joins must be present.
     joins = list(joins) + [issue.join for issue in spec.issues.values()]
 

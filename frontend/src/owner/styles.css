@@ -155,6 +155,57 @@ button.link.danger {
   min-width: 0;
   flex: 1 1 6rem;
 }
+/* A long vocabulary's find box sits beside its select and wraps under it
+   when the field is narrow. */
+.reference-select {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.reference-select select {
+  min-width: 0;
+  flex: 1 1 8rem;
+}
+.reference-find {
+  min-width: 0;
+  flex: 0 1 7rem;
+}
+
+/* Vocabularies: each value's aliases, as removable chips. */
+.alias-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+.alias-chip {
+  cursor: default;
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+.alias-chip button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.alias-shared {
+  border-style: dashed;
+}
+.alias-retired {
+  color: #777;
+  text-decoration: line-through;
+}
+.alias-add {
+  display: flex;
+  gap: 0.3rem;
+}
+.alias-add input {
+  min-width: 0;
+  width: 9rem;
+}
 
 /* Inventory description column.
    `title` holds the denomination the spreadsheet recorded ("0.25", "Mint

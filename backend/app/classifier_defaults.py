@@ -327,7 +327,8 @@ def load_facts(db: Session) -> Facts:
     }
     for row_id, alias in db.execute(
         select(ReferenceAlias.row_id, ReferenceAlias.alias).where(
-            ReferenceAlias.table_name == NoteType.__tablename__
+            ReferenceAlias.table_name == NoteType.__tablename__,
+            ReferenceAlias.is_active.is_(True),
         )
     ).tuples():
         names.setdefault(row_id, []).append(alias)

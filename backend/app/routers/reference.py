@@ -10,7 +10,8 @@ data: knowing that `MS64` exists reveals nothing about what anyone owns.
 
 Each table's extra columns come through in `extra` rather than being flattened,
 so a client can show a denomination's face value or an error type's
-`applies_to` without this module needing a branch per table.
+`applies_to` without this module needing a branch per table. Each value's
+aliases come with it, so a picker can find "Walker" and say what it is.
 """
 
 from __future__ import annotations
@@ -21,10 +22,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import Select, or_, select
 from sqlalchemy.exc import IntegrityError
 
+from .. import aliases
 from ..deps import AdminUser, DbSession
 from ..inventory_search import plain
 from ..models import REFERENCE_MODELS, ProvenanceSource, ReferenceMixin
 from ..schemas import (
+    ReferenceAliasIn,
     ReferenceTableOut,
     ReferenceValueCreate,
     ReferenceValueOut,
@@ -42,7 +45,12 @@ TABLES: dict[str, type[ReferenceMixin]] = {
 }
 
 
-def _to_value(row: ReferenceMixin, model: type[ReferenceMixin]) -> ReferenceValueOut:
+def _to_value(
+    row: ReferenceMixin,
+    model: type[ReferenceMixin],
+    names: list[str] | None = None,
+    retired: list[str] | None = None,
+) -> ReferenceValueOut:
     extra: dict[str, Any] = {}
     for column in model.__table__.columns:
         if column.name in _COMMON:
@@ -62,7 +70,24 @@ def _to_value(row: ReferenceMixin, model: type[ReferenceMixin]) -> ReferenceValu
         label=row.label,
         sort_order=row.sort_order,
         source=row.source.value,
+        is_active=row.is_active,
         extra={k: v for k, v in extra.items() if v is not None},
+        aliases=names or [],
+        retired_aliases=retired or [],
+    )
+
+
+def _value_with_aliases(
+    db: DbSession, row: ReferenceMixin, model: type[ReferenceMixin]
+) -> ReferenceValueOut:
+    """One value, with its current and retired aliases."""
+    everything = aliases.aliases_by_row(db, model, include_retired=True).get(row.id, [])
+    active = set(aliases.aliases_by_row(db, model).get(row.id, []))
+    return _to_value(
+        row,
+        model,
+        [a for a in everything if a in active],
+        [a for a in everything if a not in active],
     )
 
 
@@ -105,10 +130,21 @@ def get_table(
     if year is not None:
         stmt = _limit_to_year(model, stmt, year)
     rows = db.scalars(stmt.order_by(model.sort_order, model.code)).all()
+    active = aliases.aliases_by_row(db, model)
+    retired: dict[int, list[str]] = {}
+    if include_inactive:
+        for row_id, names in aliases.aliases_by_row(
+            db, model, include_retired=True
+        ).items():
+            current = set(active.get(row_id, []))
+            retired[row_id] = [n for n in names if n not in current]
 
     return ReferenceTableOut(
         table=table,
-        values=[_to_value(row, model) for row in rows],
+        values=[
+            _to_value(row, model, active.get(row.id), retired.get(row.id))
+            for row in rows
+        ],
     )
 
 
@@ -259,4 +295,71 @@ def rename_value(
 
     db.commit()
     db.refresh(row)
-    return _to_value(row, model)
+    return _value_with_aliases(db, row, model)
+
+
+def _row_or_404(
+    db: DbSession, table: str, code: str
+) -> tuple[type[ReferenceMixin], ReferenceMixin]:
+    model = _model_or_404(table)
+    row = db.scalar(select(model).where(model.code == code))
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{table} has no value with code {code!r}",
+        )
+    return model, row
+
+
+@router.post("/{table}/{code}/aliases", status_code=status.HTTP_201_CREATED)
+def add_alias(
+    table: str,
+    code: str,
+    payload: ReferenceAliasIn,
+    db: DbSession,
+    _admin: AdminUser,
+) -> ReferenceValueOut:
+    """Give a value another name: what people write instead of its label.
+
+    The standard term stays the label; the owner's word becomes an alias
+    ("UCAM" for DCAM). Search, the importer and the pickers recognise it at
+    once. A retired shipped alias is brought back rather than copied.
+
+    Two values may share an alias ("Cartwheel" is any large silver dollar):
+    search finds both, and the importer, which cannot choose, uses neither.
+    Refused when the alias is another value's own label or code, which would
+    always win over it.
+    """
+    model, row = _row_or_404(db, table, code)
+    try:
+        aliases.add_alias(db, model, row.id, payload.alias)
+    except aliases.AliasError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    return _value_with_aliases(db, row, model)
+
+
+@router.delete("/{table}/{code}/aliases")
+def remove_alias(
+    table: str,
+    code: str,
+    alias: Annotated[str, Query(min_length=1, max_length=64)],
+    db: DbSession,
+    _admin: AdminUser,
+) -> ReferenceValueOut:
+    """Take a name away from a value.
+
+    A shipped alias is retired, not deleted, so the next seed load does not
+    bring it back; one added here is deleted.
+    """
+    model, row = _row_or_404(db, table, code)
+    try:
+        aliases.remove_alias(db, model, row.id, alias)
+    except aliases.AliasError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    db.commit()
+    return _value_with_aliases(db, row, model)

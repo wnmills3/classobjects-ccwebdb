@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.inventory_search import COIN_VIEW, count_facets, search, series_ids_matching
+from app.aliases import ids_named
+from app.inventory_search import COIN_VIEW, count_facets, search
 from app.models import InventoryItem, Series
 from app.series_match import build_rules, match
 from sqlalchemy import select
@@ -28,15 +29,15 @@ def test_alias_resolves_to_its_series(db: Session) -> None:
     """Both names reach the same series, which is the whole point."""
     mercury = _series(db, "winged_liberty_head_dime")
 
-    assert series_ids_matching(db, "Mercury") == [mercury.id]
-    assert series_ids_matching(db, "merc") == [mercury.id]
-    assert series_ids_matching(db, "Winged Liberty") == [mercury.id]
-    assert series_ids_matching(db, "") == []
+    assert ids_named(db, Series, "Mercury") == [mercury.id]
+    assert ids_named(db, Series, "merc") == [mercury.id]
+    assert ids_named(db, Series, "Winged Liberty") == [mercury.id]
+    assert ids_named(db, Series, "") == []
 
 
 def test_one_alias_may_span_several_series(db: Session) -> None:
     """A nickname is not owned by one design: any large silver dollar."""
-    found = set(series_ids_matching(db, "Cartwheel"))
+    found = set(ids_named(db, Series, "Cartwheel"))
     expected = {
         _series(db, "morgan_dollar").id,
         _series(db, "peace_dollar").id,

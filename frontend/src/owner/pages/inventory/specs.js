@@ -12,7 +12,8 @@
  * `searchExamples` are the "Search tips" under the search box, and each one
  * runs when clicked. The box has no field syntax: one term, matched anywhere
  * in the title, description, rating or item code, ignoring case -- plus any
- * series whose name or nickname contains it. Every example here was run
+ * item whose series, strike, designation, mint, note class or serial feature
+ * is called that, by name or alias (app.aliases). Every example here was run
  * against the collection on 2026-09-16 and chosen for what it teaches;
  * the counts in the comments are from that run. The one most worth showing is
  * that several words are a single phrase in order: "1921 morgan" found 27
@@ -54,13 +55,16 @@ export const COIN_VIEW = {
   ],
   detail: 'description',
   searchPlaceholder:
-    'Search title, description, rating, item code or series name, e.g. mercury (tips below)',
+    'Search title, description, rating, item code or a series, strike or mint name, e.g. mercury (tips below)',
   searchExamples: [
     // 112 -- mostly through the series nickname, not the listing text.
     [
       'mercury',
       'a series name or nickname: finds Winged Liberty Head dimes even where the listing never says "Mercury"',
     ],
+    // 535, against 66 before a mint's name was searched: most listings give
+    // only the mint mark.
+    ['denver', 'a mint, strike or designation by name or alias: proof, deep cameo, PR'],
     // 27, against 0 for "morgan 1921".
     [
       '1921 morgan',
@@ -138,8 +142,9 @@ export const CURRENCY_VIEW = {
   ],
   detail: 'description',
   // Series names match here too, once app.series_classify has assigned the
-  // note designs (Funnyback, Barr Note, Hawaii, North Africa). A note's
-  // series year is its own dropdown.
+  // note designs (Funnyback, Barr Note, Hawaii, North Africa), and so do note
+  // classes and serial features by name or alias. A note's series year is
+  // its own dropdown.
   searchPlaceholder:
     'Search title, description, rating or item code, e.g. funny%back (tips below)',
   searchExamples: [
@@ -153,14 +158,14 @@ export const CURRENCY_VIEW = {
     ['silver certificate', 'several words are one phrase, in that order'],
     // 3, against 1 for "1957 silver".
     ['1957%silver', '% matches anything in between, so the words can be apart'],
-    // 129
-    ['fancy', 'listings that call out a fancy serial'],
+    // 287: 129 listings say it, and more notes carry the serial feature.
+    ['fancy', 'a fancy serial, whether the listing says so or the note records it'],
     // 125
     ['error', 'listings that describe an error note'],
-    // 197
+    // 224, against 197 listings that say it.
     [
       'star',
-      'listings that mention a star; the Serial number box searches the note itself',
+      'star notes, by listing or by the recorded feature; the Serial number box searches the serial',
     ],
     // 87
     ['cc-0070', 'part of an item code'],

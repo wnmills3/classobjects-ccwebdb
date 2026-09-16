@@ -39,6 +39,19 @@ export const api = {
 
   renameReferenceValue: (table, code, payload) =>
     send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),
+  // Retired values and removed aliases included, for the Vocabularies page.
+  getReferenceForEditing: (table) =>
+    send(`/api/reference/${table}?${query({ include_inactive: true })}`),
+  addReferenceAlias: (table, code, alias) =>
+    send(`/api/reference/${table}/${encodeURIComponent(code)}/aliases`, {
+      method: 'POST',
+      body: { alias },
+    }),
+  removeReferenceAlias: (table, code, alias) =>
+    send(
+      `/api/reference/${table}/${encodeURIComponent(code)}/aliases?${query({ alias })}`,
+      { method: 'DELETE' },
+    ),
 
   // inventory
   searchInventory: (view, params = {}) => {

@@ -2,6 +2,11 @@ import { useCallback, useContext, useMemo, useState } from 'react'
 
 import { api } from './api'
 import { ReferenceContext, useReference } from './reference-context'
+import { findEntries } from './reference-match'
+
+//: A vocabulary longer than this gets a box to find a value by name or alias.
+//: A short list is quicker to read than to search.
+export const FIND_FROM = 10
 
 /**
  * Classifier vocabularies, fetched once and shared.
@@ -61,6 +66,11 @@ export function ReferenceProvider({ children }) {
  * Falls back to a plain text input while the vocabulary is loading or if it
  * could not be fetched, so the form is always usable -- degraded, never
  * broken.
+ *
+ * A long vocabulary gets a find box beside it. Typing narrows the options by
+ * label, code or alias -- "Walker" offers Walking Liberty Half Dollar, with
+ * the alias shown so the match makes sense -- and Enter picks the first. A
+ * native select's own type-ahead only matches the start of a label.
  */
 export function ReferenceSelect({
   table,
@@ -88,6 +98,7 @@ export function ReferenceSelect({
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState({ code: '', label: '' })
   const [error, setError] = useState('')
+  const [find, setFind] = useState('')
 
   async function addValue() {
     try {
@@ -141,8 +152,41 @@ export function ReferenceSelect({
     )
   }
 
+  const choosable = filter
+    ? values.filter((e) => filter(e) || e.code === value)
+    : values
+  const found = findEntries(choosable, find)
+  // A filter narrows what is offered, never what is shown as chosen: a value
+  // already set stays visible even if it no longer fits.
+  const offered = found.some(({ entry }) => entry.code === value)
+    ? found
+    : [
+        ...choosable
+          .filter((entry) => entry.code === value)
+          .map((entry) => ({ entry, match: { alias: null } })),
+        ...found,
+      ]
+
+  function pickFirst(e) {
+    if (e.key !== 'Enter') return
+    // Enter in a form would otherwise submit it.
+    e.preventDefault()
+    if (found.length > 0) onChange({ target: { value: found[0].entry.code } })
+  }
+
   return (
     <div className="reference-select">
+      {values.length > FIND_FROM && (
+        <input
+          className="reference-find"
+          type="search"
+          placeholder="Find..."
+          aria-label={`Find ${table}`}
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
+          onKeyDown={pickFirst}
+        />
+      )}
       <select
         value={value ?? ''}
         onChange={(e) => {
@@ -154,17 +198,19 @@ export function ReferenceSelect({
         aria-keyshortcuts={ariaKeyshortcuts}
       >
         {allowBlank && <option value="">--</option>}
-        {/* A filter narrows what is offered, never what is shown as chosen:
-            a value already set stays visible even if it no longer fits. */}
-        {(filter ? values.filter((e) => filter(e) || e.code === value) : values).map(
-          (entry) => (
-            <option key={entry.code} value={entry.code}>
-              {entry.label}
-              {/* Values an import invented are marked, so a curated vocabulary
-                can be told apart from one collection's guesses. */}
-              {entry.source === 'seeded' ? '' : ' *'}
-            </option>
-          ),
+        {offered.map(({ entry, match }) => (
+          <option key={entry.code} value={entry.code}>
+            {entry.label}
+            {match.alias ? ` (${match.alias})` : ''}
+            {/* Values an import invented are marked, so a curated vocabulary
+              can be told apart from one collection's guesses. */}
+            {entry.source === 'seeded' ? '' : ' *'}
+          </option>
+        ))}
+        {find && found.length === 0 && (
+          <option value="" disabled>
+            nothing matches {find}
+          </option>
         )}
         {allowAdd && <option value="__add__">+ Add a new value...</option>}
       </select>

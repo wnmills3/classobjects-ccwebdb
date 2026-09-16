@@ -434,7 +434,15 @@ class ReferenceValueOut(BaseModel):
     label: str
     sort_order: int
     source: str
+    #: False for a retired value, which only include_inactive lists.
+    is_active: bool = True
     extra: dict[str, object] = Field(default_factory=dict)
+    #: Other names people use for it ("Mercury", "Legal Tender"), which
+    #: search, import and the pickers also recognise.
+    aliases: list[str] = Field(default_factory=list)
+    #: Shipped aliases someone removed, listed only with include_inactive so
+    #: the console can offer them back.
+    retired_aliases: list[str] = Field(default_factory=list)
 
 
 class ReferenceTableOut(BaseModel):
@@ -988,6 +996,12 @@ class ReferenceValueRename(BaseModel):
     label: str = Field(min_length=1, max_length=255)
     sort_order: int | None = None
     is_active: bool | None = None
+
+
+class ReferenceAliasIn(BaseModel):
+    """Another name for a value: what people write instead of its label."""
+
+    alias: str = Field(min_length=1, max_length=64)
 
 
 # --------------------------------------------------------------------------
