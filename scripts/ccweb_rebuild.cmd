@@ -61,15 +61,16 @@ echo === series match ===
 "%PY%" -m app.series_match --commit
 if errorlevel 1 goto :failed
 
+rem  What the facts decide -- a note's class, seal, signatures and Reserve
+rem  Bank, a coin's composition -- before the series pass, which reads a
+rem  note's class as evidence (the Series 1929 National Bank Notes).
+echo === classifier defaults ===
+"%PY%" -m app.classifier_defaults --commit
+if errorlevel 1 goto :failed
+
 rem  After series_match: text first, then the facts for what text left.
 echo === series classify ===
 "%PY%" -m app.series_classify --commit
-if errorlevel 1 goto :failed
-
-rem  Then what the facts decide: a note's class, seal, signatures and
-rem  Reserve Bank, a coin's composition.
-echo === classifier defaults ===
-"%PY%" -m app.classifier_defaults --commit
 if errorlevel 1 goto :failed
 
 echo === serial patterns ===

@@ -334,6 +334,26 @@
       "table": "note_type",
       "code": "gold_certificate",
       "alias": "Gold Cert"
+    },
+    {
+      "table": "note_type",
+      "code": "frbn",
+      "alias": "Federal Reserve Bank"
+    },
+    {
+      "table": "note_type",
+      "code": "frbn",
+      "alias": "Fed Res"
+    },
+    {
+      "table": "note_type",
+      "code": "national_bank_note",
+      "alias": "National"
+    },
+    {
+      "table": "note_type",
+      "code": "national_bank_note",
+      "alias": "Natl"
     }
   ]
 }

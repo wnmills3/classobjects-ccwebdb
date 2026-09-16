@@ -162,6 +162,36 @@ filed as Washington quarters, whose obverse they carry.
 Boundary cases the list above did not name: $1 of 2007-2016 and 2020
 (Presidential and Sacagawea).
 
+## Amendment: designs that name a note class (2026-09-16)
+
+The owner: *"1929 notes should be a series type for National Bank Notes with
+aliases 'Brown Seal' (to distinguish from Red Seal, Blue Seal, or Green
+Seal)."*
+
+Added **Series 1929 National Bank Note** ($5, $10, $20, $50, $100; Series
+1929, no letter), needs-evidence, nicknames *Brown Seal*, *1929 National*,
+*Small Size National*, *National*, *Natl*.
+
+The seal cannot be its evidence: the Series 1929 Federal Reserve Bank Notes
+carry the same brown seal (so do the Hawaii notes, which are other years).
+Measured on live: all 23 Series 1929 notes have brown seals; their ratings
+name the issuer -- "Fed Res Boston", "Federal Reserve Bank of NY" on one side,
+"Chase NYC 2370", "First National Bank of Albequerque" on the other -- and only
+two say "Brown Seal".
+
+So a design may name its **note class** (`series.note_type_id`):
+
+- a design of another class than the note's recorded class is not a
+  candidate -- a Federal Reserve Bank Note whose text says "Brown Seal" is a
+  conflict, not a National;
+- a note recorded as the design's class has its evidence;
+- a series already set that the recorded class rules out is reported.
+
+`app.classifier_defaults` decides the class from the rating ("Fed Res",
+"Federal Reserve Bank" name a Federal Reserve Bank Note; "National", "Natl" a
+National Bank Note), so the rebuild runs it before this pass. A 1929 note whose
+rating names neither ("Chase NYC 2370") stays for a person.
+
 ## Search
 
 Unchanged in mechanism: a term matching a design's label or nickname already

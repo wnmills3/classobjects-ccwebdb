@@ -463,3 +463,79 @@ def test_seeded_ranges_follow_the_file(db: Session, tmp_path: Path) -> None:
 
     assert _ranges(db, "morgan_dollar") == {(1878, 1921)}
     assert _ranges(db, "peace_dollar") == peace_before
+
+
+# -- Series 1929 National Bank Notes: a design with a note class ---------------
+
+
+def _class(db: Session, item: InventoryItem, code: str) -> None:
+    from app.models import NoteType
+
+    detail = db.execute(
+        select(CurrencyDetail).where(CurrencyDetail.inventory_item_id == item.id)
+    ).scalar_one()
+    detail.note_type_id = _id(db, NoteType, code)
+    db.commit()
+
+
+def test_a_1929_national_needs_its_bank_named_or_its_class(
+    db: Session, make_item: ItemFactory
+) -> None:
+    # Measured on live: the 1929 notes name their bank in the rating, and the
+    # brown seal is on both classes.
+    named = _note(
+        db,
+        make_item,
+        "usd_note_10",
+        1929,
+        seal="brown",
+        grade_raw="T1 National City Bank of New York 1461",
+    )
+    classed = _note(db, make_item, "usd_note_20", 1929, seal="brown")
+    _class(db, classed, "national_bank_note")
+    reserve = _note(
+        db, make_item, "usd_note_10", 1929, seal="brown", grade_raw="Fed Res Boston"
+    )
+
+    run(db, commit=True)
+
+    assert _series_code(db, named) == "national_bank_note_1929"
+    assert _series_code(db, classed) == "national_bank_note_1929"
+    # A brown seal alone says nothing: Federal Reserve Bank Notes have one too.
+    assert _series_code(db, reserve) is None
+
+
+def test_a_federal_reserve_bank_note_is_never_a_national(
+    db: Session, make_item: ItemFactory
+) -> None:
+    # Even when its text says "Brown Seal", the owner's own nickname.
+    note = _note(
+        db, make_item, "usd_note_10", 1929, seal="brown", grade_raw="Brown Seal"
+    )
+    _class(db, note, "frbn")
+
+    run(db, commit=True)
+
+    assert _series_code(db, note) is None
+    assert _case(db, note) == ("conflict", ("national_bank_note_1929",))
+
+
+def test_a_national_recorded_as_another_class_is_reported(
+    db: Session, make_item: ItemFactory
+) -> None:
+    national = _id(db, Series, "national_bank_note_1929")
+    note = _note(db, make_item, "usd_note_10", 1929, seal="brown", series_id=national)
+    _class(db, note, "frbn")
+
+    assert _case(db, note) == ("disagrees", ("national_bank_note_1929",))
+
+
+def test_brown_seal_finds_the_1929_nationals(
+    db: Session, make_item: ItemFactory
+) -> None:
+    national = _id(db, Series, "national_bank_note_1929")
+    note = _note(db, make_item, "usd_note_5", 1929, seal="brown", series_id=national)
+
+    rows, _ = search(db, CURRENCY_VIEW, params={}, query="brown seal")
+
+    assert note.item_code in {row["item_code"] for row in rows}

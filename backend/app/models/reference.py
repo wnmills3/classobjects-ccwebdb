@@ -221,6 +221,14 @@ class Series(ReferenceMixin, Base):
     seal_color_id: Mapped[int | None] = mapped_column(
         ForeignKey("seal_color.id", ondelete="RESTRICT"), nullable=True
     )
+    #: The note class every note of this design is. A design that names one
+    #: is never assigned to a note recorded as another class, and a note
+    #: recorded as this class is evidence for it: the Series 1929 National
+    #: Bank Notes share their series and brown seal with the Federal Reserve
+    #: Bank Notes, and only the class tells them apart.
+    note_type_id: Mapped[int | None] = mapped_column(
+        ForeignKey("note_type.id", ondelete="RESTRICT"), nullable=True
+    )
 
     aliases: Mapped[list[SeriesAlias]] = relationship(
         back_populates="series", cascade="all, delete-orphan"

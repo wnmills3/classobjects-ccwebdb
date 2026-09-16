@@ -96,7 +96,8 @@
     { "code": "funnyback", "label": "Funnyback", "year_start": 1928, "year_end": 1934, "applies_to": "currency", "denomination": "usd_note_1", "sort_order": 400 },
     { "code": "barr_note", "label": "Barr Note", "year_start": 1963, "year_end": 1963, "applies_to": "currency", "denomination": "usd_note_1", "sort_order": 410 },
     { "code": "north_africa", "label": "North Africa", "year_start": 1934, "year_end": 1935, "applies_to": "currency", "needs_evidence": true, "seal_color": "yellow", "sort_order": 420 },
-    { "code": "hawaii", "label": "Hawaii", "year_start": 1934, "year_end": 1935, "applies_to": "currency", "needs_evidence": true, "seal_color": "brown", "sort_order": 430 }
+    { "code": "hawaii", "label": "Hawaii", "year_start": 1934, "year_end": 1935, "applies_to": "currency", "needs_evidence": true, "seal_color": "brown", "sort_order": 430 },
+    { "code": "national_bank_note_1929", "label": "Series 1929 National Bank Note", "year_start": 1929, "year_end": 1929, "applies_to": "currency", "needs_evidence": true, "note_type": "national_bank_note", "sort_order": 440 }
   ],
 
   "series_alias": [
@@ -141,6 +142,11 @@
     { "series": "barr_note", "alias": "Barr" },
     { "series": "north_africa", "alias": "Yellow Seal" },
     { "series": "hawaii", "alias": "Hawaii Overprint" },
+    { "series": "national_bank_note_1929", "alias": "Brown Seal" },
+    { "series": "national_bank_note_1929", "alias": "1929 National" },
+    { "series": "national_bank_note_1929", "alias": "Small Size National" },
+    { "series": "national_bank_note_1929", "alias": "National" },
+    { "series": "national_bank_note_1929", "alias": "Natl" },
 
     { "series": "commemorative_half", "alias": "Commemorative" },
     { "series": "commemorative_half", "alias": "Commemoratives" },
@@ -193,6 +199,12 @@
     { "series": "hawaii", "denomination": "usd_note_1", "year_start": 1935, "year_end": 1935, "letters": "A" },
     { "series": "hawaii", "denomination": "usd_note_5", "year_start": 1934, "year_end": 1934, "letters": "*A" },
     { "series": "hawaii", "denomination": "usd_note_10", "year_start": 1934, "year_end": 1934, "letters": "*A" },
-    { "series": "hawaii", "denomination": "usd_note_20", "year_start": 1934, "year_end": 1934, "letters": "*A" }
+    { "series": "hawaii", "denomination": "usd_note_20", "year_start": 1934, "year_end": 1934, "letters": "*A" },
+
+    { "series": "national_bank_note_1929", "denomination": "usd_note_5", "year_start": 1929, "year_end": 1929, "letters": "*" },
+    { "series": "national_bank_note_1929", "denomination": "usd_note_10", "year_start": 1929, "year_end": 1929, "letters": "*" },
+    { "series": "national_bank_note_1929", "denomination": "usd_note_20", "year_start": 1929, "year_end": 1929, "letters": "*" },
+    { "series": "national_bank_note_1929", "denomination": "usd_note_50", "year_start": 1929, "year_end": 1929, "letters": "*" },
+    { "series": "national_bank_note_1929", "denomination": "usd_note_100", "year_start": 1929, "year_end": 1929, "letters": "*" }
   ]
 }
