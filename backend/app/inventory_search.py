@@ -176,6 +176,12 @@ _J_VENDOR = "LEFT JOIN vendor v ON v.id = po.vendor_id"
 _C_ITEM_CODE = "i.item_code"
 _C_SOURCE_TITLE = "i.source_title"
 _C_DESCRIPTION = "i.description"
+#: The spreadsheet's Rating column, as written. Often the only descriptive
+#: text an item has: a Whatnot row's title is its denomination and its
+#: description a lot number, while Rating reads "Morgan Silver Dollar
+#: AU-55" -- and on 2026-09-16 all 48 "funnyback" notes carried the word
+#: only here, so no search could find one.
+_C_GRADE_RAW = "i.grade_raw"
 _C_YEAR_START = "i.year_start"
 _C_GRADE_VALUE = "g.numeric_value"
 _C_KIND_CODE = "k.code"
@@ -312,7 +318,7 @@ COIN_VIEW = ViewSpec(
         "bullion_form": Filt("bf.code", join=(_J_BULLION,)),
         "set_form": Filt("sf.code", join=(_J_SET,)),
     },
-    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_ITEM_CODE),
+    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_GRADE_RAW, _C_ITEM_CODE),
     sortable=(*_SHARED_SORT, "fine_weight_ozt"),
     facets={
         **_SHARED_FACETS,
@@ -358,7 +364,7 @@ CURRENCY_VIEW = ViewSpec(
         "friedberg_status": Filt("cud.friedberg_status", join=(_J_CUR_DETAIL,)),
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
     },
-    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_ITEM_CODE),
+    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_GRADE_RAW, _C_ITEM_CODE),
     sortable=(*_SHARED_SORT, "series_year", "series_designation"),
     facets={
         **_SHARED_FACETS,
