@@ -346,8 +346,16 @@ RECEIVED_MARKERS = {
     "cancelled": "canceled",
     "returned": "returned",
     "missing": "missing",
-    "counterfeit": "counterfeit",
 }
+
+#: `Counterfeit` is a finding about the object, not about the parcel, so it
+#: sets the item's authenticity and leaves the status to say whether it
+#: arrived -- a fake that turned up is `received` and `counterfeit`, and both
+#: halves are true. `item_status` has no counterfeit code, so routing it there
+#: silently fell back to the default status and dropped the finding: CC-004273,
+#: a 2025-W Silver Eagle the owner marked Counterfeit, imported as
+#: `unverified`.
+AUTHENTICITY_MARKERS = {"counterfeit": "counterfeit"}
 
 #: Words that belong in `Received` and are nonsense as a serial or
 #: certificate number, so finding one in `Grading#` is a typo worth naming.
@@ -735,6 +743,23 @@ class CollectionV1Profile:
         if (value := _decimal(text)) is not None:
             fields["numismatic_value"] = value
             return
+        if authenticity := AUTHENTICITY_MARKERS.get(text.casefold()):
+            # Kept, not merely reported: this is a finding about the coin,
+            # and `Value` is where the owner has always recorded it. Warned
+            # as well, so the cell still gets moved eventually.
+            fields["authenticity"] = authenticity
+            issues.append(
+                Issue(
+                    rule="authenticity-in-value-column",
+                    severity=WARNING,
+                    column=COL_VALUE,
+                    raw_value=text,
+                    proposed=f"{COL_RECEIVED}: {text}",
+                    note=f"recorded as authenticity {authenticity}; "
+                    f"move the cell to {COL_RECEIVED}",
+                )
+            )
+            return
         if text.casefold() in RECEIVED_MARKERS:
             issues.append(
                 Issue(
@@ -776,6 +801,11 @@ class CollectionV1Profile:
         marker = RECEIVED_MARKERS.get(text.casefold())
         if marker:
             fields["status_marker"] = marker
+            return
+        if authenticity := AUTHENTICITY_MARKERS.get(text.casefold()):
+            # Says what the object is, not whether it came. Nothing here
+            # claims it did not arrive, so the status is left to default.
+            fields["authenticity"] = authenticity
             return
         fields["status_marker"] = "ordered"
         issues.append(

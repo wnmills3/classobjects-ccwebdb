@@ -357,7 +357,11 @@ class SchemaLoader:
             grading_service_id=self.code_id(
                 GradingService, _upper_or_none(fields.get("grading_service"))
             ),
-            authenticity_id=self.code_id(Authenticity, DEFAULT_AUTHENTICITY),
+            # A profile may assert this -- the workbook's `Counterfeit`
+            # marker is a finding about the object, not a default.
+            authenticity_id=self.code_id(
+                Authenticity, fields.get("authenticity") or DEFAULT_AUTHENTICITY
+            ),
             status_id=self.code_id(ItemStatus, status_code),
             disposition_id=self.code_id(Disposition, DEFAULT_DISPOSITION),
             local_catalog_number=fields.get("local_catalog_number"),

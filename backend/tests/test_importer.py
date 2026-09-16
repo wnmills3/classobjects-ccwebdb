@@ -370,6 +370,31 @@ def test_an_unreadable_received_cell_is_warned_and_left_unarrived(
     assert any(i.rule == "received-not-understood" for i in result.issues)
 
 
+def test_counterfeit_is_an_authenticity_not_a_status(
+    profile: CollectionV1Profile,
+) -> None:
+    """A fake that turned up is received AND counterfeit; both are true.
+
+    `item_status` has no counterfeit code, so routing the marker there fell
+    back to the default status and dropped the finding entirely: CC-004273,
+    a 2025-W Silver Eagle the owner marked Counterfeit, imported `unverified`.
+    """
+    from_received = profile.inspect(
+        make_row(Denom="Silver Eagle", Received="Counterfeit")
+    ).fields
+    assert from_received["authenticity"] == "counterfeit"
+    assert "status_marker" not in from_received
+
+    # The owner has always written it in Value, so it is kept from there too,
+    # and warned about rather than silently obeyed.
+    result = profile.inspect(
+        make_row(Denom="Silver Eagle", Value="Counterfeit", Received="x")
+    )
+    assert result.fields["authenticity"] == "counterfeit"
+    assert result.fields["status_marker"] == "received"
+    assert any(i.rule == "authenticity-in-value-column" for i in result.issues)
+
+
 def test_an_absent_serial_number_is_reported_not_stored(
     profile: CollectionV1Profile,
 ) -> None:
