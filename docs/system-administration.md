@@ -157,6 +157,45 @@ Changing the rendition sizes does not regenerate existing images.
 
 ## Inventory items
 
+### Finding items
+
+The **Coins** and **Currency** screens (`/owner/inventory/coins`,
+`/owner/inventory/currency`) share one search panel.
+
+**The search box has no field syntax.** Whatever you type is one term, matched
+anywhere in an item's title, description, **rating** (the spreadsheet's
+`Rating` text, as written) or item code, ignoring case. On the coin screen it
+also matches any series whose name or nickname contains it, so `mercury` finds
+Winged Liberty Head dimes whose listings never say "Mercury". **Search tips**,
+under the box, lists examples for each screen; clicking one runs it.
+
+The rating is searched because it is often the only descriptive text an item
+has: a Whatnot row's title is its denomination and its description a lot
+number, and every "funnyback" note carries that word only in its rating.
+
+Three things about the box are not obvious:
+
+| Type | Finds | Why |
+|---|---|---|
+| `1921 morgan` | 27 items | several words are **one phrase, in that order** -- `morgan 1921` finds none |
+| `morgan%1921` | 8 | `%` matches anything, so the words can be apart |
+| `19_5` | 278 | `_` matches exactly one character: 1905, 1915 ... 1995 |
+| `funny%back` | 48 notes | the sheet spells it `Funnyback` (18) and `Funny Back` (30) |
+
+Text is matched as written: `ms65` and `ms-65` find different items (128 and
+16). Counts are from the collection on 2026-09-16.
+
+The dropdowns and year boxes narrow whatever the search finds. A dropdown
+reading **None recorded** is disabled because no matching item has that field
+filled in -- a gap in the data, not in the filter. The **Item code** box, and on
+currency the **Serial number** box, take the same `%` and `_` wildcards.
+
+**Every field has an Alt+letter shortcut**, underlined in its label: Alt+S for
+the search box, Alt+H for the tips, Alt+C to clear the filters, Alt+Y and
+Alt+O for the years (as in the item editor). No field uses D, E or F, which
+the browser keeps for itself. A shortcut on a disabled dropdown does nothing,
+since a disabled control cannot take focus.
+
 ### How an item comes into being
 
 Four paths create an `inventory_item`, and only two are routine.
