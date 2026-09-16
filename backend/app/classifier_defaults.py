@@ -622,12 +622,15 @@ def _print(report: Report, *, commit: bool) -> None:
     """The counts the owner reviews before anything is written."""
     for key, n in sorted(report.counts.items()):
         print(f"  {key:<45} {n:>6}")
-    for retracted, heading in ((False, "write"), (True, "retract")):
+    headings = (
+        (False, "written", "would write"),
+        (True, "retracted", "would retract"),
+    )
+    for retracted, done, planned in headings:
         columns = report.by_column(retracted=retracted)
         if not columns:
             continue
-        verb = f"{heading.rstrip('e')}ed" if commit else f"would {heading}"
-        print(f"\n{verb}, by field:")
+        print(f"\n{done if commit else planned}, by field:")
         for column, n in columns.most_common():
             print(f"  {column.removesuffix('_id'):<30} {n:>6}")
 
