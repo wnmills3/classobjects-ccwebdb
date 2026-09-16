@@ -67,10 +67,16 @@ if not defined APPDATA if exist "%USERPROFILE%\AppData\Roaming\" set "APPDATA=%U
 if not defined LOCALAPPDATA if exist "%USERPROFILE%\AppData\Local\" set "LOCALAPPDATA=%USERPROFILE%\AppData\Local"
 
 rem --- already in play? -----------------------------------------------------
-rem  Checked against the environment's own python, not just the name: a stale
-rem  CONDA_DEFAULT_ENV left over from a deleted environment should not pass.
+rem  "Active" has to be true of PATH, not only of the variables that describe
+rem  it. They can disagree: Git Bash rebuilds PATH when it starts and drops the
+rem  conda entries, but CONDA_DEFAULT_ENV, CONDA_PREFIX and CONDA_SHLVL survive,
+rem  so a shell can say ccwebdb while a bare `python` is base's -- measured on
+rem  2026-09-16 with CONDA_SHLVL=2, and `gh` in ccwebdb was not found at all.
+rem  So the claim is accepted only when the first python on PATH is the
+rem  environment's own; otherwise the environment is activated again, which
+rem  rebuilds PATH. A stale variable left by a deleted environment fails too.
 set "CCWEB_ENV_STATE="
-if /i "%CONDA_DEFAULT_ENV%"=="ccwebdb" if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" set "CCWEB_ENV_STATE=already active"
+if /i "%CONDA_DEFAULT_ENV%"=="ccwebdb" if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\python.exe" call :ccweb_path_agrees
 if defined CCWEB_ENV_STATE goto :ccweb_env_ready
 
 rem --- find conda -----------------------------------------------------------
@@ -104,3 +110,15 @@ set "CCWEB_ENV_STATE=activated"
 set "ENVDIR=%CONDA_PREFIX%"
 set "PGBIN=%ENVDIR%\Library\bin"
 exit /b 0
+
+rem ---------------------------------------------------------------------------
+rem  :ccweb_path_agrees - set CCWEB_ENV_STATE only if the first python on PATH
+rem  is %CONDA_PREFIX%\python.exe. Below the exit above, so it is reached only
+rem  by `call`.
+rem ---------------------------------------------------------------------------
+:ccweb_path_agrees
+set "CCWEB_FIRST_PY="
+for /f "delims=" %%P in ('where python 2^>nul') do if not defined CCWEB_FIRST_PY set "CCWEB_FIRST_PY=%%P"
+if /i "%CCWEB_FIRST_PY%"=="%CONDA_PREFIX%\python.exe" set "CCWEB_ENV_STATE=already active"
+set "CCWEB_FIRST_PY="
+goto :eof
