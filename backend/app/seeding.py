@@ -42,10 +42,12 @@ from .database import SessionLocal
 from .models import (
     REFERENCE_MODELS,
     Composition,
+    Denomination,
     ProvenanceSource,
     ReferenceMixin,
     Series,
     SeriesAlias,
+    SeriesYearRange,
 )
 
 #: backend/data/reference
@@ -256,6 +258,8 @@ def seed_all(
 
     if not only or "series_alias" in only:
         stats["series_alias"] = _seed_series_aliases(session, data)
+    if not only or "series_year_range" in only:
+        stats["series_year_range"] = _seed_series_year_ranges(session, data)
 
     session.commit()
     return stats
@@ -299,6 +303,92 @@ def _seed_series_aliases(
         session.add(SeriesAlias(series_id=series_id, alias=alias))
         existing.add((series_id, alias))
         counter["created"] += 1
+
+    session.flush()
+    return counter
+
+
+def _seed_series_year_ranges(
+    session: Session, data: dict[str, list[dict[str, Any]]]
+) -> Counter:
+    """Load each design's year ranges, which the generic loader cannot carry.
+
+    Unlike an alias, a range is corrected rather than accumulated: when the
+    Morgan dollar's single span became three ranges, keeping the old span as
+    well would have left every dollar since 1878 a Morgan. So a design named
+    in the file gets exactly the file's ranges -- missing ones added, changed
+    ones updated, and ones no longer listed removed. A design the file does
+    not mention keeps whatever it has, and a design someone has edited by
+    hand (`source` manual) is left alone entirely.
+    """
+    counter: Counter = Counter()
+    rows = data.get("series_year_range") or []
+    if not rows:
+        return counter
+
+    designs = {
+        code: (series_id, source)
+        for code, series_id, source in session.execute(
+            select(Series.code, Series.id, Series.source)
+        ).all()
+    }
+    denominations: dict[str, int] = dict(
+        session.execute(select(Denomination.code, Denomination.id)).tuples().all()
+    )
+
+    wanted: dict[int, dict[tuple[int | None, int], tuple[int | None, str | None]]] = {}
+    for position, row in enumerate(rows, start=1):
+        where = f"series_year_range[{position}]"
+        code = row.get("series")
+        if code not in designs:
+            raise SeedError(f"{where}: unknown series {code!r}")
+        start = row.get("year_start")
+        if not isinstance(start, int):
+            raise SeedError(f"{where}: year_start must be a year")
+        denomination = row.get("denomination")
+        if denomination is not None and denomination not in denominations:
+            raise SeedError(f"{where}: unknown denomination {denomination!r}")
+        key = (denominations[denomination] if denomination else None, start)
+        ranges = wanted.setdefault(designs[code][0], {})
+        if key in ranges:
+            raise SeedError(f"{where}: {code} lists that range twice")
+        ranges[key] = (row.get("year_end"), row.get("letters"))
+
+    for series_id, source in designs.values():
+        if series_id not in wanted:
+            continue
+        if source == ProvenanceSource.manual:
+            counter["skipped_manual"] += 1
+            continue
+        want = wanted[series_id]
+        have = {
+            (r.denomination_id, r.year_start): r
+            for r in session.execute(
+                select(SeriesYearRange).where(SeriesYearRange.series_id == series_id)
+            ).scalars()
+        }
+        for key, stale in have.items():
+            if key not in want:
+                session.delete(stale)
+                counter["removed"] += 1
+        for (denomination_id, start), (end, letters) in want.items():
+            record = have.get((denomination_id, start))
+            if record is None:
+                session.add(
+                    SeriesYearRange(
+                        series_id=series_id,
+                        denomination_id=denomination_id,
+                        year_start=start,
+                        year_end=end,
+                        letters=letters,
+                    )
+                )
+                counter["created"] += 1
+            elif (record.year_end, record.letters) != (end, letters):
+                record.year_end, record.letters = end, letters
+                counter["updated"] += 1
+            else:
+                counter["unchanged"] += 1
 
     session.flush()
     return counter

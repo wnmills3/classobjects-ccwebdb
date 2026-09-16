@@ -159,6 +159,11 @@
       "code": "gold",
       "label": "Gold Seal",
       "sort_order": 50
+    },
+    {
+      "code": "yellow",
+      "label": "Yellow Seal",
+      "sort_order": 60
     }
   ],
   "fed_district": [

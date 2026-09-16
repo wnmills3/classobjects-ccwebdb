@@ -19,6 +19,10 @@ it would be inherited by every price lookup made against it.
 Matches are recorded as `derived`, never `manual`, so a later hand correction
 outranks this and is never overwritten by a re-run.
 
+Only coins (and the other non-note kinds) are matched here, and only against
+coin designs. Notes are classified by `app.series_classify`, which checks the
+facts as well as the text.
+
     python -m app.series_match            report, touching nothing
     python -m app.series_match --commit   write the matches
 """
@@ -37,7 +41,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
-from .models import Denomination, InventoryItem, ProvenanceSource, Series, SeriesAlias
+from .models import (
+    Denomination,
+    InventoryItem,
+    ItemKind,
+    ProvenanceSource,
+    Series,
+    SeriesAlias,
+)
 
 #: Terms that identify a series only once the denomination is known. The value
 #: maps a denomination code fragment to the series code the term then means.
@@ -101,6 +112,18 @@ class Rule:
 
     series_code: str
     pattern: re.Pattern[str]
+    #: The inventory the design belongs to (`coin` or `currency`), so a coin
+    #: that says "Hawaii" is not taken for a Hawaii overprint note.
+    applies_to: str = "coin"
+
+
+def inventory_of(item_kind: str | None) -> str:
+    """Which designs an item can be: currency designs for notes, coin otherwise.
+
+    Bullion, sets and medals are matched against the coin designs, which is
+    where the bullion designs (Silver Eagle, Gold Buffalo) live.
+    """
+    return "currency" if item_kind == "currency" else "coin"
 
 
 def build_rules(db: Session) -> list[Rule]:
@@ -112,29 +135,41 @@ def build_rules(db: Session) -> list[Rule]:
     rules: list[Rule] = []
     ambiguous_terms = set(AMBIGUOUS)
 
-    rows = db.execute(select(Series.id, Series.code, Series.label)).all()
+    rows = db.execute(
+        select(Series.id, Series.code, Series.label, Series.applies_to)
+    ).all()
     aliases: dict[int, list[str]] = {}
     for series_id, alias in db.execute(
         select(SeriesAlias.series_id, SeriesAlias.alias)
     ).all():
         aliases.setdefault(series_id, []).append(alias)
 
-    for series_id, code, label in rows:
+    for series_id, code, label, applies_to in rows:
         terms = [label, *aliases.get(series_id, [])]
         for term in terms:
             if term.lower() in ambiguous_terms:
                 continue  # handled by denomination, below
-            rules.append(
-                Rule(code, re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE))
-            )
+            pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+            rules.append(Rule(code, pattern, applies_to))
         for extra in EXTRA.get(code, []):
-            rules.append(Rule(code, re.compile(extra, re.IGNORECASE)))
+            rules.append(Rule(code, re.compile(extra, re.IGNORECASE), applies_to))
     return rules
 
 
-def match(text: str, denomination: str | None, rules: list[Rule]) -> set[str]:
-    """Every series code this description could mean."""
-    found = {rule.series_code for rule in rules if rule.pattern.search(text)}
+def match(
+    text: str,
+    denomination: str | None,
+    rules: list[Rule],
+    inventory: str = "coin",
+) -> set[str]:
+    """Every series code this description could mean, for that inventory."""
+    found = {
+        rule.series_code
+        for rule in rules
+        if rule.applies_to == inventory and rule.pattern.search(text)
+    }
+    if inventory != "coin":
+        return found  # the ambiguous families are all coin designs
 
     # The ambiguous families, resolved by denomination or else abandoned.
     for term, by_denomination in AMBIGUOUS.items():
@@ -155,9 +190,9 @@ def _classify(
     """Which series each item earns, and the tally of how it went."""
     stats: Counter = Counter()
     assignments: dict[int, int] = {}
-    for item_id, description, title, denomination in items:
+    for item_id, description, title, denomination, item_kind in items:
         text = f"{title or ''} {description or ''}"
-        found = match(text, denomination, rules)
+        found = match(text, denomination, rules, inventory_of(item_kind))
         if not found:
             stats["no_match"] += 1
         elif len(found) > 1:
@@ -170,7 +205,7 @@ def _classify(
     return assignments, stats
 
 
-def _write(db: Session, assignments: dict[int, int]) -> None:
+def record_series(db: Session, assignments: dict[int, int]) -> None:
     """Record the classification, and say where the value came from.
 
     A series the matcher worked out is derived, not something that shipped
@@ -196,16 +231,26 @@ def run(db: Session, *, commit: bool) -> Counter:
             InventoryItem.description,
             InventoryItem.source_title,
             Denomination.label,
+            ItemKind.code,
         )
+        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
         .join(
             Denomination, Denomination.id == InventoryItem.denomination_id, isouter=True
         )
-        .where(InventoryItem.split_at.is_(None), InventoryItem.series_id.is_(None))
+        .where(
+            InventoryItem.split_at.is_(None),
+            InventoryItem.series_id.is_(None),
+            # Notes are left to app.series_classify, which checks a note's
+            # series year against the design before believing its text: a
+            # note described as a Funnyback but recorded as Series 1923 is a
+            # conflict to show someone, not a Funnyback.
+            ItemKind.code != "currency",
+        )
     ).all()
 
     assignments, stats = _classify(items, rules, ids)
     if commit and assignments:
-        _write(db, assignments)
+        record_series(db, assignments)
         stats["written"] = len(assignments)
     return stats
 

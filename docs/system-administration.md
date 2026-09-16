@@ -164,10 +164,12 @@ The **Coins** and **Currency** screens (`/owner/inventory/coins`,
 
 **The search box has no field syntax.** Whatever you type is one term, matched
 anywhere in an item's title, description, **rating** (the spreadsheet's
-`Rating` text, as written) or item code, ignoring case. On the coin screen it
-also matches any series whose name or nickname contains it, so `mercury` finds
-Winged Liberty Head dimes whose listings never say "Mercury". **Search tips**,
-under the box, lists examples for each screen; clicking one runs it.
+`Rating` text, as written) or item code, ignoring case. It also matches any
+design series whose name or nickname contains it, so `mercury` finds Winged
+Liberty Head dimes whose listings never say "Mercury", and `funnyback` finds
+every $1 Series 1928 and 1934 note -- once those items have been classified
+(below). **Search tips**, under the box, lists examples for each screen;
+clicking one runs it.
 
 The rating is searched because it is often the only descriptive text an item
 has: a Whatnot row's title is its denomination and its description a lot
@@ -195,6 +197,54 @@ the search box, Alt+H for the tips, Alt+C to clear the filters, Alt+Y and
 Alt+O for the years (as in the item editor). No field uses D, E or F, which
 the browser keeps for itself. A shortcut on a disabled dropdown does nothing,
 since a disabled control cannot take focus.
+
+### How an item gets its series
+
+A nickname finds an item through its **series**, so an unclassified item is
+found only if its own text happens to contain the word. Two passes classify,
+both reporting by default and writing only with `--commit`, both run by
+`scripts\ccweb_rebuild.cmd`, and neither ever touches an item that already
+has a series -- a hand correction always stands:
+
+| Pass | Reads | Classifies |
+|---|---|---|
+| `python -m app.series_match` | title and description | coins, by the design they name |
+| `python -m app.series_classify` | denomination and year (for a note, series year and letter), then title, description, rating and seal colour as evidence | coins the text left, and all notes |
+
+`series_classify` assigns a design when the facts allow only one: a 1942 dime
+is a Winged Liberty Head, a $1 Series 1963B is a Barr Note. It leaves for a
+person what the facts cannot settle, and its report lists each case by item
+code:
+
+- **boundary** -- a year two designs share (a 1916 dime is Barber or Mercury;
+  a 1921 dollar Morgan or Peace), unless the text names one of them;
+- **conflict** -- the text names only designs the facts rule out, such as a
+  note rated "funnyback" but recorded as Series 1923. Either the text or the
+  year is wrong, and only the item in hand can say which.
+
+A third section, **disagrees**, lists items whose series is already set but
+which the facts rule out -- a Franklin Pierce dollar filed as a Franklin half,
+a Kennedy half recorded as $1. Nothing there is changed; fix the series or the
+denomination and year by hand.
+
+Some designs share their face value and years with a far commoner one --
+Hawaii and North Africa notes, commemorative halves and dollars, gold dollars,
+American Innovation dollars. They are assigned only on evidence: text naming
+them (for a note, also a brown or yellow seal). A piece that says nothing is
+taken for the common design, so an unworded commemorative half is filed as a
+Kennedy.
+
+A lot's pieces are imported carrying the lot's listing, so a title and
+description shared with another piece of the same order are not read as
+evidence about the piece; only its rating is. If the lot's text names an
+evidence-only design ("Lot of 3 Commemorative Half Dollars"), the piece goes
+to the review list instead.
+
+The designs, their year ranges and nicknames are seeded from
+`backend/data/reference/series.json`; see
+`docs/specs/series-classification-design.md` for the facts and their sources.
+Run the report and read the counts before running with `--commit` on the live
+database.
 
 ### How an item comes into being
 

@@ -84,6 +84,7 @@ from .reference import (
     SealColor,
     Series,
     SeriesAlias,
+    SeriesYearRange,
     SetForm,
     ShipmentStatus,
     SignatureCombination,
@@ -118,6 +119,9 @@ REFERENCE_MODELS: tuple[type[ReferenceMixin], ...] = (
     Metal,
     BullionForm,
     Mint,
+    # Before Series: a note design names the seal colour that is evidence
+    # for it.
+    SealColor,
     Series,
     GradeScale,
     Grade,
@@ -126,7 +130,6 @@ REFERENCE_MODELS: tuple[type[ReferenceMixin], ...] = (
     Authenticity,
     NoteType,
     NoteAttribute,
-    SealColor,
     FedDistrict,
     SignatureCombination,
     ValuationBasis,
@@ -199,6 +202,7 @@ __all__ = [
     "SealColor",
     "Series",
     "SeriesAlias",
+    "SeriesYearRange",
     "SetForm",
     "Shipment",
     "ShipmentImage",

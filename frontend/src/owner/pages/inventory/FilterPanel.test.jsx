@@ -2,8 +2,8 @@ import userEvent from '@testing-library/user-event'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import FilterPanel, { SHARED_KEYS } from './FilterPanel'
-import { COIN_VIEW, CURRENCY_VIEW } from './specs'
+import FilterPanel from './FilterPanel'
+import { COIN_VIEW, CURRENCY_VIEW, SHARED_KEYS } from './specs'
 
 const config = {
   facetFilters: [['Kind', 'kind', 'item_kind']],

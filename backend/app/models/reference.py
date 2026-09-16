@@ -16,6 +16,7 @@ import enum
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     ForeignKey,
     Integer,
     Numeric,
@@ -205,8 +206,23 @@ class Series(ReferenceMixin, Base):
     denomination_id: Mapped[int | None] = mapped_column(
         ForeignKey("denomination.id", ondelete="RESTRICT"), nullable=True
     )
+    #: The design shares its denomination and series with ordinary notes, so
+    #: those facts alone do not decide it -- a Hawaii note is a 1934 or 1935A
+    #: note like any other, apart from its seal and overprint. Such a design is
+    #: assigned only on evidence: a matching seal colour, or text naming it.
+    needs_evidence: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    #: The seal colour that is evidence for this design: brown for Hawaii,
+    #: yellow for North Africa.
+    seal_color_id: Mapped[int | None] = mapped_column(
+        ForeignKey("seal_color.id", ondelete="RESTRICT"), nullable=True
+    )
 
     aliases: Mapped[list[SeriesAlias]] = relationship(
+        back_populates="series", cascade="all, delete-orphan"
+    )
+    year_ranges: Mapped[list[SeriesYearRange]] = relationship(
         back_populates="series", cascade="all, delete-orphan"
     )
 
@@ -237,6 +253,67 @@ class SeriesAlias(Base):
     series: Mapped[Series] = relationship(back_populates="aliases")
 
     __table_args__ = (UniqueConstraint("series_id", "alias", name="uq_series_alias"),)
+
+
+class SeriesYearRange(Base):
+    """One run of years, at one denomination, in which a design was issued.
+
+    A design can need several: the Morgan dollar is 1878-1904, 1921 and 2021
+    on, and a single span would make every dollar coin since 1878 a Morgan.
+    The denomination is here, not only on the design, because some designs
+    pair different denominations with different series -- the Hawaii $1 is
+    Series 1935A, its $5 Series 1934 and 1934A. Null falls back to the
+    design's own.
+
+    ``letters`` narrows a note's series by its letter. Null means any letter,
+    or none; otherwise it lists the allowed letters, with ``*`` for no letter,
+    so ``*A`` is plain 1934 and 1934A and ``B`` is 1963B alone.
+
+    A design with no rows is matched on its own span and denomination.
+    """
+
+    __tablename__ = "series_year_range"
+
+    #: Stands for "no series letter" in `letters`.
+    NO_LETTER = "*"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    series_id: Mapped[int] = mapped_column(
+        ForeignKey("series.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    denomination_id: Mapped[int | None] = mapped_column(
+        ForeignKey("denomination.id", ondelete="RESTRICT"), nullable=True
+    )
+    year_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Null while the design is still being issued.
+    year_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    letters: Mapped[str | None] = mapped_column(String(27), nullable=True)
+
+    series: Mapped[Series] = relationship(back_populates="year_ranges")
+
+    __table_args__ = (
+        # NULLS NOT DISTINCT: most ranges have no denomination of their own,
+        # and an ordinary unique constraint treats every null as different, so
+        # a re-load could add the same coin range twice.
+        UniqueConstraint(
+            "series_id",
+            "denomination_id",
+            "year_start",
+            name="uq_series_year_range",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+
+    @classmethod
+    def allows_letter(cls, letters: str | None, letter: str | None) -> bool:
+        """Whether a note's series letter is one a range's `letters` allows.
+
+        None allows any letter, so a coin (which has none) is never excluded.
+        """
+        if letters is None:
+            return True
+        wanted = (letter or "").strip().upper() or cls.NO_LETTER
+        return len(wanted) == 1 and wanted in letters.upper()
 
 
 class Mint(ReferenceMixin, Base):
