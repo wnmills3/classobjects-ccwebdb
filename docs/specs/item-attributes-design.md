@@ -1,7 +1,7 @@
 # Item attributes and classifier aliases
 
-Design. Status: **draft for the owner's review, 2026-09-16.** Open questions are
-gathered at the end.
+Design. Status: **decisions made by the owner 2026-09-16** (at the end);
+building.
 
 ## The requests
 
@@ -196,17 +196,43 @@ every miss visible rather than defaulted.
 4. Importer rules and a re-derivation over the live data (report first).
 5. Attribute rules in the defaults pass (No Motto).
 
-## Decisions for the owner
+## Decisions (owner, 2026-09-16)
 
-1. Strike type: a new item column (MS / PR / SP / Reverse Proof ...) or
-   strike-typed grade rows?
-2. Plus grades: `MS64+` as its own grade row (with a plus flag), or a plus
-   qualifier attribute beside MS64?
-3. `PR69+`, `AU+`, `UNC+`, `BU++`: keep as your own grades, map to the plain
-   grade plus a note, or report for review?
-4. The 24 "CAC" items: record as the green sticker, or leave for review?
-5. "Godless": the $1 Series 1928-1935G run only, or every pre-motto note?
-6. The console page for aliases: in the first version, or after?
+1. **Strike type is its own field**, and compound grades are split: `PR69+`
+   is strike type PR with grade 69+; `MS65` is MS with 65; `SP68` is SP with
+   68. A grade is a Sheldon number, optionally with a plus.
+2. **Plus grades are allowed** as part of the grade number (`64+`), wherever
+   they occur, including where the services would not give one (`69+`).
+3. **Adjectival grades take the bottom of their standard range** (the
+   owner's answers, 2026-09-16, taken together):
+
+   | Adjectival | Becomes | Items |
+   |---|---|---|
+   | UNC, BU | MS 60 (Uncirculated 60-62) | 568, 233 |
+   | UNC+, BU+, CHOICE BU, CHOICE UNC | MS 63 (Choice 63-64) | 2, 0, 41, 2 |
+   | BU++, GEM BU, GEM UNC | MS 65 (Gem 65-66) | 2, 291, 15 |
+   | GEM BU++ | MS 65+ | 1 |
+   | PROOF, CHOICE PROOF | PR 63 | 615, 2 |
+   | GEM PROOF | PR 65 | 55 |
+   | AU | 55 (the owner's explicit choice) | 115 |
+   | AU+, AU++ | 55+ | 5, 1 |
+   | XF, VF, VG (and VF+, VG+) | 40, 20, 8 (20+, 8+) | 29, 16, 4 (1, 1) |
+   | note UNC, AU, XF, VF | 60, 50, 40, 20 | 112, 10, 8, 6 |
+
+   The owner first gave UNC 63 and BU 65, then placed BU with UNC (60-62),
+   BU+ with Choice (63-64) and BU++ with Gem (65-66); the later answer
+   stands. The rating as written stays in `grade_raw`.
+4. **CAC is the green sticker** unless the item was graded by CAC: a rating
+   saying CACG, or carrying a CACG-only label (First Delivery, First Day of
+   Delivery), records grading service CACG instead. Measured: 1 says CACG, 7
+   say "CAC First Delivery", 16 are stickers.
+5. **"Godless" (No Motto) is the $1 Series 1928 through 1935G only** --
+   Silver Certificates, as "In God We Trust" first appeared on some Series
+   1935G $1 notes. Series 1935G was printed both ways, so a 1935G note needs
+   evidence; 1928-1935F are always No Motto.
+6. **The console page for aliases ships in the first version** (not answered
+   explicitly; the owner console is to be a superset of what the data files
+   can say).
 
 ## Sources
 
