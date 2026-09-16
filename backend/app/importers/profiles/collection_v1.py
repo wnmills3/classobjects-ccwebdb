@@ -39,7 +39,19 @@ COL_LINK = "Link"
 COL_SHIPPING = "Shipping"
 COL_GRADING = "Grading#"
 COL_VALUE = "Value"
-COL_COMMENT = "Comment"
+#: The owner's own grade, in their own shorthand ("65", "AU/UNC"). This was
+#: the `Comment` column until 2026-09-15, when the workbook was restructured
+#: and it was renamed; the contents are unchanged, so it still loads as the
+#: item's comment. Reading the old name here would have silently dropped
+#: 2,800 of the owner's own assessments, with nothing to say so -- a missing
+#: column reads as an empty cell.
+COL_MY_RATING = "My Rating"
+#: Whether the item has actually arrived. Added 2026-09-15 to say that
+#: directly: before it, arrival was inferred from `Value`, whose markers were
+#: mixed in with appraisal amounts and could not express "not yet here" at
+#: all -- so 7,651 of 7,658 items imported as received and could never be
+#: received in the console, because they already had been.
+COL_RECEIVED = "Received"
 
 # Series name the profile matches on.
 _SILVER_EAGLE = "Silver Eagle"
@@ -324,13 +336,22 @@ WEIGHT = re.compile(
 )
 
 #: Statuses the owner recorded in the value column.
-VALUE_MARKERS = {
+#: What the `Received` column may say. An `x` is the owner's mark that the
+#: object is in hand; the rest record the ways a purchase ends without one
+#: arriving. A blank means it has not arrived -- that is the whole point of
+#: the column, so it is read as `ordered` rather than defaulted away.
+RECEIVED_MARKERS = {
     "x": "received",
     "canceled": "canceled",
     "cancelled": "canceled",
     "returned": "returned",
+    "missing": "missing",
     "counterfeit": "counterfeit",
 }
+
+#: Kept for the `Grading#` check below: these are the words that belong in
+#: `Received`, and finding one a column to the left is a typo worth naming.
+VALUE_MARKERS = RECEIVED_MARKERS
 
 
 def _decimal(text: str) -> Decimal | None:
@@ -434,6 +455,7 @@ class CollectionV1Profile:
         self._parse_year(row, issues, fields, classification.kind)
         self._check_identifiers(row, issues, classification.kind, fields)
         self._read_value_column(row, issues, fields)
+        self._read_received_column(row, issues, fields)
         self._carry_text(row, fields)
         self._parse_face_value(denom_raw, classification.kind, fields)
 
@@ -451,7 +473,10 @@ class CollectionV1Profile:
         fields["title"] = row.text(COL_DENOM)
         fields["description"] = row.text(COL_DESCRIPTION)
         fields["grade_raw"] = row.text(COL_RATING) or None
-        fields["comment"] = row.text(COL_COMMENT) or None
+        # The owner's own grade, usually a bare number ("65", "55"), kept as
+        # the item's note. `Rating` holds the seller's wording, which is not
+        # the same claim and is not always the same grade.
+        fields["comment"] = row.text(COL_MY_RATING) or None
         fields["order_number"] = row.text(COL_ORDER_NO) or None
 
         # Two different URLs, and the difference matters. `Vendor` is the
@@ -665,39 +690,72 @@ class CollectionV1Profile:
     def _read_value_column(
         self, row: RawRow, issues: list[Issue], fields: dict
     ) -> None:
-        """The value column carries either an appraisal or a status marker."""
+        """The value column is an appraisal, and since 2026-09-15 only that.
+
+        It used to carry status markers mixed in with amounts, which is what
+        `Received` now exists to say properly. A marker left here is a row
+        that was not migrated, so it is reported rather than acted on -- two
+        columns both claiming to set the status is how they come to disagree.
+        """
         text = row.text(COL_VALUE)
         if not text:
-            # An empty Value means the row has not arrived. The loader's own
-            # default is `received`, which made every unmarked row arrived and
-            # left no way for this spreadsheet to say otherwise: removing an
-            # `x` changed nothing, and 7,651 of 7,658 items imported as
-            # received. The owner's convention, confirmed 2026-09-15, is that
-            # `x` marks an arrival -- so a blank is the absence of one.
-            #
-            # An appraised amount below is NOT a blank and stays `received`:
-            # putting a value on a coin means having the coin. Applied to the
-            # collection as it stands this marks 1,009 rows `ordered` (902
-            # ordered in 2026, 107 in 2025) and leaves 6,039 appraised ones
-            # alone -- the `x` convention itself only starts in 2026.
-            fields["status_marker"] = "ordered"
             return
         if (value := _decimal(text)) is not None:
             fields["numismatic_value"] = value
             return
-        marker = VALUE_MARKERS.get(text.casefold())
-        if marker:
-            fields["status_marker"] = marker
-        else:
+        if text.casefold() in RECEIVED_MARKERS:
             issues.append(
                 Issue(
-                    rule="value-not-understood",
+                    rule="status-marker-in-value-column",
                     severity=WARNING,
                     column=COL_VALUE,
                     raw_value=text,
-                    note="neither an amount nor a known status marker",
+                    proposed=f"{COL_RECEIVED}: {text}",
+                    note=f"status is read from {COL_RECEIVED} now; move it there",
                 )
             )
+            return
+        issues.append(
+            Issue(
+                rule="value-not-understood",
+                severity=WARNING,
+                column=COL_VALUE,
+                raw_value=text,
+                note="not an appraisal amount",
+            )
+        )
+
+    def _read_received_column(
+        self, row: RawRow, issues: list[Issue], fields: dict
+    ) -> None:
+        """Whether the object is in hand, and if not, what became of it.
+
+        A blank is meaningful: it is the absence of the owner's `x`, and so
+        says the item has not arrived. Anything unrecognised is also treated
+        as not arrived, and warned about -- an item wrongly left `ordered`
+        can be received in the console in one click, while one wrongly marked
+        `received` silently drops out of everything that asks what is still
+        outstanding.
+        """
+        text = row.text(COL_RECEIVED)
+        if not text:
+            fields["status_marker"] = "ordered"
+            return
+        marker = RECEIVED_MARKERS.get(text.casefold())
+        if marker:
+            fields["status_marker"] = marker
+            return
+        fields["status_marker"] = "ordered"
+        issues.append(
+            Issue(
+                rule="received-not-understood",
+                severity=WARNING,
+                column=COL_RECEIVED,
+                raw_value=text,
+                proposed="x, or one of canceled/returned/missing/counterfeit",
+                note="not a known arrival marker; treated as not yet arrived",
+            )
+        )
 
 
 def _as_date(text: str) -> date | None:

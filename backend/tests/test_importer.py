@@ -36,7 +36,8 @@ HEADERS = [
     "Shipping",
     "Grading#",
     "Value",
-    "Comment",
+    "Received",
+    "My Rating",
 ]
 
 
@@ -302,50 +303,85 @@ def test_a_status_marker_is_not_recorded_as_a_certificate_or_serial(
     assert field not in result.fields
 
 
-def test_value_column_carries_amount_or_status(profile: CollectionV1Profile) -> None:
+def test_value_column_is_an_appraisal_and_no_longer_a_status(
+    profile: CollectionV1Profile,
+) -> None:
+    """`Received` owns the status now; `Value` is money.
+
+    A marker left behind in `Value` is a row the owner has not migrated, so
+    it is reported rather than obeyed -- two columns both setting the status
+    is how they come to disagree.
+    """
     assert profile.inspect(make_row(Denom="1", Value="50")).fields[
         "numismatic_value"
     ] == Decimal("50")
-    assert (
-        profile.inspect(make_row(Denom="1", Value="x")).fields["status_marker"]
-        == "received"
-    )
-    assert (
-        profile.inspect(make_row(Denom="1", Value="Canceled")).fields["status_marker"]
-        == "canceled"
-    )
+
+    stale = profile.inspect(make_row(Denom="1", Value="x", Received="x"))
+    assert any(i.rule == "status-marker-in-value-column" for i in stale.issues)
+    assert stale.fields["status_marker"] == "received"
+
     unknown = profile.inspect(make_row(Denom="1", Value="???"))
     assert any(i.rule == "value-not-understood" for i in unknown.issues)
 
 
-def test_a_blank_value_means_the_row_has_not_arrived(
+def test_the_received_column_decides_whether_an_item_is_in_hand(
     profile: CollectionV1Profile,
 ) -> None:
-    """An empty Value is the absence of the `x` that marks an arrival.
+    """An `x` is the owner's mark that the object arrived."""
 
-    The loader's own default is `received`, so before this an unmarked row
-    imported as arrived and the spreadsheet had no way to say otherwise --
-    removing an `x` changed nothing at all.
+    def marker(**cells: str) -> str:
+        return profile.inspect(make_row(Denom="1", **cells)).fields["status_marker"]
+
+    assert marker(Received="x") == "received"
+    assert marker(Received="X") == "received"
+    assert marker(Received="Canceled") == "canceled"
+    assert marker(Received="returned") == "returned"
+    assert marker(Received="missing") == "missing"
+
+
+def test_a_blank_received_cell_means_the_item_has_not_arrived(
+    profile: CollectionV1Profile,
+) -> None:
+    """The blank is the point of the column, not a missing value.
+
+    The loader's own default is `received`. Before `Received` existed every
+    unmarked row imported as arrived, so 7,651 of 7,658 items could never be
+    received in the console -- they already had been.
     """
     assert (
-        profile.inspect(make_row(Denom="1", Value="")).fields["status_marker"]
+        profile.inspect(make_row(Denom="1", Received="")).fields["status_marker"]
         == "ordered"
     )
     assert profile.inspect(make_row(Denom="1")).fields["status_marker"] == "ordered"
 
 
-def test_an_appraised_row_is_arrived_even_though_it_has_no_marker(
+def test_an_unreadable_received_cell_is_warned_and_left_unarrived(
     profile: CollectionV1Profile,
 ) -> None:
-    """Putting a value on a coin means having the coin.
+    """Seven rows say "?". Not arrived is the recoverable reading of that.
 
-    6,039 of 7,653 rows carry an amount here rather than a marker, and the
-    `x` convention only starts in 2026 -- reading "not an x" as "not arrived"
-    would report the whole collection as still on its way.
+    An item wrongly left `ordered` is received in the console in one click;
+    one wrongly marked `received` drops silently out of everything that asks
+    what is still outstanding.
     """
-    fields = profile.inspect(make_row(Denom="1", Value="50")).fields
-    assert fields.get("status_marker") != "ordered"
-    assert fields["numismatic_value"] == Decimal("50")
+    result = profile.inspect(make_row(Denom="1", Received="?"))
+    assert result.fields["status_marker"] == "ordered"
+    assert any(i.rule == "received-not-understood" for i in result.issues)
+
+
+def test_the_owners_own_grade_is_carried_across(
+    profile: CollectionV1Profile,
+) -> None:
+    """`My Rating` is the old `Comment` column, renamed 2026-09-15.
+
+    Reading the old name would drop it silently: a column that is not there
+    reads exactly like an empty cell.
+    """
+    fields = profile.inspect(
+        make_row(Denom="1", Rating="Gem Proof", **{"My Rating": "65"})
+    ).fields
+    assert fields["comment"] == "65"
+    assert fields["grade_raw"] == "Gem Proof"
 
 
 def test_series_letter_is_not_a_mint_mark(profile: CollectionV1Profile) -> None:
@@ -572,7 +608,7 @@ def test_empty_column_is_flagged_for_dropping() -> None:
     from app.importers.profiling import EMPTY
 
     rows = [make_row(i, Denom="0.25") for i in range(2, 10)]
-    assert _profiled(rows)["Comment"].recommendation == EMPTY
+    assert _profiled(rows)["My Rating"].recommendation == EMPTY
 
 
 def test_variants_point_the_rare_spelling_at_the_dominant_one() -> None:

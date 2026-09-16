@@ -1388,3 +1388,58 @@ present state, and `image_role` defaults to `unassigned` rather than guessing.
 
 Phase 5's image import gains steps 1–6 above and a test asserting a cleansed
 sample retains no EXIF, GPS or IPTC and is rotated upright.
+
+## 19. Amendment I — the workbook says what has arrived
+
+Superseded by this amendment: §13 (Amendment C, "receipt status resolved"),
+whose rule was that an item's status comes from the `Value` column's markers.
+
+### The problem
+
+`Value` carried two unrelated things: an appraisal amount, and occasionally a
+status marker. The loader's own `DEFAULT_STATUS` is `received`, and the
+markers could only ever *override* it — `x` → received, plus
+canceled/returned/counterfeit. **None of them meant "not here yet."**
+
+So the workbook had no way to say an item had not arrived. Removing an `x`
+from a row changed nothing at all: it fell straight back to the default.
+On 2026-09-15 this showed as 7,651 of 7,658 items sitting in `received`,
+with nothing outstanding anywhere — and therefore nothing that *could* be
+received in the console, because everything already had been.
+
+### The change
+
+The workbook gained a **`Received`** column, which says it directly:
+
+| cell | status |
+|---|---|
+| `x` | `received` |
+| blank | `ordered` — the absence of the mark is the point of the column |
+| `canceled` / `returned` / `missing` / `counterfeit` | that |
+| anything else | `ordered`, and warned (`received-not-understood`) |
+
+An unreadable cell reads as **not** arrived on purpose. An item wrongly left
+`ordered` is received in the console in one click; one wrongly marked
+`received` drops silently out of every question about what is outstanding.
+
+`Value` is now an appraisal and only that. A marker left behind in it is
+reported (`status-marker-in-value-column`) rather than obeyed — two columns
+both setting the status is how they come to disagree.
+
+The `Comment` column was renamed **`My Rating`**; it holds the owner's own
+grade, usually a bare number, and still loads as the item's note. The
+importer had to be told, because a column that is not there reads exactly
+like an empty cell: 2,800 assessments would have vanished silently.
+
+### Consequence
+
+First import under this rule, 2026-09-15: 7,570 `received`, **80 `ordered`**
+(73 blank, 7 `?`), 4 canceled, 3 returned, 1 missing — and 12 purchase orders
+with something outstanding, where there had been none.
+
+**Item codes are issued in row order.** The workbook was re-sorted before this
+import, so 1,121 codes now name a different purchase record than they did.
+Anything outside the database that quotes a `CC-` number from before
+2026-09-15 no longer refers to what it did. This is the cost of treating the
+workbook as the authority after the database became the system of record, and
+is the last time it should be paid: entry now happens in the console.
