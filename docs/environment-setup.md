@@ -71,10 +71,20 @@ winget install --id astral-sh.uv --source winget ^
 
 ### Two environment variables make uv behave the way this project expects
 
+Run these in **cmd**, with `ccwebdb` active, so the paths come from the
+activated environment rather than from `%USERPROFILE%` -- which is not set in
+every shell, and which PowerShell does not expand at all (there it is
+`$env:USERPROFILE`):
+
 ```cmd
-setx UV_CACHE_DIR "%USERPROFILE%\dev\uv\cache"
-setx UV_PROJECT_ENVIRONMENT "%USERPROFILE%\miniforge3\envs\ccwebdb"
+conda activate ccwebdb
+setx UV_PROJECT_ENVIRONMENT "%CONDA_PREFIX%"
+for %I in ("%CONDA_PREFIX%\..\..\..") do setx UV_CACHE_DIR "%~fI\dev\uv\cache"
 ```
+
+`setx` stores the expanded value, so check what landed with
+`reg query HKCU\Environment /v UV_PROJECT_ENVIRONMENT` -- it should name the
+`ccwebdb` folder, not contain `%`.
 
 - `UV_CACHE_DIR` — keeps uv's package and interpreter cache somewhere you chose
   rather than `%LOCALAPPDATA%`.

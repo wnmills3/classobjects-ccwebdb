@@ -14,7 +14,9 @@ rem  the standard PG* variables before calling, e.g. set PGDATABASE=ccwebdb_test
 rem ---------------------------------------------------------------------------
 setlocal
 
-set "PGBIN=%USERPROFILE%\miniforge3\envs\ccwebdb\Library\bin"
+rem  Put the ccwebdb conda environment in play and take ENVDIR and PGBIN
+rem  from it, rather than from a guessed path. See ccweb_env.cmd.
+call "%~dp0ccweb_env.cmd" || exit /b 2
 
 if not defined PGHOST     set "PGHOST=localhost"
 if not defined PGPORT     set "PGPORT=5432"

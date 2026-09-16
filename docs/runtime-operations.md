@@ -16,8 +16,11 @@ scripts\ccweb_status.cmd               what is running, and what to run next
 scripts\ccweb_startup.cmd              start database, backend and frontend
 scripts\ccweb_shutdown.cmd             stop everything
 scripts\ccweb_shutdown.cmd /keepdb     stop the servers, leave PostgreSQL running
-scripts\ccweb_claude.cmd [name]        activate the env and start Claude Code
+scripts\ccweb_claude.cmd [name]        start Claude Code with the env in play
 ```
+
+**No need to activate the conda environment first.** Every script puts
+`ccwebdb` in play itself -- see *The conda environment* below.
 
 The scripts locate the repository from their own path, so they also work
 when called from anywhere else:
@@ -42,14 +45,58 @@ C:\Users\wnmil\dev\classobjects-ccwebdb\scripts\ccweb_startup.cmd
 
 ---
 
+## The conda environment
+
+Every script calls `scripts\ccweb_env.cmd` before it starts anything. It
+uses `ccwebdb` if that is already active, and activates it if not, so running
+a script from a shell where you activated it by hand adds no further layer
+(`CONDA_SHLVL` is unchanged), and running one from a plain window activates it
+exactly once. The activation lives only as long as the script: your own shell
+is left as it was.
+
+Activating matters even though the scripts name their programs by full path.
+The full path fixes *which* python runs, not what environment it runs in.
+Packages go wherever the environment in play points -- uv follows
+`UV_PROJECT_ENVIRONMENT`, conda follows `CONDA_PREFIX` -- and every process a
+script starts inherits the same variables. With `ccwebdb` active, the installer
+and the running servers are pointed at one environment rather than trusted to
+agree. A console opened by `ccweb_startup.cmd` sees `CONDA_DEFAULT_ENV`,
+`CONDA_PREFIX` and `UV_PROJECT_ENVIRONMENT` all naming `ccwebdb`.
+
+The helper also does not assume `%USERPROFILE%` is set. When it is missing or
+names a folder that does not exist, it is set from `HOMEDRIVE`+`HOMEPATH`, and
+failing that from `%SystemDrive%\Users\%USERNAME%`; `APPDATA` and
+`LOCALAPPDATA` are filled in the same way when absent. This is not cosmetic:
+conda finds its configuration through the home directory, and without one
+`conda activate` stops with *Could not determine home directory* before doing
+anything. uv and npm keep their caches under those folders too.
+
+Conda is found through `CONDA_EXE`, then `conda.bat` on `PATH`, then the
+home directory. On this machine `conda init` registered a cmd `AutoRun` hook
+(`HKCU\Software\Microsoft\Command Processor`) that puts `condabin` on `PATH`
+in every new cmd window, by absolute path -- so conda is found even when the
+profile variables are not.
+
+> Conda itself (26.5.3) runs PowerShell inside `_conda_activate.bat`, to make
+> a GUID for a temporary file name. That is upstream, not this project, and
+> activation still succeeds without PowerShell.
+
+---
+
 ## Checking what is running
 
 ```cmd
 scripts\ccweb_status.cmd
 ```
 
-Reports each service, then either the URLs or the command to start what is
-missing. It starts and stops nothing.
+Reports the environment and each service, then either the URLs or the
+command to start what is missing. It starts and stops nothing.
+
+The first line says whether `ccwebdb` was **active in this shell** or was
+**activated for this check** -- the second is normal, and means you did not
+need to activate it yourself. **NOT AVAILABLE** means the environment could
+not be put in play at all; PostgreSQL is then reported as *UNKNOWN*, because
+with no `pg_isready` to ask, a failed check looks exactly like "stopped".
 
 Each service is checked **twice** where it can be. A listening port only says
 something holds it, not that it answers: a backend that is wedged, still
@@ -70,7 +117,7 @@ Exit codes, so a caller can branch on it:
 |---|---|
 | 0 | everything required is up |
 | 1 | something required is down or degraded |
-| 2 | the environment itself is not ready -- missing conda env, no PostgreSQL cluster, or no `node_modules` |
+| 2 | the environment itself is not ready -- `ccwebdb` cannot be activated, no PostgreSQL cluster, or no `node_modules` |
 
 A code of 2 is checked only when something is already down: a missing cluster
 matters when you are about to start PostgreSQL and is noise when it is running.
