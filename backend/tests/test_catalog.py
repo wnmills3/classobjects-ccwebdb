@@ -11,7 +11,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.models import ItemStatusHistory, Listing
+from app.models import (
+    ItemStatusHistory,
+    Listing,
+    ListingFormat,
+    SalesVenue,
+    SalesVenueKind,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -156,6 +162,47 @@ def test_catalogue_never_exposes_cost_basis_or_location(
         "notes_raw",
     }
     assert not (set(body) & forbidden), f"leaked: {sorted(set(body) & forbidden)}"
+
+
+def _ebay(db: Session) -> int:
+    kind = db.scalar(
+        select(SalesVenueKind.id).where(SalesVenueKind.code == "marketplace")
+    )
+    venue = SalesVenue(code="ebay-catalog-test", name="eBay", sales_venue_kind_id=kind)
+    db.add(venue)
+    db.commit()
+    return venue.id
+
+
+def test_the_catalogue_hides_other_platforms_and_auctions(
+    client: TestClient,
+    listing: Listing,
+    make_listing: Callable[..., Listing],
+    db: Session,
+) -> None:
+    make_listing(sales_venue_id=_ebay(db))
+    make_listing(format=ListingFormat.auction)
+
+    body = client.get("/api/catalog").json()
+
+    assert body["total"] == 1
+    assert [item["id"] for item in body["items"]] == [listing.id]
+
+
+def test_a_listing_on_another_platform_is_not_found_in_the_shop(
+    client: TestClient, make_listing: Callable[..., Listing], db: Session
+) -> None:
+    ebay_listing = make_listing(sales_venue_id=_ebay(db))
+
+    assert client.get(f"/api/catalog/{ebay_listing.id}").status_code == 404
+
+
+def test_an_auction_listing_is_not_found_in_the_shop(
+    client: TestClient, make_listing: Callable[..., Listing]
+) -> None:
+    auction_listing = make_listing(format=ListingFormat.auction)
+
+    assert client.get(f"/api/catalog/{auction_listing.id}").status_code == 404
 
 
 # --------------------------------------------------------------------------
