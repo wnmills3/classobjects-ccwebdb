@@ -834,8 +834,15 @@ def test_out_of_range_numbers_are_not_grades() -> None:
     # The Sheldon scale runs 1-70 with a valid band per prefix. Without that
     # check, prose yields "F73" and "G63" and they become permanent rows in a
     # vocabulary meant to be shared with other installations.
-    for text in ("F73", "G63", "AU8", "PR10", "P70"):
+    for text in ("F73", "G63", "AU8", "PR10", "P5", "P45"):
         assert parse_condition(text).grade is None, text
+
+
+def test_p_before_a_mint_state_number_is_a_proof() -> None:
+    # "P70DCAM PCGS" (12 items): P is PCGS's proof shorthand where the number
+    # is 60-70, and Poor only at 1.
+    assert parse_condition("P70DCAM PCGS").grade == "PR70"
+    assert parse_condition("P1").grade == "P1"
 
 
 def test_separator_variants_reach_the_same_seeded_grade() -> None:
