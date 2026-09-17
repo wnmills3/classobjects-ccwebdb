@@ -727,12 +727,12 @@ vocabulary value.
 
 A platform's **default fees** -- commission and processing rates, a fixed
 processing charge, a per-listing fee -- are estimates only, for pricing an
-item before it sells; the sale itself records what was actually charged.
-**Nothing is seeded.** Platform terms change and differ by account and
-category, so an administrator enters them from their own account, along with
-the date they were read (**Fees as of**), shown beside every estimate. Rates
-are typed as a percentage (`13.25`) and stored as the fraction the database
-and API use (`0.1325`).
+item before it sells; recording what a sale actually charged is a later
+phase, not part of what is built yet. **Nothing is seeded.** Platform terms
+change and differ by account and category, so an administrator enters them
+from their own account, along with the date they were read (**Fees as of**),
+shown beside every estimate. Rates are typed as a percentage (`13.25`) and
+stored as the fraction the database and API use (`0.1325`).
 
 ### Cleaning up purchase sources
 

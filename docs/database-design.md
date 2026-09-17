@@ -596,10 +596,11 @@ sells through it, without renaming or duplicating `vendor`.
 
 `commission_rate` and `processing_rate` are fractions (`numeric(6,4)`, `0.1325`
 is 13.25%); `processing_fixed` and `listing_fee` are `numeric(12,2)`. All four
-are nullable and are **defaults for estimating a sale's net**, never the fees
-actually charged — an actual sale records what the platform's statement shows.
-`terms_as_of` is the date those defaults were last read from the platform, kept
-beside every estimate rather than trusted indefinitely.
+are nullable and hold **defaults for estimating a sale's net**, not fees
+actually charged — recording what a platform actually charged is a later
+phase (`docs/specs/selling-design.md`), not built here. `terms_as_of` is the
+date those defaults were last read from the platform, kept beside every
+estimate rather than trusted indefinitely.
 
 ### `listing` gains a platform, a format and a status
 
@@ -610,7 +611,7 @@ beside every estimate rather than trusted indefinitely.
 | `status` | `active` \| `paused` \| `ended` |
 | `is_active` | **generated** from `status` — see §13 |
 | `external_id` | the platform's own listing number, nullable |
-| `external_url` | the listing's page there, nullable; derived from the platform's `listing_url_template` when not given |
+| `external_url` | the listing's page on that platform, nullable |
 
 The public catalogue and checkout accept only listings where
 `sales_venue.is_own_store`, `format = fixed_price` and `status = active`.
@@ -739,8 +740,8 @@ safe direction.
 
 ## 13. Implementation notes
 
-Three places where the built schema departs from the description above, each
-for a concrete reason.
+Places where the built schema departs from the description above, each for a
+concrete reason.
 
 **`order` is `sales_order`.** `order` is a reserved word in SQL, so every
 reference to it in a view or hand-written query would need quoting. The tables
