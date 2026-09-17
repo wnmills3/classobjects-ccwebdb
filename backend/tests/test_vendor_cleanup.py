@@ -205,6 +205,59 @@ def test_a_vendor_can_be_renamed(db: Session) -> None:
     assert db.get(Vendor, vendor.id).name == "bullionsharks.com"
 
 
+def test_a_rename_carries_the_host_and_url_with_it(db: Session) -> None:
+    """A misspelt source misspells its host too, and the importer matches on host.
+
+    `ampex.com` was really apmex.com: the row's host and URL repeated the
+    typo, so a later purchase from the real site would have made a second
+    vendor rather than matching this one.
+    """
+    vendor = Vendor(name="ampex.com", host="www.ampex.com", url="https://www.ampex.com")
+    db.add(vendor)
+    db.commit()
+
+    run(
+        db,
+        merges=[],
+        kinds=[],
+        deletes=[],
+        renames=[(vendor.id, "apmex.com")],
+        commit=True,
+    )
+
+    db.expire_all()
+    renamed = db.get(Vendor, vendor.id)
+    assert renamed.name == "apmex.com"
+    assert renamed.host == "www.apmex.com"
+    assert renamed.url == "https://www.apmex.com"
+
+
+def test_a_rename_leaves_an_unrelated_host_and_url_alone(db: Session) -> None:
+    """Only text that repeated the old name is rewritten."""
+    vendor = Vendor(
+        name="the-coin-shop",
+        host="shop.example.com",
+        url="https://shop.example.com/store",
+    )
+    db.add(vendor)
+    db.commit()
+
+    run(
+        db,
+        merges=[],
+        kinds=[],
+        deletes=[],
+        renames=[(vendor.id, "coin-shop")],
+        commit=True,
+    )
+
+    db.expire_all()
+    renamed = db.get(Vendor, vendor.id)
+    assert renamed.name == "coin-shop"
+    assert renamed.host == "shop.example.com"
+    assert renamed.url == "https://shop.example.com/store"
+
+
 def test_a_rename_to_an_existing_name_is_refused(db: Session) -> None:
     """`uq_vendor_name` would fail at flush; the refusal names both."""
     vendor = _vendor(db, "one.example")
