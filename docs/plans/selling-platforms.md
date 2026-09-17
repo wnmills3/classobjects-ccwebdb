@@ -2795,6 +2795,19 @@ git commit -m "Document sales platforms and the purchase-source clean-up"
 
 **Files:** none.
 
+- [ ] **Step 0: Capture the baseline BEFORE anything runs.** Step 3 compares
+  the upgraded scratch copy against live's numbers; taken *after* the
+  migration they would be the migration's own output compared with itself,
+  which proves nothing. Save them to a file, so the comparison is against a
+  record rather than a memory of scrollback:
+
+```cmd
+.\scripts\ccweb_psql.cmd -c "select count(*) as listings, count(*) filter (where is_active) as active from listing" > baseline.txt
+.\scripts\ccweb_psql.cmd -c "select count(*) as orders from sales_order" >> baseline.txt
+```
+
+  Show `baseline.txt` to the owner and keep it until step 6 passes.
+
 - [ ] **Step 1: Owner's go-ahead** to apply the migration and remove the five
   demo listings (CC-007657..CC-007661). Do not proceed without it.
 
@@ -2811,9 +2824,36 @@ select count(*) from sales_order;
 select code, name, is_own_store from sales_venue;
 ```
 
-  The listing counts must equal live's `count(*)` and
-  `count(*) filter (where is_active)` from before. Drop the scratch copy
-  afterwards.
+  The listing counts must equal `baseline.txt`'s `listings` and `active` from
+  step 0, and the order count its `orders`.
+
+  Then the same question per row, which a total cannot answer -- a backfill
+  that set every listing to one status satisfies a count and fails these.
+  **Both must be 0:**
+
+```sql
+select count(*) from listing where is_active <> (status = 'active');
+select count(*) from listing where sales_venue_id is null;
+```
+
+- [ ] **Step 3b: Rehearse the downgrade on the scratch copy.** The way back is
+  only ever proved by walking it, and this is the last moment it is free. With
+  `DATABASE_URL` still pointing at `ccwebdb_platformcheck`:
+
+```cmd
+.\scripts\ccweb_env.cmd && cd backend && alembic downgrade -1
+```
+
+  Confirm the listings survived with `is_active` intact -- these must match
+  `baseline.txt` again, now that `status` is gone:
+
+```sql
+select count(*) as listings, count(*) filter (where is_active) as active from listing;
+```
+
+  Then `alembic upgrade head` once more to leave the copy where step 3 had it,
+  and **drop the scratch copy** (`dropdb ccwebdb_platformcheck`). Only live
+  remains after this step.
 
 - [ ] **Step 4: Live.** Stop the backend (`.\scripts\ccweb_shutdown.cmd --keepdb`
   from Git Bash, or the console equivalent), run `alembic upgrade head` and
@@ -2830,3 +2870,19 @@ select code, name, is_own_store from sales_venue;
 - [ ] **Step 6: Verify** in the browser at `http://127.0.0.1:5173/owner/platforms`
   that the web store is listed, and that `http://127.0.0.1:8000/api/catalog`
   returns an empty list.
+
+**If Task 2 has not run yet, it changes once this task has.** Task 2's live
+vendor clean-up was written for a vendor list nothing else pointed at. After
+this task, `sales_venue.vendor_id` exists and is ON DELETE RESTRICT, so a
+vendor a platform names as its purchase source can no longer be deleted or
+merged away. Re-read the platform links before agreeing the flags:
+
+```cmd
+.\scripts\ccweb_psql.cmd -c "select v.code, v.name, ven.id, ven.name from sales_venue v join vendor ven on ven.id = v.vendor_id"
+```
+
+Any vendor in that list must be unlinked on the Platforms page before it can
+be a `--delete` or the source of a `--merge`. The pass itself refuses cleanly
+-- `REFUSED: <vendor> is the purchase source for platform <code>; unlink it
+first`, nothing written -- rather than failing with a database traceback, so
+a forgotten link costs a re-run and not a repair.
