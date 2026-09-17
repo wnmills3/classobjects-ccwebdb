@@ -710,6 +710,49 @@ recorded errors, images and vocabulary merges do not ask either.
 Both edit windows -- an inventory item's and an order's -- take Alt plus the
 underlined letter to jump to a field, and Ctrl+S or Ctrl+Enter to save.
 
+## Sales platforms
+
+**Platforms** (`/owner/platforms`, beside Vocabularies) lists every platform
+the business sells through -- the web store, eBay, Whatnot, an auction house
+-- with its kind, an optional link to the purchase source of the same name,
+account handle, listing-link template and default fees.
+
+The **web store platform is created by the migration**, not entered by hand:
+every existing listing and order is pointed at it, so a listing has always
+named a platform. It is the one row whose kind cannot be changed and which
+cannot be retired -- checkout and the public catalogue are defined by it, so
+the console hides those controls for it and the API refuses both changes with
+422. Every other platform is added on this page and may be retired like a
+vocabulary value.
+
+A platform's **default fees** -- commission and processing rates, a fixed
+processing charge, a per-listing fee -- are estimates only, for pricing an
+item before it sells; the sale itself records what was actually charged.
+**Nothing is seeded.** Platform terms change and differ by account and
+category, so an administrator enters them from their own account, along with
+the date they were read (**Fees as of**), shown beside every estimate. Rates
+are typed as a percentage (`13.25`) and stored as the fraction the database
+and API use (`0.1325`).
+
+### Cleaning up purchase sources
+
+Sales platforms link to a `vendor` row as their purchase source, so before
+platforms could be introduced the vendor list -- one row per spelling the
+importer met, including typos and vendors with no kind set -- needed tidying:
+
+    python -m app.vendor_cleanup                                        report, touching nothing
+    python -m app.vendor_cleanup --merge 15:12 --kind 19:marketplace --commit   write the changes
+
+Like the other passes above, it defaults to a dry run and writes only with
+`--commit`. `--merge <from>:<into>` moves the purchase orders from one vendor
+onto another and removes the duplicate (a vendor row holds no history of its
+own); it is refused if both vendors used the same order number, since merging
+would collide them. `--kind <vendor>:<code>` sets a vendor's `vendor_kind`.
+`--delete <vendor>` removes a vendor with no purchase orders left. Every
+change is named on the command line -- which vendors are the same business is
+the owner's call, not something the script guesses -- and the report lists
+what was done, or would be done, by name.
+
 ## Reference vocabularies
 
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows

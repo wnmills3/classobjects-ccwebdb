@@ -245,6 +245,7 @@ and `source` (`seeded | derived | manual`). `code` is stable and machine-facing;
 | `storage_location_kind` | where things live | safe_deposit_box, safe, home, in_transit, sold, unknown |
 | `carrier` | shipping carrier | USPS, UPS, FedEx, DHL |
 | `vendor_kind` | acquisition channel | marketplace, auction, mint, dealer |
+| `sales_venue_kind` | how a sales platform sells | own_store, marketplace, live_auction, auction_house |
 
 ### Errors
 
@@ -538,8 +539,16 @@ Originals are never served. Public requests are answered only from
 ## 9. Sales
 
 ```
+sales_venue                   -- a platform the business sells through
+  id, code, name, sales_venue_kind_id, is_own_store, vendor_id null
+  account_handle, listing_url_template
+  commission_rate, processing_rate, processing_fixed, listing_fee, terms_as_of
+  notes, is_active, version
+
 listing                       -- what is offered, and at what price
-  id, inventory_item_id, price, currency_id, is_active, listed_at, ended_at
+  id, inventory_item_id, price, currency_id, quantity_available
+  sales_venue_id, format, status, is_active, external_id, external_url
+  listed_at, ended_at
 
 customer
   id, user_id null, display_name, email, phone
@@ -549,7 +558,9 @@ address
   line1, line2, city, region, postal_code, country_id
   is_default, valid_from, valid_to
 
-order        id, customer_id, order_status_id, total_amount, placed_at
+order
+  id, customer_id, sales_venue_id, external_order_id
+  order_status_id, total_amount, placed_at
 order_item   id, order_id, listing_id, quantity, unit_price
 
 shipment
@@ -567,6 +578,55 @@ partial receipt does on the buying side.
 
 Addresses carry validity dates because customers move, and historical orders
 must still show where they were actually sent.
+
+### `sales_venue` — where an item is offered
+
+`listing` implicitly meant "in our web store" until platforms existed to say
+otherwise. Every listing and every order now names one: `sales_venue_id` is not
+null on both, so an offer or a sale is always attributable to a platform, and
+the store is a platform like any other rather than a default nobody records.
+
+A `sales_venue` is the owner's own account on a platform, not shipped reference
+data — another installation sells elsewhere. Exactly one row has
+`is_own_store = true` (a partial unique index enforces it); a migration creates
+that row, and its kind can never change. `vendor_id` is a nullable, unique
+foreign key to `vendor`: it links the platform to the same business as a
+purchase source, so eBay is one partner whether the collection buys from it or
+sells through it, without renaming or duplicating `vendor`.
+
+`commission_rate` and `processing_rate` are fractions (`numeric(6,4)`, `0.1325`
+is 13.25%); `processing_fixed` and `listing_fee` are `numeric(12,2)`. All four
+are nullable and are **defaults for estimating a sale's net**, never the fees
+actually charged — an actual sale records what the platform's statement shows.
+`terms_as_of` is the date those defaults were last read from the platform, kept
+beside every estimate rather than trusted indefinitely.
+
+### `listing` gains a platform, a format and a status
+
+| Column | Notes |
+|---|---|
+| `sales_venue_id` | fk `sales_venue`, not null |
+| `format` | `fixed_price` \| `auction` |
+| `status` | `active` \| `paused` \| `ended` |
+| `is_active` | **generated** from `status` — see §13 |
+| `external_id` | the platform's own listing number, nullable |
+| `external_url` | the listing's page there, nullable; derived from the platform's `listing_url_template` when not given |
+
+The public catalogue and checkout accept only listings where
+`sales_venue.is_own_store`, `format = fixed_price` and `status = active`.
+
+### `order` (`sales_order`) gains a platform
+
+| Column | Notes |
+|---|---|
+| `sales_venue_id` | fk `sales_venue`, not null |
+| `external_order_id` | the platform's own order number, for a sale made elsewhere; nullable |
+
+### `sales_venue_kind` (vocabulary)
+
+Added to the reference tables in §4: `own_store`, `marketplace` (fixed-price
+listings on eBay, Whatnot), `live_auction` (eBay Live, Whatnot shows),
+`auction_house` (Heritage, HiBid, selling through an agent).
 
 ---
 
@@ -712,3 +772,15 @@ reflects tables only, so views are created and dropped explicitly from the
 definitions in `app/models/views.py`. Two consequences worth knowing: a test
 database built with `create_all` needs the views created separately, and a
 downgrade must drop the views before the tables they read.
+
+**`listing.is_active` is generated from `status`, not written directly.**
+Sales platforms added `format` and `status` (`active | paused | ended`) so a
+listing can be paused while its item is offered elsewhere, without losing the
+column every earlier reader — checkout, the public catalogue, the for-sale
+edit warning — already filters on. Rather than update every one of those
+readers to a three-valued status, `is_active` became
+`GENERATED ALWAYS AS (status = 'active') STORED`: it cannot be written (only
+`status` can), and every existing query keeps its old meaning for free. The
+migration backfills `status` from the pre-existing `is_active` boolean before
+dropping and regenerating the column, so no listing's active/inactive meaning
+changes across the upgrade.
