@@ -57,6 +57,11 @@ const REVIEWABLE = {
   metal: 'metal_id',
 }
 
+//: Classifiers a banknote does not have, so its form does not offer them.
+//: The API agrees: both are coin-view columns in `inventory_search`, and
+//: neither exists on the currency view.
+const COIN_ONLY = new Set(['strike_type', 'metal'])
+
 const CLASSIFIERS = [
   // A coin's grade is a number; its strike type says whether 65 is MS65 or
   // PR65. A note has no strike type, so the box is not shown for one.
@@ -581,7 +586,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       )}
 
       {CLASSIFIERS.filter(
-        ([, key]) => key !== 'strike_type' || value('item_kind') !== 'currency',
+        ([, key]) => !COIN_ONLY.has(key) || value('item_kind') !== 'currency',
       ).map(([label, key, table, letter]) => (
         <label key={key} className="field">
           <AccessLabel text={label} accessKey={letter} />

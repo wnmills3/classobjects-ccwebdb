@@ -76,6 +76,7 @@ function InventoryView({ config }) {
       </button>
 
       <BulkEditBar
+        view={config.view}
         ids={selected}
         onApplied={() => {
           setSelected([])

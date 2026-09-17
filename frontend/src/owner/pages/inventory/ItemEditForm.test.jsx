@@ -170,6 +170,13 @@ describe('Grade choices', () => {
         { code: 'business', label: 'Business Strike', source: 'seeded', extra: {} },
         { code: 'proof', label: 'Proof', source: 'seeded', extra: {} },
       ],
+      // Present so the metal picker renders as a dropdown: with no values
+      // `ReferenceSelect` falls back to a plain input, and a test asking for
+      // a combobox would pass for a note whether or not the field was shown.
+      metal: [
+        { code: 'silver', label: 'Silver', source: 'seeded', extra: {} },
+        { code: 'gold', label: 'Gold', source: 'seeded', extra: {} },
+      ],
     },
   })
 
@@ -209,6 +216,18 @@ describe('Grade choices', () => {
   it('does not ask a note for a strike type', async () => {
     await gradeOptions('currency')
     expect(screen.queryByRole('combobox', { name: 'strike_type' })).toBeNull()
+  })
+
+  // Paper has no metal. The field belongs to the coin view on the API too:
+  // `metal` is a coin-view column and filter, absent from the currency view.
+  it('asks a coin for its metal', async () => {
+    await gradeOptions('coin')
+    expect(screen.getByRole('combobox', { name: 'metal' })).toBeInTheDocument()
+  })
+
+  it('does not ask a note for a metal', async () => {
+    await gradeOptions('currency')
+    expect(screen.queryByRole('combobox', { name: 'metal' })).toBeNull()
   })
 })
 
