@@ -13,11 +13,14 @@ from typing import Any
 from app.models import (
     Customer,
     Listing,
+    ListingFormat,
     ListingStatus,
     SalesOrder,
     SalesOrderChange,
     SalesOrderChangeKind,
     SalesOrderStatus,
+    SalesVenue,
+    SalesVenueKind,
     User,
 )
 from app.sales_venues import store_venue_id
@@ -210,6 +213,53 @@ def _place(
         json={"items": [{"listing_id": listing_id, "quantity": qty}]},
         headers=headers,
     ).json()
+
+
+def _place_response(
+    client: TestClient, headers: dict[str, str], listing_id: int, qty: int
+) -> Response:
+    return client.post(
+        "/api/orders",
+        json={"items": [{"listing_id": listing_id, "quantity": qty}]},
+        headers=headers,
+    )
+
+
+def _ebay(db: Session) -> int:
+    kind = db.scalar(
+        select(SalesVenueKind.id).where(SalesVenueKind.code == "marketplace")
+    )
+    venue = SalesVenue(code="ebay-test", name="eBay", sales_venue_kind_id=kind)
+    db.add(venue)
+    db.commit()
+    return venue.id
+
+
+def test_checkout_refuses_a_listing_on_another_platform(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    db: Session,
+) -> None:
+    listing = make_listing(sales_venue_id=_ebay(db))
+
+    response = _place_response(client, customer_headers, listing.id, 1)
+
+    assert response.status_code == 409
+    assert "not sold in this shop" in response.json()["detail"]
+
+
+def test_checkout_refuses_an_auction_listing(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+) -> None:
+    listing = make_listing(format=ListingFormat.auction)
+
+    response = _place_response(client, customer_headers, listing.id, 1)
+
+    assert response.status_code == 409
+    assert "not sold in this shop" in response.json()["detail"]
 
 
 def _revise(
