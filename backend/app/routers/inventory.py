@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from .. import grades, item_attributes
+from .. import grades, item_attributes, sale_state
 from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
@@ -45,6 +45,7 @@ from ..models import (
     CoinDetail,
     Country,
     CurrencyDetail,
+    Customer,
     Denomination,
     Disposition,
     ErrorType,
@@ -65,6 +66,9 @@ from ..models import (
     NoteType,
     ProvenanceSource,
     PurchaseOrder,
+    SalesOrder,
+    SalesOrderItem,
+    SalesOrderStatus,
     SealColor,
     Series,
     SignatureCombination,
@@ -87,8 +91,10 @@ from ..schemas import (
     ItemErrorsOut,
     ItemErrorsRequest,
     ItemReviewOut,
+    ItemSaleOut,
     ReceiveRequest,
     ReviewRequest,
+    SaleUseOut,
     SplitPieceIn,
     SplitRequest,
     SplitResultOut,
@@ -595,8 +601,11 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
     in the form regardless of what is stored, which is how a coin already
     holding MS65 shows an empty Grade box and gets overwritten with nothing.
     """
-    item = _get_item(db, item_id)
+    return item_detail(db, _get_item(db, item_id))
 
+
+def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
+    """The editor's whole view of one item; also what a sale snapshot copies."""
     parent_code: str | None = None
     claims: dict[str, object] = {}
     if item.parent_item_id is not None:
@@ -677,6 +686,50 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
             ItemAttributeOut(**vars(held))
             for held in item_attributes.held_attributes(db, item.id)
         ],
+        sale_state=[
+            SaleUseOut(**vars(use))
+            for use in sale_state.for_sale(db, [item.id]).get(item.id, [])
+        ],
+    )
+
+
+@router.get("/{item_id}/sales")
+def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemSaleOut]:
+    """Every sale of this item, newest first, each with the item as sold."""
+    item = _get_item(db, item_id)
+    rows = db.execute(
+        select(SalesOrderItem, SalesOrder, SalesOrderStatus.code, Customer.display_name)
+        .join(Listing, Listing.id == SalesOrderItem.listing_id)
+        .join(SalesOrder, SalesOrder.id == SalesOrderItem.sales_order_id)
+        .join(SalesOrderStatus, SalesOrderStatus.id == SalesOrder.sales_order_status_id)
+        .join(Customer, Customer.id == SalesOrder.customer_id)
+        .where(Listing.inventory_item_id == item.id)
+        .order_by(SalesOrder.placed_at.desc(), SalesOrderItem.id.desc())
+    ).tuples()
+    return [
+        ItemSaleOut(
+            order_id=order.id,
+            status=status_code,
+            placed_at=order.placed_at,
+            customer_name=customer_name,
+            quantity=line.quantity,
+            unit_price=line.unit_price,
+            snapshot=line.item_snapshot,
+            snapshot_at=line.snapshot_at,
+        )
+        for line, order, status_code, customer_name in rows
+    ]
+
+
+def _refuse_unacknowledged_sale(db: Session, items: list[InventoryItem]) -> None:
+    """409 when any of the items is up for sale (app.sale_state)."""
+    uses = sale_state.for_sale(db, [item.id for item in items])
+    if not uses:
+        return
+    codes = {item.id: item.item_code for item in items}
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=sale_state.refusal({codes[i]: found for i, found in uses.items()}),
     )
 
 
@@ -873,6 +926,7 @@ def bulk_edit(
     """
     data = payload.changes.model_dump(exclude_unset=True)
     data.pop("version", None)  # Meaningless across a set of rows.
+    acknowledged = data.pop("acknowledge_for_sale", False)
     if "attributes" in data:
         # A whole set, per item: the same set across many items would wipe
         # whatever each carried that the others do not.
@@ -893,6 +947,8 @@ def bulk_edit(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No such item(s): {missing}. Nothing was changed.",
         )
+    if data and not acknowledged:
+        _refuse_unacknowledged_sale(db, list(items))
 
     # Every code resolved before anything is set, so a typo in the last field
     # does not leave the first three applied.
@@ -972,6 +1028,7 @@ def update_item(
     # exclude_unset so an omitted field is left alone rather than nulled.
     data = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
+    acknowledged = data.pop("acknowledge_for_sale", False)
     attributes = data.pop("attributes", None)
     if "attributes" in payload.model_fields_set and attributes is None:
         raise HTTPException(
@@ -996,6 +1053,11 @@ def update_item(
                 f"reapply your changes."
             ),
         )
+
+    # A change to an item on offer, or in an order that has not shipped,
+    # shows to a buyer at once: the caller must say it knows.
+    if (data or attributes is not None) and not acknowledged:
+        _refuse_unacknowledged_sale(db, [item])
 
     # Before anything is set: a refused year leaves the item untouched.
     years = resolve_years((item.year_start, item.year_end), data)

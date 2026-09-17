@@ -172,6 +172,56 @@ function AttributesField({ item, codes, onChange, kind }) {
   )
 }
 
+/**
+ * Every sale of the item, each as it was sold.
+ *
+ * A returned item may be corrected and sold again; each sale keeps the
+ * item's name, grade and price from the day it sold.
+ */
+function SaleHistory({ itemId }) {
+  const [sales, setSales] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .getItemSales(itemId)
+      .then((body) => {
+        if (!cancelled) setSales(body)
+      })
+      .catch(() => {
+        if (!cancelled) setSales([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [itemId])
+
+  if (!sales || sales.length === 0) return null
+  return (
+    <div className="sale-history">
+      <h3>Sales</h3>
+      <ul>
+        {sales.map((sale) => {
+          const sold = sale.snapshot?.item
+          return (
+            <li key={`${sale.order_id}-${sale.placed_at}`}>
+              Order #{sale.order_id}, {sale.placed_at.slice(0, 10)}, {sale.status}:{' '}
+              {sale.quantity} at {sale.unit_price} to {sale.customer_name}
+              {sold && (
+                <span className="muted">
+                  {' '}
+                  -- sold as {sold.source_title}
+                  {sold.grade_display ? `, ${sold.grade_display}` : ''}
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 /** The column a form field is stored in, as `derived` and reviews name it. */
 const columnOf = (key, isClassifier) => (isClassifier ? `${key}_id` : key)
 
@@ -190,13 +240,17 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [ranged, setRanged] = useState(false)
+  // Ticked to change an item that is for sale; reset whenever it is loaded.
+  const [acknowledged, setAcknowledged] = useState(false)
   const yearId = useId()
   const yearEndId = useId()
 
   // `save` is a function declaration below, hoisted for the whole component
   // scope, so it is safe to reference here even though it is defined later --
   // this hook must sit above every early return.
-  useSaveShortcut(save, !saving && Object.keys(draft).length > 0)
+  const forSale = (item?.sale_state ?? []).length > 0
+  const canSave = !saving && Object.keys(draft).length > 0 && (!forSale || acknowledged)
+  useSaveShortcut(save, canSave)
 
   useEffect(() => {
     let cancelled = false
@@ -208,6 +262,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         setReviewed(body.reviewed ?? [])
         setRanged(isRange(body.year_start, body.year_end))
         setDraft({})
+        setAcknowledged(false)
         setError('')
       })
       .catch((err) => {
@@ -357,7 +412,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
     try {
       // The version read when the form was opened. A save from a form loaded
       // before someone else's change is a 409, not a silent overwrite.
-      await api.updateInventoryItem(itemId, { ...draft, version: item.version })
+      const payload = { ...draft, version: item.version }
+      if (forSale && acknowledged) payload.acknowledge_for_sale = true
+      await api.updateInventoryItem(itemId, payload)
       setError('')
       onSaved?.()
     } catch (err) {
@@ -382,6 +439,23 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       </div>
 
       {error && <p className="error">{error}</p>}
+
+      {forSale && (
+        <div className="for-sale" role="alert">
+          <strong>This item is for sale</strong>:{' '}
+          {item.sale_state.map((use) => use.text).join(', ')}. A change shows to buyers
+          at once; each sale keeps the item as it was sold.
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(e) => setAcknowledged(e.target.checked)}
+            />
+            {/* */}
+            Change it anyway
+          </label>
+        </div>
+      )}
 
       {TEXT_FIELDS.map(([label, key, letter]) => (
         <label key={key} className="field">
@@ -586,14 +660,12 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       )}
 
       <div className="row">
-        <button
-          disabled={saving || Object.keys(draft).length === 0}
-          onClick={save}
-          {...accel('v')}
-        >
+        <button disabled={!canSave} onClick={save} {...accel('v')}>
           <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />
         </button>
       </div>
+
+      <SaleHistory itemId={itemId} />
     </div>
   )
 }

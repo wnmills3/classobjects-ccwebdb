@@ -32,6 +32,7 @@ from .models import (
 )
 from .models.base import utcnow
 from .references import require_code
+from .sale_snapshot import take as take_snapshot
 
 _CENTS = Decimal("0.01")
 
@@ -106,6 +107,19 @@ def _after_stock_change(db: Session, listing: Listing, before: int) -> None:
         item.disposition_id = require_code(db, Disposition, "listed", "disposition")
 
 
+def _line(
+    db: Session, listing: Listing, quantity: int, price: Decimal
+) -> SalesOrderItem:
+    """A new order line, with the item as it is being sold."""
+    return SalesOrderItem(
+        listing_id=listing.id,
+        quantity=quantity,
+        unit_price=price,
+        item_snapshot=take_snapshot(db, listing),
+        snapshot_at=utcnow(),
+    )
+
+
 def place_order(
     db: Session,
     customer: Customer,
@@ -144,11 +158,8 @@ def place_order(
         listing.quantity_available -= line.quantity
         price = listing.price if line.unit_price is None else line.unit_price
         total += price * line.quantity
-        order.items.append(
-            SalesOrderItem(
-                listing_id=listing.id, quantity=line.quantity, unit_price=price
-            )
-        )
+        # The snapshot before the stock change: the item as it was offered.
+        order.items.append(_line(db, listing, line.quantity, price))
         _after_stock_change(db, listing, before)
     order.total_amount = total
     db.add(order)
@@ -291,11 +302,7 @@ def revise_order(
             line = desired.get(listing_id)
             if existing is None and line is not None:
                 price = listing.price if line.unit_price is None else line.unit_price
-                order.items.append(
-                    SalesOrderItem(
-                        listing_id=listing_id, quantity=line.quantity, unit_price=price
-                    )
-                )
+                order.items.append(_line(db, listing, line.quantity, price))
                 record(
                     SalesOrderChangeKind.line_added,
                     listing_id,

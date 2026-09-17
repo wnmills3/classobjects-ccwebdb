@@ -53,6 +53,14 @@ SHIPPED_STATUSES = frozenset({"packed", "shipped", "delivered"})
 _ORDER_NOT_FOUND = "Order not found"
 
 
+def _sold_as(line: SalesOrderItem) -> str:
+    """What the line sold, as it was called then; today's name for older lines."""
+    snapshot = line.item_snapshot or {}
+    item = snapshot.get("item") if isinstance(snapshot, dict) else None
+    title = item.get("source_title") if isinstance(item, dict) else None
+    return str(title) if title else line.listing.inventory_item.source_title
+
+
 def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> OrderOut:
     """Build the API view of one order.
 
@@ -73,9 +81,10 @@ def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> Order
             {
                 "id": line.id,
                 "listing_id": line.listing_id,
-                "title": line.listing.inventory_item.source_title,
+                "title": _sold_as(line),
                 "quantity": line.quantity,
                 "unit_price": line.unit_price,
+                "snapshot": line.item_snapshot if for_admin else None,
             }
             for line in order.items
         ],

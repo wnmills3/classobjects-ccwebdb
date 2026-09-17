@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../api', () => ({
   api: {
     getInventoryItem: vi.fn(),
+    getItemSales: vi.fn(),
     updateInventoryItem: vi.fn(),
     setItemReview: vi.fn(),
   },
@@ -23,6 +24,7 @@ const item = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.getItemSales.mockResolvedValue([])
   api.getInventoryItem.mockResolvedValue(item)
   api.setItemReview.mockResolvedValue({ reviewed: ['description'] })
 })
@@ -619,5 +621,79 @@ describe('Attributes', () => {
     await screen.findByDisplayValue('Mercury Dime')
     expect(screen.queryByRole('combobox', { name: 'item_attribute' })).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'item_attribute' })).toBeNull()
+  })
+})
+
+describe('An item for sale', () => {
+  const forSale = {
+    ...item,
+    version: 4,
+    sale_state: [{ kind: 'listing', id: 3, text: 'listing #3 at 189.00' }],
+  }
+
+  it('says so, and saves only once the change is confirmed', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue(forSale)
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} />)
+    await screen.findByDisplayValue('Mercury Dime')
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This item is for sale: listing #3 at 189.00.',
+    )
+    const description = screen.getByDisplayValue('Mercury Dime')
+    await user.clear(description)
+    await user.type(description, 'Winged Liberty dime')
+    const save = screen.getByRole('button', { name: /save/i })
+    expect(save).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Change it anyway' }))
+    await user.click(save)
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
+        description: 'Winged Liberty dime',
+        version: 4,
+        acknowledge_for_sale: true,
+      }),
+    )
+  })
+
+  it('asks nothing for an item that is not for sale', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue({ ...item, version: 4, sale_state: [] })
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} />)
+    const description = await screen.findByDisplayValue('Mercury Dime')
+    expect(screen.queryByRole('alert')).toBeNull()
+    await user.type(description, '!')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
+        description: 'Mercury Dime!',
+        version: 4,
+      }),
+    )
+  })
+
+  it('lists each sale as it was sold', async () => {
+    api.getInventoryItem.mockResolvedValue(item)
+    api.getItemSales.mockResolvedValue([
+      {
+        order_id: 9,
+        status: 'shipped',
+        placed_at: '2026-09-17T10:00:00Z',
+        customer_name: 'Ada',
+        quantity: 1,
+        unit_price: '189.00',
+        snapshot: { item: { source_title: '1881-S Morgan', grade_display: 'MS64' } },
+      },
+    ])
+    render(<ItemEditForm itemId={12} />)
+    expect(await screen.findByRole('heading', { name: 'Sales' })).toBeVisible()
+    expect(api.getItemSales).toHaveBeenCalledWith(12)
+    expect(
+      screen.getByText(/Order #9, 2026-09-17, shipped: 1 at 189.00 to Ada/),
+    ).toBeVisible()
+    expect(screen.getByText(/sold as 1881-S Morgan, MS64/)).toBeVisible()
   })
 })
