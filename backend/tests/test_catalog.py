@@ -364,6 +364,43 @@ def test_withdrawing_a_listing_returns_the_item_to_held(
     assert db.get(Listing, listing.id).inventory_item.disposition.code == "held"
 
 
+def test_withdrawing_and_relisting_keeps_ended_at_honest(
+    client: TestClient, listing: Listing, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`ended_at` is set when a listing ends and cleared when it comes back.
+
+    There is one `ended_at` column, not a history, so the only meaning it can
+    carry truthfully is "when this listing's current ending happened". Leaving
+    a stale timestamp on a relisted row would say a live listing had ended;
+    `splitting.py` already sets both together when it ends a lot's listings.
+    """
+    assert db.get(Listing, listing.id).ended_at is None
+
+    client.patch(
+        f"/api/catalog/{listing.id}", json={"is_active": False}, headers=admin_headers
+    )
+    db.expire_all()
+    assert db.get(Listing, listing.id).ended_at is not None
+
+    client.patch(
+        f"/api/catalog/{listing.id}", json={"is_active": True}, headers=admin_headers
+    )
+    db.expire_all()
+    assert db.get(Listing, listing.id).ended_at is None
+
+
+def test_an_item_created_withdrawn_records_when_it_ended(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    body = client.post(
+        "/api/catalog", json={**NEW_ITEM, "is_active": False}, headers=admin_headers
+    ).json()
+
+    created = db.get(Listing, body["id"])
+    assert created.is_active is False
+    assert created.ended_at is not None
+
+
 def test_admin_can_delete_unsold_item(
     client: TestClient, listing: Listing, admin_headers: dict[str, str]
 ) -> None:

@@ -43,6 +43,7 @@ from ..models import (
     StorageForm,
     StrikeType,
     ValuationBasis,
+    utcnow,
 )
 from ..references import code_to_id, require_code
 from ..sales_venues import store_venue_id
@@ -312,6 +313,20 @@ def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
     return to_catalog_item(listing)
 
 
+def _set_listing_active(listing: Listing, active: bool) -> None:
+    """Move a listing between active and ended, keeping `ended_at` with it.
+
+    The two must move together. `ended_at` is a single column, not a history,
+    so the only thing it can say truthfully is when this listing's *current*
+    ending happened: it is stamped when the listing ends and cleared when the
+    listing comes back, leaving `ended_at is None` exactly when the listing is
+    active. `splitting.split_item` already writes both when it ends a lot's
+    listings; this is the same rule for the catalogue API's two write paths.
+    """
+    listing.status = ListingStatus.active if active else ListingStatus.ended
+    listing.ended_at = None if active else utcnow()
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_catalog_item(
     payload: CatalogItemCreate, db: DbSession, _admin: AdminUser
@@ -354,9 +369,9 @@ def create_catalog_item(
         price=data["price"],
         currency_id=require_code(db, Currency, data["currency"], "currency"),
         quantity_available=data["quantity_available"],
-        status=ListingStatus.active if data["is_active"] else ListingStatus.ended,
         sales_venue_id=store_venue_id(db),
     )
+    _set_listing_active(listing, data["is_active"])
     db.add(listing)
     db.commit()
 
@@ -410,9 +425,7 @@ def update_catalog_item(
         if field in data:
             setattr(listing, field, data[field])
     if "is_active" in data:
-        listing.status = (
-            ListingStatus.active if data["is_active"] else ListingStatus.ended
-        )
+        _set_listing_active(listing, data["is_active"])
 
     # Withdrawing the last listing puts the item back to simply being held.
     if data.get("is_active") is False:

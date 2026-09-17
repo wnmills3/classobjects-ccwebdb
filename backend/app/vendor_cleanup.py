@@ -27,7 +27,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
-from .models import PurchaseOrder, Vendor, VendorKind
+from .models import PurchaseOrder, SalesVenue, Vendor, VendorKind
 
 
 class CleanupError(Exception):
@@ -57,6 +57,21 @@ def _order_count(db: Session, vendor_id: int) -> int:
     return (
         db.scalar(select(func.count()).where(PurchaseOrder.vendor_id == vendor_id)) or 0
     )
+
+
+def _refuse_if_a_platform_sells_through(db: Session, vendor: Vendor) -> None:
+    """Refuse to remove a vendor a sales platform is linked to.
+
+    `sales_venue.vendor_id` is ON DELETE RESTRICT and Vendor has no
+    relationship back to SalesVenue, so without this check the DELETE reaches
+    PostgreSQL and comes back as a raw IntegrityError -- a traceback where the
+    operator should see a REFUSED line naming what to unlink.
+    """
+    code = db.scalar(select(SalesVenue.code).where(SalesVenue.vendor_id == vendor.id))
+    if code is not None:
+        raise CleanupError(
+            f"{vendor.name} is the purchase source for platform {code}; unlink it first"
+        )
 
 
 def _clashing_numbers(db: Session, left: int, right: int) -> list[str]:
@@ -90,6 +105,9 @@ def run(
             source, target = _vendor(db, source_id), _vendor(db, target_id)
             if source_id == target_id:
                 raise CleanupError(f"Cannot merge {source.name} into itself")
+            # The source is deleted at the end of this merge, so it faces the
+            # same FK as a plain --delete does. Checked before anything moves.
+            _refuse_if_a_platform_sells_through(db, source)
             clashes = _clashing_numbers(db, source_id, target_id)
             if clashes:
                 raise CleanupError(
@@ -111,6 +129,7 @@ def run(
                 raise CleanupError(
                     f"{vendor.name} still has purchase orders; merge it instead"
                 )
+            _refuse_if_a_platform_sells_through(db, vendor)
             report.deleted.append(vendor.name)
             db.delete(vendor)
 
@@ -123,7 +142,11 @@ def run(
             report.kinds.append((vendor.name, code))
 
         db.flush()
-    except CleanupError:
+    except Exception:
+        # Every exception, not only CleanupError. A database constraint this
+        # pass has not learned to check for surfaces as an IntegrityError at
+        # flush, and leaving that session un-rolled-back would strand the
+        # caller in a failed transaction while earlier writes look applied.
         db.rollback()
         raise
     if commit:

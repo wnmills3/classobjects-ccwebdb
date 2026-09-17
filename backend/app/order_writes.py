@@ -82,12 +82,19 @@ def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
     still holding pre-lock values for `quantity_available`, `is_active` and
     `version`. With it, the locked row's current values overwrite whatever
     was cached.
+
+    `sales_venue` is loaded here rather than left to lazy-load: `_sellable_here`
+    reads it for every locked listing, and a lazy load would emit that SELECT
+    while these rows are held FOR UPDATE, lengthening the lock for no reason.
+    A separate SELECT is what `selectinload` issues anyway, so it cannot widen
+    the `FOR UPDATE` to `sales_venue` the way a join would.
     """
     rows = db.scalars(
         select(Listing)
         .where(Listing.id.in_(ids))
         .order_by(Listing.id)
         .with_for_update()
+        .options(selectinload(Listing.sales_venue))
         .execution_options(populate_existing=True)
     ).all()
     found = {listing.id: listing for listing in rows}
