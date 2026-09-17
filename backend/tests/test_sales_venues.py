@@ -74,16 +74,24 @@ def test_a_purchase_source_links_to_at_most_one_platform(db: Session) -> None:
 
 
 def test_is_active_follows_status(db: Session, listing: Listing) -> None:
+    """The database computes `is_active`, and the session goes back for it.
+
+    No `db.refresh` here on purpose: `is_active` is a generated column, so
+    the only place its new value exists after the commit is the database.
+    Reading it straight off the instance is what every caller does, and it
+    has to be right -- if the session handed back the value it had written
+    `status` over, this would still say True.
+    """
     assert listing.status is ListingStatus.active
     assert listing.is_active is True
 
     listing.status = ListingStatus.paused
     db.commit()
-    db.refresh(listing)
     assert listing.is_active is False
 
 
 def test_a_new_listing_is_active_fixed_price(db: Session, listing: Listing) -> None:
+    assert listing.is_active is True
     assert listing.format is ListingFormat.fixed_price
     assert listing.sales_venue_id == store_venue_id(db)
 
