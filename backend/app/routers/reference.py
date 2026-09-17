@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from .. import aliases, reference_merge
@@ -71,6 +71,20 @@ _CODE_KEYED_VALUES = frozenset(
         ("currency", "USD"),
         ("country", "US"),
         ("note_type", "frn"),
+    }
+)
+
+#: Vocabularies whose order is their meaning, so they keep `sort_order`.
+#: A grade scale runs 70, 69+, 69, ...; a lifecycle runs ordered, received,
+#: canceled. Everything else is a descriptive list that is scanned by name,
+#: and alphabetical is the only order a reader can predict.
+_SEQUENCED_TABLES = frozenset(
+    {
+        "grade",
+        "item_status",
+        "disposition",
+        "sales_order_status",
+        "shipment_status",
     }
 )
 
@@ -165,7 +179,12 @@ def get_table(
         stmt = stmt.where(model.is_active.is_(True))
     if year is not None:
         stmt = _limit_to_year(model, stmt, year)
-    rows = db.scalars(stmt.order_by(model.sort_order, model.code)).all()
+    order = (
+        (model.sort_order, model.code)
+        if table in _SEQUENCED_TABLES
+        else (func.lower(model.label), model.code)
+    )
+    rows = db.scalars(stmt.order_by(*order)).all()
     active = aliases.aliases_by_row(db, model)
     retired: dict[int, list[str]] = {}
     if include_inactive:
