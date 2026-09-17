@@ -169,8 +169,18 @@ def run(
                     f"Cannot rename {vendor.name} to {new_name}: "
                     f"{taken.name} already has that name"
                 )
-            report.renamed.append((vendor.name, new_name))
+            old_name = vendor.name
+            report.renamed.append((old_name, new_name))
             vendor.name = new_name
+            # A misspelt source misspells its web address too (`ampex.com` for
+            # apmex.com), and the importer matches a vendor by `host`, so a
+            # name fixed on its own would let the real site arrive as a second
+            # vendor. Only text that repeated the old name is rewritten;
+            # anything else is the source's address, not the typo.
+            if vendor.host:
+                vendor.host = vendor.host.replace(old_name, new_name)
+            if vendor.url:
+                vendor.url = vendor.url.replace(old_name, new_name)
 
         db.flush()
     except Exception:
