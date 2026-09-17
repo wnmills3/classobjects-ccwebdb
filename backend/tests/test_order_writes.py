@@ -618,6 +618,56 @@ def test_raising_a_quantity_on_an_inactive_listing_is_refused(
     assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
 
 
+def test_raising_a_quantity_on_a_listing_moved_to_another_platform_is_refused(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    listing.sales_venue_id = _ebay(db)
+    db.commit()
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 2, "unit_price": "189.00"}],
+    )
+
+    assert response.status_code == 409
+    assert "not sold in this shop" in response.json()["detail"]
+    db.refresh(listing)
+    assert listing.quantity_available == 4
+    assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
+
+
+def test_raising_a_quantity_on_a_listing_turned_to_auction_is_refused(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    order = _place(client, customer_headers, listing.id, 1)
+    listing.format = ListingFormat.auction
+    db.commit()
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 2, "unit_price": "189.00"}],
+    )
+
+    assert response.status_code == 409
+    assert "not sold in this shop" in response.json()["detail"]
+    db.refresh(listing)
+    assert listing.quantity_available == 4
+    assert [c[0] for c in _changes(db, order["id"])] == ["placed"]
+
+
 def test_revising_with_an_unknown_customer_is_a_404(
     client: TestClient,
     listing: Listing,
