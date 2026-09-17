@@ -48,13 +48,13 @@ from ..models import (
     GradeScale,
     GradingService,
     InventoryItem,
+    ItemAttribute,
+    ItemAttributeLink,
     ItemCertification,
     ItemKind,
-    ItemNoteAttribute,
     ItemStatus,
     Metal,
     Mint,
-    NoteAttribute,
     ProvenanceSource,
     PurchaseOrder,
     ReferenceMixin,
@@ -78,6 +78,9 @@ DEFAULT_AUTHENTICITY = "unverified"
 DEFAULT_DISPOSITION = "held"
 DEFAULT_STATUS = "received"
 DEFAULT_VALUATION_BASIS = "numismatic"
+
+#: `item_attribute_link.derived_by` for attributes read from a source row.
+IMPORT_RULE = "import"
 
 #: Status markers a profile may emit, mapped to item_status codes.
 STATUS_MARKERS: dict[str, str] = {
@@ -478,12 +481,14 @@ class SchemaLoader:
             # Note features are a many-to-many link, not a column: a note can
             # be both a star note and a fancy serial.
             for code in fields.get("note_attributes") or []:
-                attribute_id = self.code_id(NoteAttribute, code)
+                attribute_id = self.code_id(ItemAttribute, code)
                 if attribute_id is not None:
                     self.session.add(
-                        ItemNoteAttribute(
+                        ItemAttributeLink(
                             inventory_item_id=item.id,
-                            note_attribute_id=attribute_id,
+                            item_attribute_id=attribute_id,
+                            source=ProvenanceSource.derived,
+                            derived_by=IMPORT_RULE,
                         )
                     )
             return
@@ -831,7 +836,7 @@ class ParsedCondition:
     catalog_number: str | None = None
     #: A banknote's treasury seal colour, when the value named one.
     seal_color: str | None = None
-    #: note_attribute codes -- features of the note, which are not grades.
+    #: item_attribute codes -- features of the note, which are not grades.
     note_attributes: tuple[str, ...] = ()
 
 

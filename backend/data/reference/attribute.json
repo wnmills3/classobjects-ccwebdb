@@ -1,0 +1,330 @@
+{
+  "_comment": [
+    "Item attributes: what an item is, beyond its grade. Many per item, for",
+    "coins and notes alike -- a coin can be DCAM and First Strike and",
+    "CAC-approved, a note a star note and a fancy serial and No Motto.",
+    "docs/specs/item-attributes-design.md, section 2.",
+    "",
+    "attribute_group says what kind of fact each is: serial (read from a",
+    "note's serial), variety, release (each service's own pedigree, kept",
+    "apart because each defines its own window), verification (CAC) and",
+    "qualifier (what a holder says instead of, or beside, a grade).",
+    "applies_to limits the editor's offer to coins, notes or either.",
+    "",
+    "Each keeps the service's own term. 'Star (eye appeal)' is NGC and PMG's",
+    "star, not a star note. 'Godless' is the collectors' word for the No",
+    "Motto $1 Silver Certificates (Series 1928-1935G).",
+    "",
+    "reference_alias: other names, as in banknote.json."
+  ],
+  "item_attribute": [
+    {
+      "code": "star",
+      "label": "Star Note",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 10
+    },
+    {
+      "code": "fancy_serial",
+      "label": "Fancy Serial",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 20
+    },
+    {
+      "code": "consecutive",
+      "label": "Consecutive",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 30
+    },
+    {
+      "code": "low_serial",
+      "label": "Low Serial Number",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 40
+    },
+    {
+      "code": "solid_serial",
+      "label": "Solid Serial Number",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 50
+    },
+    {
+      "code": "radar",
+      "label": "Radar Serial",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 60
+    },
+    {
+      "code": "repeater",
+      "label": "Repeater Serial",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 70
+    },
+    {
+      "code": "binary",
+      "label": "Binary Serial",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 80
+    },
+    {
+      "code": "birthday",
+      "label": "Birthday Serial",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 90
+    },
+    {
+      "code": "error",
+      "label": "Error Note",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 100
+    },
+    {
+      "code": "web_press",
+      "label": "Web Press Note",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 110
+    },
+    {
+      "code": "ladder",
+      "label": "Ladder Serial",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 120
+    },
+    {
+      "code": "specimen",
+      "label": "Specimen",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 130
+    },
+    {
+      "code": "proof",
+      "label": "Proof",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 140
+    },
+    {
+      "code": "trinary",
+      "label": "Trinary Serial",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 150
+    },
+    {
+      "code": "double_quad",
+      "label": "Double Quad Serial",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 160
+    },
+    {
+      "code": "high_serial",
+      "label": "High Serial Number",
+      "applies_to": "currency",
+      "attribute_group": "serial",
+      "sort_order": 170
+    },
+    {
+      "code": "no_motto",
+      "label": "No Motto",
+      "applies_to": "any",
+      "attribute_group": "variety",
+      "sort_order": 200
+    },
+    {
+      "code": "motto",
+      "label": "Motto",
+      "applies_to": "any",
+      "attribute_group": "variety",
+      "sort_order": 210
+    },
+    {
+      "code": "wide",
+      "label": "Wide",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 220
+    },
+    {
+      "code": "narrow",
+      "label": "Narrow",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 230
+    },
+    {
+      "code": "type_1",
+      "label": "Type 1",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 240
+    },
+    {
+      "code": "type_2",
+      "label": "Type 2",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 250
+    },
+    {
+      "code": "mule",
+      "label": "Mule",
+      "applies_to": "any",
+      "attribute_group": "variety",
+      "sort_order": 260
+    },
+    {
+      "code": "experimental_r",
+      "label": "R Experimental",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 270
+    },
+    {
+      "code": "experimental_s",
+      "label": "S Experimental",
+      "applies_to": "currency",
+      "attribute_group": "variety",
+      "sort_order": 280
+    },
+    {
+      "code": "first_strike",
+      "label": "First Strike",
+      "applies_to": "coin",
+      "attribute_group": "release",
+      "sort_order": 300
+    },
+    {
+      "code": "early_releases",
+      "label": "Early Releases",
+      "applies_to": "coin",
+      "attribute_group": "release",
+      "sort_order": 310
+    },
+    {
+      "code": "first_releases",
+      "label": "First Releases",
+      "applies_to": "coin",
+      "attribute_group": "release",
+      "sort_order": 320
+    },
+    {
+      "code": "first_day_of_issue",
+      "label": "First Day of Issue",
+      "applies_to": "coin",
+      "attribute_group": "release",
+      "sort_order": 330
+    },
+    {
+      "code": "first_delivery",
+      "label": "First Delivery",
+      "applies_to": "coin",
+      "attribute_group": "release",
+      "sort_order": 340
+    },
+    {
+      "code": "first_print",
+      "label": "First Print",
+      "applies_to": "currency",
+      "attribute_group": "release",
+      "sort_order": 350
+    },
+    {
+      "code": "cac",
+      "label": "CAC (green sticker)",
+      "applies_to": "coin",
+      "attribute_group": "verification",
+      "sort_order": 400
+    },
+    {
+      "code": "cac_gold",
+      "label": "CAC Gold",
+      "applies_to": "coin",
+      "attribute_group": "verification",
+      "sort_order": 410
+    },
+    {
+      "code": "details",
+      "label": "Details",
+      "applies_to": "any",
+      "attribute_group": "qualifier",
+      "sort_order": 500
+    },
+    {
+      "code": "genuine",
+      "label": "Genuine",
+      "applies_to": "any",
+      "attribute_group": "qualifier",
+      "sort_order": 510
+    },
+    {
+      "code": "eye_appeal_star",
+      "label": "Star (eye appeal)",
+      "applies_to": "any",
+      "attribute_group": "qualifier",
+      "sort_order": 520
+    },
+    {
+      "code": "net",
+      "label": "NET",
+      "applies_to": "currency",
+      "attribute_group": "qualifier",
+      "sort_order": 530
+    }
+  ],
+  "reference_alias": [
+    {
+      "table": "item_attribute",
+      "code": "no_motto",
+      "alias": "Godless"
+    },
+    {
+      "table": "item_attribute",
+      "code": "no_motto",
+      "alias": "No God"
+    },
+    {
+      "table": "item_attribute",
+      "code": "early_releases",
+      "alias": "Early Release"
+    },
+    {
+      "table": "item_attribute",
+      "code": "first_releases",
+      "alias": "First Release"
+    },
+    {
+      "table": "item_attribute",
+      "code": "first_day_of_issue",
+      "alias": "FDI"
+    },
+    {
+      "table": "item_attribute",
+      "code": "first_delivery",
+      "alias": "First Day of Delivery"
+    },
+    {
+      "table": "item_attribute",
+      "code": "cac",
+      "alias": "CAC Green"
+    },
+    {
+      "table": "item_attribute",
+      "code": "cac_gold",
+      "alias": "Gold CAC"
+    }
+  ]
+}

@@ -32,6 +32,7 @@ from .base import Base, ProvenanceSource, ReferenceMixin, enum_column
 
 __all__ = [
     "AppliesTo",
+    "AttributeGroup",
     "Authenticity",
     "BullionForm",
     "Carrier",
@@ -47,11 +48,11 @@ __all__ = [
     "GradeScale",
     "GradingService",
     "ImageRole",
+    "ItemAttribute",
     "ItemKind",
     "ItemStatus",
     "Metal",
     "Mint",
-    "NoteAttribute",
     "NoteIssue",
     "NoteType",
     "ReferenceAlias",
@@ -69,7 +70,7 @@ __all__ = [
 
 
 class AppliesTo(enum.StrEnum):
-    """Which kind of item an error vocabulary term is relevant to."""
+    """Which kind of item an error type or an attribute is relevant to."""
 
     coin = "coin"
     currency = "currency"
@@ -541,14 +542,48 @@ class ReferenceAlias(Base):
     )
 
 
-class NoteAttribute(ReferenceMixin, Base):
-    """Star Note, Fancy Serial, Consecutive, ... -- many-to-many with an item.
+class AttributeGroup(enum.StrEnum):
+    """What kind of fact an item attribute records.
 
-    These are attributes, not grades, which is why they are a link table rather
-    than another column on the item.
+    docs/specs/item-attributes-design.md, section 2. The editor groups them
+    by this, and the importer knows which may appear together.
     """
 
-    __tablename__ = "note_attribute"
+    #: Star Note, Fancy Serial, Radar: read from a note's serial.
+    serial = "serial"
+    #: No Motto, Wide / Narrow, Mule: a variety of the design or printing.
+    variety = "variety"
+    #: First Strike, Early Releases, First Day of Issue: a release pedigree,
+    #: each service's own, since each defines its own window.
+    release = "release"
+    #: CAC: someone other than the grader verified the grade.
+    verification = "verification"
+    #: Details, Genuine, NET: what the holder says instead of, or beside, a
+    #: straight grade.
+    qualifier = "qualifier"
+
+
+class ItemAttribute(ReferenceMixin, Base):
+    """Star Note, No Motto, First Strike, CAC ... -- many-to-many with an item.
+
+    These are attributes, not grades, which is why they are a link table rather
+    than another column on the item: a coin can be DCAM *and* First Strike
+    *and* CAC-approved, a note a star note *and* a fancy serial *and* No
+    Motto. Was `note_attribute`, which held serial features only.
+    """
+
+    __tablename__ = "item_attribute"
+
+    applies_to: Mapped[AppliesTo] = mapped_column(
+        enum_column(AppliesTo, "applies_to"),
+        default=AppliesTo.any,
+        nullable=False,
+    )
+    attribute_group: Mapped[AttributeGroup] = mapped_column(
+        enum_column(AttributeGroup, "attribute_group"),
+        nullable=False,
+        index=True,
+    )
 
 
 class SealColor(ReferenceMixin, Base):

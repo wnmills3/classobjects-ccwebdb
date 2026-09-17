@@ -664,6 +664,24 @@ unknown one. The console marks a shared alias.
 **An alias may not be a value's own label or code**, since the label or code
 is always matched first.
 
+### Attributes
+
+An item's **attributes** say what it is beyond its grade, and an item may
+have any number: a note can be a Star Note, a Fancy Serial and No Motto; a
+coin First Strike and CAC. The item editor lists them under **Attributes**;
+the × removes one and the picker after them adds one, offering only
+attributes for that kind of item. They are saved with the item.
+
+An attribute marked **read** was found by a rule -- the serial number, or the
+spreadsheet's rating -- rather than set by a person. **Removing one keeps it
+removed**: the serial check does not add it back. Setting it again restores
+it.
+
+The search box finds items by an attribute's name or alias (`godless`,
+`first strike`), and the API takes `attribute=<code>` as a filter on either
+screen. Bulk edit does not set attributes: a whole set applied to many
+items would wipe whatever each carried that the others do not.
+
 **Removing a shipped alias retires it.** Seed loads only ever add, so a
 deleted alias would come back on the next load; a retired one is kept, shown
 struck through, and a click restores it. An alias added in the console is

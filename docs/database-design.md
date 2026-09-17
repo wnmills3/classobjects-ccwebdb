@@ -67,7 +67,7 @@ is an authorisation boundary enforced by views and tested, not a convention.
                       |                 |
                 inventory_item ─────────┴── item_certification
                  |     |     |                 (0..n)
-      coin_detail  currency_detail  item_note_attribute
+      coin_detail  currency_detail  item_attribute_link
            |             |
        pcgs_type   friedberg_number
 
@@ -230,7 +230,7 @@ and `source` (`seeded | derived | manual`). `code` is stable and machine-facing;
 | `grade` | condition | Sheldon numbers 1–70 with `is_plus` (`64+`) and a generated `grade_rank`; note grades N1–N70; Circulated, Ungraded. Adjectival grades were folded into numbers (item-attributes design) |
 | `grade_designation` | grade suffix | DCAM, CAM, RD, RB, BN, FS, FB |
 | `grading_service` | grader | PCGS, NGC, ANACS, ICG, PMG, SEGS |
-| `note_attribute` | banknote features (m:n) | Star Note, Blue Seal, Red Seal, Green Seal, Consecutive, Fancy Serial, Error |
+| `item_attribute` | what an item is beyond its grade (m:n), by `attribute_group` and `applies_to` | serial: Star Note, Fancy Serial, Radar; variety: No Motto, Mule; release: First Strike, Early Releases; verification: CAC; qualifier: Details, Genuine, NET |
 | `note_type` | banknote class | Federal Reserve Note, Silver Certificate, United States Note, Gold Certificate, National Currency, Legal Tender |
 | `seal_color` | treasury seal | blue, red, brown, green, gold |
 | `fed_district` | FRN district | A Boston, B New York, C Philadelphia, D Cleveland, E Richmond, F Atlanta, G Chicago, H St. Louis, I Minneapolis, J Kansas City, K Dallas, L San Francisco |
@@ -299,8 +299,10 @@ Routinely conflated, kept separate here:
 item_certification            -- one to many: a lot may hold several certificates
   id, inventory_item_id, grading_service_id, cert_number text, raw text
 
-item_note_attribute           -- many to many
-  inventory_item_id, note_attribute_id
+item_attribute_link           -- many to many, coins and notes
+  inventory_item_id, item_attribute_id,
+  source (derived | manual), derived_by, noted_by_id, noted_at,
+  removed_at                  -- a person removed it; kept so no rule adds it back
 ```
 
 `cert_number` and `serial_number` are **text**. Both may contain leading zeros,

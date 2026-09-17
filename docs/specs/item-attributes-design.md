@@ -188,7 +188,8 @@ every miss visible rather than defaulted.
 1. Aliases: import, search, pickers, console page. (Built; see *As built:
    aliases* below.)
 2. `item_attribute` replacing `note_attribute`, with groups, `applies_to` and
-   link provenance; the editor lists an item's attributes.
+   link provenance; the editor lists an item's attributes. (Built; see *As
+   built: item attributes* below.)
 3. Grade vocabulary: equivalences as aliases, the new designations, strike
    type, plus grades, N1-N3. (Strike type, plus grades and N1-N3 are
    built; see *As built* below.)
@@ -321,6 +322,45 @@ removes one; both are staff only and return the value.
 than ten values, matching label, code or alias and showing the alias that
 matched. The Vocabularies page lists, adds, removes and restores aliases,
 and marks a shared one.
+
+## As built: item attributes
+
+Migration `a7d4e2c9b813` renames `note_attribute` to `item_attribute`, adds
+`applies_to` and `attribute_group`, and renames `item_note_attribute` to
+`item_attribute_link` with `source`, `derived_by`, `noted_by_id`,
+`noted_at` and `removed_at`. The 17 note attributes keep their codes: 13
+are `serial`, and error, web press, specimen and proof notes `variety`. The
+904 existing links are `derived` -- the importer and the serial check made
+all of them -- with no `derived_by`, which the column did not exist to say.
+
+The vocabulary moved to `data/reference/attribute.json` and gained the
+section 2 rows: No Motto, Motto, Wide, Narrow, Type 1, Type 2, Mule, R and
+S Experimental; First Strike, Early Releases, First Releases, First Day of
+Issue, First Delivery, First Print; CAC and CAC Gold; Details, Genuine,
+Star (eye appeal) and NET. Aliases: Godless and No God for No Motto, Early
+Release, First Release, FDI, First Day of Delivery, CAC Green, Gold CAC.
+
+**Removal is recorded for every link**, not only derived ones
+(`app.item_attributes`). Deleting a link a person added would let the
+serial check add it back the moment it was taken away. Setting a removed
+attribute again clears the mark and keeps the link's source. Every reader
+-- the detail, search, the `attribute=` filter and the star check -- skips a
+removed link; the serial check skips any link at all.
+
+**API**: the item detail lists `attributes` (code, label, group, source,
+derived_by). `PATCH /api/inventory/{id}` takes `attributes`, the whole set,
+checked against the item's kind after any kind change in the same request;
+a change moves the item's version, so a stale form is a 409. Bulk edit
+refuses `attributes`. Search matches attribute names and aliases on both
+screens and filters on `attribute=<code>`.
+
+**Console**: the item editor's Attributes row shows chips (marked *read*
+when a rule made them) and a picker of the attributes that fit the item.
+
+Measured on a copy of live, 2026-09-16: the load created 21 attributes and
+8 aliases, a full seed load then changed nothing else, the serial check
+found nothing to add, and the search totals of the alias release were
+unchanged.
 
 ## Sources
 

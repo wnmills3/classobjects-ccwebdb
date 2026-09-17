@@ -171,6 +171,14 @@ button.link.danger {
   flex: 0 1 7rem;
 }
 
+/* An item's attributes, as removable chips with the picker after them. */
+.attribute-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+
 /* Vocabularies: each value's aliases, as removable chips. */
 .alias-list {
   display: flex;

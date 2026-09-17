@@ -21,9 +21,9 @@ from app.models import (
     CurrencyDetail,
     GradeDesignation,
     InventoryItem,
-    ItemNoteAttribute,
+    ItemAttribute,
+    ItemAttributeLink,
     Mint,
-    NoteAttribute,
     NoteType,
     ProvenanceSource,
     ReferenceAlias,
@@ -296,9 +296,9 @@ def test_search_finds_a_note_by_its_class_alias_or_serial_feature(
         kind="currency", description="plain", grade_id=None, strike_type_id=None
     )
     db.add(
-        ItemNoteAttribute(
+        ItemAttributeLink(
             inventory_item_id=starred.id,
-            note_attribute_id=_id(db, NoteAttribute, "star"),
+            item_attribute_id=_id(db, ItemAttribute, "star"),
         )
     )
     db.commit()
@@ -324,9 +324,9 @@ def test_a_note_matching_two_ways_is_listed_once(
         )
     )
     db.add(
-        ItemNoteAttribute(
+        ItemAttributeLink(
             inventory_item_id=note.id,
-            note_attribute_id=_id(db, NoteAttribute, "star"),
+            item_attribute_id=_id(db, ItemAttribute, "star"),
         )
     )
     db.commit()
