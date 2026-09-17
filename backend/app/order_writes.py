@@ -23,6 +23,7 @@ from .models import (
     Disposition,
     InventoryItem,
     Listing,
+    ListingFormat,
     SalesOrder,
     SalesOrderChange,
     SalesOrderChangeKind,
@@ -96,6 +97,17 @@ def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
     return found
 
 
+def _sellable_here(listing: Listing) -> bool:
+    """Whether the shop's checkout may sell this listing at all.
+
+    The same rule as the SQL predicate `routers.catalog` applies to the
+    public catalogue -- keep both in sync.
+    """
+    return (
+        listing.sales_venue.is_own_store and listing.format is ListingFormat.fixed_price
+    )
+
+
 def _after_stock_change(db: Session, listing: Listing, before: int) -> None:
     """Move the item's disposition when its listing's stock crosses zero."""
     after = listing.quantity_available
@@ -132,6 +144,12 @@ def place_order(
     listings = _lock_listings(db, {line.listing_id for line in lines})
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]
+        if not _sellable_here(listing):
+            _refuse(
+                db,
+                status.HTTP_409_CONFLICT,
+                f"Listing {listing.id} is not sold in this shop",
+            )
         if not listing.is_active:
             _refuse(
                 db,
@@ -256,6 +274,12 @@ def revise_order(
             deltas[listing_id] = want - have
             listing = listings[listing_id]
             if deltas[listing_id] > 0:
+                if not _sellable_here(listing):
+                    _refuse(
+                        db,
+                        status.HTTP_409_CONFLICT,
+                        f"Listing {listing_id} is not sold in this shop",
+                    )
                 if not listing.is_active:
                     _refuse(
                         db,
