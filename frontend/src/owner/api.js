@@ -72,6 +72,8 @@ export const api = {
   splitItem: (itemId, payload) =>
     send(`/api/inventory/${itemId}/split`, { method: 'POST', body: payload }),
   getInventoryItem: (id) => send(`/api/inventory/${id}`),
+  // Every sale of an item, each with the item as it was sold.
+  getItemSales: (id) => send(`/api/inventory/${id}/sales`),
   updateInventoryItem: (id, payload) =>
     send(`/api/inventory/${id}`, { method: 'PATCH', body: payload }),
   bulkEditInventory: (ids, changes) =>

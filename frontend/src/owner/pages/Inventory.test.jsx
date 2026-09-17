@@ -6,6 +6,7 @@ vi.mock('../api', () => ({
   api: {
     searchInventory: vi.fn(),
     getInventoryItem: vi.fn(),
+    getItemSales: vi.fn(),
     updateInventoryItem: vi.fn(),
     setItemReview: vi.fn(),
     bulkEditInventory: vi.fn(),
@@ -27,6 +28,7 @@ const rows = Array.from({ length: 50 }, (_, i) => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.getItemSales.mockResolvedValue([])
   api.searchInventory.mockResolvedValue({
     rows,
     total: 900,

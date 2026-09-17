@@ -171,6 +171,18 @@ button.link.danger {
   flex: 0 1 7rem;
 }
 
+/* An item that is for sale: said before anything is changed. */
+.for-sale {
+  background: #fff4e0;
+  border: 1px solid #e0b060;
+  border-radius: 4px;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+}
+.sale-history ul {
+  margin: 0.25rem 0;
+  padding-left: 1.2rem;
+}
 /* An item's attributes, as removable chips with the picker after them. */
 .attribute-list {
   display: flex;

@@ -335,10 +335,13 @@ class OrderItemOut(BaseModel):
 
     id: int
     listing_id: int
-    #: The listing's public title, so a line says what was bought.
+    #: What was bought, as it was called when it was sold.
     title: str
     quantity: int
     unit_price: Decimal
+    #: The item and listing as sold (app.sale_snapshot). Console only: it
+    #: holds costs. None for a shopper, and for lines older than snapshots.
+    snapshot: dict[str, object] | None = None
 
 
 class OrderOut(BaseModel):
@@ -542,6 +545,28 @@ class ItemAttributeOut(BaseModel):
     derived_by: str | None = None
 
 
+class SaleUseOut(BaseModel):
+    """One reason an item is for sale: a listing, or an open order."""
+
+    kind: str
+    id: int
+    text: str
+
+
+class ItemSaleOut(BaseModel):
+    """One sale of an item: the order line, and the item as it was sold."""
+
+    order_id: int
+    status: str
+    placed_at: datetime
+    customer_name: str
+    quantity: int
+    unit_price: Decimal
+    #: The item and listing when the line was made; None for older lines.
+    snapshot: dict[str, object] | None = None
+    snapshot_at: datetime | None = None
+
+
 class ItemDetailOut(InventoryItemOut):
     """One item, with everything the edit form needs in one round trip.
 
@@ -613,6 +638,9 @@ class ItemDetailOut(InventoryItemOut):
     #: What the item is beyond its grade: Star Note, No Motto, First Strike.
     #: Removed ones are not listed.
     attributes: list[ItemAttributeOut] = Field(default_factory=list)
+    #: Why the item is up for sale, if it is: a save then needs
+    #: `acknowledge_for_sale` (app.sale_state).
+    sale_state: list[SaleUseOut] = Field(default_factory=list)
 
 
 class InventoryItemUpdate(BaseModel):
@@ -683,6 +711,10 @@ class InventoryItemUpdate(BaseModel):
     series_year: int | None = Field(default=None, ge=1861, le=2200)
     series_letter: str | None = Field(default=None, max_length=4)
     serial_number: str | None = Field(default=None, max_length=64)
+
+    #: Required, as true, to change an item that is up for sale: a listing
+    #: offers it or an unshipped order holds it (app.sale_state).
+    acknowledge_for_sale: bool = False
 
     #: The item's whole set of attribute codes, replacing what it carries.
     #: One the item had and this omits is marked removed, so no rule adds it

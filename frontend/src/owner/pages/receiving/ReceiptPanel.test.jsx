@@ -10,6 +10,7 @@ vi.mock('../../api', () => ({
     listStorageLocations: vi.fn(),
     uploadImage: vi.fn(),
     getInventoryItem: vi.fn(),
+    getItemSales: vi.fn(),
     setItemReview: vi.fn(),
     updateInventoryItem: vi.fn(),
     // Reachable once a currency item is selected -- FriedbergLookup calls
@@ -52,6 +53,7 @@ function SelectionOwner({ initialIds }) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.getItemSales.mockResolvedValue([])
   api.listStorageLocations.mockResolvedValue(LOCATIONS)
   api.receiveItems.mockResolvedValue({ received: 2 })
   api.uploadImage.mockResolvedValue({ id: 1 })

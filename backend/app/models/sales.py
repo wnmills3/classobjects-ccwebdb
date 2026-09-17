@@ -34,6 +34,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from .base import Base, TimestampMixin, enum_column, utcnow
@@ -300,7 +301,10 @@ class SalesOrderItem(Base):
     """One line of an order.
 
     ``unit_price`` is captured at purchase time, so a later price change never
-    rewrites order history.
+    rewrites order history. ``item_snapshot`` does the same for the item: what
+    it was called, graded and described as when it was sold (app.sale_snapshot).
+    An item returned, corrected and sold again gets a new line with its own
+    snapshot; this one keeps the first sale as it was.
     """
 
     __tablename__ = "sales_order_item"
@@ -314,6 +318,12 @@ class SalesOrderItem(Base):
     )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    #: The item and its listing when the line was made. None only for lines
+    #: made before snapshots were kept.
+    item_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    snapshot_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     order: Mapped[SalesOrder] = relationship(back_populates="items")
     listing: Mapped[Listing] = relationship(back_populates="order_items")

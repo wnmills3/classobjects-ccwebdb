@@ -683,6 +683,30 @@ the rows from one save into one entry, oldest first.
 Order notes and who entered an order are visible only in the console, never
 to the customer.
 
+**Each sale keeps the item as it was sold.** When a line is made -- at
+checkout, when an order is placed for a customer, or when a revision adds a
+line -- it copies the item and its listing: title, description, year,
+denomination, series, grade with strike, designation and grader, mint,
+certificates, attributes, metal and weights, the note's details, costs, and
+the listing's title, description and price (`sales_order_item.item_snapshot`).
+Correcting the item later, or selling it again after a return, never changes
+that copy; a resale is a new line with its own. A quantity or price change to
+an existing line keeps its copy, since it is the same sale. The order's line
+title is the one it sold under. The copy holds costs, so the console sees it
+and a shopper does not. The item editor lists an item's **Sales** under the
+form, each "sold as" what it was then (`GET /api/inventory/{id}/sales`).
+
+**Changing an item that is for sale.** An item is *for sale* while an active
+listing with stock offers it, or an order that has not shipped (pending, paid
+or packed) holds it. The item editor says so at the top, naming the listing
+or order, and Save stays disabled until **Change it anyway** is ticked. The
+API refuses such a save with 409 unless it carries `acknowledge_for_sale`;
+bulk edit refuses the whole selection, naming the items, and then offers
+**Change the items for sale too**. Saving nothing needs no confirmation. Once
+an order ships, the item is ordinary again -- its sale keeps its copy.
+Editing the listing itself (**Manage**) is not affected. Receiving, splits,
+recorded errors, images and vocabulary merges do not ask either.
+
 Both edit windows -- an inventory item's and an order's -- take Alt plus the
 underlined letter to jump to a field, and Ctrl+S or Ctrl+Enter to save.
 
