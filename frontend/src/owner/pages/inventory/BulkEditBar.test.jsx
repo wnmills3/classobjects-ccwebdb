@@ -42,6 +42,26 @@ describe('BulkEditBar', () => {
     expect(screen.queryByRole('checkbox')).toBeNull()
   })
 
+  // Paper has no metal, and the API has no metal on the currency view.
+  it('offers Metal on the coin view', () => {
+    render(<BulkEditBar view="coins" ids={[1]} onApplied={vi.fn()} onClear={vi.fn()} />)
+    const fields = Array.from(
+      screen.getByRole('combobox').querySelectorAll('option'),
+    ).map((o) => o.textContent)
+    expect(fields).toContain('Metal')
+  })
+
+  it('does not offer Metal on the currency view', () => {
+    render(
+      <BulkEditBar view="currency" ids={[1]} onApplied={vi.fn()} onClear={vi.fn()} />,
+    )
+    const fields = Array.from(
+      screen.getByRole('combobox').querySelectorAll('option'),
+    ).map((o) => o.textContent)
+    expect(fields).not.toContain('Metal')
+    expect(fields).toContain('Grade')
+  })
+
   it('does not offer it for another refusal', async () => {
     const user = userEvent.setup()
     api.bulkEditInventory.mockRejectedValueOnce(new Error('Unknown grade: zz'))

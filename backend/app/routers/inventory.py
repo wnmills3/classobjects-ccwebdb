@@ -9,6 +9,7 @@ Staff-only throughout: everything here exposes cost basis.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
@@ -898,6 +899,37 @@ def _apply_note_changes(items: list[InventoryItem], changes: dict[str, object]) 
             setattr(item.currency_detail, column, value)
 
 
+#: Fields a banknote does not have. `metal` is a coin-view column and filter
+#: in `inventory_search` and has no meaning on paper, so writing one onto a
+#: note would make a row no view can show and no search can find.
+_COIN_ONLY_FIELDS = ("metal",)
+
+
+def _refuse_coin_only_fields(
+    data: dict[str, object], items: Sequence[InventoryItem], db: Session
+) -> None:
+    """Raise a 422 if a coin-only field is being written onto a banknote.
+
+    The console does not offer the field for a note, but a stale tab or a
+    script can still send it; the screens are not where this is enforced.
+    """
+    sent = [field for field in _COIN_ONLY_FIELDS if data.get(field) is not None]
+    if not sent:
+        return
+    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    notes = sorted(item.item_code for item in items if item.item_kind_id == currency_id)
+    if notes:
+        # Plain 422, as the attributes guard below does: the named constant
+        # is deprecated in Starlette and warns, and test output stays clean.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{', '.join(sent)} belongs to coins, not banknotes: "
+                f"{', '.join(notes)}. Nothing was changed."
+            ),
+        )
+
+
 def _refuse_null_scalars(data: dict[str, object]) -> None:
     """Raise a 422 naming every required scalar that was sent as null."""
     nulled = sorted(f for f in REQUIRED_SCALARS if f in data and data[f] is None)
@@ -947,6 +979,7 @@ def bulk_edit(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No such item(s): {missing}. Nothing was changed.",
         )
+    _refuse_coin_only_fields(data, list(items), db)
     if data and not acknowledged:
         _refuse_unacknowledged_sale(db, list(items))
 
@@ -1036,6 +1069,7 @@ def update_item(
             detail="attributes may not be null; send [] to clear them.",
         )
     _refuse_null_scalars(data)
+    _refuse_coin_only_fields(data, [item], db)
     _split_grade(data)
 
     # This is what catches the ordinary lost-update case: two staff, each with

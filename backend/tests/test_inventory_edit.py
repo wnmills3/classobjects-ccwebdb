@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import Grade, StrikeType
+from app.models import Grade, ItemKind, Metal, StrikeType
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -264,6 +264,59 @@ def test_the_detail_payload_covers_every_editable_field(
 
     missing = sorted((set(EDITABLE_SCALARS) | set(ITEM_CLASSIFIERS)) - set(body))
     assert not missing, f"editable but never returned: {missing}"
+
+
+def test_a_banknote_cannot_be_given_a_metal(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Paper has no metal, and `metal` is a coin-view column in the search.
+
+    The console stopped offering the field for a note, but a stale tab or a
+    script could still send it, and the column would have taken it.
+    """
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+
+    response = client.patch(
+        f"/api/inventory/{note.id}", json={"metal": "silver"}, headers=admin_headers
+    )
+
+    assert response.status_code == 422
+    assert "metal" in response.json()["detail"]
+    db.refresh(note)
+    assert note.metal_id is None
+
+
+def test_a_coin_can_still_be_given_a_metal(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    item = make_item(db)
+
+    response = client.patch(
+        f"/api/inventory/{item.id}", json={"metal": "silver"}, headers=admin_headers
+    )
+
+    assert response.status_code == 200
+    db.refresh(item)
+    assert item.metal_id == code_id(db, Metal, "silver")
+
+
+def test_a_bulk_edit_cannot_give_a_banknote_a_metal(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """All or nothing: the coin in the same selection keeps its old metal."""
+    coin = make_item(db)
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [coin.id, note.id], "changes": {"metal": "gold"}},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
+    assert "metal" in response.json()["detail"]
+    db.refresh(coin)
+    assert coin.metal_id != code_id(db, Metal, "gold")
 
 
 def test_nulling_a_required_classifier_is_refused_naming_the_field(

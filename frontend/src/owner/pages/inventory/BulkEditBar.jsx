@@ -24,10 +24,12 @@ const BULK_FIELDS = [
   ['Grade', 'grade', 'text'],
   ['Country', 'country', 'text'],
   ['Denomination', 'denomination', 'text'],
-  ['Metal', 'metal', 'text'],
+  //: Coins only. Paper has no metal, and `metal` is a coin-view column and
+  //: filter in `inventory_search` -- it does not exist on the currency view.
+  ['Metal', 'metal', 'text', 'coins'],
 ]
 
-export default function BulkEditBar({ ids, onApplied, onClear }) {
+export default function BulkEditBar({ ids, onApplied, onClear, view }) {
   const [field, setField] = useState(BULK_FIELDS[0][1])
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
@@ -38,7 +40,12 @@ export default function BulkEditBar({ ids, onApplied, onClear }) {
 
   if (ids.length === 0) return null
 
-  const type = BULK_FIELDS.find(([, key]) => key === field)?.[2] ?? 'text'
+  // A field marked for one view is offered only there; everything else is
+  // shared. `view` is the config's own name for the page ('coins' | 'currency').
+  const fields = BULK_FIELDS.filter(
+    ([, , , onlyView]) => !onlyView || onlyView === view,
+  )
+  const type = fields.find(([, key]) => key === field)?.[2] ?? 'text'
 
   async function apply() {
     setBusy(true)
@@ -64,7 +71,7 @@ export default function BulkEditBar({ ids, onApplied, onClear }) {
       <strong>{ids.length} selected</strong>
 
       <select value={field} onChange={(e) => setField(e.target.value)}>
-        {BULK_FIELDS.map(([label, key]) => (
+        {fields.map(([label, key]) => (
           <option key={key} value={key}>
             {label}
           </option>
