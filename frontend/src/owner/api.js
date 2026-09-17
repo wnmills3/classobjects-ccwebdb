@@ -30,12 +30,10 @@ function query(params) {
 export const api = {
   ...shared,
 
-  // catalogue writes -- reads are in shared/api.js, the shop needs those
-  createCatalogItem: (payload) =>
-    send('/api/catalog', { method: 'POST', body: payload }),
-  updateCatalogItem: (id, payload) =>
-    send(`/api/catalog/${id}`, { method: 'PATCH', body: payload }),
-  deleteCatalogItem: (id) => send(`/api/catalog/${id}`, { method: 'DELETE' }),
+  // No catalogue writes: the Manage page that used them is retired, and
+  // offering an item the business already owns is what replaces it
+  // (`docs/plans/selling-offers.md`). The endpoints themselves go with that
+  // work, so nothing loses the ability to end a listing meanwhile.
 
   renameReferenceValue: (table, code, payload) =>
     send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),
