@@ -1158,6 +1158,79 @@ class VendorCreate(BaseModel):
         return _require_http_url(value)
 
 
+_VENUE_CODE = r"^[a-z0-9][a-z0-9_-]*$"
+_URL_PLACEHOLDER = "{external_id}"
+
+
+def _template_has_placeholder(value: str | None) -> str | None:
+    """A listing URL template must say where the listing number goes."""
+    if value is not None and _URL_PLACEHOLDER not in value:
+        raise ValueError(f"must contain {_URL_PLACEHOLDER}")
+    return value
+
+
+class SalesVenueOut(BaseModel):
+    """A sales platform, for the Platforms page."""
+
+    code: str
+    name: str
+    #: A `sales_venue_kind` code.
+    kind: str
+    is_own_store: bool
+    vendor_id: int | None = None
+    vendor_name: str | None = None
+    account_handle: str | None = None
+    listing_url_template: str | None = None
+    commission_rate: Decimal | None = None
+    processing_rate: Decimal | None = None
+    processing_fixed: Decimal | None = None
+    listing_fee: Decimal | None = None
+    terms_as_of: date | None = None
+    notes: str | None = None
+    is_active: bool
+    version: int
+
+
+class _SalesVenueFields(BaseModel):
+    """The editable fields a platform shares between create and update."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_handle: str | None = Field(default=None, max_length=255)
+    listing_url_template: str | None = Field(default=None, max_length=500)
+    commission_rate: Decimal | None = Field(default=None, ge=0, le=1)
+    processing_rate: Decimal | None = Field(default=None, ge=0, le=1)
+    processing_fixed: Decimal | None = Field(default=None, ge=0)
+    listing_fee: Decimal | None = Field(default=None, ge=0)
+    terms_as_of: date | None = None
+    notes: str | None = None
+    vendor_id: int | None = None
+
+    @field_validator("listing_url_template")
+    @classmethod
+    def _placeholder(cls, value: str | None) -> str | None:
+        """The template names where the listing number goes."""
+        return _template_has_placeholder(value)
+
+
+class SalesVenueCreate(_SalesVenueFields):
+    """A new platform. The web store already exists and cannot be added."""
+
+    code: str = Field(min_length=1, max_length=64, pattern=_VENUE_CODE)
+    name: str = Field(min_length=1, max_length=255)
+    kind: str = Field(min_length=1, max_length=64)
+
+
+class SalesVenueUpdate(_SalesVenueFields):
+    """A change to a platform. Omitted fields are left alone; `code` is fixed."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    kind: str | None = Field(default=None, min_length=1, max_length=64)
+    is_active: bool | None = None
+    #: The version the form loaded; a mismatch is a 409.
+    version: int | None = None
+
+
 class PurchaseOrderCreate(BaseModel):
     """A new purchase: a vendor, and everything else optional.
 
