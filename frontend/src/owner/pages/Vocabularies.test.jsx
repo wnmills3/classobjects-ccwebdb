@@ -8,6 +8,7 @@ vi.mock('../api', () => ({
     getReferenceForEditing: vi.fn(),
     addReferenceAlias: vi.fn(),
     renameReferenceValue: vi.fn(),
+    mergeReferenceValue: vi.fn(),
     removeReferenceAlias: vi.fn(),
   },
 }))
@@ -263,5 +264,91 @@ describe('Vocabularies', () => {
     expect(
       await within(row('United States Note')).findByText('A label needs some text.'),
     ).toBeVisible()
+  })
+
+  it('merges a value after showing what would move', async () => {
+    const user = userEvent.setup()
+    api.mergeReferenceValue.mockImplementation(async (table, code, into, dryRun) => ({
+      table,
+      code,
+      into,
+      dry_run: dryRun,
+      moved: { 'currency_detail.note_type_id': 3 },
+      items: 3,
+      dropped: 0,
+      aliases: ['National Bank Note', 'national_bank_note'],
+    }))
+    await openNoteTypes(user)
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Merge National Bank Note into another value',
+      }),
+    )
+    const choice = screen.getByLabelText('Merge National Bank Note into')
+    // Only active values other than itself are offered.
+    expect(within(choice).queryByText('Old Type')).toBeNull()
+    expect(within(choice).queryByText('National Bank Note')).toBeNull()
+    const merge = screen.getByRole('button', { name: 'Merge' })
+    expect(merge).toBeDisabled()
+
+    await user.selectOptions(choice, 'us_note')
+    expect(api.mergeReferenceValue).toHaveBeenCalledWith(
+      'note_type',
+      'national_bank_note',
+      'us_note',
+      true,
+    )
+    expect(
+      await screen.findByText(
+        'Moves 3 items to United States Note, then removes National Bank Note. ' +
+          'National Bank Note, national_bank_note will find United States Note. ' +
+          'This cannot be undone.',
+      ),
+    ).toBeVisible()
+
+    await user.click(merge)
+    expect(api.mergeReferenceValue).toHaveBeenLastCalledWith(
+      'note_type',
+      'national_bank_note',
+      'us_note',
+      false,
+    )
+    expect(
+      await screen.findByText('Merged national_bank_note into us_note: 3 items moved.'),
+    ).toBeVisible()
+    // The list is read again, and pickers elsewhere are told.
+    expect(api.getReferenceForEditing).toHaveBeenCalledTimes(3)
+    expect(reference.invalidate).toHaveBeenCalledWith('note_type')
+  })
+
+  it('shows a refusal and does not merge', async () => {
+    const user = userEvent.setup()
+    api.mergeReferenceValue.mockRejectedValue(
+      new Error('National Bank Note is also used by series.note_type_id (1)'),
+    )
+    await openNoteTypes(user)
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Merge National Bank Note into another value',
+      }),
+    )
+    await user.selectOptions(
+      screen.getByLabelText('Merge National Bank Note into'),
+      'us_note',
+    )
+    expect(await screen.findByText(/also used by series/)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeDisabled()
+    expect(api.mergeReferenceValue).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not offer to merge away a value the application looks up', async () => {
+    const user = userEvent.setup()
+    await openNoteTypes(user)
+    expect(
+      screen.getByRole('button', {
+        name: 'Merge Federal Reserve Note into another value',
+      }),
+    ).toBeDisabled()
   })
 })

@@ -1031,6 +1031,31 @@ class ReferenceValueRename(BaseModel):
     is_active: bool | None = None
 
 
+class ReferenceMergeIn(BaseModel):
+    """The value to merge into, and whether only to say what would happen."""
+
+    into: str = Field(min_length=1, max_length=64)
+    #: True: report what the merge would move, and change nothing.
+    dry_run: bool = False
+
+
+class ReferenceMergeOut(BaseModel):
+    """What a merge moved, or would move."""
+
+    table: str
+    code: str
+    into: str
+    dry_run: bool
+    #: Rows moved, by "table.column".
+    moved: dict[str, int]
+    #: Distinct items those rows describe.
+    items: int
+    #: Rows dropped because the item already had the kept value.
+    dropped: int
+    #: Names the kept value gains (or would gain).
+    aliases: list[str]
+
+
 class ReferenceAliasIn(BaseModel):
     """Another name for a value: what people write instead of its label."""
 

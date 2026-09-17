@@ -22,12 +22,14 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import Select, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from .. import aliases
+from .. import aliases, reference_merge
 from ..deps import AdminUser, DbSession
 from ..inventory_search import plain
 from ..models import REFERENCE_MODELS, ProvenanceSource, ReferenceMixin
 from ..schemas import (
     ReferenceAliasIn,
+    ReferenceMergeIn,
+    ReferenceMergeOut,
     ReferenceTableOut,
     ReferenceValueCreate,
     ReferenceValueOut,
@@ -415,3 +417,48 @@ def remove_alias(
         ) from exc
     db.commit()
     return _value_with_aliases(db, row, model)
+
+
+@router.post("/{table}/{code}/merge")
+def merge_value(
+    table: str,
+    code: str,
+    payload: ReferenceMergeIn,
+    db: DbSession,
+    admin: AdminUser,
+) -> ReferenceMergeOut:
+    """Merge a value into another: move its items, keep its names, delete it.
+
+    `dry_run` reports what would move and changes nothing -- the console
+    shows it before asking. Refused (409) for a value another vocabulary or
+    a facts table uses, for one the application looks up by code, and for a
+    retired target (app.reference_merge).
+    """
+    model = _model_or_404(table)
+    try:
+        if payload.dry_run:
+            result, _, _ = reference_merge.plan(db, model, code, payload.into)
+        else:
+            result = reference_merge.merge(
+                db, model, code, payload.into, user_id=admin.id
+            )
+    except reference_merge.NoSuchValue as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except reference_merge.MergeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if payload.dry_run:
+        db.rollback()
+    else:
+        db.commit()
+    return ReferenceMergeOut(
+        table=result.table,
+        code=result.code,
+        into=result.into,
+        dry_run=payload.dry_run,
+        moved=result.moved,
+        items=result.items,
+        dropped=result.dropped,
+        aliases=result.aliases,
+    )

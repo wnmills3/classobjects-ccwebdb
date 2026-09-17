@@ -206,6 +206,13 @@ button.link.danger {
   color: #777;
   text-decoration: line-through;
 }
+/* Merge into..., opened under a value's label. */
+.merge-panel {
+  border-left: 3px solid #b8860b;
+  margin-top: 0.4rem;
+  max-width: 30rem;
+  padding-left: 0.6rem;
+}
 /* Rename and Retire, under a value's label. */
 .value-actions {
   display: flex;

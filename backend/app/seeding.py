@@ -47,6 +47,7 @@ from .models import (
     NoteType,
     ProvenanceSource,
     ReferenceAlias,
+    ReferenceMerge,
     ReferenceMixin,
     SealColor,
     Series,
@@ -161,9 +162,41 @@ def _resolve_row(
     return values
 
 
+def _merged(session: Session) -> dict[str, dict[str, str]]:
+    """Merged codes, by table, to the code each was merged into.
+
+    A merged value is gone (app.reference_merge). A seed row for it is
+    skipped, and a seed row naming it names the value it became.
+    """
+    merged: dict[str, dict[str, str]] = {}
+    rows = session.execute(
+        select(
+            ReferenceMerge.table_name, ReferenceMerge.code, ReferenceMerge.merged_into
+        )
+    ).tuples()
+    for table, code, into in rows:
+        merged.setdefault(table, {})[code] = into
+    return merged
+
+
+def _with_merged(codes: dict[str, int], merged: dict[str, str]) -> dict[str, int]:
+    """Code -> id, with each merged code pointing at what it became."""
+    out = dict(codes)
+    for code, into in merged.items():
+        # Follow a chain: A merged into B, later B into C.
+        seen = {code}
+        while into in merged and into not in seen:
+            seen.add(into)
+            into = merged[into]
+        if code not in out and into in codes:
+            out[code] = codes[into]
+    return out
+
+
 def _build_code_index(session: Session) -> dict[str, dict[str, int]]:
     """Current code -> id for every table that has a code column."""
     index: dict[str, dict[str, int]] = {}
+    merged = _merged(session)
     for model in SEEDABLE:
         columns = model.__table__.columns
         # Composition is seedable but has no code, so it gets no entry.
@@ -173,7 +206,8 @@ def _build_code_index(session: Session) -> dict[str, dict[str, int]]:
             continue
         pairs = select(columns["code"], columns["id"])
         rows = session.execute(pairs).tuples().all()
-        index[model.__tablename__] = dict(rows)
+        table = model.__tablename__
+        index[table] = _with_merged(dict(rows), merged.get(table, {}))
     return index
 
 
@@ -220,9 +254,13 @@ def _seed_table(
     # Rebuilt per table so a table can reference one seeded earlier in the
     # same run.
     code_index = _build_code_index(session)
+    merged = _merged(session).get(table, {})
 
     for position, row in enumerate(rows, start=1):
         where = f"{table}[{position}]"
+        if row.get("code") in merged:
+            counter["merged"] += 1
+            continue
         values = _resolve_row(row, model, code_index, where)
         missing = [k for k in keys if k not in values]
         if missing:
@@ -289,9 +327,7 @@ def _seed_series_aliases(
     if not rows:
         return counter
 
-    series_ids: dict[str, int] = dict(
-        session.execute(select(Series.code, Series.id)).tuples().all()
-    )
+    series_ids = _codes(session, Series)
     existing = {
         (series_id, alias)
         for series_id, alias in session.execute(
@@ -405,9 +441,10 @@ def _seed_series_year_ranges(
 
 
 def _codes(session: Session, model: SeedableModel) -> dict[str, int]:
-    """Code to id for one classifier table."""
+    """Code to id for one classifier table, merged codes included."""
     table = model.__table__
-    return dict(session.execute(select(table.c.code, table.c.id)).tuples().all())
+    codes = dict(session.execute(select(table.c.code, table.c.id)).tuples().all())
+    return _with_merged(codes, _merged(session).get(model.__tablename__, {}))
 
 
 def _seed_reference_aliases(

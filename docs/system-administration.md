@@ -704,6 +704,22 @@ from the dropdown where they are needed, and rename or retire them on the
   valuation basis, and the values `single`, `USD`, `US`, `unknown` (vendor
   kind) and `frn` -- since receiving, importing or selling would stop; those
   can still be renamed.
+- **Merge into...** replaces a value with another for good -- two values
+  that say the same thing. Choose the value to keep and the page shows what
+  would happen before asking: every item holding the old value moves to the
+  kept one (an item that already had both keeps one), the old label, code
+  and aliases become aliases of the kept value -- so ratings, searches and
+  imports using the old word still find it -- and the old value is deleted.
+  It is remembered (`reference_merge`), so a seed load does not bring it
+  back and a seed row naming it lands on the kept value. A merge is refused
+  when another vocabulary or a facts table uses the value (a denomination's
+  composition, a series' year ranges, a note issue): change those first, or
+  retire the value instead. Values that cannot be retired cannot be merged
+  away either.
+
+**Retire or merge?** Retire a value you no longer want offered but whose
+records are right as they are. Merge a value that was a duplicate or a
+mistake, so no record keeps it.
 
 ### Other names (aliases)
 
