@@ -515,3 +515,109 @@ describe('a banknote in the editor', () => {
     expect(screen.queryByText('Serial number')).toBeNull()
   })
 })
+
+describe('Attributes', () => {
+  const attribute = (code, label, applies_to, attribute_group) => ({
+    code,
+    label,
+    source: 'seeded',
+    aliases: [],
+    extra: { applies_to, attribute_group },
+  })
+  const vocabularies = emptyReference({
+    tables: {
+      item_attribute: [
+        attribute('star', 'Star Note', 'currency', 'serial'),
+        attribute('no_motto', 'No Motto', 'any', 'variety'),
+        attribute('first_strike', 'First Strike', 'coin', 'release'),
+        attribute('cac', 'CAC (green sticker)', 'coin', 'verification'),
+      ],
+    },
+  })
+
+  async function open(overrides) {
+    api.getInventoryItem.mockResolvedValue({ ...item, version: 3, ...overrides })
+    renderWithProviders(<ItemEditForm itemId={12} />, { reference: vocabularies })
+    await screen.findByDisplayValue('Mercury Dime')
+  }
+
+  const offered = () =>
+    within(screen.getByRole('combobox', { name: 'item_attribute' }))
+      .getAllByRole('option')
+      .map((o) => o.textContent)
+
+  it('lists what the item carries and marks what a rule read', async () => {
+    await open({
+      item_kind: 'currency',
+      attributes: [
+        {
+          code: 'star',
+          label: 'Star Note',
+          group: 'serial',
+          source: 'derived',
+          derived_by: 'serial_pattern',
+        },
+      ],
+    })
+    expect(screen.getByText('Star Note')).toBeVisible()
+    expect(screen.getByTitle('Read from the serial number')).toHaveTextContent('read')
+  })
+
+  it('offers only attributes for this kind of item, and not the ones it has', async () => {
+    await open({
+      item_kind: 'coin',
+      attributes: [
+        {
+          code: 'cac',
+          label: 'CAC (green sticker)',
+          group: 'verification',
+          source: 'manual',
+        },
+      ],
+    })
+    expect(offered()).toEqual(['--', 'No Motto', 'First Strike'])
+  })
+
+  it('saves the whole set with the item version', async () => {
+    const user = userEvent.setup()
+    api.updateInventoryItem.mockResolvedValue({})
+    await open({
+      item_kind: 'coin',
+      attributes: [
+        {
+          code: 'cac',
+          label: 'CAC (green sticker)',
+          group: 'verification',
+          source: 'manual',
+        },
+      ],
+    })
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'item_attribute' }),
+      'first_strike',
+    )
+    await user.click(screen.getByRole('button', { name: 'Remove CAC (green sticker)' }))
+    expect(screen.getByText('First Strike')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
+        attributes: ['first_strike'],
+        version: 3,
+      }),
+    )
+  })
+
+  it('offers nothing until the vocabulary has loaded', async () => {
+    api.getInventoryItem.mockResolvedValue({
+      ...item,
+      item_kind: 'coin',
+      attributes: [],
+    })
+    renderWithProviders(<ItemEditForm itemId={12} />, { reference: emptyReference() })
+    await screen.findByDisplayValue('Mercury Dime')
+    expect(screen.queryByRole('combobox', { name: 'item_attribute' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'item_attribute' })).toBeNull()
+  })
+})

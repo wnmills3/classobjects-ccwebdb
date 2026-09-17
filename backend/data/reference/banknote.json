@@ -1,10 +1,7 @@
 {
   "_comment": [
     "Banknote-specific vocabulary.",
-    "Note attributes are a many-to-many link, not a grade: 'Star Note' describes",
-    "the note, not its condition, and putting it in the grade column is what",
-    "makes condition unqueryable.",
-    "",
+    "Note attributes moved to attribute.json, as item attributes.",
     "Note types use the Bureau of Engraving and Printing's class names",
     "(bep.gov/currency/history and /faqs), 2026-09-16. 'Legal Tender Note' was",
     "folded into 'United States Note': BEP uses legal tender for every class",
@@ -60,93 +57,6 @@
       "code": "treasury_note",
       "label": "Treasury Note",
       "sort_order": 100
-    }
-  ],
-  "note_attribute": [
-    {
-      "code": "star",
-      "label": "Star Note",
-      "sort_order": 10
-    },
-    {
-      "code": "fancy_serial",
-      "label": "Fancy Serial",
-      "sort_order": 20
-    },
-    {
-      "code": "consecutive",
-      "label": "Consecutive",
-      "sort_order": 30
-    },
-    {
-      "code": "low_serial",
-      "label": "Low Serial Number",
-      "sort_order": 40
-    },
-    {
-      "code": "solid_serial",
-      "label": "Solid Serial Number",
-      "sort_order": 50
-    },
-    {
-      "code": "radar",
-      "label": "Radar Serial",
-      "sort_order": 60
-    },
-    {
-      "code": "repeater",
-      "label": "Repeater Serial",
-      "sort_order": 70
-    },
-    {
-      "code": "binary",
-      "label": "Binary Serial",
-      "sort_order": 80
-    },
-    {
-      "code": "birthday",
-      "label": "Birthday Serial",
-      "sort_order": 90
-    },
-    {
-      "code": "error",
-      "label": "Error Note",
-      "sort_order": 100
-    },
-    {
-      "code": "web_press",
-      "label": "Web Press Note",
-      "sort_order": 110
-    },
-    {
-      "code": "ladder",
-      "label": "Ladder Serial",
-      "sort_order": 120
-    },
-    {
-      "code": "specimen",
-      "label": "Specimen",
-      "sort_order": 130
-    },
-    {
-      "code": "proof",
-      "label": "Proof",
-      "sort_order": 140
-    },
-    {
-      "code": "trinary",
-      "label": "Trinary Serial",
-      "sort_order": 150
-    },
-    {
-      "code": "double_quad",
-      "label": "Double Quad Serial",
-      "sort_order": 160
-    },
-    {
-      "code": "high_serial",
-      "label": "High Serial Number",
-      "sort_order": 170
     }
   ],
   "seal_color": [

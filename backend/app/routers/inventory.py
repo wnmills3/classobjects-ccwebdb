@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from .. import grades
+from .. import grades, item_attributes
 from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
@@ -80,6 +80,7 @@ from ..schemas import (
     InventoryItemOut,
     InventoryItemUpdate,
     InventoryPageOut,
+    ItemAttributeOut,
     ItemCreate,
     ItemDetailOut,
     ItemErrorOut,
@@ -672,6 +673,10 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
         lot_claims=claims,
         reviewed=_reviewed_fields(db, item.id),
         derived=derived_fields(db, item.id),
+        attributes=[
+            ItemAttributeOut(**vars(held))
+            for held in item_attributes.held_attributes(db, item.id)
+        ],
     )
 
 
@@ -868,6 +873,13 @@ def bulk_edit(
     """
     data = payload.changes.model_dump(exclude_unset=True)
     data.pop("version", None)  # Meaningless across a set of rows.
+    if "attributes" in data:
+        # A whole set, per item: the same set across many items would wipe
+        # whatever each carried that the others do not.
+        raise HTTPException(
+            status_code=422,
+            detail="attributes are set one item at a time. Nothing was changed.",
+        )
     _refuse_null_scalars(data)
     _split_grade(data)
 
@@ -960,6 +972,12 @@ def update_item(
     # exclude_unset so an omitted field is left alone rather than nulled.
     data = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
+    attributes = data.pop("attributes", None)
+    if "attributes" in payload.model_fields_set and attributes is None:
+        raise HTTPException(
+            status_code=422,
+            detail="attributes may not be null; send [] to clear them.",
+        )
     _refuse_null_scalars(data)
     _split_grade(data)
 
@@ -1009,6 +1027,21 @@ def update_item(
             setattr(item, field, data[field])
     if years is not None:
         item.year_start, item.year_end = years
+    # After the classifiers: a kind changed in this request decides which
+    # attributes fit.
+    if attributes is not None:
+        try:
+            changed = item_attributes.set_attributes(
+                db, item, attributes, user_id=admin.id
+            )
+        except item_attributes.AttributeRefused as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if changed:
+            # The links are another table. Touching the item is what moves
+            # its version, so a form opened before this save gets a 409
+            # rather than putting the old set back.
+            item.updated_at = datetime.now(UTC)
     forget(db, [item.id], [_column(field) for field in data])
     hold(db, [item.id], _emptied(data))
 

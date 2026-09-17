@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react'
 
 import { api } from '../../api'
 import { ReferenceSelect } from '../../../shared/reference'
+import { useReference } from '../../../shared/reference-context'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 
@@ -97,6 +98,75 @@ const DERIVED_FROM = {
   series_match: 'Filled from the description',
   series_backfill: 'Filled from the description or from denomination and year',
   suggestion: 'Suggested when the item was entered',
+}
+
+//: Where a derived attribute was read, as its mark's tooltip says it.
+const ATTRIBUTE_FROM = {
+  serial_pattern: 'Read from the serial number',
+  import: 'Read from the spreadsheet',
+}
+
+/**
+ * What the item is beyond its grade: Star Note, No Motto, First Strike.
+ *
+ * The whole set is saved with the item, so a stale form is a 409 like any
+ * other field. Removing one a rule read (marked "read") keeps it removed:
+ * the rule does not add it back. Only attributes for this kind of item are
+ * offered -- a star note is not a coin's.
+ */
+function AttributesField({ item, codes, onChange, kind }) {
+  const vocabulary = useReference('item_attribute') ?? []
+  const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
+  const held = new Map((item.attributes ?? []).map((a) => [a.code, a]))
+  const fits = (entry) =>
+    ['any', kind === 'currency' ? 'currency' : 'coin'].includes(entry.extra?.applies_to)
+
+  return (
+    <div className="field">
+      <span>Attributes</span>
+      <div className="attribute-list">
+        {codes.map((code) => {
+          const label = byCode.get(code)?.label ?? held.get(code)?.label ?? code
+          const read = held.get(code)?.source === 'derived' ? held.get(code) : null
+          return (
+            <span key={code} className="chip alias-chip">
+              {label}
+              {read && (
+                <span
+                  className="suggested"
+                  title={ATTRIBUTE_FROM[read.derived_by] ?? 'Read by a rule'}
+                >
+                  read
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label={`Remove ${label}`}
+                onClick={() => onChange(codes.filter((c) => c !== code))}
+              >
+                ×
+              </button>
+            </span>
+          )
+        })}
+        {/* Only once loaded: until then the picker is a text box, and each
+            keystroke would add a partial code. */}
+        {vocabulary.length > 0 && (
+          <ReferenceSelect
+            table="item_attribute"
+            value=""
+            allowAdd={false}
+            filter={(entry) => fits(entry) && !codes.includes(entry.code)}
+            onChange={(e) => {
+              if (e.target.value) onChange([...codes, e.target.value])
+            }}
+          />
+        )}
+      </div>
+      <span />
+      <span />
+    </div>
+  )
 }
 
 /** The column a form field is stored in, as `derived` and reviews name it. */
@@ -461,6 +531,17 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           {review(REVIEWABLE[key])}
         </label>
       ))}
+
+      <AttributesField
+        item={item}
+        kind={value('item_kind')}
+        codes={
+          'attributes' in draft
+            ? draft.attributes
+            : (item.attributes ?? []).map((a) => a.code)
+        }
+        onChange={(codes) => setDraft({ ...draft, attributes: codes })}
+      />
 
       {item.item_kind === 'currency' && (
         <>

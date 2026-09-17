@@ -526,6 +526,19 @@ class InventoryItemOut(BaseModel):
     split_at: datetime | None = None
 
 
+class ItemAttributeOut(BaseModel):
+    """One attribute an item carries."""
+
+    code: str
+    label: str
+    #: serial, variety, release, verification or qualifier.
+    group: str
+    #: `derived` (read by a rule or the importer) or `manual`.
+    source: str
+    #: The rule that read it: `serial_pattern`, `import`.
+    derived_by: str | None = None
+
+
 class ItemDetailOut(InventoryItemOut):
     """One item, with everything the edit form needs in one round trip.
 
@@ -593,6 +606,10 @@ class ItemDetailOut(InventoryItemOut):
     series_year: int | None = None
     series_letter: str | None = None
     serial_number: str | None = None
+
+    #: What the item is beyond its grade: Star Note, No Motto, First Strike.
+    #: Removed ones are not listed.
+    attributes: list[ItemAttributeOut] = Field(default_factory=list)
 
 
 class InventoryItemUpdate(BaseModel):
@@ -663,6 +680,19 @@ class InventoryItemUpdate(BaseModel):
     series_year: int | None = Field(default=None, ge=1861, le=2200)
     series_letter: str | None = Field(default=None, max_length=4)
     serial_number: str | None = Field(default=None, max_length=64)
+
+    #: The item's whole set of attribute codes, replacing what it carries.
+    #: One the item had and this omits is marked removed, so no rule adds it
+    #: back (app.item_attributes). Single-item edits only.
+    attributes: list[str] | None = Field(default=None, max_length=64)
+
+    @field_validator("attributes")
+    @classmethod
+    def _no_repeated_attribute(cls, codes: list[str] | None) -> list[str] | None:
+        """The same attribute twice is a client mistake, not two facts."""
+        if codes is not None and len(set(codes)) != len(codes):
+            raise ValueError("each attribute may appear at most once")
+        return codes
 
 
 class BulkEditRequest(BaseModel):

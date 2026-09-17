@@ -151,7 +151,8 @@ one cell:
     note_attributes    star, radar, fancy_serial, high_serial
 
 The alternative -- a boolean column per value -- would put **seventeen**
-columns on the currency sheet for `note_attribute` alone, most of them empty
+columns on the currency sheet for `note_attribute` (now `item_attribute`)
+alone, most of them empty
 on most rows, and would need a new column every time the vocabulary grows.
 The vocabulary is meant to grow.
 

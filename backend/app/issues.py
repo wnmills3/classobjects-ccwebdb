@@ -131,9 +131,10 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         # defensive noise.
         "cud.serial_number IS NOT NULL AND "
         "(cud.serial_number LIKE '*%' OR cud.serial_number LIKE '%*') "
-        "<> EXISTS (SELECT 1 FROM item_note_attribute x "
-        "JOIN note_attribute na ON na.id = x.note_attribute_id "
-        "WHERE x.inventory_item_id = i.id AND na.code = 'star')",
+        "<> EXISTS (SELECT 1 FROM item_attribute_link x "
+        "JOIN item_attribute na ON na.id = x.item_attribute_id "
+        "WHERE x.inventory_item_id = i.id AND na.code = 'star' "
+        "AND x.removed_at IS NULL)",
         join=(_J_CUR_DETAIL,),
         # Visible only as a disagreement between two fields, which is what
         # makes it valuable: neither field looks wrong alone. Star notes carry

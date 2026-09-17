@@ -40,8 +40,8 @@ from . import aliases, grades
 from .issues import COIN_ISSUES, CURRENCY_ISSUES, Issue
 from .models import (
     GradeDesignation,
+    ItemAttribute,
     Mint,
-    NoteAttribute,
     NoteType,
     ReferenceMixin,
     Series,
@@ -127,7 +127,7 @@ class Named:
     match: str
 
 
-def _held_in(table: str, column: str) -> str:
+def _held_in(table: str, column: str, where: str = "") -> str:
     """Items with a matching row in a detail or link table.
 
     IN, not a correlated EXISTS: PostgreSQL evaluates the subquery once, as a
@@ -135,14 +135,22 @@ def _held_in(table: str, column: str) -> str:
     search over the live collection took 178 ms that way.
     """
     return (
-        f"i.id IN (SELECT inventory_item_id FROM {table} WHERE {column} = ANY(:{{p}}))"
+        f"i.id IN (SELECT inventory_item_id FROM {table} "
+        f"WHERE {column} = ANY(:{{p}}){where})"
     )
+
+
+#: An item's attributes, less those a person removed.
+_ATTRIBUTE_HELD = _held_in(
+    "item_attribute_link", "item_attribute_id", " AND removed_at IS NULL"
+)
 
 
 _NAMED_SHARED = (
     Named("series", Series, "i.series_id = ANY(:{p})"),
     Named("strike_type", StrikeType, "i.strike_type_id = ANY(:{p})"),
     Named("grade_designation", GradeDesignation, "i.grade_designation_id = ANY(:{p})"),
+    Named("attribute", ItemAttribute, _ATTRIBUTE_HELD),
 )
 
 
@@ -433,11 +441,6 @@ CURRENCY_VIEW = ViewSpec(
     named=(
         *_NAMED_SHARED,
         Named("note_type", NoteType, _held_in("currency_detail", "note_type_id")),
-        Named(
-            "note_attribute",
-            NoteAttribute,
-            _held_in("item_note_attribute", "note_attribute_id"),
-        ),
     ),
     sortable=(*_SHARED_SORT, "series_year", "series_designation"),
     facets={
@@ -530,6 +533,23 @@ def _error_type_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | N
         "EXISTS (SELECT 1 FROM item_error ie "
         "JOIN error_type et ON et.id = ie.error_type_id "
         "WHERE ie.inventory_item_id = i.id AND et.code = :p_error_type)"
+    )
+
+
+def _attribute_clause(params: dict[str, Any], bound: dict[str, Any]) -> str | None:
+    """Items carrying the named attribute, and not removed from them.
+
+    A subquery for the same reason as `_error_type_clause`: an item carries
+    many attributes, and a join would list it once per match.
+    """
+    code = params.pop("attribute", None)
+    if not code:
+        return None
+    bound["p_attribute"] = code
+    return (
+        "i.id IN (SELECT l.inventory_item_id FROM item_attribute_link l "
+        "JOIN item_attribute ia ON ia.id = l.item_attribute_id "
+        "WHERE ia.code = :p_attribute AND l.removed_at IS NULL)"
     )
 
 
@@ -649,6 +669,7 @@ def _conditions(
         _lot_clause(params, bound),
         _issue_clause(spec, params, joins),
         _error_type_clause(params, bound),
+        _attribute_clause(params, bound),
         _grade_clause(params, bound, joins),
     ):
         if clause is not None:

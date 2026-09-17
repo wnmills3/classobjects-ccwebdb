@@ -36,9 +36,9 @@ from .base import Base, ProvenanceSource, TimestampMixin, enum_column, utcnow
 
 __all__ = [
     "FriedbergNumber",
+    "ItemAttributeLink",
     "ItemCertification",
     "ItemError",
-    "ItemNoteAttribute",
     "PcgsType",
 ]
 
@@ -77,7 +77,7 @@ class ItemError(Base):
     errors commonly appear on the same bill, and a single `error_type_id`
     column cannot express that. Placed here rather than on the item itself
     because it is an identification of a feature of the object, the same
-    role `ItemNoteAttribute` and `ItemCertification` play.
+    role `ItemAttributeLink` and `ItemCertification` play.
 
     The unique constraint on `(inventory_item_id, error_type_id)` means the
     same error recorded twice on one item updates one row rather than
@@ -124,21 +124,50 @@ class ItemError(Base):
     )
 
 
-class ItemNoteAttribute(Base):
-    """Many-to-many: banknote features that are attributes, not grades.
+class ItemAttributeLink(Base):
+    """Many-to-many: what an item is, beyond its grade.
 
-    Star Note and Fancy Serial describe the note; they do not describe its
+    Star Note and No Motto describe the object; they do not describe its
     condition, and putting them in the grade column is what makes condition
     unqueryable.
+
+    **A removed attribute stays removed.** A rule that reads the serial or
+    the facts would put a deleted link straight back, so a person removing
+    one sets `removed_at` and the row stays; every reader skips it and every
+    rule leaves it alone (app.item_attributes).
+    docs/specs/item-attributes-design.md, section 2.
     """
 
-    __tablename__ = "item_note_attribute"
+    __tablename__ = "item_attribute_link"
 
     inventory_item_id: Mapped[int] = mapped_column(
         ForeignKey("inventory_item.id", ondelete="CASCADE"), primary_key=True
     )
-    note_attribute_id: Mapped[int] = mapped_column(
-        ForeignKey("note_attribute.id", ondelete="RESTRICT"), primary_key=True
+    item_attribute_id: Mapped[int] = mapped_column(
+        ForeignKey("item_attribute.id", ondelete="RESTRICT"),
+        primary_key=True,
+        index=True,
+    )
+    #: `derived` for a rule's or the importer's reading, `manual` for a
+    #: person's.
+    source: Mapped[ProvenanceSource] = mapped_column(
+        enum_column(ProvenanceSource, "provenance_source"),
+        default=ProvenanceSource.manual,
+        nullable=False,
+    )
+    #: Which rule derived it (`serial_pattern`, `import`); None for a person's
+    #: and for links older than the column.
+    derived_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    noted_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    noted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    #: Set when a person removed a derived attribute; the row is kept so no
+    #: rule adds it back.
+    removed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

@@ -1443,3 +1443,13 @@ Anything outside the database that quotes a `CC-` number from before
 2026-09-15 no longer refers to what it did. This is the cost of treating the
 workbook as the authority after the database became the system of record, and
 is the last time it should be paid: entry now happens in the console.
+
+## 20. Amendment J — note attributes become item attributes
+
+2026-09-16. `note_attribute` and `item_note_attribute`, named in sections 1,
+4 and 6, are now `item_attribute` and `item_attribute_link`
+(docs/specs/item-attributes-design.md, section 2). Coins carry attributes
+too, each attribute has a group and says which kind of item it fits, and a
+link records whether a rule or a person made it. The importer still reads
+the same note features from the rating; each link it writes is `derived`,
+by `import`.

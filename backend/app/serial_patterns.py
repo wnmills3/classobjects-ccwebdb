@@ -40,13 +40,17 @@ from .database import SessionLocal
 from .models import (
     CurrencyDetail,
     InventoryItem,
-    ItemNoteAttribute,
-    NoteAttribute,
+    ItemAttribute,
+    ItemAttributeLink,
+    ProvenanceSource,
 )
 
 #: US small-size serials carry exactly this many digits. Patterns are only
 #: meaningful against a complete one.
 SERIAL_DIGITS = 8
+
+#: `item_attribute_link.derived_by` for the links this module adds.
+RULE = "serial_pattern"
 
 #: Small-size notes begin here. Before 1928 US currency was large-size and
 #: obsolete/broken-bank issues earlier still, and neither follows the
@@ -125,7 +129,7 @@ def _pattern_designations(d: str) -> set[str]:
 
 
 def analyse(serial: str) -> set[str]:
-    """Every designation this serial earns, as `note_attribute` codes."""
+    """Every designation this serial earns, as `item_attribute` codes."""
     found: set[str] = set()
     if not serial:
         return found
@@ -276,13 +280,15 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
     """Report, and optionally record, the designations every serial earns."""
     attribute_ids = {
         code: ident
-        for ident, code in db.execute(select(NoteAttribute.id, NoteAttribute.code))
+        for ident, code in db.execute(select(ItemAttribute.id, ItemAttribute.code))
     }
+    # Every link, removed ones included: a designation a person took away
+    # is not put back.
     existing: set[tuple[int, int]] = set(
         db.execute(
             select(
-                ItemNoteAttribute.inventory_item_id,
-                ItemNoteAttribute.note_attribute_id,
+                ItemAttributeLink.inventory_item_id,
+                ItemAttributeLink.item_attribute_id,
             )
         )
         .tuples()
@@ -297,7 +303,7 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
 
     stats: Counter = Counter()
     incomplete: list[tuple[str, str]] = []
-    to_add: list[ItemNoteAttribute] = []
+    to_add: list[ItemAttributeLink] = []
 
     for item_id, item_code, serial in rows:
         if not serial:
@@ -315,8 +321,11 @@ def run(db: Session, *, commit: bool) -> tuple[Counter, list[tuple[str, str]]]:
                 continue
             stats[f"missing:{code}"] += 1
             to_add.append(
-                ItemNoteAttribute(
-                    inventory_item_id=item_id, note_attribute_id=attribute_id
+                ItemAttributeLink(
+                    inventory_item_id=item_id,
+                    item_attribute_id=attribute_id,
+                    source=ProvenanceSource.derived,
+                    derived_by=RULE,
                 )
             )
 
