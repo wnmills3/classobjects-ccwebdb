@@ -201,7 +201,7 @@ WHERE i.split_at IS NULL
 _CREATE_VIEWS_WITH_ERROR_TYPE: tuple[str, ...] = (
     _COIN_INVENTORY_WITH_ERROR_TYPE,
     _CURRENCY_INVENTORY_WITH_ERROR_TYPE,
-    *create_views(strike_type=False)[2:],
+    *create_views(strike_type=False, selling=False)[2:],
 )
 
 
@@ -232,7 +232,7 @@ def upgrade() -> None:
     op.drop_column('inventory_item', 'error_details')
     # ### end Alembic commands ###
 
-    for statement in create_views(strike_type=False):
+    for statement in create_views(strike_type=False, selling=False):
         op.execute(statement)
 
 

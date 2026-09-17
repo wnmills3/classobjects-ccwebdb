@@ -33,6 +33,7 @@ from .models import (
 from .models.base import utcnow
 from .references import require_code
 from .sale_snapshot import take as take_snapshot
+from .sales_venues import store_venue_id
 
 _CENTS = Decimal("0.01")
 
@@ -147,6 +148,7 @@ def place_order(
 
     order = SalesOrder(
         customer_id=customer.id,
+        sales_venue_id=store_venue_id(db),
         sales_order_status_id=require_code(db, SalesOrderStatus, "pending", "status"),
         placed_by_id=placed_by.id,
         notes=notes,

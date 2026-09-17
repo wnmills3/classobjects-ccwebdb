@@ -31,6 +31,7 @@ from .models import (
     ItemKind,
     ItemStatus,
     Listing,
+    ListingStatus,
     Metal,
     ProvenanceSource,
     ReferenceMixin,
@@ -40,6 +41,7 @@ from .models import (
     UserRole,
     ValuationBasis,
 )
+from .sales_venues import store_venue_id
 from .security import hash_password
 
 #: A demo catalogue. Classifiers are given as codes, matching how they cross
@@ -161,7 +163,8 @@ def _build(db: Session, row: dict) -> None:
             price=row["price"],
             currency_id=_code_id(db, Currency, "USD"),
             quantity_available=row["quantity_available"],
-            is_active=True,
+            status=ListingStatus.active,
+            sales_venue_id=store_venue_id(db),
         )
     )
 

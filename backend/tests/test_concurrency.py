@@ -39,6 +39,7 @@ from app.models import (
     ValuationBasis,
 )
 from app.routers.orders import create_order
+from app.sales_venues import store_venue_id
 from app.schemas import OrderCreate, OrderLineIn
 from app.security import hash_password
 from fastapi import HTTPException
@@ -94,6 +95,7 @@ def _seed(
             inventory_item_id=item.id,
             price=Decimal("100.00"),
             currency_id=_code_id(session, Currency, "USD"),
+            sales_venue_id=store_venue_id(session),
             quantity_available=stock,
         )
         session.add(listing)

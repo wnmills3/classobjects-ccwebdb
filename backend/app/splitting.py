@@ -48,6 +48,7 @@ from .models import (
     InventoryItem,
     ItemKind,
     Listing,
+    ListingStatus,
     ProvenanceSource,
     SalesOrderItem,
 )
@@ -256,7 +257,7 @@ def split_item(
     for listing in db.scalars(
         select(Listing).where(Listing.inventory_item_id == parent.id)
     ):
-        listing.is_active = False
+        listing.status = ListingStatus.ended
         listing.ended_at = now
 
     db.flush()
