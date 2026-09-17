@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from app.models import PurchaseOrder, SalesVenue, SalesVenueKind, Vendor, VendorKind
 from app.vendor_cleanup import CleanupError, run
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 # Setup is committed, not flushed. Under the `db` fixture a commit releases a
@@ -185,3 +185,66 @@ def test_refusal_writes_nothing(db: Session) -> None:
 
     db.expire_all()
     assert db.get(Vendor, other.id).vendor_kind_id is None
+
+
+def test_a_vendor_can_be_renamed(db: Session) -> None:
+    """The survivor of a merge often needs the spelling neither row had."""
+    vendor = _vendor(db, "builionsharks.com")
+
+    report = run(
+        db,
+        merges=[],
+        kinds=[],
+        deletes=[],
+        renames=[(vendor.id, "bullionsharks.com")],
+        commit=True,
+    )
+
+    assert report.renamed == [("builionsharks.com", "bullionsharks.com")]
+    db.expire_all()
+    assert db.get(Vendor, vendor.id).name == "bullionsharks.com"
+
+
+def test_a_rename_to_an_existing_name_is_refused(db: Session) -> None:
+    """`uq_vendor_name` would fail at flush; the refusal names both."""
+    vendor = _vendor(db, "one.example")
+    _vendor(db, "Two.Example")
+
+    with pytest.raises(CleanupError, match=r"Two\.Example"):
+        run(
+            db,
+            merges=[],
+            kinds=[],
+            deletes=[],
+            renames=[(vendor.id, "two.example")],
+            commit=True,
+        )
+
+    db.expire_all()
+    assert db.get(Vendor, vendor.id).name == "one.example"
+
+
+def test_a_rename_happens_after_a_merge(db: Session) -> None:
+    """The merged-away row's name is free to reuse in the same call."""
+    typo = _vendor(db, "bullionshark.com")
+    keep = _vendor(db, "builionsharks.com")
+    _order(db, typo, "B1")
+
+    run(
+        db,
+        merges=[(typo.id, keep.id)],
+        kinds=[],
+        deletes=[],
+        renames=[(keep.id, "bullionsharks.com")],
+        commit=True,
+    )
+
+    db.expire_all()
+    assert db.get(Vendor, typo.id) is None
+    assert db.get(Vendor, keep.id).name == "bullionsharks.com"
+    assert _order_count_for(db, keep.id) == 1
+
+
+def _order_count_for(db: Session, vendor_id: int) -> int:
+    """Orders attached to a vendor, read straight from the database."""
+    return db.scalar(select(func.count()).where(PurchaseOrder.vendor_id == vendor_id))

@@ -10,10 +10,14 @@ business is the owner's call, not something to guess -- and nothing is
 written without --commit:
 
     python -m app.vendor_cleanup --merge 15:12 --merge 21:9 --delete 6
-        --kind 1:marketplace --kind 19:marketplace [--commit]
+        --kind 1:marketplace --kind 19:marketplace
+        --rename 12:bullionsharks.com [--commit]
 
 A merge moves the purchase orders and removes the duplicate. Vendor rows hold
 no history of their own; the orders carry it, and they are kept.
+
+Renames run last, after the merges, so the survivor of a merge can take a
+spelling neither row had -- or one the merged-away row was using.
 """
 
 from __future__ import annotations
@@ -43,6 +47,8 @@ class Report:
     deleted: list[str] = field(default_factory=list)
     #: (vendor name, kind code)
     kinds: list[tuple[str, str]] = field(default_factory=list)
+    #: (old name, new name)
+    renamed: list[tuple[str, str]] = field(default_factory=list)
 
 
 def _vendor(db: Session, vendor_id: int) -> Vendor:
@@ -97,8 +103,14 @@ def run(
     kinds: Sequence[tuple[int, str]],
     deletes: Sequence[int],
     commit: bool,
+    renames: Sequence[tuple[int, str]] = (),
 ) -> Report:
-    """Apply the named merges, deletions and kinds; roll back unless `commit`."""
+    """Apply the named merges, deletions, kinds and renames.
+
+    Renames run last, so a merge in the same call frees the name it removes:
+    the two Bullion Shark spellings become one row named for the website the
+    owner actually bought from. Rolls back unless `commit`.
+    """
     report = Report()
     try:
         for source_id, target_id in merges:
@@ -141,6 +153,25 @@ def run(
             vendor.vendor_kind_id = kind_id
             report.kinds.append((vendor.name, code))
 
+        for vendor_id, new_name in renames:
+            vendor = _vendor(db, vendor_id)
+            # `uq_vendor_name` is case-sensitive, but two vendors differing
+            # only in case are the same source to a person, so the check here
+            # is case-insensitive -- the same rule the vendors API applies.
+            taken = db.scalar(
+                select(Vendor).where(
+                    func.lower(Vendor.name) == new_name.casefold(),
+                    Vendor.id != vendor_id,
+                )
+            )
+            if taken is not None:
+                raise CleanupError(
+                    f"Cannot rename {vendor.name} to {new_name}: "
+                    f"{taken.name} already has that name"
+                )
+            report.renamed.append((vendor.name, new_name))
+            vendor.name = new_name
+
         db.flush()
     except Exception:
         # Every exception, not only CleanupError. A database constraint this
@@ -166,17 +197,36 @@ def _kind(text: str) -> tuple[int, str]:
     return int(left), right
 
 
+def _rename(text: str) -> tuple[int, str]:
+    left, _, right = text.partition(":")
+    return int(left), right.strip()
+
+
 def main(argv: list[str] | None = None) -> int:
     """Report or apply the clean-up."""
     parser = argparse.ArgumentParser(prog="vendor_cleanup", description=__doc__)
     parser.add_argument("--merge", type=_pair, action="append", default=[])
     parser.add_argument("--kind", type=_kind, action="append", default=[])
     parser.add_argument("--delete", type=int, action="append", default=[])
+    parser.add_argument(
+        "--rename",
+        type=_rename,
+        action="append",
+        default=[],
+        help="ID:NEW_NAME, applied after the merges",
+    )
     parser.add_argument("--commit", action="store_true", help="write the changes")
     args = parser.parse_args(argv)
     with SessionLocal() as db:
         try:
-            report = run(db, args.merge, args.kind, args.delete, commit=args.commit)
+            report = run(
+                db,
+                args.merge,
+                args.kind,
+                args.delete,
+                commit=args.commit,
+                renames=args.rename,
+            )
         except CleanupError as exc:
             print(f"REFUSED: {exc}")
             return 1
@@ -186,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"delete {name}")
     for name, code in report.kinds:
         print(f"kind   {name} = {code}")
+    for old, new in report.renamed:
+        print(f"rename {old} -> {new}")
     if not args.commit:
         print("\n(dry run -- nothing written; pass --commit)")
     return 0
