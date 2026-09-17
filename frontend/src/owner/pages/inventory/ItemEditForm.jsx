@@ -106,6 +106,7 @@ const ATTRIBUTE_FROM = {
   serial_pattern: 'Read from the serial number',
   import: 'Read from the spreadsheet',
   rating: 'Read from the rating',
+  attribute_rule: "Follows from the note's class and series",
 }
 
 /**

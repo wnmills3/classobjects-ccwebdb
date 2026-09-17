@@ -199,7 +199,8 @@ every miss visible rather than defaulted.
    yet. The importer does not read the new words until step 4.)
 4. Importer rules and a re-derivation over the live data (report first).
    (Built; see *As built: the rating rules* below.)
-5. Attribute rules in the defaults pass (No Motto).
+5. Attribute rules in the defaults pass (No Motto). (Built; see *As built:
+   attribute rules* below.)
 
 ## Decisions (owner, 2026-09-16)
 
@@ -407,6 +408,26 @@ records what it fills as derived by `rating`, and adds attribute links only
 where none exists, removed ones included. Its dry run on live proposed: 297
 grades and strikes, 85 designations (82 DCAM), 25 graders, 21 Genuine, 141
 attributes, 26 strike corrections, 2 FS clears.
+
+## As built: attribute rules
+
+`app/attribute_rules.py` holds the rule as data (attribute, class, face
+value, the series that always have it, the series that need evidence;
+every other series of that class never does), and
+`app.classifier_defaults` applies it alongside the note's class, so an edit
+that changes a note's series or class brings its No Motto up to date at
+once. The class the rule reads is the one the pass has just decided: a
+class taken back takes the rule's link with it.
+
+The rule adds a derived link (`derived_by` `attribute_rule`) only where the
+note has no link for the attribute at all -- a removed one, or one the
+importer, the rating pass or a person made, is left as it is -- and takes
+back only its own. A 1935G without the attribute is reported as *needs
+evidence*; a later note with it as *disagrees*.
+
+Dry run on live, 2026-09-16: 108 notes get No Motto; 15 Series 1935G notes
+need evidence; no later note carries it. The nine Peace dollars rated "No
+Motto" are coins and outside the rule.
 
 ## Sources
 
