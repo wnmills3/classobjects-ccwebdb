@@ -33,11 +33,13 @@ from ..models import (
     ItemKind,
     ItemStatus,
     Listing,
+    ListingFormat,
     ListingStatus,
     Metal,
     ProvenanceSource,
     SalesOrderChange,
     SalesOrderItem,
+    SalesVenue,
     StorageForm,
     StrikeType,
     ValuationBasis,
@@ -217,6 +219,10 @@ def list_catalog(
     filters: list[ColumnElement[bool]] = []
     if not include_inactive:
         filters.append(Listing.is_active.is_(True))
+    # Same rule as `order_writes._sellable_here` (and `_sold_in_shop` below):
+    # the shop's catalogue is the web store's fixed-price listings only.
+    filters.append(Listing.sales_venue.has(SalesVenue.is_own_store.is_(True)))
+    filters.append(Listing.format == ListingFormat.fixed_price)
     if q:
         pattern = f"%{q}%"
         filters.append(
@@ -279,10 +285,31 @@ def _get_listing(db: Session, listing_id: int) -> Listing:
     return listing
 
 
+def _sold_in_shop(listing: Listing) -> bool:
+    """Whether a listing belongs in the public catalogue.
+
+    Same rule as `order_writes._sellable_here` (checkout uses it too) --
+    keep both in sync.
+    """
+    return (
+        listing.sales_venue.is_own_store and listing.format is ListingFormat.fixed_price
+    )
+
+
 @router.get("/{listing_id}")
 def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
-    """One catalogue entry. Public: it carries no cost basis or location."""
-    return to_catalog_item(_get_listing(db, listing_id))
+    """One catalogue entry. Public: it carries no cost basis or location.
+
+    A listing on another platform or sold at auction is not this shop's to
+    show -- treated as unknown, the same 404 an unknown id gets, so a caller
+    cannot tell "wrong platform" from "does not exist".
+    """
+    listing = _get_listing(db, listing_id)
+    if not _sold_in_shop(listing):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Catalogue item not found"
+        )
+    return to_catalog_item(listing)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
