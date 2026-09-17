@@ -19,6 +19,11 @@ The rules, per field:
   its record. The machine may take back its own guess; nobody else's.
 - A field a person emptied (`held`) stays empty.
 
+Attributes that follow from a note's facts -- No Motto on a $1 Silver
+Certificate of Series 1928-1935F (`app.attribute_rules`) -- are added the
+same way: only where the note has no link for it at all, a removed one
+included; taken back only where this pass added it.
+
     python -m app.classifier_defaults            report, touching nothing
     python -m app.classifier_defaults --commit   write the defaults
 """
@@ -37,6 +42,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import attribute_rules
 from .database import SessionLocal
 from .field_sources import (
     COMPOSITION,
@@ -53,9 +59,12 @@ from .models import (
     Denomination,
     FedDistrict,
     InventoryItem,
+    ItemAttribute,
+    ItemAttributeLink,
     ItemKind,
     NoteIssue,
     NoteType,
+    ProvenanceSource,
     ReferenceAlias,
 )
 from .serial_patterns import WELL_FORMED
@@ -132,6 +141,23 @@ class Change:
     rule: str
 
 
+@dataclass(frozen=True)
+class LinkChange:
+    """An attribute link a rule adds (`add`) or takes back."""
+
+    item_id: int
+    attribute_id: int
+    add: bool
+
+
+@dataclass(frozen=True)
+class Link:
+    """An existing link, as far as the rules care."""
+
+    active: bool
+    derived_by: str | None
+
+
 @dataclass
 class Report:
     """What the pass found and would write."""
@@ -139,6 +165,7 @@ class Report:
     changes: list[Change] = field(default_factory=list)
     counts: Counter = field(default_factory=Counter)
     review: list[Case] = field(default_factory=list)
+    links: list[LinkChange] = field(default_factory=list)
 
     def by_column(self, *, retracted: bool = False) -> Counter:
         """Writes (or retractions) per column: `note_type_id` 907."""
@@ -284,6 +311,9 @@ class Facts:
     issues: dict[IssueKey, list[Issue]]
     compositions: list[Composition]
     note_type_labels: dict[int, str]
+    note_type_codes: dict[int, str]
+    #: The attributes the rules name, by code.
+    rule_attributes: dict[str, tuple[int, str]]
     #: Patterns naming each class, from its label and aliases.
     class_names: list[tuple[int, re.Pattern[str]]]
     frn_id: int | None
@@ -345,6 +375,17 @@ def load_facts(db: Session) -> Facts:
             ).scalars()
         ),
         note_type_labels=labels,
+        note_type_codes=dict(
+            db.execute(select(NoteType.id, NoteType.code)).tuples().all()
+        ),
+        rule_attributes={
+            code: (row_id, label)
+            for row_id, code, label in db.execute(
+                select(ItemAttribute.id, ItemAttribute.code, ItemAttribute.label).where(
+                    ItemAttribute.code.in_([r.attribute for r in attribute_rules.RULES])
+                )
+            ).tuples()
+        },
         class_names=class_names,
         frn_id=db.execute(
             select(NoteType.id).where(NoteType.code == "frn")
@@ -526,10 +567,69 @@ def _note_facts(
     )
 
 
+def _links(
+    db: Session, facts: Facts, item_ids: Collection[int] | None
+) -> dict[tuple[int, int], Link]:
+    """The links of the attributes the rules name, removed ones included."""
+    ids = [row_id for row_id, _ in facts.rule_attributes.values()]
+    query = select(
+        ItemAttributeLink.inventory_item_id,
+        ItemAttributeLink.item_attribute_id,
+        ItemAttributeLink.removed_at,
+        ItemAttributeLink.derived_by,
+    ).where(ItemAttributeLink.item_attribute_id.in_(ids))
+    if item_ids is not None:
+        query = query.where(ItemAttributeLink.inventory_item_id.in_(list(item_ids)))
+    return {
+        (item_id, attribute_id): Link(removed_at is None, derived_by)
+        for item_id, attribute_id, removed_at, derived_by in db.execute(query).tuples()
+    }
+
+
+def attribute_outcome(
+    facts: Facts,
+    item_id: int,
+    note: NoteFacts,
+    note_type_id: int | None,
+    links: dict[tuple[int, int], Link],
+) -> tuple[list[LinkChange], list[tuple[str, str]], list[str]]:
+    """The links the rules add or take back, the cases, and the counts."""
+    changes: list[LinkChange] = []
+    cases: list[tuple[str, str]] = []
+    counts: list[str] = []
+    note_type = facts.note_type_codes.get(note_type_id) if note_type_id else None
+    series = f"{note.series_year}{(note.series_letter or '').strip().upper()}"
+    for rule in attribute_rules.RULES:
+        found = facts.rule_attributes.get(rule.attribute)
+        if found is None:
+            continue
+        attribute_id, label = found
+        verdict = attribute_rules.verdict(
+            rule, note_type, note.face, note.series_year, note.series_letter
+        )
+        link = links.get((item_id, attribute_id))
+        active = link is not None and link.active
+        mine = active and link is not None and link.derived_by == attribute_rules.RULE
+        if verdict == attribute_rules.ALWAYS:
+            if link is None:
+                changes.append(LinkChange(item_id, attribute_id, add=True))
+                counts.append(f"attribute: {rule.attribute} added")
+            continue
+        if mine:
+            changes.append(LinkChange(item_id, attribute_id, add=False))
+            counts.append(f"attribute: {rule.attribute} taken back")
+        elif verdict == attribute_rules.EVIDENCE and not active:
+            cases.append(("needs evidence", f"{series}: {label}?"))
+        elif verdict == attribute_rules.NEVER and active:
+            cases.append(("disagrees", f"{series} is never {label}"))
+    return changes, cases, counts
+
+
 def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
     """Decide the defaults of every item, or of the given ones, writing nothing."""
     facts = load_facts(db)
     sources = sources_by_item(db, item_ids)
+    links = _links(db, facts, item_ids)
     report = Report()
     for item, kind, face, detail in _items(db, item_ids):
         recorded = sources.get(item.id, {})
@@ -539,8 +639,24 @@ def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
             if detail is None:
                 report.counts["note: no currency detail"] += 1
                 continue
-            outcome = note_outcome(facts, _note_facts(item, detail, face), mine, held)
+            note = _note_facts(item, detail, face)
+            outcome = note_outcome(facts, note, mine, held)
             on_note = True
+            written = {column: value for column, value, _ in outcome.writes}
+            note_type_id = written.get(
+                "note_type_id",
+                None if "note_type_id" in outcome.retracts else detail.note_type_id,
+            )
+            changes, cases, counts = attribute_outcome(
+                facts,
+                item.id,
+                note,
+                note_type_id if isinstance(note_type_id, int) else None,
+                links,
+            )
+            report.links += changes
+            report.counts.update(counts)
+            report.review += [Case(item.item_code, r, d) for r, d in cases]
         else:
             outcome = coin_outcome(facts, item, mine, held)
             on_note = False
@@ -581,6 +697,20 @@ def apply(db: Session, report: Report, *, commit: bool = True) -> None:
             record_derived(
                 db, item_id, [c.column for c in changes if c.rule == rule], rule
             )
+    for link in report.links:
+        if link.add:
+            db.add(
+                ItemAttributeLink(
+                    inventory_item_id=link.item_id,
+                    item_attribute_id=link.attribute_id,
+                    source=ProvenanceSource.derived,
+                    derived_by=attribute_rules.RULE,
+                )
+            )
+        else:
+            row = db.get(ItemAttributeLink, (link.item_id, link.attribute_id))
+            if row is not None:
+                db.delete(row)
     if commit:
         db.commit()
 
@@ -613,9 +743,9 @@ def suggest(db: Session, note: NoteFacts) -> dict[str, int]:
 def run(db: Session, *, commit: bool) -> Report:
     """Classify, and write only when asked."""
     report = classify(db)
-    if commit and report.changes:
+    if commit and (report.changes or report.links):
         apply(db, report)
-        report.counts["written"] = len(report.changes)
+        report.counts["written"] = len(report.changes) + len(report.links)
     return report
 
 

@@ -289,6 +289,15 @@ fills these in so nobody types them
 | note class, seal, signatures | denomination, series year and letter | `note_issue.json` (Series 1928-2021) |
 | Reserve Bank | a Federal Reserve Note's serial number | BEP's serial rules |
 | composition, metal, fineness, weights | denomination, country and year | `composition.json` |
+| the No Motto attribute | a $1 Silver Certificate's series | `app/attribute_rules.py` |
+
+**No Motto** ("Godless") follows from the series: every $1 Silver
+Certificate of Series 1928 through 1935F lacks "In God We Trust", Series
+1935G was printed both ways, and 1935H on carries it. The first get the
+attribute (marked *read*); a 1935G is listed as **needs evidence** unless its
+rating or a person already says No Motto; a later note marked No Motto is
+listed as **disagrees**. Remove the attribute in the editor and it stays
+removed. Correct the series and an attribute the rule added goes with it.
 
 **A person always wins.** A filled-in value shows a small *suggested* mark in
 the item editor, with a tooltip saying where it came from. Change the field
