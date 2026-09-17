@@ -206,6 +206,12 @@ button.link.danger {
   color: #777;
   text-decoration: line-through;
 }
+/* Rename and Retire, under a value's label. */
+.value-actions {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
 .alias-add {
   display: flex;
   gap: 0.3rem;

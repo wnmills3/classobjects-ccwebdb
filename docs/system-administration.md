@@ -690,7 +690,20 @@ underlined letter to jump to a field, and Ctrl+S or Ctrl+Enter to save.
 
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows
 in reference tables, not free text. Administrators add values in the console,
-from the dropdown where they are needed.
+from the dropdown where they are needed, and rename or retire them on the
+**Vocabularies** page (`/owner/vocabularies`):
+
+- **Rename** changes the label, which is what people read. The code never
+  changes: saved searches, the data and the API use it. Every record shows
+  the new name at once. A renamed value is marked `manual`, so a later seed
+  load keeps your wording instead of putting the shipped one back.
+- **Retire** stops a value being offered in the pickers; every record that
+  uses it keeps it, and its dropdown still shows it, marked *(retired)*.
+  **Restore** offers it again. A value the application looks up by its code cannot be retired --
+  any status, disposition, strike type, kind, authenticity, grade scale or
+  valuation basis, and the values `single`, `USD`, `US`, `unknown` (vendor
+  kind) and `frn` -- since receiving, importing or selling would stop; those
+  can still be renamed.
 
 ### Other names (aliases)
 

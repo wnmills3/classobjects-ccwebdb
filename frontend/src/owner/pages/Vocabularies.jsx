@@ -5,7 +5,14 @@ import { ReferenceContext } from '../../shared/reference-context'
 import { findEntries } from '../../shared/reference-match'
 
 /**
- * The classifier vocabularies and the other names for their values.
+ * The classifier vocabularies: their values' names, and other names for them.
+ *
+ * A value can be renamed -- the label is what people read; the code, which
+ * saved searches and the data use, never changes -- and retired, which takes
+ * it out of the pickers while every record that uses it stays as it is. A
+ * value the application looks up by its code (a status, a strike, "single")
+ * can be renamed but not retired. A renamed value keeps its wording through
+ * later seed loads.
  *
  * The standard term stays the label -- DCAM, United States Note -- and what
  * people actually write becomes an alias: UCAM, Legal Tender. Search, the
@@ -33,8 +40,10 @@ function aliasCounts(values) {
   return counts
 }
 
-function AliasRow({ table, value, shared, onChanged }) {
+function ValueRow({ table, value, shared, onChanged }) {
   const [draft, setDraft] = useState('')
+  // The label being typed, or null when not renaming.
+  const [label, setLabel] = useState(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -56,11 +65,86 @@ function AliasRow({ table, value, shared, onChanged }) {
     if (await run(() => api.addReferenceAlias(table, value.code, alias))) setDraft('')
   }
 
+  // The label always travels: the endpoint renames and retires in one call.
+  const update = (changes) =>
+    run(() =>
+      api.renameReferenceValue(table, value.code, { label: value.label, ...changes }),
+    )
+
+  async function rename() {
+    if (await update({ label })) setLabel(null)
+  }
+
   return (
     <tr className={value.is_active ? undefined : 'muted'}>
       <td>
-        {value.label}
-        {value.is_active ? '' : ' (retired)'}
+        {label === null ? (
+          <>
+            {value.label}
+            {value.is_active ? '' : ' (retired)'}
+            <div className="value-actions">
+              <button
+                type="button"
+                className="link"
+                aria-label={`Rename ${value.label}`}
+                onClick={() => setLabel(value.label)}
+              >
+                Rename
+              </button>
+              {value.is_active ? (
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Retire ${value.label}`}
+                  disabled={saving || value.retirable === false}
+                  title={
+                    value.retirable === false
+                      ? 'The application looks this value up by its code'
+                      : 'Stop offering it; records that use it keep it'
+                  }
+                  onClick={() => update({ is_active: false })}
+                >
+                  Retire
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Restore ${value.label}`}
+                  disabled={saving}
+                  onClick={() => update({ is_active: true })}
+                >
+                  Restore
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <form
+            className="alias-add"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (label.trim()) rename()
+            }}
+          >
+            <input
+              value={label}
+              aria-label={`New name for ${value.label}`}
+              maxLength={255}
+              autoFocus
+              onChange={(e) => setLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setLabel(null)
+              }}
+            />
+            <button type="submit" disabled={saving || !label.trim()}>
+              Save
+            </button>
+            <button type="button" className="link" onClick={() => setLabel(null)}>
+              Cancel
+            </button>
+          </form>
+        )}
       </td>
       <td>
         <code>{value.code}</code>
@@ -181,9 +265,10 @@ export default function Vocabularies() {
     <section>
       <h1>Vocabularies</h1>
       <p className="muted">
-        Other names for each value. Search, the importer and the pickers all recognise
-        them. A shared alias still finds every value in a search, but the importer will
-        not guess between them.
+        Rename a value, retire one that should no longer be offered, and give values
+        other names. Search, the importer and the pickers all recognise an alias. A
+        shared alias still finds every value in a search, but the importer will not
+        guess between them. Retiring leaves every record that uses the value as it is.
       </p>
       {error && <p className="error">{error}</p>}
       <div className="filter-grid">
@@ -220,7 +305,7 @@ export default function Vocabularies() {
           </thead>
           <tbody>
             {shown.map((value) => (
-              <AliasRow
+              <ValueRow
                 key={value.code}
                 table={table}
                 value={value}
