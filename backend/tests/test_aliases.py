@@ -128,10 +128,10 @@ def test_longer_text_matches_part_of_a_name(db: Session) -> None:
 
 def test_an_added_alias_is_manual_and_works_at_once(db: Session) -> None:
     dcam = _id(db, GradeDesignation, "DCAM")
-    created = aliases.add_alias(db, GradeDesignation, dcam, " UCAM ")
+    created = aliases.add_alias(db, GradeDesignation, dcam, " Black  Cameo ")
 
-    assert (created.alias, created.source) == ("UCAM", ProvenanceSource.manual)
-    assert aliases.resolve(db, GradeDesignation, "ucam") == aliases.Resolved(
+    assert (created.alias, created.source) == ("Black Cameo", ProvenanceSource.manual)
+    assert aliases.resolve(db, GradeDesignation, "black cameo") == aliases.Resolved(
         dcam, "alias"
     )
 
@@ -175,11 +175,12 @@ def test_two_values_may_share_an_alias(db: Session) -> None:
 
 def test_removing_an_added_alias_deletes_it(db: Session) -> None:
     dcam = _id(db, GradeDesignation, "DCAM")
-    aliases.add_alias(db, GradeDesignation, dcam, "UCAM")
-    aliases.remove_alias(db, GradeDesignation, dcam, "ucam")
+    aliases.add_alias(db, GradeDesignation, dcam, "Black Cameo")
+    aliases.remove_alias(db, GradeDesignation, dcam, "black cameo")
 
     assert (
-        db.scalar(select(ReferenceAlias).where(ReferenceAlias.alias == "UCAM")) is None
+        db.scalar(select(ReferenceAlias).where(ReferenceAlias.alias == "Black Cameo"))
+        is None
     )
 
 
@@ -270,12 +271,14 @@ def test_search_finds_a_coin_by_its_strike_designation_or_mint(
     denver = make_item(description="plain")
     db.add(CoinDetail(inventory_item_id=denver.id, mint_id=_id(db, Mint, "D")))
     db.commit()
-    aliases.add_alias(db, GradeDesignation, _id(db, GradeDesignation, "DCAM"), "UCAM")
+    aliases.add_alias(
+        db, GradeDesignation, _id(db, GradeDesignation, "DCAM"), "Black Cameo"
+    )
     db.commit()
 
     assert proof.item_code in _codes_found(db, COIN_VIEW, "PR")
     assert proof.item_code in _codes_found(db, COIN_VIEW, "proof")
-    assert cameo.item_code in _codes_found(db, COIN_VIEW, "ucam")
+    assert cameo.item_code in _codes_found(db, COIN_VIEW, "black cameo")
     assert cameo.item_code in _codes_found(db, COIN_VIEW, "deep cameo")
     assert denver.item_code in _codes_found(db, COIN_VIEW, "Denver")
     assert _codes_found(db, COIN_VIEW, "Denver") == {denver.item_code}
@@ -402,20 +405,20 @@ def test_the_console_adds_and_removes_an_alias(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     url = "/api/reference/grade_designation/DCAM/aliases"
-    added = client.post(url, json={"alias": "UCAM"}, headers=admin_headers)
+    added = client.post(url, json={"alias": "Black Cameo"}, headers=admin_headers)
     assert added.status_code == 201
-    assert added.json()["aliases"] == ["UCAM"]
+    assert added.json()["aliases"] == ["Black Cameo", "UC", "UCAM", "Ultra Cameo"]
 
-    again = client.post(url, json={"alias": "ucam"}, headers=admin_headers)
+    again = client.post(url, json={"alias": "black cameo"}, headers=admin_headers)
     assert again.status_code == 409
 
-    removed = client.delete(url, params={"alias": "UCAM"}, headers=admin_headers)
+    removed = client.delete(url, params={"alias": "Black Cameo"}, headers=admin_headers)
     assert removed.status_code == 200
-    assert removed.json()["aliases"] == []
+    assert removed.json()["aliases"] == ["UC", "UCAM", "Ultra Cameo"]
     # Added here, so deleted rather than kept as retired.
     assert removed.json()["retired_aliases"] == []
 
-    missing = client.delete(url, params={"alias": "UCAM"}, headers=admin_headers)
+    missing = client.delete(url, params={"alias": "Black Cameo"}, headers=admin_headers)
     assert missing.status_code == 404
 
 
@@ -480,3 +483,21 @@ def test_an_alias_for_an_unknown_value_is_404(
     ):
         response = client.post(url, json={"alias": "x"}, headers=admin_headers)
         assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("word", "code"),
+    [("UCAM", "DCAM"), ("ultra cameo", "DCAM"), ("UC", "DCAM"), ("dpl", "DMPL")],
+)
+def test_the_services_equivalent_designations_are_aliases(
+    db: Session, word: str, code: str
+) -> None:
+    """NGC's Ultra Cameo is Deep Cameo and its DPL is DMPL: aliases, not rows."""
+    found = aliases.resolve(db, GradeDesignation, word)
+    assert found is not None
+    assert db.get_one(GradeDesignation, found.row_id).code == code
+
+
+def test_the_newer_designations_are_rows(db: Session) -> None:
+    for code in ("FT", "5FS", "6FS"):
+        assert _id(db, GradeDesignation, code)

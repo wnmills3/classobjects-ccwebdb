@@ -19,7 +19,13 @@
     "Circulated and Ungraded stay unnumbered.",
     "",
     "Note grades keep their own scale and labels (PMG's wording); 3, 2 and 1",
-    "are PCGS Banknote's About Good, Fair and Poor."
+    "are PCGS Banknote's About Good, Fair and Poor.",
+    "",
+    "Designations follow the services' own terms (item-attributes design,",
+    "section 3). NGC's Ultra Cameo is generally synonymous with Deep Cameo and",
+    "its DPL equivalent to DMPL, so both are aliases rather than rows; UCAM is",
+    "the informal form. FT is NGC's Full Torch (PCGS calls it FB); 5FS and 6FS",
+    "are NGC's Jefferson nickel steps, where PCGS's FS means five or more."
   ],
   "grade_scale": [
     {
@@ -647,9 +653,24 @@
       "sort_order": 60
     },
     {
+      "code": "5FS",
+      "label": "5FS (Five Full Steps)",
+      "sort_order": 62
+    },
+    {
+      "code": "6FS",
+      "label": "6FS (Six Full Steps)",
+      "sort_order": 64
+    },
+    {
       "code": "FB",
       "label": "FB (Full Bands)",
       "sort_order": 70
+    },
+    {
+      "code": "FT",
+      "label": "FT (Full Torch)",
+      "sort_order": 75
     },
     {
       "code": "FBL",
@@ -791,6 +812,26 @@
       "table": "strike_type",
       "code": "enhanced_reverse_proof",
       "alias": "Enhanced Rev PF"
+    },
+    {
+      "table": "grade_designation",
+      "code": "DCAM",
+      "alias": "Ultra Cameo"
+    },
+    {
+      "table": "grade_designation",
+      "code": "DCAM",
+      "alias": "UC"
+    },
+    {
+      "table": "grade_designation",
+      "code": "DCAM",
+      "alias": "UCAM"
+    },
+    {
+      "table": "grade_designation",
+      "code": "DMPL",
+      "alias": "DPL"
     }
   ]
 }
