@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
 import ModalDialog from '../ModalDialog'
@@ -110,6 +110,20 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
   )
   const sources = vendors.filter((v) => !taken.has(v.id))
 
+  // Guards save()'s continuation once the request settles. Cancel (and
+  // Escape, which ModalDialog also routes to onClose) can unmount this form
+  // while a save is still in flight; without this a request the user just
+  // cancelled would still land the instant it resolves -- onSaved would
+  // mutate the parent's list behind the closed dialog. Mirrors the
+  // `cancelled` flag Platforms' own effect uses for the same reason.
+  const mounted = useRef(true)
+  useEffect(
+    () => () => {
+      mounted.current = false
+    },
+    [],
+  )
+
   async function save() {
     setSaving(true)
     setError('')
@@ -117,6 +131,9 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
       const payload = toPayload(form)
       let saved
       if (adding) {
+        // SalesVenueCreate has no is_active field and forbids extras; a new
+        // platform is active by default.
+        delete payload.is_active
         saved = await api.createSalesVenue({ ...payload, code: form.code.trim() })
       } else {
         if (isStore) {
@@ -128,11 +145,13 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
           version: venue.version,
         })
       }
+      if (!mounted.current) return
       onSaved(saved)
     } catch (err) {
+      if (!mounted.current) return
       setError(err.message)
     } finally {
-      setSaving(false)
+      if (mounted.current) setSaving(false)
     }
   }
 
