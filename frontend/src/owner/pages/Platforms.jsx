@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
 import ModalDialog from '../ModalDialog'
+import { accel, useSaveShortcut } from '../shortcuts'
 import { fractionToPercent, percentToFraction } from './platform-rates'
 import { useReference } from '../../shared/reference-context'
 
@@ -21,12 +23,49 @@ import { useReference } from '../../shared/reference-context'
 
 const SAMPLE_ID = '123456789'
 
+/**
+ * Alt+letter for each field of the platform form, as every other console edit
+ * window has (`docs/system-administration.md`). Gathered in one table so a
+ * repeat is visible rather than scattered through the markup, and checked by
+ * the test below it.
+ *
+ * No letter is D, E or F: Chrome and Edge keep those for the address bar and
+ * menus on Windows. Save is V, the same letter it is in the item editor and
+ * the order editor. Each letter appears in its own label, so `AccessLabel`
+ * has something to underline. Cancel has none -- Escape closes the dialog,
+ * which `ModalDialog` already handles.
+ */
+const KEYS = {
+  name: 'n',
+  code: 'c',
+  kind: 'k',
+  vendor: 'p',
+  account: 'a',
+  template: 'l',
+  commission: 'm',
+  processing: 'r',
+  processingFixed: 's',
+  listingFee: 'g',
+  termsAsOf: 'o',
+  notes: 't',
+  retired: 'i',
+  save: 'v',
+}
+
+/** Whether a fee was given at all. A fee of zero was. */
+const given = (fee) => fee !== null && fee !== undefined && fee !== ''
+
 function feeSummary(v) {
+  // Presence, not truthiness. "This platform charges nothing" is a fact and
+  // is not the same as "nobody has looked its fees up yet", which shows an
+  // empty cell. A truthiness test conflates the two for any zero JavaScript
+  // calls falsy -- today the API sends Decimal as a string, so "0.0000"
+  // survives it by luck, but a JSON 0 would disappear without a trace.
   const parts = []
-  if (v.commission_rate) parts.push(`${fractionToPercent(v.commission_rate)}%`)
-  if (v.processing_rate) parts.push(`${fractionToPercent(v.processing_rate)}%`)
-  if (v.processing_fixed) parts.push(`$${v.processing_fixed}`)
-  if (v.listing_fee) parts.push(`$${v.listing_fee} per listing`)
+  if (given(v.commission_rate)) parts.push(`${fractionToPercent(v.commission_rate)}%`)
+  if (given(v.processing_rate)) parts.push(`${fractionToPercent(v.processing_rate)}%`)
+  if (given(v.processing_fixed)) parts.push(`$${v.processing_fixed}`)
+  if (given(v.listing_fee)) parts.push(`$${v.listing_fee} per listing`)
   return parts.join(' + ')
 }
 
@@ -124,6 +163,11 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
     [],
   )
 
+  // `save` is a function declaration below, hoisted for the whole component
+  // scope, so naming it here is safe. Disabled while a save is in flight, so
+  // holding Ctrl+S cannot fire a second request behind the first.
+  useSaveShortcut(save, !saving)
+
   async function save() {
     setSaving(true)
     setError('')
@@ -166,23 +210,24 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
       {error && <p className="error">{error}</p>}
       <div className="filter-grid">
         <label>
-          Name{/* */}
-          <input value={form.name} onChange={set('name')} />
+          <AccessLabel text="Name" accessKey={KEYS.name} />
+          <input value={form.name} onChange={set('name')} {...accel(KEYS.name)} />
         </label>
         {adding && (
           <label>
-            Code{/* */}
+            <AccessLabel text="Code" accessKey={KEYS.code} />
             <input
               value={form.code}
               onChange={set('code')}
               placeholder="lower-case, e.g. ebay"
+              {...accel(KEYS.code)}
             />
           </label>
         )}
         {!isStore && (
           <label>
-            Kind{/* */}
-            <select value={form.kind} onChange={set('kind')}>
+            <AccessLabel text="Kind" accessKey={KEYS.kind} />
+            <select value={form.kind} onChange={set('kind')} {...accel(KEYS.kind)}>
               <option value="">(choose)</option>
               {kinds
                 .filter((k) => k.code !== 'own_store')
@@ -195,8 +240,12 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
           </label>
         )}
         <label>
-          Purchase source{/* */}
-          <select value={form.vendor_id} onChange={set('vendor_id')}>
+          <AccessLabel text="Purchase source" accessKey={KEYS.vendor} />
+          <select
+            value={form.vendor_id}
+            onChange={set('vendor_id')}
+            {...accel(KEYS.vendor)}
+          >
             <option value="">(none)</option>
             {sources.map((v) => (
               <option key={v.id} value={v.id}>
@@ -206,56 +255,70 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
           </select>
         </label>
         <label>
-          Account{/* */}
-          <input value={form.account_handle} onChange={set('account_handle')} />
+          <AccessLabel text="Account" accessKey={KEYS.account} />
+          <input
+            value={form.account_handle}
+            onChange={set('account_handle')}
+            {...accel(KEYS.account)}
+          />
         </label>
         <label>
-          Listing link{/* */}
+          <AccessLabel text="Listing link" accessKey={KEYS.template} />
           <input
             value={form.listing_url_template}
             onChange={set('listing_url_template')}
             placeholder="https://.../{external_id}"
+            {...accel(KEYS.template)}
           />
         </label>
         <label>
-          Commission %{/* */}
+          <AccessLabel text="Commission %" accessKey={KEYS.commission} />
           <input
             inputMode="decimal"
             value={form.commission_pct}
             onChange={set('commission_pct')}
+            {...accel(KEYS.commission)}
           />
         </label>
         <label>
-          Processing %{/* */}
+          <AccessLabel text="Processing %" accessKey={KEYS.processing} />
           <input
             inputMode="decimal"
             value={form.processing_pct}
             onChange={set('processing_pct')}
+            {...accel(KEYS.processing)}
           />
         </label>
         <label>
-          Processing $ per sale{/* */}
+          <AccessLabel text="Processing $ per sale" accessKey={KEYS.processingFixed} />
           <input
             inputMode="decimal"
             value={form.processing_fixed}
             onChange={set('processing_fixed')}
+            {...accel(KEYS.processingFixed)}
           />
         </label>
         <label>
-          Fee $ per listing{/* */}
+          <AccessLabel text="Fee $ per listing" accessKey={KEYS.listingFee} />
           <input
             inputMode="decimal"
             value={form.listing_fee}
             onChange={set('listing_fee')}
+            {...accel(KEYS.listingFee)}
           />
         </label>
         <label>
-          Fees as of{/* */}
-          <input type="date" value={form.terms_as_of} onChange={set('terms_as_of')} />
+          <AccessLabel text="Fees as of" accessKey={KEYS.termsAsOf} />
+          <input
+            type="date"
+            value={form.terms_as_of}
+            onChange={set('terms_as_of')}
+            {...accel(KEYS.termsAsOf)}
+          />
         </label>
         <label>
-          Notes{/* */}
-          <input value={form.notes} onChange={set('notes')} />
+          <AccessLabel text="Notes" accessKey={KEYS.notes} />
+          <input value={form.notes} onChange={set('notes')} {...accel(KEYS.notes)} />
         </label>
         {!isStore && !adding && (
           <label>
@@ -263,8 +326,9 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
               type="checkbox"
               checked={!form.is_active}
               onChange={set('is_active')}
+              {...accel(KEYS.retired)}
             />
-            Retired
+            <AccessLabel text="Retired" accessKey={KEYS.retired} />
           </label>
         )}
       </div>
@@ -274,8 +338,8 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
         </p>
       )}
       <div className="row">
-        <button disabled={saving} onClick={save}>
-          {saving ? 'Saving...' : 'Save'}
+        <button disabled={saving} onClick={save} {...accel(KEYS.save)}>
+          <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey={KEYS.save} />
         </button>
         <button className="link" onClick={onClose}>
           Cancel

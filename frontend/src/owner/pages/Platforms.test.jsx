@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { act, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -50,6 +50,19 @@ const EBAY = {
   terms_as_of: '2026-09-17',
 }
 
+// A platform that really charges nothing: every fee is zero, not absent.
+const FREE = {
+  ...STORE,
+  code: 'club',
+  name: 'Club table',
+  kind: 'marketplace',
+  is_own_store: false,
+  commission_rate: '0.0000',
+  processing_rate: '0.0000',
+  processing_fixed: '0.00',
+  listing_fee: '0.00',
+}
+
 const kinds = emptyReference({
   tables: {
     sales_venue_kind: [
@@ -80,6 +93,87 @@ describe('Platforms', () => {
     expect(within(row).getByText('Marketplace')).toBeInTheDocument()
     expect(within(row).getByText('13.25% + $0.40')).toBeInTheDocument()
     expect(within(row).getByText('ebay.com')).toBeInTheDocument()
+  })
+
+  // A fee of zero is a fact -- "this platform charges nothing" -- and is not
+  // the same as a fee nobody has looked up yet, which shows an empty cell.
+  // The summary must therefore ask whether a fee is *present*, not whether it
+  // is truthy. Both shapes are covered because only one of them is broken by
+  // a truthiness test: the API serialises Decimal as a string today, and
+  // "0.0000" is truthy, so that case happens to work. A JSON number 0 is
+  // falsy and vanishes -- a silent default, which is the failure this
+  // codebase treats as a bug wherever it appears.
+  it.each([
+    ['as decimal strings', FREE],
+    [
+      'as JSON numbers',
+      {
+        ...FREE,
+        commission_rate: 0,
+        processing_rate: 0,
+        processing_fixed: 0,
+        listing_fee: 0,
+      },
+    ],
+  ])('shows fees that are deliberately zero, %s', async (_name, venue) => {
+    api.listSalesVenues.mockResolvedValue([STORE, venue])
+    renderPage()
+    const row = await screen.findByRole('row', { name: /Club table/ })
+    expect(within(row).getByText(/^0% \+ 0% \+ \$0/)).toBeVisible()
+  })
+
+  it('gives the form access keys and saves with Ctrl+S', async () => {
+    const user = userEvent.setup()
+    api.updateSalesVenue.mockResolvedValue({ ...EBAY, version: 2 })
+    renderPage()
+    const row = await screen.findByRole('row', { name: /eBay/ })
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit eBay' })
+
+    expect(within(dialog).getByLabelText('Name')).toHaveAttribute('accesskey', 'n')
+    expect(within(dialog).getByLabelText('Purchase source')).toHaveAttribute(
+      'accesskey',
+      'p',
+    )
+    expect(within(dialog).getByLabelText('Commission %')).toHaveAttribute(
+      'accesskey',
+      'm',
+    )
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toHaveAttribute(
+      'accesskey',
+      'v',
+    )
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(api.updateSalesVenue).toHaveBeenCalled())
+  })
+
+  // Read off the rendered dialog rather than the letter table the component
+  // keeps: a table can agree with itself while a control is left without its
+  // attribute, or given one twice. Both variants are checked because they
+  // show different fields -- Code only when adding, Retired only when
+  // editing -- so neither alone sees every letter in play at once.
+  it.each([
+    ['adding', null],
+    ['editing', EBAY],
+  ])('gives the form %s no repeated or browser-reserved letter', async (_name, v) => {
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByRole('row', { name: /eBay/ })
+    if (v === null) {
+      await user.click(screen.getByRole('button', { name: 'Add platform' }))
+    } else {
+      await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    }
+
+    const dialog = screen.getByRole('dialog')
+    const letters = [...dialog.querySelectorAll('[accesskey]')].map((el) =>
+      el.getAttribute('accesskey'),
+    )
+    expect(letters.length).toBeGreaterThan(10)
+    expect(new Set(letters).size).toBe(letters.length)
+    // Chrome and Edge keep D, E and F for the address bar and menus.
+    expect(letters.filter((l) => 'def'.includes(l))).toEqual([])
   })
 
   it('adds a platform, sending the rate as a fraction', async () => {
