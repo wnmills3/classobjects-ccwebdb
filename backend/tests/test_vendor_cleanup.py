@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from app.models import PurchaseOrder, Vendor, VendorKind
+from app.models import PurchaseOrder, SalesVenue, SalesVenueKind, Vendor, VendorKind
 from app.vendor_cleanup import CleanupError, run
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,6 +25,18 @@ def _order(db: Session, vendor: Vendor, number: str | None) -> PurchaseOrder:
     db.add(order)
     db.commit()
     return order
+
+
+def _platform(db: Session, code: str, vendor: Vendor) -> SalesVenue:
+    kind_id = db.scalar(
+        select(SalesVenueKind.id).where(SalesVenueKind.code == "marketplace")
+    )
+    venue = SalesVenue(
+        code=code, name=code.title(), sales_venue_kind_id=kind_id, vendor_id=vendor.id
+    )
+    db.add(venue)
+    db.commit()
+    return venue
 
 
 def test_a_dry_run_reports_and_writes_nothing(db: Session) -> None:
@@ -80,6 +92,52 @@ def test_delete_removes_an_unused_vendor(db: Session) -> None:
     assert report.deleted == ["usming.gov"]
     db.expire_all()
     assert db.get(Vendor, typo.id) is None
+
+
+def test_delete_refuses_a_vendor_a_platform_sells_through(db: Session) -> None:
+    """The clean-up refuses, naming the platform, rather than the database.
+
+    `sales_venue.vendor_id` is ON DELETE RESTRICT, so without the check the
+    DELETE reaches PostgreSQL and comes back as a raw IntegrityError -- an
+    operator traceback where a REFUSED line belongs.
+    """
+    linked = _vendor(db, "ebay.example")
+    _platform(db, "ebay", linked)
+
+    with pytest.raises(CleanupError, match="ebay"):
+        run(db, merges=[], kinds=[], deletes=[linked.id], commit=True)
+
+    db.expire_all()
+    assert db.get(Vendor, linked.id) is not None
+
+
+def test_merge_refuses_a_vendor_a_platform_sells_through(db: Session) -> None:
+    """A merge deletes its source, so a linked source is refused the same way."""
+    linked = _vendor(db, "whatnot.example")
+    target = _vendor(db, "whatnot.com")
+    _platform(db, "whatnot", linked)
+    moved = _order(db, linked, "W1")
+
+    with pytest.raises(CleanupError, match="whatnot"):
+        run(db, merges=[(linked.id, target.id)], kinds=[], deletes=[], commit=True)
+
+    db.expire_all()
+    assert db.get(Vendor, linked.id) is not None
+    assert db.get(PurchaseOrder, moved.id).vendor_id == linked.id
+
+
+def test_a_platform_linked_elsewhere_does_not_block_a_merge(db: Session) -> None:
+    """Only the vendor being removed is checked; another's platform is no bar."""
+    typo = _vendor(db, "hibid.co")
+    real = _vendor(db, "hibid.com")
+    _platform(db, "hibid", real)
+    moved = _order(db, typo, "H1")
+
+    run(db, merges=[(typo.id, real.id)], kinds=[], deletes=[], commit=True)
+
+    db.expire_all()
+    assert db.get(Vendor, typo.id) is None
+    assert db.get(PurchaseOrder, moved.id).vendor_id == real.id
 
 
 def test_kind_is_set_by_code(db: Session) -> None:
