@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { ReferenceContext } from '../../shared/reference-context'
@@ -13,6 +13,10 @@ import { findEntries } from '../../shared/reference-match'
  * value the application looks up by its code (a status, a strike, "single")
  * can be renamed but not retired. A renamed value keeps its wording through
  * later seed loads.
+ *
+ * Merge into... replaces a value with another for good: every item holding it
+ * moves to the value kept, its names become that value's aliases, and it is
+ * removed. The page shows what would move before it asks.
  *
  * The standard term stays the label -- DCAM, United States Note -- and what
  * people actually write becomes an alias: UCAM, Legal Tender. Search, the
@@ -40,10 +44,89 @@ function aliasCounts(values) {
   return counts
 }
 
-function ValueRow({ table, value, shared, onChanged }) {
+function describe(result, value, target) {
+  const items = `${result.items} item${result.items === 1 ? '' : 's'}`
+  const dropped = result.dropped
+    ? ` (${result.dropped} already had ${target.label} and keep that instead)`
+    : ''
+  const names = result.aliases.length
+    ? ` ${result.aliases.join(', ')} will find ${target.label}.`
+    : ''
+  return (
+    `Moves ${items} to ${target.label}${dropped}, then removes ` +
+    `${value.label}.${names} This cannot be undone.`
+  )
+}
+
+function MergePanel({ table, value, others, onMerged, onCancel }) {
+  const [into, setInto] = useState('')
+  const [preview, setPreview] = useState(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  // The choice a preview answers; a slower answer for an earlier one is dropped.
+  const latest = useRef('')
+  const target = others.find((o) => o.code === into)
+
+  async function choose(code) {
+    latest.current = code
+    setInto(code)
+    setPreview(null)
+    setError('')
+    if (!code) return
+    try {
+      const result = await api.mergeReferenceValue(table, value.code, code, true)
+      if (latest.current === code) setPreview(result)
+    } catch (err) {
+      if (latest.current === code) setError(err.message)
+    }
+  }
+
+  async function merge() {
+    setBusy(true)
+    try {
+      onMerged(await api.mergeReferenceValue(table, value.code, into, false))
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="merge-panel">
+      <label>
+        Merge into{/* */}
+        <select
+          value={into}
+          aria-label={`Merge ${value.label} into`}
+          onChange={(e) => choose(e.target.value)}
+        >
+          <option value="">--</option>
+          {others.map((other) => (
+            <option key={other.code} value={other.code}>
+              {other.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {preview && target && <p>{describe(preview, value, target)}</p>}
+      {error && <p className="error">{error}</p>}
+      <div className="row">
+        <button type="button" disabled={!preview || busy} onClick={merge}>
+          {busy ? 'Merging...' : 'Merge'}
+        </button>
+        <button type="button" className="link" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ValueRow({ table, value, others, shared, onChanged, onMerged }) {
   const [draft, setDraft] = useState('')
   // The label being typed, or null when not renaming.
   const [label, setLabel] = useState(null)
+  const [merging, setMerging] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -117,7 +200,30 @@ function ValueRow({ table, value, shared, onChanged }) {
                   Restore
                 </button>
               )}
+              <button
+                type="button"
+                className="link"
+                aria-label={`Merge ${value.label} into another value`}
+                disabled={saving || value.retirable === false}
+                title={
+                  value.retirable === false
+                    ? 'The application looks this value up by its code'
+                    : 'Move its items to another value, then remove it'
+                }
+                onClick={() => setMerging(true)}
+              >
+                Merge into...
+              </button>
             </div>
+            {merging && (
+              <MergePanel
+                table={table}
+                value={value}
+                others={others}
+                onMerged={onMerged}
+                onCancel={() => setMerging(false)}
+              />
+            )}
           </>
         ) : (
           <form
@@ -223,6 +329,8 @@ export default function Vocabularies() {
   const [loaded, setLoaded] = useState({ table: null, values: null, error: '' })
   const [find, setFind] = useState('')
   const [tablesError, setTablesError] = useState('')
+  const [reloads, setReloads] = useState(0)
+  const [notice, setNotice] = useState('')
   const values = loaded.table === table ? loaded.values : null
   const error = tablesError || (loaded.table === table ? loaded.error : '')
 
@@ -246,7 +354,7 @@ export default function Vocabularies() {
     return () => {
       current = false
     }
-  }, [table])
+  }, [table, reloads])
 
   const counts = useMemo(() => aliasCounts(values ?? []), [values])
 
@@ -259,7 +367,17 @@ export default function Vocabularies() {
     context?.invalidate(table)
   }
 
+  function merged(result) {
+    setNotice(
+      `Merged ${result.code} into ${result.into}: ${result.items} ` +
+        `item${result.items === 1 ? '' : 's'} moved.`,
+    )
+    setReloads((n) => n + 1)
+    context?.invalidate(table)
+  }
+
   const shown = values ? findEntries(values, find).map(({ entry }) => entry) : []
+  const active = (values ?? []).filter((v) => v.is_active)
 
   return (
     <section>
@@ -271,10 +389,17 @@ export default function Vocabularies() {
         guess between them. Retiring leaves every record that uses the value as it is.
       </p>
       {error && <p className="error">{error}</p>}
+      {notice && <p className="notice">{notice}</p>}
       <div className="filter-grid">
         <label>
           Vocabulary{/* */}
-          <select value={table} onChange={(e) => setTable(e.target.value)}>
+          <select
+            value={table}
+            onChange={(e) => {
+              setTable(e.target.value)
+              setNotice('')
+            }}
+          >
             {(tables.length ? tables : [table]).map((name) => (
               <option key={name} value={name}>
                 {name}
@@ -309,8 +434,10 @@ export default function Vocabularies() {
                 key={value.code}
                 table={table}
                 value={value}
+                others={active.filter((v) => v.code !== value.code)}
                 shared={(alias) => (counts.get(alias.toLowerCase()) ?? 0) > 1}
                 onChanged={changed}
+                onMerged={merged}
               />
             ))}
           </tbody>

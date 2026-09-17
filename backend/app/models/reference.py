@@ -13,11 +13,13 @@ reference it.
 from __future__ import annotations
 
 import enum
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     Computed,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -28,7 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import Base, ProvenanceSource, ReferenceMixin, enum_column
+from .base import Base, ProvenanceSource, ReferenceMixin, enum_column, utcnow
 
 __all__ = [
     "AppliesTo",
@@ -56,6 +58,7 @@ __all__ = [
     "NoteIssue",
     "NoteType",
     "ReferenceAlias",
+    "ReferenceMerge",
     "SalesOrderStatus",
     "SealColor",
     "SetForm",
@@ -539,6 +542,34 @@ class ReferenceAlias(Base):
     __table_args__ = (
         UniqueConstraint("table_name", "row_id", "alias", name="uq_reference_alias"),
         Index("ix_reference_alias_table_row", "table_name", "row_id"),
+    )
+
+
+class ReferenceMerge(Base):
+    """A value merged into another, and so removed (app.reference_merge).
+
+    Kept so the removal lasts: a seed load skips a merged code, and reads a
+    seed row that names it as naming the value it was merged into. Named by
+    table and code, as seed files name values; the merged row is gone.
+    """
+
+    __tablename__ = "reference_merge"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    table_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    merged_into: Mapped[str] = mapped_column(String(64), nullable=False)
+    merged_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    #: SET NULL: removing a member of staff must not undo a merge.
+    merged_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("table_name", "code", name="uq_reference_merge"),
     )
 
 
