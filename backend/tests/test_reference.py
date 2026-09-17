@@ -24,10 +24,11 @@ def test_a_vocabulary_comes_back_ready_for_a_picker(client: TestClient) -> None:
     assert body["table"] == "item_kind"
     assert "coin" in codes
     assert "bullion" in codes
-    # Ordered by sort_order, so the picker shows them in a sensible sequence
-    # rather than alphabetically or by insertion.
-    orders = [v["sort_order"] for v in body["values"]]
-    assert orders == sorted(orders)
+    # A descriptive vocabulary comes back alphabetically by label, not by
+    # sort_order or insertion -- see test_a_descriptive_vocabulary_comes_
+    # back_alphabetically for the general case.
+    labels = [v["label"] for v in body["values"]]
+    assert labels == sorted(labels, key=str.lower)
 
 
 def test_the_endpoint_is_public(client: TestClient) -> None:
@@ -137,6 +138,61 @@ def test_every_listed_vocabulary_can_actually_be_fetched(
         response = client.get(f"/api/reference/{table}")
         assert response.status_code == 200, f"{table} listed but not fetchable"
         assert response.json()["table"] == table
+
+
+# ---------------------------------------------------------------------------
+# Picker order: alphabetical, except where the order is the meaning
+# ---------------------------------------------------------------------------
+
+
+def test_a_descriptive_vocabulary_comes_back_alphabetically(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Attributes are scanned by name; their seeded sort_order groups them."""
+    labels = [
+        value["label"]
+        for value in client.get("/api/reference/item_attribute").json()["values"]
+    ]
+
+    assert labels == sorted(labels, key=str.lower)
+
+
+def test_grades_keep_their_scale_order(client: TestClient) -> None:
+    """70, 69+, 69 ... is the scale's own order; alphabetical would be noise."""
+    codes = [v["code"] for v in client.get("/api/reference/grade").json()["values"]]
+
+    assert codes.index("70") < codes.index("65") < codes.index("50")
+
+
+def test_a_lifecycle_vocabulary_keeps_its_sequence(client: TestClient) -> None:
+    """Ordered -> Received -> ... is read constantly; alphabetical scrambles it."""
+    codes = [
+        v["code"] for v in client.get("/api/reference/item_status").json()["values"]
+    ]
+
+    assert codes.index("ordered") < codes.index("received") < codes.index("canceled")
+
+
+def test_a_value_added_late_still_sorts_alphabetically(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A mid-entry addition appears where it is looked for, not at the end."""
+    response = client.post(
+        "/api/reference/item_attribute",
+        json={
+            "code": "aardvark_test",
+            "label": "Aardvark Test",
+            "extra": {"applies_to": "any", "attribute_group": "variety"},
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 201
+
+    labels = [
+        v["label"] for v in client.get("/api/reference/item_attribute").json()["values"]
+    ]
+
+    assert labels[0] == "Aardvark Test"
 
 
 # ---------------------------------------------------------------------------
