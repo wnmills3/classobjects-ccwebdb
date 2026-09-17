@@ -3,6 +3,7 @@ import { screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { FIND_FROM, ReferenceSelect } from './reference'
+import { useReference } from './reference-context'
 import { entryMatch, findEntries } from './reference-match'
 import { emptyReference, renderWithProviders } from '../test/helpers'
 
@@ -117,5 +118,51 @@ describe('ReferenceSelect find box', () => {
     renderPicker({}, [WALKER, MERCURY])
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
     expect(offered()).toContain('Walking Liberty Half Dollar')
+  })
+
+  it('shows a retired value an item still holds, and offers no other', async () => {
+    const retired = { ...value('old_series', 'Old Series'), is_active: false }
+    const gone = { ...value('gone_series', 'Gone Series'), is_active: false }
+    renderPicker({ value: 'old_series' }, [...SERIES, retired, gone])
+    const options = offered()
+    expect(options).toContain('Old Series (retired)')
+    expect(options.join()).not.toContain('Gone Series')
+  })
+
+  it('counts only active values when deciding on a find box', () => {
+    const retired = Array.from({ length: FIND_FROM }, (_, n) => ({
+      ...value(`old_${n}`, `Old ${n}`),
+      is_active: false,
+    }))
+    renderPicker({}, [WALKER, MERCURY, ...retired])
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(offered()).toEqual([
+      '--',
+      'Walking Liberty Half Dollar',
+      'Winged Liberty Head Dime',
+      '+ Add a new value...',
+    ])
+  })
+})
+
+describe('useReference', () => {
+  function Show({ includeRetired }) {
+    const values = useReference('series', { includeRetired }) ?? []
+    return <p>{values.map((v) => v.code).join(',')}</p>
+  }
+
+  it('leaves retired values out unless asked', () => {
+    const tables = {
+      series: [value('a', 'A'), { ...value('b', 'B'), is_active: false }],
+    }
+    const { unmount } = renderWithProviders(<Show />, {
+      reference: emptyReference({ tables }),
+    })
+    expect(screen.getByText('a')).toBeInTheDocument()
+    unmount()
+    renderWithProviders(<Show includeRetired />, {
+      reference: emptyReference({ tables }),
+    })
+    expect(screen.getByText('a,b')).toBeInTheDocument()
   })
 })

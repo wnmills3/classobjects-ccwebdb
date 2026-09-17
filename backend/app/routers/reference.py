@@ -44,6 +44,38 @@ TABLES: dict[str, type[ReferenceMixin]] = {
     model.__tablename__: model for model in REFERENCE_MODELS
 }
 
+#: Vocabularies the application branches on value by value -- a status, a
+#: kind, a strike -- and single values it looks up by code. Any of them may be
+#: renamed, since a label is only what a person reads, but retiring one would
+#: make the lookup fail: receiving, the importer or a sale would stop.
+_CODE_KEYED_TABLES = frozenset(
+    {
+        "item_status",
+        "disposition",
+        "sales_order_status",
+        "shipment_status",
+        "strike_type",
+        "item_kind",
+        "grade_scale",
+        "valuation_basis",
+        "authenticity",
+    }
+)
+_CODE_KEYED_VALUES = frozenset(
+    {
+        ("vendor_kind", "unknown"),
+        ("storage_form", "single"),
+        ("currency", "USD"),
+        ("country", "US"),
+        ("note_type", "frn"),
+    }
+)
+
+
+def retirable(table: str, code: str) -> bool:
+    """Whether a value may be retired; see _CODE_KEYED_TABLES."""
+    return table not in _CODE_KEYED_TABLES and (table, code) not in _CODE_KEYED_VALUES
+
 
 def _to_value(
     row: ReferenceMixin,
@@ -71,6 +103,7 @@ def _to_value(
         sort_order=row.sort_order,
         source=row.source.value,
         is_active=row.is_active,
+        retirable=retirable(model.__tablename__, row.code),
         extra={k: v for k, v in extra.items() if v is not None},
         aliases=names or [],
         retired_aliases=retired or [],
@@ -265,12 +298,17 @@ def rename_value(
     db: DbSession,
     _admin: AdminUser,
 ) -> ReferenceValueOut:
-    """Change what a value is called.
+    """Change what a value is called, where it sorts, or retire it.
 
     The label only. The code is the contract -- it appears in saved filters,
     bookmarked searches and any integration -- so it does not change, and
     renaming the label is precisely what lets a poorly worded one be fixed
     without breaking those.
+
+    A renamed or reordered value becomes `manual`, so the next seed load
+    leaves it as the person set it rather than putting the shipped wording
+    back. Retiring is refused for a value the application looks up by code
+    (409); it may still be renamed.
 
     **Nothing needs migrating.** Every record refers to the value by foreign
     key, so the new wording is live everywhere the moment this commits. That is
@@ -284,7 +322,21 @@ def rename_value(
             detail=f"{table} has no value with code {code!r}",
         )
 
-    row.label = payload.label
+    label = " ".join(payload.label.split())
+    if not label:
+        raise HTTPException(status_code=422, detail="A label needs some text.")
+    if payload.is_active is False and not retirable(table, code):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{row.label} cannot be retired: the application looks it up "
+            "by its code. It can still be renamed.",
+        )
+
+    if label != row.label or (
+        payload.sort_order is not None and payload.sort_order != row.sort_order
+    ):
+        row.source = ProvenanceSource.manual
+    row.label = label
     if payload.sort_order is not None:
         row.sort_order = payload.sort_order
     if payload.is_active is not None:

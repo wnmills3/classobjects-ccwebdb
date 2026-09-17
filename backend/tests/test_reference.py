@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from app.models import Grade, ProvenanceSource
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -339,6 +340,109 @@ def test_a_value_can_be_retired_without_breaking_existing_records(
     assert "8" not in offered
     everything = client.get("/api/reference/grade?include_inactive=true").json()
     assert "8" in {v["code"] for v in everything["values"]}
+
+
+def _value(client: TestClient, table: str, code: str) -> dict:
+    body = client.get(f"/api/reference/{table}?include_inactive=true").json()
+    return next(v for v in body["values"] if v["code"] == code)
+
+
+@pytest.mark.parametrize(
+    ("table", "code"),
+    [
+        ("item_status", "received"),
+        ("disposition", "held"),
+        ("strike_type", "proof"),
+        ("storage_form", "single"),
+        ("country", "US"),
+    ],
+)
+def test_a_value_the_application_looks_up_cannot_be_retired(
+    client: TestClient, admin_headers: dict[str, str], table: str, code: str
+) -> None:
+    """Retiring "received" would stop receiving; renaming it is only words."""
+    label = _value(client, table, code)["label"]
+    assert _value(client, table, code)["retirable"] is False
+
+    refused = client.patch(
+        f"/api/reference/{table}/{code}",
+        json={"label": label, "is_active": False},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409
+    assert "looks it up by its code" in refused.json()["detail"]
+    assert _value(client, table, code)["is_active"] is True
+
+    renamed = client.patch(
+        f"/api/reference/{table}/{code}",
+        json={"label": f"{label} (renamed)"},
+        headers=admin_headers,
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["label"] == f"{label} (renamed)"
+
+
+def test_a_descriptive_value_can_be_retired_and_restored(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    assert _value(client, "grade_designation", "FT")["retirable"] is True
+    url = "/api/reference/grade_designation/FT"
+    label = _value(client, "grade_designation", "FT")["label"]
+
+    retired = client.patch(
+        url, json={"label": label, "is_active": False}, headers=admin_headers
+    )
+    assert retired.json()["is_active"] is False
+    # Retiring alone is not a change of wording: the shipped row stays shipped.
+    assert retired.json()["source"] == "seeded"
+
+    restored = client.patch(
+        url, json={"label": label, "is_active": True}, headers=admin_headers
+    )
+    assert restored.json()["is_active"] is True
+
+
+def test_a_renamed_value_keeps_its_name_through_a_seed_load(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A person's wording outranks the shipped one, so it becomes manual."""
+    from app.models import GradeDesignation
+    from app.seeding import _seed_table
+
+    response = client.patch(
+        "/api/reference/grade_designation/DCAM",
+        json={"label": "  Deep   Cameo "},
+        headers=admin_headers,
+    )
+    assert response.json()["label"] == "Deep Cameo"
+    assert response.json()["source"] == "manual"
+
+    shipped = [{"code": "DCAM", "label": "DCAM (Deep Cameo)", "sort_order": 10}]
+    assert _seed_table(db, GradeDesignation, shipped) == {"skipped_manual": 1}
+    assert _value(client, "grade_designation", "DCAM")["label"] == "Deep Cameo"
+
+
+def test_a_blank_label_is_refused(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    response = client.patch(
+        "/api/reference/grade_designation/DCAM",
+        json={"label": "   "},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422
+    assert _value(client, "grade_designation", "DCAM")["label"] == "DCAM (Deep Cameo)"
+
+
+def test_only_staff_rename(
+    client: TestClient, customer_headers: dict[str, str]
+) -> None:
+    url = "/api/reference/grade_designation/DCAM"
+    assert client.patch(url, json={"label": "x"}).status_code == 401
+    assert (
+        client.patch(url, json={"label": "x"}, headers=customer_headers).status_code
+        == 403
+    )
 
 
 def test_renaming_an_unknown_value_is_a_404(

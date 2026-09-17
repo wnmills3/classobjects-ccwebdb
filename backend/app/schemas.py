@@ -436,6 +436,9 @@ class ReferenceValueOut(BaseModel):
     source: str
     #: False for a retired value, which only include_inactive lists.
     is_active: bool = True
+    #: False for a value the application looks up by its code, which may be
+    #: renamed but not retired.
+    retirable: bool = True
     extra: dict[str, object] = Field(default_factory=dict)
     #: Other names people use for it ("Mercury", "Legal Tender"), which
     #: search, import and the pickers also recognise.

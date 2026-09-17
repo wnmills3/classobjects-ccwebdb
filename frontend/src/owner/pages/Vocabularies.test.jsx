@@ -7,6 +7,7 @@ vi.mock('../api', () => ({
     listReferenceTables: vi.fn(),
     getReferenceForEditing: vi.fn(),
     addReferenceAlias: vi.fn(),
+    renameReferenceValue: vi.fn(),
     removeReferenceAlias: vi.fn(),
   },
 }))
@@ -37,6 +38,7 @@ const NATIONAL = value('national_bank_note', 'National Bank Note', [
 ])
 const FRBN = value('frbn', 'Federal Reserve Bank Note', ['National Currency'])
 const OLD = value('old_type', 'Old Type', [], { is_active: false })
+const FRN = value('frn_code', 'Federal Reserve Note', [], { retirable: false })
 
 let reference
 
@@ -48,7 +50,7 @@ beforeEach(() => {
     table,
     values:
       table === 'note_type'
-        ? [US_NOTE, NATIONAL, FRBN, OLD]
+        ? [US_NOTE, NATIONAL, FRBN, OLD, FRN]
         : [value('walking_liberty_half', 'Walking Liberty Half Dollar', ['Walker'])],
   }))
 })
@@ -182,5 +184,84 @@ describe('Vocabularies', () => {
 
     expect(screen.getByText('United States Note')).toBeVisible()
     expect(screen.queryByText('National Bank Note')).toBeNull()
+  })
+
+  it('renames a value, sending its code and the new label', async () => {
+    const user = userEvent.setup()
+    api.renameReferenceValue.mockResolvedValue({
+      ...US_NOTE,
+      label: 'U.S. Note',
+      source: 'manual',
+    })
+    await openNoteTypes(user)
+
+    await user.click(screen.getByRole('button', { name: 'Rename United States Note' }))
+    const input = screen.getByLabelText('New name for United States Note')
+    await user.clear(input)
+    await user.type(input, 'U.S. Note{Enter}')
+
+    expect(api.renameReferenceValue).toHaveBeenCalledWith('note_type', 'us_note', {
+      label: 'U.S. Note',
+    })
+    expect(await screen.findByText('U.S. Note')).toBeVisible()
+    expect(screen.queryByLabelText('New name for United States Note')).toBeNull()
+    expect(reference.invalidate).toHaveBeenCalledWith('note_type')
+  })
+
+  it('cancels a rename without saving', async () => {
+    const user = userEvent.setup()
+    await openNoteTypes(user)
+    await user.click(screen.getByRole('button', { name: 'Rename United States Note' }))
+    await user.type(screen.getByLabelText('New name for United States Note'), 'x')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(api.renameReferenceValue).not.toHaveBeenCalled()
+    expect(row('United States Note')).toBeTruthy()
+  })
+
+  it('retires a value and restores one', async () => {
+    const user = userEvent.setup()
+    api.renameReferenceValue.mockImplementation(async (table, code, changes) => ({
+      ...(code === 'us_note' ? US_NOTE : OLD),
+      ...changes,
+    }))
+    await openNoteTypes(user)
+
+    await user.click(screen.getByRole('button', { name: 'Retire United States Note' }))
+    expect(api.renameReferenceValue).toHaveBeenCalledWith('note_type', 'us_note', {
+      label: 'United States Note',
+      is_active: false,
+    })
+    expect(await screen.findByText('United States Note (retired)')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Restore Old Type' }))
+    expect(api.renameReferenceValue).toHaveBeenCalledWith('note_type', 'old_type', {
+      label: 'Old Type',
+      is_active: true,
+    })
+    expect(await screen.findByRole('button', { name: 'Retire Old Type' })).toBeVisible()
+  })
+
+  it('does not offer to retire a value the application looks up', async () => {
+    const user = userEvent.setup()
+    await openNoteTypes(user)
+    const retire = screen.getByRole('button', { name: 'Retire Federal Reserve Note' })
+    expect(retire).toBeDisabled()
+    expect(retire).toHaveAttribute(
+      'title',
+      'The application looks this value up by its code',
+    )
+    expect(
+      screen.getByRole('button', { name: 'Rename Federal Reserve Note' }),
+    ).toBeEnabled()
+  })
+
+  it('shows a refusal beside the value', async () => {
+    const user = userEvent.setup()
+    api.renameReferenceValue.mockRejectedValue(new Error('A label needs some text.'))
+    await openNoteTypes(user)
+    await user.click(screen.getByRole('button', { name: 'Retire United States Note' }))
+    expect(
+      await within(row('United States Note')).findByText('A label needs some text.'),
+    ).toBeVisible()
   })
 })

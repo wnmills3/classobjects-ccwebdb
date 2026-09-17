@@ -164,7 +164,10 @@ export const api = {
 
   // reference vocabularies, for dropdowns
   listReferenceTables: () => send('/api/reference', { auth: false }),
-  getReference: (table) => send(`/api/reference/${table}`, { auth: false }),
+  // Retired values included: a record may still use one, and its picker has
+  // to show it. `useReference` leaves them out for everything else.
+  getReference: (table) =>
+    send(`/api/reference/${table}?include_inactive=true`, { auth: false }),
   // Shared because `shared/reference.jsx`'s ReferenceSelect calls it. Only
   // console pages render that component today, but the component lives here,
   // and shared code may not import from owner/.

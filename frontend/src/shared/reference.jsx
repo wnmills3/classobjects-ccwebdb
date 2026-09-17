@@ -93,7 +93,7 @@ export function ReferenceSelect({
   accessKey,
   'aria-keyshortcuts': ariaKeyshortcuts,
 }) {
-  const values = useReference(table)
+  const values = useReference(table, { includeRetired: true })
   const context = useContext(ReferenceContext)
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState({ code: '', label: '' })
@@ -152,9 +152,13 @@ export function ReferenceSelect({
     )
   }
 
-  const choosable = filter
-    ? values.filter((e) => filter(e) || e.code === value)
-    : values
+  // Only active values that pass the filter are offered. The one already
+  // chosen is always shown, even retired or filtered out, so the form never
+  // pretends a record holds nothing.
+  const choosable = values.filter(
+    (e) => (e.is_active !== false && (!filter || filter(e))) || e.code === value,
+  )
+  const active = values.filter((e) => e.is_active !== false)
   const found = findEntries(choosable, find)
   // A filter narrows what is offered, never what is shown as chosen: a value
   // already set stays visible even if it no longer fits.
@@ -176,7 +180,7 @@ export function ReferenceSelect({
 
   return (
     <div className="reference-select">
-      {values.length > FIND_FROM && (
+      {active.length > FIND_FROM && (
         <input
           className="reference-find"
           type="search"
@@ -202,6 +206,7 @@ export function ReferenceSelect({
           <option key={entry.code} value={entry.code}>
             {entry.label}
             {match.alias ? ` (${match.alias})` : ''}
+            {entry.is_active === false ? ' (retired)' : ''}
             {/* Values an import invented are marked, so a curated vocabulary
               can be told apart from one collection's guesses. */}
             {entry.source === 'seeded' ? '' : ' *'}
