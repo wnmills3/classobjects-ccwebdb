@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -101,15 +101,23 @@ describe('Platforms', () => {
     await user.type(within(dialog).getByLabelText('Commission %'), '8')
     await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
-    expect(api.createSalesVenue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        code: 'whatnot',
-        name: 'Whatnot',
-        kind: 'marketplace',
-        vendor_id: 2,
-        commission_rate: '0.08',
-      }),
-    )
+    // Exact, not objectContaining: SalesVenueCreate (backend/app/schemas.py)
+    // has no is_active field and forbids extras, so a stray key here is
+    // invisible to objectContaining but a 422 against the real API.
+    expect(api.createSalesVenue).toHaveBeenCalledWith({
+      code: 'whatnot',
+      name: 'Whatnot',
+      kind: 'marketplace',
+      vendor_id: 2,
+      account_handle: null,
+      listing_url_template: null,
+      commission_rate: '0.08',
+      processing_rate: null,
+      processing_fixed: null,
+      listing_fee: null,
+      terms_as_of: null,
+      notes: null,
+    })
   })
 
   it('does not offer the web store kind for a new platform', async () => {
@@ -165,6 +173,60 @@ describe('Platforms', () => {
     const dialog = screen.getByRole('dialog', { name: 'Edit Web store' })
     expect(within(dialog).queryByLabelText('Kind')).toBeNull()
     expect(within(dialog).queryByLabelText('Retired')).toBeNull()
+  })
+
+  it('saves the web store without a kind or is_active, since the form omits both', async () => {
+    const user = userEvent.setup()
+    api.updateSalesVenue.mockResolvedValue(STORE)
+    renderPage()
+    const row = await screen.findByRole('row', { name: /Web store/ })
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    const dialog = screen.getByRole('dialog', { name: 'Edit Web store' })
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    // Exact: SalesVenueUpdate accepts kind and is_active, but the store's
+    // form never collects either, so neither belongs in what gets sent.
+    expect(api.updateSalesVenue).toHaveBeenCalledWith('store', {
+      name: 'Web store',
+      vendor_id: null,
+      account_handle: null,
+      listing_url_template: null,
+      commission_rate: null,
+      processing_rate: null,
+      processing_fixed: null,
+      listing_fee: null,
+      terms_as_of: null,
+      notes: null,
+      version: 1,
+    })
+  })
+
+  it('does not apply a save the user cancelled before it resolved', async () => {
+    const user = userEvent.setup()
+    let resolveCreate
+    api.createSalesVenue.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve
+      }),
+    )
+    renderPage()
+    await screen.findByRole('row', { name: /eBay/ })
+
+    await user.click(screen.getByRole('button', { name: 'Add platform' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add platform' })
+    await user.type(within(dialog).getByLabelText('Name'), 'Whatnot')
+    await user.type(within(dialog).getByLabelText('Code'), 'whatnot')
+    await user.selectOptions(within(dialog).getByLabelText('Kind'), 'marketplace')
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    await act(async () => {
+      resolveCreate({ ...EBAY, code: 'whatnot', name: 'Whatnot' })
+    })
+
+    expect(screen.queryByRole('row', { name: /Whatnot/ })).toBeNull()
   })
 
   it('shows a sample listing link from the template', async () => {
