@@ -732,7 +732,12 @@ phase, not part of what is built yet. **Nothing is seeded.** Platform terms
 change and differ by account and category, so an administrator enters them
 from their own account, along with the date they were read (**Fees as of**),
 shown beside every estimate. Rates are typed as a percentage (`13.25`) and
-stored as the fraction the database and API use (`0.1325`).
+stored as the fraction the database and API use (`0.1325`). A fee of **zero**
+is shown as `0%` or `$0.00`, which is not the same as a blank cell: blank
+means nobody has looked those terms up yet.
+
+The **add and edit window takes Alt plus the underlined letter** to jump to a
+field, and Ctrl+S or Ctrl+Enter to save, as the item and order editors do.
 
 ### Cleaning up purchase sources
 
@@ -748,7 +753,9 @@ Like the other passes above, it defaults to a dry run and writes only with
 onto another and removes the duplicate (a vendor row holds no history of its
 own); it is refused if both vendors used the same order number, since merging
 would collide them. `--kind <vendor>:<code>` sets a vendor's `vendor_kind`.
-`--delete <vendor>` removes a vendor with no purchase orders left. Every
+`--delete <vendor>` removes a vendor with no purchase orders left. Removing a
+vendor a **sales platform names as its purchase source** is refused either
+way, naming the platform: unlink it on the Platforms page first. Every
 change is named on the command line -- which vendors are the same business is
 the owner's call, not something the script guesses -- and the report lists
 what was done, or would be done, by name.
