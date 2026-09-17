@@ -115,6 +115,32 @@ def grade_migration_url() -> str:
         admin.dispose()
 
 
+@pytest.fixture
+def sales_venue_migration_url() -> str:
+    """A throwaway database for migrating real listings, not an empty table."""
+    url = TEST_URL
+    name = f"{url.database}_migrations_venues"
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    target = url.set(database=name).render_as_string(hide_password=False)
+    try:
+        yield target
+    finally:
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :name AND pid <> pg_backend_pid() "
+                    "AND backend_type = 'client backend'"
+                ),
+                {"name": name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()
+
+
 #: Old grade code -> (grade code, strike type) after the split.
 GRADES_BEFORE_AND_AFTER = {
     "MS65": ("65", "business"),
@@ -240,6 +266,137 @@ def test_the_grade_migration_moves_real_items(grade_migration_url: str) -> None:
     # An adjectival grade comes back as the number it became.
     assert back["BU"] == "MS60"
     assert back["N64"] == "N64"
+
+
+def test_the_sales_venue_migration_moves_real_rows(
+    sales_venue_migration_url: str,
+) -> None:
+    """Upgrade and downgrade with listings and an order in place.
+
+    `test_migrations_round_trip` runs on an empty database, so it proves only
+    that the DDL executes: `UPDATE listing SET sales_venue_id`, `UPDATE listing
+    SET status = 'ended' WHERE NOT is_active` and the downgrade's
+    `is_active_plain` copy never touch a row there. Nor does the behavioural
+    generated-column test (`test_sales_venues.test_is_active_follows_status`)
+    reach this migration: that runs against the `create_all` database, so it
+    checks the *model's* Computed expression. A typo in the migration's own
+    expression would pass every other gate and appear first on live data.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", sales_venue_migration_url)
+    upgrade(config, "c2d7a9e5f614")
+
+    engine = create_engine(sales_venue_migration_url)
+    reference = (
+        "INSERT INTO {table} (code, label, sort_order, is_active, source) "
+        "VALUES (:code, :code, 0, true, 'seeded') RETURNING id"
+    )
+    with engine.begin() as conn:
+
+        def add(table: str, code: str) -> int:
+            return conn.execute(
+                text(reference.format(table=table)), {"code": code}
+            ).scalar_one()
+
+        item_columns = {
+            "item_kind_id": "item_kind",
+            "storage_form_id": "storage_form",
+            "authenticity_id": "authenticity",
+            "status_id": "item_status",
+            "disposition_id": "disposition",
+            "valuation_basis_id": "valuation_basis",
+        }
+        required = {column: add(table, "x") for column, table in item_columns.items()}
+        currency_id = conn.execute(
+            text(
+                "INSERT INTO currency (code, label, sort_order, is_active, source, "
+                "symbol, minor_units) VALUES ('USD', 'US dollar', 0, true, 'seeded', "
+                "'$', 2) RETURNING id"
+            )
+        ).scalar_one()
+        item_id = conn.execute(
+            text(
+                "INSERT INTO inventory_item (item_kind_id, storage_form_id, "
+                "authenticity_id, status_id, disposition_id, valuation_basis_id, "
+                "item_cost, shipping_cost, tax_rate, tax_includes_shipping, "
+                "source, created_at, updated_at) VALUES (:item_kind_id, "
+                ":storage_form_id, :authenticity_id, :status_id, :disposition_id, "
+                ":valuation_basis_id, 0, 0, 0, false, 'manual', now(), now()) "
+                "RETURNING id"
+            ),
+            required,
+        ).scalar_one()
+        listing_ids = {
+            active: conn.execute(
+                text(
+                    "INSERT INTO listing (inventory_item_id, price, currency_id, "
+                    "is_active, listed_at, created_at, updated_at) VALUES (:i, 10.00, "
+                    ":c, :a, now(), now(), now()) RETURNING id"
+                ),
+                {"i": item_id, "c": currency_id, "a": active},
+            ).scalar_one()
+            for active in (True, False)
+        }
+        customer_id = conn.execute(
+            text(
+                "INSERT INTO customer (display_name, created_at, updated_at) "
+                "VALUES ('A buyer', now(), now()) RETURNING id"
+            )
+        ).scalar_one()
+        order_id = conn.execute(
+            text(
+                "INSERT INTO sales_order (customer_id, sales_order_status_id, "
+                "placed_at, created_at, updated_at) VALUES (:c, :s, now(), now(), "
+                "now()) RETURNING id"
+            ),
+            {"c": customer_id, "s": add("sales_order_status", "placed")},
+        ).scalar_one()
+
+    upgrade(config, "head")
+    with engine.connect() as conn:
+        store_id = conn.scalar(text("SELECT id FROM sales_venue WHERE code = 'store'"))
+        moved = {
+            row.id: (row.status, row.is_active, row.sales_venue_id)
+            for row in conn.execute(
+                text("SELECT id, status, is_active, sales_venue_id FROM listing")
+            )
+        }
+        order_venue = conn.scalar(
+            text("SELECT sales_venue_id FROM sales_order WHERE id = :o"),
+            {"o": order_id},
+        )
+    # Per row, not in aggregate: a backfill that set every listing to the same
+    # status would satisfy a count and fail here.
+    assert moved[listing_ids[True]] == ("active", True, store_id)
+    assert moved[listing_ids[False]] == ("ended", False, store_id)
+    assert order_venue == store_id
+
+    # The migration can only ever produce 'active' and 'ended', and several
+    # wrong expressions ("status <> 'ended'") agree with the right one on just
+    # those two. `paused` is the third status and the one that tells them
+    # apart, so the generated column is asked about it here -- against the
+    # migration's own DDL, which is the only place this can be checked.
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE listing SET status = 'paused' WHERE id = :i"),
+            {"i": listing_ids[True]},
+        )
+        paused = conn.scalar(
+            text("SELECT is_active FROM listing WHERE id = :i"),
+            {"i": listing_ids[True]},
+        )
+        conn.execute(
+            text("UPDATE listing SET status = 'active' WHERE id = :i"),
+            {"i": listing_ids[True]},
+        )
+    assert paused is False
+
+    downgrade(config, "c2d7a9e5f614")
+    with engine.connect() as conn:
+        back = dict(conn.execute(text("SELECT id, is_active FROM listing")).all())
+    engine.dispose()
+    assert back == {listing_ids[True]: True, listing_ids[False]: False}
 
 
 def test_migrations_round_trip(round_trip_url: str) -> None:
