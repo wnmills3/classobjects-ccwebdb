@@ -191,8 +191,12 @@ every miss visible rather than defaulted.
    link provenance; the editor lists an item's attributes. (Built; see *As
    built: item attributes* below.)
 3. Grade vocabulary: equivalences as aliases, the new designations, strike
-   type, plus grades, N1-N3. (Strike type, plus grades and N1-N3 are
-   built; see *As built* below.)
+   type, plus grades, N1-N3. (Built. Strike type, plus grades and N1-N3:
+   see *As built: strike type and number grades*. Ultra Cameo, UC and UCAM
+   are aliases of DCAM and DPL of DMPL; FT, 5FS and 6FS are designations.
+   PF, EF and PO need no rows: grades are numbers, and `app.grades` reads
+   those prefixes. BM, BMCA and SF, the lower-priority ones, are not added
+   yet. The importer does not read the new words until step 4.)
 4. Importer rules and a re-derivation over the live data (report first).
 5. Attribute rules in the defaults pass (No Motto).
 
