@@ -65,6 +65,22 @@ def _kind_id(db: Session, code: str) -> int:
     return found
 
 
+#: Columns that are `NOT NULL` on `SalesVenue` but optional on `SalesVenueUpdate`
+#: -- omitting one leaves it alone, but an explicit null is a client mistake,
+#: not a request to clear a column that cannot be cleared.
+_REQUIRED_ON_UPDATE = frozenset({"name", "is_active"})
+
+
+def _refuse_null_required(data: dict[str, Any]) -> None:
+    """Raise a 422 naming every required column a PATCH sent as an explicit null."""
+    nulled = sorted(f for f in _REQUIRED_ON_UPDATE if f in data and data[f] is None)
+    if nulled:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{', '.join(nulled)} cannot be null",
+        )
+
+
 def _check_vendor(db: Session, vendor_id: int | None, venue_id: int | None) -> None:
     """The purchase source exists and no other platform is linked to it."""
     if vendor_id is None:
@@ -134,11 +150,14 @@ def update_sales_venue(
             status_code=status.HTTP_404_NOT_FOUND, detail="No such platform"
         )
 
-    # exclude_unset: an omitted field is left alone, an explicit null clears it.
+    # exclude_unset: an omitted field is left alone, an explicit null clears it
+    # -- except name and is_active, which are NOT NULL columns and are refused
+    # by _refuse_null_required below rather than silently left unchanged.
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
     if expected is not None and expected != venue.version:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
+    _refuse_null_required(data)
 
     if venue.is_own_store:
         if "kind" in data:
@@ -156,10 +175,6 @@ def update_sales_venue(
     if "vendor_id" in data:
         _check_vendor(db, data["vendor_id"], venue.id)
     for field, value in data.items():
-        if field == "name" and value is None:
-            continue
-        if field == "is_active" and value is None:
-            continue
         setattr(venue, field, value)
 
     try:

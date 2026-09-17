@@ -330,3 +330,23 @@ def test_patching_an_unknown_platform_is_404(
 ) -> None:
     response = client.patch(f"{URL}/nope", json={"name": "x"}, headers=admin_headers)
     assert response.status_code == 404
+
+
+def test_an_explicit_null_name_is_refused(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    _create(client, admin_headers)
+    response = client.patch(f"{URL}/ebay", json={"name": None}, headers=admin_headers)
+    assert response.status_code == 422
+    assert "name" in response.json()["detail"]
+
+
+def test_an_explicit_null_is_active_is_refused(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    _create(client, admin_headers)
+    response = client.patch(
+        f"{URL}/ebay", json={"is_active": None}, headers=admin_headers
+    )
+    assert response.status_code == 422
+    assert "is_active" in response.json()["detail"]
