@@ -131,6 +131,17 @@ export const api = {
   // a vendor, the purchase made from them, and the items bought on it.
   listVendors: () => send('/api/vendors'),
   createVendor: (payload) => send('/api/vendors', { method: 'POST', body: payload }),
+
+  // sales platforms
+  listSalesVenues: () => send('/api/sales-venues'),
+  createSalesVenue: (payload) =>
+    send('/api/sales-venues', { method: 'POST', body: payload }),
+  updateSalesVenue: (code, payload) =>
+    send(`/api/sales-venues/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      body: payload,
+    }),
+
   createPurchaseOrder: (payload) =>
     send('/api/purchase-orders', { method: 'POST', body: payload }),
   createInventoryItem: (payload) =>
