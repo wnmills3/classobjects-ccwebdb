@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -34,6 +33,7 @@ from ..composition import composition_for
 from ..field_sources import COMPOSITION, record_derived
 from ..lifecycle_writes import record_initial_status
 from ..models import (
+    AppliesTo,
     Authenticity,
     BullionForm,
     CoinDetail,
@@ -67,6 +67,12 @@ from ..models import (
     VendorKind,
 )
 from ..order_repair import identify
+from .rating import (
+    bare_grade,
+    designation_for,
+    note_grade_code,
+    parse_condition,
+)
 
 __all__ = ["SchemaLoader"]
 
@@ -357,6 +363,7 @@ class SchemaLoader:
         )
 
         grade_id = self._grade_id(fields.get("grade_raw"), fields, kind)
+        attribute_ids = self._attribute_ids(kind, fields)
         metal_id, fineness = self._metal_and_fineness(bullion_form_id, fields)
 
         # Face value -> denomination -> composition is the chain that makes
@@ -457,6 +464,17 @@ class SchemaLoader:
 
         self._add_detail(item, kind, fields)
         self._add_certification(item, fields)
+        # Attributes are a many-to-many link, not a column: a note can be a
+        # star note and a fancy serial, a coin First Strike and CAC.
+        for attribute_id in attribute_ids:
+            self.session.add(
+                ItemAttributeLink(
+                    inventory_item_id=item.id,
+                    item_attribute_id=attribute_id,
+                    source=ProvenanceSource.derived,
+                    derived_by=IMPORT_RULE,
+                )
+            )
 
         # This writes the OPENING row for a newly created item, not a
         # transition -- `from_status_id=None` is how the schema says so.
@@ -478,19 +496,6 @@ class SchemaLoader:
                     seal_color_id=self.code_id(SealColor, fields.get("seal_color")),
                 )
             )
-            # Note features are a many-to-many link, not a column: a note can
-            # be both a star note and a fancy serial.
-            for code in fields.get("note_attributes") or []:
-                attribute_id = self.code_id(ItemAttribute, code)
-                if attribute_id is not None:
-                    self.session.add(
-                        ItemAttributeLink(
-                            inventory_item_id=item.id,
-                            item_attribute_id=attribute_id,
-                            source=ProvenanceSource.derived,
-                            derived_by=IMPORT_RULE,
-                        )
-                    )
             return
 
         # A mint set carrying both P and D marks is one item, so the first
@@ -499,6 +504,32 @@ class SchemaLoader:
         mint_id = self.code_id(Mint, marks[0]) if marks else None
         if kind in {"coin", "bullion", "set", "medal", "token", "other", "unknown"}:
             self.session.add(CoinDetail(inventory_item_id=item.id, mint_id=mint_id))
+
+    def _attribute_ids(self, kind: str, fields: dict) -> list[int]:
+        """The attributes a row's rating named that fit this kind of item.
+
+        A note's serial features come only from a note's rating. An
+        attribute for the other kind of item is not linked; it is kept in
+        `attributes` for review rather than dropped unseen.
+        """
+        codes = list(fields.get("item_attributes") or [])
+        if kind == "currency":
+            codes = list(fields.get("note_attributes") or []) + codes
+        own = AppliesTo.currency if kind == "currency" else AppliesTo.coin
+        ids: list[int] = []
+        misfits: list[str] = []
+        for code in dict.fromkeys(codes):
+            attribute_id = self.code_id(ItemAttribute, code)
+            if attribute_id is None:
+                continue
+            row = self.session.get(ItemAttribute, attribute_id)
+            if row is not None and row.applies_to not in {own, AppliesTo.any}:
+                misfits.append(code)
+                continue
+            ids.append(attribute_id)
+        if misfits:
+            fields["attribute_not_for_kind"] = misfits
+        return ids
 
     def _add_certification(self, item: InventoryItem, fields: dict) -> None:
         cert = fields.get("cert_number")
@@ -546,12 +577,18 @@ class SchemaLoader:
             return None
 
         parsed = parse_condition(text)
+        # The row's own words, which settle what the rating leaves open: FS on
+        # a Jefferson nickel, the strike of a bare "69 PCGS".
+        context = f"{fields.get('description') or ''} {fields.get('title') or ''}"
 
         # A condition string routinely carries several facts. Pulling each one
         # into its own column is what makes "every MS65-and-better Morgan" an
         # answerable question; storing the string whole makes it unanswerable.
-        if parsed.designation:
-            fields.setdefault("grade_designation", parsed.designation)
+        designation = designation_for(parsed, f"{text} {context}")
+        if designation:
+            fields.setdefault("grade_designation", designation)
+        elif parsed.designation:
+            fields["designation_not_read"] = parsed.designation
         if parsed.service:
             fields.setdefault("grading_service", parsed.service)
         if parsed.catalog_number:
@@ -560,12 +597,16 @@ class SchemaLoader:
             fields.setdefault("seal_color", parsed.seal_color)
         if parsed.note_attributes:
             fields.setdefault("note_attributes", list(parsed.note_attributes))
+        if parsed.attributes:
+            fields.setdefault("item_attributes", list(parsed.attributes))
+        if parsed.authenticity:
+            fields.setdefault("authenticity", parsed.authenticity)
 
         # Paper money has its own scale. A note is never given a coin grade
         # and never invents a vocabulary row: its grade is found on the note
         # scale or left for a person, with the text kept in grade_raw.
         if kind == "currency":
-            code = _note_grade_code(text, parsed.grade)
+            code = note_grade_code(text, parsed.grade)
             if code is None:
                 if not (parsed.seal_color or parsed.note_attributes):
                     fields["rating_unparsed"] = text
@@ -574,9 +615,27 @@ class SchemaLoader:
             note = grades.split(code)
             return self._grade_index().get(_grade_key(note.grade if note else code))
 
-        # A value that named only a seal colour or a star note said nothing
-        # about condition, and that is not a parse failure.
-        if parsed.grade is None and (parsed.seal_color or parsed.note_attributes):
+        # A rating that names a strike outright -- "Reverse PF70" -- is more
+        # specific than the prefix that came with its number.
+        if parsed.strike_type:
+            fields["strike_type"] = parsed.strike_type
+
+        if parsed.grade is None and parsed.bare_number is not None:
+            # "69 PCGS": a number with no prefix, graded only once something
+            # says which strike it is.
+            bare = bare_grade(parsed, context)
+            if bare is None:
+                fields["rating_unparsed"] = text
+                fields["strike_undecided"] = parsed.bare_number
+                return None
+            fields.setdefault("strike_type", bare.strike_type)
+            return self.number_grade_id(bare.grade)
+
+        # A value that named only a seal colour, a star note or an attribute
+        # said nothing about condition, and that is not a parse failure.
+        if parsed.grade is None and (
+            parsed.seal_color or parsed.note_attributes or parsed.attributes
+        ):
             return None
 
         if parsed.grade is None:
@@ -591,19 +650,22 @@ class SchemaLoader:
             return None
         if split.strike_type:
             fields.setdefault("strike_type", split.strike_type)
+        return self.number_grade_id(split.grade)
 
+    def number_grade_id(self, code: str) -> int:
+        """The grade row for a number code (`65`, `64+`), added if missing."""
         index = self._grade_index()
-        key = _grade_key(split.grade)
+        key = _grade_key(code)
         if key in index:
             return index[key]
 
         # A number grade the seed file does not list -- 20+, 61+ -- is a real
         # point on the scale, added as derived rather than refused.
-        number = int(split.grade.rstrip("+"))
-        plus = split.grade.endswith("+")
+        number = int(code.rstrip("+"))
+        plus = code.endswith("+")
         row = Grade(
-            code=split.grade,
-            label=split.grade,
+            code=code,
+            label=code,
             grade_scale_id=self.code_id(GradeScale, "sheldon"),
             numeric_value=number,
             is_plus=plus,
@@ -797,6 +859,7 @@ _PROMOTED = frozenset(
         "local_catalog_number",
         "seal_color",
         "note_attributes",
+        "item_attributes",
     }
 )
 
@@ -824,215 +887,3 @@ _GRADE_DROP = re.compile(r"[^A-Z0-9+]")
 
 def _grade_key(text: str) -> str:
     return _GRADE_DROP.sub("", str(text).upper())
-
-
-@dataclass(frozen=True)
-class ParsedCondition:
-    """The separate facts a condition string was carrying."""
-
-    grade: str | None = None
-    designation: str | None = None
-    service: str | None = None
-    catalog_number: str | None = None
-    #: A banknote's treasury seal colour, when the value named one.
-    seal_color: str | None = None
-    #: item_attribute codes -- features of the note, which are not grades.
-    note_attributes: tuple[str, ...] = ()
-
-
-#: Valid Sheldon numbers for each prefix. A grade is a point on a scale, not
-#: any letter followed by any number: without this, prose yields "F73" and
-#: "G63" and they become permanent rows in a shared vocabulary.
-_GRADE_RANGE: dict[str, tuple[int, int]] = {
-    "MS": (60, 70),
-    "PR": (60, 70),
-    "AU": (50, 58),
-    "XF": (40, 45),
-    "VF": (20, 35),
-    "F": (12, 15),
-    "VG": (8, 10),
-    "G": (4, 6),
-    "AG": (3, 3),
-    "FR": (2, 2),
-    "P": (1, 1),
-}
-
-#: Seal colours, which belong on currency_detail rather than in a grade.
-_SEAL_COLORS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
-    (re.compile(rf"\b{name}\s+SEAL\b", re.I), name.lower())
-    for name in ("BLUE", "RED", "BROWN", "GREEN", "GOLD")
-)
-
-#: Banknote features. Attributes of the note, never of its condition -- putting
-#: these in the grade column is what makes condition unqueryable.
-_NOTE_ATTRIBUTES: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bSTAR\s*NOTE\b|\bSTAR\b", re.I), "star"),
-    (re.compile(r"\bFANCY\s*SERIAL\b", re.I), "fancy_serial"),
-    (re.compile(r"\bCONSECUTIVE\b", re.I), "consecutive"),
-    (re.compile(r"\bLOW\s*SERIAL\b", re.I), "low_serial"),
-    (re.compile(r"\bSOLID\b", re.I), "solid_serial"),
-    (re.compile(r"\bRADAR\b", re.I), "radar"),
-    (re.compile(r"\bREPEATER\b", re.I), "repeater"),
-    (re.compile(r"\bBINARY\b", re.I), "binary"),
-    (re.compile(r"\bBIRTHDAY\b", re.I), "birthday"),
-    (re.compile(r"\bWEB\s*PRESS\b", re.I), "web_press"),
-)
-
-
-#: An owner-assigned number, written as "#123" at the start of the value.
-_CATALOG_NO = re.compile(r"#\s*(\d+)")
-
-#: A Sheldon-style grade: a letter prefix, a number, optional plus signs.
-#: EF is the British spelling of XF and normalises onto it.
-_NUMERIC_GRADE = re.compile(
-    # `\s*(?:-\s*)?` rather than `\s*-?\s*`: two optional whitespace runs
-    # back to back are ambiguous, so a long run of spaces that never
-    # completes a match backtracks super-linearly. This form accepts the
-    # same strings with no ambiguity.
-    r"\b(MS|PR|PF|AU|XF|EF|VF|VG|AG|FR|F|G|P)\s*(?:-\s*)?(\d{1,2})(\+*)",
-    re.I,
-)
-
-#: Adjectival grades, longest first so "GEM BU" wins over a bare "BU" and
-#: "GEM PROOF" wins over a bare "PROOF".
-_ADJECTIVAL: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bCHOICE[\s/_-]*PROOF\b", re.I), "CHOICE_PROOF"),
-    (re.compile(r"\bGEM[\s/_-]*PROOF\b", re.I), "GEM_PROOF"),
-    (re.compile(r"\bCHOICE[\s/_-]*BU\b", re.I), "CHOICE_BU"),
-    (re.compile(r"\bCHOICE[\s/_-]*UNC\b", re.I), "CHOICE_UNC"),
-    (re.compile(r"\bGEM[\s/_-]*BU\b", re.I), "GEM_BU"),
-    (re.compile(r"\bGEM[\s/_-]*UNC\b", re.I), "GEM_UNC"),
-    (re.compile(r"\bPROOF\b", re.I), "PROOF"),
-    (re.compile(r"\bBU\b", re.I), "BU"),
-    (re.compile(r"\bUNC\b", re.I), "UNC"),
-    (re.compile(r"\bCIRC\b", re.I), "CIRC"),
-    # Bare letter grades, with no Sheldon number attached. Last, so an
-    # "AU-55" is read as AU55 rather than collapsing onto plain AU.
-    (re.compile(r"\bAU\b", re.I), "AU"),
-    (re.compile(r"\b(?:XF|EF)\b", re.I), "XF"),
-    (re.compile(r"\bVF\b", re.I), "VF"),
-    (re.compile(r"\bVG\b", re.I), "VG"),
-)
-
-# No leading word boundary: in "PR69DCAM" the designation follows a digit, and
-# \b never fires between two word characters. A negative lookbehind for a
-# letter is the precise rule -- it still refuses to find CAM inside SCAM.
-_DESIGNATION = re.compile(
-    # The flag is scoped to the alternation instead of the whole pattern:
-    # under a global re.I the lookbehind's [A-Za-z] is a duplicated class,
-    # because each half already matches either case. Note (?i:...) does not
-    # capture, so it sits inside a capturing group -- the caller reads
-    # .group(1).
-    r"(?<![A-Za-z])((?i:DCAM|DMPL|CAM|RD|RB|BN|FBL|FS|FB|FH|PL|EPQ|PPQ))\b"
-)
-_SERVICE = re.compile(r"\b(PCGS|NGC|ANACS|ICG|PMG|SEGS|CACG)\b", re.I)
-
-#: PR and PF are the same thing written two ways; so are XF and EF.
-_GRADE_PREFIX_ALIAS = {"PF": "PR", "EF": "XF"}
-
-#: The points PMG and PCGS both grade paper money on, Good 4 to 70. A number
-#: outside this set is not a note grade: "UNC 5 2s" is five $2 notes.
-_NOTE_NUMBERS = frozenset(
-    {4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50, 53, 55, 58, *range(60, 71)}
-)
-
-#: A number set against a paper-quality designation or a grader, the way PMG
-#: and PCGS labels write it: "64 EPQ", "50 PPQ", "12 PCGS".
-_NOTE_NUMBER_BEFORE = re.compile(r"(?<![\d$.])(\d{1,2})\s*(?:EPQ|PPQ|PMG|PCGS)\b", re.I)
-#: A number following a grade word: "UNC 64", "Gem Unc 65", "Very Fine 30".
-_NOTE_NUMBER_AFTER = re.compile(
-    r"\b(?:UNC|UNCIRCULATED|GEM|CHOICE|AU|XF|EF|VF|VG|FINE|GOOD)\s*(?:-\s*)?(\d{1,2})\b",
-    re.I,
-)
-
-#: A note grade written with no number. Most specific first: About
-#: Uncirculated before Uncirculated, Very Fine before Fine.
-_NOTE_TERMS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bGEM\s*(?:UNC|UNCIRCULATED|BU|CU)\b", re.I), "N_GEM_UNC"),
-    (re.compile(r"\bCHOICE\s*(?:UNC|UNCIRCULATED|BU|CU)\b", re.I), "N_CHOICE_UNC"),
-    (re.compile(r"\bABOUT\s*UNC(?:IRCULATED)?\b|\bAU\b", re.I), "N_AU"),
-    (re.compile(r"\b(?:UNC|UNCIRCULATED|BU|CU)\b", re.I), "N_UNC"),
-    (re.compile(r"\bEXTREMELY\s*FINE\b|\b(?:XF|EF)\b", re.I), "N_XF"),
-    (re.compile(r"\bVERY\s*FINE\b|\bVF\b", re.I), "N_VF"),
-    (re.compile(r"\bVERY\s*GOOD\b|\bVG\b", re.I), "N_VG"),
-    (re.compile(r"\bFINE\b", re.I), "N_F"),
-    (re.compile(r"\bGOOD\b", re.I), "N_G"),
-)
-
-
-def _note_grade_code(text: str, sheldon: str | None) -> str | None:
-    """The note-scale grade code a rating names, or None when it names none.
-
-    A number wins over a bare term, and only a number on the scale counts --
-    from a coin-style grade ("VF-30", PCGS's "MS65 PPQ"), from beside a
-    designation or grader ("64 EPQ"), or after a grade word ("UNC 64").
-    """
-    candidates = re.findall(r"\d{1,2}", sheldon) if sheldon else []
-    candidates += _NOTE_NUMBER_BEFORE.findall(text)
-    candidates += _NOTE_NUMBER_AFTER.findall(text)
-    for number in candidates:
-        if int(number) in _NOTE_NUMBERS:
-            return f"N{int(number)}"
-    for pattern, code in _NOTE_TERMS:
-        if pattern.search(text):
-            return code
-    return None
-
-
-def parse_condition(text: str) -> ParsedCondition:
-    """Decompose a condition string into the facts it actually carries.
-
-    A real collection writes things like ``#14 PR69DCAM``, ``MS70 American
-    Bald Eagle`` and ``Clad Roosevelt Gem Proof``. Each is a grade plus
-    description, sometimes plus a designation, a grading service and the
-    owner's own catalogue number.
-
-    Extracting rather than accepting-or-rejecting the whole string matters in
-    both directions. Rejecting wholesale leaves nearly half the collection
-    with no grade at all. Accepting wholesale invents grades called
-    ``ACADIANP`` and puts them in a vocabulary meant to be shared with other
-    installations.
-
-    ``grade`` is None when nothing grade-shaped is present, which is a real
-    answer: the caller keeps the original text and flags it for a human.
-    """
-    value = str(text).strip()
-    if not value:
-        return ParsedCondition()
-
-    catalog = _CATALOG_NO.search(value)
-    designation = _DESIGNATION.search(value)
-    service = _SERVICE.search(value)
-
-    grade: str | None = None
-    for match in _NUMERIC_GRADE.finditer(value):
-        prefix = match.group(1).upper()
-        prefix = _GRADE_PREFIX_ALIAS.get(prefix, prefix)
-        number = int(match.group(2))
-        low, high = _GRADE_RANGE.get(prefix, (0, 0))
-        # Out-of-range means this was prose that happened to look like a
-        # grade, not a grade. Keep scanning; a real one may follow.
-        if low <= number <= high:
-            grade = f"{prefix}{number}{match.group(3)}"
-            break
-
-    if grade is None:
-        for pattern, code in _ADJECTIVAL:
-            if found := pattern.search(value):
-                # A trailing '+' is a real distinction and is preserved.
-                tail = value[found.end() : found.end() + 2]
-                plus = "".join(c for c in tail if c == "+")
-                grade = code + plus
-                break
-
-    seal = next((c for p, c in _SEAL_COLORS if p.search(value)), None)
-    attributes = tuple(c for p, c in _NOTE_ATTRIBUTES if p.search(value))
-
-    return ParsedCondition(
-        grade=grade,
-        designation=designation.group(1).upper() if designation else None,
-        service=service.group(1).upper() if service else None,
-        catalog_number=catalog.group(1) if catalog else None,
-        seal_color=seal,
-        note_attributes=attributes,
-    )

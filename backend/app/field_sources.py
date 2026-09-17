@@ -31,6 +31,7 @@ SERIES_MATCH = "series_match"
 SERIES_CLASSIFY = "series_classify"
 SERIES_BACKFILL = "series_backfill"
 SUGGESTION = "suggestion"
+RATING = "rating"
 
 #: Not a rule: a person emptied the field, and it is to stay empty.
 HELD = "held"

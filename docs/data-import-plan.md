@@ -1453,3 +1453,20 @@ too, each attribute has a group and says which kind of item it fits, and a
 link records whether a rule or a person made it. The importer still reads
 the same note features from the rating; each link it writes is `derived`,
 by `import`.
+
+## 21. Amendment K — the database is the record
+
+2026-09-16, the owner: "at this point we can think of our database as the
+ground truth and continue to improve the data there. the spreadsheet can be
+a historic reference document."
+
+From here on the workbook is not re-imported into the live database, and
+`scripts\ccweb_rebuild.cmd` is not how live data is corrected: a rebuild
+would discard everything corrected in the console. Data is improved by
+passes over stored items -- `app.classifier_defaults`,
+`app.series_classify`, `app.serial_patterns` and `app.rating_pass` (below)
+-- which fill what is empty and leave what a person set.
+
+The importer stays, and learned the same rating rules
+(`app/importers/rating.py`), for a new collection or a new sheet of
+purchases.

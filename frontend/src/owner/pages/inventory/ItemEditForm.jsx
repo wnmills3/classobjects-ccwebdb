@@ -98,12 +98,14 @@ const DERIVED_FROM = {
   series_match: 'Filled from the description',
   series_backfill: 'Filled from the description or from denomination and year',
   suggestion: 'Suggested when the item was entered',
+  rating: 'Read from the rating',
 }
 
 //: Where a derived attribute was read, as its mark's tooltip says it.
 const ATTRIBUTE_FROM = {
   serial_pattern: 'Read from the serial number',
   import: 'Read from the spreadsheet',
+  rating: 'Read from the rating',
 }
 
 /**

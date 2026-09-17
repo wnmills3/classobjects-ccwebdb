@@ -323,6 +323,47 @@ Reserve Note, Federal Reserve Bank Note, Silver and Gold Certificate,
 Fractional Currency, Demand Note, Treasury Note. Searching any class name or
 nickname finds the notes of that class.
 
+### What the rating says: the rating pass
+
+**The database is the record** (the owner, 2026-09-16). The collection
+workbook is a historical reference; data is improved here, by passes over
+the stored items, not by importing again -- a rebuild would discard every
+correction made in the console.
+
+The rating -- the owner's own text, `grade_raw` -- often says more than the
+first import read. `app.rating_pass` reads it again with the current rules
+(`app/importers/rating.py`, which new imports use too):
+
+| The rating says | Recorded |
+|---|---|
+| `69 PCGS`, `70DCAM PCGS` -- a number with no prefix | the grade, once something settles the strike: a P or SP prefix, a cameo (proof) or prooflike (business) designation, the same grade written in the description (`PCGS MS69`), or the description saying proof or uncirculated and not both |
+| `SP68PCGS`, `P70DCAM`, `PR70DCAMPCGS` | a specimen; P70 as PCGS's proof; a designation and grader run together |
+| `UCAM`, `Ultra Cameo`, `DPL`, `FT`, `6FS` | DCAM, DMPL, Full Torch, six full steps |
+| `Reverse PF70`, `Rev Proof` | strike type reverse proof |
+| `First Strike`, `Early Release`, `First Release`, `FDI`/`FDOI` | release attributes |
+| `CAC` | the CAC attribute (green sticker); `CAC Gold` the gold one |
+| `CACG`, or CAC with `First Delivery` | grader CACG, and First Delivery |
+| `Genuine` | authenticity genuine, and the Genuine attribute |
+| `No Motto`, `No God`, `Godless` | No Motto |
+
+`FS` is Full Steps only where the item is a Jefferson nickel.
+
+    python -m app.rating_pass            report, touching nothing
+    python -m app.rating_pass --commit   apply
+
+**It fills what is empty.** A grade, strike, designation or grader already
+recorded stays, as does anything confirmed in the editor or emptied on
+purpose. What it fills carries the *suggested* mark ("Read from the
+rating"), and an attribute it adds shows *read*. Two things it corrects
+rather than fills, each listed in the report: a strike the rating names
+outright (a stored proof that the rating calls a reverse proof), and FS
+recorded on something that is not a Jefferson nickel.
+
+The report also lists **bare numbers with nothing to settle the strike**
+(`67 ANACS` on a "1961 Washington 25 Cents" -- a 67 is not MS67 by default)
+and **attributes for the other kind of item** (a note rated FDOI). Every
+proposal is written to `rating_pass.csv` in the log directory.
+
 ### How an item comes into being
 
 Four paths create an `inventory_item`, and only two are routine.

@@ -198,6 +198,7 @@ every miss visible rather than defaulted.
    those prefixes. BM, BMCA and SF, the lower-priority ones, are not added
    yet. The importer does not read the new words until step 4.)
 4. Importer rules and a re-derivation over the live data (report first).
+   (Built; see *As built: the rating rules* below.)
 5. Attribute rules in the defaults pass (No Motto).
 
 ## Decisions (owner, 2026-09-16)
@@ -365,6 +366,47 @@ Measured on a copy of live, 2026-09-16: the load created 21 attributes and
 8 aliases, a full seed load then changed nothing else, the serial check
 found nothing to add, and the search totals of the alias release were
 unchanged.
+
+## As built: the rating rules
+
+The rating parser moved to `app/importers/rating.py`, which the importer
+and `app.rating_pass` share. Since 2026-09-16 the database is the record
+(data-import-plan Amendment K), so the pass over stored items is what
+changes live data; the importer rules matter for new rows.
+
+What the survey of live ratings (2026-09-16) changed from the plan:
+
+- **Run-together ratings** -- `PR70DCAMPCGS`, `SP68PCGS`, `SP69ICG` -- had
+  no designation or grader; a designation may now run into a grader, and a
+  grader follow a number or designation.
+- **P70** (12 items, `P70DCAM PCGS`) is PCGS's proof shorthand; P stays Poor
+  at 1.
+- **Grades from a number**: 305 items, not 306. The strike is settled by a
+  prefix (26: SP 14, P70 12), a cameo designation (62), the same grade in the
+  description (197; most descriptions write it, "PCGS MS63"), or the
+  description's words (12) -- 297 graded. A grade written in the
+  description with another number still counts as a word, so a lot
+  described "PF 68 ... Ms65" settles nothing. Eight are left for a person,
+  among them CC-006140, a "coin" rated "67 EPQ Radar" that is surely a note.
+- **CAC**: the 7 "MS70 CAC First Delivery" become grader CACG with First
+  Delivery (decision 4); 17 are the green sticker; FDOI is First Day of
+  Issue.
+- **FS** on two Silver Eagles (`MS70 FS NGC`) was recorded as Full Steps and
+  is cleared; FS is read only on a Jefferson nickel, and 5FS/6FS always.
+- **Reverse proof**: 26 items stored as a plain proof (and two as business,
+  "MS69 NGC Rev Proof") are corrected; a named strike beats a prefix.
+- A colour designation after a number below 60 is an ordinal ("3RD").
+- **Not found in the live ratings**: PO, Details, NET, First Print,
+  Enhanced Reverse Proof (the one "Enhanced" is "Enhanced Mint").
+- **Suspect data for the owner**: nine Peace dollars rated "No Motto" (every
+  Peace dollar carries the motto), and two notes rated FDOI, an attribute
+  for coins.
+
+The pass fills only empty fields, skips anything held or confirmed,
+records what it fills as derived by `rating`, and adds attribute links only
+where none exists, removed ones included. Its dry run on live proposed: 297
+grades and strikes, 85 designations (82 DCAM), 25 graders, 21 Genuine, 141
+attributes, 26 strike corrections, 2 FS clears.
 
 ## Sources
 
