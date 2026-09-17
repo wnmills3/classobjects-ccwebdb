@@ -25,6 +25,7 @@ from app.models import (  # noqa: F401
     ItemKind,
     ItemStatus,
     Listing,
+    ListingStatus,
     Metal,
     MetalPrice,
     StorageForm,
@@ -32,6 +33,7 @@ from app.models import (  # noqa: F401
 )
 from app.models.base import utcnow
 from app.models.views import PUBLIC_CATALOG_FORBIDDEN_COLUMNS
+from app.sales_venues import store_venue_id
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
@@ -312,14 +314,16 @@ def test_public_catalog_shows_only_active_listings(db: Session) -> None:
         inventory_item_id=item.id,
         price=Decimal("50.00"),
         currency_id=usd.id,
-        is_active=True,
+        status=ListingStatus.active,
+        sales_venue_id=store_venue_id(db),
         quantity_available=1,
     )
     ended = Listing(
         inventory_item_id=item.id,
         price=Decimal("50.00"),
         currency_id=usd.id,
-        is_active=False,
+        status=ListingStatus.ended,
+        sales_venue_id=store_venue_id(db),
         quantity_available=1,
     )
     db.add_all([active, ended])
@@ -346,7 +350,8 @@ def test_a_deleted_item_leaves_every_view(db: Session) -> None:
         inventory_item_id=coin.id,
         price=Decimal("50.00"),
         currency_id=usd.id,
-        is_active=True,
+        status=ListingStatus.active,
+        sales_venue_id=store_venue_id(db),
         quantity_available=1,
     )
     db.add(listing)

@@ -272,7 +272,7 @@ def upgrade() -> None:
             {"ids": obsolete},
         )
 
-    for statement in create_views():
+    for statement in create_views(selling=False):
         op.execute(statement)
 
 
@@ -342,5 +342,5 @@ def downgrade() -> None:
     op.drop_table("strike_type")
     op.execute("DROP FUNCTION IF EXISTS grade_display(text, text, integer, boolean, text, boolean)")
 
-    for statement in create_views(strike_type=False):
+    for statement in create_views(strike_type=False, selling=False):
         op.execute(statement)

@@ -61,6 +61,7 @@ _CODE_KEYED_TABLES = frozenset(
         "grade_scale",
         "valuation_basis",
         "authenticity",
+        "sales_venue_kind",
     }
 )
 _CODE_KEYED_VALUES = frozenset(

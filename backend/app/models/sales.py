@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Computed,
     Date,
     DateTime,
     ForeignKey,
@@ -41,8 +42,8 @@ from .base import Base, TimestampMixin, enum_column, utcnow
 
 if TYPE_CHECKING:  # relationship targets only -- importing them at
     # runtime would make core and sales import each other in a cycle.
-    from .core import InventoryItem
-    from .reference import Currency
+    from .core import InventoryItem, Vendor
+    from .reference import Currency, SalesVenueKind
     from .scaffold import User
 
 __all__ = [
@@ -50,10 +51,13 @@ __all__ = [
     "AddressKind",
     "Customer",
     "Listing",
+    "ListingFormat",
+    "ListingStatus",
     "SalesOrder",
     "SalesOrderChange",
     "SalesOrderChangeKind",
     "SalesOrderItem",
+    "SalesVenue",
     "Shipment",
 ]
 
@@ -82,6 +86,112 @@ class SalesOrderChangeKind(enum.StrEnum):
     notes = "notes"
     status = "status"
     total = "total"
+
+
+class ListingFormat(enum.StrEnum):
+    """How a listing sells: at a fixed price, or to the highest bidder."""
+
+    fixed_price = "fixed_price"
+    auction = "auction"
+
+
+class ListingStatus(enum.StrEnum):
+    """Whether a listing is on offer now.
+
+    `paused` is a store listing set aside while its item is offered
+    elsewhere; it resumes when that offer ends unsold (selling design).
+    """
+
+    active = "active"
+    paused = "paused"
+    ended = "ended"
+
+
+class SalesVenue(TimestampMixin, Base):
+    """A platform the business sells through: the web store, eBay, an auction house.
+
+    The owner's own accounts, not shipped reference data -- another
+    installation sells elsewhere. `vendor_id` links the platform to the
+    purchase source of the same name, so eBay is one partner whether buying
+    or selling. The default fees are for estimates only; a sale records what
+    was actually charged.
+    """
+
+    __tablename__ = "sales_venue"
+
+    #: Optimistic concurrency -- see the note on InventoryItem.version.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+
+    @declared_attr.directive
+    def __mapper_args__(cls) -> dict[str, Any]:
+        """Optimistic concurrency: every UPDATE checks the version it read."""
+        return {"version_id_col": cls.version}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Machine-facing and immutable, like a reference code.
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    sales_venue_kind_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_venue_kind.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    #: True on exactly one row, the web store; a partial unique index says so.
+    is_own_store: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    vendor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vendor.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: The owner's username or seller id on the platform.
+    account_handle: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: e.g. https://www.ebay.com/itm/{external_id}
+    listing_url_template: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: Fractions: 0.1325 is 13.25%.
+    commission_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 4), nullable=True
+    )
+    processing_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 4), nullable=True
+    )
+    processing_fixed: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    listing_fee: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    #: When the default fees were read from the platform.
+    terms_as_of: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+
+    kind: Mapped[SalesVenueKind] = relationship()
+    vendor: Mapped[Vendor | None] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_sales_venue_code"),
+        UniqueConstraint("vendor_id", name="uq_sales_venue_vendor"),
+        Index(
+            "uq_sales_venue_own_store",
+            "is_own_store",
+            unique=True,
+            postgresql_where=text("is_own_store"),
+        ),
+        CheckConstraint(
+            "commission_rate >= 0 AND commission_rate <= 1",
+            name="ck_sales_venue_commission_rate",
+        ),
+        CheckConstraint(
+            "processing_rate >= 0 AND processing_rate <= 1",
+            name="ck_sales_venue_processing_rate",
+        ),
+        CheckConstraint(
+            "processing_fixed >= 0", name="ck_sales_venue_processing_fixed"
+        ),
+        CheckConstraint("listing_fee >= 0", name="ck_sales_venue_listing_fee"),
+    )
 
 
 class Listing(TimestampMixin, Base):
@@ -125,9 +235,33 @@ class Listing(TimestampMixin, Base):
     quantity_available: Mapped[int] = mapped_column(
         Integer, default=1, server_default=text("1"), nullable=False
     )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, default=True, server_default=text("true"), nullable=False
+    sales_venue_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_venue.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
     )
+    format: Mapped[ListingFormat] = mapped_column(
+        enum_column(ListingFormat, "listing_format"),
+        default=ListingFormat.fixed_price,
+        nullable=False,
+    )
+    #: Written only through `status`; see ListingStatus.
+    status: Mapped[ListingStatus] = mapped_column(
+        enum_column(ListingStatus, "listing_status"),
+        default=ListingStatus.active,
+        nullable=False,
+    )
+    #: Generated from `status`, so every reader written before statuses
+    #: existed -- checkout, the public catalogue, the for-sale warning -- keeps
+    #: its meaning. It cannot be written; set `status`.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        Computed("status = 'active'::listing_status", persisted=True),
+        nullable=False,
+    )
+    #: The platform's own listing number, and its page.
+    external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    external_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     title: Mapped[str] = mapped_column(
         String(500), default="", server_default=text("''"), nullable=False
     )
@@ -143,6 +277,7 @@ class Listing(TimestampMixin, Base):
 
     inventory_item: Mapped[InventoryItem] = relationship(back_populates="listings")
     currency: Mapped[Currency] = relationship()
+    sales_venue: Mapped[SalesVenue] = relationship()
     order_items: Mapped[list[SalesOrderItem]] = relationship(back_populates="listing")
 
     __table_args__ = (
@@ -242,6 +377,13 @@ class SalesOrder(TimestampMixin, Base):
     customer_id: Mapped[int] = mapped_column(
         ForeignKey("customer.id", ondelete="RESTRICT"), index=True, nullable=False
     )
+    sales_venue_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_venue.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    #: The platform's order number, for a sale made elsewhere.
+    external_order_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     sales_order_status_id: Mapped[int] = mapped_column(
         ForeignKey("sales_order_status.id", ondelete="RESTRICT"),
         index=True,

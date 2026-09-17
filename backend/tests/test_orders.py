@@ -12,6 +12,7 @@ from collections.abc import Callable
 from decimal import Decimal
 
 from app.models import Customer, Listing, SalesOrder, SalesOrderStatus, User
+from app.sales_venues import store_venue_id
 from app.security import hash_password
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -41,6 +42,7 @@ def foreign_order(db: Session, email: str) -> SalesOrder:
     ).scalar_one()
     order = SalesOrder(
         customer_id=customer.id,
+        sales_venue_id=store_venue_id(db),
         sales_order_status_id=pending,
         total_amount=Decimal("1.00"),
     )

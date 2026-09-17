@@ -60,6 +60,7 @@ __all__ = [
     "ReferenceAlias",
     "ReferenceMerge",
     "SalesOrderStatus",
+    "SalesVenueKind",
     "SealColor",
     "SetForm",
     "ShipmentStatus",
@@ -725,6 +726,12 @@ class VendorKind(ReferenceMixin, Base):
     """Acquisition channel: marketplace, auction, mint, dealer."""
 
     __tablename__ = "vendor_kind"
+
+
+class SalesVenueKind(ReferenceMixin, Base):
+    """How a sales platform sells: own store, marketplace, live show, auction house."""
+
+    __tablename__ = "sales_venue_kind"
 
 
 class Carrier(ReferenceMixin, Base):

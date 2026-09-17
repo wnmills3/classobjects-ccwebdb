@@ -37,6 +37,7 @@ from app.models import (
 )
 from app.order_writes import Line, customer_for_user, place_order, revise_order
 from app.routers.orders import _load, _status_code, update_order_status
+from app.sales_venues import store_venue_id
 from app.schemas import OrderStatusUpdate
 from fastapi import HTTPException
 from sqlalchemy.engine import Engine
@@ -68,6 +69,7 @@ def _extra_listing(factory: sessionmaker[Session], *, stock: int) -> int:
             inventory_item_id=item.id,
             price=Decimal("100.00"),
             currency_id=_code_id(session, Currency, "USD"),
+            sales_venue_id=store_venue_id(session),
             quantity_available=stock,
         )
         session.add(listing)

@@ -3,7 +3,8 @@
     "Metal, valuation, lifecycle, errors and the operational vocabularies.",
     "The two lifecycle axes are deliberately separate tables: how an item came",
     "in and how it goes out are different questions, and one column cannot",
-    "represent 'received and sold'."
+    "represent 'received and sold'.",
+    "Sales platform kinds describe how a platform sells, not which one it is."
   ],
   "metal": [
     {"code": "silver", "label": "Silver", "symbol": "Ag", "is_precious": true, "sort_order": 10},
@@ -64,6 +65,16 @@
     {"code": "dealer", "label": "Dealer", "sort_order": 40},
     {"code": "private", "label": "Private sale", "sort_order": 50},
     {"code": "unknown", "label": "Unknown", "sort_order": 60}
+  ],
+  "sales_venue_kind": [
+    {"code": "own_store", "label": "Our web store", "sort_order": 10,
+     "_note": "Exactly one platform has this kind; the migration creates it."},
+    {"code": "marketplace", "label": "Marketplace", "sort_order": 20,
+     "_note": "Fixed-price listings on a platform: eBay, Whatnot."},
+    {"code": "live_auction", "label": "Live auction show", "sort_order": 30,
+     "_note": "Run directly by the owner: eBay Live, Whatnot shows."},
+    {"code": "auction_house", "label": "Auction house (agent)", "sort_order": 40,
+     "_note": "Sells on the owner's behalf as consignee: Heritage, HiBid auctioneers."}
   ],
   "carrier": [
     {"code": "USPS", "label": "USPS", "sort_order": 10,

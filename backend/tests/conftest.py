@@ -28,6 +28,7 @@ from app.models import (
     ItemKind,
     ItemStatus,
     Listing,
+    ListingStatus,
     StorageForm,
     StrikeType,
     User,
@@ -35,6 +36,7 @@ from app.models import (
     ValuationBasis,
 )
 from app.models.views import CREATE_VIEWS
+from app.sales_venues import ensure_store_venue, store_venue_id
 from app.security import hash_password
 from app.seeding import seed_all
 from fastapi.testclient import TestClient
@@ -115,6 +117,10 @@ def engine() -> Iterator[Engine]:
     # around this, leaving the vocabulary in place.
     with Session(test_engine) as session:
         seed_all(session)
+        # The migration creates the web store platform on a real database;
+        # this one is built from the models, so it is created here.
+        ensure_store_venue(session)
+        session.commit()
 
     yield test_engine
 
@@ -315,7 +321,12 @@ def build_listing(db: Session, **overrides: object) -> Listing:
         price=overrides.pop("price", Decimal("189.00")),
         currency_id=_code_id(db, Currency, "USD"),
         quantity_available=overrides.pop("quantity_available", 5),
-        is_active=overrides.pop("is_active", True),
+        status=(
+            ListingStatus.active
+            if overrides.pop("is_active", True)
+            else ListingStatus.ended
+        ),
+        sales_venue_id=overrides.pop("sales_venue_id", store_venue_id(db)),
         **overrides,
     )
     db.add(listing)

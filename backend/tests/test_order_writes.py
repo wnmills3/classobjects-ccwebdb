@@ -13,12 +13,14 @@ from typing import Any
 from app.models import (
     Customer,
     Listing,
+    ListingStatus,
     SalesOrder,
     SalesOrderChange,
     SalesOrderChangeKind,
     SalesOrderStatus,
     User,
 )
+from app.sales_venues import store_venue_id
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import select
@@ -38,6 +40,7 @@ def test_an_order_records_its_placer_version_and_changes(
     )
     order = SalesOrder(
         customer_id=customer.id,
+        sales_venue_id=store_venue_id(db),
         sales_order_status_id=pending,
         placed_by_id=admin_user.id,
     )
@@ -549,7 +552,7 @@ def test_raising_a_quantity_on_an_inactive_listing_is_refused(
     db: Session,
 ) -> None:
     order = _place(client, customer_headers, listing.id, 1)
-    listing.is_active = False
+    listing.status = ListingStatus.ended
     db.commit()
 
     response = _revise(

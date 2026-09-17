@@ -306,6 +306,7 @@ FROM listing l
 JOIN inventory_item i     ON i.id = l.inventory_item_id
 JOIN item_kind k          ON k.id = i.item_kind_id
 JOIN currency cur         ON cur.id = l.currency_id
+JOIN sales_venue sv       ON sv.id = l.sales_venue_id
 LEFT JOIN denomination d  ON d.id  = i.denomination_id
 LEFT JOIN country c       ON c.id  = i.country_id
 LEFT JOIN grade g         ON g.id  = i.grade_id
@@ -315,6 +316,8 @@ LEFT JOIN grading_service gs ON gs.id = i.grading_service_id
 LEFT JOIN bullion_form bf ON bf.id = i.bullion_form_id
 LEFT JOIN metal mt        ON mt.id = i.metal_id
 WHERE l.is_active
+  AND sv.is_own_store
+  AND l.format = 'fixed_price'
   AND l.quantity_available > 0
   AND i.split_at IS NULL
   AND i.deleted_at IS NULL
@@ -425,6 +428,13 @@ _STRIKE_TYPE_FRAGMENTS: tuple[tuple[str, str], ...] = (
     ("LEFT JOIN strike_type stk ON stk.id = i.strike_type_id\n", ""),
 )
 
+#: Sales platforms and listing formats came later (selling design): a view
+#: created by an earlier revision shows every active listing.
+_SELLING_FRAGMENTS: tuple[tuple[str, str], ...] = (
+    ("JOIN sales_venue sv       ON sv.id = l.sales_venue_id\n", ""),
+    ("\n  AND sv.is_own_store\n  AND l.format = 'fixed_price'", ""),
+)
+
 
 def _removal_fragments(
     *,
@@ -433,12 +443,15 @@ def _removal_fragments(
     renamed_costs: bool,
     soft_delete: bool,
     strike_type: bool = True,
+    selling: bool = True,
 ) -> list[tuple[str, str]]:
     """The (fragment, replacement) pairs that strip the features not wanted.
 
     Order matters, which is why this is a list rather than a set.
     """
     removals: list[tuple[str, str]] = []
+    if not selling:
+        removals.extend(_SELLING_FRAGMENTS)
     if not strike_type:
         removals.extend(_STRIKE_TYPE_FRAGMENTS)
     # Soft delete is stripped FIRST, before lineage. Replacements apply in
@@ -468,6 +481,7 @@ def _assert_stripped(
     renamed_costs: bool,
     soft_delete: bool,
     strike_type: bool = True,
+    selling: bool = True,
 ) -> None:
     """Fail loudly if a fragment stopped matching the view SQL.
 
@@ -496,6 +510,11 @@ def _assert_stripped(
             "the strike-type-stripping fragments no longer match the view SQL"
         )
         assert "grade_display" not in statement
+    if not selling:
+        assert "sales_venue" not in statement, (
+            "the selling-stripping fragments no longer match the view SQL"
+        )
+        assert "l.format" not in statement
     if not soft_delete:
         assert "deleted_at" not in statement, (
             "the soft-delete-stripping fragments no longer match the view "
@@ -511,6 +530,7 @@ def create_views(
     renamed_costs: bool = True,
     soft_delete: bool = True,
     strike_type: bool = True,
+    selling: bool = True,
 ) -> tuple[str, ...]:
     """The view SQL as it stood before the named columns were introduced.
 
@@ -520,9 +540,10 @@ def create_views(
     `source_title` (`price`, `shipping`, `taxes`, `storage_quantity`,
     `title`); ``soft_delete`` covers `deleted_at` and its `WHERE` clause in
     all four views; ``strike_type`` covers the strike type column and the
-    composed grade (`grade_display()`), which replaced the grade code. All
-    default to True, the current definitions, so a migration strips only what
-    it names.
+    composed grade (`grade_display()`), which replaced the grade code.
+    ``selling`` covers the sales platform join and the store/fixed-price
+    filter on `public_catalog`. All default to True, the current definitions,
+    so a migration strips only what it names.
     """
     removals = _removal_fragments(
         lineage=lineage,
@@ -530,6 +551,7 @@ def create_views(
         renamed_costs=renamed_costs,
         soft_delete=soft_delete,
         strike_type=strike_type,
+        selling=selling,
     )
 
     statements = []
@@ -543,6 +565,7 @@ def create_views(
             renamed_costs=renamed_costs,
             soft_delete=soft_delete,
             strike_type=strike_type,
+            selling=selling,
         )
         statements.append(statement)
     return tuple(statements)
@@ -551,7 +574,11 @@ def create_views(
 #: What the views looked like before lot lineage existed. Used by the
 #: downgrade of the migration that added it.
 CREATE_VIEWS_WITHOUT_LINEAGE: tuple[str, ...] = create_views(
-    lineage=False, renamed_costs=False, soft_delete=False, strike_type=False
+    lineage=False,
+    renamed_costs=False,
+    soft_delete=False,
+    strike_type=False,
+    selling=False,
 )
 
 #: What they looked like when first created, before either addition.
@@ -561,4 +588,5 @@ CREATE_VIEWS_ORIGINAL: tuple[str, ...] = create_views(
     renamed_costs=False,
     soft_delete=False,
     strike_type=False,
+    selling=False,
 )

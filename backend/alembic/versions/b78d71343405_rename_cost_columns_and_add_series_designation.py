@@ -92,7 +92,9 @@ def upgrade() -> None:
         ),
     )
 
-    for statement in create_views(soft_delete=False, strike_type=False):
+    for statement in create_views(
+        soft_delete=False, strike_type=False, selling=False
+    ):
         op.execute(statement)
 
 
@@ -126,5 +128,7 @@ def downgrade() -> None:
     # soft_delete=False too: this downgrade runs after ffe36996607c's own
     # downgrade has already dropped deleted_at, so a view naming it here would
     # fail with UndefinedColumn.
-    for statement in create_views(renamed_costs=False, soft_delete=False, strike_type=False):
+    for statement in create_views(
+        renamed_costs=False, soft_delete=False, strike_type=False, selling=False
+    ):
         op.execute(statement)

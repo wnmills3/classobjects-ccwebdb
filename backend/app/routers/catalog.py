@@ -33,6 +33,7 @@ from ..models import (
     ItemKind,
     ItemStatus,
     Listing,
+    ListingStatus,
     Metal,
     ProvenanceSource,
     SalesOrderChange,
@@ -42,6 +43,7 @@ from ..models import (
     ValuationBasis,
 )
 from ..references import code_to_id, require_code
+from ..sales_venues import store_venue_id
 from ..schemas import (
     CatalogItemCreate,
     CatalogItemOut,
@@ -325,7 +327,8 @@ def create_catalog_item(
         price=data["price"],
         currency_id=require_code(db, Currency, data["currency"], "currency"),
         quantity_available=data["quantity_available"],
-        is_active=data["is_active"],
+        status=ListingStatus.active if data["is_active"] else ListingStatus.ended,
+        sales_venue_id=store_venue_id(db),
     )
     db.add(listing)
     db.commit()
@@ -376,9 +379,13 @@ def update_catalog_item(
     if years is not None:
         item.year_start, item.year_end = years
 
-    for field in ("price", "quantity_available", "is_active"):
+    for field in ("price", "quantity_available"):
         if field in data:
             setattr(listing, field, data[field])
+    if "is_active" in data:
+        listing.status = (
+            ListingStatus.active if data["is_active"] else ListingStatus.ended
+        )
 
     # Withdrawing the last listing puts the item back to simply being held.
     if data.get("is_active") is False:

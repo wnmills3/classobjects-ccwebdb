@@ -339,22 +339,22 @@ HISTORICAL_VIEW_CALLS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "b78d71343405_rename_cost_columns_and_add_series_designation",
         "upgrade",
-        ("deleted_at", "strike_type", "grade_display"),
+        ("deleted_at", "strike_type", "grade_display", "sales_venue"),
     ),
     (
         "c847d0c63f84_replace_inventory_item_error_columns_",
         "upgrade",
-        ("strike_type", "grade_display"),
+        ("strike_type", "grade_display", "sales_venue"),
     ),
     (
         "ffe36996607c_add_soft_delete",
         "upgrade",
-        ("strike_type", "grade_display"),
+        ("strike_type", "grade_display", "sales_venue"),
     ),
     (
         "e4b8c1d27f63_strike_type_and_number_grades",
         "downgrade",
-        ("strike_type", "grade_display", "grade_rank"),
+        ("strike_type", "grade_display", "grade_rank", "sales_venue"),
     ),
     (
         "b78d71343405_rename_cost_columns_and_add_series_designation",
@@ -368,6 +368,7 @@ HISTORICAL_VIEW_CALLS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "source_title",
             "strike_type",
             "grade_display",
+            "sales_venue",
         ),
     ),
     (
@@ -382,12 +383,23 @@ HISTORICAL_VIEW_CALLS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             "source_title",
             "strike_type",
             "grade_display",
+            "sales_venue",
         ),
     ),
     (
         "ffe36996607c_add_soft_delete",
         "downgrade",
-        ("deleted_at", "strike_type", "grade_display"),
+        ("deleted_at", "strike_type", "grade_display", "sales_venue"),
+    ),
+    (
+        "e4b8c1d27f63_strike_type_and_number_grades",
+        "upgrade",
+        ("sales_venue",),
+    ),
+    (
+        "d6a1f3b8c402_sales_venues",
+        "downgrade",
+        ("sales_venue", "l.format"),
     ),
 )
 
