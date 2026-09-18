@@ -84,7 +84,12 @@ function MergePanel({ table, value, others, onMerged, onCancel }) {
   async function merge() {
     setBusy(true)
     try {
-      onMerged(await api.mergeReferenceValue(table, value.code, into, false))
+      onMerged(
+        await api.mergeReferenceValue(table, value.code, into, false, {
+          // The preview above named them; confirming is the acknowledgement.
+          acknowledgeForSale: (preview?.for_sale_count ?? 0) > 0,
+        }),
+      )
     } catch (err) {
       setError(err.message)
       setBusy(false)
@@ -109,6 +114,17 @@ function MergePanel({ table, value, others, onMerged, onCancel }) {
         </select>
       </label>
       {preview && target && <p>{describe(preview, value, target)}</p>}
+      {preview?.for_sale_count > 0 && (
+        <p className="for-sale" role="alert">
+          <strong>
+            {preview.for_sale_count} of them{' '}
+            {preview.for_sale_count === 1 ? 'is' : 'are'} for sale
+          </strong>
+          : {preview.for_sale.join(', ')}
+          {preview.for_sale_count > preview.for_sale.length && ', and others'}. Merging
+          changes what a buyer is looking at.
+        </p>
+      )}
       {error && <p className="error">{error}</p>}
       <div className="row">
         <button type="button" disabled={!preview || busy} onClick={merge}>

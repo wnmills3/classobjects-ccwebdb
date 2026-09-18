@@ -313,6 +313,7 @@ describe('Vocabularies', () => {
       'national_bank_note',
       'us_note',
       false,
+      { acknowledgeForSale: false },
     )
     expect(
       await screen.findByText('Merged national_bank_note into us_note: 3 items moved.'),
@@ -350,5 +351,44 @@ describe('Vocabularies', () => {
         name: 'Merge Federal Reserve Note into another value',
       }),
     ).toBeDisabled()
+  })
+
+  it('names the for-sale items in the preview and acknowledges on merge', async () => {
+    const user = userEvent.setup()
+    api.mergeReferenceValue.mockImplementation(async (table, code, into, dryRun) => ({
+      table,
+      code,
+      into,
+      dry_run: dryRun,
+      moved: { 'inventory_item.note_type_id': 3 },
+      items: 3,
+      dropped: 0,
+      aliases: [],
+      for_sale: ['CC-000412'],
+      for_sale_count: 1,
+    }))
+
+    await openNoteTypes(user)
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Merge National Bank Note into another value',
+      }),
+    )
+    await user.selectOptions(
+      screen.getByLabelText('Merge National Bank Note into'),
+      'us_note',
+    )
+
+    expect(await screen.findByText(/CC-000412/)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('1 of them is for sale')
+
+    await user.click(screen.getByRole('button', { name: 'Merge' }))
+    expect(api.mergeReferenceValue).toHaveBeenLastCalledWith(
+      'note_type',
+      'national_bank_note',
+      'us_note',
+      false,
+      { acknowledgeForSale: true },
+    )
   })
 })
