@@ -118,13 +118,23 @@ reference hook, so the mapping is written once. Each picker passes it as its
 the field itself does not apply: metal, strike type, mint and bullion form
 for coins; note class, seal colour, Fed district and signature combination
 for notes. Today's drift -- the editor kept a metal box the entry form had
-dropped -- is why the two sides are named in **one** place, `COIN_ONLY_FIELDS`
-and `CURRENCY_ONLY_FIELDS` in `shared/kinds.js`, and why no form reads either
-set directly: each asks `fieldFitsKind(field, itemKind)`, which consults both
-and answers true for a field that belongs to neither. The item editor filters
-its `CLASSIFIERS` table through it; the entry form, whose blocks are written
-out one by one, gates each on its own field's answer (the Mint/Variety pair on
-`mint`, the coin-only field of the two).
+dropped -- is why both sides are named in **one** place, `COIN_ONLY_FIELDS`
+and `CURRENCY_ONLY_FIELDS` in `shared/kinds.js`, and asked about through
+`fieldFitsKind(field, itemKind)`, which consults both and answers true for a
+field that belongs to neither. The item editor filters its `CLASSIFIERS`
+table through it; the entry form, whose blocks are written out one by one,
+gates each on its own field's answer (the Mint/Variety pair on `mint`, the
+coin-only field of the two).
+
+**The coin side is wired through that helper; the currency side is not yet.**
+A note's own fields are still listed by hand where they are used -- the
+editor's `NOTE_CLASSIFIERS`, and the entry form's blank, repeat and
+suggestion lists -- and those blocks gate on `isCurrencyKind` directly rather
+than asking `fieldFitsKind`. Nothing is wrong today: both forms show the same
+four. But the drift this section exists to prevent is not closed on that
+side, and it closes only when those lists read from `CURRENCY_ONLY_FIELDS`
+too. Recorded plainly because the bug that started this work was a claim of
+consistency the code did not keep.
 
 A third helper, `sideFor(itemKind)`, returns the `'currency' | 'coin'` a value
 ADDED from a picker is marked with. It is the exact inverse of `fitsKind`'s
