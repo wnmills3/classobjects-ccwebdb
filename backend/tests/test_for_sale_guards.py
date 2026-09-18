@@ -343,3 +343,39 @@ def test_deleting_a_photograph_of_a_listed_item_is_refused(
         f"/api/images/{image_id}?acknowledge_for_sale=true", headers=admin_headers
     )
     assert gone.status_code == 204, gone.text
+
+
+def test_a_merge_reports_the_items_for_sale_then_refuses(
+    client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    item = db.get(InventoryItem, listing.inventory_item_id)
+    assert item is not None
+    # `grade` codes are the bare Sheldon number ("64"), not the compound
+    # form a collector writes ("MS64") -- app.grades.split is what turns one
+    # into the other, and this table's own values are already numeric.
+    code = item.grade.code
+    into = "63" if code != "63" else "62"
+
+    preview = client.post(
+        f"/api/reference/grade/{code}/merge",
+        json={"into": into, "dry_run": True},
+        headers=admin_headers,
+    )
+    assert preview.status_code == 200, preview.text
+    assert item.item_code in preview.json()["for_sale"]
+    assert preview.json()["for_sale_count"] >= 1
+
+    refused = client.post(
+        f"/api/reference/grade/{code}/merge",
+        json={"into": into, "dry_run": False},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+
+    made = client.post(
+        f"/api/reference/grade/{code}/merge",
+        json={"into": into, "dry_run": False, "acknowledge_for_sale": True},
+        headers=admin_headers,
+    )
+    assert made.status_code == 200, made.text

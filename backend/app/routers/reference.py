@@ -22,10 +22,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from .. import aliases, reference_merge
+from .. import aliases, reference_merge, sale_state
 from ..deps import AdminUser, DbSession
 from ..inventory_search import plain
-from ..models import REFERENCE_MODELS, ProvenanceSource, ReferenceMixin
+from ..models import REFERENCE_MODELS, InventoryItem, ProvenanceSource, ReferenceMixin
 from ..schemas import (
     ReferenceAliasIn,
     ReferenceMergeIn,
@@ -469,6 +469,18 @@ def merge_value(
         if payload.dry_run:
             result, _, _ = reference_merge.plan(db, model, code, payload.into)
         else:
+            planned, _, _ = reference_merge.plan(db, model, code, payload.into)
+            if planned.for_sale_count:
+                for_sale_items = db.scalars(
+                    select(InventoryItem).where(
+                        InventoryItem.item_code.in_(planned.for_sale)
+                    )
+                ).all()
+                sale_state.guard(
+                    db,
+                    list(for_sale_items),
+                    acknowledged=payload.acknowledge_for_sale,
+                )
             result = reference_merge.merge(
                 db, model, code, payload.into, user_id=admin.id
             )
@@ -491,4 +503,6 @@ def merge_value(
         items=result.items,
         dropped=result.dropped,
         aliases=result.aliases,
+        for_sale=result.for_sale,
+        for_sale_count=result.for_sale_count,
     )

@@ -88,6 +88,10 @@ class MergePlan:
     dropped: int = 0
     #: Names the kept value gains.
     aliases: list[str] = field(default_factory=list)
+    #: Item codes among `items` that are for sale, at most ten of them.
+    for_sale: list[str] = field(default_factory=list)
+    #: How many are for sale in total, however many are named above.
+    for_sale_count: int = 0
 
 
 def _references(table: FromClause) -> list[Column]:
@@ -158,6 +162,19 @@ def plan(
             "change those first, or retire it instead."
         )
     result.items = len(items)
+    # `items` is discarded below; the codes that are for sale are what the
+    # console has to show before anyone confirms a merge.
+    from . import sale_state
+
+    for_sale = sale_state.for_sale(db, items)
+    if for_sale:
+        codes = db.scalars(
+            select(InventoryItem.item_code)
+            .where(InventoryItem.id.in_(list(for_sale)))
+            .order_by(InventoryItem.item_code)
+        ).all()
+        result.for_sale_count = len(codes)
+        result.for_sale = list(codes[:10])
     result.aliases = [
         name
         for name in _new_names(db, model, source)

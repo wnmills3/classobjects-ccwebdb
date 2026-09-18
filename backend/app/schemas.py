@@ -977,6 +977,9 @@ class ReferenceMergeIn(BaseModel):
     into: str = Field(min_length=1, max_length=64)
     #: True: report what the merge would move, and change nothing.
     dry_run: bool = False
+    #: Set after a refusal to say the caller knows some of the items the
+    #: merge moves are for sale (app.sale_state).
+    acknowledge_for_sale: bool = False
 
 
 class ReferenceMergeOut(BaseModel):
@@ -994,6 +997,10 @@ class ReferenceMergeOut(BaseModel):
     dropped: int
     #: Names the kept value gains (or would gain).
     aliases: list[str]
+    #: Item codes among those moved that are for sale, at most ten.
+    for_sale: list[str] = Field(default_factory=list)
+    #: How many are for sale in total, however many are named above.
+    for_sale_count: int = 0
 
 
 class ReferenceAliasIn(BaseModel):
