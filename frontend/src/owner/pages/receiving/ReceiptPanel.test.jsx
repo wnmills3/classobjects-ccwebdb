@@ -501,4 +501,29 @@ describe('ReceiptPanel', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(api.receiveItems).toHaveBeenCalledTimes(1)
   })
+
+  it('closes the dialog and shows the failure when the acknowledged resend itself fails', async () => {
+    // ModalDialog is a true modal (showModal()), so an error left behind a
+    // dialog that is still open is an error the operator can never see --
+    // this reproduces a resubmit that fails for a reason other than another
+    // for-sale refusal (network, 500, an unrelated conflict).
+    const detail = 'For sale -- CC-000412: listing #3 at 189.00.'
+    api.receiveItems
+      .mockRejectedValueOnce(
+        Object.assign(new Error(detail), { status: 409, body: { detail } }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error('Storage location is archived'), { status: 500 }),
+      )
+
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: /missing/i }))
+    expect(await screen.findByRole('dialog')).toHaveTextContent('CC-000412')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Record it anyway' }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(await screen.findByText(/storage location is archived/i)).toBeInTheDocument()
+  })
 })
