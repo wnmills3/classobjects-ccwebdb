@@ -808,6 +808,10 @@ class ReceiveRequest(BaseModel):
     arrived_on: date | None = None
     storage_location_id: int | None = None
     note: str | None = None
+    #: Set after a refusal to say the caller knows an item is for sale
+    #: (app.sale_state). Only the outcomes that are not `received` can be
+    #: refused: an item that has not been received cannot be offered.
+    acknowledge_for_sale: bool = False
 
 
 class ReviewRequest(BaseModel):
