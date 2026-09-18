@@ -9,6 +9,7 @@ import pytest
 from app import offering_writes, sale_state
 from app.models import (
     ClaimState,
+    Disposition,
     InventoryItem,
     ItemStatus,
     Listing,
@@ -17,8 +18,9 @@ from app.models import (
     OfferClaim,
     SalesVenue,
     SalesVenueKind,
+    utcnow,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -121,6 +123,39 @@ def _venue(db: Session, code: str, kind: str = "marketplace") -> SalesVenue:
     db.add(venue)
     db.flush()
     return venue
+
+
+def _offer_on(db: Session, item: InventoryItem, venue: SalesVenue) -> Listing:
+    """Offer one item on one platform, with the fields no test cares about."""
+    return offering_writes.offer(
+        db,
+        item=item,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("99.00"),
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
+
+
+def _claim_states(db: Session, item: InventoryItem) -> dict[int, ClaimState]:
+    """Every claim on one item, by the listing it holds it for."""
+    return {
+        claim.listing_id: claim.state
+        for claim in db.scalars(
+            select(OfferClaim).where(OfferClaim.inventory_item_id == item.id)
+        )
+    }
+
+
+def _set_disposition(db: Session, item: InventoryItem, code: str) -> None:
+    """Move an item's disposition the way another write path would."""
+    item.disposition_id = db.scalars(
+        select(Disposition.id).where(Disposition.code == code)
+    ).one()
+    db.flush()
 
 
 def test_offering_an_item_creates_an_active_listing_and_claim(
@@ -304,6 +339,9 @@ def test_ending_an_offer_resumes_the_paused_store_listing(
         quantity=1,
     )
     db.commit()
+    db.refresh(listing)
+    # The listing has to be paused for resuming it to mean anything.
+    assert listing.status is ListingStatus.paused
 
     offering_writes.end_offer(db, elsewhere)
     db.commit()
@@ -314,6 +352,10 @@ def test_ending_an_offer_resumes_the_paused_store_listing(
     assert listing.status is ListingStatus.active
     assert listing.paused_by_listing_id is None
     assert item.disposition.code == "listed"
+    assert _claim_states(db, item) == {
+        listing.id: ClaimState.active,
+        elsewhere.id: ClaimState.released,
+    }
 
 
 def test_ending_a_sold_offer_ends_the_paused_store_listing(
@@ -333,6 +375,8 @@ def test_ending_a_sold_offer_ends_the_paused_store_listing(
         external_id=None,
         quantity=1,
     )
+    # What the sale path does before it settles the listing.
+    _set_disposition(db, item, "sold")
     db.commit()
 
     offering_writes.end_offer(db, elsewhere, sold=True)
@@ -342,7 +386,11 @@ def test_ending_a_sold_offer_ends_the_paused_store_listing(
     assert listing.status is ListingStatus.ended
     assert listing.paused_by_listing_id is None
     # The sale path sets `sold`; ending the offer must not undo that.
-    assert item.disposition.code != "held"
+    assert item.disposition.code == "sold"
+    assert _claim_states(db, item) == {
+        listing.id: ClaimState.released,
+        elsewhere.id: ClaimState.released,
+    }
 
 
 def test_ending_the_only_offer_puts_the_item_back_to_held(
@@ -379,24 +427,17 @@ def test_an_item_offered_elsewhere_counts_as_for_sale(
     """The edit warning must fire for a paused store listing too."""
     item = listing.inventory_item
     ebay = _venue(db, "ebay-warning")
-    offering_writes.offer(
-        db,
-        item=item,
-        venue=ebay,
-        listing_format=ListingFormat.fixed_price,
-        price=Decimal("99.00"),
-        title="",
-        description="",
-        external_id=None,
-        quantity=1,
-    )
+    elsewhere = _offer_on(db, item, ebay)
     db.commit()
 
     uses = sale_state.for_sale(db, [item.id])
+    texts = {use.id: use.text for use in uses[item.id]}
 
-    assert len(uses[item.id]) == 2  # the active offer and the paused store listing
-    assert any("on Ebay-Warning" in use.text for use in uses[item.id])
-    assert any("(paused)" in use.text for use in uses[item.id])
+    # The active offer and the store listing it set aside -- named, not
+    # counted: a count of two is also what an unpaused store listing gives.
+    assert set(texts) == {listing.id, elsewhere.id}
+    assert texts[listing.id] == f"listing #{listing.id} at 189.00 (paused)"
+    assert texts[elsewhere.id] == f"listing #{elsewhere.id} at 99.00 on Ebay-Warning"
 
 
 def test_an_item_claimed_by_someone_elses_listing_counts_as_for_sale(
@@ -445,3 +486,186 @@ def test_the_shop_rule_is_the_same_in_python_and_sql(
     assert elsewhere.id not in sellable
     assert offering_writes.sellable_in_shop(listing)
     assert not offering_writes.sellable_in_shop(elsewhere)
+
+
+def test_a_paused_store_listing_is_the_shops_but_not_sellable(
+    db: Session, listing: Listing
+) -> None:
+    """`active_only=False` is "is this the shop's at all", and a paused one is."""
+    ebay = _venue(db, "ebay-half-rule")
+    _offer_on(db, listing.inventory_item, ebay)
+    db.commit()
+    db.refresh(listing)
+
+    assert listing.status is ListingStatus.paused
+    assert not offering_writes.sellable_in_shop(listing)
+    assert offering_writes.sellable_in_shop(listing, active_only=False)
+
+    def shop_ids(*, active_only: bool) -> set[int]:
+        return set(
+            db.scalars(
+                select(Listing.id).where(
+                    *offering_writes.shop_listing_filters(active_only=active_only)
+                )
+            ).all()
+        )
+
+    assert listing.id not in shop_ids(active_only=True)
+    assert listing.id in shop_ids(active_only=False)
+
+
+# --- what must not happen --------------------------------------------------
+
+
+def test_a_withdrawn_store_listing_is_not_resurrected(
+    db: Session, listing: Listing
+) -> None:
+    """Ending the offer must not undo an administrator's withdrawal.
+
+    `routers.catalog` withdraws a listing without clearing
+    `paused_by_listing_id`, so the pointer outlives the pause. Resuming on the
+    pointer alone would put a listing someone deliberately took down back in
+    the public shop, claiming the item again with it.
+    """
+    item = listing.inventory_item
+    ebay = _venue(db, "ebay-withdrawn")
+    elsewhere = _offer_on(db, item, ebay)
+    db.commit()
+
+    # Exactly what `catalog._set_listing_active(listing, False)` writes.
+    listing.status = ListingStatus.ended
+    listing.ended_at = utcnow()
+    db.commit()
+
+    offering_writes.end_offer(db, elsewhere)
+    db.commit()
+    db.refresh(listing)
+
+    assert listing.status is ListingStatus.ended
+    assert listing.paused_by_listing_id == elsewhere.id  # untouched, not resumed
+    assert item.disposition.code == "held"
+
+
+def test_a_sold_item_is_not_put_back_to_held(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """Only a listed item goes back to held; `sold` is not this code's to undo.
+
+    A shop sale marks the item `sold` while its listing stays active at zero
+    stock (`order_writes._after_stock_change`). Ending that listing afterwards
+    -- which Task 4's end endpoint does -- must not report it as held again.
+    """
+    item = make_item()
+    ebay = _venue(db, "ebay-sold-item")
+    made = _offer_on(db, item, ebay)
+    _set_disposition(db, item, "sold")
+    db.commit()
+
+    offering_writes.end_offer(db, made)
+    db.commit()
+
+    assert item.disposition.code == "sold"
+
+
+def test_an_item_released_from_this_listing_earlier_is_left_alone(
+    db: Session, listing: Listing, make_item: ItemFactory
+) -> None:
+    """A released claim is history: ending the listing must not re-decide it.
+
+    The item below was let go by this listing and is listed somewhere else
+    now. Counting released claims among the items an ending touches would
+    file it as held while it is still on offer.
+    """
+    gone = make_item()
+    _set_disposition(db, gone, "listed")
+    _claim(db, gone, listing, ClaimState.released)
+    db.commit()
+
+    offering_writes.end_offer(db, listing)
+    db.commit()
+
+    assert gone.disposition.code == "listed"
+
+
+def test_ending_a_listing_releases_the_items_it_claimed(
+    db: Session, listing: Listing, make_item: ItemFactory
+) -> None:
+    """An item held only by a claim is released and filed with the rest."""
+    member = make_item()
+    _set_disposition(db, member, "listed")
+    _claim(db, member, listing, ClaimState.active)
+    db.commit()
+
+    offering_writes.end_offer(db, listing)
+    db.commit()
+
+    assert _claim_states(db, member) == {listing.id: ClaimState.released}
+    assert member.disposition.code == "held"
+
+
+def test_a_released_claim_is_not_revived_by_pausing_a_listing(
+    db: Session, listing: Listing, make_item: ItemFactory
+) -> None:
+    """Pausing moves what a listing still holds, not what it has let go."""
+    gone = make_item()
+    _claim(db, gone, listing, ClaimState.released)
+    db.commit()
+
+    ebay = _venue(db, "ebay-released")
+    _offer_on(db, listing.inventory_item, ebay)
+    db.commit()
+    db.refresh(listing)
+
+    assert listing.status is ListingStatus.paused
+    assert _claim_states(db, gone) == {listing.id: ClaimState.released}
+
+
+def test_a_paused_store_listing_is_still_seen_when_offering_again(
+    db: Session, listing: Listing
+) -> None:
+    """A paused store listing means the same thing everywhere it is asked about.
+
+    A store listing left paused -- by an offer that ended outside this module,
+    say -- is invisible to a refusal path that only looks at active rows, and
+    its claim would then block the item from ever going back to `held`.
+    """
+    item = listing.inventory_item
+    listing.status = ListingStatus.paused
+    _claim(db, item, listing, ClaimState.paused)
+    db.commit()
+
+    ebay = _venue(db, "ebay-still-paused")
+    elsewhere = _offer_on(db, item, ebay)
+    db.commit()
+    db.refresh(listing)
+
+    assert listing.paused_by_listing_id == elsewhere.id
+    assert _claim_states(db, item) == {
+        listing.id: ClaimState.paused,
+        elsewhere.id: ClaimState.active,
+    }
+
+
+def test_the_item_lock_re_reads_the_row_it_locked(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """The decision is made on the locked row, not on what was read before it.
+
+    The update below is the shape of a concurrent write: the row changes while
+    this session still holds the values it loaded earlier. A lock that does not
+    re-read would offer an item that is no longer receivable.
+    """
+    item = make_item()
+    ordered = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "ordered")
+    ).one()
+    db.execute(
+        update(InventoryItem)
+        .where(InventoryItem.id == item.id)
+        .values(status_id=ordered)
+        .execution_options(synchronize_session=False)
+    )
+    venue = _venue(db, "ebay-stale")
+
+    with pytest.raises(offering_writes.OfferRefused, match="not received"):
+        _offer_on(db, item, venue)
