@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import Grade, ItemKind, Metal, StrikeType
+from app.models import Denomination, Grade, ItemKind, Metal, StrikeType
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -361,6 +361,92 @@ def test_a_note_takes_a_note_denomination(
     )
 
     assert response.status_code == 200
+
+
+def test_a_kind_only_edit_that_would_strand_a_denomination_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The invariant is about the item's resulting state, not the sent keys.
+
+    Changing only `item_kind` on a note that already carries a note
+    denomination would strand it on the coin side; that must be refused the
+    same as sending the denomination directly would be, even though this
+    request never mentions `denomination`.
+    """
+    note = make_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        denomination_id=code_id(db, Denomination, "usd_note_1"),
+    )
+
+    response = client.patch(
+        f"/api/inventory/{note.id}",
+        json={"item_kind": "coin"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
+    assert "denomination" in response.json()["detail"]
+    db.refresh(note)
+    assert note.item_kind_id == code_id(db, ItemKind, "currency")
+
+
+def test_a_kind_only_edit_that_would_strand_a_metal_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Same shape as the denomination case, for the other coin-only field."""
+    coin = make_item(db, metal_id=code_id(db, Metal, "silver"))
+
+    response = client.patch(
+        f"/api/inventory/{coin.id}",
+        json={"item_kind": "currency"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
+    assert "metal" in response.json()["detail"]
+    db.refresh(coin)
+    assert coin.item_kind_id == code_id(db, ItemKind, "coin")
+
+
+def test_a_combined_kind_and_denomination_edit_to_a_consistent_pair_succeeds(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A note becoming a coin, with a coin denomination in the same request."""
+    note = make_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        denomination_id=code_id(db, Denomination, "usd_note_1"),
+    )
+
+    response = client.patch(
+        f"/api/inventory/{note.id}",
+        json={"item_kind": "coin", "denomination": "usd_coin_0_25"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    db.refresh(note)
+    assert note.item_kind_id == code_id(db, ItemKind, "coin")
+    assert note.denomination_id == code_id(db, Denomination, "usd_coin_0_25")
+
+
+def test_a_combined_kind_and_metal_edit_to_a_consistent_pair_succeeds(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A coin becoming a note, clearing its metal in the same request."""
+    coin = make_item(db, metal_id=code_id(db, Metal, "silver"))
+
+    response = client.patch(
+        f"/api/inventory/{coin.id}",
+        json={"item_kind": "currency", "metal": None},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    db.refresh(coin)
+    assert coin.item_kind_id == code_id(db, ItemKind, "currency")
+    assert coin.metal_id is None
 
 
 def test_nulling_a_required_classifier_is_refused_naming_the_field(
