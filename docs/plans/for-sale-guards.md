@@ -2010,14 +2010,21 @@ feature is called done.
 
 - [ ] **Step 3: Mutate the `kinds` filter as well**
 
-This one is not a deletion. In `routers/inventory.py`'s `split`, remove
-`kinds={"listing"}` so the guard considers orders too, and run:
+This one is not a deletion. In `routers/inventory.py`'s `split`, change
+`kinds={"listing"}` to `kinds=None` so the guard considers orders too, and run:
 
-`python -m pytest "backend/tests/test_for_sale_guards.py::test_an_order_refuses_a_split_that_cannot_be_acknowledged" -v`
+`python -m pytest "backend/tests/test_for_sale_guards.py::test_kinds_listing_lets_an_ordered_but_unlisted_split_reach_split_item" -v`
 
-Expected: FAIL. The acknowledged request now gets past the guard and is
-refused by `split_item` with a different message, or -- if the order refusal
-were ever weakened -- succeeds. Restore the filter.
+Expected: FAIL, on the assertion that `"For sale"` is **not** in the detail --
+the guard now intercepts an order-only item and refuses first, instead of
+letting it through to `split_item`'s own refusal. Restore the filter and
+confirm the test passes again.
+
+**Do not** use `test_an_order_refuses_a_split_that_cannot_be_acknowledged`
+for this mutation. It cannot fail: `guard()` returns on `acknowledged=True`
+before `kinds` is read, and that test always acknowledges. This plan
+originally named it here, the Tasks 2+3 review caught it, and the test above
+was written in that fix round precisely to close the hole.
 
 - [ ] **Step 4: Record the result**
 
