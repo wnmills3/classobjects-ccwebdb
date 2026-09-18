@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../api'
 import ErrorsPanel from '../inventory/ErrorsPanel'
 import ReviewPane from '../inventory/ReviewPane'
+import ForSaleConfirm from '../ForSaleConfirm'
 import FriedbergLookup from './FriedbergLookup'
 
 //: Outcome value the backend expects, paired with the button's label. The
@@ -83,6 +84,8 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // just to get one more field it already has would be wasted.
   const [itemSaleState, setItemSaleState] = useState([])
   const [friedbergOpen, setFriedbergOpen] = useState(false)
+  // The refusal the server sent, held while the operator answers it.
+  const [forSaleRefusal, setForSaleRefusal] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -156,7 +159,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // don't mix.
   const pendingPhotoNames = photos.map((file) => file.name)
 
-  async function submit(outcome) {
+  async function submit(outcome, acknowledged = false) {
     setBusy(true)
     try {
       await api.receiveItems({
@@ -165,7 +168,9 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
         arrived_on: arrivedOn || undefined,
         storage_location_id: storageLocationId ? Number(storageLocationId) : undefined,
         note: note || undefined,
+        ...(acknowledged ? { acknowledge_for_sale: true } : {}),
       })
+      setForSaleRefusal(null)
       setError('')
       setUploadError('')
       // What was used, kept before the fields are cleared, so the caller can
@@ -234,6 +239,13 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
       // on this panel to read.
       if (!uploadFailed) onDone?.(used)
     } catch (err) {
+      // A refusal is a question, not a failure: hold it for the dialog rather
+      // than writing it into the panel's error line, where it would read as
+      // something that went wrong.
+      if (err.status === 409 && err.message.startsWith('For sale')) {
+        setForSaleRefusal({ detail: err.message, outcome })
+        return
+      }
       setError(err.message)
     } finally {
       setBusy(false)
@@ -382,6 +394,16 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
             />
           )}
         </div>
+      )}
+
+      {forSaleRefusal && (
+        <ForSaleConfirm
+          detail={forSaleRefusal.detail}
+          outcome={forSaleRefusal.outcome}
+          busy={busy}
+          onConfirm={() => submit(forSaleRefusal.outcome, true)}
+          onCancel={() => setForSaleRefusal(null)}
+        />
       )}
     </div>
   )

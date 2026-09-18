@@ -446,4 +446,59 @@ describe('ReceiptPanel', () => {
     expect(api.getInventoryItem).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /friedberg/i })).not.toBeInTheDocument()
   })
+
+  it("warns in the errors panel when the selected item's sale_state is not empty", async () => {
+    // Task 8 wired `itemSaleState` into ErrorsPanel, but no test here ever
+    // populated `sale_state` -- so until now the wiring was only checked by
+    // reading the code. A component that dropped `sale_state` on the way to
+    // ErrorsPanel, or never fetched it, would fail this.
+    api.getInventoryItem.mockResolvedValue({
+      ...ITEM,
+      sale_state: [{ text: 'listing #3 at 189.00 on eBay' }],
+    })
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+
+    await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledWith(412))
+    expect(await screen.findByRole('alert')).toHaveTextContent('This item is for sale')
+    expect(
+      screen.getByRole('checkbox', { name: /record it anyway/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('asks before marking a for-sale item missing, then resends acknowledged', async () => {
+    const detail = 'For sale -- CC-000412: listing #3 at 189.00.'
+    api.receiveItems
+      .mockRejectedValueOnce(
+        Object.assign(new Error(detail), { status: 409, body: { detail } }),
+      )
+      .mockResolvedValueOnce({ received: 1 })
+
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: /missing/i }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('CC-000412')
+    await userEvent.click(screen.getByRole('button', { name: 'Record it anyway' }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalledTimes(2))
+    expect(api.receiveItems.mock.calls[1][0]).toMatchObject({
+      outcome: 'missing',
+      acknowledge_for_sale: true,
+    })
+  })
+
+  it('leaves the panel alone when the refusal is declined', async () => {
+    const detail = 'For sale -- CC-000412: listing #3 at 189.00.'
+    api.receiveItems.mockRejectedValueOnce(
+      Object.assign(new Error(detail), { status: 409, body: { detail } }),
+    )
+
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    await userEvent.click(await screen.findByRole('button', { name: /missing/i }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Leave it on sale' }),
+    )
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(api.receiveItems).toHaveBeenCalledTimes(1)
+  })
 })

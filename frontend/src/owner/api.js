@@ -177,12 +177,17 @@ export const api = {
   suggestCoin: (params = {}) => send(`/api/defaults/coin?${query(params)}`),
 
   // images -- evidence a person looked at the object, attached to an item
-  uploadImage: (inventoryItemId, file, { imageRole, isPrimary = false } = {}) => {
+  uploadImage: (
+    inventoryItemId,
+    file,
+    { imageRole, isPrimary = false, acknowledgeForSale = false } = {},
+  ) => {
     const form = new FormData()
     form.append('file', file)
     form.append('inventory_item_id', String(inventoryItemId))
     if (imageRole) form.append('image_role', imageRole)
     form.append('is_primary', String(isPrimary))
+    form.append('acknowledge_for_sale', String(acknowledgeForSale))
     return send('/api/images', { method: 'POST', body: form })
   },
 
