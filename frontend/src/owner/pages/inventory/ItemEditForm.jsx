@@ -6,6 +6,7 @@ import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
+import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
 import OffersPanel from './OffersPanel'
 
@@ -489,22 +490,12 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
 
       {error && <p className="error">{error}</p>}
 
-      {forSale && (
-        <div className="for-sale" role="alert">
-          <strong>This item is for sale</strong>:{' '}
-          {item.sale_state.map((use) => use.text).join(', ')}. A change shows to buyers
-          at once; each sale keeps the item as it was sold.
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={acknowledged}
-              onChange={(e) => setAcknowledged(e.target.checked)}
-            />
-            {/* */}
-            Change it anyway
-          </label>
-        </div>
-      )}
+      <ForSaleNotice
+        uses={item.sale_state ?? []}
+        checked={acknowledged}
+        onChange={setAcknowledged}
+        action="Change it anyway"
+      />
 
       {TEXT_FIELDS.map(([label, key, letter]) => (
         <label key={key} className="field">

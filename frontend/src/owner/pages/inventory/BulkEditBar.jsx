@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { api } from '../../api'
+import ForSaleNotice from '../ForSaleNotice'
 import OfferDialog from './OfferDialog'
 
 /**
@@ -112,17 +113,13 @@ export default function BulkEditBar({
         Clear selection
       </button>
 
-      {forSale && (
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={acknowledged}
-            onChange={(e) => setAcknowledged(e.target.checked)}
-          />
-          {/* */}
-          Change the items for sale too
-        </label>
-      )}
+      <ForSaleNotice
+        show={forSale}
+        heading="Some of the selected items are for sale"
+        checked={acknowledged}
+        onChange={setAcknowledged}
+        action="Change the items for sale too"
+      />
       {error && <span className="error">{error}</span>}
 
       {offering && (
