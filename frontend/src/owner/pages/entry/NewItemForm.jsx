@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../../api'
+import { fitsKind, isCurrencyKind } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
@@ -96,9 +97,6 @@ const SUGGEST_DELAY_MS = 250
 
 /** An emptied number box clears the year rather than sending "". */
 const yearValue = (text) => (text === '' ? '' : text)
-
-/** Whether `kind` is graded and detailed as a banknote rather than a coin. */
-const isCurrencyKind = (kind) => kind === 'currency'
 
 export default function NewItemForm({
   purchaseOrderId,
@@ -412,6 +410,9 @@ export default function NewItemForm({
             table="denomination"
             value={form.denomination}
             onChange={set('denomination')}
+            // A note is offered only note denominations, and anything else
+            // only the coin ones -- the same split the item editor applies.
+            filter={(entry) => fitsKind(entry, form.item_kind)}
             {...accel('m')}
           />
         </label>
@@ -487,6 +488,7 @@ export default function NewItemForm({
             table="series"
             value={form.series}
             onChange={set('series')}
+            filter={(entry) => fitsKind(entry, form.item_kind)}
             {...accel('s')}
           />
         </label>

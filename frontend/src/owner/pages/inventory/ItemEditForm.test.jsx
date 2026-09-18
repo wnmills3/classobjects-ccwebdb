@@ -231,6 +231,53 @@ describe('Grade choices', () => {
   })
 })
 
+describe('Denomination choices', () => {
+  // One denomination from each side, as the reference context holds them.
+  const vocabularies = emptyReference({
+    tables: {
+      denomination: [
+        {
+          code: 'usd_note_1_00',
+          label: '$1 Bill',
+          source: 'seeded',
+          extra: { kind: 'note' },
+        },
+        {
+          code: 'usd_coin_0_25',
+          label: 'Quarter',
+          source: 'seeded',
+          extra: { kind: 'coin' },
+        },
+      ],
+    },
+  })
+
+  async function denominationOptions(kind) {
+    api.getInventoryItem.mockResolvedValue({ ...item, item_kind: kind })
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      {
+        reference: vocabularies,
+      },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    const select = screen.getByRole('combobox', { name: 'denomination' })
+    return Array.from(select.querySelectorAll('option')).map((o) => o.textContent)
+  }
+
+  it("offers a note's denomination picker $1 Bill and not Quarter", async () => {
+    const options = await denominationOptions('currency')
+    expect(options).toContain('$1 Bill')
+    expect(options).not.toContain('Quarter')
+  })
+
+  it("offers a coin's denomination picker Quarter and not $1 Bill", async () => {
+    const options = await denominationOptions('coin')
+    expect(options).toContain('Quarter')
+    expect(options).not.toContain('$1 Bill')
+  })
+})
+
 describe('ItemEditForm years', () => {
   // A single year is stored as start == end; a range is for a multi-year set
   // or a coin dated only to an era. 13 items in the collection have a range,

@@ -11,6 +11,7 @@ vi.mock('../../api', () => ({
 }))
 
 import { api } from '../../api'
+import { emptyReference, renderWithProviders } from '../../../test/helpers'
 import NewItemForm from './NewItemForm'
 import { withSuggestions } from './suggestions'
 
@@ -247,6 +248,41 @@ describe('NewItemForm: changing kind clears grade', () => {
     await user.type(screen.getByLabelText('item_kind'), 'bullion')
 
     expect(screen.getByLabelText('grade')).toHaveValue('MS64')
+  })
+})
+
+describe('NewItemForm: denomination choices', () => {
+  // One denomination from each side, as the reference context holds them.
+  const vocabularies = emptyReference({
+    tables: {
+      denomination: [
+        {
+          code: 'usd_note_1_00',
+          label: '$1 Bill',
+          source: 'seeded',
+          extra: { kind: 'note' },
+        },
+        {
+          code: 'usd_coin_0_25',
+          label: 'Quarter',
+          source: 'seeded',
+          extra: { kind: 'coin' },
+        },
+      ],
+    },
+  })
+
+  it("offers a coin's denomination picker Quarter and not $1 Bill", async () => {
+    renderWithProviders(
+      <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    const select = screen.getByRole('combobox', { name: 'denomination' })
+    const options = Array.from(select.querySelectorAll('option')).map(
+      (o) => o.textContent,
+    )
+    expect(options).toContain('Quarter')
+    expect(options).not.toContain('$1 Bill')
   })
 })
 
