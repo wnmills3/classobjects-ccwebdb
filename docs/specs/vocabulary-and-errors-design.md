@@ -1,6 +1,6 @@
 # Vocabularies that fit the item, and recording errors
 
-Design. Status: **agreed with the owner 2026-09-17**; not yet built.
+Design. Status: **agreed with the owner 2026-09-17**; built.
 
 ## The problem
 

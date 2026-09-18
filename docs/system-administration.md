@@ -795,6 +795,66 @@ from the dropdown where they are needed, and rename or retire them on the
 records are right as they are. Merge a value that was a duplicate or a
 mistake, so no record keeps it.
 
+### What a picker offers, and in what order
+
+A dropdown over a vocabulary does two things beyond listing values: it puts
+them in a sensible order, and, where the vocabulary distinguishes coins from
+paper money, it hides the values that cannot apply to the item at hand.
+
+**Order.** `GET /api/reference/{table}` (`backend/app/routers/reference.py`)
+returns every vocabulary alphabetically by label, case-insensitively, except
+eight tables ordered by `sort_order`: `grade` (70, 69+, 69, ... the scale's
+own order), `denomination` (face value ascending, coins then notes), the four
+lifecycles the code branches on -- `item_status`, `disposition`,
+`sales_order_status`, `shipment_status` -- `item_kind` (curated by how often
+each kind actually occurs, so coin and currency lead), and
+`signature_combination` (chronological, and narrowed further to a note's own
+series years by that note's year). `series` is not one of the eight -- it
+stays alphabetical like everything else. The order is decided once, in the
+API, so the shop's filters, the console's forms and the entry panels never
+disagree about it.
+
+**Fit.** Two markers, already on the rows, tell a picker which values apply
+to the item being entered: `denomination.kind` (`coin` or `note`), and
+`applies_to` (`coin`, `currency`, or `any`) on `series`, `error_type` and
+`item_attribute`. `frontend/src/shared/kinds.js`'s `fitsKind(entry, itemKind)`
+is the one place that mapping is written -- every picker that needs it passes
+`fitsKind` as its `filter` rather than repeating the coin/note split by hand.
+A value marked `any`, or matching the item's side, is offered; a value for
+the other side is not -- a banknote's denomination picker never lists a
+coin's, and its error-type picker never lists a coin's mint errors.
+
+**Adding a value while entering.** Several pickers -- attributes, error
+types, and the rest of the descriptive vocabularies -- offer "+ Add a new
+value..." at the bottom of the list. Typing a label is enough:
+
+- **The code is derived** from what was typed, lower-cased with punctuation
+  turned to underscores ("Mismatched Serial" becomes `mismatched_serial`),
+  and shown before saving so what will actually be stored is never a
+  surprise.
+- **If that code already names a value**, the existing one is selected
+  instead of creating a duplicate -- the same name means the same thing, and
+  nobody should have to resolve a collision they cannot see.
+- **The kind is inferred** from the item being entered (paper money, or
+  everything else), so the new value is immediately offered by the same
+  picker that just created it -- a value saved with no marker would fit no
+  kind and disappear from its own list.
+- **An attribute additionally asks for its group** (Serial, Variety,
+  Release, Qualifier, Verification) before Add is enabled. The database
+  column is required with no default, and the owner chose to be asked rather
+  than have one picked silently; leaving it for later on the Vocabularies
+  page is not an option at entry time. Error types carry no group and are
+  not asked for one.
+- **The new value is marked `manual`**, the same provenance a hand
+  correction gets, so it stays distinguishable from the shipped catalogue and
+  from what an import has inferred, and it is left out of an export by
+  default (`python -m app.seeding export`, whose `--source` defaults to
+  `seeded` alone).
+
+Attributes can be added from the item editor, and from Receiving's "Confirm
+or correct fields" pane, which reuses the item editor's own form. Error types
+can be added wherever an error is recorded -- see *Errors* below.
+
 ### Other names (aliases)
 
 The standard term is a value's label -- DCAM, United States Note, Walking
@@ -835,6 +895,11 @@ The search box finds items by an attribute's name or alias (`godless`,
 screen. Bulk edit does not set attributes: a whole set applied to many
 items would wipe whatever each carried that the others do not.
 
+An attribute the shipped vocabulary lacks can be added from that same
+picker without leaving the item -- see *What a picker offers, and in what
+order* above, and note that adding an attribute is the one case where the
+add form also asks for a group.
+
 **Removing a shipped alias retires it.** Seed loads only ever add, so a
 deleted alias would come back on the next load; a retired one is kept, shown
 struck through, and a click restores it. An alias added in the console is
@@ -851,6 +916,38 @@ spans, mint specifications, legislated compositions, common collector
 nicknames. A publisher's *arrangement* is not: Friedberg numbering, Pick
 numbering, vendor price-guide values, or any catalogue's mapping of attributes
 to its own numbers. See the Reference data section of `CLAUDE.md`.
+
+### Errors
+
+`item_error` records mint and printing errors against an item -- a bill is
+commonly miscut *and* misprinted, so an item may carry any number of errors,
+each with its own free-text note ("miscut at 3 o'clock, 4mm"). The same
+error type cannot be recorded twice on one item, and `GET`/`PUT
+/api/inventory/{id}/errors` replace the whole set at once.
+
+One panel is mounted in three places:
+
+| Where | Saving |
+|---|---|
+| The item editor, beside Attributes | Its own `PUT`, independent of the Save button -- an error recorded here is not held back by, or lost to, a discarded edit elsewhere on the form |
+| **New item** | Held on the form; sent once the item itself has been created |
+| **Receiving**, in the per-item dialog | Its own `PUT`, the same as the item editor |
+
+The type picker is filtered the same way a denomination picker is: a note is
+offered the eleven currency error types and the one type that applies to
+both, never the sixteen coin ones, and a type already recorded on the item is
+not offered again. Removing a row removes that error the next time the panel
+saves.
+
+**On New item, the item is created first and its errors are saved second.**
+If the create succeeds and the errors call then fails, the form says so
+plainly -- the item was created, its errors were not -- keeps the typed rows
+and the new item's code on screen, and offers **Retry**. Save (and Save and
+add another) stay disabled until that retry succeeds, so the same piece
+cannot be entered a second time while its errors are still pending.
+
+Error types grow the same way attributes do: "+ Add a new value..." on the
+type picker, one field, no group to choose.
 
 ## Things that are deliberately not configurable
 
