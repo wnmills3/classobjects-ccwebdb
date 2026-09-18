@@ -277,6 +277,12 @@ FROM computed c
 # The authorisation boundary. Every column here is deliberate; nothing about
 # where an item is stored, what it cost, or what it is catalogued as internally
 # may appear. See PUBLIC_CATALOG_FORBIDDEN_COLUMNS and its test.
+#
+# Its WHERE clause states the shop's rule -- own store, fixed price, active --
+# a third time, and this one cannot be shared: a database view is SQL text
+# created by a migration, so it can call neither
+# `offering_writes.sellable_in_shop` nor `shop_listing_filters`. If that rule
+# changes, this clause changes with them.
 _PUBLIC_CATALOG = """
 CREATE VIEW public_catalog AS
 SELECT
