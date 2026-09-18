@@ -463,6 +463,10 @@ def merge_value(
     shows it before asking. Refused (409) for a value another vocabulary or
     a facts table uses, for one the application looks up by code, and for a
     retired target (app.reference_merge).
+
+    Refused (409) again when any item it would move is for sale, until
+    `acknowledge_for_sale` says the caller has seen that -- the dry run names
+    those items in `for_sale`, so the console can ask before it comes to this.
     """
     model = _model_or_404(table)
     try:

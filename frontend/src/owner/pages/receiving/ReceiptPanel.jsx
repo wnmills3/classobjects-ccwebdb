@@ -210,7 +210,17 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
         const [itemId] = itemIds
         const results = await Promise.allSettled(
           photos.map((file, index) =>
-            api.uploadImage(itemId, file, { isPrimary: index === 0 }),
+            api.uploadImage(itemId, file, {
+              isPrimary: index === 0,
+              // The same acknowledgement the receipt itself carried. Ending
+              // the listing does not always make the item no longer for
+              // sale -- an open order still holds it -- so `POST /api/images`
+              // asks about the very item the operator acknowledged moments
+              // ago in the dialog. Without this the upload 409s and the
+              // photograph is lost: the picker is cleared below and there is
+              // no retry.
+              acknowledgeForSale: acknowledged,
+            }),
           ),
         )
         // allSettled, not all: one bad file must not hide whether the other
