@@ -778,21 +778,20 @@ ITEM_CLASSIFIERS: dict[str, type] = {
 #:
 #: `code_to_id` returns None for a null or empty code, and setting a NOT NULL
 #: foreign key to None is an IntegrityError from the database -- an unhandled
-#: 500, not a message a caller can act on. `catalog.py` already guards
-#: `item_kind` this way for the same reason; this mirrors it for every
-#: required classifier on this router, not only that one.
+#: 500, not a message a caller can act on. Every classifier column that is
+#: NOT NULL needs this guard, not only `item_kind`, which is why this names
+#: the whole set rather than special-casing one field.
 REQUIRED_CLASSIFIERS: frozenset[str] = frozenset(
     {"item_kind", "storage_form", "authenticity", "status", "disposition"}
 )
 
 #: Plain columns a client may set. Named identically on the wire and in the
-#: database, unlike the catalogue router's `ITEM_SCALARS` -- that one is a
-#: *mapping*, because the shop says `title` and `price` where the item says
-#: `source_title` and `item_cost`. This surface speaks the item's own
-#: vocabulary throughout, the same names the Excel round trip uses, so no
-#: translation is needed and a tuple is enough. Deliberately not called
-#: ITEM_SCALARS: two things with one name in two routers is how the wrong one
-#: gets imported.
+#: database: this surface speaks the item's own vocabulary throughout, the
+#: same names the Excel round trip uses, so no translation is needed and a
+#: tuple is enough. Contrast the shop's vocabulary -- `ListingUpdate`
+#: (`app.routers.offers`) speaks in `title` and `price`, because what the
+#: shop calls a listing and what it is offered for are not the item's
+#: `source_title` and `item_cost`.
 EDITABLE_SCALARS: tuple[str, ...] = (
     "source_title",
     "description",
