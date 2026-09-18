@@ -375,17 +375,24 @@ proposal is written to `rating_pass.csv` in the log directory.
 
 ### How an item comes into being
 
-Four paths create an `inventory_item`, and only two are routine.
+Four paths create an `inventory_item`.
 
 | Path | When | Notes |
 |---|---|---|
 | **Spreadsheet import** (`app.importers`) | the normal path | creates the item, its purchase order and its vendor together, at the moment of purchase |
+| **Entering an item on a purchase** (`POST /api/inventory`) | a walk-in, show or one-off buy entered by hand | requires a purchase order; see "Entering a purchase" below |
 | **Splitting a lot** (`POST /api/inventory/{id}/split`) | a bought lot becomes individual pieces | children inherit the parent's claims and a share of its cost; the parent gets `split_at` and disappears from every view |
-| **The shop's catalogue** (`POST /api/catalog`) | creating something to sell directly | creates the item *and* its listing together, defaulted to `received` / `listed` / `unverified` / `single`, `source = manual` |
 | **`python -m app.seed`** | development only | never on real data |
 
 All four record an opening `item_status_history` row, so every item has a
 lifecycle from its first row -- see below.
+
+Putting an already-owned item up for sale is a separate, later step, not a
+creation path: `POST /api/offers` (`app.routers.offers`) offers it,
+`GET /api/listings` and `PATCH /api/listings/{id}` read and edit the offer,
+and `POST /api/listings/{id}/end` withdraws it. The console's old **Manage**
+page used to create an item and a listing together; it is retired, because
+it could never offer an item the business already owned.
 
 **The item code is permanent.** It is drawn from a database sequence, assigned
 once, never reused and never changed. It survives everything that happens to
@@ -704,8 +711,9 @@ API refuses such a save with 409 unless it carries `acknowledge_for_sale`;
 bulk edit refuses the whole selection, naming the items, and then offers
 **Change the items for sale too**. Saving nothing needs no confirmation. Once
 an order ships, the item is ordinary again -- its sale keeps its copy.
-Editing the listing itself (**Manage**) is not affected. Receiving, splits,
-recorded errors, images and vocabulary merges do not ask either.
+Editing the listing itself (`PATCH /api/listings/{id}`, the offers API) is
+not affected. Receiving, splits, recorded errors, images and vocabulary
+merges do not ask either.
 
 Both edit windows -- an inventory item's and an order's -- take Alt plus the
 underlined letter to jump to a field, and Ctrl+S or Ctrl+Enter to save.
