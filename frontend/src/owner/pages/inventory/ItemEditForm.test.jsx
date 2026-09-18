@@ -798,6 +798,18 @@ describe('Errors panel', () => {
   })
 })
 
+// Task 8 gave ErrorsPanel its own `ForSaleNotice`, so a form for an item that
+// is for sale now shows two alerts with the same wording: this form's own,
+// above the fields, and the errors panel's, above its list. They read alike,
+// so tests here find the one that belongs to the form by the action on its
+// checkbox -- "Change it anyway" is this form's own wording, distinct from
+// the errors panel's "Record it anyway".
+function formForSaleNotice() {
+  return screen
+    .getAllByRole('alert')
+    .find((el) => within(el).queryByRole('checkbox', { name: 'Change it anyway' }))
+}
+
 describe('An item for sale', () => {
   const forSale = {
     ...item,
@@ -812,7 +824,7 @@ describe('An item for sale', () => {
     render(<ItemEditForm itemId={12} />)
     await screen.findByDisplayValue('Mercury Dime')
 
-    expect(screen.getByRole('alert')).toHaveTextContent(
+    expect(formForSaleNotice()).toHaveTextContent(
       'This item is for sale: listing #3 at 189.00.',
     )
     const description = screen.getByDisplayValue('Mercury Dime')
@@ -861,7 +873,8 @@ describe('An item for sale', () => {
     await user.click(screen.getByRole('button', { name: 'Offer 1 for sale' }))
 
     // Read again, so the form knows the item is spoken for now.
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    await screen.findByRole('checkbox', { name: 'Change it anyway' })
+    expect(formForSaleNotice()).toHaveTextContent(
       'This item is for sale: listing #14 at 19.00.',
     )
     expect(api.getInventoryItem).toHaveBeenCalledTimes(2)

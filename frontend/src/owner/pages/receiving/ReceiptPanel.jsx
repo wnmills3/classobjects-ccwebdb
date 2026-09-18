@@ -77,6 +77,11 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // .../friedberg` returns for an item with no `currency_detail`. Null both
   // before this loads and whenever no single item is selected.
   const [itemKind, setItemKind] = useState(null)
+  // The item's `sale_state`, carried alongside `itemKind` from the same
+  // fetch -- ErrorsPanel needs it to warn before recording an error against
+  // an item a buyer is looking at, and a second request for the same body
+  // just to get one more field it already has would be wasted.
+  const [itemSaleState, setItemSaleState] = useState([])
   const [friedbergOpen, setFriedbergOpen] = useState(false)
 
   useEffect(() => {
@@ -117,6 +122,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   if (trackedItemId !== singleItemId) {
     setTrackedItemId(singleItemId)
     setItemKind(null)
+    setItemSaleState([])
     setFriedbergOpen(false)
   }
 
@@ -126,12 +132,18 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
     api
       .getInventoryItem(singleItemId)
       .then((body) => {
-        if (!cancelled) setItemKind(body.item_kind ?? null)
+        if (!cancelled) {
+          setItemKind(body.item_kind ?? null)
+          setItemSaleState(body.sale_state ?? [])
+        }
       })
       .catch(() => {
         // Unknown kind, not currency: the section just stays hidden rather
         // than offered against a fetch that failed.
-        if (!cancelled) setItemKind(null)
+        if (!cancelled) {
+          setItemKind(null)
+          setItemSaleState([])
+        }
       })
     return () => {
       cancelled = true
@@ -343,7 +355,12 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           fetch that is the steady state, not one render. Better to offer
           nothing than to offer the wrong half. */}
       {singleItemId != null && itemKind != null && reviewIds === null && (
-        <ErrorsPanel key={singleItemId} itemId={singleItemId} kind={itemKind} />
+        <ErrorsPanel
+          key={singleItemId}
+          itemId={singleItemId}
+          kind={itemKind}
+          saleState={itemSaleState}
+        />
       )}
 
       {/* Offered only for currency -- a coin has no Friedberg number, and
