@@ -776,14 +776,23 @@ claim that tracks where an item is offered.
 **Offering.** From the **Coins** or **Currency** screen
 (`/owner/inventory/coins`, `/owner/inventory/currency`), select one or more
 items and **Offer for sale...** in the bulk bar; from a single item's editor,
-its **Offers** panel has the same button. Either opens a dialog for one
-platform and one format (fixed price or auction) with a row per item: price,
-title and description (pre-filled from the item), an optional listing number,
-and the item's cost, estimated fees, net and margin beside it for reference.
-**Offer** submits the whole batch to `POST /api/offers`; a refusal -- the item
-is already offered elsewhere, is not received, has been split, or the
-platform is retired -- names every affected item and writes nothing, so the
-batch is all or nothing.
+its **Offers** panel has the same button. The panel's button is hidden only
+when the item is currently held -- active or paused -- by a listing on a
+platform that is **not** the business's own web store; nothing is hidden
+while the platform list is still loading or failed to load, and an item held
+only by its own store listing still shows it. So **moving an item from the
+shop to another platform is one step**: offering an item that is active in
+the web store pauses that store listing automatically, and it resumes when
+the new offer ends (see "A paused listing" below) -- there is no need to End
+the store listing first. Either place opens a dialog for one platform and one
+format (fixed price or auction) with a row per item: price, title and
+description (pre-filled from the item), an optional listing number, and the
+item's cost, estimated fees, net and margin beside it for reference. **Offer**
+submits the whole batch to `POST /api/offers`; a refusal -- the item is
+already offered on another platform, is already offered in the shop, is not
+received, has been split, or the platform is retired -- names every affected
+item **inside the still-open dialog, with the prices already typed kept**,
+and writes nothing, so the batch is all or nothing.
 
 **Listings** (`/owner/listings`) lists every offer the business has out --
 active and paused by default, or every offer including ended ones with the
