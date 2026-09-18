@@ -7,6 +7,7 @@ vi.mock('../../api', () => ({
     createInventoryItem: vi.fn(),
     suggestNote: vi.fn(),
     suggestCoin: vi.fn(),
+    setItemErrors: vi.fn(),
   },
 }))
 
@@ -433,6 +434,124 @@ describe('NewItemForm suggestions from the facts', () => {
     await waitFor(() => expect(screen.getByLabelText('metal')).toHaveValue('silver'))
     expect(api.suggestNote).not.toHaveBeenCalled()
   })
+})
+
+describe('NewItemForm: errors, held in form state until the item exists', () => {
+  const errorVocab = emptyReference({
+    tables: {
+      error_type: [
+        {
+          code: 'miscut',
+          label: 'Miscut',
+          source: 'seeded',
+          aliases: [],
+          extra: { applies_to: 'any' },
+        },
+      ],
+    },
+  })
+
+  async function addAnErrorRow(user) {
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'miscut',
+    )
+    await user.type(screen.getByPlaceholderText('details'), "miscut at 3 o'clock")
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+  }
+
+  it('sends the typed errors for the new item once it is created', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 11, item_code: 'CC-000011' })
+    api.setItemErrors.mockResolvedValue({ inventory_item_id: 11, errors: [] })
+    renderWithProviders(
+      <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
+      {
+        reference: errorVocab,
+      },
+    )
+
+    await addAnErrorRow(user)
+    await fillTitle(user, 'A miscut cent')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.setItemErrors).toHaveBeenCalledWith(11, [
+        { error_type: 'miscut', details: "miscut at 3 o'clock" },
+      ]),
+    )
+  })
+
+  it('does not call setItemErrors when no error rows were added', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 12, item_code: 'CC-000012' })
+    renderWithProviders(
+      <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
+      {
+        reference: errorVocab,
+      },
+    )
+
+    await fillTitle(user, 'A plain cent')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.createInventoryItem).toHaveBeenCalled())
+    expect(api.setItemErrors).not.toHaveBeenCalled()
+  })
+
+  it(
+    'when the item is created but its errors fail to save, keeps the item code, ' +
+      'the typed errors, does not call onSaved, and a Retry that succeeds finishes the save',
+    async () => {
+      const user = userEvent.setup()
+      const onSaved = vi.fn()
+      api.createInventoryItem.mockResolvedValue({ id: 13, item_code: 'CC-000013' })
+      api.setItemErrors.mockRejectedValueOnce(new Error('boom'))
+      renderWithProviders(
+        <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={onSaved} />,
+        { reference: errorVocab },
+      )
+
+      await addAnErrorRow(user)
+      await fillTitle(user, 'A miscut cent')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      expect(
+        await screen.findByText(
+          'CC-000013 was created, but its errors were not saved: boom',
+        ),
+      ).toBeInTheDocument()
+      expect(onSaved).not.toHaveBeenCalled()
+      // The form, and the error row just typed, are still on screen.
+      expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue(
+        'A miscut cent',
+      )
+      expect(screen.getByText('Miscut')).toBeVisible()
+      expect(screen.getByDisplayValue("miscut at 3 o'clock")).toBeVisible()
+      // Save and Save-and-add-another are blocked while the failure is
+      // pending: the item already exists, and either button would call
+      // `createInventoryItem` again and enter the same piece a second time.
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+      expect(
+        screen.getByRole('button', { name: /save and add another/i }),
+      ).toBeDisabled()
+
+      api.setItemErrors.mockResolvedValueOnce({ inventory_item_id: 13, errors: [] })
+      await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+      await waitFor(() =>
+        expect(api.setItemErrors).toHaveBeenLastCalledWith(13, [
+          { error_type: 'miscut', details: "miscut at 3 o'clock" },
+        ]),
+      )
+      await waitFor(() =>
+        expect(onSaved).toHaveBeenCalledWith({ id: 13, item_code: 'CC-000013' }),
+      )
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+      // The form is cleared on a completed save, same as a plain Save.
+      expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue('')
+    },
+  )
 })
 
 describe('withSuggestions', () => {

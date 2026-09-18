@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
-import FriedbergLookup from './FriedbergLookup'
+import ErrorsPanel from '../inventory/ErrorsPanel'
 import ReviewPane from '../inventory/ReviewPane'
+import FriedbergLookup from './FriedbergLookup'
 
 //: Outcome value the backend expects, paired with the button's label. The
 //: backend spells the fourth one with a single L (`canceled`); the button
@@ -316,6 +317,16 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           <ReviewPane ids={reviewIds} onClose={() => setReviewIds(null)} />
         )}
       </div>
+
+      {/* One item's id only -- `PUT /api/inventory/{id}/errors` replaces a
+          single item's set, so with several items selected there is no
+          bulk semantic to show this against; it appears once the selection
+          narrows to one. Unlike the Friedberg section this is not gated on
+          `isCurrency`: a coin has its own mint errors (off-center, clipped
+          planchet) just as a note has printing ones. */}
+      {singleItemId != null && (
+        <ErrorsPanel key={singleItemId} itemId={singleItemId} kind={itemKind} />
+      )}
 
       {/* Offered only for currency -- a coin has no Friedberg number, and
           this section never even mounts to ask the question for one.

@@ -8,6 +8,8 @@ vi.mock('../../api', () => ({
     getItemSales: vi.fn(),
     updateInventoryItem: vi.fn(),
     setItemReview: vi.fn(),
+    getItemErrors: vi.fn(),
+    setItemErrors: vi.fn(),
   },
 }))
 
@@ -34,6 +36,7 @@ beforeEach(() => {
   api.getItemSales.mockResolvedValue([])
   api.getInventoryItem.mockResolvedValue(item)
   api.setItemReview.mockResolvedValue({ reviewed: ['description'] })
+  api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
 })
 
 describe('ItemEditForm', () => {
@@ -733,6 +736,52 @@ describe('Attributes', () => {
     expect(
       screen.getByRole('button', { name: 'Remove gold_toned' }),
     ).toBeInTheDocument()
+  })
+})
+
+describe('Errors panel', () => {
+  it("mounts beside Attributes, loading the item's own errors", async () => {
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+
+    expect(api.getItemErrors).toHaveBeenCalledWith(12)
+    expect(await screen.findByRole('button', { name: 'Add error' })).toBeInTheDocument()
+  })
+
+  it("passes the item's kind through, so the picker offers only that kind's errors", async () => {
+    const vocabularies = emptyReference({
+      tables: {
+        error_type: [
+          {
+            code: 'off_center_coin',
+            label: 'Off Center',
+            source: 'seeded',
+            aliases: [],
+            extra: { applies_to: 'coin' },
+          },
+          {
+            code: 'inverted_overprint',
+            label: 'Inverted Overprint',
+            source: 'seeded',
+            aliases: [],
+            extra: { applies_to: 'currency' },
+          },
+        ],
+      },
+    })
+    api.getInventoryItem.mockResolvedValue({ ...item, item_kind: 'coin' })
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+
+    const options = within(
+      screen.getByRole('combobox', { name: 'error_type' }),
+    ).getAllByRole('option')
+    const labels = options.map((o) => o.textContent)
+    expect(labels).toContain('Off Center')
+    expect(labels).not.toContain('Inverted Overprint')
   })
 })
 

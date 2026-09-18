@@ -141,6 +141,29 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     expect(within(screen.getByRole('list')).queryByText('Miscut')).toBeNull()
   })
 
+  it('saves an edited note on an existing row when its box loses focus', async () => {
+    const user = userEvent.setup()
+    api.getItemErrors.mockResolvedValue({
+      inventory_item_id: 12,
+      errors: [
+        { error_type: 'miscut', details: 'note a', source: 'manual', noted_at: '' },
+      ],
+    })
+    api.setItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+    const input = await screen.findByLabelText('Miscut details')
+
+    await user.clear(input)
+    await user.type(input, 'corrected note')
+    await user.tab()
+
+    expect(api.setItemErrors).toHaveBeenCalledWith(12, [
+      { error_type: 'miscut', details: 'corrected note' },
+    ])
+  })
+
   it('shows the message and keeps the rows when a save fails', async () => {
     const user = userEvent.setup()
     api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })

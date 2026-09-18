@@ -6,6 +6,7 @@ import { ReferenceSelect } from '../../../shared/reference'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import { isMoney } from '../orders/cents'
+import ErrorsPanel from '../inventory/ErrorsPanel'
 import { withSuggestions, without } from './suggestions'
 
 /**
@@ -117,6 +118,14 @@ export default function NewItemForm({
   const [ranged, setRanged] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  // The item does not exist yet, so ErrorsPanel holds no state of its own
+  // (itemId={null}) -- this is the whole set, sent in one PUT once the item
+  // is created.
+  const [errors, setErrors] = useState([])
+  // Set only when the item was created but its errors were not: the create
+  // already happened, so the item exists on the server even though this form
+  // still shows it as unsaved. Cleared on a successful Retry.
+  const [errorSaveFailure, setErrorSaveFailure] = useState(null)
   const titleRef = useRef(null)
   const yearId = useId()
   const yearEndId = useId()
@@ -290,34 +299,61 @@ export default function NewItemForm({
     return payload
   }
 
+  /**
+   * Clears the form -- errors included -- and reports the created item, the
+   * way a completed save always finishes, whether that is the first attempt
+   * or a Retry after the errors step failed once.
+   */
+  function finishSave(created, addAnother) {
+    if (addAnother) {
+      const kept = Object.fromEntries(SHARED_ON_REPEAT.map((k) => [k, form[k]]))
+      // A kept suggestion stays a suggestion. The Bank came from the serial,
+      // which is cleared, so it is dropped and asked for again.
+      const marks = Object.fromEntries(
+        Object.entries(suggested).filter(([k]) => k in kept && k !== 'fed_district'),
+      )
+      setEntry({
+        form: {
+          ...BLANK,
+          ...kept,
+          ...('fed_district' in suggested && { fed_district: '' }),
+        },
+        suggested: marks,
+      })
+      setRanged(false)
+      titleRef.current?.focus()
+    } else {
+      setEntry({ form: BLANK, suggested: {} })
+      setRanged(false)
+    }
+    // Errors are per-piece, like grade or a serial number -- never carried
+    // into the next item, "add another" included.
+    setErrors([])
+    onSaved?.(created)
+  }
+
   async function submit(addAnother) {
     setSaving(true)
     try {
       const payload = buildPayload()
       const created = await api.createInventoryItem(payload)
       setError('')
-      if (addAnother) {
-        const kept = Object.fromEntries(SHARED_ON_REPEAT.map((k) => [k, form[k]]))
-        // A kept suggestion stays a suggestion. The Bank came from the serial,
-        // which is cleared, so it is dropped and asked for again.
-        const marks = Object.fromEntries(
-          Object.entries(suggested).filter(([k]) => k in kept && k !== 'fed_district'),
-        )
-        setEntry({
-          form: {
-            ...BLANK,
-            ...kept,
-            ...('fed_district' in suggested && { fed_district: '' }),
-          },
-          suggested: marks,
-        })
-        setRanged(false)
-        titleRef.current?.focus()
-      } else {
-        setEntry({ form: BLANK, suggested: {} })
-        setRanged(false)
+      if (errors.length > 0) {
+        try {
+          await api.setItemErrors(created.id, errors)
+        } catch (err) {
+          // The item exists. Saying "failed" would be false and would invite
+          // a second entry of the same item.
+          setErrorSaveFailure({ itemId: created.id, itemCode: created.item_code })
+          setError(
+            `${created.item_code} was created, but its errors were not saved: ` +
+              `${err.message}`,
+          )
+          return // keep the form and its errors on screen
+        }
       }
-      onSaved?.(created)
+      setErrorSaveFailure(null)
+      finishSave(created, addAnother)
     } catch (err) {
       // Kept in place: a refusal here (a 422 naming a field, an unknown
       // purchase order) must not throw away what was typed.
@@ -327,7 +363,36 @@ export default function NewItemForm({
     }
   }
 
-  const disabled = saving || Boolean(disabledReason)
+  /**
+   * Re-sends just the errors PUT for an item already created by a failed
+   * first attempt, then finishes the save. Always finishes as a plain Save:
+   * the create already happened once, and there is no second "and add
+   * another" click here to say the next item should reuse these fields.
+   */
+  async function retrySaveErrors() {
+    if (!errorSaveFailure) return
+    setSaving(true)
+    try {
+      const { itemId, itemCode } = errorSaveFailure
+      await api.setItemErrors(itemId, errors)
+      setError('')
+      setErrorSaveFailure(null)
+      finishSave({ id: itemId, item_code: itemCode }, false)
+    } catch (err) {
+      setError(
+        `${errorSaveFailure.itemCode} was created, but its errors were not saved: ` +
+          `${err.message}`,
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // A pending errors-save failure means the item was already created: Save
+  // (or Save and add another) would call `createInventoryItem` again and
+  // enter the same piece a second time. Retry is the only way forward until
+  // the failure clears.
+  const disabled = saving || Boolean(disabledReason) || Boolean(errorSaveFailure)
 
   useSaveShortcut(() => submit(false), !disabled && form.source_title.trim() !== '')
 
@@ -335,6 +400,11 @@ export default function NewItemForm({
     <div className="admin-form">
       <h3>New item</h3>
       {error && <p className="error">{error}</p>}
+      {errorSaveFailure && (
+        <button type="button" onClick={retrySaveErrors} disabled={saving}>
+          Retry
+        </button>
+      )}
       {disabledReason && <p className="error">{disabledReason}</p>}
 
       <div className="form-grid">
@@ -647,6 +717,16 @@ export default function NewItemForm({
         Description{/* */}
         <textarea rows={3} value={form.description} onChange={set('description')} />
       </label>
+
+      {/* The item does not exist yet, so this is fully controlled: no load,
+          no PUT of its own -- `submit` sends the whole set once, right after
+          `createInventoryItem` returns an id to send it against. */}
+      <ErrorsPanel
+        itemId={null}
+        kind={form.item_kind}
+        value={errors}
+        onChange={setErrors}
+      />
 
       <div className="row">
         <button
