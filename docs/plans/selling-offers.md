@@ -745,18 +745,30 @@ on PATCH giving 409; offering an unknown item id giving 422; and that
 
 ---
 
-### Task 5: Retire Manage and the catalogue write endpoints
+### Task 5: Retire the catalogue write endpoints
+
+**The page is already gone.** The owner met three kind-blindness bugs in it
+while entering banknotes on 2026-09-17, so `AdminCoins.jsx`, its route, its
+nav link and the console's `createCatalogItem`/`updateCatalogItem`/
+`deleteCatalogItem` were removed that evening (commit `33a8f85`). The
+endpoints were deliberately left behind so nothing lost the ability to end a
+listing before this plan's offers API existed. **This task removes them**, now
+that `POST /api/offers` and `POST /api/listings/{id}/end` replace them.
 
 **Files:**
 - Modify: `backend/app/routers/catalog.py` (remove `create_catalog_item`, `update_catalog_item`, `delete_catalog_item`, `_set_listing_active`, and any helper left unused -- `_resolve_classifiers`, `CatalogItemCreate`/`CatalogItemUpdate` in `schemas.py` if nothing else uses them; grep before deleting)
-- Delete: `frontend/src/owner/pages/AdminCoins.jsx`, `frontend/src/owner/pages/AdminCoins.test.jsx`
-- Modify: `frontend/src/owner/OwnerApp.jsx` (route + nav), `frontend/src/owner/api.js` (drop `createCatalogItem`, `updateCatalogItem`, `deleteCatalogItem`)
 - Modify: `backend/tests/test_catalog.py`, `backend/tests/test_split.py`, `backend/tests/test_orders.py`, `backend/tests/test_order_writes.py` -- any test that creates or deletes through `/api/catalog` moves to `make_listing`/`offering_writes` or is deleted if it only tested the retired endpoint.
 
-The spec's reason, worth keeping in the commit message: Manage creates an item
+The spec's reason, worth keeping in the commit message: Manage created an item
 *and* a listing together, which contradicts "no item is ever entered outside a
-purchase", and it cannot offer an item the business already owns -- which is
+purchase", and it could not offer an item the business already owns -- which is
 all of them.
+
+**Before deleting `delete_catalog_item`, check what replaces it.** It is the
+only path that removes a listing *and* its item when nothing else refers to
+them; `end_offer` ends an offer but keeps both. The demo-listing cleanup of
+2026-09-17 used it. If nothing needs the delete, say so in your report rather
+than assuming.
 
 - [ ] **Step 1:** grep for every caller first:
 
