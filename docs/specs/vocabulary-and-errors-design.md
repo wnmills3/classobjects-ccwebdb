@@ -32,12 +32,12 @@ Made with the owner, 2026-09-17.
 
 | Question | Decision |
 |---|---|
-| Picker order | **Alphabetical by label**, except grades and the four lifecycle vocabularies |
+| Picker order | **Alphabetical by label**, except `grade`, `denomination`, the four lifecycle vocabularies, `item_kind` and `signature_combination` |
 | Which lifecycles keep their order | `item_status`, `disposition`, `sales_order_status`, `shipment_status` |
 | Where ordering is decided | **The API**, so every client agrees |
 | Coin vs note vocabularies | **Mutually exclusive where they differ**, from the fact already recorded on the row |
-| Adding a missing value mid-entry | **Type a label only**; code derived, kind inferred, group optional |
-| Where a value can be added | The item editor, **New item (New purchase)** and **Receiving** |
+| Adding a missing value mid-entry | **Type a label only**; code derived, kind inferred, group **required** for an attribute -- `attribute_group` is NOT NULL with no default, so there was never a "leave it blank" to have |
+| Where a value can be added | Attributes: the item editor, and Receiving's review pane (which reuses it). Error types: the item editor, **New item** and **Receiving** |
 | Recording errors | In the item editor, **New item** and **Receiving**, with a note per error |
 | Errors on a new item | **Saved after the item is created**, with a visible retry if that second step fails |
 | Error types | Can also grow with use, the same way attributes do |
@@ -65,13 +65,24 @@ Rejected:
 `code`. It will instead order:
 
 - **by `label`, case-insensitively**, for every vocabulary;
-- **by `sort_order`, then `code`** for `grade` (70, 69+, 69, ... is the
-  scale's own order and the only one a grader can read) and for
-  `item_status`, `disposition`, `sales_order_status` and `shipment_status`.
+- **by `sort_order`, then `code`**, for eight tables, for three different
+  reasons: a **scale** (`grade` runs 70, 69+, 69, ... which is the only order
+  a grader can read; `denomination` runs face value ascending, coins then
+  notes -- once a picker filters by kind, a note's nine denominations read
+  $1 -> $1000 in order), a **lifecycle** (`item_status`, `disposition`,
+  `sales_order_status`, `shipment_status`, each running ordered -> received
+  -> ... or an equivalent progression), or a **curated sequence** (`item_kind`
+  is ranked by how often each kind actually occurs, so coin and currency lead;
+  `signature_combination` is chronological, and its picker is narrowed to a
+  stretch of that timeline by a note's series year).
 
-The exception list lives in one named constant beside `_CODE_KEYED_TABLES` in
-`backend/app/routers/reference.py`, which already names those four for a
-related reason: they are the vocabularies the application branches on.
+The exception list lives in one named constant, `_SEQUENCED_TABLES`, beside
+`_CODE_KEYED_TABLES` in `backend/app/routers/reference.py`. The four
+lifecycles and `item_kind` also appear in `_CODE_KEYED_TABLES`, for the
+related reason that the application looks them up by code; `grade`,
+`denomination` and `signature_combination` do not, and may still be renamed.
+`series` is in neither set and stays alphabetical like every other
+descriptive vocabulary.
 
 `sort_order` stays on every table and stays editable -- it is what orders the
 exceptions, and the Vocabularies page may expose it later. For an
@@ -132,15 +143,22 @@ picker has, with a form of **one field: the label.**
 - **The kind** is inferred from the item being entered: `currency` on a note,
   `coin` otherwise. This is what makes the addition usable -- a value with no
   marker matches nothing and vanishes from the list that created it.
-- **The group** (`attribute_group`) is left blank and can be set later on the
-  Vocabularies page. A required group at entry time is a question the person
-  usually cannot answer yet.
+- **The group** (`attribute_group`) is **required**, not deferred to the
+  Vocabularies page as first proposed: `attribute_group` is NOT NULL with no
+  database default, so "leave it blank and set it later" was never actually
+  available once this was built. The owner chose to be asked rather than have
+  one picked silently, so the add form has a group picker -- Serial, Variety,
+  Release, Qualifier, Verification -- and Add stays disabled until one is
+  chosen.
 - **Source** is `manual`, as `POST /api/reference/{table}` already records, so
   additions stay distinguishable from the shipped vocabulary and are excluded
   from an export by default.
-- **Where:** the item editor, New item and Receiving. `ReferenceSelect`
-  already implements adding; this design passes it the extra columns
-  (`applies_to`, and `kind` for a denomination) rather than reimplementing it.
+- **Where:** the item editor, and Receiving's "Confirm or correct fields"
+  pane, which reuses the item editor's own form. New item has no attribute
+  picker at all -- entering a new item, only its error types can be added
+  there (see *Recording errors* below). `ReferenceSelect` already implements
+  adding; this design passes it the extra columns (`applies_to`, and `kind`
+  for a denomination) rather than reimplementing it.
 
 **Error types grow the same way**, through the same form. A new error type
 with no `applies_to` would disappear exactly as an attribute would.
@@ -155,7 +173,7 @@ whole set. Both exist; this design is the missing interface.
 **One component, `ErrorsPanel`, used in three places:**
 
 - **The item editor**, beside the Attributes row.
-- **New item**, under the note's own fields.
+- **New item**, under the description field, just above Save.
 - **Receiving**, where a bill is inspected as it arrives -- the moment an
   error is most likely to be noticed.
 
