@@ -9,6 +9,13 @@
  * `uses` is the `sale_state` array an item detail carries. Empty means there
  * is nothing to warn about, and the component renders nothing at all --
  * callers do not need their own conditional.
+ *
+ * The "a change shows to buyers at once" sentence is this notice's own
+ * explanation, and it travels only with the listed reasons. A caller that
+ * passes `show` with no `uses` is already showing its own message that says
+ * the same thing -- the bulk bar's server refusal reads "A change shows to
+ * buyers at once" verbatim -- so repeating the sentence here would stack it
+ * twice on screen.
  */
 export default function ForSaleNotice({
   uses = [],
@@ -25,8 +32,14 @@ export default function ForSaleNotice({
   return (
     <div className="for-sale" role="alert">
       <strong>{heading}</strong>
-      {uses.length > 0 && `: ${uses.map((use) => use.text).join(', ')}`}. A change shows
-      to buyers at once; each sale keeps the item as it was sold.
+      {uses.length > 0 ? (
+        <>
+          : {uses.map((use) => use.text).join(', ')}. A change shows to buyers at once;
+          each sale keeps the item as it was sold.
+        </>
+      ) : (
+        '.'
+      )}
       <label className="checkbox">
         <input
           type="checkbox"

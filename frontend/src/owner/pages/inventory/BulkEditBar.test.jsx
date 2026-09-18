@@ -80,6 +80,26 @@ describe('BulkEditBar', () => {
     expect(screen.queryByRole('checkbox')).toBeNull()
   })
 
+  it('shows its own heading but not the explanation the server message already gives', async () => {
+    // The server's refusal already reads "A change shows to buyers at once" --
+    // ForSaleNotice must not repeat that sentence when it has no `uses` of its
+    // own to explain, or the operator sees it stacked twice.
+    const user = userEvent.setup()
+    api.bulkEditInventory.mockRejectedValueOnce(
+      new Error('For sale -- CC-000001: listing #3 at 189.00. A change shows ...'),
+    )
+    render(<BulkEditBar ids={[1, 2]} onApplied={vi.fn()} onClear={vi.fn()} />)
+    await user.type(screen.getByPlaceholderText('New value'), '1964')
+    await user.click(screen.getByRole('button', { name: 'Apply to 2' }))
+    await screen.findByText(/CC-000001/)
+
+    const notice = screen.getByRole('alert')
+    expect(notice).toHaveTextContent('Some of the selected items are for sale.')
+    expect(notice).not.toHaveTextContent(
+      'A change shows to buyers at once; each sale keeps the item as it was sold.',
+    )
+  })
+
   // Paper has no metal, and the API has no metal on the currency view.
   it('offers Metal on the coin view', () => {
     render(<BulkEditBar view="coins" ids={[1]} onApplied={vi.fn()} onClear={vi.fn()} />)
