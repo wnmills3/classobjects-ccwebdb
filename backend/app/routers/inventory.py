@@ -1499,6 +1499,7 @@ def set_item_errors(
     about than two calls that could disagree with each other mid-flight.
     """
     item = _get_item(db, item_id)
+    sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
 
     db.execute(delete(ItemError).where(ItemError.inventory_item_id == item.id))
     for entry in payload.errors:
