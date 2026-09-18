@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 
 import { api } from '../../api'
+import { COIN_ONLY_FIELDS, fitsKind } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { AccessLabel } from '../../AccessLabel'
@@ -56,11 +57,6 @@ const REVIEWABLE = {
   country: 'country_id',
   metal: 'metal_id',
 }
-
-//: Classifiers a banknote does not have, so its form does not offer them.
-//: The API agrees: both are coin-view columns in `inventory_search`, and
-//: neither exists on the currency view.
-const COIN_ONLY = new Set(['strike_type', 'metal'])
 
 const CLASSIFIERS = [
   // A coin's grade is a number; its strike type says whether 65 is MS65 or
@@ -126,8 +122,6 @@ function AttributesField({ item, codes, onChange, kind }) {
   const vocabulary = useReference('item_attribute') ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
   const held = new Map((item.attributes ?? []).map((a) => [a.code, a]))
-  const fits = (entry) =>
-    ['any', kind === 'currency' ? 'currency' : 'coin'].includes(entry.extra?.applies_to)
 
   return (
     <div className="field">
@@ -164,7 +158,7 @@ function AttributesField({ item, codes, onChange, kind }) {
             table="item_attribute"
             value=""
             allowAdd={false}
-            filter={(entry) => fits(entry) && !codes.includes(entry.code)}
+            filter={(entry) => fitsKind(entry, kind) && !codes.includes(entry.code)}
             onChange={(e) => {
               if (e.target.value) onChange([...codes, e.target.value])
             }}
@@ -586,7 +580,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       )}
 
       {CLASSIFIERS.filter(
-        ([, key]) => !COIN_ONLY.has(key) || value('item_kind') !== 'currency',
+        ([, key]) => !COIN_ONLY_FIELDS.has(key) || value('item_kind') !== 'currency',
       ).map(([label, key, table, letter]) => (
         <label key={key} className="field">
           <AccessLabel text={label} accessKey={letter} />
@@ -605,7 +599,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
                 ? (grade) =>
                     (grade.extra?.grade_scale === 'note') ===
                     (value('item_kind') === 'currency')
-                : undefined
+                : key === 'denomination'
+                  ? (entry) => fitsKind(entry, value('item_kind'))
+                  : undefined
             }
             {...accel(letter)}
           />
