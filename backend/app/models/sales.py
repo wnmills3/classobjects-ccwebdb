@@ -49,10 +49,12 @@ if TYPE_CHECKING:  # relationship targets only -- importing them at
 __all__ = [
     "Address",
     "AddressKind",
+    "ClaimState",
     "Customer",
     "Listing",
     "ListingFormat",
     "ListingStatus",
+    "OfferClaim",
     "SalesOrder",
     "SalesOrderChange",
     "SalesOrderChangeKind",
@@ -105,6 +107,20 @@ class ListingStatus(enum.StrEnum):
     active = "active"
     paused = "paused"
     ended = "ended"
+
+
+class ClaimState(enum.StrEnum):
+    """Whether a claim currently holds its item off every other platform.
+
+    `paused` is a store listing set aside while the item is offered
+    elsewhere: it keeps the listing and its price, and resumes when that
+    offer ends unsold. Only an `active` claim reserves the item, which is
+    what the partial unique index below enforces.
+    """
+
+    active = "active"
+    paused = "paused"
+    released = "released"
 
 
 class SalesVenue(TimestampMixin, Base):
@@ -262,6 +278,11 @@ class Listing(TimestampMixin, Base):
     #: The platform's own listing number, and its page.
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     external_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    #: The offer this store listing was set aside for, so settling that offer
+    #: knows which listings to resume. Null unless `status` is `paused`.
+    paused_by_listing_id: Mapped[int | None] = mapped_column(
+        ForeignKey("listing.id", ondelete="RESTRICT"), nullable=True
+    )
     title: Mapped[str] = mapped_column(
         String(500), default="", server_default=text("''"), nullable=False
     )
@@ -279,6 +300,10 @@ class Listing(TimestampMixin, Base):
     currency: Mapped[Currency] = relationship()
     sales_venue: Mapped[SalesVenue] = relationship()
     order_items: Mapped[list[SalesOrderItem]] = relationship(back_populates="listing")
+    paused_by: Mapped[Listing | None] = relationship(
+        remote_side=lambda: [Listing.id],
+        foreign_keys=lambda: [Listing.paused_by_listing_id],
+    )
 
     __table_args__ = (
         CheckConstraint("price >= 0", name="ck_listing_price_non_negative"),
@@ -291,6 +316,46 @@ class Listing(TimestampMixin, Base):
             "ix_listing_active",
             "inventory_item_id",
             postgresql_where=text("is_active"),
+        ),
+    )
+
+
+class OfferClaim(TimestampMixin, Base):
+    """One item's hold on one listing, and the "offered once" guarantee.
+
+    An item listing has one claim; a lot listing (phase 3) will have one per
+    member, which is why the rule lives here rather than on `listing`.
+    Written only by `app.offering_writes`, in the same transaction as the
+    listing it mirrors: a claim's state always follows its listing's status.
+    """
+
+    __tablename__ = "offer_claim"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("listing.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    state: Mapped[ClaimState] = mapped_column(
+        enum_column(ClaimState, "offer_claim_state"),
+        default=ClaimState.active,
+        nullable=False,
+    )
+
+    listing: Mapped[Listing] = relationship()
+    item: Mapped[InventoryItem] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("listing_id", "inventory_item_id", name="uq_offer_claim_pair"),
+        # The guarantee: at most one active claim per item. A paused or
+        # released claim does not reserve anything, so it is excluded.
+        Index(
+            "uq_offer_claim_active",
+            "inventory_item_id",
+            unique=True,
+            postgresql_where=text("state = 'active'"),
         ),
     )
 

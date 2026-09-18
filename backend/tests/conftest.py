@@ -290,34 +290,42 @@ def make_item(db: Session) -> Callable[..., InventoryItem]:
 
 
 def build_listing(db: Session, **overrides: object) -> Listing:
-    """One catalogue entry, with every NOT NULL classifier resolved."""
-    item_fields = {
-        "source_title": overrides.pop("title", "1881-S Morgan Silver Dollar"),
-        "description": overrides.pop("description", "Test fixture item."),
-        "year_start": overrides.pop("year_start", 1881),
-        "year_end": overrides.pop("year_end", None),
-        "piece_count": overrides.pop("storage_quantity", 1),
-    }
-    kind = overrides.pop("kind", "coin")
-    country = overrides.pop("country", "US")
-    grade = overrides.pop("grade", "MS64")
+    """One catalogue entry, with every NOT NULL classifier resolved.
 
-    item = InventoryItem(
-        **item_fields,
-        item_kind_id=_code_id(db, ItemKind, kind),
-        country_id=_code_id(db, Country, country) if country else None,
-        **_grade_ids(db, grade),
-        storage_form_id=_code_id(db, StorageForm, "single"),
-        authenticity_id=_code_id(db, Authenticity, "unverified"),
-        status_id=_code_id(db, ItemStatus, "received"),
-        disposition_id=_code_id(db, Disposition, "listed"),
-        valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
-    )
-    db.add(item)
-    db.flush()
+    An explicit ``inventory_item_id`` override reuses that item instead of
+    creating a new one -- how a second listing on the same item is built, as
+    the one-active-claim tests need.
+    """
+    inventory_item_id = overrides.pop("inventory_item_id", None)
+    if inventory_item_id is None:
+        item_fields = {
+            "source_title": overrides.pop("title", "1881-S Morgan Silver Dollar"),
+            "description": overrides.pop("description", "Test fixture item."),
+            "year_start": overrides.pop("year_start", 1881),
+            "year_end": overrides.pop("year_end", None),
+            "piece_count": overrides.pop("storage_quantity", 1),
+        }
+        kind = overrides.pop("kind", "coin")
+        country = overrides.pop("country", "US")
+        grade = overrides.pop("grade", "MS64")
+
+        item = InventoryItem(
+            **item_fields,
+            item_kind_id=_code_id(db, ItemKind, kind),
+            country_id=_code_id(db, Country, country) if country else None,
+            **_grade_ids(db, grade),
+            storage_form_id=_code_id(db, StorageForm, "single"),
+            authenticity_id=_code_id(db, Authenticity, "unverified"),
+            status_id=_code_id(db, ItemStatus, "received"),
+            disposition_id=_code_id(db, Disposition, "listed"),
+            valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
+        )
+        db.add(item)
+        db.flush()
+        inventory_item_id = item.id
 
     listing = Listing(
-        inventory_item_id=item.id,
+        inventory_item_id=inventory_item_id,
         price=overrides.pop("price", Decimal("189.00")),
         currency_id=_code_id(db, Currency, "USD"),
         quantity_available=overrides.pop("quantity_available", 5),
