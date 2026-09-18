@@ -393,7 +393,8 @@ def receive_items(
     # listing, so a plain receipt has nothing to warn about. The other three
     # outcomes say a coin will not be delivered, and that is exactly what a
     # buyer needs protecting from.
-    if payload.outcome != "received":
+    ends_offer = payload.outcome != "received"
+    if ends_offer:
         sale_state.guard(db, list(items), acknowledged=payload.acknowledge_for_sale)
 
     if payload.storage_location_id is not None:
@@ -423,10 +424,21 @@ def receive_items(
                 note=payload.note,
             )
 
+    # Load-bearing, not tidiness. `end_offer` below re-reads exactly these
+    # rows -- `_lock_affected_items` locks them with
+    # `populate_existing=True`, which overwrites whatever the session holds
+    # and clears the attribute's dirty flag. Production's `SessionLocal` sets
+    # `autoflush=False`, so without this the status assigned just above is
+    # still pending when that re-read lands, is silently thrown away, and the
+    # commit writes the history row and the ended listing while leaving
+    # `inventory_item.status_id` untouched -- a history asserting a
+    # transition the item never made.
+    db.flush()
+
     # A coin that cannot be delivered must not stay offered. Ended through
     # `offering_writes`, the only writer of listing status and claims -- never
     # by assigning `listing.status` here.
-    if payload.outcome != "received":
+    if ends_offer:
         offered = db.scalars(
             select(Listing).where(
                 Listing.inventory_item_id.in_([item.id for item in items]),

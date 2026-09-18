@@ -284,6 +284,53 @@ def test_an_acknowledged_missing_ends_the_listing_and_releases_the_claim(
     assert refreshed.status.code == "missing"
 
 
+def test_an_acknowledged_missing_persists_the_status_without_autoflush(
+    client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    """The receipt's own status change survives the listing being ended.
+
+    Deliberately run the way production runs. `SessionLocal`
+    (app/database.py) sets `autoflush=False`; the test session above does
+    not, so it flushes on every query. That difference is the whole test:
+    `receive_items` assigns `item.status_id` and then ends the listing
+    through `offering_writes.end_offer`, which locks the same rows with
+    `populate_existing=True`. With autoflush on, the lock query flushes the
+    assignment first and it survives; with autoflush off -- production --
+    the re-read overwrites the pending value and clears its dirty flag, and
+    the commit writes the history row and the ended listing while leaving
+    the item still `received`. `receive_items` flushes before ending the
+    offer to close that, and this test fails without that flush.
+    """
+    item_id = listing.inventory_item_id
+
+    db.autoflush = False
+    try:
+        response = client.post(
+            "/api/inventory/receive",
+            json={
+                "item_ids": [item_id],
+                "outcome": "missing",
+                "acknowledge_for_sale": True,
+            },
+            headers=admin_headers,
+        )
+    finally:
+        db.autoflush = True
+    assert response.status_code == 200, response.text
+
+    # Read the row back rather than trusting the in-memory object: the bug
+    # this covers is a value that never reaches the database, which an
+    # unexpired identity-map entry would happily keep reporting as changed.
+    db.expire_all()
+    stored = db.get(InventoryItem, item_id)
+    assert stored is not None
+    assert stored.status.code == "missing"
+
+    ended = db.get(Listing, listing.id)
+    assert ended is not None
+    assert ended.status is ListingStatus.ended
+
+
 def test_attaching_a_photograph_to_a_listed_item_is_refused(
     client: TestClient, listing: Listing, admin_headers: dict[str, str]
 ) -> None:
