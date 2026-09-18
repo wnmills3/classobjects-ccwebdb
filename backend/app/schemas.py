@@ -390,6 +390,9 @@ class SplitRequest(BaseModel):
     #: proportion to each piece's `relative_value`.
     mode: str = Field(default="equal", pattern="^(equal|relative)$")
     pieces: list[SplitPieceIn] = Field(min_length=2)
+    #: Set after a refusal to say the caller knows the lot is offered
+    #: somewhere (app.sale_state). An order refuses the split regardless.
+    acknowledge_for_sale: bool = False
 
 
 class SplitResultOut(BaseModel):

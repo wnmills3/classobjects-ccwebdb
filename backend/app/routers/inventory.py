@@ -1318,6 +1318,15 @@ def split(
     quietly absorbed into one piece.
     """
     parent = _get_item(db, item_id)
+    # Listings only. An item in an order is refused by `split_item` below and
+    # that refusal is not negotiable, so offering to acknowledge it would be a
+    # confirmation that does not let the caller through.
+    sale_state.guard(
+        db,
+        [parent],
+        acknowledged=payload.acknowledge_for_sale,
+        kinds={"listing"},
+    )
     pieces = [_to_piece(db, spec) for spec in payload.pieces]
 
     try:
