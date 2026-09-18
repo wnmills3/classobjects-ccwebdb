@@ -37,6 +37,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.getItemSales.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
+  api.listSalesVenues.mockResolvedValue([])
   api.searchInventory.mockResolvedValue({
     rows,
     total: 900,
@@ -120,6 +121,76 @@ describe('Inventory item editor', () => {
 
     expect(await screen.findByText('Changed by someone else')).toBeInTheDocument()
     expect(document.querySelector('dialog')).toHaveAttribute('open')
+  })
+
+  // A selection survives paging, and only the rows on the current page can be
+  // priced. The ones that were not offered are what is left to do, so they
+  // must still be selected afterwards -- the bulk edit's own callback, which
+  // drops the whole selection, would have taken them with it.
+  it('keeps the selected items it could not offer', async () => {
+    const user = userEvent.setup()
+    const second = [
+      {
+        id: 51,
+        item_code: 'CC-000051',
+        source_title: '1957 Silver Certificate $1',
+        description: 'A note',
+        total_cost: '9.00',
+      },
+    ]
+    // By the offset rather than by call order: the page reads the server more
+    // than once, and a queue would hand the wrong page to whichever read
+    // happened to come next.
+    api.searchInventory.mockImplementation((_view, params = {}) =>
+      Promise.resolve({
+        rows: params.offset ? second : rows,
+        total: 900,
+        facets: {},
+        issues: {},
+        sortable: [],
+      }),
+    )
+    api.listSalesVenues.mockResolvedValue([
+      { code: 'store', name: 'Web store', is_own_store: true, is_active: true },
+    ])
+    api.createOffers.mockResolvedValue({ listings: [{ id: 7 }] })
+    renderWithProviders(<InventoryCurrency />, {
+      auth: adminAuth(),
+      route: '/inventory/currency',
+    })
+
+    const tick = async () =>
+      user.click(within(screen.getByRole('table')).getAllByRole('checkbox')[1])
+
+    await screen.findByRole('button', { name: 'CC-000001' })
+    await tick()
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByRole('button', { name: 'CC-000051' })
+    await tick()
+    expect(screen.getByText('2 selected')).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Offer for sale...' }))
+    await screen.findByRole('option', { name: 'Web store' })
+    await user.selectOptions(screen.getByLabelText('Platform'), 'store')
+    await user.type(screen.getByLabelText('Price for CC-000051'), '19.00')
+    await user.click(screen.getByRole('button', { name: 'Offer 1 for sale' }))
+
+    expect(api.createOffers).toHaveBeenCalledWith({
+      venue: 'store',
+      format: 'fixed_price',
+      items: [
+        {
+          item_id: 51,
+          price: '19.00',
+          title: '1957 Silver Certificate $1',
+          description: 'A note',
+          external_id: null,
+        },
+      ],
+    })
+    // CC-000001 is on the first page: it was named as not offered, and it is
+    // still selected.
+    expect(await screen.findByText('1 selected')).toBeVisible()
   })
 
   it('closes on Escape', async () => {

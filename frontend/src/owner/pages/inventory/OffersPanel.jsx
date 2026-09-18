@@ -20,9 +20,18 @@ import { date } from '../../../shared/format'
  *
  * Money is shown exactly as it arrives -- a decimal string with the currency
  * the API sent -- and never parsed into a number.
+ *
+ * `onChanged` is called after an offer is made or ended: both change what the
+ * server says about the item -- `sale_state`, which decides whether the editor
+ * asks for a change to be acknowledged -- and the editor above would otherwise
+ * carry on with what it read before.
  */
-export default function OffersPanel({ item }) {
+export default function OffersPanel({ item, onChanged }) {
   const [listings, setListings] = useState(null)
+  // The codes of the platforms that are the business's own store. `null` until
+  // they are known -- see `heldElsewhere` below, which reads that as "not
+  // known to be held anywhere else" rather than as "nowhere".
+  const [ownStore, setOwnStore] = useState(null)
   const [error, setError] = useState('')
   const [ending, setEnding] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -44,6 +53,27 @@ export default function OffersPanel({ item }) {
     }
   }, [item.id, reloads])
 
+  // Which platforms are the business's own store. `ListingOut` says which
+  // platform a listing is on but not whether that platform is the shop, and
+  // the difference decides whether this item may be offered at all -- so it
+  // is read from the platforms themselves rather than guessed from a code.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .listSalesVenues()
+      .then((venues) => {
+        if (cancelled) return
+        setOwnStore(new Set(venues.filter((v) => v.is_own_store).map((v) => v.code)))
+      })
+      // Left unknown rather than assumed empty, and said out loud: a platform
+      // list that did not arrive must not quietly decide that this item can
+      // be offered nowhere.
+      .catch((err) => !cancelled && setError(err.message))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   async function end() {
     setBusy(true)
     setError('')
@@ -51,6 +81,7 @@ export default function OffersPanel({ item }) {
       await api.endListing(ending.id)
       setEnding(null)
       setReloads((n) => n + 1)
+      onChanged?.()
     } catch (err) {
       setError(err.message)
       setEnding(null)
@@ -68,10 +99,25 @@ export default function OffersPanel({ item }) {
     )
   }
 
-  // Nothing may be offered while a listing holds the item -- the writer
-  // refuses a second offer -- so the button that would start one is shown
-  // only when nothing holds it.
-  const held = listings.some((l) => ON_OFFER.includes(l.status))
+  // An item held on ANOTHER platform is the one case the writer refuses
+  // outright -- "is active on eBay, listing #14: end it first" -- and the only
+  // one worth hiding the button for.
+  //
+  // The shop is not such a case, and this is the flow the spec designs
+  // (`docs/specs/selling-design.md`): offering an item that is active in the
+  // web store PAUSES that store listing with `paused_by_listing_id` set, and
+  // ending the new offer brings it back. Hiding the button here would make
+  // moving an item from the shop to eBay an End followed by an Offer, which
+  // destroys the very store listing the pause exists to preserve. Offering a
+  // shop item in the shop again is refused too, but per item and by the
+  // server -- `OfferDialog` shows that refusal in place, with the prices
+  // already typed still there.
+  //
+  // Until the platforms are known, nothing is known to hold it elsewhere: the
+  // button shows, and a platform that cannot take the item refuses it by name.
+  const heldElsewhere =
+    ownStore !== null &&
+    listings.some((l) => ON_OFFER.includes(l.status) && !ownStore.has(l.venue))
 
   return (
     <div className="offers-panel">
@@ -126,7 +172,9 @@ export default function OffersPanel({ item }) {
           </tbody>
         </table>
       )}
-      {!held && <button onClick={() => setOffering(true)}>Offer for sale...</button>}
+      {!heldElsewhere && (
+        <button onClick={() => setOffering(true)}>Offer for sale...</button>
+      )}
       {ending !== null && (
         <EndOfferConfirm
           listing={ending}
@@ -141,6 +189,7 @@ export default function OffersPanel({ item }) {
           onOffered={() => {
             setOffering(false)
             setReloads((n) => n + 1)
+            onChanged?.()
           }}
           onClose={() => setOffering(false)}
         />

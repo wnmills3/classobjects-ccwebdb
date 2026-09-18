@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -74,6 +74,9 @@ const ENDED = {
   external_url: null,
 }
 
+// The shop and one outside platform. `is_own_store` is the difference that
+// decides whether an item already on offer may be offered again, and it is
+// on the platform, not on the listing.
 const VENUES = [
   {
     code: 'store',
@@ -85,13 +88,48 @@ const VENUES = [
     processing_fixed: null,
     listing_fee: null,
   },
+  {
+    code: 'ebay',
+    name: 'eBay',
+    is_own_store: false,
+    is_active: true,
+    commission_rate: '0.1325',
+    processing_rate: '0.0290',
+    processing_fixed: '0.30',
+    listing_fee: null,
+  },
 ]
 
 const rowFor = (platform) =>
   screen.getByRole('row', { name: new RegExp(`^${platform}`) })
 
-function renderPanel(options) {
-  return renderWithProviders(<OffersPanel item={ITEM} />, options)
+function renderPanel(options = {}) {
+  const { onChanged = vi.fn(), ...rest } = options
+  return renderWithProviders(<OffersPanel item={ITEM} onChanged={onChanged} />, rest)
+}
+
+const offerButton = () => screen.queryByRole('button', { name: 'Offer for sale...' })
+
+/**
+ * Render with the platform list held back, and hand it over on demand.
+ *
+ * Whether the button shows depends on which platforms are the shop, and that
+ * arrives in its own request. Resolving it by hand is what makes "the button
+ * is still there" mean "still there once everything is known" rather than
+ * "still there because nothing has come back yet".
+ */
+function withHeldBackVenues() {
+  let hand
+  api.listSalesVenues.mockReturnValue(
+    new Promise((resolve) => {
+      hand = resolve
+    }),
+  )
+  return async (venues = VENUES) => {
+    await act(async () => {
+      hand(venues)
+    })
+  }
 }
 
 beforeEach(() => {
@@ -174,18 +212,84 @@ describe('OffersPanel', () => {
     expect(api.listListings).toHaveBeenCalledTimes(1)
   })
 
-  // Nothing is offered while another listing holds the item: the writer
-  // refuses a second offer, so the button that would start one is not there.
-  it('does not offer to start an offer while one is running', async () => {
+  // An item held on another platform is the one refusal that is not worth
+  // walking into: `offering_writes.offer` answers "is active on eBay, listing
+  // #14: end it first" and there is nothing to do about it here.
+  it('does not offer to start an offer while another platform holds the item', async () => {
+    const handOverVenues = withHeldBackVenues()
     renderPanel()
     await screen.findByRole('row', { name: /^eBay/ })
-    expect(screen.queryByRole('button', { name: 'Offer for sale...' })).toBeNull()
+    await handOverVenues()
+
+    expect(offerButton()).toBeNull()
+  })
+
+  // The case the spec designs (`docs/specs/selling-design.md`): an item
+  // active in the shop is offered elsewhere in ONE step, and its store
+  // listing is paused rather than destroyed. A panel that hid the button
+  // here would make that move an End followed by an Offer, throwing away the
+  // listing `paused_by_listing_id` exists to bring back.
+  it('offers an item that only the web store is holding', async () => {
+    const handOverVenues = withHeldBackVenues()
+    api.listListings.mockResolvedValue([{ ...STORE, status: 'active' }])
+    renderPanel()
+    await screen.findByRole('row', { name: /^Web store/ })
+    await handOverVenues()
+
+    expect(offerButton()).toBeVisible()
+  })
+
+  // Offering a shop item in the shop again IS refused -- by the server, per
+  // item, in the 409 the dialog shows in place with the prices still typed.
+  // Until the platforms are known, nothing is known to hold it elsewhere.
+  it('offers while it does not yet know which platforms are the shop', async () => {
+    withHeldBackVenues()
+    renderPanel()
+    await screen.findByRole('row', { name: /^eBay/ })
+
+    expect(offerButton()).toBeVisible()
+  })
+
+  it('says so when the platforms cannot be read, rather than hiding the button', async () => {
+    api.listSalesVenues.mockRejectedValue(new Error('No platforms'))
+    renderPanel()
+    await screen.findByRole('row', { name: /^eBay/ })
+
+    expect(await screen.findByText('No platforms')).toBeVisible()
+    expect(offerButton()).toBeVisible()
+  })
+
+  // Both writes change what the server says about the item -- whether it is
+  // for sale -- and the editor above this panel has to be told.
+  it('tells the editor after an offer is ended', async () => {
+    const user = userEvent.setup()
+    const onChanged = vi.fn()
+    renderPanel({ onChanged })
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    await user.click(within(row).getByRole('button', { name: 'End' }))
+    await user.click(screen.getByRole('button', { name: 'End listing' }))
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+  })
+
+  it('does not tell the editor about an end the server refused', async () => {
+    const user = userEvent.setup()
+    const onChanged = vi.fn()
+    api.endListing.mockRejectedValue(new Error('No such offer'))
+    renderPanel({ onChanged })
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    await user.click(within(row).getByRole('button', { name: 'End' }))
+    await user.click(screen.getByRole('button', { name: 'End listing' }))
+
+    expect(await screen.findByText('No such offer')).toBeVisible()
+    expect(onChanged).not.toHaveBeenCalled()
   })
 
   it('offers an item that is not on offer anywhere', async () => {
     const user = userEvent.setup()
+    const onChanged = vi.fn()
     api.listListings.mockResolvedValue([ENDED])
-    renderPanel()
+    renderPanel({ onChanged })
     await user.click(await screen.findByRole('button', { name: 'Offer for sale...' }))
 
     await screen.findByRole('option', { name: 'Web store' })
@@ -209,6 +313,8 @@ describe('OffersPanel', () => {
     // The new offer is on the server, not in this component's state.
     await waitFor(() => expect(api.listListings).toHaveBeenCalledTimes(2))
     expect(screen.queryByRole('dialog')).toBeNull()
+    // And the editor above is told, because the item is for sale now.
+    expect(onChanged).toHaveBeenCalled()
   })
 
   it('says so when the item has never been offered', async () => {

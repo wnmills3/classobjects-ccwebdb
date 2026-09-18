@@ -41,6 +41,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.getItemSales.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
+  // The offers panel reads the platforms too, to tell the shop from the rest.
+  api.listSalesVenues.mockResolvedValue([])
   api.getInventoryItem.mockResolvedValue(item)
   api.setItemReview.mockResolvedValue({ reviewed: ['description'] })
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
@@ -825,6 +827,58 @@ describe('An item for sale', () => {
       expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
         description: 'Winged Liberty dime',
         version: 4,
+        acknowledge_for_sale: true,
+      }),
+    )
+  })
+
+  // Offering the item from the panel makes it for sale, and the server then
+  // refuses any save that does not acknowledge that. Nothing on this form
+  // could explain such a refusal, so the form reads the item again.
+  it('asks for a change to be acknowledged after the panel offers the item', async () => {
+    const user = userEvent.setup()
+    const notYet = { ...item, version: 4, sale_state: [] }
+    api.getInventoryItem.mockResolvedValueOnce(notYet).mockResolvedValue({
+      ...forSale,
+      version: 5,
+      sale_state: [{ kind: 'listing', id: 14, text: 'listing #14 at 19.00' }],
+    })
+    api.listListings.mockResolvedValue([])
+    api.listSalesVenues.mockResolvedValue([
+      { code: 'store', name: 'Web store', is_own_store: true, is_active: true },
+    ])
+    api.createOffers.mockResolvedValue({ listings: [{ id: 14 }] })
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} />)
+
+    await screen.findByDisplayValue('Mercury Dime')
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await user.click(await screen.findByRole('button', { name: 'Offer for sale...' }))
+    await screen.findByRole('option', { name: 'Web store' })
+    await user.selectOptions(screen.getByLabelText('Platform'), 'store')
+    await user.type(screen.getByLabelText('Price for C-012'), '19.00')
+    await user.click(screen.getByRole('button', { name: 'Offer 1 for sale' }))
+
+    // Read again, so the form knows the item is spoken for now.
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This item is for sale: listing #14 at 19.00.',
+    )
+    expect(api.getInventoryItem).toHaveBeenCalledTimes(2)
+
+    const description = screen.getByDisplayValue('Mercury Dime')
+    await user.clear(description)
+    await user.type(description, 'Winged Liberty dime')
+    await user.click(screen.getByRole('checkbox', { name: 'Change it anyway' }))
+    await user.click(screen.getByRole('button', { name: /save/i }))
+
+    // The version from the fresh read, and the acknowledgement the server
+    // requires. Without the reload this save is a refusal the owner cannot
+    // account for.
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
+        description: 'Winged Liberty dime',
+        version: 5,
         acknowledge_for_sale: true,
       }),
     )
