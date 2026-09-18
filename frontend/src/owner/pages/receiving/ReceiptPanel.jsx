@@ -246,6 +246,12 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
         setForSaleRefusal({ detail: err.message, outcome })
         return
       }
+      // The dialog is modal -- ModalDialog's <dialog> opens with showModal()
+      // -- so an error left behind it while forSaleRefusal stays set is an
+      // error nobody can read. Clear it here so a resubmit's own failure
+      // (network, 500, an unrelated conflict) closes the dialog and surfaces
+      // where the operator can actually see it.
+      setForSaleRefusal(null)
       setError(err.message)
     } finally {
       setBusy(false)
