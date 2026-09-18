@@ -522,17 +522,18 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
 ) -> None:
     """Ending the offer must not undo an administrator's withdrawal.
 
-    `routers.catalog` withdraws a listing without clearing
-    `paused_by_listing_id`, so the pointer outlives the pause. Resuming on the
-    pointer alone would put a listing someone deliberately took down back in
-    the public shop, claiming the item again with it.
+    The catalogue API's retired `PATCH .../is_active` withdrew a listing
+    without clearing `paused_by_listing_id`, so the pointer outlived the
+    pause -- and old rows can still carry that shape. Resuming on the pointer
+    alone would put a listing someone deliberately took down back in the
+    public shop, claiming the item again with it.
     """
     item = listing.inventory_item
     ebay = _venue(db, "ebay-withdrawn")
     elsewhere = _offer_on(db, item, ebay)
     db.commit()
 
-    # Exactly what `catalog._set_listing_active(listing, False)` writes.
+    # Exactly what the catalogue API's retired PATCH wrote for is_active=False.
     listing.status = ListingStatus.ended
     listing.ended_at = utcnow()
     db.commit()

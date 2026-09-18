@@ -1195,9 +1195,10 @@ def update_item(
 ) -> InventoryItem:
     """Correct an item. Send `version` to be told about conflicts.
 
-    This is the editing path for the collection. `PATCH /api/catalog/{id}`
-    needs a listing, and an item is owned long before it is offered and after
-    it is sold -- most of this collection will never have a listing at all.
+    This is the editing path for the collection. `PATCH /api/listings/{id}`
+    (`app.routers.offers`) needs a listing, and an item is owned long before
+    it is offered and after it is sold -- most of this collection will never
+    have a listing at all.
     """
     item = _get_item(db, item_id)
 

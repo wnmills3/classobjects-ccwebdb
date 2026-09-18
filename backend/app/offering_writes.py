@@ -132,12 +132,13 @@ def _holding_claims() -> Select[tuple[OfferClaim]]:
 
     Two conditions, and both are needed. The claim is `active` or `paused`,
     never `released`. And the listing behind it is still on offer: a claim's
-    state follows its listing's status (see `OfferClaim`), but this module is
-    not the only writer of that status -- `routers.catalog` withdraws a
-    listing without touching its claims -- so a claim left reading `paused`
-    on an ended listing holds nothing. Everything that asks "is this item
-    spoken for" asks through here, or the answers disagree and an item is
-    either offered twice or never allowed back to `held`.
+    state follows its listing's status (see `OfferClaim`), but this module was
+    not always the only writer of that status -- the catalogue API's retired
+    `PATCH .../is_active` withdrew a listing without touching its claims -- so
+    a claim left reading `paused` on a listing an older write ended holds
+    nothing. Everything that asks "is this item spoken for" asks through here,
+    or the answers disagree and an item is either offered twice or never
+    allowed back to `held`.
     """
     return (
         select(OfferClaim)
@@ -474,10 +475,10 @@ def end_offer(db: Session, listing: Listing, *, sold: bool = False) -> None:
     ).scalar_one()
 
     # Still paused, not merely pointing here. A listing ended while it was
-    # paused keeps the pointer -- `routers.catalog` withdraws one without
-    # clearing it -- and resuming that would put a listing an administrator
-    # deliberately withdrew back into the public shop, re-claiming the item
-    # with it.
+    # paused keeps the pointer -- the catalogue API's retired
+    # `PATCH .../is_active` ended one without clearing it -- and resuming
+    # that would put a listing an administrator deliberately withdrew back
+    # into the public shop, re-claiming the item with it.
     paused_by_it = db.scalars(
         select(Listing)
         .where(

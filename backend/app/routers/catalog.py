@@ -1,4 +1,4 @@
-"""Catalogue endpoints. Reads are public; writes require an administrator.
+"""Catalogue endpoints: public reads only.
 
 A catalogue entry is a `listing` joined to the `inventory_item` behind it.
 Keeping them separate in the database is what lets an item be listed, delisted
@@ -6,6 +6,13 @@ and relisted at different prices without rewriting its history -- and what lets
 the public catalogue show a listing while the item's cost basis and storage
 location stay private. The API presents the pair as one resource, because that
 is how a shop is actually operated.
+
+Writing a listing -- offering an item, changing its price or wording, ending
+it -- is `app.routers.offers`. This module used to also create, update and
+delete catalogue entries; that path let "Manage" create an item and a listing
+together, which contradicted entering nothing outside a purchase, and it could
+never offer an item the business already owned. `app.offering_writes` is now
+the only writer of `listing.status` and the claims that go with it.
 """
 
 from __future__ import annotations
@@ -15,78 +22,15 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.orm.exc import StaleDataError
 
 from .. import grades, offering_writes
-from ..deps import AdminUser, DbSession
-from ..lifecycle_writes import record_initial_status
-from ..models import (
-    Authenticity,
-    BullionForm,
-    Country,
-    Currency,
-    Denomination,
-    Disposition,
-    Grade,
-    GradingService,
-    InventoryItem,
-    ItemKind,
-    ItemStatus,
-    Listing,
-    ListingStatus,
-    Metal,
-    ProvenanceSource,
-    SalesOrderChange,
-    SalesOrderItem,
-    StorageForm,
-    StrikeType,
-    ValuationBasis,
-    utcnow,
-)
-from ..references import code_to_id, require_code
-from ..sales_venues import store_venue_id
-from ..schemas import (
-    CatalogItemCreate,
-    CatalogItemOut,
-    CatalogItemUpdate,
-    CatalogPage,
-)
-from ..years import YEAR_FIELDS, refuse_backwards, resolve_years
+from ..deps import DbSession
+from ..models import Country, Grade, InventoryItem, ItemKind, Listing, Metal
+from ..references import code_to_id
+from ..schemas import CatalogItemOut, CatalogPage
 from .images import image_urls
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
-
-#: Classifier fields a client may set, and the table each resolves against.
-CLASSIFIERS: dict[str, type] = {
-    "item_kind": ItemKind,
-    "country": Country,
-    "denomination": Denomination,
-    "bullion_form": BullionForm,
-    "strike_type": StrikeType,
-    "grade": Grade,
-    "grading_service": GradingService,
-    "metal": Metal,
-}
-
-#: Payload field -> column on `inventory_item`, for the fields a client may
-#: set directly.
-#:
-#: A mapping rather than a tuple because the two vocabularies have diverged.
-#: The shop says `title` and `price`; the item says `source_title` (what the
-#: row was called where it came from) and `item_cost` (what was paid for it,
-#: as against `listing.price`, what it is offered for). One lookup table is
-#: the honest way to hold both -- a tuple of shared names would silently be
-#: wrong the moment one of them differed, which it now does.
-ITEM_SCALARS: dict[str, str] = {
-    "title": "source_title",
-    "description": "description",
-    "year_start": "year_start",
-    "year_end": "year_end",
-    "fineness": "fineness",
-    "gross_weight_ozt": "gross_weight_ozt",
-    "fine_weight_ozt": "fine_weight_ozt",
-    "piece_count": "piece_count",
-}
 
 
 def _eager(stmt: Select[Any]) -> Select[Any]:
@@ -167,31 +111,6 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         created_at=listing.created_at,
         updated_at=listing.updated_at,
     )
-
-
-def _resolve_classifiers(db: Session, payload: dict[str, Any]) -> dict[str, int | None]:
-    """Turn the classifier codes in a payload into foreign key values.
-
-    A compound grade (MS65) is split into its number and strike type first.
-    """
-    payload = dict(payload)
-    if payload.get("grade"):
-        grade, strike = grades.split_fields(
-            payload["grade"], payload.get("strike_type")
-        )
-        payload["grade"] = grade
-        if strike is not None:
-            payload["strike_type"] = strike
-    resolved: dict[str, int | None] = {}
-    for field, model in CLASSIFIERS.items():
-        if field not in payload:
-            continue
-        code = payload[field]
-        if field == "item_kind":
-            resolved["item_kind_id"] = require_code(db, model, code, field)
-        else:
-            resolved[f"{field}_id"] = code_to_id(db, model, code, field)
-    return resolved
 
 
 @router.get("")
@@ -302,189 +221,3 @@ def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
             status_code=status.HTTP_404_NOT_FOUND, detail="Catalogue item not found"
         )
     return to_catalog_item(listing)
-
-
-def _set_listing_active(listing: Listing, active: bool) -> None:
-    """Move a listing between active and ended, keeping `ended_at` with it.
-
-    The two must move together. `ended_at` is a single column, not a history,
-    so the only thing it can say truthfully is when this listing's *current*
-    ending happened: it is stamped when the listing ends and cleared when the
-    listing comes back, leaving `ended_at is None` exactly when the listing is
-    active. `splitting.split_item` already writes both when it ends a lot's
-    listings; this is the same rule for the catalogue API's two write paths.
-    """
-    listing.status = ListingStatus.active if active else ListingStatus.ended
-    listing.ended_at = None if active else utcnow()
-
-
-@router.post("", status_code=status.HTTP_201_CREATED)
-def create_catalog_item(
-    payload: CatalogItemCreate, db: DbSession, _admin: AdminUser
-) -> CatalogItemOut:
-    """Create the inventory item and the listing that offers it, together."""
-    data = payload.model_dump()
-    classifiers = _resolve_classifiers(db, data)
-    # A year given alone is a single year. model_dump fills an unsent end with
-    # None, so only the years actually given are passed to be resolved.
-    given = {field: data[field] for field in YEAR_FIELDS if data[field] is not None}
-    if (years := resolve_years((None, None), given)) is not None:
-        data["year_start"], data["year_end"] = years
-
-    item = InventoryItem(
-        **{column: data[field] for field, column in ITEM_SCALARS.items()},
-        **classifiers,
-        # Sensible defaults for an item created through the shop: it is on
-        # hand, unverified until someone says otherwise, and listed.
-        storage_form_id=require_code(db, StorageForm, "single", "storage_form"),
-        authenticity_id=require_code(db, Authenticity, "unverified", "authenticity"),
-        status_id=require_code(db, ItemStatus, "received", "status"),
-        disposition_id=require_code(db, Disposition, "listed", "disposition"),
-        valuation_basis_id=require_code(
-            db, ValuationBasis, "numismatic", "valuation_basis"
-        ),
-        source=ProvenanceSource.manual,
-    )
-    db.add(item)
-    db.flush()
-
-    # Every creation path writes the opening row for its item's history --
-    # see `lifecycle_writes.record_initial_status`. This one names its
-    # origin and the admin who did it, since both are known here.
-    record_initial_status(
-        db, item, user_id=_admin.id, note="created through the catalogue API"
-    )
-
-    listing = Listing(
-        inventory_item_id=item.id,
-        price=data["price"],
-        currency_id=require_code(db, Currency, data["currency"], "currency"),
-        quantity_available=data["quantity_available"],
-        sales_venue_id=store_venue_id(db),
-    )
-    _set_listing_active(listing, data["is_active"])
-    db.add(listing)
-    db.commit()
-
-    return to_catalog_item(_get_listing(db, listing.id))
-
-
-@router.patch("/{listing_id}")
-def update_catalog_item(
-    listing_id: int, payload: CatalogItemUpdate, db: DbSession, _admin: AdminUser
-) -> CatalogItemOut:
-    """Change a catalogue entry. Send `version` to be told about conflicts."""
-    listing = _get_listing(db, listing_id)
-    item = listing.inventory_item
-
-    # exclude_unset so an omitted field is left alone rather than nulled.
-    data = payload.model_dump(exclude_unset=True)
-    expected = data.pop("version", None)
-
-    # This is what catches the ordinary lost-update case: two staff, each with
-    # a form loaded at a different time, and the second one saving over the
-    # first. The listing and item are re-fetched fresh at the top of every
-    # request, so nothing later in this function -- including the database's
-    # own version_id_col checks on each row -- ever sees a token from an
-    # earlier request; only this comparison, against the opaque combined
-    # token the caller actually sent, does.
-    current = version_token(listing, item)
-    if expected is not None and expected != current:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"This item was changed by someone else (you have version "
-                f"{expected}, current is {current}). Reload and reapply your "
-                f"changes."
-            ),
-        )
-
-    # Before anything is set: a refused year leaves the entry untouched.
-    years = resolve_years((item.year_start, item.year_end), data)
-    if years is not None:
-        refuse_backwards(years, item.item_code)
-
-    for field, value in _resolve_classifiers(db, data).items():
-        setattr(item, field, value)
-    for field, column in ITEM_SCALARS.items():
-        if field in data and field not in YEAR_FIELDS:
-            setattr(item, column, data[field])
-    if years is not None:
-        item.year_start, item.year_end = years
-
-    for field in ("price", "quantity_available"):
-        if field in data:
-            setattr(listing, field, data[field])
-    if "is_active" in data:
-        _set_listing_active(listing, data["is_active"])
-
-    # Withdrawing the last listing puts the item back to simply being held.
-    if data.get("is_active") is False:
-        item.disposition_id = require_code(db, Disposition, "held", "disposition")
-    elif data.get("is_active") is True:
-        item.disposition_id = require_code(db, Disposition, "listed", "disposition")
-
-    try:
-        db.commit()
-    except StaleDataError as exc:
-        # A narrower race than the check above: another commit landed inside
-        # this request's own read-to-commit window, after the listing or item
-        # was loaded here but before this commit. The UPDATE carried
-        # `WHERE version = ...` and matched no rows, so nothing was
-        # overwritten.
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This item was changed by someone else. Reload and reapply "
-            "your changes.",
-        ) from exc
-
-    return to_catalog_item(_get_listing(db, listing_id))
-
-
-@router.delete("/{listing_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_catalog_item(listing_id: int, db: DbSession, _admin: AdminUser) -> None:
-    """Remove a listing, and the item behind it when nothing else refers to it.
-
-    An item that has been ordered is never deleted: order history must keep
-    resolving to what was actually bought. That history survives a revision
-    that drops the listing's order line -- `sales_order_change.listing_id`
-    keeps referring to it -- so the guard below counts both tables, not just
-    current order lines.
-    """
-    listing = _get_listing(db, listing_id)
-
-    ordered = db.scalar(
-        select(func.count())
-        .select_from(SalesOrderItem)
-        .where(SalesOrderItem.listing_id == listing.id)
-    )
-    in_history = db.scalar(
-        select(func.count())
-        .select_from(SalesOrderChange)
-        .where(SalesOrderChange.listing_id == listing.id)
-    )
-    if ordered or in_history:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "This listing appears in existing orders and cannot be deleted. "
-                "Set is_active to false to withdraw it from sale."
-            ),
-        )
-
-    item = listing.inventory_item
-    db.delete(listing)
-    db.flush()
-
-    # The item outlives the listing when it is still offered elsewhere; an
-    # item created through the shop and never ordered goes with it.
-    remaining = db.scalar(
-        select(func.count())
-        .select_from(Listing)
-        .where(Listing.inventory_item_id == item.id)
-    )
-    if not remaining:
-        db.delete(item)
-
-    db.commit()
