@@ -6,6 +6,22 @@ import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 
 /**
+ * The set as it leaves this panel: no note is null, never the empty string.
+ *
+ * A row added with the note box left alone already sent null, but a note
+ * typed and then cleared sent "". The two mean the same thing to a person and
+ * are different rows to the database, so one of them would come back as an
+ * empty note that reads as a note. Normalised on the way out only: what is
+ * being typed stays exactly as typed.
+ */
+function withNoEmptyDetails(rows) {
+  return rows.map((row) => ({
+    ...row,
+    details: row.details === '' ? null : row.details,
+  }))
+}
+
+/**
  * Mint and printing errors recorded against one item -- a bill is commonly
  * miscut AND misprinted, so this is a set, each entry carrying its own note.
  *
@@ -29,7 +45,12 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
   const [error, setError] = useState('')
   const [type, setType] = useState('')
   const [details, setDetails] = useState('')
-  const vocabulary = useReference('error_type') ?? []
+  // `includeRetired`, for the same reason ReferenceSelect asks for it: a type
+  // already recorded against an item may since have been retired, and without
+  // the retired values here its row would render the raw code instead of its
+  // label. The picker below still offers only active ones -- that filtering
+  // is ReferenceSelect's, not this list's.
+  const vocabulary = useReference('error_type', { includeRetired: true }) ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
 
   useEffect(() => {
@@ -64,7 +85,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
 
   /** Applies `next` where it lives: the caller's state, or this panel's own. */
   function setList(next) {
-    if (controlled) onChange(next)
+    if (controlled) onChange(withNoEmptyDetails(next))
     else setRows(next)
   }
 
@@ -83,7 +104,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
   function save(next) {
     if (controlled) return
     api
-      .setItemErrors(itemId, next)
+      .setItemErrors(itemId, withNoEmptyDetails(next))
       .then(() => setError(''))
       .catch((err) => setError(err.message))
   }
@@ -114,57 +135,81 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
     )
   }
 
-  if (!controlled && rows === null) return <p className="muted">Loading...</p>
+  const loading = !controlled && rows === null
 
+  // The heading is inside the panel rather than at each of the three mount
+  // points, so every one of them says what this is: without it the panel read
+  // as a stray dropdown whose only accessible name was the table's own name,
+  // `error_type`. `field` is the shape the item editor's other rows use (see
+  // AttributesField): the label in the first grid column, the controls in the
+  // second. In Receiving and the new-item form, where no `.edit-form` grid is
+  // in play, it lays out as a plain block -- still labelled, which is the
+  // part that was missing everywhere.
   return (
-    <div className="errors-panel">
-      {error && <p className="error">{error}</p>}
-      <ul className="error-list">
-        {list.map((row) => {
-          const label = byCode.get(row.error_type)?.label ?? row.error_type
-          return (
-            <li key={row.error_type}>
-              <span>{label}</span>
-              <input
-                aria-label={`${label} details`}
-                value={row.details ?? ''}
-                onChange={(e) => editDetails(row.error_type, e.target.value)}
-                onBlur={() => save(list)}
-              />
-              <button type="button" onClick={() => removeRow(row.error_type)}>
-                Remove {label}
-              </button>
-            </li>
-          )
-        })}
-      </ul>
-      <div className="add-error">
-        <ReferenceSelect
-          table="error_type"
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          allowAdd
-          labelOnly
-          // No top-level `applies_to` field -- see AttributesField in
-          // ItemEditForm.jsx for the same shape. An error type added here
-          // without the item's side would fit no kind and vanish from this
-          // very picker the moment it appeared (`fitsKind`, whose exact
-          // inverse `sideFor` is); `error_type` has no `attribute_group`
-          // column, so nothing else goes in `extra`.
-          addFields={{ applies_to: sideFor(kind) }}
-          filter={(entry) =>
-            fitsKind(entry, kind) && !list.some((row) => row.error_type === entry.code)
-          }
-        />
-        <input
-          placeholder="details"
-          value={details}
-          onChange={(e) => setDetails(e.target.value)}
-        />
-        <button type="button" onClick={addRow} disabled={!type}>
-          Add error
-        </button>
+    <div className="field errors-panel">
+      <span>Errors</span>
+      <div className="error-body">
+        {loading && <p className="muted">Loading...</p>}
+        {!loading && error && <p className="error">{error}</p>}
+        {!loading && (
+          <ul className="error-list">
+            {list.map((row) => {
+              const label = byCode.get(row.error_type)?.label ?? row.error_type
+              return (
+                <li key={row.error_type}>
+                  <span>{label}</span>
+                  <input
+                    aria-label={`${label} details`}
+                    value={row.details ?? ''}
+                    onChange={(e) => editDetails(row.error_type, e.target.value)}
+                    onBlur={() => save(list)}
+                  />
+                  <button type="button" onClick={() => removeRow(row.error_type)}>
+                    Remove {label}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        {!loading && (
+          <div className="add-error">
+            <ReferenceSelect
+              table="error_type"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              allowAdd
+              labelOnly
+              // No top-level `applies_to` field -- see AttributesField in
+              // ItemEditForm.jsx for the same shape. An error type added here
+              // without the item's side would fit no kind and vanish from
+              // this very picker the moment it appeared (`fitsKind`, whose
+              // exact inverse `sideFor` is); `error_type` has no
+              // `attribute_group` column, so nothing else goes in `extra`.
+              addFields={{ applies_to: sideFor(kind) }}
+              filter={(entry) =>
+                fitsKind(entry, kind) &&
+                !list.some((row) => row.error_type === entry.code)
+              }
+            />
+            {/* Labelled, not just placeheld: a placeholder disappears the
+                moment anything is typed, and "details" beside a picker whose
+                own name is `error_type` said nothing about which error it
+                belongs to. */}
+            <input
+              aria-label="details for the error being added"
+              placeholder="details"
+              value={details}
+              onChange={(e) => setDetails(e.target.value)}
+            />
+            <button type="button" onClick={addRow} disabled={!type}>
+              Add error
+            </button>
+          </div>
+        )}
       </div>
+      <span />
+      <span />
     </div>
   )
 }

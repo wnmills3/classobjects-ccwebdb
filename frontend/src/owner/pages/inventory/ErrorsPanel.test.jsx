@@ -171,6 +171,65 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
   // were dead for the rest of the panel's life, so in the owner's real
   // console a failed PUT left the row looking saved with nothing said. Only a
   // StrictMode render can see that, which is why this one asks for it.
+  it('names itself, so the picker is not a stray dropdown', async () => {
+    api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+    await screen.findByRole('combobox', { name: 'error_type' })
+
+    // The heading, and the box beside the picker, both say what they are --
+    // the panel used to offer neither, in any of its three mount points.
+    expect(screen.getByText('Errors')).toBeVisible()
+    expect(
+      screen.getByRole('textbox', { name: 'details for the error being added' }),
+    ).toBeVisible()
+  })
+
+  it('shows a retired type by its label, not its raw code', async () => {
+    // A type recorded against an item can be retired afterwards. The panel
+    // asks for retired values for exactly this reason (ReferenceSelect does
+    // the same); without them the row falls back to showing `miscut`.
+    api.getItemErrors.mockResolvedValue({
+      inventory_item_id: 12,
+      errors: [{ error_type: 'miscut', details: null, source: 'manual', noted_at: '' }],
+    })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: emptyReference({
+        tables: {
+          error_type: [{ ...errorType('miscut', 'Miscut', 'any'), is_active: false }],
+        },
+      }),
+    })
+
+    expect(await screen.findByText('Miscut')).toBeVisible()
+    expect(screen.queryByText('miscut')).toBeNull()
+  })
+
+  it('sends a cleared note as no note, not as an empty one', async () => {
+    // Adding a row with the box untouched already sent null; clearing a note
+    // sent "". Same thing to a person, two different rows in the database.
+    const user = userEvent.setup()
+    api.getItemErrors.mockResolvedValue({
+      inventory_item_id: 12,
+      errors: [
+        { error_type: 'miscut', details: 'note a', source: 'manual', noted_at: '' },
+      ],
+    })
+    api.setItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+    const input = await screen.findByLabelText('Miscut details')
+
+    await user.clear(input)
+    await user.tab()
+
+    expect(api.setItemErrors).toHaveBeenCalledWith(12, [
+      { error_type: 'miscut', details: null },
+    ])
+  })
+
   it('shows the message and keeps the rows when a save fails', async () => {
     const user = userEvent.setup()
     api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
@@ -233,6 +292,24 @@ describe('ErrorsPanel, controlled (itemId null)', () => {
     expect(screen.getByText('Miscut')).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'Remove Miscut' }))
     expect(onChange).toHaveBeenCalledWith([])
+  })
+
+  it('reports a cleared note as no note, the same as the saving mode sends', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    renderWithProviders(
+      <ErrorsPanel
+        itemId={null}
+        kind="currency"
+        value={[{ error_type: 'miscut', details: 'a note' }]}
+        onChange={onChange}
+      />,
+      { reference: vocabularies },
+    )
+
+    await user.clear(screen.getByLabelText('Miscut details'))
+
+    expect(onChange).toHaveBeenLastCalledWith([{ error_type: 'miscut', details: null }])
   })
 })
 
