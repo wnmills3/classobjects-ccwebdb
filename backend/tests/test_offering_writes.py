@@ -9,6 +9,7 @@ import pytest
 from app import offering_writes, sale_state
 from app.models import (
     ClaimState,
+    Customer,
     Disposition,
     InventoryItem,
     ItemStatus,
@@ -16,8 +17,12 @@ from app.models import (
     ListingFormat,
     ListingStatus,
     OfferClaim,
+    SalesOrder,
+    SalesOrderItem,
+    SalesOrderStatus,
     SalesVenue,
     SalesVenueKind,
+    User,
     utcnow,
 )
 from sqlalchemy import select, update
@@ -148,6 +153,39 @@ def _claim_states(db: Session, item: InventoryItem) -> dict[int, ClaimState]:
             select(OfferClaim).where(OfferClaim.inventory_item_id == item.id)
         )
     }
+
+
+def _order_holding(
+    db: Session,
+    listing: Listing,
+    customer_user: User,
+    admin_user: User,
+    status_code: str = "pending",
+) -> SalesOrder:
+    """An order with one line on this listing, in the state the code names."""
+    customer = Customer(user_id=customer_user.id, display_name="Buyer")
+    db.add(customer)
+    db.flush()
+    order = SalesOrder(
+        customer_id=customer.id,
+        sales_venue_id=listing.sales_venue_id,
+        sales_order_status_id=db.scalars(
+            select(SalesOrderStatus.id).where(SalesOrderStatus.code == status_code)
+        ).one(),
+        placed_by_id=admin_user.id,
+    )
+    db.add(order)
+    db.flush()
+    db.add(
+        SalesOrderItem(
+            sales_order_id=order.id,
+            listing_id=listing.id,
+            quantity=1,
+            unit_price=Decimal("99.00"),
+        )
+    )
+    db.flush()
+    return order
 
 
 def _set_disposition(db: Session, item: InventoryItem, code: str) -> None:
@@ -320,6 +358,83 @@ def test_a_retired_platform_cannot_be_offered_on(
             external_id=None,
             quantity=1,
         )
+
+
+def test_a_sold_item_cannot_be_offered(db: Session, listing: Listing) -> None:
+    """The other half of the asymmetry `end_offer` already keeps.
+
+    A shop sale leaves the store listing active at zero stock and the item
+    `sold` (`order_writes._after_stock_change`), and `end_offer` is careful
+    never to file that item back as `held`. Without the same care here,
+    offering it on a platform pauses the store listing and rewrites `sold`
+    back to `listed` -- putting the buyer's coin up for sale a second time.
+
+    Nothing may be written either: every refusal is decided before the first
+    write, which is what makes a batch of offers all or nothing.
+    """
+    item = listing.inventory_item
+    listing.quantity_available = 0
+    _set_disposition(db, item, "sold")
+    db.commit()
+    ebay = _venue(db, "ebay-already-sold")
+
+    with pytest.raises(offering_writes.OfferRefused) as refused:
+        _offer_on(db, item, ebay)
+
+    assert refused.value.item_code == item.item_code
+    assert "sold" in refused.value.reason
+    assert str(refused.value).startswith(f"{item.item_code}: ")
+    assert listing.status is ListingStatus.active
+    assert item.disposition.code == "sold"
+    assert _claim_states(db, item) == {}
+
+
+def test_an_item_an_unshipped_order_holds_cannot_be_offered(
+    db: Session, listing: Listing, customer_user: User, admin_user: User
+) -> None:
+    """A buyer's unshipped order is a claim on the coin, not just on stock.
+
+    `app.sale_state` already counts a pending, paid or packed order as the
+    item being spoken for -- it is why the console refuses a silent edit.
+    The same order is a reason not to offer the coin somewhere else, and
+    asking `sale_state` keeps one definition of "spoken for" rather than two
+    that can drift.
+    """
+    item = listing.inventory_item
+    order = _order_holding(db, listing, customer_user, admin_user)
+    db.commit()
+    ebay = _venue(db, "ebay-on-order")
+
+    with pytest.raises(offering_writes.OfferRefused) as refused:
+        _offer_on(db, item, ebay)
+
+    assert refused.value.item_code == item.item_code
+    assert f"order #{order.id}" in refused.value.reason
+    assert listing.status is ListingStatus.active
+    assert _claim_states(db, item) == {}
+
+
+def test_an_item_whose_order_has_shipped_can_be_offered_again(
+    db: Session, listing: Listing, customer_user: User, admin_user: User
+) -> None:
+    """Only an *unshipped* order holds the item; a returned coin is offerable.
+
+    `sale_state` stops counting an order once it ships, and a coin the buyer
+    sent back is `returned_by_buyer` -- in hand, and offering it again is
+    exactly what happens next. Refusing either would be a dead end, since
+    nothing moves a disposition backwards.
+    """
+    item = listing.inventory_item
+    _order_holding(db, listing, customer_user, admin_user, status_code="shipped")
+    _set_disposition(db, item, "returned_by_buyer")
+    db.commit()
+    ebay = _venue(db, "ebay-returned")
+
+    made = _offer_on(db, item, ebay)
+    db.commit()
+
+    assert made.status is ListingStatus.active
+    assert item.disposition.code == "listed"
 
 
 def test_ending_an_offer_resumes_the_paused_store_listing(

@@ -8,8 +8,10 @@ what the first one has to get right everywhere.
 `lifecycle_writes.py`. An item is offered in one place at a time: offering it
 elsewhere pauses the store listing that held it, ending that offer unsold
 resumes the store listing, and ending it sold ends the store listing instead,
-so a sold item never comes back into the shop. The partial unique index on
-`offer_claim` is the backstop if two requests still race.
+so a sold item never comes back into the shop. Offering is refused for the
+same reason it is not undone: an item a buyer has already bought, or that an
+unshipped order holds, is not the business's to offer again. The partial
+unique index on `offer_claim` is the backstop if two requests still race.
 
 The writes here take the affected `inventory_item` rows `FOR UPDATE`, in id
 order, and re-read them under the lock -- the lock alone would leave the
@@ -277,6 +279,48 @@ def _locked_offers(db: Session, item_id: int) -> Sequence[Listing]:
 # --------------------------------------------------------------------------
 
 
+#: Dispositions that say the item has been sold and is no longer ours to
+#: offer. The mirror image of `end_offer`'s rule that only a `listed` item
+#: goes back to `held`: `held` and `listed` are the two this module owns, and
+#: a sale wrote the rest. `returned_by_buyer` is deliberately absent -- that
+#: coin came back and offering it again is exactly what happens next, so
+#: refusing it would be a dead end with no remedy.
+SOLD_AWAY = frozenset({"sold", "shipped", "delivered"})
+
+
+def _refuse_sold(db: Session, item: InventoryItem) -> None:
+    """Refuse an item a buyer has already bought, naming what holds it.
+
+    Two ways to be spoken for, and `app.sale_state` already knows both: the
+    disposition a settled sale wrote, and an order that has not shipped. The
+    order half is asked through `sale_state.for_sale` rather than queried
+    again here, so "spoken for" has one definition -- the one the console
+    warns on before an edit -- instead of two that can drift apart. Only its
+    order half is consulted: a listing offering the item is not a refusal but
+    the ordinary case `offer` pauses, and it has its own messages below.
+
+    Imported here rather than at the top because `sale_state` imports this
+    module: it is the reader built on top of this writer, and the dependency
+    is meant to run that way round. A module-level import back would make the
+    two load correctly only in one order, which is the same trap
+    `reference_merge.plan` avoids the same way.
+    """
+    from . import sale_state
+
+    disposition = item.disposition.code
+    if disposition in SOLD_AWAY:
+        raise OfferRefused(
+            item.item_code, f"has already been sold (it is {disposition})"
+        )
+    held_by = [
+        use
+        for use in sale_state.for_sale(db, [item.id]).get(item.id, [])
+        if use.kind == "order"
+    ]
+    if held_by:
+        raise OfferRefused(item.item_code, f"is held by {held_by[0].text}")
+
+
 def _refuse_unofferable(db: Session, item: InventoryItem, venue: SalesVenue) -> None:
     """Refuse an item that is not the business's to offer, naming which reason."""
     if item.deleted_at is not None:
@@ -290,6 +334,7 @@ def _refuse_unofferable(db: Session, item: InventoryItem, venue: SalesVenue) -> 
         raise OfferRefused(item.item_code, f"is not received (it is {status})")
     if not venue.is_active:
         raise OfferRefused(item.item_code, f"{venue.name} is retired")
+    _refuse_sold(db, item)
 
 
 def offer(
