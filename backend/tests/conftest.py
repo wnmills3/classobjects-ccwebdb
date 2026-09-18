@@ -154,6 +154,14 @@ def db(engine: Engine) -> Iterator[Session]:
     """
     connection = engine.connect()
     transaction = connection.begin()
+    # No `autoflush` argument, so this session flushes on every query --
+    # production's `SessionLocal` (app/database.py) sets `autoflush=False`.
+    # The divergence hides one shape of bug: code that assigns a column and
+    # then calls a writer which re-reads that row with `populate_existing`
+    # loses the assignment in production, but not here, because the query
+    # inside the writer flushes it first. A test that needs production's
+    # ordering has to opt out for itself, with `db.autoflush = False` or
+    # `db.no_autoflush` -- see `test_for_sale_guards.py`.
     session = Session(bind=connection, join_transaction_mode="create_savepoint")
 
     yield session
