@@ -279,10 +279,20 @@ FROM computed c
 # may appear. See PUBLIC_CATALOG_FORBIDDEN_COLUMNS and its test.
 #
 # Its WHERE clause states the shop's rule -- own store, fixed price, active --
-# a third time, and this one cannot be shared: a database view is SQL text
-# created by a migration, so it can call neither
-# `offering_writes.sellable_in_shop` nor `shop_listing_filters`. If that rule
-# changes, this clause changes with them.
+# a third time, plus three guards the Python twin does not need. This one
+# cannot be shared: a database view is SQL text created by a migration, so it
+# can call neither `offering_writes.sellable_in_shop` nor
+# `shop_listing_filters`. If the three-part rule changes, this clause changes
+# with them -- do not delete the extra guards to "keep it in sync", they are
+# not part of that rule:
+#   - `quantity_available > 0` is deliberate, not drift: this view is the
+#     authorisation boundary and never shows a sold-out entry, while
+#     `GET /api/catalog` exposes `in_stock` so the shop can choose to. Checkout
+#     enforces stock itself.
+#   - `split_at IS NULL` and `deleted_at IS NULL` guard states the rest of the
+#     code already makes unreachable (splitting ends every listing on the
+#     parent; `delete_item` refuses while any listing row exists) -- kept here
+#     because this view has no other code path to lean on for that.
 _PUBLIC_CATALOG = """
 CREATE VIEW public_catalog AS
 SELECT

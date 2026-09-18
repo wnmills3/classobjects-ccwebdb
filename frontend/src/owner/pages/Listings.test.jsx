@@ -284,6 +284,27 @@ describe('Listings', () => {
     expect(api.endListing).not.toHaveBeenCalled()
   })
 
+  // A paused row IS the store listing set aside for the eBay offer, not an
+  // offer with a store listing to resume -- so the wording must not promise a
+  // resume that will not happen, and must say the eBay offer is untouched.
+  it('asks a different question before ending a paused row', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^Web store/ })
+    await user.click(within(row).getByRole('button', { name: 'End' }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveAccessibleName('End listing #8 for C-0007 on Web store?')
+    expect(within(dialog).getByText(/not recorded as sold/)).toBeVisible()
+    expect(
+      within(dialog).getByText(
+        /It was set aside for an offer elsewhere, and that offer is not affected by ending this one\./,
+      ),
+    ).toBeVisible()
+    expect(within(dialog).queryByText(/goes back on sale/)).toBeNull()
+    expect(api.endListing).not.toHaveBeenCalled()
+  })
+
   it('ends nothing when the confirmation is dismissed', async () => {
     const user = userEvent.setup()
     renderPage()

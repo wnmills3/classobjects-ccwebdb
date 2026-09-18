@@ -152,9 +152,9 @@ export const api = {
   //
   // A refused batch is a 409 whose body is {detail, refused: [{item_code,
   // reason}]}, and `refused` is always present -- the race case included.
-  // `send` turns a failure into an ApiError carrying only `detail`, so the
-  // per-item reasons do not reach a caller today; the offer dialog that has
-  // to list them (phase 2's next task) needs `send` to keep the body.
+  // `send` throws an ApiError carrying the whole parsed body, not just
+  // `detail`, so `OfferDialog` reads `err.body?.refused` to list every
+  // refused item with its reason.
   createOffers: (payload) => send('/api/offers', { method: 'POST', body: payload }),
   listListings: (params = {}) => {
     const qs = query(params)
