@@ -323,8 +323,16 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           bulk semantic to show this against; it appears once the selection
           narrows to one. Unlike the Friedberg section this is not gated on
           `isCurrency`: a coin has its own mint errors (off-center, clipped
-          planchet) just as a note has printing ones. */}
-      {singleItemId != null && (
+          planchet) just as a note has printing ones.
+
+          Also gated on `reviewIds === null`: `ReviewPane` above mounts
+          `ItemEditForm` for the same item, which has its own ErrorsPanel.
+          Both are self-saving and each PUT replaces the item's whole set --
+          two mounted at once for the same item would let an error added in
+          one silently discard one added in the other the moment either
+          saved. One panel for one item at a time; the editor's is the
+          richer of the two. */}
+      {singleItemId != null && reviewIds === null && (
         <ErrorsPanel key={singleItemId} itemId={singleItemId} kind={itemKind} />
       )}
 
