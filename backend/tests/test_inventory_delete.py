@@ -120,6 +120,28 @@ def test_a_listed_item_cannot_be_deleted(
     assert "listing" in response.json()["detail"].lower()
 
 
+def test_an_ended_listing_still_refuses_and_the_message_says_so(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The refusal is permanent, and must not name a step that cannot clear it.
+
+    Ending an offer leaves the listing row in place, and nothing removes one
+    -- the catalogue's delete endpoint was retired in phase 2. So "withdraw
+    the listing first" was a remedy that could never work. The rule itself is
+    right: once a coin has been offered the offer is part of the sales
+    history, so the message has to state that instead.
+    """
+    listing = build_listing(db, is_active=False)
+    response = client.delete(
+        f"/api/inventory/{listing.inventory_item_id}", headers=admin_headers
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "permanently" in detail
+    assert "withdraw" not in detail.lower()
+
+
 def test_detaching_leaves_a_standalone_item(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
