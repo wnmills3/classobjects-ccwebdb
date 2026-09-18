@@ -824,9 +824,13 @@ A value marked `any`, or matching the item's side, is offered; a value for
 the other side is not -- a banknote's denomination picker never lists a
 coin's, and its error-type picker never lists a coin's mint errors.
 
-**Adding a value while entering.** Several pickers -- attributes, error
-types, and the rest of the descriptive vocabularies -- offer "+ Add a new
-value..." at the bottom of the list. Typing a label is enough:
+**Adding a value while entering.** Every descriptive vocabulary's picker
+offers "+ Add a new value..." at the bottom of the list. Two of them --
+attributes and error types -- ask for the label alone: nothing about "Star
+Note" that a person would type needs a separate code entered by hand. The
+rest still ask for a code and a label, both typed.
+
+Where the label alone is enough:
 
 - **The code is derived** from what was typed, lower-cased with punctuation
   turned to underscores ("Mismatched Serial" becomes `mismatched_serial`),
@@ -845,7 +849,8 @@ value..." at the bottom of the list. Typing a label is enough:
   than have one picked silently; leaving it for later on the Vocabularies
   page is not an option at entry time. Error types carry no group and are
   not asked for one.
-- **The new value is marked `manual`**, the same provenance a hand
+- **The new value is marked `manual`** -- this last one however it was added,
+  code typed or derived. It is the same provenance a hand
   correction gets, so it stays distinguishable from the shipped catalogue and
   from what an import has inferred, and it is left out of an export by
   default (`python -m app.seeding export`, whose `--source` defaults to
@@ -931,7 +936,15 @@ One panel is mounted in three places:
 |---|---|
 | The item editor, beside Attributes | Its own `PUT`, independent of the Save button -- an error recorded here is not held back by, or lost to, a discarded edit elsewhere on the form |
 | **New item** | Held on the form; sent once the item itself has been created |
-| **Receiving**, in the per-item dialog | Its own `PUT`, the same as the item editor |
+| **Receiving**, in the per-item dialog, and only when **exactly one** item is ticked | Its own `PUT`, the same as the item editor |
+
+On Receiving the panel appears only for a single ticked item, because `PUT
+/api/inventory/{id}/errors` replaces **one** item's set and there is no honest
+bulk meaning to give it for several parcels received together -- the same
+reason a photograph is refused there. It also waits for that item's own record
+to load, since the type picker cannot be offered before the item's kind is
+known: an unknown kind reads as a coin, and a banknote would be shown the
+sixteen coin error types.
 
 The type picker is filtered the same way a denomination picker is: a note is
 offered the eleven currency error types and the one type that applies to

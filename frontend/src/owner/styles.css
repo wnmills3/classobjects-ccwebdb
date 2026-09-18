@@ -191,6 +191,50 @@ button.link.danger {
   align-items: center;
 }
 
+/* An item's mint and printing errors: the recorded ones, each with its own
+   note, then the row being added. A sub-panel, not a page -- it borrows the
+   `.field` row shape from the form it usually sits in and adds only what it
+   needs to stop reading as three loose controls. */
+.errors-panel .error-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.error-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.error-list li {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.error-list li input {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+.add-error {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.add-error input {
+  flex: 1 1 6rem;
+  min-width: 0;
+}
+/* The code a typed label will actually be stored as, shown before saving. */
+.derived-code {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
 /* Vocabularies: each value's aliases, as removable chips. */
 .alias-list {
   display: flex;
