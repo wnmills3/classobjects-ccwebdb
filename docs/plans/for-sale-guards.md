@@ -956,8 +956,12 @@ def test_a_merge_reports_the_items_for_sale_then_refuses(
 ) -> None:
     item = db.get(InventoryItem, listing.inventory_item_id)
     assert item is not None
+    # `grade` codes are the bare Sheldon number ("64"), not the compound form
+    # a collector writes ("MS64") -- `app.grades.split` is what turns one into
+    # the other, and this table's own values are already numeric. A compound
+    # code here 404s instead of reaching the behaviour under test.
     code = item.grade.code
-    into = "MS63" if code != "MS63" else "MS62"
+    into = "63" if code != "63" else "62"
 
     preview = client.post(
         f"/api/reference/grade/{code}/merge",
