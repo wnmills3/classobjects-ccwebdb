@@ -1231,6 +1231,105 @@ class SalesVenueUpdate(_SalesVenueFields):
     version: int | None = None
 
 
+class OfferItemIn(BaseModel):
+    """One item in an offer batch, and what it is offered for."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: int
+    price: Decimal = Field(ge=0)
+    title: str = Field(default="", max_length=500)
+    description: str = ""
+    external_id: str | None = Field(default=None, max_length=128)
+
+
+class OfferIn(BaseModel):
+    """Offer one or more items on one platform, all or nothing.
+
+    One platform and one format for the whole batch: offering the same five
+    items half on eBay and half in the shop is two requests, and a batch that
+    could span platforms would have to decide what a partial refusal means.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: A `sales_venue` code.
+    venue: str = Field(min_length=1, max_length=64)
+    #: `fixed_price` or `auction`.
+    format: str = "fixed_price"
+    quantity: int = Field(default=1, ge=1)
+    items: list[OfferItemIn] = Field(min_length=1)
+
+
+class OfferRefusalOut(BaseModel):
+    """Why one item of a batch could not be offered."""
+
+    item_code: str
+    reason: str
+
+
+class ListingOut(BaseModel):
+    """One offer, for the owner's console. Admin-only: it carries cost basis.
+
+    `external_url` is **computed for this response** from the platform's
+    `listing_url_template` when the listing has an external id and no URL of
+    its own; it is never written back to the row. Phase 1's design says the
+    column holds what a person typed, and a derived value stored there would
+    go stale the day a platform changes its URLs.
+    """
+
+    id: int
+    item_id: int
+    item_code: str
+    item_title: str
+    #: A `sales_venue` code.
+    venue: str
+    venue_name: str
+    format: str
+    status: str
+    price: Decimal
+    currency: str
+    quantity_available: int
+    title: str
+    description: str
+    external_id: str | None = None
+    external_url: str | None = None
+    listed_at: datetime
+    ended_at: datetime | None = None
+    paused_by_listing_id: int | None = None
+    #: `inventory_item.total_cost`. Staff-only, and never added to
+    #: `CatalogItemOut`, which a customer reads.
+    cost_basis: Decimal | None = None
+    #: Send this back on a PATCH to be told about a conflicting edit.
+    version: str
+
+
+class OfferBatchOut(BaseModel):
+    """What a successful offer batch wrote."""
+
+    listings: list[ListingOut]
+
+
+class OfferRefusedOut(BaseModel):
+    """The 409 body when a batch is refused: nothing was written."""
+
+    detail: str
+    refused: list[OfferRefusalOut]
+
+
+class ListingUpdate(BaseModel):
+    """A change to an offer. Omitted fields are left alone."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    price: Decimal | None = Field(default=None, ge=0)
+    title: str | None = Field(default=None, max_length=500)
+    description: str | None = None
+    external_id: str | None = Field(default=None, max_length=128)
+    #: The version the form loaded; a mismatch is a 409.
+    version: str | None = None
+
+
 class PurchaseOrderCreate(BaseModel):
     """A new purchase: a vendor, and everything else optional.
 
