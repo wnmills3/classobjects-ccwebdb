@@ -590,16 +590,20 @@ def test_an_acknowledged_missing_ends_the_listing_and_releases_the_claim(
     # Built through `offering_writes.offer` rather than `build_listing`,
     # because the fixture makes a CLAIMLESS listing: it would prove the
     # listing ended while saying nothing about the claim.
-    from app import offering_writes
-    from app.models import ClaimState, ListingStatus, SalesVenue
-    from sqlalchemy import select
-
-    from tests.conftest import build_item
-
     item = build_item(db)
     venue = db.scalars(select(SalesVenue).where(SalesVenue.is_own_store)).first()
     assert venue is not None
-    made = offering_writes.offer(db, item, venue, price=Decimal("50.00"))
+    made = offering_writes.offer(
+        db,
+        item=item,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("50.00"),
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
     db.commit()
 
     response = client.post(
@@ -629,13 +633,25 @@ Add to that file's imports:
 ```python
 from collections.abc import Callable
 from decimal import Decimal
+
+from app import offering_writes, sale_state
+from app.models import (
+    ClaimState,
+    InventoryItem,
+    Listing,
+    ListingFormat,
+    ListingStatus,
+    SalesVenue,
+)
+from sqlalchemy import select
+from tests.conftest import build_item
 ```
 
-`offering_writes.offer`'s exact signature is in
-`backend/app/offering_writes.py`; read it before writing this test and match
-its keyword arguments. If it requires a `quantity`, a `title` or a
-`listing_format`, pass the same values `backend/tests/test_offering_writes.py`
-passes.
+`offer()` is **keyword-only** apart from `db`, and `listing_format`, `title`,
+`description` and `external_id` are all required with no defaults -- this was
+verified against `backend/app/offering_writes.py:340` and against the calls in
+`backend/tests/test_offering_writes.py:135`. Pass them exactly as written
+above.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
