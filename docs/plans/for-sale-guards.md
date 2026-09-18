@@ -621,8 +621,15 @@ def test_an_acknowledged_missing_ends_the_listing_and_releases_the_claim(
     ended = db.get(Listing, made.id)
     assert ended is not None
     assert ended.status is ListingStatus.ended
-    claims = offering_writes.claims_for(db, [item.id]).get(item.id, [])
-    assert [claim.state for claim in claims] != [ClaimState.active]
+    # Asserted against the claim row itself, NOT through
+    # `offering_writes.claims_for`. That helper is built on `_holding_claims`,
+    # whose WHERE joins `OfferClaim.state.in_(HELD_BY)` AND
+    # `Listing.status.in_(ON_OFFER)` -- so once the listing is ended it returns
+    # nothing whatever the claim's own state is, and an assertion through it
+    # would pass against a claim left `active`. This is the assertion that
+    # proves the release.
+    claim = db.scalars(select(OfferClaim).where(OfferClaim.listing_id == made.id)).one()
+    assert claim.state is ClaimState.released
     refreshed = db.get(InventoryItem, item.id)
     assert refreshed is not None
     assert refreshed.status.code == "missing"
@@ -641,6 +648,7 @@ from app.models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    OfferClaim,
     SalesVenue,
 )
 from sqlalchemy import select
