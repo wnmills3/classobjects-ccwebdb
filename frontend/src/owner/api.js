@@ -84,6 +84,11 @@ export const api = {
   detachInventoryItem: (id) =>
     send(`/api/inventory/${id}/parent`, { method: 'DELETE' }),
   deleteInventoryItem: (id) => send(`/api/inventory/${id}`, { method: 'DELETE' }),
+  // Errors: several per item -- a bill is commonly miscut AND misprinted --
+  // each with its own note. PUT replaces the whole set.
+  getItemErrors: (id) => send(`/api/inventory/${id}/errors`),
+  setItemErrors: (id, errors) =>
+    send(`/api/inventory/${id}/errors`, { method: 'PUT', body: { errors } }),
 
   // friedberg -- the owner's own banknote catalogue: searched by what is
   // visible on a note in hand, recorded from a number read off one, and
