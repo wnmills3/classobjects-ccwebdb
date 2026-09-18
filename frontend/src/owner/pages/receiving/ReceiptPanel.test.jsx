@@ -526,4 +526,34 @@ describe('ReceiptPanel', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(await screen.findByText(/storage location is archived/i)).toBeInTheDocument()
   })
+
+  it('carries the acknowledgement onto the photographs it uploads', async () => {
+    // Ending the listing does not necessarily take the item off sale -- an
+    // open order still holds it -- so `POST /api/images` asks the same
+    // question the receipt just did. Without the flag the upload is refused
+    // and the photograph is gone: the picker is cleared and no retry exists.
+    const detail = 'For sale -- CC-000412: listing #3 at 189.00.'
+    api.receiveItems
+      .mockRejectedValueOnce(
+        Object.assign(new Error(detail), { status: 409, body: { detail } }),
+      )
+      .mockResolvedValueOnce({ received: 1 })
+
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    await userEvent.upload(
+      await screen.findByLabelText(/photo/i),
+      new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /missing/i }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('CC-000412')
+    await userEvent.click(screen.getByRole('button', { name: 'Record it anyway' }))
+
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalled())
+    expect(api.uploadImage).toHaveBeenCalledWith(
+      412,
+      expect.any(File),
+      expect.objectContaining({ acknowledgeForSale: true }),
+    )
+  })
 })
