@@ -164,12 +164,20 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     ])
   })
 
+  // Rendered in StrictMode on purpose: the console runs in it (see
+  // `owner/main.jsx`), React then runs every effect setup/cleanup/setup on
+  // mount, and this panel once carried an `if (mounted.current)` guard that
+  // its own cleanup disarmed and no setup re-armed. Both branches of `save()`
+  // were dead for the rest of the panel's life, so in the owner's real
+  // console a failed PUT left the row looking saved with nothing said. Only a
+  // StrictMode render can see that, which is why this one asks for it.
   it('shows the message and keeps the rows when a save fails', async () => {
     const user = userEvent.setup()
     api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
     api.setItemErrors.mockRejectedValue(new Error('server is unhappy'))
     renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
       reference: vocabularies,
+      strict: true,
     })
     await screen.findByRole('combobox', { name: 'error_type' })
 

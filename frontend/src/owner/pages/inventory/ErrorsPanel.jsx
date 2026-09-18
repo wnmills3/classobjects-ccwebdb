@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
 import { fitsKind, isCurrencyKind } from '../../../shared/kinds'
@@ -31,18 +31,6 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
   const [details, setDetails] = useState('')
   const vocabulary = useReference('error_type') ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
-
-  // `save` fires from an add/remove click or a blur -- none of which is tied
-  // to `itemId` the way the load effect's own `cancelled` flag is -- so a PUT
-  // still in flight when this panel unmounts (the item edit window closed
-  // mid-save, say) needs its own guard against setting state after the fact.
-  const mounted = useRef(true)
-  useEffect(
-    () => () => {
-      mounted.current = false
-    },
-    [],
-  )
 
   useEffect(() => {
     if (controlled) return
@@ -80,17 +68,24 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
     else setRows(next)
   }
 
-  /** PUTs the whole set. No-op in the controlled mode -- there is no item yet. */
+  /**
+   * PUTs the whole set. No-op in the controlled mode -- there is no item yet.
+   *
+   * No "still mounted?" guard: both continuations only call this panel's own
+   * `setError`, and React 19 makes a `setState` on an unmounted component a
+   * no-op rather than a warning. The guard that used to be here was armed by
+   * `useRef(true)` and disarmed by an unmount cleanup that no setup re-armed,
+   * so StrictMode's setup/cleanup/setup on mount -- which is how the console
+   * actually runs -- left BOTH branches dead: a PUT that 422'd or timed out
+   * showed nothing at all, and the row read as saved. Nothing here needs the
+   * guard, so it is gone rather than repaired.
+   */
   function save(next) {
     if (controlled) return
     api
       .setItemErrors(itemId, next)
-      .then(() => {
-        if (mounted.current) setError('')
-      })
-      .catch((err) => {
-        if (mounted.current) setError(err.message)
-      })
+      .then(() => setError(''))
+      .catch((err) => setError(err.message))
   }
 
   function addRow() {

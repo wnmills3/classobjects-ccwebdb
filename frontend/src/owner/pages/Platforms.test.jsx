@@ -73,8 +73,12 @@ const kinds = emptyReference({
   },
 })
 
-function renderPage() {
-  return renderWithProviders(<Platforms />, { auth: adminAuth(), reference: kinds })
+function renderPage(options = {}) {
+  return renderWithProviders(<Platforms />, {
+    auth: adminAuth(),
+    reference: kinds,
+    ...options,
+  })
 }
 
 beforeEach(() => {
@@ -212,6 +216,35 @@ describe('Platforms', () => {
       terms_as_of: null,
       notes: null,
     })
+  })
+
+  // In StrictMode, which is how the console really runs (`owner/main.jsx`),
+  // React runs every effect setup, cleanup, setup on mount. This form's
+  // "still mounted?" guard is armed in a setup and disarmed by its cleanup,
+  // so unless the setup re-arms it the guard is disarmed for the dialog's
+  // whole life: a save that SUCCEEDS then never reaches `onSaved`, the dialog
+  // never closes and the button sits on "Saving..." forever. The guard itself
+  // is load-bearing -- see "does not apply a save the user cancelled" below,
+  // which is exactly what it is for -- so it is re-armed, not removed.
+  it('applies a successful save in StrictMode, where effects run twice', async () => {
+    const user = userEvent.setup()
+    api.createSalesVenue.mockResolvedValue({
+      ...EBAY,
+      code: 'whatnot',
+      name: 'Whatnot',
+    })
+    renderPage({ strict: true })
+    await screen.findByRole('row', { name: /eBay/ })
+
+    await user.click(screen.getByRole('button', { name: 'Add platform' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add platform' })
+    await user.type(within(dialog).getByLabelText('Name'), 'Whatnot')
+    await user.type(within(dialog).getByLabelText('Code'), 'whatnot')
+    await user.selectOptions(within(dialog).getByLabelText('Kind'), 'marketplace')
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByRole('row', { name: /Whatnot/ })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('does not offer the web store kind for a new platform', async () => {
