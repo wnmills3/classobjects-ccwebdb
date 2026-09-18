@@ -369,6 +369,34 @@ describe('ReceiptPanel', () => {
     expect(api.getItemErrors).not.toHaveBeenCalled()
   })
 
+  it("shows only the editor's own errors panel while the review pane is open, not a second one behind it", async () => {
+    // ItemEditForm (mounted by ReviewPane) has its own ErrorsPanel for the
+    // same item. Both are self-saving and each PUT replaces the item's whole
+    // set, so if the per-line panel here stayed mounted too, an error added
+    // in one would silently discard one added in the other.
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    await screen.findByRole('button', { name: 'Add error' })
+    expect(document.querySelectorAll('.errors-panel')).toHaveLength(1)
+    expect(document.querySelector('.review-pane .errors-panel')).toBeNull()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /confirm or correct/i }),
+    )
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('.errors-panel')).toHaveLength(1),
+    )
+    expect(document.querySelector('.review-pane .errors-panel')).not.toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: /leave review/i }))
+
+    // Back to the per-line panel once review closes.
+    await waitFor(() =>
+      expect(document.querySelectorAll('.errors-panel')).toHaveLength(1),
+    )
+    expect(document.querySelector('.review-pane')).toBeNull()
+  })
+
   it('does not offer a Friedberg lookup with several items selected', async () => {
     // Attaching needs one item id to name -- the same ambiguity a photograph
     // runs into with several selected. Asserting `getInventoryItem` was never
