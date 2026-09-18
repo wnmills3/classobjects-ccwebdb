@@ -32,10 +32,23 @@ export function clearTokens() {
 }
 
 export class ApiError extends Error {
-  constructor(status, detail) {
+  /**
+   * `body` is the whole parsed response, kept beside the flattened `detail`.
+   *
+   * Some refusals carry more than a sentence: `POST /api/offers` answers a
+   * 409 with `{detail, refused: [{item_code, reason}]}`, and the console has
+   * to name every refused item with its reason. `readDetail` reduces the body
+   * to one string, so without this the per-item reasons were parsed and then
+   * thrown away before any caller could see them.
+   *
+   * `message`, `status` and `detail` are exactly what they were; nothing that
+   * reads an ApiError today sees a difference.
+   */
+  constructor(status, detail, body = null) {
     super(typeof detail === 'string' ? detail : 'Request failed')
     this.status = status
     this.detail = detail
+    this.body = body
   }
 }
 
@@ -118,7 +131,7 @@ export async function send(path, { method = 'GET', body, form, auth = true } = {
 
   if (!res.ok) {
     if (res.status === 401) clearTokens()
-    throw new ApiError(res.status, readDetail(parsed))
+    throw new ApiError(res.status, readDetail(parsed), parsed)
   }
   return parsed
 }

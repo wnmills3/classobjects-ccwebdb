@@ -7,6 +7,7 @@ import { useReference } from '../../../shared/reference-context'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import ErrorsPanel from './ErrorsPanel'
+import OffersPanel from './OffersPanel'
 
 /**
  * One item, every field, with what the lot claimed beside each.
@@ -697,6 +698,12 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />
         </button>
       </div>
+
+      {/* What is being asked for the item, beside what it has sold for.
+          Self-loading like the errors panel, and it writes nothing itself:
+          starting and ending an offer both go through the offers API, which
+          is the only thing allowed to set a listing's status. */}
+      <OffersPanel item={item} />
 
       <SaleHistory itemId={itemId} />
     </div>

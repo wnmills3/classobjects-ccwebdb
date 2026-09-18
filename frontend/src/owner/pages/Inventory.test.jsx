@@ -12,6 +12,11 @@ vi.mock('../api', () => ({
     bulkEditInventory: vi.fn(),
     getItemErrors: vi.fn(),
     setItemErrors: vi.fn(),
+    // OffersPanel (in the item editor) and the bulk bar's offer dialog.
+    listListings: vi.fn(),
+    endListing: vi.fn(),
+    listSalesVenues: vi.fn(),
+    createOffers: vi.fn(),
   },
 }))
 
@@ -31,6 +36,7 @@ const rows = Array.from({ length: 50 }, (_, i) => ({
 beforeEach(() => {
   vi.clearAllMocks()
   api.getItemSales.mockResolvedValue([])
+  api.listListings.mockResolvedValue([])
   api.searchInventory.mockResolvedValue({
     rows,
     total: 900,

@@ -10,6 +10,12 @@ vi.mock('../../api', () => ({
     setItemReview: vi.fn(),
     getItemErrors: vi.fn(),
     setItemErrors: vi.fn(),
+    // OffersPanel's own calls: it reads the item's offers on mount, and its
+    // Offer button opens the dialog that starts one.
+    listListings: vi.fn(),
+    endListing: vi.fn(),
+    listSalesVenues: vi.fn(),
+    createOffers: vi.fn(),
   },
 }))
 
@@ -34,6 +40,7 @@ const item = {
 beforeEach(() => {
   vi.clearAllMocks()
   api.getItemSales.mockResolvedValue([])
+  api.listListings.mockResolvedValue([])
   api.getInventoryItem.mockResolvedValue(item)
   api.setItemReview.mockResolvedValue({ reviewed: ['description'] })
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
@@ -860,5 +867,41 @@ describe('An item for sale', () => {
       screen.getByText(/Order #9, 2026-09-17, shipped: 1 at 189.00 to Ada/),
     ).toBeVisible()
     expect(screen.getByText(/sold as 1881-S Morgan, MS64/)).toBeVisible()
+  })
+
+  // Beside the sale history: where the item has been offered, and the place
+  // an offer is started from without leaving the editor.
+  it('shows the item its offers, ended ones included', async () => {
+    api.listListings.mockResolvedValue([
+      {
+        id: 14,
+        item_id: 12,
+        item_code: 'C-012',
+        item_title: 'Mercury Dime',
+        venue: 'ebay',
+        venue_name: 'eBay',
+        format: 'fixed_price',
+        status: 'active',
+        price: '42.00',
+        currency: 'USD',
+        quantity_available: 1,
+        title: 'Mercury Dime',
+        description: '',
+        external_id: null,
+        external_url: null,
+        listed_at: '2026-09-17T12:00:00Z',
+        ended_at: null,
+        paused_by_listing_id: null,
+        cost_basis: '20.00',
+        version: 1,
+      },
+    ])
+    render(<ItemEditForm itemId={12} />)
+
+    // Waited for the row, not for the heading: the panel shows its heading
+    // while it is still loading, so finding that proves nothing arrived.
+    expect(await screen.findByText('42.00 USD')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Offers' })).toBeVisible()
+    expect(api.listListings).toHaveBeenCalledWith({ item_id: 12, status: 'all' })
   })
 })

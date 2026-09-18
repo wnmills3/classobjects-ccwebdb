@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 
 import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
+import EndOfferConfirm from './EndOfferConfirm'
 import ModalDialog from '../ModalDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { isMoney } from './orders/cents'
+import { FORMATS, STATUSES, UNKNOWN, labelFor } from './listing-labels'
 import { marginPercent } from './platform-rates'
 import { date } from '../../shared/format'
 
@@ -23,27 +25,6 @@ import { date } from '../../shared/format'
  * hold cents exactly. The one calculation here, margin, is done in whole
  * cents by `marginPercent` in `./platform-rates.js`.
  */
-
-/** The listing formats the API accepts (`ListingFormat`), with their labels. */
-const FORMATS = [
-  ['fixed_price', 'Fixed price'],
-  ['auction', 'Auction'],
-]
-
-/** The listing statuses the API reports (`ListingStatus`), with their labels. */
-const STATUSES = [
-  ['active', 'Active'],
-  ['paused', 'Paused'],
-  ['ended', 'Ended'],
-]
-
-// A code with no label is shown as itself rather than as some default: a
-// value this console has not been taught about must be visible, not silently
-// renamed to the first thing in the list.
-const labelFor = (table, code) => table.find(([value]) => value === code)?.[1] ?? code
-
-/** Nothing to show, in the one place a cell would otherwise be blank. */
-const UNKNOWN = '--'
 
 /**
  * Alt+letter for each field of the edit window, as every other console edit
@@ -204,6 +185,9 @@ export default function Listings() {
   const [refusal, setRefusal] = useState('')
   const [filters, setFilters] = useState({ venue: '', format: '', status: '' })
   const [open, setOpen] = useState(null)
+  // The listing End was pressed on, waiting for the question to be answered,
+  // and then the one whose request is in flight.
+  const [confirming, setConfirming] = useState(null)
   const [ending, setEnding] = useState(null)
   // Bumped to ask for the list again after a write that can change rows this
   // page did not touch.
@@ -249,12 +233,16 @@ export default function Listings() {
     setRefusal('')
     try {
       await api.endListing(listing.id)
+      setConfirming(null)
       // Reload rather than patch the one row: ending an offer resumes any
       // store listing paused for it, so a row this page never touched has a
       // new status, and the ended row itself may now fall outside the filter.
       setReloads((n) => n + 1)
     } catch (err) {
       setRefusal(err.message)
+      // The question is answered either way: the refusal belongs on the page
+      // behind it, where the table it is about still is.
+      setConfirming(null)
     } finally {
       setEnding(null)
     }
@@ -375,11 +363,13 @@ export default function Listings() {
                       Edit
                     </button>
                   )}
+                  {/* Ending is permanent: the question comes first, and it
+                      names the listing and its platform. */}
                   {l.status !== 'ended' && (
                     <button
                       className="link"
                       disabled={ending !== null}
-                      onClick={() => end(l)}
+                      onClick={() => setConfirming(l)}
                     >
                       End
                     </button>
@@ -395,6 +385,14 @@ export default function Listings() {
       )}
       {open !== null && (
         <ListingForm listing={open} onSaved={saved} onClose={() => setOpen(null)} />
+      )}
+      {confirming !== null && (
+        <EndOfferConfirm
+          listing={confirming}
+          busy={ending !== null}
+          onConfirm={() => end(confirming)}
+          onCancel={() => setConfirming(null)}
+        />
       )}
     </section>
   )

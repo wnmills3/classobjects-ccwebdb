@@ -106,6 +106,44 @@ describe('send', () => {
     expect(init.body).toBe(JSON.stringify({ items: [1] }))
     expect(init.headers['Content-Type']).toBe('application/json')
   })
+
+  // The 409 from POST /api/offers carries a per-item list -- {detail, refused:
+  // [{item_code, reason}]} -- and the offer dialog has to name every refused
+  // item with its reason. `readDetail` flattens the body to one string, so
+  // without the parsed body on the error every item_code and reason is thrown
+  // away before any caller sees it.
+  it('hands the whole parsed body of a refusal to the caller', async () => {
+    const body = {
+      detail: '2 item(s) cannot be offered',
+      refused: [
+        { item_code: 'CC-000001', reason: 'is not received (it is ordered)' },
+        {
+          item_code: 'CC-000002',
+          reason: 'is active on eBay, listing #14: end it first',
+        },
+      ],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 409,
+        ok: false,
+        text: () => Promise.resolve(JSON.stringify(body)),
+      }),
+    )
+
+    const err = await send('/api/offers', {
+      method: 'POST',
+      body: { venue: 'ebay' },
+      auth: false,
+    }).catch((caught) => caught)
+
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.status).toBe(409)
+    // The message is exactly what it was before the body was added.
+    expect(err.message).toBe('2 item(s) cannot be offered')
+    expect(err.body).toEqual(body)
+  })
 })
 
 describe('ApiError', () => {
@@ -127,5 +165,9 @@ describe('ApiError', () => {
 
   it('is an Error, so existing catch blocks keep working', () => {
     expect(new ApiError(500, 'boom')).toBeInstanceOf(Error)
+  })
+
+  it('has no body when none was parsed, so a reader can tell there was none', () => {
+    expect(new ApiError(500, 'boom').body).toBeNull()
   })
 })
