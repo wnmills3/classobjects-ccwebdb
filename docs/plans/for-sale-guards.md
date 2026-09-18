@@ -1091,10 +1091,18 @@ nobody.
 Run: `python -m pytest backend/tests/test_for_sale_guards.py -v`
 Expected: PASS, 15 passed
 
-- [ ] **Step 7: Run the merge suite, which must be unaffected**
+- [ ] **Step 7: Run the merge suite, and expect it to need updating**
 
 Run: `python -m pytest backend/tests/test_reference_merge.py backend/tests/test_reference.py -v`
-Expected: PASS, no change
+
+Expected: PASS **unless** a test merges a vocabulary value held by an item
+that is for sale — those now get a 409, correctly. That is not a regression:
+adding a refusal to an endpoint changes the contract for every existing
+caller that hits the refused state. Fix such a test by adding
+`"acknowledge_for_sale": True` to its request, with a one-line comment saying
+the test is about the merge, not the guard, and **keep its original
+assertions unchanged**. Tasks 3 and 5 hit exactly this in `test_split.py` and
+`test_images.py` and resolved it the same way.
 
 - [ ] **Step 8: Run the gate and commit**
 
