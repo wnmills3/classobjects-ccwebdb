@@ -11,6 +11,7 @@ import pytest
 from app import sale_state
 from app.models import InventoryItem, Listing, ListingStatus
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 
@@ -57,3 +58,28 @@ def test_kinds_narrows_which_reasons_count(db: Session, listing: Listing) -> Non
 
 def test_no_items_is_not_a_refusal(db: Session) -> None:
     sale_state.guard(db, [], acknowledged=False)
+
+
+def test_errors_on_a_listed_item_are_refused_until_acknowledged(
+    client: TestClient, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    item_id = listing.inventory_item_id
+    body = {"errors": [{"error_type": "off_center", "details": None}]}
+
+    refused = client.put(
+        f"/api/inventory/{item_id}/errors", json=body, headers=admin_headers
+    )
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+    unchanged = client.get(
+        f"/api/inventory/{item_id}/errors", headers=admin_headers
+    ).json()
+    assert unchanged["errors"] == []
+
+    made = client.put(
+        f"/api/inventory/{item_id}/errors",
+        json={**body, "acknowledge_for_sale": True},
+        headers=admin_headers,
+    )
+    assert made.status_code == 200, made.text
+    assert [e["error_type"] for e in made.json()["errors"]] == ["off_center"]

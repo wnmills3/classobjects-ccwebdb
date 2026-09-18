@@ -843,6 +843,9 @@ class ItemErrorsRequest(BaseModel):
     """
 
     errors: list[ItemErrorIn] = Field(default_factory=list)
+    #: Set after a refusal to say the caller knows the item is for sale
+    #: (app.sale_state).
+    acknowledge_for_sale: bool = False
 
     @field_validator("errors")
     @classmethod
