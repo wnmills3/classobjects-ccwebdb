@@ -17,7 +17,7 @@ from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
-from .. import grades
+from .. import grades, offering_writes
 from ..deps import AdminUser, DbSession
 from ..lifecycle_writes import record_initial_status
 from ..models import (
@@ -33,13 +33,11 @@ from ..models import (
     ItemKind,
     ItemStatus,
     Listing,
-    ListingFormat,
     ListingStatus,
     Metal,
     ProvenanceSource,
     SalesOrderChange,
     SalesOrderItem,
-    SalesVenue,
     StorageForm,
     StrikeType,
     ValuationBasis,
@@ -217,13 +215,13 @@ def list_catalog(
     """Browse the catalogue. Withdrawn listings are hidden by default."""
     # or_() returns a ColumnElement, which is wider than the
     # BinaryExpression the first append would otherwise pin this to.
-    filters: list[ColumnElement[bool]] = []
-    if not include_inactive:
-        filters.append(Listing.is_active.is_(True))
-    # Same rule as `order_writes._sellable_here` (and `_sold_in_shop` below):
-    # the shop's catalogue is the web store's fixed-price listings only.
-    filters.append(Listing.sales_venue.has(SalesVenue.is_own_store.is_(True)))
-    filters.append(Listing.format == ListingFormat.fixed_price)
+    # The shop's catalogue is the web store's active fixed-price listings, and
+    # `app.offering_writes` is where that rule lives -- in this SQL form and
+    # in the Python one checkout asks. `include_inactive` is the admin preview
+    # of withdrawn listings, which drops only the "active" half.
+    filters: list[ColumnElement[bool]] = offering_writes.shop_listing_filters(
+        active_only=not include_inactive
+    )
     if q:
         pattern = f"%{q}%"
         filters.append(
@@ -286,17 +284,6 @@ def _get_listing(db: Session, listing_id: int) -> Listing:
     return listing
 
 
-def _sold_in_shop(listing: Listing) -> bool:
-    """Whether a listing belongs in the public catalogue.
-
-    Same rule as `order_writes._sellable_here` (checkout uses it too) --
-    keep both in sync.
-    """
-    return (
-        listing.sales_venue.is_own_store and listing.format is ListingFormat.fixed_price
-    )
-
-
 @router.get("/{listing_id}")
 def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
     """One catalogue entry. Public: it carries no cost basis or location.
@@ -304,9 +291,13 @@ def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
     A listing on another platform or sold at auction is not this shop's to
     show -- treated as unknown, the same 404 an unknown id gets, so a caller
     cannot tell "wrong platform" from "does not exist".
+
+    `active_only=False`: a withdrawn listing of the shop's own is still this
+    shop's, and is served so a page someone bookmarked can say it has ended
+    rather than that it never existed.
     """
     listing = _get_listing(db, listing_id)
-    if not _sold_in_shop(listing):
+    if not offering_writes.sellable_in_shop(listing, active_only=False):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Catalogue item not found"
         )

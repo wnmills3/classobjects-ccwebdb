@@ -39,6 +39,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import offering_writes
 from .allocation import allocate
 from .lifecycle_writes import record_initial_status
 from .models import (
@@ -252,13 +253,17 @@ def split_item(
         record_initial_status(db, child, note=f"split from {parent.item_code}")
         children.append(child)
 
-    # The lot is no longer a thing anyone holds.
+    # The lot is no longer a thing anyone holds. Its listings end through
+    # `offering_writes`, the only writer of listing status and claims, so the
+    # claims that held the lot are released with them.
     parent.split_at = now
     for listing in db.scalars(
-        select(Listing).where(Listing.inventory_item_id == parent.id)
-    ):
-        listing.status = ListingStatus.ended
-        listing.ended_at = now
+        select(Listing).where(
+            Listing.inventory_item_id == parent.id,
+            Listing.status != ListingStatus.ended,
+        )
+    ).all():
+        offering_writes.end_offer(db, listing)
 
     db.flush()
     return children

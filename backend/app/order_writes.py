@@ -23,7 +23,6 @@ from .models import (
     Disposition,
     InventoryItem,
     Listing,
-    ListingFormat,
     SalesOrder,
     SalesOrderChange,
     SalesOrderChangeKind,
@@ -32,6 +31,7 @@ from .models import (
     User,
 )
 from .models.base import utcnow
+from .offering_writes import sellable_in_shop
 from .references import require_code
 from .sale_snapshot import take as take_snapshot
 from .sales_venues import store_venue_id
@@ -83,8 +83,9 @@ def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
     `version`. With it, the locked row's current values overwrite whatever
     was cached.
 
-    `sales_venue` is loaded here rather than left to lazy-load: `_sellable_here`
-    reads it for every locked listing, and a lazy load would emit that SELECT
+    `sales_venue` is loaded here rather than left to lazy-load:
+    `sellable_in_shop` reads it for every locked listing, and a lazy load
+    would emit that SELECT
     while these rows are held FOR UPDATE, lengthening the lock for no reason.
     A separate SELECT is what `selectinload` issues anyway, so it cannot widen
     the `FOR UPDATE` to `sales_venue` the way a join would.
@@ -102,17 +103,6 @@ def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
     if missing:
         _refuse(db, status.HTTP_404_NOT_FOUND, f"Unknown listing id(s): {missing}")
     return found
-
-
-def _sellable_here(listing: Listing) -> bool:
-    """Whether the shop's checkout may sell this listing at all.
-
-    The same rule as the SQL predicate `routers.catalog` applies to the
-    public catalogue -- keep both in sync.
-    """
-    return (
-        listing.sales_venue.is_own_store and listing.format is ListingFormat.fixed_price
-    )
 
 
 def _after_stock_change(db: Session, listing: Listing, before: int) -> None:
@@ -151,7 +141,10 @@ def place_order(
     listings = _lock_listings(db, {line.listing_id for line in lines})
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]
-        if not _sellable_here(listing):
+        # `active_only=False`: whether the listing is this shop's at all is one
+        # question, and whether it is on offer this minute is another with its
+        # own message below. `offering_writes` owns both halves of the rule.
+        if not sellable_in_shop(listing, active_only=False):
             _refuse(
                 db,
                 status.HTTP_409_CONFLICT,
@@ -281,7 +274,7 @@ def revise_order(
             deltas[listing_id] = want - have
             listing = listings[listing_id]
             if deltas[listing_id] > 0:
-                if not _sellable_here(listing):
+                if not sellable_in_shop(listing, active_only=False):
                     _refuse(
                         db,
                         status.HTTP_409_CONFLICT,
