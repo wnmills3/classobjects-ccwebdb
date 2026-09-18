@@ -68,6 +68,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.getItemSales.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
+  api.listSalesVenues.mockResolvedValue([])
   api.listStorageLocations.mockResolvedValue(LOCATIONS)
   api.receiveItems.mockResolvedValue({ received: 2 })
   api.uploadImage.mockResolvedValue({ id: 1 })

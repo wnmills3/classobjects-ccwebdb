@@ -85,6 +85,13 @@ function InventoryView({ config }) {
           setSelected([])
           refresh()
         }}
+        // Only the offered ids leave the selection. A selection can span
+        // pages and only the rows on this one can be offered, so the ones
+        // that were not stay ticked -- they are what is left to do.
+        onOffered={(offered) => {
+          setSelected((current) => current.filter((id) => !offered.includes(id)))
+          refresh()
+        }}
         onClear={() => setSelected([])}
       />
 

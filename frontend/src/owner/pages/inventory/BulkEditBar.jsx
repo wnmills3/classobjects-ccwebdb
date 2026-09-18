@@ -36,7 +36,14 @@ const BULK_FIELDS = [
   ['Metal', 'metal', 'text', 'coins'],
 ]
 
-export default function BulkEditBar({ ids, rows = [], onApplied, onClear, view }) {
+export default function BulkEditBar({
+  ids,
+  rows = [],
+  onApplied,
+  onOffered,
+  onClear,
+  view,
+}) {
   const [field, setField] = useState(BULK_FIELDS[0][1])
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
@@ -122,12 +129,15 @@ export default function BulkEditBar({ ids, rows = [], onApplied, onClear, view }
         <OfferDialog
           items={chosen}
           skipped={ids.length - chosen.length}
-          // The same callback the bulk edit uses: every offered item now has
-          // a listing and a status the table behind this does not know about,
-          // so the parent drops the selection and reads the page again.
+          // Named, not the bulk edit's own callback: only the items that were
+          // actually offered are done with. The rest of the selection is the
+          // off-page rows the dialog has just said were NOT offered, and
+          // dropping those would undo the selection the operator still has to
+          // deal with. The parent reads the page again either way -- every
+          // offered row has a status the table does not know about.
           onOffered={() => {
             setOffering(false)
-            onApplied?.()
+            onOffered?.(chosen.map((row) => row.id))
           }}
           onClose={() => setOffering(false)}
         />

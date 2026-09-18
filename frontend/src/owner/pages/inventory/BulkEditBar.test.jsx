@@ -100,12 +100,18 @@ describe('BulkEditBar', () => {
     expect(fields).toContain('Grade')
   })
 
-  it('offers the selection for sale, and clears it once they are listed', async () => {
+  it('offers the selection for sale, and says which ids were offered', async () => {
     const user = userEvent.setup()
-    const onApplied = vi.fn()
+    const onOffered = vi.fn()
     api.createOffers.mockResolvedValue({ listings: [{ id: 21 }, { id: 22 }] })
     render(
-      <BulkEditBar ids={[1, 2]} rows={ROWS} onApplied={onApplied} onClear={vi.fn()} />,
+      <BulkEditBar
+        ids={[1, 2]}
+        rows={ROWS}
+        onApplied={vi.fn()}
+        onOffered={onOffered}
+        onClear={vi.fn()}
+      />,
     )
     await user.click(screen.getByRole('button', { name: 'Offer for sale...' }))
 
@@ -135,10 +141,38 @@ describe('BulkEditBar', () => {
         },
       ],
     })
-    // The same callback the bulk edit uses: the parent drops the selection
-    // and refetches, because every offered row's status has changed.
-    await waitFor(() => expect(onApplied).toHaveBeenCalled())
+    // Exactly the ids that were offered, so the parent can take those out of
+    // the selection and leave the rest of it alone.
+    await waitFor(() => expect(onOffered).toHaveBeenCalledWith([1, 2]))
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  // The other half of naming the off-page rows: they were not offered, so
+  // they are still the operator's to deal with and must stay selected. The
+  // bulk edit's own callback would have dropped the whole selection.
+  it('leaves the ids it could not offer out of what it reports as offered', async () => {
+    const user = userEvent.setup()
+    const onOffered = vi.fn()
+    const onApplied = vi.fn()
+    api.createOffers.mockResolvedValue({ listings: [{ id: 21 }, { id: 22 }] })
+    render(
+      <BulkEditBar
+        ids={[1, 2, 5, 6]}
+        rows={ROWS}
+        onApplied={onApplied}
+        onOffered={onOffered}
+        onClear={vi.fn()}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Offer for sale...' }))
+    await screen.findByRole('option', { name: 'Web store' })
+    await user.selectOptions(screen.getByLabelText('Platform'), 'store')
+    await user.type(screen.getByLabelText('Price for CC-000001'), '24.00')
+    await user.type(screen.getByLabelText('Price for CC-000002'), '18.00')
+    await user.click(screen.getByRole('button', { name: 'Offer 2 for sale' }))
+
+    await waitFor(() => expect(onOffered).toHaveBeenCalledWith([1, 2]))
+    expect(onApplied).not.toHaveBeenCalled()
   })
 
   // A selection survives paging, and a row from another page has no price,

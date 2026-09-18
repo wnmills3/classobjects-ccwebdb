@@ -299,6 +299,29 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
     }
   }, [itemId])
 
+  /**
+   * Read the item again after something else changed it on the server.
+   *
+   * Offering or ending an offer from the panel below changes `sale_state`,
+   * and `sale_state` is what decides whether a save has to be acknowledged.
+   * Without this, offering an item and then saving an edit is refused by the
+   * server for a reason nothing on screen can explain: the form still holds
+   * the sale state the item had before it was offered.
+   *
+   * Deliberately NOT the load effect: that one clears the draft, and an edit
+   * typed before the offer was made is the operator's work, not something to
+   * throw away. Only what the server owns is replaced.
+   */
+  function reloadItem() {
+    api
+      .getInventoryItem(itemId)
+      .then((body) => {
+        setItem(body)
+        setReviewed(body.reviewed ?? [])
+      })
+      .catch((err) => setError(err.message))
+  }
+
   if (error && !item) return <p className="error">{error}</p>
   if (!item) return <p className="muted">Loading...</p>
 
@@ -703,7 +726,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           Self-loading like the errors panel, and it writes nothing itself:
           starting and ending an offer both go through the offers API, which
           is the only thing allowed to set a listing's status. */}
-      <OffersPanel item={item} />
+      <OffersPanel item={item} onChanged={reloadItem} />
 
       <SaleHistory itemId={itemId} />
     </div>
