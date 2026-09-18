@@ -33,6 +33,7 @@ describe('owner console shell', () => {
     expect(screen.getByRole('link', { name: /new purchase/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^orders$/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /people/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /listings/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /platforms/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /vocabularies/i })).toBeInTheDocument()
   })
