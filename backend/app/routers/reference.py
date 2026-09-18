@@ -75,9 +75,14 @@ _CODE_KEYED_VALUES = frozenset(
 )
 
 #: Vocabularies whose order is their meaning, so they keep `sort_order`.
-#: A grade scale runs 70, 69+, 69, ...; a lifecycle runs ordered, received,
-#: canceled. Everything else is a descriptive list that is scanned by name,
-#: and alphabetical is the only order a reader can predict.
+#: Three reasons an entry belongs here: a scale (grade runs 70, 69+, 69, ...),
+#: a lifecycle (item_status, disposition, sales_order_status, shipment_status
+#: each run ordered -> received -> ... or an equivalent progression), or a
+#: curated sequence (item_kind is ranked by how often a kind occurs -- coin
+#: and currency cover the whole collection, so they lead; signature_combination
+#: is chronological, and its picker is narrowed to a stretch of that timeline
+#: by a note's series year). Everything else is a descriptive list that is
+#: scanned by name, and alphabetical is the only order a reader can predict.
 _SEQUENCED_TABLES = frozenset(
     {
         "grade",
@@ -85,6 +90,8 @@ _SEQUENCED_TABLES = frozenset(
         "disposition",
         "sales_order_status",
         "shipment_status",
+        "item_kind",
+        "signature_combination",
     }
 )
 
