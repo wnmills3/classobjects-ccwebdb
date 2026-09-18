@@ -139,3 +139,41 @@ def test_an_order_refuses_a_split_that_cannot_be_acknowledged(
     )
     assert refused.status_code == 409
     assert "appears in an order" in refused.json()["detail"]
+
+
+def test_kinds_listing_lets_an_ordered_but_unlisted_split_reach_split_item(
+    client: TestClient,
+    db: Session,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """`kinds={"listing"}` is load-bearing on its own, not just alongside a save.
+
+    Order every unit the listing has: `sale_state.for_sale`'s listing branch
+    requires `quantity_available > 0`, so at zero the listing stops counting
+    as a listing-use while the still-open order keeps counting as an
+    order-use. The guard, narrowed to `{"listing"}`, must find nothing here
+    and let the (unacknowledged) request through silently -- so the 409 that
+    follows comes from `split_item`'s own unconditional order check, not
+    from `sale_state.refusal()`. If the `kinds` filter were ever dropped, the
+    guard would refuse first with its own "For sale" message instead.
+    """
+    ordered = client.post(
+        "/api/orders",
+        json={"items": [{"listing_id": listing.id, "quantity": 5}]},
+        headers=customer_headers,
+    )
+    assert ordered.status_code == 201, ordered.text
+    db.expire_all()
+    assert db.get(Listing, listing.id).quantity_available == 0
+
+    refused = client.post(
+        f"/api/inventory/{listing.inventory_item_id}/split",
+        json={"mode": "equal", "pieces": _two_pieces()},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert "appears in an order" in detail
+    assert "For sale" not in detail
