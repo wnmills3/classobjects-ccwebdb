@@ -80,8 +80,19 @@ async function openEditor(user) {
   return screen.getByRole('dialog', { name: 'Edit C-0007 on eBay' })
 }
 
+/** End the offer on a row, through the confirmation that now guards it. */
+async function endOffer(user, row) {
+  await user.click(within(row).getByRole('button', { name: 'End' }))
+  const dialog = screen.getByRole('dialog')
+  await user.click(within(dialog).getByRole('button', { name: 'End listing' }))
+}
+
+// `resetAllMocks`, not `clearAllMocks`: clearing calls `mockClear`, which
+// leaves a queue of `mockResolvedValueOnce` values in place. One test that
+// queues two and fails before consuming the second hands it to the NEXT test,
+// whose first load then silently returns the wrong rows.
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
   api.listListings.mockResolvedValue([EBAY, STORE])
   api.listSalesVenues.mockResolvedValue(VENUES)
 })
@@ -203,7 +214,18 @@ describe('Listings', () => {
     renderPage()
     await openEditor(user)
     fireEvent.keyDown(document, { key: 's', ctrlKey: true })
-    await waitFor(() => expect(api.updateListing).toHaveBeenCalled())
+    // The whole payload, like its neighbours: the API is mocked here, so a
+    // shortcut that saved a different body than the button does would pass a
+    // bare "was it called" every time.
+    await waitFor(() =>
+      expect(api.updateListing).toHaveBeenCalledWith(14, {
+        price: '189.00',
+        title: '1881-S Morgan Dollar MS64',
+        description: 'Blast white.',
+        external_id: '1234567',
+        version: 3,
+      }),
+    )
   })
 
   // Read off the rendered dialog rather than the component's letter table: a
@@ -247,17 +269,44 @@ describe('Listings', () => {
     expect(within(dialog).getByText(/amount like 189\.00/)).toBeVisible()
   })
 
-  it('ends an offer and reloads, because ending one can resume another', async () => {
+  // Ending is permanent, and on a paused row it destroys a store listing
+  // whose only other action was deliberately removed. It says what it will
+  // do first: which listing, on which platform, and what follows.
+  it('asks before ending, naming the listing and the platform', async () => {
     const user = userEvent.setup()
-    api.endListing.mockResolvedValue({ ...EBAY, status: 'ended' })
-    api.listListings
-      .mockResolvedValueOnce([EBAY, STORE])
-      .mockResolvedValueOnce([
-        { ...STORE, status: 'active', paused_by_listing_id: null },
-      ])
     renderPage()
     const row = await screen.findByRole('row', { name: /^eBay/ })
     await user.click(within(row).getByRole('button', { name: 'End' }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveAccessibleName('End listing #14 for C-0007 on eBay?')
+    expect(within(dialog).getByText(/not recorded as sold/)).toBeVisible()
+    expect(api.endListing).not.toHaveBeenCalled()
+  })
+
+  it('ends nothing when the confirmation is dismissed', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    await user.click(within(row).getByRole('button', { name: 'End' }))
+    await user.click(screen.getByRole('button', { name: 'Keep it offered' }))
+
+    expect(api.endListing).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(rowFor('eBay')).toBeInTheDocument()
+  })
+
+  it('ends an offer and reloads, because ending one can resume another', async () => {
+    const user = userEvent.setup()
+    api.endListing.mockResolvedValue({ ...EBAY, status: 'ended' })
+    // The last arm is not `...Once`: a queued value that this test fails
+    // before consuming would outlive it and answer the next test's first load.
+    api.listListings
+      .mockResolvedValueOnce([EBAY, STORE])
+      .mockResolvedValue([{ ...STORE, status: 'active', paused_by_listing_id: null }])
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    await endOffer(user, row)
 
     expect(api.endListing).toHaveBeenCalledWith(14)
     // The reload is the point: the store listing's status changed on the
@@ -274,7 +323,7 @@ describe('Listings', () => {
     api.endListing.mockRejectedValue(new Error(STALE))
     renderPage()
     const row = await screen.findByRole('row', { name: /^eBay/ })
-    await user.click(within(row).getByRole('button', { name: 'End' }))
+    await endOffer(user, row)
 
     expect(await screen.findByText(/changed by someone else/)).toBeVisible()
     expect(rowFor('eBay')).toBeInTheDocument()

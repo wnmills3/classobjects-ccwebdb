@@ -1,9 +1,10 @@
 import { useState } from 'react'
 
 import { api } from '../../api'
+import OfferDialog from './OfferDialog'
 
 /**
- * Set one field across a selection.
+ * Set one field across a selection, or offer it for sale.
  *
  * One field at a time on purpose. The bulk case is "these twenty are all
  * 1964" -- a form offering every field at once invites setting four of them
@@ -14,6 +15,12 @@ import { api } from '../../api'
  *
  * A selection holding items that are up for sale is refused, naming them; a
  * box then appears to change them anyway.
+ *
+ * "Offer for sale..." works on the same selection but needs more than its
+ * ids: a price, a title and a cost basis per item. Those come from `rows`,
+ * the page of results on screen. A selection survives paging, so an id with
+ * no row on this page cannot be priced -- the dialog says how many of those
+ * there are rather than quietly offering fewer items than were selected.
  */
 
 //: The refusal the server gives a change to items that are for sale.
@@ -29,7 +36,7 @@ const BULK_FIELDS = [
   ['Metal', 'metal', 'text', 'coins'],
 ]
 
-export default function BulkEditBar({ ids, onApplied, onClear, view }) {
+export default function BulkEditBar({ ids, rows = [], onApplied, onClear, view }) {
   const [field, setField] = useState(BULK_FIELDS[0][1])
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
@@ -37,8 +44,11 @@ export default function BulkEditBar({ ids, onApplied, onClear, view }) {
   // Shown once the server has said some of the selection is for sale.
   const [forSale, setForSale] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
+  const [offering, setOffering] = useState(false)
 
   if (ids.length === 0) return null
+
+  const chosen = rows.filter((row) => ids.includes(row.id))
 
   // A field marked for one view is offered only there; everything else is
   // shared. `view` is the config's own name for the page ('coins' | 'currency').
@@ -88,6 +98,9 @@ export default function BulkEditBar({ ids, onApplied, onClear, view }) {
       <button disabled={busy || value === ''} onClick={apply}>
         {busy ? 'Applying...' : `Apply to ${ids.length}`}
       </button>
+      <button disabled={chosen.length === 0} onClick={() => setOffering(true)}>
+        Offer for sale...
+      </button>
       <button className="link" onClick={onClear}>
         Clear selection
       </button>
@@ -104,6 +117,21 @@ export default function BulkEditBar({ ids, onApplied, onClear, view }) {
         </label>
       )}
       {error && <span className="error">{error}</span>}
+
+      {offering && (
+        <OfferDialog
+          items={chosen}
+          skipped={ids.length - chosen.length}
+          // The same callback the bulk edit uses: every offered item now has
+          // a listing and a status the table behind this does not know about,
+          // so the parent drops the selection and reads the page again.
+          onOffered={() => {
+            setOffering(false)
+            onApplied?.()
+          }}
+          onClose={() => setOffering(false)}
+        />
+      )}
     </div>
   )
 }

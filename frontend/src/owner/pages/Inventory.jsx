@@ -78,6 +78,9 @@ function InventoryView({ config }) {
       <BulkEditBar
         view={config.view}
         ids={selected}
+        // The page on screen, for the offer dialog: offering an item needs
+        // its code, its title and its cost basis, not only its id.
+        rows={rows}
         onApplied={() => {
           setSelected([])
           refresh()
