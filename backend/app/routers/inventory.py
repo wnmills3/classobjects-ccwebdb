@@ -305,6 +305,16 @@ def receive_items(
     can describe, and "which of the twenty applied?" is not a question the UI
     should have to answer. Every id is resolved and every code checked before
     anything is written.
+
+    An outcome other than `received` (missing, returned, canceled) says a
+    coin will not be delivered as promised, which a buyer looking at it needs
+    to know about first: `app.sale_state.guard` refuses the request until
+    `acknowledge_for_sale` says the caller has seen that, the same warning
+    used elsewhere an item that is for sale is about to change underneath a
+    buyer. Once acknowledged, any listing still offering the item is ended
+    through `offering_writes.end_offer` -- a coin that cannot be delivered
+    must not stay offered. `received` itself needs none of this: an item that
+    has not yet been received cannot be offered in the first place.
     """
     if payload.outcome not in RECEIVE_OUTCOMES:
         raise HTTPException(
