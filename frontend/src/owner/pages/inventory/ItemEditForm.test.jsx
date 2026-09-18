@@ -11,7 +11,14 @@ vi.mock('../../api', () => ({
   },
 }))
 
+// ReferenceSelect's "add a value" posts through shared/api.js, not owner/api.js
+// -- see the module boundary note in reference.jsx -- so it needs its own mock.
+vi.mock('../../../shared/api', () => ({
+  api: { addReferenceValue: vi.fn() },
+}))
+
 import { api } from '../../api'
+import { api as sharedApi } from '../../../shared/api'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 import ItemEditForm from './ItemEditForm'
 
@@ -643,7 +650,12 @@ describe('Attributes', () => {
         },
       ],
     })
-    expect(offered()).toEqual(['--', 'No Motto', 'First Strike'])
+    expect(offered()).toEqual([
+      '--',
+      'No Motto',
+      'First Strike',
+      '+ Add a new value...',
+    ])
   })
 
   it('saves the whole set with the item version', async () => {
@@ -687,6 +699,33 @@ describe('Attributes', () => {
     await screen.findByDisplayValue('Mercury Dime')
     expect(screen.queryByRole('combobox', { name: 'item_attribute' })).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'item_attribute' })).toBeNull()
+  })
+
+  it("adds a value by its label alone, marked for this item's kind, and keeps it selected", async () => {
+    const user = userEvent.setup()
+    sharedApi.addReferenceValue.mockResolvedValue({})
+    await open({ item_kind: 'coin', attributes: [] })
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'item_attribute' }),
+      '__add__',
+    )
+    await user.type(screen.getByPlaceholderText('label'), 'Gold Toned')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    // extra columns nested under `extra` -- ReferenceValueCreate has no
+    // top-level applies_to/attribute_group field (backend/app/schemas.py).
+    expect(sharedApi.addReferenceValue).toHaveBeenCalledWith('item_attribute', {
+      code: 'gold_toned',
+      label: 'Gold Toned',
+      extra: { applies_to: 'coin', attribute_group: 'variety' },
+    })
+    // Selected immediately: the new value does not vanish just because the
+    // vocabulary that would otherwise offer it has not refetched yet.
+    expect(screen.getByText('gold_toned')).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Remove gold_toned' }),
+    ).toBeInTheDocument()
   })
 })
 
