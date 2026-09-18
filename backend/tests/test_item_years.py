@@ -12,14 +12,13 @@ on any imported item to a later year was a 500.
 
 from __future__ import annotations
 
-from app.models import InventoryItem, Listing
+from app.models import InventoryItem
 from app.seed import SAMPLE_CATALOG, _build
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_catalog import NEW_ITEM
 from tests.test_schema import make_item
 
 
@@ -136,27 +135,6 @@ def test_a_bulk_year_that_breaks_one_range_changes_nothing(
     assert ranged.item_code in response.json()["detail"]
     assert _years(db, single) == (1878, 1878)
     assert _years(db, ranged) == (1999, 2008)
-
-
-def test_a_catalogue_item_created_with_one_year_is_a_single_year(
-    client: TestClient, admin_headers: dict[str, str], db: Session
-) -> None:
-    body = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
-    listing = db.get(Listing, body["id"])
-    assert listing is not None
-
-    assert _years(db, listing.inventory_item) == (1909, 1909)
-
-
-def test_a_catalogue_edit_of_the_year_keeps_a_single_year_single(
-    client: TestClient, admin_headers: dict[str, str], db: Session, listing: Listing
-) -> None:
-    response = client.patch(
-        f"/api/catalog/{listing.id}", json={"year_start": 1900}, headers=admin_headers
-    )
-
-    assert response.status_code == 200
-    assert _years(db, listing.inventory_item) == (1900, 1900)
 
 
 def test_every_demo_item_is_seeded_as_a_single_year(db: Session) -> None:

@@ -228,7 +228,7 @@ def test_unit_price_is_frozen_at_purchase_time(
     assert order["items"][0]["unit_price"] == "189.00"
 
     client.patch(
-        f"/api/catalog/{listing.id}", json={"price": "999.00"}, headers=admin_headers
+        f"/api/listings/{listing.id}", json={"price": "999.00"}, headers=admin_headers
     )
 
     after = client.get("/api/orders", headers=customer_headers).json()

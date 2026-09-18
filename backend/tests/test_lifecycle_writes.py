@@ -15,14 +15,15 @@ from app.models import (
     ItemStatus,
     ItemStatusHistory,
     LocationHistory,
+    PurchaseOrder,
     StorageLocation,
     StorageLocationKind,
+    Vendor,
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_catalog import NEW_ITEM
 from tests.test_schema import code_id, make_item
 from tests.test_split import TUBE, do_split
 from tests.test_split import lot as split_lot
@@ -181,15 +182,36 @@ def test_no_item_lacks_history_across_every_creation_path_a_test_can_drive(
     """The invariant itself, not one endpoint's obedience to it.
 
     Four code paths build an `InventoryItem`: the importer, `splitting.py`,
-    the catalogue API, and `seed.py`. A test process cannot drive the
-    importer or the demo seed script without a great deal of unrelated
-    setup, but it can drive the two live endpoints -- catalogue creation and
-    splitting -- which is enough to check the invariant at the table level
-    rather than re-asserting what a single code path does: after exercising
-    both, no `inventory_item` row anywhere is missing its opening
-    `item_status_history` row.
+    `POST /api/inventory` (entering what was bought on a purchase), and
+    `seed.py`. The catalogue API used to be a fifth; it is retired, because it
+    created an item outside a purchase. A test process cannot drive the
+    importer or the demo seed script without a great deal of unrelated setup,
+    but it can drive the two live endpoints -- entering an item and splitting
+    -- which is enough to check the invariant at the table level rather than
+    re-asserting what a single code path does: after exercising both, no
+    `inventory_item` row anywhere is missing its opening `item_status_history`
+    row.
     """
-    client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers)
+    vendor = Vendor(name="Lifecycle Test Vendor")
+    db.add(vendor)
+    db.flush()
+    order = PurchaseOrder(vendor_id=vendor.id)
+    db.add(order)
+    db.commit()
+
+    client.post(
+        "/api/inventory",
+        json={
+            "purchase_order_id": order.id,
+            "item_kind": "coin",
+            "source_title": "1909-S VDB Lincoln Cent",
+            "year_start": 1909,
+            "item_cost": "1450.00",
+            "country": "US",
+            "grade": "VF20",
+        },
+        headers=admin_headers,
+    )
 
     # `split_lot` is test scaffolding built directly with `make_item`, which
     # deliberately bypasses these helpers so tests can set up arbitrary

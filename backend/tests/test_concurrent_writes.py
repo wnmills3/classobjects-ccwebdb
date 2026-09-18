@@ -32,11 +32,9 @@ from app.models import (
     InventoryItem,
     ItemKind,
     ItemStatus,
-    Listing,
     StorageForm,
     ValuationBasis,
 )
-from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -237,132 +235,12 @@ def test_two_people_cannot_split_the_same_lot_at_once(
     assert children == 4, f"the lot was split twice: {children} pieces"
 
 
-# ---------------------------------------------------------------------------
-# Through the API
-# ---------------------------------------------------------------------------
-
-
-def test_a_stale_form_is_refused_by_the_api(
-    client: TestClient, admin_headers: dict[str, str], listing: Listing
-) -> None:
-    """A form loaded before someone else's save is refused.
-
-    Two staff open the same item; the second saves a form loaded before the
-    first one's change. Their stale title must not overwrite it.
-    """
-    form_a = client.get(f"/api/catalog/{listing.id}").json()
-    form_b = client.get(f"/api/catalog/{listing.id}").json()
-
-    first = client.patch(
-        f"/api/catalog/{listing.id}",
-        json={"title": "A's careful retitle", "version": form_a["version"]},
-        headers=admin_headers,
-    )
-    assert first.status_code == 200
-
-    second = client.patch(
-        f"/api/catalog/{listing.id}",
-        json={
-            "title": form_b["title"],
-            "price": "222.00",
-            "version": form_b["version"],
-        },
-        headers=admin_headers,
-    )
-    assert second.status_code == 409
-    assert "changed by someone else" in second.json()["detail"]
-
-    # A's work survived, and B's stale value was not applied.
-    final = client.get(f"/api/catalog/{listing.id}").json()
-    assert final["title"] == "A's careful retitle"
-    assert final["price"] != "222.00"
-
-
-def test_the_conflict_message_says_what_to_do(
-    client: TestClient, admin_headers: dict[str, str], listing: Listing
-) -> None:
-    stale = client.get(f"/api/catalog/{listing.id}").json()["version"]
-    client.patch(
-        f"/api/catalog/{listing.id}",
-        json={"title": "moved on", "version": stale},
-        headers=admin_headers,
-    )
-
-    response = client.patch(
-        f"/api/catalog/{listing.id}",
-        json={"title": "too late", "version": stale},
-        headers=admin_headers,
-    )
-    detail = response.json()["detail"]
-    assert str(stale) in detail
-    assert "Reload" in detail
-
-
-def test_retrying_with_the_current_version_succeeds(
-    client: TestClient, admin_headers: dict[str, str], listing: Listing
-) -> None:
-    """A conflict is recoverable, not a dead end: reload, reapply, save."""
-    stale = client.get(f"/api/catalog/{listing.id}").json()["version"]
-    client.patch(
-        f"/api/catalog/{listing.id}",
-        json={"title": "first", "version": stale},
-        headers=admin_headers,
-    )
-
-    fresh = client.get(f"/api/catalog/{listing.id}").json()
-    retry = client.patch(
-        f"/api/catalog/{listing.id}",
-        json={"title": "second", "version": fresh["version"]},
-        headers=admin_headers,
-    )
-    assert retry.status_code == 200
-    assert retry.json()["title"] == "second"
-
-
-def test_omitting_the_version_still_works(
-    client: TestClient, admin_headers: dict[str, str], listing: Listing
-) -> None:
-    """Deliberately unconditional, for a script that means "set this regardless".
-
-    The edit form always sends the version; a bulk fix need not.
-    """
-    response = client.patch(
-        f"/api/catalog/{listing.id}",
-        json={"title": "unconditional"},
-        headers=admin_headers,
-    )
-    assert response.status_code == 200
-
-
-def test_the_version_is_returned_so_a_client_can_send_it_back(
-    client: TestClient, listing: Listing
-) -> None:
-    body = client.get(f"/api/catalog/{listing.id}").json()
-    assert isinstance(body["version"], str)
-
-
-def test_the_token_covers_the_item_row_not_just_the_listing(
-    client: TestClient, admin_headers: dict[str, str], listing: Listing
-) -> None:
-    """A catalogue entry is two rows.
-
-    The first implementation versioned only the listing, so renaming the item
-    -- which touches the *item* row -- left the listing's version unchanged
-    and a stale form was accepted.
-    """
-    before = client.get(f"/api/catalog/{listing.id}").json()["version"]
-
-    # title lives on inventory_item; price lives on listing.
-    client.patch(
-        f"/api/catalog/{listing.id}",
-        json={"title": "item row touched"},
-        headers=admin_headers,
-    )
-    after_item = client.get(f"/api/catalog/{listing.id}").json()["version"]
-    assert after_item != before, "an item edit must change the token"
-
-    client.patch(
-        f"/api/catalog/{listing.id}", json={"price": "5.00"}, headers=admin_headers
-    )
-    after_listing = client.get(f"/api/catalog/{listing.id}").json()["version"]
-    assert after_listing != after_item, "a listing edit must change it too"
+# The optimistic-locking behaviour this file used to check "through the API"
+# was `PATCH /api/catalog/{id}` -- retired along with the rest of the
+# catalogue's write endpoints (see `test_catalog.py`). Its replacement,
+# `PATCH /api/listings/{id}` (`app.routers.offers`), has its own version
+# field and its own conflict test: `test_offers_api.py::
+# test_editing_an_offer_and_a_stale_version`. It has nothing analogous to
+# `test_the_token_covers_the_item_row_not_just_the_listing`'s compound
+# listing-plus-item token, because it never touches the item row -- editing
+# the item is `PATCH /api/inventory/{id}`, versioned on its own.

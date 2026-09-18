@@ -348,41 +348,6 @@ def test_one_listing_swapped_for_another_at_an_agreed_price_in_one_save(
     assert morgan.id not in {line["listing_id"] for line in response.json()["items"]}
 
 
-def test_a_listing_swapped_out_of_an_order_cannot_be_deleted(
-    client: TestClient,
-    make_listing: Callable[..., Listing],
-    customer_headers: dict[str, str],
-    admin_headers: dict[str, str],
-    db: Session,
-) -> None:
-    """A listing kept alive only by order history must not be deletable.
-
-    `revise_order`'s line-removed branch drops the `sales_order_item` row but
-    keeps the listing id in `sales_order_change`, and that foreign key is
-    `ON DELETE RESTRICT` -- history must keep resolving to what was actually
-    bought. A guard that only counted `SalesOrderItem` would see nothing left
-    once the swap above has run, let the delete through, and hit that
-    RESTRICT as an unhandled `IntegrityError`.
-    """
-    morgan = make_listing(title="Morgan", price=Decimal("100.00"), quantity_available=5)
-    dime = make_listing(title="Dime", price=Decimal("10.00"), quantity_available=5)
-    order = _place(client, customer_headers, morgan.id, 2)
-    response = _revise(
-        client,
-        admin_headers,
-        order,
-        [{"listing_id": dime.id, "quantity": 1, "unit_price": "8.00"}],
-    )
-    assert response.status_code == 200, response.text
-
-    delete = client.delete(f"/api/catalog/{morgan.id}", headers=admin_headers)
-
-    assert delete.status_code == 409
-    assert "is_active" in delete.json()["detail"]
-    db.expire_all()
-    assert db.get(Listing, morgan.id) is not None
-
-
 def test_an_over_request_changes_nothing(
     client: TestClient,
     make_listing: Callable[..., Listing],
