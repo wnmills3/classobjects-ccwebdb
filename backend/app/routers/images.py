@@ -15,6 +15,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import sale_state
 from ..config import settings
 from ..deps import AdminUser, DbSession
 from ..imaging import (
@@ -129,6 +130,7 @@ async def upload_image(
     inventory_item_id: int | None = Form(default=None),
     image_role: str | None = Form(default=None),
     is_primary: bool = Form(default=False),
+    acknowledge_for_sale: bool = Form(default=False),
 ) -> ImageOut:
     """Upload a photograph, optionally attaching it to an inventory item.
 
@@ -146,6 +148,7 @@ async def upload_image(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Unknown inventory_item_id: {inventory_item_id}",
             )
+        sale_state.guard(db, [item], acknowledged=acknowledge_for_sale)
         link = db.scalar(
             select(ItemImage).where(
                 ItemImage.inventory_item_id == inventory_item_id,
@@ -205,13 +208,33 @@ def get_derivative(image_id: int, kind: DerivativeKind, db: DbSession) -> Respon
 
 
 @router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_image(image_id: int, db: DbSession, _admin: AdminUser) -> None:
-    """Remove an image, its renditions and its stored bytes."""
+def delete_image(
+    image_id: int,
+    db: DbSession,
+    _admin: AdminUser,
+    acknowledge_for_sale: bool = False,
+) -> None:
+    """Remove an image, its renditions and its stored bytes.
+
+    `acknowledge_for_sale` is a query parameter rather than a body field
+    because DELETE has no body here. The shop serves an item's primary image
+    (`routers.catalog`), so deleting one changes what a buyer is looking at.
+    """
     image = db.get(Image, image_id)
     if image is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
         )
+
+    # This endpoint knew only an image id. The items it is attached to are
+    # what the for-sale rule is about, so they are read before anything is
+    # removed.
+    attached = db.scalars(
+        select(InventoryItem)
+        .join(ItemImage, ItemImage.inventory_item_id == InventoryItem.id)
+        .where(ItemImage.image_id == image.id)
+    ).all()
+    sale_state.guard(db, list(attached), acknowledged=acknowledge_for_sale)
 
     storage = get_storage()
     for derivative in image.derivatives:

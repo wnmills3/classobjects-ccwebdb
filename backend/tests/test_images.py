@@ -289,6 +289,9 @@ def test_uploading_against_an_item_makes_it_the_catalogue_thumbnail(
     before = client.get(f"/api/catalog/{listing.id}").json()
     assert before["thumbnail_url"] is None
 
+    # The `listing` fixture makes the item for sale, so this attach needs
+    # the same acknowledgement `test_for_sale_guards.py` covers -- this test
+    # is about the catalogue thumbnail, not the guard, so it just clears it.
     client.post(
         "/api/images",
         files={"file": ("coin.jpg", make_jpeg(), "image/jpeg")},
@@ -296,6 +299,7 @@ def test_uploading_against_an_item_makes_it_the_catalogue_thumbnail(
             "inventory_item_id": str(listing.inventory_item_id),
             "image_role": "obverse",
             "is_primary": "true",
+            "acknowledge_for_sale": "true",
         },
         headers=admin_headers,
     )
@@ -314,12 +318,15 @@ def test_only_one_photograph_can_be_primary(
     one in the same transaction rather than collide with it.
     """
     for colour in ((10, 10, 10), (20, 20, 20)):
+        # The `listing` fixture makes the item for sale, so each attach
+        # needs the acknowledgement `test_for_sale_guards.py` covers.
         response = client.post(
             "/api/images",
             files={"file": ("c.jpg", make_jpeg(colour=colour), "image/jpeg")},
             data={
                 "inventory_item_id": str(listing.inventory_item_id),
                 "is_primary": "true",
+                "acknowledge_for_sale": "true",
             },
             headers=admin_headers,
         )
