@@ -158,7 +158,7 @@ def _out(listing: Listing) -> ListingOut:
         ended_at=listing.ended_at,
         paused_by_listing_id=listing.paused_by_listing_id,
         cost_basis=item.total_cost,
-        version=str(listing.version),
+        version=listing.version,
     )
 
 
@@ -184,6 +184,32 @@ def _get_listing(db: Session, listing_id: int) -> Listing:
 # --------------------------------------------------------------------------
 
 
+#: What a request that lost the race is told. The writer's own checks passed;
+#: the partial unique index on `offer_claim` is what refused it.
+_RACED = "was offered somewhere else a moment ago; reload and try again"
+
+
+def _refused(detail: str, refused: list[OfferRefusalOut]) -> JSONResponse:
+    """The one 409 body this endpoint has, whoever decided the refusal.
+
+    Every 409 from `create_offers` goes through here, so the shape the OpenAPI
+    publishes (`OfferRefusedOut`: `detail` and `refused`, both required) is the
+    shape on the wire in every case. A console that reads `refused` on a 409
+    must not throw on the one refusal it did not expect -- and the refusal it
+    does not expect is the race, which is exactly when it most needs to say
+    something clear.
+
+    `mode="json"` rather than a bare `model_dump()`: a `JSONResponse` renders
+    with `json.dumps` and bypasses `response_model`, so nothing but this call
+    stands between a future `Decimal`, `datetime` or enum in the refusal body
+    and a `TypeError` raised inside the response render.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content=OfferRefusedOut(detail=detail, refused=refused).model_dump(mode="json"),
+    )
+
+
 @router.post(
     "/offers",
     status_code=status.HTTP_201_CREATED,
@@ -206,9 +232,27 @@ def create_offers(
 
     listing_ids: list[int] = []
     refusals: list[OfferRefusalOut] = []
+    already: set[int] = set()
     try:
         for line in payload.items:
             item = _item_by_id(db, line.item_id)
+            # Read before the write that may fail: after a failed flush the
+            # session refuses further SQL, and this is what names the item in
+            # the refusal below.
+            item_code = item.item_code
+            if line.item_id in already:
+                # Caught here rather than left to the writer, which would see
+                # the second copy as an item already offered and answer "is
+                # already offered in the shop, listing #N" -- true, and no
+                # help at all to someone who simply listed it twice.
+                refusals.append(
+                    OfferRefusalOut(
+                        item_code=item_code,
+                        reason="appears more than once in this batch; offer it once",
+                    )
+                )
+                continue
+            already.add(line.item_id)
             try:
                 listing = offering_writes.offer(
                     db,
@@ -226,28 +270,29 @@ def create_offers(
                     OfferRefusalOut(item_code=refused.item_code, reason=refused.reason)
                 )
                 continue
+            except IntegrityError:
+                # `offer` flushes its claim, so the index refuses the loser of
+                # a race here, inside the loop, where the item is still known.
+                db.rollback()
+                return _refused(
+                    "1 item(s) cannot be offered",
+                    [OfferRefusalOut(item_code=item_code, reason=_RACED)],
+                )
             listing_ids.append(listing.id)
         if refusals:
             db.rollback()
-            return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
-                content=OfferRefusedOut(
-                    detail=f"{len(refusals)} item(s) cannot be offered",
-                    refused=refusals,
-                ).model_dump(),
-            )
+            return _refused(f"{len(refusals)} item(s) cannot be offered", refusals)
         db.commit()
     except HTTPException:
         db.rollback()
         raise
-    except IntegrityError as exc:
-        # Two requests racing past the writer's checks; the partial unique
-        # index on `offer_claim` is what refuses the second one.
+    except IntegrityError:
+        # The same race, refused at commit rather than at a flush. Nothing
+        # here knows which item lost -- the loop's own handler is what names
+        # one -- so the list is empty rather than invented, and the body is
+        # still the shape every other refusal has.
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="One of those items was offered somewhere else just now",
-        ) from exc
+        return _refused("One of those items was offered somewhere else just now", [])
     return OfferBatchOut(listings=_reload(db, listing_ids))
 
 
@@ -319,7 +364,7 @@ def update_listing(
     # rather than silently leaving unchanged.
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
-    if expected is not None and expected != str(listing.version):
+    if expected is not None and expected != listing.version:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
     _refuse_null_required(data)
 

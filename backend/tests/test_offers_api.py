@@ -13,9 +13,13 @@ from collections.abc import Callable
 from decimal import Decimal
 
 import httpx
+import pytest
+from app import offering_writes
 from app.models import InventoryItem, Listing, SalesVenue, SalesVenueKind
+from app.schemas import OfferRefusedOut
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 ItemFactory = Callable[..., InventoryItem]
@@ -85,6 +89,27 @@ def test_the_listing_list_is_admin_only(
     assert client.get("/api/listings", headers=customer_headers).status_code == 403
 
 
+def test_editing_and_ending_are_admin_only(
+    client: TestClient, customer_headers: dict[str, str]
+) -> None:
+    """The guard runs before the handler, so no listing needs to exist.
+
+    A 404 here would mean the dependency had been dropped and the request had
+    reached the row lookup -- which is the regression these two lines exist
+    to catch.
+    """
+    edit = {"price": "1.00"}
+    assert client.patch("/api/listings/1", json=edit).status_code == 401
+    assert (
+        client.patch("/api/listings/1", json=edit, headers=customer_headers).status_code
+        == 403
+    )
+    assert client.post("/api/listings/1/end").status_code == 401
+    assert (
+        client.post("/api/listings/1/end", headers=customer_headers).status_code == 403
+    )
+
+
 # --------------------------------------------------------------------------
 # Offering
 # --------------------------------------------------------------------------
@@ -116,11 +141,18 @@ def test_offering_two_items_at_once(
     assert {row["status"] for row in listings} == {"active"}
     assert {row["venue"] for row in listings} == {"ebay-two"}
     assert {row["format"] for row in listings} == {"fixed_price"}
-    assert Decimal(listings[0]["price"]) == Decimal("120.00")
+    # The exact string, not a Decimal comparison: money crosses this API as a
+    # string and `Decimal(120.0) == Decimal("120.00")` would hide a regression
+    # to float serialisation, which is the one thing forbidden here.
+    assert listings[0]["price"] == "120.00"
+    assert listings[1]["price"] == "45.50"
     assert listings[0]["item_code"] == first.item_code
     assert listings[0]["currency"] == "USD"
     # Admin-only, so the console may show what the item cost.
-    assert Decimal(listings[0]["cost_basis"]) == first.total_cost
+    assert listings[0]["cost_basis"] == str(first.total_cost)
+    # A number, not the string "1": one `listing.version` column, so an int,
+    # unlike the catalogue's composite version token.
+    assert listings[0]["version"] == 1
 
     written = db.scalars(
         select(Listing).where(Listing.inventory_item_id.in_([first.id, second.id]))
@@ -196,6 +228,153 @@ def test_an_unknown_platform_code_is_unprocessable(
         [{"item_id": item.id, "price": "1.00"}],
     )
     assert response.status_code == 422, response.text
+
+
+def _rejected_fields(response: httpx.Response) -> set[str]:
+    """The field each validation error names, so a 422 is pinned to its cause.
+
+    A bare `status_code == 422` would pass if the request were rejected for
+    some entirely different reason, which is exactly what these tests must not
+    accept.
+    """
+    return {str(error["loc"][-1]) for error in response.json()["detail"]}
+
+
+def test_the_same_item_twice_in_one_batch_says_so(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    """Named plainly, rather than as "already offered" by the writer."""
+    item = make_item()
+    venue = _venue(db, "ebay-twice")
+
+    response = _offer(
+        client,
+        admin_headers,
+        venue.code,
+        [
+            {"item_id": item.id, "price": "1.00"},
+            {"item_id": item.id, "price": "2.00"},
+        ],
+    )
+    assert response.status_code == 409, response.text
+    refused = response.json()["refused"]
+    assert [row["item_code"] for row in refused] == [item.item_code]
+    assert "more than once in this batch" in refused[0]["reason"]
+
+    db.expire_all()
+    assert (
+        db.scalars(select(Listing).where(Listing.inventory_item_id == item.id)).all()
+        == []
+    )
+
+
+def test_a_price_with_too_many_decimal_places_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    """Refused here rather than silently rounded to 10.01 by the column."""
+    item = make_item()
+    venue = _venue(db, "ebay-precision")
+    response = _offer(
+        client, admin_headers, venue.code, [{"item_id": item.id, "price": "10.005"}]
+    )
+    assert response.status_code == 422, response.text
+    assert _rejected_fields(response) == {"price"}
+
+
+def test_a_price_too_large_for_the_column_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    """Twelve integer digits overflow `Numeric(12, 2)`; that must not be a 500."""
+    item = make_item()
+    venue = _venue(db, "ebay-overflow")
+    response = _offer(
+        client,
+        admin_headers,
+        venue.code,
+        [{"item_id": item.id, "price": "999999999999.00"}],
+    )
+    assert response.status_code == 422, response.text
+    assert _rejected_fields(response) == {"price"}
+
+
+def test_a_negative_price_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    item = make_item()
+    venue = _venue(db, "ebay-negative")
+    response = _offer(
+        client, admin_headers, venue.code, [{"item_id": item.id, "price": "-5.00"}]
+    )
+    assert response.status_code == 422, response.text
+    assert _rejected_fields(response) == {"price"}
+
+
+def test_a_quantity_below_one_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    item = make_item()
+    venue = _venue(db, "ebay-quantity")
+    response = client.post(
+        "/api/offers",
+        headers=admin_headers,
+        json={
+            "venue": venue.code,
+            "format": "fixed_price",
+            "quantity": 0,
+            "items": [{"item_id": item.id, "price": "1.00"}],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert _rejected_fields(response) == {"quantity"}
+
+
+def test_the_race_refusal_has_the_same_body_as_every_other(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The loser of a race reads the body the published schema promises.
+
+    The race itself is `tests/test_offer_races.py`'s subject; what is pinned
+    here is that the `IntegrityError` it ends in produces `OfferRefusedOut`
+    and not a bare `{"detail": ...}`, which a console reading `refused` on
+    every 409 would throw on.
+    """
+    item = make_item()
+    venue = _venue(db, "ebay-race")
+
+    def _lost(db_: Session, **kwargs: object) -> Listing:
+        raise IntegrityError(
+            "INSERT INTO offer_claim ...", {}, Exception("duplicate key value")
+        )
+
+    monkeypatch.setattr(offering_writes, "offer", _lost)
+    response = _offer(
+        client, admin_headers, venue.code, [{"item_id": item.id, "price": "1.00"}]
+    )
+    assert response.status_code == 409, response.text
+    body = response.json()
+    # Validates against the one 409 model the OpenAPI publishes.
+    refusal = OfferRefusedOut.model_validate(body)
+    assert [row.item_code for row in refusal.refused] == [item.item_code]
+    assert "somewhere else" in refusal.refused[0].reason
 
 
 def test_external_url_is_built_from_the_platform_template(
@@ -303,6 +482,9 @@ def test_listings_are_filtered_by_item(
         "/api/listings", headers=admin_headers, params={"item_id": wanted.id}
     ).json()
     assert [row["item_id"] for row in rows] == [wanted.id]
+    # The list serves the same version the console sends back on a PATCH, and
+    # it is a number there too.
+    assert rows[0]["version"] == 1
 
 
 # --------------------------------------------------------------------------
@@ -328,9 +510,10 @@ def test_editing_an_offer_and_a_stale_version(
         json={"price": "25.00", "title": "Edited", "version": listing["version"]},
     )
     assert good.status_code == 200, good.text
-    assert Decimal(good.json()["price"]) == Decimal("25.00")
+    assert good.json()["price"] == "25.00"
     assert good.json()["title"] == "Edited"
-    assert good.json()["version"] != listing["version"]
+    assert listing["version"] == 1
+    assert good.json()["version"] == 2
 
     # The version the form loaded is now one behind.
     stale = client.patch(
