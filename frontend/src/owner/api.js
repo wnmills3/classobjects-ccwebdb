@@ -145,6 +145,25 @@ export const api = {
       body: payload,
     }),
 
+  // offering items for sale. `app/offering_writes.py` is the only writer of a
+  // listing's status, so there is no "set this listing inactive" call here:
+  // ending an offer is its own endpoint, because ending one also resumes the
+  // store listing that was paused for it.
+  //
+  // A refused batch is a 409 whose body is {detail, refused: [{item_code,
+  // reason}]}, and `refused` is always present -- the race case included.
+  // `send` turns a failure into an ApiError carrying only `detail`, so the
+  // per-item reasons do not reach a caller today; the offer dialog that has
+  // to list them (phase 2's next task) needs `send` to keep the body.
+  createOffers: (payload) => send('/api/offers', { method: 'POST', body: payload }),
+  listListings: (params = {}) => {
+    const qs = query(params)
+    return send(`/api/listings${qs ? `?${qs}` : ''}`)
+  },
+  updateListing: (id, payload) =>
+    send(`/api/listings/${id}`, { method: 'PATCH', body: payload }),
+  endListing: (id) => send(`/api/listings/${id}/end`, { method: 'POST' }),
+
   createPurchaseOrder: (payload) =>
     send('/api/purchase-orders', { method: 'POST', body: payload }),
   createInventoryItem: (payload) =>

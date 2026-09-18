@@ -3,6 +3,7 @@ import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { useAuth } from '../shared/auth-context'
 import AdminPeople from './pages/AdminPeople'
 import { InventoryCoins, InventoryCurrency } from './pages/Inventory'
+import Listings from './pages/Listings'
 import Login from './pages/Login'
 import NewPurchase from './pages/NewPurchase'
 import Orders from './pages/Orders'
@@ -46,6 +47,7 @@ function Console() {
           <NavLink to="/purchases/new">New purchase</NavLink>
           <NavLink to="/orders">Orders</NavLink>
           <NavLink to="/people">People</NavLink>
+          <NavLink to="/listings">Listings</NavLink>
           <NavLink to="/platforms">Platforms</NavLink>
           <NavLink to="/vocabularies">Vocabularies</NavLink>
         </nav>
@@ -67,6 +69,7 @@ function Console() {
           <Route path="/purchases/new" element={<NewPurchase />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/people" element={<AdminPeople />} />
+          <Route path="/listings" element={<Listings />} />
           <Route path="/platforms" element={<Platforms />} />
           <Route path="/vocabularies" element={<Vocabularies />} />
           <Route path="*" element={<p className="muted">Page not found.</p>} />
