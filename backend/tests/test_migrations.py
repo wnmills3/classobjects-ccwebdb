@@ -141,6 +141,32 @@ def sales_venue_migration_url() -> str:
         admin.dispose()
 
 
+@pytest.fixture
+def offer_claim_migration_url() -> str:
+    """A throwaway database for migrating real listings, not an empty table."""
+    url = TEST_URL
+    name = f"{url.database}_migrations_claims"
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    target = url.set(database=name).render_as_string(hide_password=False)
+    try:
+        yield target
+    finally:
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :name AND pid <> pg_backend_pid() "
+                    "AND backend_type = 'client backend'"
+                ),
+                {"name": name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()
+
+
 #: Old grade code -> (grade code, strike type) after the split.
 GRADES_BEFORE_AND_AFTER = {
     "MS65": ("65", "business"),
@@ -397,6 +423,111 @@ def test_the_sales_venue_migration_moves_real_rows(
         back = dict(conn.execute(text("SELECT id, is_active FROM listing")).all())
     engine.dispose()
     assert back == {listing_ids[True]: True, listing_ids[False]: False}
+
+
+def test_the_offer_claim_migration_claims_existing_listings(
+    offer_claim_migration_url: str,
+) -> None:
+    """Upgrade with listings already in place, then downgrade again.
+
+    An empty database proves only that the DDL runs. Every listing that
+    exists before this migration must come out the other side holding a
+    claim whose state matches its status -- the one-active-offer invariant
+    has to hold from the first moment, not only for rows written afterward.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", offer_claim_migration_url)
+    upgrade(config, "d6a1f3b8c402")
+
+    engine = create_engine(offer_claim_migration_url)
+    reference = (
+        "INSERT INTO {table} (code, label, sort_order, is_active, source) "
+        "VALUES (:code, :code, 0, true, 'seeded') RETURNING id"
+    )
+    with engine.begin() as conn:
+
+        def add(table: str, code: str) -> int:
+            return conn.execute(
+                text(reference.format(table=table)), {"code": code}
+            ).scalar_one()
+
+        item_columns = {
+            "item_kind_id": "item_kind",
+            "storage_form_id": "storage_form",
+            "authenticity_id": "authenticity",
+            "status_id": "item_status",
+            "disposition_id": "disposition",
+            "valuation_basis_id": "valuation_basis",
+        }
+        required = {column: add(table, "x") for column, table in item_columns.items()}
+        currency_id = conn.execute(
+            text(
+                "INSERT INTO currency (code, label, sort_order, is_active, source, "
+                "symbol, minor_units) VALUES ('USD', 'US dollar', 0, true, 'seeded', "
+                "'$', 2) RETURNING id"
+            )
+        ).scalar_one()
+        store_id = conn.scalar(text("SELECT id FROM sales_venue WHERE code = 'store'"))
+
+        def add_item() -> int:
+            return conn.execute(
+                text(
+                    "INSERT INTO inventory_item (item_kind_id, storage_form_id, "
+                    "authenticity_id, status_id, disposition_id, valuation_basis_id, "
+                    "item_cost, shipping_cost, tax_rate, tax_includes_shipping, "
+                    "source, created_at, updated_at) VALUES (:item_kind_id, "
+                    ":storage_form_id, :authenticity_id, :status_id, "
+                    ":disposition_id, :valuation_basis_id, 0, 0, 0, false, "
+                    "'manual', now(), now()) RETURNING id"
+                ),
+                required,
+            ).scalar_one()
+
+        listing_ids = {}
+        for status in ("active", "paused", "ended"):
+            item_id = add_item()
+            listing_ids[status] = conn.execute(
+                text(
+                    "INSERT INTO listing (inventory_item_id, price, currency_id, "
+                    "sales_venue_id, format, status, listed_at, created_at, "
+                    "updated_at) VALUES (:i, 10.00, :c, :s, 'fixed_price', "
+                    ":status, now(), now(), now()) RETURNING id"
+                ),
+                {"i": item_id, "c": currency_id, "s": store_id, "status": status},
+            ).scalar_one()
+
+    upgrade(config, "head")
+    with engine.connect() as conn:
+        state_by_status = dict(
+            conn.execute(
+                text(
+                    "SELECT l.status::text, c.state::text FROM offer_claim c "
+                    "JOIN listing l ON l.id = c.listing_id"
+                )
+            ).all()
+        )
+        assert state_by_status == {
+            "active": "active",
+            "paused": "paused",
+            "ended": "released",
+        }
+        has_index = conn.scalar(text("SELECT to_regclass('uq_offer_claim_active')"))
+        assert has_index is not None
+
+    downgrade(config, "d6a1f3b8c402")
+    with engine.connect() as conn:
+        statuses = dict(
+            conn.execute(text("SELECT id, status::text FROM listing")).all()
+        )
+        claim_table = conn.scalar(text("SELECT to_regclass('offer_claim')"))
+    engine.dispose()
+    assert statuses == {
+        listing_ids["active"]: "active",
+        listing_ids["paused"]: "paused",
+        listing_ids["ended"]: "ended",
+    }
+    assert claim_table is None
 
 
 def test_migrations_round_trip(round_trip_url: str) -> None:
