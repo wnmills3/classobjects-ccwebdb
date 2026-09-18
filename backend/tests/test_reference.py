@@ -24,11 +24,10 @@ def test_a_vocabulary_comes_back_ready_for_a_picker(client: TestClient) -> None:
     assert body["table"] == "item_kind"
     assert "coin" in codes
     assert "bullion" in codes
-    # A descriptive vocabulary comes back alphabetically by label, not by
-    # sort_order or insertion -- see test_a_descriptive_vocabulary_comes_
-    # back_alphabetically for the general case.
-    labels = [v["label"] for v in body["values"]]
-    assert labels == sorted(labels, key=str.lower)
+    # Ordered by sort_order, so the picker shows them in a sensible sequence
+    # rather than alphabetically or by insertion.
+    orders = [v["sort_order"] for v in body["values"]]
+    assert orders == sorted(orders)
 
 
 def test_the_endpoint_is_public(client: TestClient) -> None:
@@ -171,6 +170,29 @@ def test_a_lifecycle_vocabulary_keeps_its_sequence(client: TestClient) -> None:
     ]
 
     assert codes.index("ordered") < codes.index("received") < codes.index("canceled")
+
+
+def test_item_kind_keeps_its_curated_order(client: TestClient) -> None:
+    """Coin and currency lead, ranked by how often a kind occurs.
+
+    Alphabetical would put Bullion first, ahead of the two kinds that
+    between them cover the whole collection.
+    """
+    codes = [v["code"] for v in client.get("/api/reference/item_kind").json()["values"]]
+
+    assert codes.index("coin") < codes.index("currency") < codes.index("bullion")
+
+
+def test_signature_combinations_keep_their_chronological_order(
+    client: TestClient,
+) -> None:
+    """Oldest first: the picker narrows to a stretch of this timeline by year."""
+    codes = [
+        v["code"]
+        for v in client.get("/api/reference/signature_combination").json()["values"]
+    ]
+
+    assert codes.index("tate_mellon") < codes.index("woods_mellon")
 
 
 def test_a_value_added_late_still_sorts_alphabetically(
