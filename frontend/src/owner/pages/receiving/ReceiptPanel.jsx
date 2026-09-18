@@ -331,8 +331,18 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           two mounted at once for the same item would let an error added in
           one silently discard one added in the other the moment either
           saved. One panel for one item at a time; the editor's is the
-          richer of the two. */}
-      {singleItemId != null && reviewIds === null && (
+          richer of the two.
+
+          And gated on the kind being KNOWN, not merely on one item being
+          selected. `itemKind` is null before the fetch below returns and
+          stays null if it fails, and null is not a neutral value here:
+          `isCurrencyKind(null)` is false, so a banknote would be offered the
+          coin error types, and a type added from that picker would be posted
+          `applies_to: 'coin'` -- a mis-marked vocabulary row that then
+          vanishes from the picker that created it (`fitsKind`). On a failed
+          fetch that is the steady state, not one render. Better to offer
+          nothing than to offer the wrong half. */}
+      {singleItemId != null && itemKind != null && reviewIds === null && (
         <ErrorsPanel key={singleItemId} itemId={singleItemId} kind={itemKind} />
       )}
 

@@ -776,8 +776,12 @@ describe('Errors panel', () => {
     )
     await screen.findByDisplayValue('Mercury Dime')
 
+    // findBy, not getBy: the item having loaded says nothing about
+    // ErrorsPanel, which renders "Loading..." in place of its picker until
+    // its OWN `getItemErrors` promise resolves. Waiting on the item alone
+    // made this test flake (twice in about sixteen runs).
     const options = within(
-      screen.getByRole('combobox', { name: 'error_type' }),
+      await screen.findByRole('combobox', { name: 'error_type' }),
     ).getAllByRole('option')
     const labels = options.map((o) => o.textContent)
     expect(labels).toContain('Off Center')
