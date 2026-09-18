@@ -6,6 +6,7 @@ import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
+import ErrorsPanel from './ErrorsPanel'
 
 /**
  * One item, every field, with what the lot claimed beside each.
@@ -644,6 +645,12 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         }
         onChange={(codes) => setDraft({ ...draft, attributes: codes })}
       />
+
+      {/* Self-loading and self-saving: it fetches and PUTs its own set
+          against this item, independent of the Save button above -- an
+          error recorded here is not held back by, or lost to, a discarded
+          edit elsewhere on this form. */}
+      <ErrorsPanel itemId={itemId} kind={value('item_kind')} />
 
       {item.item_kind === 'currency' && (
         <>

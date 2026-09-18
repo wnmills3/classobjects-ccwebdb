@@ -20,6 +20,10 @@ vi.mock('../../api', () => ({
     searchFriedberg: vi.fn(),
     createFriedbergNumber: vi.fn(),
     attachFriedberg: vi.fn(),
+    // ErrorsPanel's own calls, reachable whenever exactly one item is
+    // selected.
+    getItemErrors: vi.fn(),
+    setItemErrors: vi.fn(),
   },
 }))
 
@@ -64,6 +68,7 @@ beforeEach(() => {
     table: 'signature_combination',
     values: [],
   })
+  api.getItemErrors.mockResolvedValue({ inventory_item_id: 412, errors: [] })
 })
 
 describe('ReceiptPanel', () => {
@@ -345,6 +350,23 @@ describe('ReceiptPanel', () => {
 
     await userEvent.click(toggle)
     expect(await screen.findByLabelText(/denomination/i)).toBeInTheDocument()
+  })
+
+  it('offers the errors panel for the one selected item', async () => {
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+
+    await waitFor(() => expect(api.getItemErrors).toHaveBeenCalledWith(412))
+    expect(await screen.findByRole('button', { name: 'Add error' })).toBeInTheDocument()
+  })
+
+  it('does not offer the errors panel, or call its API, with several items selected', async () => {
+    // `PUT /api/inventory/{id}/errors` replaces one item's set -- there is no
+    // bulk semantic to invent for several items received at once.
+    renderWithProviders(<ReceiptPanel itemIds={[412, 413]} onDone={vi.fn()} />)
+    await screen.findByRole('button', { name: /^receive$/i })
+
+    expect(screen.queryByRole('button', { name: 'Add error' })).not.toBeInTheDocument()
+    expect(api.getItemErrors).not.toHaveBeenCalled()
   })
 
   it('does not offer a Friedberg lookup with several items selected', async () => {
