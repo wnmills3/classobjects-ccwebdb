@@ -319,6 +319,50 @@ def test_a_bulk_edit_cannot_give_a_banknote_a_metal(
     assert coin.metal_id != code_id(db, Metal, "gold")
 
 
+def test_a_banknote_cannot_take_a_coin_denomination(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The same face value is a coin and a note, and they are different objects."""
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+
+    response = client.patch(
+        f"/api/inventory/{note.id}",
+        json={"denomination": "usd_coin_0_25"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
+    assert "denomination" in response.json()["detail"]
+
+
+def test_a_coin_cannot_take_a_note_denomination(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    coin = make_item(db)
+
+    response = client.patch(
+        f"/api/inventory/{coin.id}",
+        json={"denomination": "usd_note_1"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_a_note_takes_a_note_denomination(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+
+    response = client.patch(
+        f"/api/inventory/{note.id}",
+        json={"denomination": "usd_note_1"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+
+
 def test_nulling_a_required_classifier_is_refused_naming_the_field(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

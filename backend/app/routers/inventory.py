@@ -48,6 +48,7 @@ from ..models import (
     CurrencyDetail,
     Customer,
     Denomination,
+    DenominationKind,
     Disposition,
     ErrorType,
     FedDistrict,
@@ -450,6 +451,23 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     item_kind_id = require_code(db, ItemKind, payload.item_kind, "item_kind")
     country_id = code_to_id(db, Country, payload.country, "country")
     denomination_id = code_to_id(db, Denomination, payload.denomination, "denomination")
+    if payload.denomination:
+        # No item row exists yet on this path, so the payload's own
+        # `item_kind` is compared against the denomination's kind directly,
+        # rather than through `_refuse_mismatched_denomination`.
+        denomination_kind = db.scalar(
+            select(Denomination.kind).where(Denomination.code == payload.denomination)
+        )
+        is_note_denomination = denomination_kind == DenominationKind.note
+        if (payload.item_kind == "currency") != is_note_denomination:
+            side = "banknotes" if is_note_denomination else "coins"
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"denomination {payload.denomination} belongs to {side}: "
+                    f"item_kind {payload.item_kind!r} cannot take it."
+                ),
+            )
     grade_code, strike_code = grades.split_fields(payload.grade, payload.strike_type)
     grade_id = code_to_id(db, Grade, grade_code, "grade")
     strike_type_id = code_to_id(db, StrikeType, strike_code, "strike_type")
@@ -930,6 +948,41 @@ def _refuse_coin_only_fields(
         )
 
 
+def _refuse_mismatched_denomination(
+    data: dict[str, object], items: Sequence[InventoryItem], db: Session
+) -> None:
+    """Raise a 422 if a denomination belongs to the other side of the split.
+
+    The same face value exists as a coin and as a note, which is what
+    `denomination.kind` records. A picker will not offer the wrong one; this
+    is for a stale tab or a script.
+    """
+    code = data.get("denomination")
+    if not isinstance(code, str) or not code:
+        return
+    kind = db.scalar(select(Denomination.kind).where(Denomination.code == code))
+    if kind is None:  # an unknown code is code_to_id's 422 to raise, not ours
+        return
+    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    # `note` denominations belong to currency items; every other kind --
+    # coin, bullion, set, medal, token -- takes `coin` denominations.
+    is_note_denomination = kind == DenominationKind.note
+    mismatched = sorted(
+        item.item_code
+        for item in items
+        if (item.item_kind_id == currency_id) != is_note_denomination
+    )
+    if mismatched:
+        side = "banknotes" if is_note_denomination else "coins"
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"denomination {code} belongs to {side}: {', '.join(mismatched)} "
+                "cannot take it. Nothing was changed."
+            ),
+        )
+
+
 def _refuse_null_scalars(data: dict[str, object]) -> None:
     """Raise a 422 naming every required scalar that was sent as null."""
     nulled = sorted(f for f in REQUIRED_SCALARS if f in data and data[f] is None)
@@ -980,6 +1033,7 @@ def bulk_edit(
             detail=f"No such item(s): {missing}. Nothing was changed.",
         )
     _refuse_coin_only_fields(data, list(items), db)
+    _refuse_mismatched_denomination(data, list(items), db)
     if data and not acknowledged:
         _refuse_unacknowledged_sale(db, list(items))
 
@@ -1070,6 +1124,7 @@ def update_item(
         )
     _refuse_null_scalars(data)
     _refuse_coin_only_fields(data, [item], db)
+    _refuse_mismatched_denomination(data, [item], db)
     _split_grade(data)
 
     # This is what catches the ordinary lost-update case: two staff, each with
