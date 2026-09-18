@@ -326,7 +326,15 @@ def test_a_lot_that_has_been_ordered_cannot_be_split(
     )
     assert placed.status_code == 201
 
-    response = do_split(client, admin_headers, listing.inventory_item_id, TUBE)
+    # Acknowledge the for-sale warning to reach `split_item`'s own check --
+    # the point of this test is the order refusal underneath it, which
+    # `acknowledge_for_sale` cannot get past (app.sale_state, kinds={"listing"}).
+    response = do_split(
+        client,
+        admin_headers,
+        listing.inventory_item_id,
+        {**TUBE, "acknowledge_for_sale": True},
+    )
     assert response.status_code == 409
     assert "order" in response.json()["detail"]
 
@@ -348,7 +356,13 @@ def test_splitting_withdraws_the_lots_listing(
     client: TestClient, admin_headers: dict[str, str], listing: Listing, db: Session
 ) -> None:
     """The lot is no longer a thing anyone can buy."""
-    do_split(client, admin_headers, listing.inventory_item_id, TUBE)
+    # The lot is listed, so the split must acknowledge that (app.sale_state).
+    do_split(
+        client,
+        admin_headers,
+        listing.inventory_item_id,
+        {**TUBE, "acknowledge_for_sale": True},
+    )
 
     db.expire_all()
     assert db.get(Listing, listing.id).is_active is False
