@@ -388,11 +388,9 @@ All four record an opening `item_status_history` row, so every item has a
 lifecycle from its first row -- see below.
 
 Putting an already-owned item up for sale is a separate, later step, not a
-creation path: `POST /api/offers` (`app.routers.offers`) offers it,
-`GET /api/listings` and `PATCH /api/listings/{id}` read and edit the offer,
-and `POST /api/listings/{id}/end` withdraws it. The console's old **Manage**
-page used to create an item and a listing together; it is retired, because
-it could never offer an item the business already owned.
+creation path -- see "Offering an item for sale" below. The console's old
+**Manage** page used to create an item and a listing together; it is retired,
+because it could never offer an item the business already owned.
 
 **The item code is permanent.** It is drawn from a database sequence, assigned
 once, never reused and never changed. It survives everything that happens to
@@ -767,6 +765,59 @@ way, naming the platform: unlink it on the Platforms page first. Every
 change is named on the command line -- which vendors are the same business is
 the owner's call, not something the script guesses -- and the report lists
 what was done, or would be done, by name.
+
+## Offering an item for sale
+
+Putting an already-owned item up for sale is separate from creating it (see
+"How an item comes into being" above), and goes through its own writer,
+`app.offering_writes` -- the only code that changes a listing's status or the
+claim that tracks where an item is offered.
+
+**Offering.** From the **Coins** or **Currency** screen
+(`/owner/inventory/coins`, `/owner/inventory/currency`), select one or more
+items and **Offer for sale...** in the bulk bar; from a single item's editor,
+its **Offers** panel has the same button. Either opens a dialog for one
+platform and one format (fixed price or auction) with a row per item: price,
+title and description (pre-filled from the item), an optional listing number,
+and the item's cost, estimated fees, net and margin beside it for reference.
+**Offer** submits the whole batch to `POST /api/offers`; a refusal -- the item
+is already offered elsewhere, is not received, has been split, or the
+platform is retired -- names every affected item and writes nothing, so the
+batch is all or nothing.
+
+**Listings** (`/owner/listings`) lists every offer the business has out --
+active and paused by default, or every offer including ended ones with the
+**All, including ended** status filter -- filterable by platform and format,
+each with its price, cost, margin, status and a link to the platform's own
+listing page when there is one. **Edit** (only on an active row) changes its
+price, title, description or listing number (`PATCH /api/listings/{id}`);
+nothing else, because a status change has consequences for other listings a
+field assignment cannot express. The item editor's **Offers** panel shows the
+same rows for one item, ended ones included, so where an item has been offered
+before and for how much stays visible after the offer ends.
+
+**A paused listing** is a store listing set aside because its item was offered
+somewhere else while it was active in the web store. It keeps its price and
+everything else, is not for sale while paused, and does not appear in the
+public catalogue. The Listings page names the offer that caused the pause
+("paused for listing #12 on eBay") when that listing is in the same result.
+Nothing needs to be done to a paused listing directly: it resumes on its own,
+at the price it had, when the offer that paused it ends.
+
+**Ending an offer.** **End**, on the Listings page (active and paused rows) or
+the item's Offers panel (active rows only -- a paused row there is the store
+listing tucked behind the running offer, not something to end on its own),
+asks a question naming the listing, the item and the platform, then calls
+`POST /api/listings/{id}/end`. This is a withdrawal, not a sale: the listing
+is marked `ended` and any store listing it had paused resumes at its old
+price. Ending is not reversible from the console -- offering the item again
+makes a new listing, and the old one's listing number and history stay as
+they were.
+
+**The Manage page is gone.** The console's old **Manage** page created an item
+and a shop listing together; it could never offer an item the business already
+owned, which is every item in the collection, so it was retired. Enter a
+purchase (above) to create an item, then offer it here.
 
 ## Reference vocabularies
 

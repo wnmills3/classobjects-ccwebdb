@@ -548,7 +548,10 @@ sales_venue                   -- a platform the business sells through
 listing                       -- what is offered, and at what price
   id, inventory_item_id, price, currency_id, quantity_available
   sales_venue_id, format, status, is_active, external_id, external_url
-  listed_at, ended_at
+  paused_by_listing_id null, listed_at, ended_at
+
+offer_claim                   -- one item's hold on one listing
+  id, inventory_item_id, listing_id, state (active | paused | released)
 
 customer
   id, user_id null, display_name, email, phone
@@ -612,9 +615,41 @@ estimate rather than trusted indefinitely.
 | `is_active` | **generated** from `status` — see §13 |
 | `external_id` | the platform's own listing number, nullable |
 | `external_url` | the listing's page on that platform, nullable |
+| `paused_by_listing_id` | fk `listing`, nullable — the offer this store listing was set aside for; null unless `status = paused` |
 
 The public catalogue and checkout accept only listings where
 `sales_venue.is_own_store`, `format = fixed_price` and `status = active`.
+
+### `offer_claim` — the "offered once" guarantee
+
+An item is offered in one place at a time. `offer_claim` is what makes that
+true in the database rather than merely in application code: one row per
+listing that holds an item, in one of three states.
+
+| Column | Notes |
+|---|---|
+| `inventory_item_id` | fk `inventory_item`, not null |
+| `listing_id` | fk `listing`, not null |
+| `state` | `active` \| `paused` \| `released` |
+
+The guarantee is a **partial unique index**, `uq_offer_claim_active`, unique on
+`inventory_item_id` **where `state = 'active'`**. An item can accumulate any
+number of `released` claims as history — every platform it was ever offered on
+— while never holding two `active` claims at once; the index is the backstop
+if two requests race to offer the same item, not merely the check that runs
+first.
+
+`paused` is the third state, for a store listing set aside while its item is
+offered elsewhere: `state` follows `listing.status` one for one (`active` /
+`paused` / `ended` on the listing, `active` / `paused` / `released` on its
+claim), and a paused claim still holds its item — it counts toward "is this
+item spoken for" exactly as an active one does — because the item is not
+free to offer a second time until the pause is either resumed or the listing
+that paused it ends.
+
+Written only by `app.offering_writes`, in the same transaction as the listing
+it mirrors, and nowhere else: a claim's state always follows its listing's
+status.
 
 ### `order` (`sales_order`) gains a platform
 
@@ -663,6 +698,8 @@ tables named for what they classify. Boolean columns read as assertions
 - `check (price >= 0)`, `check (shipping >= 0)`, `check (storage_quantity > 0)`
 - `check (year_end >= year_start)` where both are present
 - partial unique on `(inventory_item_id) where is_primary` in `item_image`
+- partial unique on `(inventory_item_id) where state = 'active'` in
+  `offer_claim` (`uq_offer_claim_active`) — the "offered once" guarantee
 - `unique (vendor_id, order_number) where order_number is not null`
 - foreign keys to reference tables are `on delete restrict` — a classifier in use
   cannot vanish
