@@ -8,6 +8,7 @@ BU+ at 63 and BU++ at 65. A plus ranks half a point above its number.
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
@@ -18,7 +19,7 @@ from app import grades
 from app.importers.engine import COMMIT, ImportEngine
 from app.importers.models import ImportRow
 from app.importers.profiles.collection_v1 import CollectionV1Profile
-from app.models import Grade, GradeScale, ItemKind, StrikeType
+from app.models import Grade, GradeScale, ItemKind, Listing, StrikeType
 from fastapi.testclient import TestClient
 from sqlalchemy import Row, select, text
 from sqlalchemy.orm import Session
@@ -439,14 +440,13 @@ def test_a_term_that_is_not_a_grade_is_refused(
 
 
 def test_the_catalogue_shows_the_composed_grade(
-    client: TestClient, admin_headers: dict[str, str]
+    client: TestClient, make_listing: Callable[..., Listing]
 ) -> None:
-    response = client.post(
-        "/api/catalog",
-        json={"title": "Proof Kennedy", "grade": "PR69+", "price": "20.00"},
-        headers=admin_headers,
-    )
-    assert response.status_code == 201, response.text
+    """A compound grade set on the item is read back composed, via the shop."""
+    listing = make_listing(title="Proof Kennedy", grade="PR69+", price=Decimal("20.00"))
+
+    response = client.get(f"/api/catalog/{listing.id}")
+    assert response.status_code == 200, response.text
     body = response.json()
     assert (body["grade"], body["strike_type"], body["grade_display"]) == (
         "69+",

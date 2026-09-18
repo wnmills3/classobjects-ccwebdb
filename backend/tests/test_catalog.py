@@ -1,37 +1,27 @@
-"""Catalogue reads (public) and writes (admin only).
+"""Catalogue reads. Public: no authorisation of any kind is needed to browse.
 
 Ported from the scaffold's test_coins.py. One behaviour did not survive and
 should not have: the scaffold enforced a unique `sku` per catalogue row. The
 target schema has no such key, because two identical Morgan dollars are two
 physical objects and two rows. Forcing artificial uniqueness on them was a
 property of the demo, not of the domain.
+
+The catalogue used to also write: `POST`/`PATCH`/`DELETE /api/catalog` created
+an item and a listing together, edited either, and deleted an unsold one. That
+path is retired (the offers API replaces it -- `test_offers_api.py`,
+`test_offering_writes.py`), because it could not offer an item the business
+already owned, and creating an item outside a purchase is the bug the entry
+panels were built to stop.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.models import (
-    ItemStatusHistory,
-    Listing,
-    ListingFormat,
-    SalesVenue,
-    SalesVenueKind,
-)
+from app.models import Listing, ListingFormat, SalesVenue, SalesVenueKind
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-NEW_ITEM = {
-    "title": "1909-S VDB Lincoln Cent",
-    "price": "1450.00",
-    "quantity_available": 2,
-    "item_kind": "coin",
-    "country": "US",
-    "year_start": 1909,
-    "grade": "VF20",
-}
-
 
 # --------------------------------------------------------------------------
 # Public reads
@@ -203,254 +193,3 @@ def test_an_auction_listing_is_not_found_in_the_shop(
     auction_listing = make_listing(format=ListingFormat.auction)
 
     assert client.get(f"/api/catalog/{auction_listing.id}").status_code == 404
-
-
-# --------------------------------------------------------------------------
-# Authorisation on writes
-# --------------------------------------------------------------------------
-
-
-def test_create_requires_authentication(client: TestClient) -> None:
-    assert client.post("/api/catalog", json=NEW_ITEM).status_code == 401
-
-
-def test_create_forbidden_for_customer(
-    client: TestClient, customer_headers: dict[str, str]
-) -> None:
-    response = client.post("/api/catalog", json=NEW_ITEM, headers=customer_headers)
-    assert response.status_code == 403
-
-
-def test_update_forbidden_for_customer(
-    client: TestClient, listing: Listing, customer_headers: dict[str, str]
-) -> None:
-    response = client.patch(
-        f"/api/catalog/{listing.id}", json={"price": "1.00"}, headers=customer_headers
-    )
-    assert response.status_code == 403
-
-
-def test_delete_forbidden_for_customer(
-    client: TestClient, listing: Listing, customer_headers: dict[str, str]
-) -> None:
-    response = client.delete(f"/api/catalog/{listing.id}", headers=customer_headers)
-    assert response.status_code == 403
-
-
-# --------------------------------------------------------------------------
-# Admin writes
-# --------------------------------------------------------------------------
-
-
-def test_admin_can_create(client: TestClient, admin_headers: dict[str, str]) -> None:
-    response = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers)
-    assert response.status_code == 201
-    body = response.json()
-    assert body["price"] == "1450.00"
-    # VF20 is sent, and stored as its parts.
-    assert (body["grade"], body["strike_type"]) == ("20", "business")
-    assert body["grade_display"] == "VF20"
-    assert body["inventory_item_id"] > 0
-
-
-def test_creating_makes_both_an_item_and_a_listing(
-    client: TestClient, admin_headers: dict[str, str], db: Session
-) -> None:
-    """Creating an entry writes both an item and a listing.
-
-    The two are separate rows: that is what lets an item be relisted at a
-    different price without rewriting what it is.
-    """
-    body = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
-
-    listing = db.get(Listing, body["id"])
-    assert listing is not None
-    assert listing.inventory_item_id == body["inventory_item_id"]
-    assert listing.inventory_item.source_title == NEW_ITEM["title"]
-
-
-def test_creating_writes_the_opening_history_row(
-    client: TestClient, admin_headers: dict[str, str], db: Session
-) -> None:
-    """An item created through the shop has a lifecycle from row one, too.
-
-    Before `record_initial_status` was wired in here, this path created an
-    `InventoryItem` with no `item_status_history` row at all -- the importer
-    and the splitter both wrote one, this endpoint did not.
-    """
-    body = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
-
-    rows = db.scalars(
-        select(ItemStatusHistory).where(
-            ItemStatusHistory.inventory_item_id == body["inventory_item_id"]
-        )
-    ).all()
-    assert len(rows) == 1
-    assert rows[0].from_status_id is None
-    assert rows[0].to_status_id == db.get(Listing, body["id"]).inventory_item.status_id
-
-
-def test_an_unknown_classifier_is_rejected(
-    client: TestClient, admin_headers: dict[str, str]
-) -> None:
-    """A code the caller believed in must not become a silent NULL."""
-    payload = {**NEW_ITEM, "grade": "NOT-A-GRADE"}
-    response = client.post("/api/catalog", json=payload, headers=admin_headers)
-    assert response.status_code == 422
-    assert "NOT-A-GRADE" in response.json()["detail"]
-
-
-def test_negative_price_rejected(
-    client: TestClient, admin_headers: dict[str, str]
-) -> None:
-    payload = {**NEW_ITEM, "price": "-5.00"}
-    assert (
-        client.post("/api/catalog", json=payload, headers=admin_headers).status_code
-        == 422
-    )
-
-
-def test_negative_quantity_rejected(
-    client: TestClient, admin_headers: dict[str, str]
-) -> None:
-    payload = {**NEW_ITEM, "quantity_available": -1}
-    assert (
-        client.post("/api/catalog", json=payload, headers=admin_headers).status_code
-        == 422
-    )
-
-
-def test_backwards_year_range_rejected(
-    client: TestClient, admin_headers: dict[str, str]
-) -> None:
-    payload = {**NEW_ITEM, "year_start": 2000, "year_end": 1999}
-    assert (
-        client.post("/api/catalog", json=payload, headers=admin_headers).status_code
-        == 422
-    )
-
-
-def test_patch_only_changes_supplied_fields(
-    client: TestClient, listing: Listing, admin_headers: dict[str, str]
-) -> None:
-    original_title = listing.inventory_item.source_title
-    response = client.patch(
-        f"/api/catalog/{listing.id}", json={"price": "200.00"}, headers=admin_headers
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["price"] == "200.00"
-    assert body["title"] == original_title
-    assert body["grade_display"] == "MS64"
-
-
-def test_patch_404_for_unknown_id(
-    client: TestClient, admin_headers: dict[str, str]
-) -> None:
-    response = client.patch(
-        "/api/catalog/999999", json={"price": "1.00"}, headers=admin_headers
-    )
-    assert response.status_code == 404
-
-
-def test_withdrawing_a_listing_returns_the_item_to_held(
-    client: TestClient, listing: Listing, admin_headers: dict[str, str], db: Session
-) -> None:
-    """Disposition is the sales axis: an item not for sale is held, not sold."""
-    client.patch(
-        f"/api/catalog/{listing.id}", json={"is_active": False}, headers=admin_headers
-    )
-    db.expire_all()
-    assert db.get(Listing, listing.id).inventory_item.disposition.code == "held"
-
-
-def test_withdrawing_and_relisting_keeps_ended_at_honest(
-    client: TestClient, listing: Listing, admin_headers: dict[str, str], db: Session
-) -> None:
-    """`ended_at` is set when a listing ends and cleared when it comes back.
-
-    There is one `ended_at` column, not a history, so the only meaning it can
-    carry truthfully is "when this listing's current ending happened". Leaving
-    a stale timestamp on a relisted row would say a live listing had ended;
-    `splitting.py` already sets both together when it ends a lot's listings.
-    """
-    assert db.get(Listing, listing.id).ended_at is None
-
-    client.patch(
-        f"/api/catalog/{listing.id}", json={"is_active": False}, headers=admin_headers
-    )
-    db.expire_all()
-    assert db.get(Listing, listing.id).ended_at is not None
-
-    client.patch(
-        f"/api/catalog/{listing.id}", json={"is_active": True}, headers=admin_headers
-    )
-    db.expire_all()
-    assert db.get(Listing, listing.id).ended_at is None
-
-
-def test_an_item_created_withdrawn_records_when_it_ended(
-    client: TestClient, admin_headers: dict[str, str], db: Session
-) -> None:
-    body = client.post(
-        "/api/catalog", json={**NEW_ITEM, "is_active": False}, headers=admin_headers
-    ).json()
-
-    created = db.get(Listing, body["id"])
-    assert created.is_active is False
-    assert created.ended_at is not None
-
-
-def test_admin_can_delete_unsold_item(
-    client: TestClient, listing: Listing, admin_headers: dict[str, str]
-) -> None:
-    assert (
-        client.delete(f"/api/catalog/{listing.id}", headers=admin_headers).status_code
-        == 204
-    )
-    assert client.get(f"/api/catalog/{listing.id}").status_code == 404
-
-
-def test_cannot_delete_item_that_appears_in_an_order(
-    client: TestClient,
-    listing: Listing,
-    admin_headers: dict[str, str],
-    customer_headers: dict[str, str],
-) -> None:
-    """Order history must not be destroyed by a catalogue delete."""
-    placed = client.post(
-        "/api/orders",
-        json={"items": [{"listing_id": listing.id, "quantity": 1}]},
-        headers=customer_headers,
-    )
-    assert placed.status_code == 201
-
-    response = client.delete(f"/api/catalog/{listing.id}", headers=admin_headers)
-    assert response.status_code == 409
-    assert "is_active" in response.json()["detail"]
-
-
-def test_a_new_item_gets_its_code_from_the_database(
-    client: TestClient, admin_headers: dict[str, str], db: Session
-) -> None:
-    """Nothing in the application assigns an item code.
-
-    The spreadsheet backfill was a one-off UPDATE over rows that already
-    existed; from then on the code comes from a column default backed by a
-    sequence, on every path that creates an item. Two concurrent creates
-    therefore cannot compute the same code, because neither computes one.
-    """
-    first = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
-    second = client.post("/api/catalog", json=NEW_ITEM, headers=admin_headers).json()
-
-    assert first["item_code"].startswith("CC-")
-    assert first["item_code"] != second["item_code"]
-
-    # The client cannot claim one either: item_code is not an input field, so
-    # a caller supplying it is ignored rather than trusted.
-    forced = client.post(
-        "/api/catalog",
-        json={**NEW_ITEM, "item_code": "CC-000001"},
-        headers=admin_headers,
-    ).json()
-    assert forced["item_code"] != "CC-000001"
