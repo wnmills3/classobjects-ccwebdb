@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import Column, FromClause, delete, func, select, update
 from sqlalchemy.orm import Session
 
-from . import aliases
+from . import aliases, sale_state
 from .models import (
     Base,
     InventoryItem,
@@ -164,8 +164,6 @@ def plan(
     result.items = len(items)
     # `items` is discarded below; the codes that are for sale are what the
     # console has to show before anyone confirms a merge.
-    from . import sale_state
-
     for_sale = sale_state.for_sale(db, items)
     if for_sale:
         codes = db.scalars(
