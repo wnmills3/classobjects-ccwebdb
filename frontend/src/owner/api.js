@@ -40,11 +40,19 @@ export const api = {
   // Retired values and removed aliases included, for the Vocabularies page.
   getReferenceForEditing: (table) =>
     send(`/api/reference/${table}?${query({ include_inactive: true })}`),
-  // dryRun: say what would move, change nothing.
-  mergeReferenceValue: (table, code, into, dryRun) =>
+  // dryRun: say what would move, change nothing. acknowledgeForSale: the
+  // operator has seen the preview's for-sale items and confirmed the merge
+  // should move them anyway.
+  mergeReferenceValue: (
+    table,
+    code,
+    into,
+    dryRun,
+    { acknowledgeForSale = false } = {},
+  ) =>
     send(`/api/reference/${table}/${encodeURIComponent(code)}/merge`, {
       method: 'POST',
-      body: { into, dry_run: dryRun },
+      body: { into, dry_run: dryRun, acknowledge_for_sale: acknowledgeForSale },
     }),
   addReferenceAlias: (table, code, alias) =>
     send(`/api/reference/${table}/${encodeURIComponent(code)}/aliases`, {
