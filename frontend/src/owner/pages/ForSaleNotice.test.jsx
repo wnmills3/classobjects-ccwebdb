@@ -43,6 +43,22 @@ describe('ForSaleNotice', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('order #7 (paid)')
   })
 
+  it('renders nothing when show is explicitly false, even with reasons to list', () => {
+    // `show ?? uses.length > 0` -- `??` only falls through to `uses` when
+    // `show` is nullish. No current caller passes both, but Task 8 will, and
+    // `||` would have let a non-empty `uses` override an explicit `false`.
+    const { container } = render(
+      <ForSaleNotice
+        show={false}
+        uses={[{ kind: 'listing', id: 3, text: 'listing #3' }]}
+        checked={false}
+        onChange={vi.fn()}
+        action="Anyway"
+      />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('reports a tick to its caller', async () => {
     const onChange = vi.fn()
     render(
