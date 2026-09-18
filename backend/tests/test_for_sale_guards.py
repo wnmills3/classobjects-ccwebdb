@@ -19,6 +19,7 @@ from app.models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    OfferClaim,
     SalesVenue,
 )
 from fastapi import HTTPException
@@ -270,8 +271,13 @@ def test_an_acknowledged_missing_ends_the_listing_and_releases_the_claim(
     ended = db.get(Listing, made.id)
     assert ended is not None
     assert ended.status is ListingStatus.ended
-    claims = offering_writes.claims_for(db, [item.id]).get(item.id, [])
-    assert [claim.state for claim in claims] != [ClaimState.active]
+    # `offering_writes.claims_for` filters through `_holding_claims()`, whose
+    # WHERE joins on `Listing.status.in_(ON_OFFER)` -- once the listing above
+    # is `ended`, its claim drops out of that query regardless of the claim's
+    # own state, so asking `claims_for` here would prove nothing beyond what
+    # `ended.status` already showed. Read the `OfferClaim` row directly.
+    claim = db.scalars(select(OfferClaim).where(OfferClaim.listing_id == made.id)).one()
+    assert claim.state is ClaimState.released
     refreshed = db.get(InventoryItem, item.id)
     assert refreshed is not None
     assert refreshed.status.code == "missing"
