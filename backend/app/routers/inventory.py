@@ -740,18 +740,6 @@ def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemS
     ]
 
 
-def _refuse_unacknowledged_sale(db: Session, items: list[InventoryItem]) -> None:
-    """409 when any of the items is up for sale (app.sale_state)."""
-    uses = sale_state.for_sale(db, [item.id for item in items])
-    if not uses:
-        return
-    codes = {item.id: item.item_code for item in items}
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail=sale_state.refusal({codes[i]: found for i, found in uses.items()}),
-    )
-
-
 #: Editable classifiers on an item, and where each code resolves.
 #:
 #: Wider than PIECE_CLASSIFIERS above, which covers only what a split may
@@ -1123,7 +1111,7 @@ def bulk_edit(
     _refuse_coin_only_fields(data, list(items), db)
     _refuse_mismatched_denomination(data, list(items), db)
     if data and not acknowledged:
-        _refuse_unacknowledged_sale(db, list(items))
+        sale_state.guard(db, list(items), acknowledged=False)
 
     # Every code resolved before anything is set, so a typo in the last field
     # does not leave the first three applied.
@@ -1235,7 +1223,7 @@ def update_item(
     # A change to an item on offer, or in an order that has not shipped,
     # shows to a buyer at once: the caller must say it knows.
     if (data or attributes is not None) and not acknowledged:
-        _refuse_unacknowledged_sale(db, [item])
+        sale_state.guard(db, [item], acknowledged=False)
 
     # Before anything is set: a refused year leaves the item untouched.
     years = resolve_years((item.year_start, item.year_end), data)
