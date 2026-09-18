@@ -701,7 +701,7 @@ describe('Attributes', () => {
     expect(screen.queryByRole('textbox', { name: 'item_attribute' })).toBeNull()
   })
 
-  it("adds a value by its label alone, marked for this item's kind, and keeps it selected", async () => {
+  it("adds a value by its label and a chosen group, marked for this item's kind, and keeps it selected", async () => {
     const user = userEvent.setup()
     sharedApi.addReferenceValue.mockResolvedValue({})
     await open({ item_kind: 'coin', attributes: [] })
@@ -711,6 +711,13 @@ describe('Attributes', () => {
       '__add__',
     )
     await user.type(screen.getByPlaceholderText('label'), 'Gold Toned')
+    // The owner chose to ask for the group rather than have one picked
+    // silently: Add stays disabled until it is.
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'group' }),
+      'verification',
+    )
     await user.click(screen.getByRole('button', { name: 'Add' }))
 
     // extra columns nested under `extra` -- ReferenceValueCreate has no
@@ -718,7 +725,7 @@ describe('Attributes', () => {
     expect(sharedApi.addReferenceValue).toHaveBeenCalledWith('item_attribute', {
       code: 'gold_toned',
       label: 'Gold Toned',
-      extra: { applies_to: 'coin', attribute_group: 'variety' },
+      extra: { applies_to: 'coin', attribute_group: 'verification' },
     })
     // Selected immediately: the new value does not vanish just because the
     // vocabulary that would otherwise offer it has not refetched yet.

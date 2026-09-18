@@ -105,24 +105,35 @@ export function ReferenceSelect({
   //: are the one vocabulary this is worth doing for: nothing about a "Star
   //: Note" that a person would type needs a separate code entered by hand.
   labelOnly = false,
+  //: The `extra` column a chosen group is stored under, e.g.
+  //: `'attribute_group'`. Present only for a table that has one -- item
+  //: attributes today, not error types, which carry no group. Undefined
+  //: leaves the add form without a group picker at all.
+  groupField,
+  //: `[{code, label}, ...]` offered when `groupField` is set. Required in
+  //: that case: the column behind it is NOT NULL with no default, so a
+  //: value posted without one would 422, and a silent default was the
+  //: wrong call for the person to have made for them.
+  groupOptions,
 }) {
   const values = useReference(table, { includeRetired: true })
   const context = useContext(ReferenceContext)
   const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState({ code: '', label: '' })
+  const [draft, setDraft] = useState({ code: '', label: '', group: '' })
   const [error, setError] = useState('')
   const [find, setFind] = useState('')
+  const derivedCode = labelOnly ? codeFromLabel(draft.label) : ''
 
   function selectAndClose(code) {
     onChange({ target: { value: code } })
     setAdding(false)
-    setDraft({ code: '', label: '' })
+    setDraft({ code: '', label: '', group: '' })
     setError('')
   }
 
   async function addValue() {
     const label = draft.label.trim()
-    const code = labelOnly ? codeFromLabel(label) : draft.code
+    const code = labelOnly ? derivedCode : draft.code.trim()
     if (labelOnly) {
       // The label a person typed may already name a value under another
       // wording -- or the same one, typed again. Either way the code already
@@ -133,8 +144,9 @@ export function ReferenceSelect({
         return
       }
     }
+    const extra = groupField ? { ...addFields, [groupField]: draft.group } : addFields
     try {
-      await api.addReferenceValue(table, { code, label, extra: addFields })
+      await api.addReferenceValue(table, { code, label, extra })
       context?.invalidate(table)
       selectAndClose(code)
     } catch (err) {
@@ -145,6 +157,11 @@ export function ReferenceSelect({
   if (adding) {
     // Vocabularies grow with use: rather than abandoning an entry that does
     // not fit, the missing value is added here and selected immediately.
+    const canAdd = labelOnly
+      ? draft.label.trim() !== '' &&
+        derivedCode !== '' &&
+        (!groupField || draft.group !== '')
+      : draft.code.trim() !== '' && draft.label.trim() !== ''
     return (
       <div className="add-reference">
         {labelOnly ? (
@@ -156,8 +173,24 @@ export function ReferenceSelect({
             />
             {/* What will actually be stored, visible before saving -- a
                 person typing "Off-Center" should see it becomes
-                off_center, not guess. */}
-            <span className="derived-code">{codeFromLabel(draft.label)}</span>
+                off_center, not guess. Empty for a label that derives to
+                nothing (e.g. "!!!"), which is exactly why Add stays
+                disabled below rather than trusting the raw label alone. */}
+            <span className="derived-code">{derivedCode}</span>
+            {groupField && (
+              <select
+                aria-label="group"
+                value={draft.group}
+                onChange={(e) => setDraft({ ...draft, group: e.target.value })}
+              >
+                <option value="">-- group --</option>
+                {(groupOptions ?? []).map((g) => (
+                  <option key={g.code} value={g.code}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </>
         ) : (
           <>
@@ -173,11 +206,7 @@ export function ReferenceSelect({
             />
           </>
         )}
-        <button
-          type="button"
-          onClick={addValue}
-          disabled={labelOnly ? !draft.label.trim() : !draft.code || !draft.label}
-        >
+        <button type="button" onClick={addValue} disabled={!canAdd}>
           Add
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>

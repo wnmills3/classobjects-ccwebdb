@@ -110,6 +110,19 @@ const ATTRIBUTE_FROM = {
   attribute_rule: "Follows from the note's class and series",
 }
 
+//: `item_attribute.attribute_group`'s members, for the add form's group
+//: picker. The reference API has no endpoint listing an enum's values --
+//: only each existing row's own `extra.attribute_group` -- so this mirrors
+//: `AttributeGroup` in backend/app/models/reference.py by hand; keep the two
+//: in step if that enum changes.
+const ATTRIBUTE_GROUPS = [
+  { code: 'serial', label: 'Serial' },
+  { code: 'variety', label: 'Variety' },
+  { code: 'release', label: 'Release' },
+  { code: 'verification', label: 'Verification' },
+  { code: 'qualifier', label: 'Qualifier' },
+]
+
 /**
  * What the item is beyond its grade: Star Note, No Motto, First Strike.
  *
@@ -163,13 +176,12 @@ function AttributesField({ item, codes, onChange, kind }) {
             // (`ReferenceValueCreate`). A value added with none would fit no
             // kind and vanish from this very picker the moment it appeared
             // -- see `fitsKind`. `attribute_group` is NOT NULL with no
-            // database default; `variety` is the group the migration itself
-            // used to backfill rows it could not otherwise classify, so it
-            // is the least presumptuous default for one nobody picked.
-            addFields={{
-              applies_to: kind === 'currency' ? 'currency' : 'coin',
-              attribute_group: 'variety',
-            }}
+            // database default, and the owner chose to ask rather than have
+            // one picked silently: `groupField`/`groupOptions` put a
+            // required group picker in the add form instead.
+            addFields={{ applies_to: kind === 'currency' ? 'currency' : 'coin' }}
+            groupField="attribute_group"
+            groupOptions={ATTRIBUTE_GROUPS}
             filter={(entry) => fitsKind(entry, kind) && !codes.includes(entry.code)}
             onChange={(e) => {
               if (e.target.value) onChange([...codes, e.target.value])
