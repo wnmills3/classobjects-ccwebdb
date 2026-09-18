@@ -1135,7 +1135,12 @@ class OfferItemIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: int
-    price: Decimal = Field(ge=0)
+    #: Shaped like `listing.price`, `Numeric(12, 2)`. Without the precision
+    #: limits a price of `10.005` is rounded by PostgreSQL on the way in and
+    #: the response still reports what was sent, and twelve integer digits
+    #: raise `DataError` -- which is not `IntegrityError` and is caught
+    #: nowhere. Both become a 422 here instead.
+    price: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
     title: str = Field(default="", max_length=500)
     description: str = ""
     external_id: str | None = Field(default=None, max_length=128)
@@ -1156,7 +1161,12 @@ class OfferIn(BaseModel):
     #: `fixed_price` or `auction`.
     format: str = "fixed_price"
     quantity: int = Field(default=1, ge=1)
-    items: list[OfferItemIn] = Field(min_length=1)
+    #: Capped because one batch is one transaction holding one `FOR UPDATE`
+    #: row lock per item: an unbounded list is a single request that can lock
+    #: every item in the table. 200 is well past any real screenful -- the
+    #: console offers what an administrator has selected -- and far short of
+    #: a lock set that would matter.
+    items: list[OfferItemIn] = Field(min_length=1, max_length=200)
 
 
 class OfferRefusalOut(BaseModel):
@@ -1198,8 +1208,11 @@ class ListingOut(BaseModel):
     #: `inventory_item.total_cost`. Staff-only, and never added to
     #: `CatalogItemOut`, which a customer reads.
     cost_basis: Decimal | None = None
-    #: Send this back on a PATCH to be told about a conflicting edit.
-    version: str
+    #: Send this back on a PATCH to be told about a conflicting edit. An
+    #: `int`, like `SalesVenueOut.version` and unlike `CatalogItemOut.version`
+    #: -- that one is a composite token over two separately versioned rows,
+    #: while this is one `listing.version` column and nothing else.
+    version: int
 
 
 class OfferBatchOut(BaseModel):
@@ -1220,12 +1233,15 @@ class ListingUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    price: Decimal | None = Field(default=None, ge=0)
+    #: The precision limits of `OfferItemIn.price`, for the same two reasons.
+    price: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
     title: str | None = Field(default=None, max_length=500)
     description: str | None = None
     external_id: str | None = Field(default=None, max_length=128)
     #: The version the form loaded; a mismatch is a 409.
-    version: str | None = None
+    version: int | None = None
 
 
 class PurchaseOrderCreate(BaseModel):
