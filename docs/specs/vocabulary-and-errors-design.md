@@ -118,8 +118,19 @@ reference hook, so the mapping is written once. Each picker passes it as its
 the field itself does not apply: metal, strike type, mint and bullion form
 for coins; note class, seal colour, Fed district and signature combination
 for notes. Today's drift -- the editor kept a metal box the entry form had
-dropped -- is why this design names the coin-only set in **one** exported
-constant that every form imports rather than each form listing its own.
+dropped -- is why the two sides are named in **one** place, `COIN_ONLY_FIELDS`
+and `CURRENCY_ONLY_FIELDS` in `shared/kinds.js`, and why no form reads either
+set directly: each asks `fieldFitsKind(field, itemKind)`, which consults both
+and answers true for a field that belongs to neither. The item editor filters
+its `CLASSIFIERS` table through it; the entry form, whose blocks are written
+out one by one, gates each on its own field's answer (the Mint/Variety pair on
+`mint`, the coin-only field of the two).
+
+A third helper, `sideFor(itemKind)`, returns the `'currency' | 'coin'` a value
+ADDED from a picker is marked with. It is the exact inverse of `fitsKind`'s
+test, and that is why it exists rather than being written out at each picker:
+a value marked by one rule and offered by another vanishes from the picker
+that created it the moment it appears.
 
 **The API enforces it too**, as `PATCH /api/inventory/{id}` and the bulk edit
 now do for metal: a denomination whose `kind` contradicts the item's kind is
