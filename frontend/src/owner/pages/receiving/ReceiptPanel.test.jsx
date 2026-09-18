@@ -37,6 +37,10 @@ const ITEM = {
   id: 412,
   item_code: 'CC-000412',
   description: '1881-S Morgan $1',
+  // Every real item has one, and the errors panel is not offered until this
+  // panel knows it: `kind` decides which half of the error vocabulary the
+  // picker shows and which `applies_to` a type added there is marked with.
+  item_kind: 'coin',
   reviewed: [],
 }
 
@@ -357,6 +361,33 @@ describe('ReceiptPanel', () => {
 
     await waitFor(() => expect(api.getItemErrors).toHaveBeenCalledWith(412))
     expect(await screen.findByRole('button', { name: 'Add error' })).toBeInTheDocument()
+  })
+
+  // The panel takes the item's kind, and an unknown kind is not the same as
+  // "coin": `isCurrencyKind(null)` is false, so a banknote whose kind had not
+  // arrived would be offered the sixteen COIN error types, and a type added
+  // from that picker would be posted `applies_to: 'coin'` -- a mis-marked
+  // vocabulary row that then vanishes from the very picker that created it.
+  // On a `getInventoryItem` that fails, that is the steady state, not one
+  // render, which is why both cases are pinned here.
+  it('does not offer the errors panel until the item kind has arrived', async () => {
+    // A fetch that never settles: the panel must not appear meanwhile.
+    api.getInventoryItem.mockReturnValue(new Promise(() => {}))
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    await screen.findByRole('button', { name: /^receive$/i })
+
+    expect(screen.queryByRole('button', { name: 'Add error' })).not.toBeInTheDocument()
+    expect(api.getItemErrors).not.toHaveBeenCalled()
+  })
+
+  it('does not offer the errors panel when the item could not be fetched', async () => {
+    api.getInventoryItem.mockRejectedValue(new Error('gone'))
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledWith(412))
+    await screen.findByRole('button', { name: /^receive$/i })
+
+    expect(screen.queryByRole('button', { name: 'Add error' })).not.toBeInTheDocument()
+    expect(api.getItemErrors).not.toHaveBeenCalled()
   })
 
   it('does not offer the errors panel, or call its API, with several items selected', async () => {
