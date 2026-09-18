@@ -24,7 +24,6 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_core.core_schema import ValidationInfo
 
 from .models import UserRole
 
@@ -79,106 +78,6 @@ class RefreshRequest(BaseModel):
 # --------------------------------------------------------------------------
 
 
-class CatalogItemBase(BaseModel):
-    """Fields shared by creating and reading a catalogue entry."""
-
-    title: str = Field(min_length=1, max_length=500)
-    description: str = ""
-
-    # Classifiers, by code.
-    item_kind: str = Field(default="coin", max_length=64)
-    country: str | None = Field(default=None, max_length=64)
-    denomination: str | None = Field(default=None, max_length=64)
-    bullion_form: str | None = Field(default=None, max_length=64)
-    #: A number (65, 64+) or a compound grade (MS65, PR69+), which is split
-    #: into the number and `strike_type`.
-    grade: str | None = Field(default=None, max_length=64)
-    strike_type: str | None = Field(default=None, max_length=64)
-    grading_service: str | None = Field(default=None, max_length=64)
-    metal: str | None = Field(default=None, max_length=64)
-
-    year_start: int | None = Field(default=None, ge=-3000, le=2200)
-    year_end: int | None = Field(default=None, ge=-3000, le=2200)
-
-    fineness: Decimal | None = Field(default=None, ge=0, le=1, decimal_places=4)
-    gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
-    fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
-
-    #: Pieces in the lot itself -- a roll of 50 is one item with quantity 50.
-    #: Distinct from `quantity_available`, which is how many are for sale.
-    piece_count: int = Field(default=1, ge=1)
-
-    price: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
-    currency: str = Field(default="USD", max_length=8)
-    quantity_available: int = Field(default=1, ge=0)
-    is_active: bool = True
-
-    @field_validator("year_end")
-    @classmethod
-    def year_range_must_not_be_backwards(
-        cls, value: int | None, info: ValidationInfo
-    ) -> int | None:
-        """Reject a range that ends before it starts.
-
-        Caught here rather than only by the database check constraint, so the
-        caller gets a field-level message instead of a 500.
-        """
-        start = info.data.get("year_start")
-        if value is not None and start is not None and value < start:
-            raise ValueError("year_end must not be earlier than year_start")
-        return value
-
-
-class CatalogItemCreate(CatalogItemBase):
-    """Creates an inventory item and the listing that offers it, together."""
-
-
-class CatalogItemUpdate(BaseModel):
-    """All fields optional -- only what is supplied gets changed.
-
-    ``version`` is the token the client last read, returned by any GET.
-    Supplying it makes the update conditional: if someone else has saved in
-    the meantime the request is refused with 409, rather than silently
-    overwriting their work with values loaded before their change.
-
-    It is an opaque string, not a number, because a catalogue entry is two
-    rows -- the listing and the inventory item behind it -- each versioned
-    separately. Checking only one of them misses edits to the other, which is
-    exactly the bug the first implementation had: renaming an item changed the
-    *item* row, so a stale form whose listing version still matched was
-    accepted and overwrote the new title.
-
-    Optional, so a script that genuinely means "set this regardless" can omit
-    it -- but the edit form always sends it.
-    """
-
-    version: str | None = None
-
-    title: str | None = Field(default=None, min_length=1, max_length=500)
-    description: str | None = None
-    item_kind: str | None = Field(default=None, max_length=64)
-    country: str | None = Field(default=None, max_length=64)
-    denomination: str | None = Field(default=None, max_length=64)
-    bullion_form: str | None = Field(default=None, max_length=64)
-    #: A number (65, 64+) or a compound grade (MS65, PR69+), which is split
-    #: into the number and `strike_type`.
-    grade: str | None = Field(default=None, max_length=64)
-    strike_type: str | None = Field(default=None, max_length=64)
-    grading_service: str | None = Field(default=None, max_length=64)
-    metal: str | None = Field(default=None, max_length=64)
-    year_start: int | None = Field(default=None, ge=-3000, le=2200)
-    year_end: int | None = Field(default=None, ge=-3000, le=2200)
-    fineness: Decimal | None = Field(default=None, ge=0, le=1, decimal_places=4)
-    gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
-    fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
-    piece_count: int | None = Field(default=None, ge=1)
-    price: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
-    quantity_available: int | None = Field(default=None, ge=0)
-    is_active: bool | None = None
-
-
 class ImageOut(BaseModel):
     """A stored photograph and the URLs its renditions are served from.
 
@@ -213,8 +112,8 @@ class CatalogItemOut(BaseModel):
 
     id: int
     inventory_item_id: int
-    #: Send this back on a PATCH to save safely. Opaque -- it covers both the
-    #: listing and the item behind it. See CatalogItemUpdate.
+    #: Opaque -- it covers both the listing and the item behind it, so a
+    #: caller cannot use it to detect a change to only one of them.
     version: str
     #: The item's permanent code -- stable across sale, return and relisting,
     #: which is what makes it usable on a packing slip and in an audit.
@@ -646,12 +545,12 @@ class ItemDetailOut(InventoryItemOut):
 class InventoryItemUpdate(BaseModel):
     """A partial edit to an item, in the item's own vocabulary.
 
-    Not `CatalogItemUpdate`. That one speaks the shop's language -- a listing
-    has a `title` and a `price`, meaning what the shop calls the item and what
-    it is offered for. This one speaks the item's: `source_title` is what the
-    row was called where it came from, and `item_cost` is what was paid for
-    it. The Excel round trip uses these names too, so there is one vocabulary
-    at this boundary rather than two.
+    Not `ListingUpdate` (`app.routers.offers`). That one speaks the shop's
+    language -- a listing has a `title` and a `price`, meaning what the shop
+    calls the item and what it is offered for. This one speaks the item's:
+    `source_title` is what the row was called where it came from, and
+    `item_cost` is what was paid for it. The Excel round trip uses these names
+    too, so there is one vocabulary at this boundary rather than two.
 
     Every field optional, and applied with `exclude_unset`, so an omitted
     field is left alone rather than nulled.
@@ -764,12 +663,11 @@ _CURRENCY_ONLY_FIELDS: tuple[str, ...] = (
 class ItemCreate(BaseModel):
     """A coin, banknote or other item bought on an existing purchase.
 
-    Distinct from `CatalogItemCreate`: that one creates an item *and* a
-    listing, for something offered for sale today. This creates the item
-    alone, with no listing, on a purchase order that must already exist --
-    entering what was bought, not putting it up for sale. See the decision in
-    `docs/specs/entry-panels-design.md`: no item is entered outside a
-    purchase, so a standalone buy is a purchase holding one item.
+    This creates the item alone, with no listing, on a purchase order that
+    must already exist -- entering what was bought, not putting it up for
+    sale. Offering it later is `POST /api/offers` (`app.routers.offers`). See
+    the decision in `docs/specs/entry-panels-design.md`: no item is entered
+    outside a purchase, so a standalone buy is a purchase holding one item.
     """
 
     model_config = ConfigDict(extra="forbid")
