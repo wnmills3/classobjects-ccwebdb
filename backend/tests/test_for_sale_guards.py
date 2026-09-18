@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.conftest import build_item
+from tests.test_images import make_jpeg
 
 
 def test_the_guard_passes_an_item_that_is_not_for_sale(
@@ -281,3 +282,64 @@ def test_an_acknowledged_missing_ends_the_listing_and_releases_the_claim(
     refreshed = db.get(InventoryItem, item.id)
     assert refreshed is not None
     assert refreshed.status.code == "missing"
+
+
+def test_attaching_a_photograph_to_a_listed_item_is_refused(
+    client: TestClient, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    files = {"file": ("coin.jpg", make_jpeg(), "image/jpeg")}
+    refused = client.post(
+        "/api/images",
+        files=files,
+        data={"inventory_item_id": str(listing.inventory_item_id)},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+
+    made = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", make_jpeg(), "image/jpeg")},
+        data={
+            "inventory_item_id": str(listing.inventory_item_id),
+            "acknowledge_for_sale": "true",
+        },
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
+
+
+def test_an_unattached_photograph_is_never_refused(
+    client: TestClient, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    made = client.post(
+        "/api/images",
+        files={"file": ("loose.jpg", make_jpeg(), "image/jpeg")},
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
+
+
+def test_deleting_a_photograph_of_a_listed_item_is_refused(
+    client: TestClient, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    attached = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", make_jpeg(), "image/jpeg")},
+        data={
+            "inventory_item_id": str(listing.inventory_item_id),
+            "acknowledge_for_sale": "true",
+        },
+        headers=admin_headers,
+    )
+    assert attached.status_code == 201, attached.text
+    image_id = attached.json()["id"]
+
+    refused = client.delete(f"/api/images/{image_id}", headers=admin_headers)
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+
+    gone = client.delete(
+        f"/api/images/{image_id}?acknowledge_for_sale=true", headers=admin_headers
+    )
+    assert gone.status_code == 204, gone.text
