@@ -923,27 +923,71 @@ def _apply_note_changes(items: list[InventoryItem], changes: dict[str, object]) 
 _COIN_ONLY_FIELDS = ("metal",)
 
 
+def _effective_is_currency(
+    data: dict[str, object], item: InventoryItem, currency_id: int | None
+) -> bool:
+    """Whether `item` will be a `currency` item once this edit is applied.
+
+    The payload's own `item_kind` wins when the edit sets one; otherwise the
+    item keeps the kind it already has. Both guards below need this -- the
+    invariant each enforces is about the item's *resulting* state, not about
+    which keys the caller happened to send, so a bare `item_kind` edit has to
+    be checked against a field the request never touched.
+    """
+    if "item_kind" in data:
+        return data["item_kind"] == "currency"
+    return item.item_kind_id == currency_id
+
+
 def _refuse_coin_only_fields(
     data: dict[str, object], items: Sequence[InventoryItem], db: Session
 ) -> None:
-    """Raise a 422 if a coin-only field is being written onto a banknote.
+    """Raise a 422 if the edit leaves a banknote holding a coin-only field.
 
-    The console does not offer the field for a note, but a stale tab or a
-    script can still send it; the screens are not where this is enforced.
+    Checked against the item's state as it would stand after the edit, not
+    only what this request sends: a bare `item_kind` edit that would strand
+    a metal the item already carries is refused exactly like sending that
+    metal directly would be, and a combined `item_kind` + `metal` edit to a
+    consistent pair -- the metal cleared, or the item staying a coin -- is
+    allowed. The console does not offer the field for a note, but a stale
+    tab or a script can still send one, or send only the kind change and
+    leave the metal it already had.
     """
-    sent = [field for field in _COIN_ONLY_FIELDS if data.get(field) is not None]
-    if not sent:
+    if "item_kind" not in data and not any(f in data for f in _COIN_ONLY_FIELDS):
         return
     currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
-    notes = sorted(item.item_code for item in items if item.item_kind_id == currency_id)
-    if notes:
+    sent_fields = [field for field in _COIN_ONLY_FIELDS if data.get(field) is not None]
+    sent_on: list[str] = []
+    carried_on: list[str] = []
+    for item in items:
+        if not _effective_is_currency(data, item, currency_id):
+            continue
+        if sent_fields:
+            sent_on.append(item.item_code)
+        elif any(
+            field not in data and getattr(item, f"{field}_id") is not None
+            for field in _COIN_ONLY_FIELDS
+        ):
+            carried_on.append(item.item_code)
+    if sent_on:
         # Plain 422, as the attributes guard below does: the named constant
         # is deprecated in Starlette and warns, and test output stays clean.
         raise HTTPException(
             status_code=422,
             detail=(
-                f"{', '.join(sent)} belongs to coins, not banknotes: "
-                f"{', '.join(notes)}. Nothing was changed."
+                f"{', '.join(sent_fields)} belongs to coins, not banknotes: "
+                f"{', '.join(sorted(set(sent_on)))}. Nothing was changed."
+            ),
+        )
+    if carried_on:
+        target = f" to {data['item_kind']!r}" if "item_kind" in data else ""
+        fields = " and ".join(_COIN_ONLY_FIELDS)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{', '.join(sorted(set(carried_on)))} already carries a "
+                f"{fields}; clear it before changing item_kind{target}. "
+                "Nothing was changed."
             ),
         )
 
@@ -951,34 +995,79 @@ def _refuse_coin_only_fields(
 def _refuse_mismatched_denomination(
     data: dict[str, object], items: Sequence[InventoryItem], db: Session
 ) -> None:
-    """Raise a 422 if a denomination belongs to the other side of the split.
+    """Raise a 422 if the edit leaves an item's kind and denomination split.
 
-    The same face value exists as a coin and as a note, which is what
-    `denomination.kind` records. A picker will not offer the wrong one; this
-    is for a stale tab or a script.
+    Checked against the item's state as it would stand after the edit, not
+    only what this request sends: a bare `item_kind` edit that would strand
+    an already-set denomination on the wrong side is refused exactly like
+    sending that denomination directly would be, and a combined `item_kind`
+    + `denomination` edit to a consistent pair is allowed. The same face
+    value exists as a coin and as a note, which is what `denomination.kind`
+    records.
     """
-    code = data.get("denomination")
-    if not isinstance(code, str) or not code:
-        return
-    kind = db.scalar(select(Denomination.kind).where(Denomination.code == code))
-    if kind is None:  # an unknown code is code_to_id's 422 to raise, not ours
+    if "item_kind" not in data and "denomination" not in data:
         return
     currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
-    # `note` denominations belong to currency items; every other kind --
-    # coin, bullion, set, medal, token -- takes `coin` denominations.
-    is_note_denomination = kind == DenominationKind.note
-    mismatched = sorted(
-        item.item_code
-        for item in items
-        if (item.item_kind_id == currency_id) != is_note_denomination
-    )
-    if mismatched:
-        side = "banknotes" if is_note_denomination else "coins"
+
+    sending_denomination = "denomination" in data
+    sent_kind: DenominationKind | None = None
+    if sending_denomination:
+        code = data["denomination"]
+        if isinstance(code, str) and code:
+            sent_kind = db.scalar(
+                select(Denomination.kind).where(Denomination.code == code)
+            )
+            if sent_kind is None:  # an unknown code is code_to_id's 422 to raise
+                return
+        # A null or empty denomination clears it: `sent_kind` stays None,
+        # which never conflicts with either item_kind below.
+
+    # The kind of every denomination one of these items already carries, so a
+    # bare `item_kind` edit can be checked against what it would strand
+    # without a query per item.
+    carried_kinds: dict[int, DenominationKind] = {}
+    if not sending_denomination:
+        carried_ids = {item.denomination_id for item in items if item.denomination_id}
+        if carried_ids:
+            carried = db.scalars(
+                select(Denomination).where(Denomination.id.in_(carried_ids))
+            ).all()
+            carried_kinds = {d.id: d.kind for d in carried}
+
+    sent_on: list[str] = []
+    carried_on: list[str] = []
+    for item in items:
+        if sending_denomination:
+            effective_kind = sent_kind
+        elif item.denomination_id is not None:
+            effective_kind = carried_kinds.get(item.denomination_id)
+        else:
+            effective_kind = None
+        if effective_kind is None:
+            continue
+        is_note_denomination = effective_kind == DenominationKind.note
+        if _effective_is_currency(data, item, currency_id) == is_note_denomination:
+            continue
+        (sent_on if sending_denomination else carried_on).append(item.item_code)
+
+    if sent_on:
+        side = "banknotes" if sent_kind == DenominationKind.note else "coins"
         raise HTTPException(
             status_code=422,
             detail=(
-                f"denomination {code} belongs to {side}: {', '.join(mismatched)} "
-                "cannot take it. Nothing was changed."
+                f"denomination {data['denomination']} belongs to {side}: "
+                f"{', '.join(sorted(set(sent_on)))} cannot take it. Nothing "
+                "was changed."
+            ),
+        )
+    if carried_on:
+        target = f" to {data['item_kind']!r}" if "item_kind" in data else ""
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{', '.join(sorted(set(carried_on)))} already carries a "
+                f"denomination for the other kind; clear it before changing "
+                f"item_kind{target}. Nothing was changed."
             ),
         )
 
