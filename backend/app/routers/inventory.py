@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-from .. import grades, item_attributes, sale_state
+from .. import grades, item_attributes, offering_writes, sale_state
 from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
@@ -378,6 +378,14 @@ def receive_items(
             "Use PATCH to correct a receipt rather than repeating it.",
         )
 
+    # An item that has not been received cannot be offered
+    # (`offering_writes.offer` refuses it) and an order can only hold a
+    # listing, so a plain receipt has nothing to warn about. The other three
+    # outcomes say a coin will not be delivered, and that is exactly what a
+    # buyer needs protecting from.
+    if payload.outcome != "received":
+        sale_state.guard(db, list(items), acknowledged=payload.acknowledge_for_sale)
+
     if payload.storage_location_id is not None:
         exists = db.get(StorageLocation, payload.storage_location_id)
         if exists is None:
@@ -404,6 +412,19 @@ def receive_items(
                 user_id=admin.id,
                 note=payload.note,
             )
+
+    # A coin that cannot be delivered must not stay offered. Ended through
+    # `offering_writes`, the only writer of listing status and claims -- never
+    # by assigning `listing.status` here.
+    if payload.outcome != "received":
+        offered = db.scalars(
+            select(Listing).where(
+                Listing.inventory_item_id.in_([item.id for item in items]),
+                Listing.status.in_(offering_writes.ON_OFFER),
+            )
+        ).all()
+        for live in offered:
+            offering_writes.end_offer(db, live)
 
     db.commit()
     return {"received": len(items)}

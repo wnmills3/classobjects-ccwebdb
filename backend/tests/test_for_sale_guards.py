@@ -7,12 +7,26 @@ calls it. The existing coverage of the two original call sites lives in
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from decimal import Decimal
+
 import pytest
-from app import sale_state
-from app.models import InventoryItem, Listing, ListingStatus
+from app import offering_writes, sale_state
+from app.models import (
+    ClaimState,
+    InventoryItem,
+    ItemStatus,
+    Listing,
+    ListingFormat,
+    ListingStatus,
+    SalesVenue,
+)
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from tests.conftest import build_item
 
 
 def test_the_guard_passes_an_item_that_is_not_for_sale(
@@ -177,3 +191,87 @@ def test_kinds_listing_lets_an_ordered_but_unlisted_split_reach_split_item(
     detail = refused.json()["detail"]
     assert "appears in an order" in detail
     assert "For sale" not in detail
+
+
+def test_marking_a_listed_item_missing_is_refused_until_acknowledged(
+    client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    item_id = listing.inventory_item_id
+    body = {"item_ids": [item_id], "outcome": "missing"}
+
+    refused = client.post("/api/inventory/receive", json=body, headers=admin_headers)
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+    item = db.get(InventoryItem, item_id)
+    assert item is not None
+    db.refresh(item)
+    assert item.status.code == "received"
+
+
+def test_receiving_an_item_that_is_not_for_sale_asks_nothing(
+    client: TestClient,
+    db: Session,
+    make_item: Callable[..., InventoryItem],
+    admin_headers: dict[str, str],
+) -> None:
+    # `make_item` (tests.conftest.build_item) starts an item at
+    # `received`, same as after a real receipt -- so a second "received"
+    # outcome here would collide with the pre-existing "already received"
+    # 409, which has nothing to do with the for-sale guard this test covers.
+    # Moved to `ordered`, matching how `test_receiving.py` starts every one
+    # of its own receiving tests.
+    item = make_item()
+    item.status_id = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "ordered")
+    ).one()
+    db.commit()
+    made = client.post(
+        "/api/inventory/receive",
+        json={"item_ids": [item.id], "outcome": "received"},
+        headers=admin_headers,
+    )
+    assert made.status_code == 200, made.text
+
+
+def test_an_acknowledged_missing_ends_the_listing_and_releases_the_claim(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    # Built through `offering_writes.offer` rather than `build_listing`,
+    # because the fixture makes a CLAIMLESS listing: it would prove the
+    # listing ended while saying nothing about the claim.
+    item = build_item(db)
+    venue = db.scalars(select(SalesVenue).where(SalesVenue.is_own_store)).first()
+    assert venue is not None
+    made = offering_writes.offer(
+        db,
+        item=item,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("50.00"),
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
+    db.commit()
+
+    response = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_ids": [item.id],
+            "outcome": "missing",
+            "acknowledge_for_sale": True,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+
+    db.expire_all()
+    ended = db.get(Listing, made.id)
+    assert ended is not None
+    assert ended.status is ListingStatus.ended
+    claims = offering_writes.claims_for(db, [item.id]).get(item.id, [])
+    assert [claim.state for claim in claims] != [ClaimState.active]
+    refreshed = db.get(InventoryItem, item.id)
+    assert refreshed is not None
+    assert refreshed.status.code == "missing"
