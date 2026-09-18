@@ -17,11 +17,13 @@ from __future__ import annotations
 from collections.abc import Collection
 from dataclasses import dataclass
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import offering_writes
 from .models import (
+    InventoryItem,
     Listing,
     ListingStatus,
     SalesOrder,
@@ -30,7 +32,7 @@ from .models import (
     SalesVenue,
 )
 
-__all__ = ["OPEN_ORDER_STATUSES", "SaleUse", "for_sale", "refusal"]
+__all__ = ["OPEN_ORDER_STATUSES", "SaleUse", "for_sale", "guard", "refusal"]
 
 #: Orders that hold an item but have not shipped it.
 OPEN_ORDER_STATUSES = frozenset({"pending", "paid", "packed"})
@@ -139,4 +141,47 @@ def refusal(codes_and_uses: dict[str, list[SaleUse]]) -> str:
     return (
         f"For sale -- {described}. A change shows to buyers at once. "
         "Save again with acknowledge_for_sale to make it."
+    )
+
+
+def guard(
+    db: Session,
+    items: Collection[InventoryItem],
+    *,
+    acknowledged: bool,
+    kinds: Collection[str] | None = None,
+) -> None:
+    """409 unless the caller has said it knows these items are for sale.
+
+    `kinds` narrows which reasons count, by `SaleUse.kind`. Split passes
+    `{"listing"}` because `app.splitting` refuses an item in an order
+    outright: an acknowledgement that does not let the caller through would
+    teach an operator to tick past warnings that mean something.
+
+    A 409 rather than a 422: the request is well formed and would be accepted
+    at another moment. The status code matches the two call sites this
+    replaces, and the console tells the case apart by the message's opening
+    words ("For sale").
+    """
+    if acknowledged:
+        return
+    wanted = list(items)
+    found = for_sale(db, [item.id for item in wanted])
+    if kinds is not None:
+        narrowed = set(kinds)
+        found = {
+            item_id: kept
+            for item_id, uses in found.items()
+            if (kept := [use for use in uses if use.kind in narrowed])
+        }
+    if not found:
+        return
+    codes = {item.id: item.item_code for item in wanted}
+    # A bare 409 rather than `status.HTTP_409_CONFLICT`: `for_sale` above
+    # binds a local named `status` in its order loop, and importing fastapi's
+    # `status` into this module would put a shadowed name one function away
+    # from a live one. Both spellings are already used in this codebase.
+    raise HTTPException(
+        status_code=409,
+        detail=refusal({codes[item_id]: uses for item_id, uses in found.items()}),
     )
