@@ -6,6 +6,7 @@
  * providers it expects, with overridable defaults, so a test states only the
  * part it cares about.
  */
+import { StrictMode } from 'react'
 import { render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
@@ -62,17 +63,25 @@ export function renderWithProviders(ui, options = {}) {
     // e.g. telling a `<Link>`'s routed href apart from a hard-coded path
     // that happens to read the same without a basename in play.
     basename,
+    // Renders inside `<StrictMode>`, which is how the console actually runs in
+    // development (`owner/main.jsx`): React then invokes every effect setup,
+    // cleanup, setup on mount. A guard that is armed in a setup and disarmed
+    // in its cleanup without being re-armed is left disarmed for the
+    // component's whole life -- a class of bug no ordinary render can see, so
+    // at least one test per such component asks for this.
+    strict = false,
     ...rest
   } = options
 
-  return render(
+  const tree = (
     <MemoryRouter initialEntries={[route]} basename={basename}>
       <AuthContext.Provider value={auth}>
         <CartContext.Provider value={cart}>
           <ReferenceContext.Provider value={reference}>{ui}</ReferenceContext.Provider>
         </CartContext.Provider>
       </AuthContext.Provider>
-    </MemoryRouter>,
-    rest,
+    </MemoryRouter>
   )
+
+  return render(strict ? <StrictMode>{tree}</StrictMode> : tree, rest)
 }
