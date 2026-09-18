@@ -1536,9 +1536,17 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
 
     Guarded twice, because both failures are silent. A lot with pieces holds
     the cost basis they were allocated from, and deleting it would leave four
-    coins descended from nothing. An item that has been listed or sold is
-    referenced by order history, which would then point at a row the reports
-    exclude.
+    coins descended from nothing. An item that has ever been listed is
+    referenced by the offer -- and through it by any order -- which would then
+    point at a row the reports exclude.
+
+    The listing guard is permanent, not a "do this first": any listing row
+    refuses, ended ones included, and nothing removes a listing row (the
+    catalogue's `DELETE /api/catalog/{listing_id}` was retired in phase 2, and
+    `offer_claim` references the row `ON DELETE RESTRICT` anyway). That is the
+    intended rule -- once a coin has been offered, the offer is part of the
+    sales history -- so the message says so rather than naming a step that
+    cannot clear it.
 
     **Reachable from the lot panel, not only from search.** After its last
     child is detached a parent still has `split_at` set, so it is invisible in
@@ -1572,7 +1580,10 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"{item.item_code} has a listing and cannot be deleted. "
-                f"Withdraw the listing first."
+                f"An item that has ever been offered stays in the record "
+                f"permanently -- ending the listing takes it off sale but "
+                f"does not remove it, because the offer is part of the "
+                f"business's sales history."
             ),
         )
 

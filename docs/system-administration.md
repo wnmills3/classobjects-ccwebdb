@@ -586,9 +586,12 @@ Two cases are refused, because both would fail silently:
 
 - **A lot with pieces.** It holds the cost basis its children were allocated
   from; deleting it would leave those coins descended from nothing.
-- **An item that has been listed or sold.** Order history references it, and
-  the reports exclude deleted rows -- so the order would point at a row that
-  is not there.
+- **An item that has ever been listed.** Order history references the listing
+  and the reports exclude deleted rows, so the order would point at a row that
+  is not there. This one is **permanent, not a step to do first**: any listing
+  row refuses, ended ones included, and nothing removes a listing row. Once a
+  coin has been offered, the offer is part of the sales history and the item
+  stays in the record.
 
 Deleting twice is not an error.
 
