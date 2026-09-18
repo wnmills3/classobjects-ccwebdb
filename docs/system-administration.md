@@ -789,10 +789,10 @@ format (fixed price or auction) with a row per item: price, title and
 description (pre-filled from the item), an optional listing number, and the
 item's cost, estimated fees, net and margin beside it for reference. **Offer**
 submits the whole batch to `POST /api/offers`; a refusal -- the item is
-already offered on another platform, is already offered in the shop, is not
-received, has been split, or the platform is retired -- names every affected
-item **inside the still-open dialog, with the prices already typed kept**,
-and writes nothing, so the batch is all or nothing.
+already offered on another platform, is already offered in the shop, has been
+deleted, is not received, has been split, or the platform is retired -- names
+every affected item **inside the still-open dialog, with the prices already
+typed kept**, and writes nothing, so the batch is all or nothing.
 
 **Listings** (`/owner/listings`) lists every offer the business has out --
 active and paused by default, or every offer including ended ones with the

@@ -53,9 +53,10 @@ def _offering(db: Session, item_ids: Collection[int]) -> dict[int, set[int]]:
     Two sources because there are two ways an item is on a listing. A claim
     (`app.offering_writes`) is the general one, and the only one that will
     work for a lot, whose listing names the lot rather than its members. A
-    listing written directly against the item is the other: the catalogue API
-    still creates one that way, and a listing made before claims existed has
-    none. Reading only claims would quietly stop warning about those.
+    listing written directly against the item is the other: `app.seed`
+    creates one that way for its demo catalogue, and a listing made before
+    claims existed has none. Reading only claims would quietly stop warning
+    about those.
     """
     wanted: dict[int, set[int]] = {}
     for item_id, claims in offering_writes.claims_for(db, item_ids).items():

@@ -647,9 +647,15 @@ item spoken for" exactly as an active one does — because the item is not
 free to offer a second time until the pause is either resumed or the listing
 that paused it ends.
 
-Written only by `app.offering_writes`, in the same transaction as the listing
-it mirrors, and nowhere else: a claim's state always follows its listing's
-status.
+Written by `app.offering_writes`, in the same transaction as the listing it
+mirrors, with one exception: `app.seed` creates a demo `Listing` directly,
+with `status = active` and no claim. Every reader tolerates this by design --
+`_locked_offers`, `_move_claims`, `_still_offered` and `sale_state._offering`
+each ask both "is there a claim" and "is there a listing", so a claimless
+listing is never invisible, and `offer()` writes the missing claim itself the
+first time it pauses or resumes one. What a claimless listing does not get is
+the database guarantee: `uq_offer_claim_active` constrains `offer_claim` rows,
+so it protects nothing for a listing seeding created without one.
 
 ### `order` (`sales_order`) gains a platform
 
