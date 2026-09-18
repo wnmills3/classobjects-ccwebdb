@@ -1,11 +1,21 @@
 import userEvent from '@testing-library/user-event'
 import { screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('./api', () => ({
+  api: { addReferenceValue: vi.fn() },
+}))
+
+import { api } from './api'
 import { FIND_FROM, ReferenceSelect } from './reference'
 import { useReference } from './reference-context'
 import { entryMatch, findEntries } from './reference-match'
+import { codeFromLabel } from './reference-codes'
 import { emptyReference, renderWithProviders } from '../test/helpers'
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 function value(code, label, aliases = []) {
   return { code, label, sort_order: 0, source: 'seeded', aliases, extra: {} }
@@ -36,6 +46,18 @@ function offered() {
     .getAllByRole('option')
     .map((o) => o.textContent)
 }
+
+describe('codeFromLabel', () => {
+  it.each([
+    ['Mismatched Serial', 'mismatched_serial'],
+    ['  Gutter fold  ', 'gutter_fold'],
+    ["Printer's Mark", 'printers_mark'],
+    ['Off-Center', 'off_center'],
+    ['Ink Smear 2', 'ink_smear_2'],
+  ])('%s becomes %s', (label, code) => {
+    expect(codeFromLabel(label)).toBe(code)
+  })
+})
 
 describe('entryMatch', () => {
   it('matches a label or code without naming an alias', () => {
@@ -142,6 +164,76 @@ describe('ReferenceSelect find box', () => {
       'Winged Liberty Head Dime',
       '+ Add a new value...',
     ])
+  })
+})
+
+describe('ReferenceSelect adding a value by its label alone', () => {
+  const ATTRIBUTES = [value('star_note', 'Star Note'), value('no_motto', 'No Motto')]
+
+  function renderAttributePicker(props = {}, values = ATTRIBUTES) {
+    const onChange = vi.fn()
+    renderWithProviders(
+      <ReferenceSelect
+        table="item_attribute"
+        value=""
+        onChange={onChange}
+        allowAdd
+        labelOnly
+        addFields={{ applies_to: 'currency' }}
+        {...props}
+      />,
+      { reference: emptyReference({ tables: { item_attribute: values } }) },
+    )
+    return onChange
+  }
+
+  async function openAddForm(user, name = 'item_attribute') {
+    await user.selectOptions(screen.getByRole('combobox', { name }), '__add__')
+  }
+
+  it('posts the derived code, extra columns nested under extra, and selects it', async () => {
+    const user = userEvent.setup()
+    api.addReferenceValue.mockResolvedValue({})
+    const onChange = renderAttributePicker()
+    await openAddForm(user)
+    await user.type(screen.getByPlaceholderText('label'), 'Mismatched Serial')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(api.addReferenceValue).toHaveBeenCalledWith('item_attribute', {
+      code: 'mismatched_serial',
+      label: 'Mismatched Serial',
+      extra: { applies_to: 'currency' },
+    })
+    expect(onChange).toHaveBeenCalledWith({ target: { value: 'mismatched_serial' } })
+  })
+
+  it('shows the derived code before saving', async () => {
+    const user = userEvent.setup()
+    renderAttributePicker()
+    await openAddForm(user)
+    await user.type(screen.getByPlaceholderText('label'), 'Off-Center')
+
+    expect(screen.getByText('off_center')).toBeInTheDocument()
+  })
+
+  it('selects an existing value instead of posting when the derived code already exists', async () => {
+    const user = userEvent.setup()
+    const onChange = renderAttributePicker()
+    await openAddForm(user)
+    await user.type(screen.getByPlaceholderText('label'), 'Star Note')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(api.addReferenceValue).not.toHaveBeenCalled()
+    expect(onChange).toHaveBeenCalledWith({ target: { value: 'star_note' } })
+  })
+
+  it('asks for code and label as before when labelOnly is not set', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+    await openAddForm(user, 'series')
+
+    expect(screen.getByPlaceholderText('code')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('label')).toBeInTheDocument()
   })
 })
 

@@ -157,7 +157,19 @@ function AttributesField({ item, codes, onChange, kind }) {
           <ReferenceSelect
             table="item_attribute"
             value=""
-            allowAdd={false}
+            allowAdd
+            labelOnly
+            // No top-level `applies_to` field: the API reads it from `extra`
+            // (`ReferenceValueCreate`). A value added with none would fit no
+            // kind and vanish from this very picker the moment it appeared
+            // -- see `fitsKind`. `attribute_group` is NOT NULL with no
+            // database default; `variety` is the group the migration itself
+            // used to backfill rows it could not otherwise classify, so it
+            // is the least presumptuous default for one nobody picked.
+            addFields={{
+              applies_to: kind === 'currency' ? 'currency' : 'coin',
+              attribute_group: 'variety',
+            }}
             filter={(entry) => fitsKind(entry, kind) && !codes.includes(entry.code)}
             onChange={(e) => {
               if (e.target.value) onChange([...codes, e.target.value])

@@ -1,6 +1,7 @@
 import { useCallback, useContext, useMemo, useState } from 'react'
 
 import { api } from './api'
+import { codeFromLabel } from './reference-codes'
 import { ReferenceContext, useReference } from './reference-context'
 import { findEntries } from './reference-match'
 
@@ -92,6 +93,18 @@ export function ReferenceSelect({
   //: `owner/`, so it takes the attributes rather than importing `shortcuts`.
   accessKey,
   'aria-keyshortcuts': ariaKeyshortcuts,
+  //: Extra columns sent with a value this picker adds -- e.g.
+  //: `{ applies_to: 'currency' }`, the kind the item being entered is. Goes
+  //: into the POST's `extra`, which is where the reference API reads a
+  //: table's own columns; `ReferenceValueCreate` has no top-level field for
+  //: them, so the value would otherwise be created with none and vanish from
+  //: this very picker (see `fitsKind`).
+  addFields = {},
+  //: When true, the add form asks for a label alone and derives the code
+  //: from it with `codeFromLabel`, rather than asking for both. Attributes
+  //: are the one vocabulary this is worth doing for: nothing about a "Star
+  //: Note" that a person would type needs a separate code entered by hand.
+  labelOnly = false,
 }) {
   const values = useReference(table, { includeRetired: true })
   const context = useContext(ReferenceContext)
@@ -100,14 +113,30 @@ export function ReferenceSelect({
   const [error, setError] = useState('')
   const [find, setFind] = useState('')
 
+  function selectAndClose(code) {
+    onChange({ target: { value: code } })
+    setAdding(false)
+    setDraft({ code: '', label: '' })
+    setError('')
+  }
+
   async function addValue() {
+    const label = draft.label.trim()
+    const code = labelOnly ? codeFromLabel(label) : draft.code
+    if (labelOnly) {
+      // The label a person typed may already name a value under another
+      // wording -- or the same one, typed again. Either way the code already
+      // exists, so posting it would only 409; selecting it is what they meant.
+      const existing = values?.find((entry) => entry.code === code)
+      if (existing) {
+        selectAndClose(existing.code)
+        return
+      }
+    }
     try {
-      await api.addReferenceValue(table, draft)
+      await api.addReferenceValue(table, { code, label, extra: addFields })
       context?.invalidate(table)
-      onChange({ target: { value: draft.code } })
-      setAdding(false)
-      setDraft({ code: '', label: '' })
-      setError('')
+      selectAndClose(code)
     } catch (err) {
       setError(err.message)
     }
@@ -118,17 +147,37 @@ export function ReferenceSelect({
     // not fit, the missing value is added here and selected immediately.
     return (
       <div className="add-reference">
-        <input
-          placeholder="code"
-          value={draft.code}
-          onChange={(e) => setDraft({ ...draft, code: e.target.value })}
-        />
-        <input
-          placeholder="label"
-          value={draft.label}
-          onChange={(e) => setDraft({ ...draft, label: e.target.value })}
-        />
-        <button type="button" onClick={addValue} disabled={!draft.code || !draft.label}>
+        {labelOnly ? (
+          <>
+            <input
+              placeholder="label"
+              value={draft.label}
+              onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+            />
+            {/* What will actually be stored, visible before saving -- a
+                person typing "Off-Center" should see it becomes
+                off_center, not guess. */}
+            <span className="derived-code">{codeFromLabel(draft.label)}</span>
+          </>
+        ) : (
+          <>
+            <input
+              placeholder="code"
+              value={draft.code}
+              onChange={(e) => setDraft({ ...draft, code: e.target.value })}
+            />
+            <input
+              placeholder="label"
+              value={draft.label}
+              onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+            />
+          </>
+        )}
+        <button
+          type="button"
+          onClick={addValue}
+          disabled={labelOnly ? !draft.label.trim() : !draft.code || !draft.label}
+        >
           Add
         </button>
         <button type="button" className="link" onClick={() => setAdding(false)}>
