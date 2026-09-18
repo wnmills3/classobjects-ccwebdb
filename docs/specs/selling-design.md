@@ -1,6 +1,6 @@
 # Selling: platforms, offers, sales lots and auctions
 
-Design. Status: **agreed with the owner 2026-09-17**; phases 0-1 built.
+Design. Status: **agreed with the owner 2026-09-17**; phases 0-2 (offering) built.
 
 ## The problem
 
