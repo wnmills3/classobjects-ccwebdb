@@ -77,9 +77,11 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     await user.type(screen.getByPlaceholderText('details'), "miscut at 3 o'clock")
     await user.click(screen.getByRole('button', { name: 'Add error' }))
 
-    expect(api.setItemErrors).toHaveBeenCalledWith(12, [
-      { error_type: 'miscut', details: "miscut at 3 o'clock" },
-    ])
+    expect(api.setItemErrors).toHaveBeenCalledWith(
+      12,
+      [{ error_type: 'miscut', details: "miscut at 3 o'clock" }],
+      { acknowledgeForSale: false },
+    )
   })
 
   it('does not offer a type already recorded', async () => {
@@ -133,9 +135,11 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Remove Miscut' }))
 
-    expect(api.setItemErrors).toHaveBeenCalledWith(12, [
-      { error_type: 'off_center_coin', details: 'note b' },
-    ])
+    expect(api.setItemErrors).toHaveBeenCalledWith(
+      12,
+      [{ error_type: 'off_center_coin', details: 'note b' }],
+      { acknowledgeForSale: false },
+    )
     // Scoped to the recorded-error list: "Miscut" freed up by the removal is
     // correctly still offered again by the picker below it.
     expect(within(screen.getByRole('list')).queryByText('Miscut')).toBeNull()
@@ -159,9 +163,11 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     await user.type(input, 'corrected note')
     await user.tab()
 
-    expect(api.setItemErrors).toHaveBeenCalledWith(12, [
-      { error_type: 'miscut', details: 'corrected note' },
-    ])
+    expect(api.setItemErrors).toHaveBeenCalledWith(
+      12,
+      [{ error_type: 'miscut', details: 'corrected note' }],
+      { acknowledgeForSale: false },
+    )
   })
 
   // Rendered in StrictMode on purpose: the console runs in it (see
@@ -225,9 +231,11 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     await user.clear(input)
     await user.tab()
 
-    expect(api.setItemErrors).toHaveBeenCalledWith(12, [
-      { error_type: 'miscut', details: null },
-    ])
+    expect(api.setItemErrors).toHaveBeenCalledWith(
+      12,
+      [{ error_type: 'miscut', details: null }],
+      { acknowledgeForSale: false },
+    )
   })
 
   it('shows the message and keeps the rows when a save fails', async () => {
@@ -339,5 +347,56 @@ describe('ErrorsPanel, adding an error type from the picker', () => {
       label: 'Double Strike',
       extra: { applies_to: 'coin' },
     })
+  })
+})
+
+describe('ErrorsPanel, an item that is for sale', () => {
+  it('warns, then sends the acknowledgement on every later save', async () => {
+    const user = userEvent.setup()
+    api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    api.setItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(
+      <ErrorsPanel
+        itemId={12}
+        kind="currency"
+        saleState={[{ kind: 'listing', id: 3, text: 'listing #3 at 120.00' }]}
+      />,
+      // StrictMode: this panel already lost an effect guard to the mismatch
+      // between how it is tested and how the console actually runs.
+      { reference: vocabularies, strict: true },
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('listing #3 at 120.00')
+    await user.click(screen.getByLabelText('Record it anyway'))
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'miscut',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+    expect(api.setItemErrors).toHaveBeenLastCalledWith(
+      12,
+      [{ error_type: 'miscut', details: null }],
+      { acknowledgeForSale: true },
+    )
+
+    // Sticky: the second change does not ask again.
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'inverted_overprint',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+    expect(api.setItemErrors).toHaveBeenLastCalledWith(12, expect.anything(), {
+      acknowledgeForSale: true,
+    })
+  })
+
+  it('renders no warning for an item that is not for sale', async () => {
+    api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+    renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
+      reference: vocabularies,
+    })
+    await screen.findByRole('combobox', { name: 'error_type' })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

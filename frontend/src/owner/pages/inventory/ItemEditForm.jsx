@@ -666,7 +666,11 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           against this item, independent of the Save button above -- an
           error recorded here is not held back by, or lost to, a discarded
           edit elsewhere on this form. */}
-      <ErrorsPanel itemId={itemId} kind={value('item_kind')} />
+      <ErrorsPanel
+        itemId={itemId}
+        kind={value('item_kind')}
+        saleState={item.sale_state ?? []}
+      />
 
       {item.item_kind === 'currency' && (
         <>

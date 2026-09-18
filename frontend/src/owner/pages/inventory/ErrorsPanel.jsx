@@ -4,6 +4,7 @@ import { api } from '../../api'
 import { fitsKind, sideFor } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
+import ForSaleNotice from '../ForSaleNotice'
 
 /**
  * The set as it leaves this panel: no note is null, never the empty string.
@@ -37,11 +38,17 @@ function withNoEmptyDetails(rows) {
  * a person just typed stays on screen, still editable, rather than vanishing
  * along with the note they wrote.
  */
-export default function ErrorsPanel({ itemId, kind, value, onChange }) {
+export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }) {
   const controlled = itemId == null
   // null means "not loaded yet"; the controlled mode never reads this and
   // renders through `value` instead.
   const [rows, setRows] = useState(null)
+  // Sticky for the editing session: this panel PUTs on every change, and an
+  // acknowledgement asked per save would be asked on every keystroke-ish
+  // action -- add a row, remove one, blur a note box -- which teaches an
+  // operator to tick it blind. Ticked once, it holds for as long as the
+  // panel stays mounted.
+  const [acknowledged, setAcknowledged] = useState(false)
   const [error, setError] = useState('')
   const [type, setType] = useState('')
   const [details, setDetails] = useState('')
@@ -104,7 +111,9 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
   function save(next) {
     if (controlled) return
     api
-      .setItemErrors(itemId, withNoEmptyDetails(next))
+      .setItemErrors(itemId, withNoEmptyDetails(next), {
+        acknowledgeForSale: acknowledged,
+      })
       .then(() => setError(''))
       .catch((err) => setError(err.message))
   }
@@ -149,6 +158,12 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
     <div className="field errors-panel">
       <span>Errors</span>
       <div className="error-body">
+        <ForSaleNotice
+          uses={saleState ?? []}
+          checked={acknowledged}
+          onChange={setAcknowledged}
+          action="Record it anyway"
+        />
         {loading && <p className="muted">Loading...</p>}
         {!loading && error && <p className="error">{error}</p>}
         {!loading && (
