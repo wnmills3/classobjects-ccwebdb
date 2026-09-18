@@ -235,6 +235,75 @@ describe('ReferenceSelect adding a value by its label alone', () => {
     expect(screen.getByPlaceholderText('code')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('label')).toBeInTheDocument()
   })
+
+  it('disables Add for a label that derives to an empty code', async () => {
+    const user = userEvent.setup()
+    renderAttributePicker()
+    await openAddForm(user)
+    await user.type(screen.getByPlaceholderText('label'), '!!!')
+
+    expect(document.querySelector('.derived-code')).toHaveTextContent('')
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    expect(api.addReferenceValue).not.toHaveBeenCalled()
+  })
+
+  it('renders no group picker, and requires none, when groupField is not given', async () => {
+    const user = userEvent.setup()
+    api.addReferenceValue.mockResolvedValue({})
+    const onChange = renderAttributePicker()
+    await openAddForm(user)
+
+    expect(screen.queryByRole('combobox', { name: 'group' })).not.toBeInTheDocument()
+    await user.type(screen.getByPlaceholderText('label'), 'Mismatched Serial')
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(onChange).toHaveBeenCalledWith({ target: { value: 'mismatched_serial' } })
+  })
+
+  describe('with a required group', () => {
+    const GROUPS = [
+      { code: 'serial', label: 'Serial' },
+      { code: 'variety', label: 'Variety' },
+    ]
+
+    it('keeps Add disabled until a group is chosen, then sends it under extra', async () => {
+      const user = userEvent.setup()
+      api.addReferenceValue.mockResolvedValue({})
+      const onChange = renderAttributePicker({
+        groupField: 'attribute_group',
+        groupOptions: GROUPS,
+      })
+      await openAddForm(user)
+      await user.type(screen.getByPlaceholderText('label'), 'Mismatched Serial')
+
+      expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
+
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: 'group' }),
+        'serial',
+      )
+      await user.click(screen.getByRole('button', { name: 'Add' }))
+
+      expect(api.addReferenceValue).toHaveBeenCalledWith('item_attribute', {
+        code: 'mismatched_serial',
+        label: 'Mismatched Serial',
+        extra: { applies_to: 'currency', attribute_group: 'serial' },
+      })
+      expect(onChange).toHaveBeenCalledWith({ target: { value: 'mismatched_serial' } })
+    })
+
+    it('never posts without a group chosen, even if Add is clicked', async () => {
+      const user = userEvent.setup()
+      renderAttributePicker({ groupField: 'attribute_group', groupOptions: GROUPS })
+      await openAddForm(user)
+      await user.type(screen.getByPlaceholderText('label'), 'Mismatched Serial')
+      await user.click(screen.getByRole('button', { name: 'Add' }))
+
+      expect(api.addReferenceValue).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('useReference', () => {
