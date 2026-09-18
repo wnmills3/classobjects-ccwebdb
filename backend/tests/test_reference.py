@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 from app.models import Grade, ProvenanceSource
@@ -161,6 +162,29 @@ def test_grades_keep_their_scale_order(client: TestClient) -> None:
     codes = [v["code"] for v in client.get("/api/reference/grade").json()["values"]]
 
     assert codes.index("70") < codes.index("65") < codes.index("50")
+
+
+def test_denominations_ascend_by_face_value_coins_then_notes(
+    client: TestClient,
+) -> None:
+    """A denomination is a value on a scale, like a grade.
+
+    Face value ascends within coins, then within notes, and every coin
+    precedes every note -- once a picker filters by kind (bullion or
+    banknote), the values it is left with still read low to high.
+    Alphabetical would open with "$1 Bill" ahead of "Cent".
+    """
+    values = client.get("/api/reference/denomination").json()["values"]
+    coins = [v for v in values if v["extra"]["kind"] == "coin"]
+    notes = [v for v in values if v["extra"]["kind"] == "note"]
+
+    coin_values = [Decimal(v["extra"]["face_value"]) for v in coins]
+    note_values = [Decimal(v["extra"]["face_value"]) for v in notes]
+    assert coin_values == sorted(coin_values)
+    assert note_values == sorted(note_values)
+
+    codes = [v["code"] for v in values]
+    assert codes.index(coins[-1]["code"]) < codes.index(notes[0]["code"])
 
 
 def test_a_lifecycle_vocabulary_keeps_its_sequence(client: TestClient) -> None:

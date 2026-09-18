@@ -75,8 +75,10 @@ _CODE_KEYED_VALUES = frozenset(
 )
 
 #: Vocabularies whose order is their meaning, so they keep `sort_order`.
-#: Three reasons an entry belongs here: a scale (grade runs 70, 69+, 69, ...),
-#: a lifecycle (item_status, disposition, sales_order_status, shipment_status
+#: Three reasons an entry belongs here: a scale (grade runs 70, 69+, 69, ...;
+#: denomination runs face value ascending, coins then notes -- once a picker
+#: filters by kind, a note's nine denominations read $1 -> $1000 in order), a
+#: lifecycle (item_status, disposition, sales_order_status, shipment_status
 #: each run ordered -> received -> ... or an equivalent progression), or a
 #: curated sequence (item_kind is ranked by how often a kind occurs -- coin
 #: and currency cover the whole collection, so they lead; signature_combination
@@ -86,6 +88,7 @@ _CODE_KEYED_VALUES = frozenset(
 _SEQUENCED_TABLES = frozenset(
     {
         "grade",
+        "denomination",
         "item_status",
         "disposition",
         "sales_order_status",
