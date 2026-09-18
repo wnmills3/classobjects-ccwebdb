@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../../api'
-import { fitsKind, isCurrencyKind } from '../../../shared/kinds'
+import { fieldFitsKind, fitsKind, isCurrencyKind } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
@@ -489,8 +489,13 @@ export default function NewItemForm({
 
         {/* A coin's grade is a number and its strike type says whether 65
             is MS65 or PR65. A note has none. No free accelerator letter is
-            left in "Strike type". */}
-        {!isCurrency && (
+            left in "Strike type".
+
+            Which fields are a coin's is asked of `fieldFitsKind` rather than
+            answered here, so this form and the item editor read one list
+            (`COIN_ONLY_FIELDS`). The editor keeping a metal box this form had
+            already dropped is what that shared list exists to stop. */}
+        {fieldFitsKind('strike_type', form.item_kind) && (
           <label>
             Strike type
             <ReferenceSelect
@@ -539,7 +544,7 @@ export default function NewItemForm({
           <input type="text" value={form.cert_number} onChange={set('cert_number')} />
         </label>
 
-        {!isCurrency && (
+        {fieldFitsKind('metal', form.item_kind) && (
           <label>
             <AccessLabel text="Metal" accessKey="l" />
             <ReferenceSelect
@@ -563,7 +568,10 @@ export default function NewItemForm({
           />
         </label>
 
-        {!isCurrency && (
+        {/* Gated on Mint, the coin-only field of the pair: Variety is not in
+            COIN_ONLY_FIELDS but has always been shown beside it, and moving
+            it is a change to the form, not to this fix. */}
+        {fieldFitsKind('mint', form.item_kind) && (
           <>
             <label>
               Mint

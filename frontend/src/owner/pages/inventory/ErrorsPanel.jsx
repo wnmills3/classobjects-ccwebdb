@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
-import { fitsKind, isCurrencyKind } from '../../../shared/kinds'
+import { fitsKind, sideFor } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 
@@ -148,9 +148,10 @@ export default function ErrorsPanel({ itemId, kind, value, onChange }) {
           // No top-level `applies_to` field -- see AttributesField in
           // ItemEditForm.jsx for the same shape. An error type added here
           // without the item's side would fit no kind and vanish from this
-          // very picker the moment it appeared (`fitsKind`); `error_type` has
-          // no `attribute_group` column, so nothing else goes in `extra`.
-          addFields={{ applies_to: isCurrencyKind(kind) ? 'currency' : 'coin' }}
+          // very picker the moment it appeared (`fitsKind`, whose exact
+          // inverse `sideFor` is); `error_type` has no `attribute_group`
+          // column, so nothing else goes in `extra`.
+          addFields={{ applies_to: sideFor(kind) }}
           filter={(entry) =>
             fitsKind(entry, kind) && !list.some((row) => row.error_type === entry.code)
           }

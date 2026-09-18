@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react'
 
 import { api } from '../../api'
-import { COIN_ONLY_FIELDS, fitsKind } from '../../../shared/kinds'
+import { fieldFitsKind, fitsKind, sideFor } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { AccessLabel } from '../../AccessLabel'
@@ -176,11 +176,12 @@ function AttributesField({ item, codes, onChange, kind }) {
             // No top-level `applies_to` field: the API reads it from `extra`
             // (`ReferenceValueCreate`). A value added with none would fit no
             // kind and vanish from this very picker the moment it appeared
-            // -- see `fitsKind`. `attribute_group` is NOT NULL with no
-            // database default, and the owner chose to ask rather than have
-            // one picked silently: `groupField`/`groupOptions` put a
-            // required group picker in the add form instead.
-            addFields={{ applies_to: kind === 'currency' ? 'currency' : 'coin' }}
+            // -- see `fitsKind`, whose exact inverse `sideFor` is.
+            // `attribute_group` is NOT NULL with no database default, and the
+            // owner chose to ask rather than have one picked silently:
+            // `groupField`/`groupOptions` put a required group picker in the
+            // add form instead.
+            addFields={{ applies_to: sideFor(kind) }}
             groupField="attribute_group"
             groupOptions={ATTRIBUTE_GROUPS}
             filter={(entry) => fitsKind(entry, kind) && !codes.includes(entry.code)}
@@ -604,36 +605,36 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         </div>
       )}
 
-      {CLASSIFIERS.filter(
-        ([, key]) => !COIN_ONLY_FIELDS.has(key) || value('item_kind') !== 'currency',
-      ).map(([label, key, table, letter]) => (
-        <label key={key} className="field">
-          <AccessLabel text={label} accessKey={letter} />
-          <ReferenceSelect
-            table={table}
-            value={value(key)}
-            onChange={set(key)}
-            allowAdd={!FIXED_VOCABULARIES.has(table)}
-            // Status is NOT NULL on the item, so there is no blank to pick:
-            // clearing it would be a 422 the operator cannot act on.
-            allowBlank={key !== 'status'}
-            // Paper money is graded on its own scale: a note is offered only
-            // note grades, and anything else only the coin scales.
-            filter={
-              key === 'grade'
-                ? (grade) =>
-                    (grade.extra?.grade_scale === 'note') ===
-                    (value('item_kind') === 'currency')
-                : key === 'denomination'
-                  ? (entry) => fitsKind(entry, value('item_kind'))
-                  : undefined
-            }
-            {...accel(letter)}
-          />
-          {side(key, columnOf(key, true))}
-          {review(REVIEWABLE[key])}
-        </label>
-      ))}
+      {CLASSIFIERS.filter(([, key]) => fieldFitsKind(key, value('item_kind'))).map(
+        ([label, key, table, letter]) => (
+          <label key={key} className="field">
+            <AccessLabel text={label} accessKey={letter} />
+            <ReferenceSelect
+              table={table}
+              value={value(key)}
+              onChange={set(key)}
+              allowAdd={!FIXED_VOCABULARIES.has(table)}
+              // Status is NOT NULL on the item, so there is no blank to pick:
+              // clearing it would be a 422 the operator cannot act on.
+              allowBlank={key !== 'status'}
+              // Paper money is graded on its own scale: a note is offered only
+              // note grades, and anything else only the coin scales.
+              filter={
+                key === 'grade'
+                  ? (grade) =>
+                      (grade.extra?.grade_scale === 'note') ===
+                      (value('item_kind') === 'currency')
+                  : key === 'denomination'
+                    ? (entry) => fitsKind(entry, value('item_kind'))
+                    : undefined
+              }
+              {...accel(letter)}
+            />
+            {side(key, columnOf(key, true))}
+            {review(REVIEWABLE[key])}
+          </label>
+        ),
+      )}
 
       <AttributesField
         item={item}

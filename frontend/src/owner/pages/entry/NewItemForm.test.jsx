@@ -12,6 +12,7 @@ vi.mock('../../api', () => ({
 }))
 
 import { api } from '../../api'
+import { COIN_ONLY_FIELDS } from '../../../shared/kinds'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 import NewItemForm from './NewItemForm'
 import { withSuggestions } from './suggestions'
@@ -70,6 +71,26 @@ describe('NewItemForm: a banknote', () => {
 
     expect(screen.getByRole('textbox', { name: /serial number/i })).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: /variety/i })).toBeNull()
+  })
+
+  // The entry form asks `fieldFitsKind` which fields are a coin's rather than
+  // listing them itself, so this form and the item editor read one set
+  // (`COIN_ONLY_FIELDS`). Every name in that set is checked, not a sample:
+  // the drift being guarded against -- the editor keeping a metal box this
+  // form had dropped -- was exactly one field going its own way.
+  it("offers none of a coin's own fields once the kind is currency", async () => {
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
+    for (const field of ['strike_type', 'metal', 'mint']) {
+      expect(screen.getByLabelText(field)).toBeInTheDocument()
+    }
+
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+
+    for (const field of COIN_ONLY_FIELDS) {
+      expect(screen.queryByLabelText(field)).toBeNull()
+    }
   })
 
   it('submits the currency block and omits coin detail', async () => {
