@@ -371,6 +371,24 @@ def test_coin_fields_on_a_currency_item_are_refused(
     assert any("mint" in str(err.get("msg", "")) for err in detail)
 
 
+def test_a_coin_denomination_on_a_currency_item_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The same face value is a coin and a note, and they are different objects.
+
+    There is no item row yet on this path, so the payload's own `item_kind`
+    is what the denomination's kind is checked against.
+    """
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_currency_payload(order.id, denomination="usd_coin_0_25"),
+        headers=admin_headers,
+    )
+    assert res.status_code == 422
+    assert "denomination" in res.text
+
+
 def test_an_unknown_purchase_order_is_a_404(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

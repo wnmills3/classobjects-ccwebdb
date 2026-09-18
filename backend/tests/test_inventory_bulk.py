@@ -7,10 +7,11 @@ the UI should ever have to answer.
 
 from __future__ import annotations
 
+from app.models import ItemKind
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.test_schema import code_id, make_item
 
 
 def test_a_field_is_set_across_every_selected_item(
@@ -101,6 +102,25 @@ def test_bulk_nulling_a_required_classifier_is_refused_naming_the_field(
 
     assert response.status_code == 422
     assert "disposition" in response.json()["detail"]
+
+
+def test_a_bulk_edit_cannot_give_a_note_a_coin_denomination(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """All or nothing: the coin in the same selection keeps its own denomination."""
+    coin = make_item(db)
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [coin.id, note.id], "changes": {"denomination": "usd_coin_0_25"}},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
+    assert "denomination" in response.json()["detail"]
+    db.refresh(coin)
+    assert coin.denomination_id is None
 
 
 def test_bulk_refuses_an_empty_selection(
