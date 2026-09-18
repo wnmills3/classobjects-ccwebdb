@@ -713,8 +713,16 @@ bulk edit refuses the whole selection, naming the items, and then offers
 **Change the items for sale too**. Saving nothing needs no confirmation. Once
 an order ships, the item is ordinary again -- its sale keeps its copy.
 Editing the listing itself (`PATCH /api/listings/{id}`, the offers API) is
-not affected. Receiving, splits, recorded errors, images and vocabulary
-merges do not ask either.
+not affected. The same 409-unless-acknowledged rule guards six more writes: a
+receipt whose outcome is not `received` (`POST /api/inventory/receive`),
+splitting a listed lot (`POST /api/inventory/{id}/split` -- an item already in
+an order refuses unconditionally, without an acknowledgement, since a split
+there cannot be made at all), recording errors against an item for sale (`PUT
+/api/inventory/{id}/errors`), attaching or deleting its photograph (`POST
+/api/images`, `DELETE /api/images/{id}`), and merging a vocabulary value that
+moves it (`POST /api/reference/{table}/{code}/merge`, which also names the
+for-sale items, up to ten of them, in the merge preview before anyone
+confirms).
 
 Both edit windows -- an inventory item's and an order's -- take Alt plus the
 underlined letter to jump to a field, and Ctrl+S or Ctrl+Enter to save.

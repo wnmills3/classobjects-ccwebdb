@@ -391,4 +391,74 @@ describe('Vocabularies', () => {
       { acknowledgeForSale: true },
     )
   })
+
+  it('uses plural wording, and no "and others", when every for-sale item is named', async () => {
+    const user = userEvent.setup()
+    const codes = Array.from(
+      { length: 9 },
+      (_, i) => `CC-${String(i + 1).padStart(6, '0')}`,
+    )
+    api.mergeReferenceValue.mockImplementation(async (table, code, into, dryRun) => ({
+      table,
+      code,
+      into,
+      dry_run: dryRun,
+      moved: { 'inventory_item.note_type_id': 9 },
+      items: 9,
+      dropped: 0,
+      aliases: [],
+      for_sale: codes,
+      for_sale_count: 9,
+    }))
+
+    await openNoteTypes(user)
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Merge National Bank Note into another value',
+      }),
+    )
+    await user.selectOptions(
+      screen.getByLabelText('Merge National Bank Note into'),
+      'us_note',
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('9 of them are for sale')
+    expect(alert).not.toHaveTextContent('and others')
+  })
+
+  it('says "and others" when the for-sale count exceeds the named codes', async () => {
+    const user = userEvent.setup()
+    const codes = Array.from(
+      { length: 10 },
+      (_, i) => `CC-${String(i + 1).padStart(6, '0')}`,
+    )
+    api.mergeReferenceValue.mockImplementation(async (table, code, into, dryRun) => ({
+      table,
+      code,
+      into,
+      dry_run: dryRun,
+      moved: { 'inventory_item.note_type_id': 23 },
+      items: 23,
+      dropped: 0,
+      aliases: [],
+      for_sale: codes,
+      for_sale_count: 23,
+    }))
+
+    await openNoteTypes(user)
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Merge National Bank Note into another value',
+      }),
+    )
+    await user.selectOptions(
+      screen.getByLabelText('Merge National Bank Note into'),
+      'us_note',
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('23 of them are for sale')
+    expect(alert).toHaveTextContent('and others')
+  })
 })

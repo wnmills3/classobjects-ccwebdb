@@ -1,6 +1,6 @@
 # Warning before a change to an item that is for sale
 
-Design. Status: **agreed with the owner 2026-09-18**; not built.
+Design. Status: **agreed with the owner 2026-09-18**; built.
 
 ## The problem
 
