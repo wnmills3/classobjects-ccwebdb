@@ -281,7 +281,12 @@ export default function Photos() {
       <h2>Unattached photographs</h2>
       {loading && <p className="muted">Loading...</p>}
       {!loading && error && <p className="error">{error}</p>}
-      {!loading && rows.length === 0 && (
+      {/* `!error` as well as the count: the catch sets rows to [] so the page
+          stays usable rather than stuck on "Loading...", which without this
+          guard renders the failure and "Nothing waiting to be filed."
+          together -- telling the operator both that the page failed and that
+          there is nothing to do. */}
+      {!loading && !error && rows.length === 0 && (
         <p className="muted">Nothing waiting to be filed.</p>
       )}
       {!loading && rows.length > 0 && (

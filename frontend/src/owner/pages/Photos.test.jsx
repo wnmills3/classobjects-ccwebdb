@@ -237,6 +237,50 @@ describe('Photos', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(1)
   })
 
+  it('a 409 that is not a for-sale refusal shows an ordinary error', async () => {
+    // The untested half of a double condition. The test above carries no
+    // status at all, so `err.status === 409` alone was never the thing being
+    // exercised -- if the guard ever degrades to the status check, this is
+    // what catches it. `attach_image` has its own 409 ("already has this
+    // photograph"), and rendering that as a for-sale refusal would offer a
+    // "Link anyway" button that retries the same conflict forever.
+    const user = userEvent.setup()
+    api.listUnattachedImages.mockResolvedValue([unattached({ image_id: 7 })])
+    api.searchInventory.mockImplementation((view) =>
+      Promise.resolve({ view, rows: view === 'coins' ? [foundItem()] : [] }),
+    )
+    const conflict = new Error('C-100 already has this photograph (link #4).')
+    conflict.status = 409
+    api.attachImage.mockRejectedValueOnce(conflict)
+
+    renderWithProviders(<Photos />)
+
+    const row = (await screen.findAllByRole('listitem'))[0]
+    await pickItem(user, row)
+    await user.click(within(row).getByRole('button', { name: 'Link' }))
+
+    expect(await within(row).findByText(conflict.message)).toBeVisible()
+    expect(within(row).queryByRole('button', { name: /link anyway/i })).toBeNull()
+    // The plain error branch keeps the Link button; the refusal branch
+    // replaces it. Its presence is what says which branch ran.
+    expect(within(row).getByRole('button', { name: 'Link' })).toBeInTheDocument()
+    expect(api.attachImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed load shows the error and does not also claim there is nothing to do', async () => {
+    // The catch sets rows to [] so the page stays usable rather than stuck
+    // on "Loading..." -- which without the `!error` guard renders the
+    // failure and the empty state together, telling the operator both that
+    // the page failed and that there is nothing waiting.
+    api.listUnattachedImages.mockRejectedValue(new Error('Service unavailable'))
+
+    renderWithProviders(<Photos />)
+
+    expect(await screen.findByText('Service unavailable')).toBeVisible()
+    expect(screen.queryByText('Nothing waiting to be filed.')).toBeNull()
+    expect(screen.queryByText('Loading...')).toBeNull()
+  })
+
   it('a linked photograph leaves the list, and an untouched one stays', async () => {
     // Two rows, not one -- linking the only row would leave the list empty
     // whether or not the row-removal code does anything at all. The second

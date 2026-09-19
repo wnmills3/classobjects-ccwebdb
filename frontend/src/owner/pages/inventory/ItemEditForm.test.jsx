@@ -754,6 +754,23 @@ describe('Attributes', () => {
   })
 })
 
+describe('Photographs panel', () => {
+  it("mounts in the editor, loading the item's own photographs", async () => {
+    // The wiring itself, asserted the same way the errors panel's is: the
+    // call `PhotosPanel` makes on mount is what proves the editor still
+    // renders it. Deleting the <PhotosPanel .../> line left the whole suite
+    // green before this existed, while the feature's stated purpose -- an
+    // item gaining a photograph at any time -- was dead.
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+
+    expect(api.listItemImages).toHaveBeenCalledWith(12)
+    expect(
+      await screen.findByRole('heading', { name: 'Photographs' }),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('Errors panel', () => {
   it("mounts beside Attributes, loading the item's own errors", async () => {
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
