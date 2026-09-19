@@ -16,6 +16,11 @@ vi.mock('../../api', () => ({
     endListing: vi.fn(),
     listSalesVenues: vi.fn(),
     createOffers: vi.fn(),
+    // PhotosPanel's own calls: it reads the item's photographs on mount.
+    listItemImages: vi.fn(),
+    uploadImage: vi.fn(),
+    updateImageLink: vi.fn(),
+    detachImage: vi.fn(),
   },
 }))
 
@@ -46,6 +51,7 @@ beforeEach(() => {
   api.getInventoryItem.mockResolvedValue(item)
   api.setItemReview.mockResolvedValue({ reviewed: ['description'] })
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
+  api.listItemImages.mockResolvedValue([])
 })
 
 describe('ItemEditForm', () => {
