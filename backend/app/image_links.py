@@ -14,13 +14,22 @@ from whoever caused it.
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from .models import Image, ImageRole, InventoryItem, ItemImage
 from .references import code_to_id
 
-__all__ = ["LinkRefused", "attach", "detach", "make_primary", "set_role"]
+__all__ = [
+    "LinkRefused",
+    "attach",
+    "detach",
+    "fill_primary_vacancy",
+    "make_primary",
+    "set_role",
+]
 
 
 class LinkRefused(Exception):
@@ -111,7 +120,57 @@ def make_primary(db: Session, link: ItemImage) -> None:
     db.flush()
 
 
+def fill_primary_vacancy(db: Session, item_ids: Collection[int]) -> list[ItemImage]:
+    """Give a primary back to any of these items left with photographs but none.
+
+    `attach` stops the vacancy ever appearing; this closes one that has just
+    been opened. Two things open it, and neither goes through the rest of
+    this module: `detach` removing the primary link, and the database
+    cascading `item_image` away when `routers.images.delete_image` destroys
+    the image itself (`item_image_image_id_fkey` is ON DELETE CASCADE).
+
+    An item with photographs and no primary shows a buyer nothing at all --
+    `routers.catalog` serves the primary link and has no fallback to "the
+    first one". The successor is the lowest `sort_order`, then the lowest id:
+    the order the item editor and `/owner/photos` already list them in, so
+    the photograph that takes over is the one the owner sees at the top.
+
+    Returns the links promoted, so a caller can say what it did.
+    """
+    promoted = []
+    for item_id in item_ids:
+        held = db.scalar(
+            select(ItemImage.id).where(
+                ItemImage.inventory_item_id == item_id, ItemImage.is_primary
+            )
+        )
+        if held is not None:
+            continue
+        successor = db.scalar(
+            select(ItemImage)
+            .where(ItemImage.inventory_item_id == item_id)
+            .order_by(ItemImage.sort_order, ItemImage.id)
+            .limit(1)
+        )
+        if successor is None:
+            continue
+        successor.is_primary = True
+        promoted.append(successor)
+    if promoted:
+        db.flush()
+    return promoted
+
+
 def detach(db: Session, link: ItemImage) -> None:
-    """Unfile the photograph. The image itself is untouched and remains."""
+    """Unfile the photograph. The image itself is untouched and remains.
+
+    If it was the item's primary, the next photograph in display order takes
+    over -- see `fill_primary_vacancy`. Without that, unfiling the primary
+    from an item holding three photographs left all three unreachable to a
+    buyer.
+    """
+    item_id = link.inventory_item_id
     db.delete(link)
     db.flush()
+    if item_id is not None:
+        fill_primary_vacancy(db, [item_id])
