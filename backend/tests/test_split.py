@@ -371,6 +371,53 @@ def test_splitting_withdraws_the_lots_listing(
     assert client.get(f"/api/catalog/{listing.id}").json()["is_active"] is False
 
 
+def test_a_listed_lot_is_marked_split_without_autoflush(
+    client: TestClient, admin_headers: dict[str, str], listing: Listing, db: Session
+) -> None:
+    """`split_at` must survive the listing being ended.
+
+    Production's `SessionLocal` sets `autoflush=False`; the test session does
+    not, and that difference is the whole test. `split_item` assigns
+    `parent.split_at` and then ends the lot's listings through
+    `offering_writes.end_offer`, which locks the items it affects and
+    re-reads them with `populate_existing=True`. The parent is one of them.
+    With autoflush on, the query that selects the listings flushes the
+    assignment first and it survives; with autoflush off -- production -- the
+    re-read overwrites the pending value and clears its dirty flag. The
+    commit then writes the pieces and the ended listing while leaving the lot
+    with `split_at` null: a lot that has been split, still claiming it has
+    not, and so splittable a second time.
+
+    Only a *listed* lot reaches `end_offer` at all, which is why the plain
+    split tests never saw it.
+    """
+    item_id = listing.inventory_item_id
+
+    db.autoflush = False
+    try:
+        response = do_split(
+            client,
+            admin_headers,
+            item_id,
+            {**TUBE, "acknowledge_for_sale": True},
+        )
+    finally:
+        db.autoflush = True
+    assert response.status_code == 200, response.text
+
+    # Read the column back rather than the object: the fault is a value that
+    # never reaches the database, and an unexpired identity map would happily
+    # keep reporting it as set.
+    db.expire_all()
+    assert db.get_one(InventoryItem, item_id).split_at is not None
+
+    # And the lot really is closed to a second split.
+    again = do_split(
+        client, admin_headers, item_id, {**TUBE, "acknowledge_for_sale": True}
+    )
+    assert again.status_code == 409, again.text
+
+
 def test_splitting_requires_an_administrator(
     client: TestClient, customer_headers: dict[str, str], db: Session
 ) -> None:
