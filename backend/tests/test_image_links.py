@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 from app import image_links
-from app.models import Image, ItemImage
+from app.models import Image, ImageRole, ItemImage
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -40,6 +40,9 @@ def test_attaching_records_the_role_and_the_order(db: Session) -> None:
     assert link.inventory_item_id == item.id
     assert link.is_primary is True
     assert link.sort_order == 1
+    stored = db.get(ImageRole, link.image_role_id)
+    assert stored is not None
+    assert stored.code == "obverse"
 
 
 def test_a_second_primary_replaces_the_first(db: Session) -> None:
@@ -93,6 +96,7 @@ def test_detaching_leaves_the_photograph(db: Session) -> None:
 
     assert db.get(ItemImage, link.id) is None
     assert db.get(Image, image.id) is not None
+    assert link.image_role_id is None
 
 
 def test_the_same_photograph_cannot_be_attached_twice(db: Session) -> None:
