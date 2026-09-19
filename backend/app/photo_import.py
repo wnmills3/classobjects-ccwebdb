@@ -16,6 +16,10 @@ purpose** -- the owner watches the first real run personally, and every test
 in `tests/test_photo_import.py` builds its own library under `tmp_path`
 rather than touching it.
 
+Without `--commit` the pass writes nothing at all -- no rows, and no bytes in
+media storage. It still decodes and validates every file, so the report names
+what a committing run would refuse. See `run`.
+
 Collisions are found before anything is written: every filename in the run
 is parsed first, so a slot two files both claim is known before either is
 processed, and the rule is that a collision links *neither* -- there is no
@@ -35,7 +39,7 @@ from sqlalchemy.orm import Session
 from . import image_links, image_store, photo_names, sale_state
 from .config import settings
 from .database import SessionLocal
-from .imaging import ImageRejected
+from .imaging import ImageRejected, cleanse
 from .models import Image, InventoryItem, ItemImage
 
 __all__ = ["ImportReport", "main", "run"]
@@ -55,6 +59,12 @@ class ImportReport:
     collisions: list[str] = field(default_factory=list)
     #: (filename, what already holds the slot).
     occupied: list[tuple[str, str]] = field(default_factory=list)
+    #: (filename, what already holds the item's primary) for a `_01` that was
+    #: filed but *not* promoted. The spec's rule is that an occupied sequence
+    #: is never replaced silently, and `is_primary` decides what a buyer sees,
+    #: so taking the primary away from a hand-attached photograph is the same
+    #: decision and gets the same line in the report.
+    primary_kept: list[tuple[str, str]] = field(default_factory=list)
     #: (filename, why) for bytes `app.imaging` refused.
     rejected: list[tuple[str, str]] = field(default_factory=list)
     #: Item codes among those filed that are for sale. Reported, not refused.
@@ -93,18 +103,48 @@ def _collisions(
     return parsed, collided
 
 
+def _holder_name(db: Session, link: ItemImage) -> str:
+    """What to call the photograph a link already points at, in a report."""
+    holder = db.get(Image, link.image_id)
+    return holder.source_ref if holder and holder.source_ref else "?"
+
+
 def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
-    """Import every photograph under `root`. Rolls back unless `commit`."""
+    """Import every photograph under `root`. Rolls back unless `commit`.
+
+    **Without `commit` nothing at all is written** -- no rows, and no bytes in
+    media storage. `image_store.ingest` writes the original and both
+    derivatives through `storage.put` before any rollback could undo them, so
+    a dry run that called it left three files per photograph behind with
+    nothing pointing at them, while printing "nothing written". The two halves
+    are separable: `imaging.cleanse` is what validates, decodes and hashes --
+    so a file the imaging layer would refuse is still reported -- and
+    `storage.put` is what stores. A dry run runs the first and skips the
+    second, and needs no `Image` row to report faithfully: a photograph an
+    earlier run already stored is found by its hash, and one no run has stored
+    has no row *and* no link, so "already filed" is answerable from the hash
+    alone.
+    """
     report = ImportReport()
     files = _walk(root)
     parsed_by_path, collided = _collisions(files)
     linked_items: dict[int, str] = {}
+    # (item id, hash) this run has already filed. In a committing run the
+    # database would answer this too; in a dry run nothing was written, so
+    # two identical files naming the same item have only this to tell the
+    # second one it is a repeat rather than a second link.
+    planned: set[tuple[int, str]] = set()
 
     try:
         for path in files:
             name = path.relative_to(root).as_posix()
             try:
-                image = image_store.ingest(db, path.read_bytes(), name)
+                raw = path.read_bytes()
+                # `stored` is the row this run wrote, and is None for every
+                # file of a dry run -- which is what later keeps `attach` and
+                # its writes out of a dry run entirely.
+                stored = image_store.ingest(db, raw, name) if commit else None
+                sha256 = stored.sha256 if stored is not None else cleanse(raw).sha256
             except ImageRejected as exc:
                 report.rejected.append((name, str(exc)))
                 continue
@@ -132,13 +172,26 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
                 report.unmatched.append((name, "item was split"))
                 continue
 
-            already = db.scalar(
-                select(ItemImage).where(
-                    ItemImage.inventory_item_id == item.id,
-                    ItemImage.image_id == image.id,
-                )
+            # The row for these bytes if any run has stored them -- this run
+            # or an earlier one. A dry run stores nothing, so this lookup by
+            # hash is how it still reports a photograph an earlier committed
+            # run already filed.
+            known = (
+                stored
+                if stored is not None
+                else db.scalar(select(Image).where(Image.sha256 == sha256))
             )
-            if already is not None:
+            already = (item.id, sha256) in planned or (
+                known is not None
+                and db.scalar(
+                    select(ItemImage).where(
+                        ItemImage.inventory_item_id == item.id,
+                        ItemImage.image_id == known.id,
+                    )
+                )
+                is not None
+            )
+            if already:
                 report.already += 1
                 continue
 
@@ -149,20 +202,36 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
                 )
             )
             if occupant is not None:
-                holder = db.get(Image, occupant.image_id)
-                holder_name = holder.source_ref if holder and holder.source_ref else "?"
-                report.occupied.append((name, holder_name))
+                report.occupied.append((name, _holder_name(db, occupant)))
                 continue
 
-            image_links.attach(
-                db,
-                image=image,
-                item=item,
-                role=parsed.role,
-                is_primary=parsed.is_primary,
-                sort_order=parsed.sequence,
-            )
+            is_primary = parsed.is_primary
+            if is_primary:
+                # An `_01` is the item's obverse and would be promoted, which
+                # demotes whatever is primary now. Every console upload files
+                # at sort_order 0, so a hand-attached photograph is invisible
+                # to the occupied check above -- without this, the import
+                # takes the primary away from it with no line in any bucket.
+                incumbent = db.scalar(
+                    select(ItemImage).where(
+                        ItemImage.inventory_item_id == item.id, ItemImage.is_primary
+                    )
+                )
+                if incumbent is not None:
+                    report.primary_kept.append((name, _holder_name(db, incumbent)))
+                    is_primary = False
+
+            if stored is not None:
+                image_links.attach(
+                    db,
+                    image=stored,
+                    item=item,
+                    role=parsed.role,
+                    is_primary=is_primary,
+                    sort_order=parsed.sequence,
+                )
             report.linked += 1
+            planned.add((item.id, sha256))
             linked_items[item.id] = item.item_code
 
         if linked_items:
@@ -205,6 +274,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"collision  {name}")
     for name, holder in report.occupied:
         print(f"occupied   {name}: slot already holds {holder}")
+    for name, holder in report.primary_kept:
+        print(f"primary    {name}: filed, but {holder} stays the primary")
 
     print()
     print(f"linked     {report.linked}")
@@ -212,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"unmatched  {len(report.unmatched)}")
     print(f"collisions {len(report.collisions)}")
     print(f"occupied   {len(report.occupied)}")
+    print(f"primary    {len(report.primary_kept)}")
     print(f"rejected   {len(report.rejected)}")
     if report.for_sale:
         print(f"for sale   {len(report.for_sale)}: {', '.join(report.for_sale)}")
