@@ -379,3 +379,68 @@ def test_a_photograph_can_exist_before_anyone_knows_what_it_shows(
     image = db.get(Image, body["id"])
     assert image.source_ref == "DSC00417.JPG"
     assert client.get(body["thumbnail_url"]).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Listing photographs
+# ---------------------------------------------------------------------------
+
+
+def test_an_items_photographs_come_back_in_order(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    from app import image_links
+
+    from tests.conftest import build_item
+
+    item = build_item(db)
+    for index, sha in enumerate(("1" * 64, "2" * 64), start=1):
+        image = Image(
+            sha256=sha,
+            storage_key=f"orig/{sha}.jpg",
+            media_type="image/jpeg",
+            byte_size=10,
+        )
+        db.add(image)
+        db.flush()
+        image_links.attach(
+            db,
+            image=image,
+            item=item,
+            role=None,
+            is_primary=index == 1,
+            sort_order=index,
+        )
+    db.commit()
+
+    listed = client.get(
+        f"/api/images?inventory_item_id={item.id}", headers=admin_headers
+    )
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert [row["sort_order"] for row in body] == [1, 2]
+    assert body[0]["is_primary"] is True
+    assert body[0]["thumbnail_url"].endswith("/thumb")
+
+
+def test_unattached_photographs_can_be_listed(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    image = Image(
+        sha256="3" * 64,
+        storage_key="orig/3.jpg",
+        media_type="image/jpeg",
+        byte_size=10,
+    )
+    db.add(image)
+    db.commit()
+
+    listed = client.get("/api/images?unattached=true", headers=admin_headers)
+    assert listed.status_code == 200, listed.text
+    assert [row["image_id"] for row in listed.json()] == [image.id]
+
+
+def test_listing_every_photograph_at_once_is_refused(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    assert client.get("/api/images", headers=admin_headers).status_code == 422
