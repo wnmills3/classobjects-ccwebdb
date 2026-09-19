@@ -10,6 +10,7 @@ from app.models import (
     Denomination,
     ErrorType,
     Grade,
+    InventoryItem,
     ItemError,
     ItemKind,
     PurchaseOrder,
@@ -17,12 +18,13 @@ from app.models import (
     Vendor,
 )
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy.orm import Session
 
 from tests.test_schema import code_id, make_item
 
 
-def coin(db: Session, **overrides: object) -> None:
+def coin(db: Session, **overrides: object) -> InventoryItem:
     return make_item(db, item_kind_id=code_id(db, ItemKind, "coin"), **overrides)
 
 
@@ -32,7 +34,7 @@ def note(
     seal: str | None = None,
     serial: str | None = None,
     **overrides: object,
-) -> None:
+) -> InventoryItem:
     item = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"), **overrides)
     db.add(
         CurrencyDetail(
@@ -48,7 +50,7 @@ def note(
 
 def search(
     client: TestClient, view: str, headers: dict[str, str], **params: object
-) -> None:
+) -> Response:
     return client.get(f"/api/inventory/{view}/search", params=params, headers=headers)
 
 
@@ -469,7 +471,7 @@ def test_denomination_is_offered_by_label_and_filters_by_code(
     offered = {f["value"]: f for f in body["facets"]["denomination"]}
 
     assert offered["usd_coin_0_01"]["count"] == 2
-    assert offered["usd_coin_0_01"]["label"] == db.get(Denomination, cent).label
+    assert offered["usd_coin_0_01"]["label"] == db.get_one(Denomination, cent).label
     assert offered["usd_coin_0_01"]["label"] != "usd_coin_0_01"
     assert offered["usd_coin_0_25"]["count"] == 1
 

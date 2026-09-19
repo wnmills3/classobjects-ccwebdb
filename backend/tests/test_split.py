@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from app.models import CoinDetail, CurrencyDetail, InventoryItem, ItemKind, Listing
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -43,7 +44,7 @@ def lot(db: Session, **overrides: object) -> InventoryItem:
 
 def do_split(
     client: TestClient, headers: dict[str, str], item_id: int, payload: dict
-) -> None:
+) -> Response:
     return client.post(f"/api/inventory/{item_id}/split", json=payload, headers=headers)
 
 
@@ -174,6 +175,7 @@ def test_the_relative_value_used_is_recorded_on_each_piece(
     cent = db.scalar(
         select(InventoryItem).where(InventoryItem.source_title == "1964 Cent")
     )
+    assert cent is not None
     assert cent.attributes["split_relative_value"] == "0.01"
     assert cent.attributes["split_mode"] == "relative"
 
@@ -221,7 +223,7 @@ def test_a_split_lot_disappears_from_the_inventory_views(
     appears to hold twice what it does.
     """
     parent = lot(db)
-    before = db.execute(text("select count(*) from coin_inventory")).scalar()
+    before = db.execute(text("select count(*) from coin_inventory")).scalar_one()
 
     do_split(client, admin_headers, parent.id, TUBE)
     db.expire_all()
@@ -229,7 +231,7 @@ def test_a_split_lot_disappears_from_the_inventory_views(
     ids = {r[0] for r in db.execute(text("select id from coin_inventory"))}
     assert parent.id not in ids
     # One lot became four pieces: the count rises by three, not by four.
-    after = db.execute(text("select count(*) from coin_inventory")).scalar()
+    after = db.execute(text("select count(*) from coin_inventory")).scalar_one()
     assert after == before + 3
 
 
@@ -365,7 +367,7 @@ def test_splitting_withdraws_the_lots_listing(
     )
 
     db.expire_all()
-    assert db.get(Listing, listing.id).is_active is False
+    assert db.get_one(Listing, listing.id).is_active is False
     assert client.get(f"/api/catalog/{listing.id}").json()["is_active"] is False
 
 
@@ -402,6 +404,8 @@ def test_pieces_may_carry_their_own_classifiers(
 
     db.expire_all()
     half = db.scalar(select(InventoryItem).where(InventoryItem.source_title == "Half"))
+    assert half is not None
+    assert half.denomination is not None
     assert half.denomination.code == "usd_coin_0_50"
     assert half.year_start == 1964
 
