@@ -100,9 +100,10 @@ image -- which is exactly the state `ItemImage`'s nullable link exists for.
 | Two files claim the same code and sequence | both | **neither** | both filenames |
 | Item already has a photograph at that sequence | yes, unattached | no | filename and what holds the slot |
 
-The third row is deliberate: with two candidates and no way to choose, linking
-either one is a coin flip presented as a fact. The fourth never replaces
-silently -- a re-shoot is a decision, made in the console.
+**Linking neither of two colliding files is deliberate**: with two candidates
+and no way to choose, linking one of them is a coin flip presented as a fact.
+And **an occupied sequence is never replaced silently** -- a re-shoot is a
+decision, and the console is where decisions are made.
 
 ## The pass
 
