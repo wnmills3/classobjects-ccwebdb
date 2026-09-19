@@ -31,7 +31,7 @@ from app.models import (  # noqa: F401
     StorageForm,
     ValuationBasis,
 )
-from app.models.base import utcnow
+from app.models.base import ReferenceMixin, utcnow
 from app.models.views import PUBLIC_CATALOG_FORBIDDEN_COLUMNS
 from app.sales_venues import store_venue_id
 from sqlalchemy import select, text
@@ -39,7 +39,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 
-def code_id(db: Session, model: type, code: str) -> int:
+def code_id(db: Session, model: type[ReferenceMixin], code: str) -> int:
     return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
@@ -187,6 +187,10 @@ def test_fine_weight_is_less_than_gross_for_a_ninety_percent_coin(db: Session) -
         fine_weight_ozt=Decimal("0.773440"),
         fineness=Decimal("0.9000"),
     )
+    # Both weights were just supplied, so neither column is NULL here; the
+    # comparison below is about their values, not about their presence.
+    assert item.fine_weight_ozt is not None
+    assert item.gross_weight_ozt is not None
     assert item.fine_weight_ozt < item.gross_weight_ozt
 
 
@@ -404,9 +408,11 @@ def test_seeded_and_derived_rows_are_distinguishable(db: Session) -> None:
     The distinction that makes exporting a catalogue to another
     installation safe: one collection's guesses are not shipped as facts.
     """
+    # scalar_one(), like the view assertions above: a count query returns
+    # exactly one row, so a missing one is a broken query, not a zero.
     seeded = db.execute(
         text("select count(*) from grade where source = 'seeded'")
-    ).scalar()
+    ).scalar_one()
     assert seeded > 0
 
 
