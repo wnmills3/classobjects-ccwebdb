@@ -116,6 +116,52 @@ describe('PhotosPanel', () => {
     })
   })
 
+  it('choosing a role from the picker updates the link through updateImageLink', async () => {
+    const user = userEvent.setup()
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 6, image_id: 35, image_role: null }),
+    ])
+    api.updateImageLink.mockResolvedValue({})
+    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+      reference: roles,
+    })
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'image_role' }),
+      'obverse',
+    )
+
+    expect(api.updateImageLink).toHaveBeenCalledWith(6, {
+      imageRole: 'obverse',
+      acknowledgeForSale: false,
+    })
+  })
+
+  it('clearing the role picker sends imageRole: null, not an empty string', async () => {
+    // `code || null` exists precisely so the blank option clears the role
+    // rather than sending "" -- a different request with a different
+    // meaning to the API. Picking a row that already carries a role, so the
+    // blank option is a real change and not a no-op.
+    const user = userEvent.setup()
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 8, image_id: 36, image_role: 'obverse' }),
+    ])
+    api.updateImageLink.mockResolvedValue({})
+    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+      reference: roles,
+    })
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'image_role' }),
+      '',
+    )
+
+    expect(api.updateImageLink).toHaveBeenCalledWith(8, {
+      imageRole: null,
+      acknowledgeForSale: false,
+    })
+  })
+
   it('"Remove" detaches the link and never deletes the photograph', async () => {
     const user = userEvent.setup()
     api.listItemImages.mockResolvedValue([
