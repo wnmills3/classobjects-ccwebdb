@@ -248,6 +248,25 @@ def test_upload_requires_an_administrator(
     assert response.status_code == 403
 
 
+def test_a_bad_upload_is_a_422_naming_the_refusal(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """`ImageRejected` reaches an HTTP caller as a 422, not a 500.
+
+    Same bytes `test_a_non_image_is_refused` feeds `cleanse()` directly --
+    but this goes through the actual endpoint, so a wrong exception type
+    caught, a wrong status code, or a `try` that stopped wrapping the call
+    would show up here even though the suite stays green everywhere else.
+    """
+    response = client.post(
+        "/api/images",
+        files={"file": ("not-a-photo.jpg", b"this is not an image", "image/jpeg")},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422, response.text
+    assert "not a readable image" in response.json()["detail"]
+
+
 def test_a_thumbnail_is_publicly_servable(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
