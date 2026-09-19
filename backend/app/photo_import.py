@@ -74,7 +74,7 @@ def _walk(root: Path) -> list[Path]:
 
 
 def _collisions(
-    files: list[Path], root: Path
+    files: list[Path],
 ) -> tuple[dict[Path, photo_names.ParsedName | None], set[Path]]:
     """Parse every filename first, and the slots two files both claim.
 
@@ -97,7 +97,7 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
     """Import every photograph under `root`. Rolls back unless `commit`."""
     report = ImportReport()
     files = _walk(root)
-    parsed_by_path, collided = _collisions(files, root)
+    parsed_by_path, collided = _collisions(files)
     linked_items: dict[int, str] = {}
 
     try:
