@@ -25,7 +25,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from .. import grades, offering_writes
 from ..deps import DbSession
-from ..models import Country, Grade, InventoryItem, ItemKind, Listing, Metal
+from ..models import (
+    Country,
+    Grade,
+    InventoryItem,
+    ItemImage,
+    ItemKind,
+    Listing,
+    Metal,
+)
 from ..references import code_to_id
 from ..schemas import CatalogItemOut, CatalogPage
 from .images import image_urls
@@ -49,7 +57,11 @@ def _eager(stmt: Select[Any]) -> Select[Any]:
             selectinload(InventoryItem.grade).selectinload(Grade.grade_scale),
             selectinload(InventoryItem.grading_service),
             selectinload(InventoryItem.metal),
-            selectinload(InventoryItem.images),
+            # `.image` as well as the link: the public URL is keyed by the
+            # image's content hash, so projecting a row now reads through to
+            # the image itself. Without this the catalogue would issue one
+            # extra query per photographed item.
+            selectinload(InventoryItem.images).selectinload(ItemImage.image),
         ),
         selectinload(Listing.currency),
     )
@@ -78,7 +90,7 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
     # collection is unphotographed, so this is routinely absent and the
     # response says so with nulls rather than a placeholder URL that 404s.
     primary = next((link for link in item.images if link.is_primary), None)
-    urls = image_urls(primary.image_id) if primary else {}
+    urls = image_urls(primary.image.sha256) if primary else {}
 
     return CatalogItemOut(
         id=listing.id,
