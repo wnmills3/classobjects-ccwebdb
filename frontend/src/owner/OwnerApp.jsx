@@ -7,6 +7,7 @@ import Listings from './pages/Listings'
 import Login from './pages/Login'
 import NewPurchase from './pages/NewPurchase'
 import Orders from './pages/Orders'
+import Photos from './pages/Photos'
 import Platforms from './pages/Platforms'
 import Receiving from './pages/Receiving'
 import Vocabularies from './pages/Vocabularies'
@@ -43,6 +44,7 @@ function Console() {
         <nav className="nav">
           <NavLink to="/inventory/coins">Coins</NavLink>
           <NavLink to="/inventory/currency">Currency</NavLink>
+          <NavLink to="/photos">Photos</NavLink>
           <NavLink to="/receiving">Receive</NavLink>
           <NavLink to="/purchases/new">New purchase</NavLink>
           <NavLink to="/orders">Orders</NavLink>
@@ -65,6 +67,7 @@ function Console() {
           <Route path="/" element={<Navigate to="/inventory/coins" replace />} />
           <Route path="/inventory/coins" element={<InventoryCoins />} />
           <Route path="/inventory/currency" element={<InventoryCurrency />} />
+          <Route path="/photos" element={<Photos />} />
           <Route path="/receiving" element={<Receiving />} />
           <Route path="/purchases/new" element={<NewPurchase />} />
           <Route path="/orders" element={<Orders />} />
