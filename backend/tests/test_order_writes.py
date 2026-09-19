@@ -166,13 +166,14 @@ def test_admin_order_payloads_are_validated(
     buyer = _new_customer(db)
     url = f"/api/customers/{buyer.id}/orders"
     line = {"listing_id": listing.id, "quantity": 1}
-    for bad in (
+    payloads: list[dict[str, object]] = [
         {"items": []},
         {"items": [{**line, "quantity": 0}]},
         {"items": [{**line, "unit_price": "-1.00"}]},
         {"items": [line, line]},
         {"items": [line], "customer_id": 1},
-    ):
+    ]
+    for bad in payloads:
         assert client.post(url, json=bad, headers=admin_headers).status_code == 422, bad
 
 

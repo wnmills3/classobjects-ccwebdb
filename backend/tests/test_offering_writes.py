@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 ItemFactory = Callable[..., InventoryItem]
+ListingFactory = Callable[..., Listing]
 
 
 def _claim(
@@ -42,7 +43,7 @@ def _claim(
 
 
 def test_one_item_can_have_only_one_active_claim(
-    db: Session, listing: Listing, make_listing: object
+    db: Session, listing: Listing, make_listing: ListingFactory
 ) -> None:
     """The database, not the application, is what refuses the second offer."""
     item_id = listing.inventory_item_id
@@ -64,7 +65,7 @@ def test_one_item_can_have_only_one_active_claim(
 
 
 def test_a_paused_claim_does_not_block_an_active_one(
-    db: Session, listing: Listing, make_listing: object
+    db: Session, listing: Listing, make_listing: ListingFactory
 ) -> None:
     item_id = listing.inventory_item_id
     second = make_listing(inventory_item_id=item_id)
@@ -85,7 +86,7 @@ def test_a_paused_claim_does_not_block_an_active_one(
 
 
 def test_a_released_claim_does_not_block_an_active_one(
-    db: Session, listing: Listing, make_listing: object
+    db: Session, listing: Listing, make_listing: ListingFactory
 ) -> None:
     item_id = listing.inventory_item_id
     second = make_listing(inventory_item_id=item_id)
@@ -106,7 +107,7 @@ def test_a_released_claim_does_not_block_an_active_one(
 
 
 def test_a_listing_records_what_paused_it(
-    db: Session, listing: Listing, make_listing: object
+    db: Session, listing: Listing, make_listing: ListingFactory
 ) -> None:
     """Settlement needs to know which offer to resume a store listing for."""
     elsewhere = make_listing(inventory_item_id=listing.inventory_item_id)
@@ -115,6 +116,7 @@ def test_a_listing_records_what_paused_it(
     db.commit()
     db.refresh(listing)
 
+    assert listing.paused_by is not None
     assert listing.paused_by.id == elsewhere.id
 
 
@@ -455,8 +457,11 @@ def test_ending_an_offer_resumes_the_paused_store_listing(
     )
     db.commit()
     db.refresh(listing)
-    # The listing has to be paused for resuming it to mean anything.
-    assert listing.status is ListingStatus.paused
+    # The listing has to be paused for resuming it to mean anything. Read into
+    # a local first: asserting on the attribute would narrow it for the rest of
+    # the test, and the checker cannot see `db.refresh` reload it below.
+    status_before = listing.status
+    assert status_before is ListingStatus.paused
 
     offering_writes.end_offer(db, elsewhere)
     db.commit()

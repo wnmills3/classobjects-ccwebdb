@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from tests.test_schema import code_id, make_item
 
 
-def _errors_of(db: Session, item: InventoryItem) -> set[str]:
+def _errors_of(db: Session, item: InventoryItem) -> set[int]:
     db.expire_all()
     return {
         row.error_type_id

@@ -62,6 +62,7 @@ def test_the_arrival_date_is_kept_apart_from_when_it_was_logged(
         .where(ItemStatusHistory.inventory_item_id == item.id)
         .order_by(ItemStatusHistory.id.desc())
     ).first()
+    assert row is not None
     assert row.arrived_on == friday
     assert row.changed_at.date() == date.today()
 

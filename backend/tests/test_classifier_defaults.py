@@ -24,6 +24,7 @@ from app.models import (
     NoteType,
     PurchaseOrder,
     ReferenceAlias,
+    ReferenceMixin,
     SealColor,
     SignatureCombination,
     Vendor,
@@ -46,14 +47,14 @@ def _no_seeded_issues(db: Session) -> None:
     db.flush()
 
 
-def _id(db: Session, model: type, code: str) -> int:
+def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
     return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
-def _code(db: Session, model: type, row_id: int | None) -> str | None:
+def _code(db: Session, model: type[ReferenceMixin], row_id: int | None) -> str | None:
     if row_id is None:
         return None
-    return db.get(model, row_id).code
+    return db.get_one(model, row_id).code
 
 
 def _issue(

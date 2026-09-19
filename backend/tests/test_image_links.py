@@ -205,7 +205,7 @@ def test_a_photograph_can_be_re_roled_and_promoted(
     assert changed.json()["is_primary"] is True
 
     db.expire_all()
-    assert db.get(ItemImage, first.id).is_primary is False
+    assert db.get_one(ItemImage, first.id).is_primary is False
 
 
 def test_an_explicit_null_clears_the_role(
@@ -234,7 +234,7 @@ def test_an_explicit_null_clears_the_role(
     assert cleared.json()["image_role"] is None
 
     db.expire_all()
-    assert db.get(ItemImage, link.id).image_role_id is None
+    assert db.get_one(ItemImage, link.id).image_role_id is None
 
 
 def test_omitting_the_role_leaves_it_alone(
@@ -261,7 +261,7 @@ def test_omitting_the_role_leaves_it_alone(
     assert promoted.json()["image_role"] == "obverse"
 
     db.expire_all()
-    assert db.get(ItemImage, link.id).image_role_id == role_id
+    assert db.get_one(ItemImage, link.id).image_role_id == role_id
 
 
 def test_detaching_keeps_the_photograph(

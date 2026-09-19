@@ -66,6 +66,7 @@ def test_receiving_records_the_arrival(
         .where(ItemStatusHistory.inventory_item_id == item.id)
         .order_by(ItemStatusHistory.id.desc())
     ).first()
+    assert row is not None
     assert row.arrived_on == date(2026, 9, 4)
     assert row.note == "edge knock not in the listing photos"
     assert row.changed_by_id is not None
@@ -161,7 +162,7 @@ def test_one_bad_id_writes_nothing(
 
     db.expire_all()
     assert (
-        db.get(type(good), good.id).status_id
+        db.get_one(type(good), good.id).status_id
         != db.scalars(select(ItemStatus.id).where(ItemStatus.code == "received")).one()
     )
 
@@ -196,6 +197,7 @@ def test_receiving_twice_is_refused(
         .where(ItemStatusHistory.inventory_item_id == item.id)
         .order_by(ItemStatusHistory.id.desc())
     ).first()
+    assert row is not None
     assert row.arrived_on == date(2026, 9, 4)
 
 
@@ -222,7 +224,7 @@ def test_a_parcel_written_off_as_missing_can_still_turn_up(
     assert first.status_code == 200
 
     db.expire_all()
-    assert db.get(type(item), item.id).status_id == missing_id
+    assert db.get_one(type(item), item.id).status_id == missing_id
 
     res = client.post(
         "/api/inventory/receive",
@@ -232,13 +234,14 @@ def test_a_parcel_written_off_as_missing_can_still_turn_up(
     assert res.status_code == 200
 
     db.expire_all()
-    assert db.get(type(item), item.id).status_id == received_id
+    assert db.get_one(type(item), item.id).status_id == received_id
 
     row = db.scalars(
         select(ItemStatusHistory)
         .where(ItemStatusHistory.inventory_item_id == item.id)
         .order_by(ItemStatusHistory.id.desc())
     ).first()
+    assert row is not None
     assert row.from_status_id == missing_id
     assert row.to_status_id == received_id
 
@@ -277,7 +280,7 @@ def test_receiving_with_a_location_writes_it_and_its_history(
     assert res.status_code == 200
 
     db.expire_all()
-    assert db.get(type(item), item.id).storage_location_id == location.id
+    assert db.get_one(type(item), item.id).storage_location_id == location.id
     rows = db.scalars(
         select(LocationHistory).where(LocationHistory.inventory_item_id == item.id)
     ).all()
@@ -308,7 +311,7 @@ def test_a_missing_outcome_with_a_location_writes_neither(
     assert res.status_code == 200
 
     db.expire_all()
-    assert db.get(type(item), item.id).storage_location_id is None
+    assert db.get_one(type(item), item.id).storage_location_id is None
     rows = db.scalars(
         select(LocationHistory).where(LocationHistory.inventory_item_id == item.id)
     ).all()

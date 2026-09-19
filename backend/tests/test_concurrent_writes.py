@@ -22,6 +22,7 @@ removed.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
@@ -32,6 +33,7 @@ from app.models import (
     InventoryItem,
     ItemKind,
     ItemStatus,
+    ReferenceMixin,
     StorageForm,
     ValuationBasis,
 )
@@ -41,12 +43,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
 
-def _code(session: Session, model: type, code: str) -> int:
+def _code(session: Session, model: type[ReferenceMixin], code: str) -> int:
     return session.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
 @pytest.fixture
-def committed(engine: Engine) -> None:
+def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     """Real, committing sessions. Cleans up what it makes."""
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     yield factory
@@ -121,7 +123,7 @@ def test_a_second_writer_is_refused_rather_than_silently_winning(
 
     def edit(new_title: str) -> str:
         with committed() as session:
-            row = session.get(InventoryItem, item_id)
+            row = session.get_one(InventoryItem, item_id)
             _ = row.version  # both read the same version
             barrier.wait(timeout=10)
             row.source_title = new_title
@@ -143,7 +145,7 @@ def test_a_second_writer_is_refused_rather_than_silently_winning(
 def test_the_version_advances_on_every_write(committed: sessionmaker[Session]) -> None:
     item_id = make_lot(committed)
     with committed() as session:
-        row = session.get(InventoryItem, item_id)
+        row = session.get_one(InventoryItem, item_id)
         first = row.version
         row.source_title = "WRITE-RACE renamed"
         session.commit()
@@ -163,7 +165,7 @@ def test_reads_are_never_blocked_by_a_write(committed: sessionmaker[Session]) ->
 
     def slow_writer() -> None:
         with committed() as session:
-            row = session.get(InventoryItem, item_id)
+            row = session.get_one(InventoryItem, item_id)
             row.source_title = "WRITE-RACE mid-flight"
             session.flush()  # holds the row lock, uncommitted
             writing.set()
@@ -174,7 +176,7 @@ def test_reads_are_never_blocked_by_a_write(committed: sessionmaker[Session]) ->
         writing.wait(timeout=10)
         with committed() as session:
             # Must return at once, with the pre-write value.
-            row = session.get(InventoryItem, item_id)
+            row = session.get_one(InventoryItem, item_id)
             read_value.append(row.source_title)
         may_finish.set()
 
@@ -207,7 +209,7 @@ def test_two_people_cannot_split_the_same_lot_at_once(
 
     def attempt(tag: str) -> str:
         with committed() as session:
-            parent = session.get(InventoryItem, item_id)
+            parent = session.get_one(InventoryItem, item_id)
             barrier.wait(timeout=10)
             try:
                 split_item(

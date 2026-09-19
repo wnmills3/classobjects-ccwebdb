@@ -198,15 +198,20 @@ def test_every_seeded_strike_type_shows_as_the_app_shows_it(db: Session) -> None
 
 
 def test_a_plus_ranks_between_its_number_and_the_next(db: Session) -> None:
-    rank = dict(db.execute(select(Grade.code, Grade.grade_rank)).all())
-    assert rank["64"] < rank["64+"] < rank["65"]
-    assert rank["64+"] == Decimal("64.5")
+    rank = dict(db.execute(select(Grade.code, Grade.grade_rank)).tuples().all())
+    plain, plus, next_up = rank["64"], rank["64+"], rank["65"]
+    # grade_rank is computed from numeric_value, which a Sheldon number has.
+    assert plain is not None and plus is not None and next_up is not None
+    assert plain < plus < next_up
+    assert plus == Decimal("64.5")
 
 
 def test_coin_grades_are_numbers_on_the_sheldon_scale(db: Session) -> None:
     sheldon = db.scalar(select(GradeScale.id).where(GradeScale.code == "sheldon"))
     rows = db.execute(select(Grade).where(Grade.grade_scale_id == sheldon)).scalars()
     for row in rows:
+        # A grade on the Sheldon scale is a number by definition.
+        assert row.numeric_value is not None, row.code
         assert row.code == grades.number_code(row.numeric_value, row.is_plus)
 
 

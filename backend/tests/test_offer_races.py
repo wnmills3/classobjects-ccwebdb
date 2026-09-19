@@ -28,6 +28,7 @@ from app.models import (
     ListingFormat,
     ListingStatus,
     OfferClaim,
+    ReferenceMixin,
     SalesVenue,
     SalesVenueKind,
     StorageForm,
@@ -78,7 +79,7 @@ def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
         cleanup.commit()
 
 
-def _code_id(session: Session, model: type, code: str) -> int:
+def _code_id(session: Session, model: type[ReferenceMixin], code: str) -> int:
     return session.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
@@ -139,8 +140,8 @@ def test_two_platforms_racing_the_same_item_leave_exactly_one_winner(
     def attempt(venue_id: int, price: Decimal) -> Outcome:
         session = committed()
         try:
-            item = session.get(InventoryItem, item_id)
-            venue = session.get(SalesVenue, venue_id)
+            item = session.get_one(InventoryItem, item_id)
+            venue = session.get_one(SalesVenue, venue_id)
             barrier.wait(timeout=10)
             offering_writes.offer(
                 session,
@@ -193,8 +194,8 @@ def test_offering_elsewhere_and_ending_the_store_listing_leave_no_orphan(
     elsewhere_venue_id = _venue(committed, "race-elsewhere")
 
     with committed() as session:
-        item = session.get(InventoryItem, item_id)
-        store = session.get(SalesVenue, store_venue_id(session))
+        item = session.get_one(InventoryItem, item_id)
+        store = session.get_one(SalesVenue, store_venue_id(session))
         store_listing = offering_writes.offer(
             session,
             item=item,
@@ -214,8 +215,8 @@ def test_offering_elsewhere_and_ending_the_store_listing_leave_no_orphan(
     def offer_elsewhere() -> Outcome:
         session = committed()
         try:
-            item = session.get(InventoryItem, item_id)
-            venue = session.get(SalesVenue, elsewhere_venue_id)
+            item = session.get_one(InventoryItem, item_id)
+            venue = session.get_one(SalesVenue, elsewhere_venue_id)
             barrier.wait(timeout=10)
             offering_writes.offer(
                 session,
@@ -248,7 +249,7 @@ def test_offering_elsewhere_and_ending_the_store_listing_leave_no_orphan(
             # Loaded before the barrier, exactly as a router handler would
             # have it in hand already -- so this is the same object whether
             # or not the other thread changes the row underneath it.
-            listing = session.get(Listing, store_listing_id)
+            listing = session.get_one(Listing, store_listing_id)
             barrier.wait(timeout=10)
             offering_writes.end_offer(session, listing, sold=False)
             session.commit()

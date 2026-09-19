@@ -15,7 +15,7 @@ from app import aliases
 from app.classifier_defaults import load_facts
 from app.importers.engine import ImportReport
 from app.importers.loader import SchemaLoader
-from app.inventory_search import COIN_VIEW, CURRENCY_VIEW, search
+from app.inventory_search import COIN_VIEW, CURRENCY_VIEW, ViewSpec, search
 from app.models import (
     CoinDetail,
     CurrencyDetail,
@@ -253,8 +253,8 @@ def test_the_defaults_pass_ignores_a_retired_note_class_alias(db: Session) -> No
 # --- search ----------------------------------------------------------------------
 
 
-def _codes_found(db: Session, view: object, query: str) -> set[str]:
-    rows, _ = search(db, view, params={}, query=query)  # type: ignore[arg-type]
+def _codes_found(db: Session, view: ViewSpec, query: str) -> set[str]:
+    rows, _ = search(db, view, params={}, query=query)
     return {row["item_code"] for row in rows}
 
 

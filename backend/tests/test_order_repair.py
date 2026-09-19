@@ -43,7 +43,9 @@ def test_an_ebay_item_number_is_not_an_order_number() -> None:
     something else. It still groups the rows -- the second element says it may
     not be presented as an order number.
     """
-    identifier, is_order_number = identify("https://www.ebay.com/itm/306947694169")
+    found = identify("https://www.ebay.com/itm/306947694169")
+    assert found is not None
+    identifier, is_order_number = found
     assert identifier == "306947694169"
     assert is_order_number is False
 

@@ -48,7 +48,7 @@ def test_a_dry_run_reports_and_writes_nothing(db: Session) -> None:
 
     assert report.merged == [("builionsharks.com", "bullionshark.com", 1)]
     db.expire_all()
-    assert db.get(PurchaseOrder, order.id).vendor_id == typo.id
+    assert db.get_one(PurchaseOrder, order.id).vendor_id == typo.id
     assert db.get(Vendor, typo.id) is not None
 
 
@@ -61,8 +61,8 @@ def test_a_merge_moves_orders_and_removes_the_duplicate(db: Session) -> None:
     run(db, merges=[(typo.id, real.id)], kinds=[], deletes=[], commit=True)
 
     db.expire_all()
-    assert db.get(PurchaseOrder, moved.id).vendor_id == real.id
-    assert db.get(PurchaseOrder, kept.id).vendor_id == real.id
+    assert db.get_one(PurchaseOrder, moved.id).vendor_id == real.id
+    assert db.get_one(PurchaseOrder, kept.id).vendor_id == real.id
     assert db.get(Vendor, typo.id) is None
 
 
@@ -123,7 +123,7 @@ def test_merge_refuses_a_vendor_a_platform_sells_through(db: Session) -> None:
 
     db.expire_all()
     assert db.get(Vendor, linked.id) is not None
-    assert db.get(PurchaseOrder, moved.id).vendor_id == linked.id
+    assert db.get_one(PurchaseOrder, moved.id).vendor_id == linked.id
 
 
 def test_a_platform_linked_elsewhere_does_not_block_a_merge(db: Session) -> None:
@@ -137,7 +137,7 @@ def test_a_platform_linked_elsewhere_does_not_block_a_merge(db: Session) -> None
 
     db.expire_all()
     assert db.get(Vendor, typo.id) is None
-    assert db.get(PurchaseOrder, moved.id).vendor_id == real.id
+    assert db.get_one(PurchaseOrder, moved.id).vendor_id == real.id
 
 
 def test_kind_is_set_by_code(db: Session) -> None:
@@ -146,8 +146,10 @@ def test_kind_is_set_by_code(db: Session) -> None:
     run(db, merges=[], kinds=[(vendor.id, "marketplace")], deletes=[], commit=True)
 
     db.expire_all()
-    marketplace = db.scalar(select(VendorKind).where(VendorKind.code == "marketplace"))
-    assert db.get(Vendor, vendor.id).vendor_kind_id == marketplace.id
+    marketplace = db.scalars(
+        select(VendorKind).where(VendorKind.code == "marketplace")
+    ).one()
+    assert db.get_one(Vendor, vendor.id).vendor_kind_id == marketplace.id
 
 
 def test_an_unknown_kind_is_an_error(db: Session) -> None:
@@ -184,7 +186,7 @@ def test_refusal_writes_nothing(db: Session) -> None:
         )
 
     db.expire_all()
-    assert db.get(Vendor, other.id).vendor_kind_id is None
+    assert db.get_one(Vendor, other.id).vendor_kind_id is None
 
 
 def test_a_vendor_can_be_renamed(db: Session) -> None:
@@ -202,7 +204,7 @@ def test_a_vendor_can_be_renamed(db: Session) -> None:
 
     assert report.renamed == [("builionsharks.com", "bullionsharks.com")]
     db.expire_all()
-    assert db.get(Vendor, vendor.id).name == "bullionsharks.com"
+    assert db.get_one(Vendor, vendor.id).name == "bullionsharks.com"
 
 
 def test_a_rename_carries_the_host_and_url_with_it(db: Session) -> None:
@@ -226,7 +228,7 @@ def test_a_rename_carries_the_host_and_url_with_it(db: Session) -> None:
     )
 
     db.expire_all()
-    renamed = db.get(Vendor, vendor.id)
+    renamed = db.get_one(Vendor, vendor.id)
     assert renamed.name == "apmex.com"
     assert renamed.host == "www.apmex.com"
     assert renamed.url == "https://www.apmex.com"
@@ -252,7 +254,7 @@ def test_a_rename_leaves_an_unrelated_host_and_url_alone(db: Session) -> None:
     )
 
     db.expire_all()
-    renamed = db.get(Vendor, vendor.id)
+    renamed = db.get_one(Vendor, vendor.id)
     assert renamed.name == "coin-shop"
     assert renamed.host == "shop.example.com"
     assert renamed.url == "https://shop.example.com/store"
@@ -274,7 +276,7 @@ def test_a_rename_to_an_existing_name_is_refused(db: Session) -> None:
         )
 
     db.expire_all()
-    assert db.get(Vendor, vendor.id).name == "one.example"
+    assert db.get_one(Vendor, vendor.id).name == "one.example"
 
 
 def test_a_rename_happens_after_a_merge(db: Session) -> None:
@@ -294,10 +296,12 @@ def test_a_rename_happens_after_a_merge(db: Session) -> None:
 
     db.expire_all()
     assert db.get(Vendor, typo.id) is None
-    assert db.get(Vendor, keep.id).name == "bullionsharks.com"
+    assert db.get_one(Vendor, keep.id).name == "bullionsharks.com"
     assert _order_count_for(db, keep.id) == 1
 
 
 def _order_count_for(db: Session, vendor_id: int) -> int:
     """Orders attached to a vendor, read straight from the database."""
-    return db.scalar(select(func.count()).where(PurchaseOrder.vendor_id == vendor_id))
+    return db.execute(
+        select(func.count()).where(PurchaseOrder.vendor_id == vendor_id)
+    ).scalar_one()

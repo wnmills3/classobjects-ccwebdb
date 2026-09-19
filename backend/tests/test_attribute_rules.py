@@ -21,6 +21,7 @@ from app.models import (
     NoteIssue,
     NoteType,
     ProvenanceSource,
+    ReferenceMixin,
     SealColor,
 )
 from fastapi.testclient import TestClient
@@ -42,7 +43,7 @@ def _issues(db: Session) -> None:
     db.flush()
 
 
-def _id(db: Session, model: type, code: str) -> int:
+def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
     return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 

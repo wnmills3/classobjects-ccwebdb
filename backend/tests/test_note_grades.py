@@ -163,13 +163,15 @@ def test_the_demo_catalogue_grades_its_banknotes_on_the_note_scale(db: Session) 
     Its 1957-B Silver Certificate carried the coin scale's UNC, and was the one
     note left on a coin scale after a rebuild.
     """
-    scale_of = dict(
+    scale_of: dict[str, str | None] = dict(
         db.execute(
             text(
                 "SELECT g.code, s.code FROM grade g "
                 "LEFT JOIN grade_scale s ON s.id = g.grade_scale_id"
             )
-        ).all()
+        )
+        .tuples()
+        .all()
     )
     notes = [entry for entry in SAMPLE_CATALOG if entry.get("item_kind") == "currency"]
 

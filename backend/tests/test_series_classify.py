@@ -17,6 +17,7 @@ from app.models import (
     Denomination,
     InventoryItem,
     PurchaseOrder,
+    ReferenceMixin,
     SealColor,
     Series,
     SeriesYearRange,
@@ -34,7 +35,7 @@ DIME, QUARTER, DOLLAR = "usd_coin_0_10", "usd_coin_0_25", "usd_coin_1_00"
 NOTE_1, NOTE_5 = "usd_note_1", "usd_note_5"
 
 
-def _id(db: Session, model: type, code: str) -> int:
+def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
     return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
@@ -42,7 +43,7 @@ def _series_code(db: Session, item: InventoryItem) -> str | None:
     db.refresh(item)
     if item.series_id is None:
         return None
-    return db.get(Series, item.series_id).code
+    return db.get_one(Series, item.series_id).code
 
 
 def _coin(

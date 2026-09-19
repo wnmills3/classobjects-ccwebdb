@@ -18,6 +18,7 @@ availability is a property of the offer, not of the object.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
@@ -31,6 +32,7 @@ from app.models import (
     ItemKind,
     ItemStatus,
     Listing,
+    ReferenceMixin,
     SalesOrder,
     SalesOrderItem,
     StorageForm,
@@ -51,7 +53,7 @@ RACE_TITLE = "RACE Contested Item"
 
 
 @pytest.fixture
-def committed(engine: Engine) -> None:
+def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     """Real, committing sessions. Cleans up the rows it creates."""
     factory = sessionmaker(bind=engine, expire_on_commit=False)
 
@@ -71,7 +73,7 @@ def committed(engine: Engine) -> None:
         cleanup.commit()
 
 
-def _code_id(session: Session, model: type, code: str) -> int:
+def _code_id(session: Session, model: type[ReferenceMixin], code: str) -> int:
     return session.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
@@ -123,7 +125,7 @@ def _race(
     def attempt(user_id: int) -> int | str:
         session = factory()
         try:
-            user = session.get(User, user_id)
+            user = session.get_one(User, user_id)
             barrier.wait(timeout=10)
             create_order(payload, session, user)
             return "ok"
@@ -139,7 +141,7 @@ def _race(
 
 def _remaining(factory: sessionmaker[Session], listing_id: int) -> int:
     with factory() as session:
-        return session.get(Listing, listing_id).quantity_available
+        return session.get_one(Listing, listing_id).quantity_available
 
 
 def test_two_buyers_cannot_both_take_the_last_item(

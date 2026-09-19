@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import io
 
-import piexif
+# piexif ships neither stubs nor a py.typed marker, so there is nothing for the
+# checker to read. The alternative is a `[[tool.mypy.overrides]]` entry in
+# pyproject.toml; this keeps the statement next to the one import that needs it.
+import piexif  # type: ignore[import-untyped]
 import pytest
 from app.imaging import MetadataRemainsError, cleanse, make_derivative
 from app.models import DerivativeKind, Image, ImageRole, ItemImage, Listing
@@ -213,7 +216,7 @@ def test_upload_stores_the_image_and_both_renditions(
     assert response.status_code == 201, response.text
     body = response.json()
 
-    image = db.get(Image, body["id"])
+    image = db.get_one(Image, body["id"])
     kinds = {d.kind for d in image.derivatives}
     assert kinds == {DerivativeKind.thumb, DerivativeKind.web}
     assert body["thumbnail_url"].endswith("/thumb")
@@ -427,7 +430,7 @@ def test_a_photograph_can_exist_before_anyone_knows_what_it_shows(
         headers=admin_headers,
     ).json()
 
-    image = db.get(Image, body["id"])
+    image = db.get_one(Image, body["id"])
     assert image.source_ref == "DSC00417.JPG"
     assert client.get(body["thumbnail_url"]).status_code == 200
 
