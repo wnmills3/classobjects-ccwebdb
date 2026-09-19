@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 25 * 1024 * 1024
     max_image_pixels: int = 50_000_000
 
+    # --- photograph library -------------------------------------------------
+    # Where `python -m app.photo_import` looks for files to import. A
+    # directory rather than an upload, because the photographs are already on
+    # the machine and 673 of them through a file picker is a long sitting.
+    # Git-ignored: a coin collection's photographs are not source code.
+    photo_library_root: Path = REPO_ROOT / "photos"
+
     # --- sales tax on acquisitions ---------------------------------------------
     # Read when the API starts, then copied onto each item as it is created. Tax
     # paid is a historical fact, so changing these governs purchases recorded
@@ -69,13 +76,6 @@ class Settings(BaseSettings):
     # refused at startup instead of multiplying every new cost by 7.35.
     sales_tax_rate: Decimal = Field(default=Decimal("0.0635"), ge=0, le=1)
     sales_tax_includes_shipping: bool = True
-
-    # --- photograph library -------------------------------------------------
-    # Where `python -m app.photo_import` looks for files to import. A
-    # directory rather than an upload, because the photographs are already on
-    # the machine and 673 of them through a file picker is a long sitting.
-    # Git-ignored: a coin collection's photographs are not source code.
-    photo_library_root: Path = REPO_ROOT / "photos"
 
 
 @lru_cache
