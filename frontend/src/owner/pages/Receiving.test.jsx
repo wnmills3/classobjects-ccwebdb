@@ -18,6 +18,7 @@ vi.mock('../api', () => ({
     searchInventory: vi.fn(),
     getItemErrors: vi.fn(),
     setItemErrors: vi.fn(),
+    listItemImages: vi.fn(),
   },
 }))
 
@@ -59,6 +60,7 @@ beforeEach(() => {
   ])
   api.getInventoryItem.mockResolvedValue({ id: 412, item_kind: 'coin' })
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 412, errors: [] })
+  api.listItemImages.mockResolvedValue([])
   api.getPurchaseOrder.mockResolvedValue({
     id: 1,
     order_number: '27-1234',
