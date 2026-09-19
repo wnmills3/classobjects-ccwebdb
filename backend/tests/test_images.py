@@ -13,7 +13,7 @@ import io
 import piexif
 import pytest
 from app.imaging import MetadataRemainsError, cleanse, make_derivative
-from app.models import DerivativeKind, Image, ItemImage, Listing
+from app.models import DerivativeKind, Image, ImageRole, ItemImage, Listing
 from fastapi.testclient import TestClient
 from PIL import Image as PILImage
 from sqlalchemy.orm import Session
@@ -361,6 +361,57 @@ def test_only_one_photograph_can_be_primary(
         .count()
     )
     assert primaries == 1
+
+
+def test_re_uploading_the_same_photograph_keeps_its_role_and_primacy(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The upsert branch, which nothing else in the suite reaches.
+
+    `test_uploading_the_same_photograph_twice_stores_one_copy` posts without
+    an item, so `attach` is never called; `test_only_one_photograph_can_be_
+    primary` posts two *different* images. Only the same bytes against the
+    same item take the `LinkRefused` path -- the one behaviour the mid-branch
+    migration onto `image_links` could have changed.
+
+    The second post is what a file picker sends: no `image_role`, no
+    `is_primary`. Neither may undo the filing decision the operator already
+    made.
+    """
+    from tests.conftest import build_item
+
+    item = build_item(db)
+    db.commit()
+    raw = make_jpeg(colour=(21, 22, 23))
+
+    first = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", raw, "image/jpeg")},
+        data={
+            "inventory_item_id": str(item.id),
+            "image_role": "obverse",
+            "is_primary": "true",
+        },
+        headers=admin_headers,
+    )
+    assert first.status_code == 201, first.text
+
+    again = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", raw, "image/jpeg")},
+        data={"inventory_item_id": str(item.id)},
+        headers=admin_headers,
+    )
+    assert again.status_code == 201, again.text
+    assert again.json()["id"] == first.json()["id"]
+
+    db.expire_all()
+    links = db.query(ItemImage).filter(ItemImage.inventory_item_id == item.id).all()
+    assert len(links) == 1
+    assert links[0].is_primary is True
+    role = db.get(ImageRole, links[0].image_role_id)
+    assert role is not None
+    assert role.code == "obverse"
 
 
 def test_a_photograph_can_exist_before_anyone_knows_what_it_shows(

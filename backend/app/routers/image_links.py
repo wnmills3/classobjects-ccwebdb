@@ -45,7 +45,12 @@ def update_link(
 ) -> ImageLinkOut:
     """Say what this photograph shows, or make it the one the shop uses."""
     link = _guarded_link(db, link_id, acknowledged=payload.acknowledge_for_sale)
-    if payload.image_role is not None:
+    # model_fields_set, not `is not None`: an omitted field is left alone, an
+    # explicit null clears the role -- the same convention `routers.offers`,
+    # `routers.sales_venues` and `routers.inventory` follow. Testing for None
+    # cannot tell the two apart, which made the console's blank option a
+    # no-op.
+    if "image_role" in payload.model_fields_set:
         image_links.set_role(db, link, payload.image_role)
     if payload.is_primary:
         image_links.make_primary(db, link)
