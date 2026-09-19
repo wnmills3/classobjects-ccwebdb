@@ -1890,13 +1890,16 @@ confirm it passes, confirm `git diff` on the file is empty before the next.
 | # | File | Call site | Test that must go red |
 |---|---|---|---|
 | 1 | `routers/images.py` | `attach_image` | `test_image_links.py::test_attaching_to_a_listed_item_is_refused_until_acknowledged` |
-| 2 | `routers/image_links.py` | `_guarded_link` (reached from `update_link`) | `test_image_links.py::test_detaching_from_a_listed_item_is_refused_until_acknowledged` |
+| 2 | `routers/image_links.py` | `_guarded_link` (reached from `update_link`) | `test_image_links.py::test_re_roling_a_listed_items_photograph_is_refused_until_acknowledged` |
 | 3 | `routers/image_links.py` | `_guarded_link` (reached from `detach_link`) | same as above |
 
-Rows 2 and 3 share one call site because both routes go through
-`_guarded_link`. Delete it once and confirm the test goes red; note in your
-report that one deletion covers both routes, rather than pretending two
-mutations happened.
+Rows 2 and 3 share one call site, because both routes go through
+`_guarded_link`. Delete it **once** and confirm **both** named tests go red —
+not just one. That symmetry is the point: a shared guard with only one route
+tested still turns red on mutation, so a kill proves *some* caller is held, not
+every caller. If only one test fails, the other route's guard is unproven and
+this pass would record a kill it had not earned. Say in your report how many
+tests failed, and do not count one deletion as two mutations.
 
 **If any mutation does not go red, stop and report it** — either the call site
 is unreachable or the test does not exercise it, and both are defects.
