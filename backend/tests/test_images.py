@@ -287,6 +287,37 @@ def test_a_thumbnail_is_publicly_servable(
         assert max(thumb.size) <= 320
 
 
+def test_photographs_cannot_be_found_by_counting(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The serving path is the content hash, so there is no sequence to walk.
+
+    The route is public and has to be: an `<img>` tag carries no bearer
+    token, so a listed coin's photograph must load for a signed-out buyer.
+    That makes the URL itself the only thing standing between a stranger and
+    a photograph of every valuable the owner keeps in a safe-deposit box.
+    Keyed by row id, `/api/images/1/web`, `/2/web`, `/3/web` walked the whole
+    collection.
+
+    Asserted against a real uploaded image, so the test fails if the route
+    ever accepts an id again -- not against a made-up number, which would
+    404 whatever the route did and prove nothing.
+    """
+    body = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", make_jpeg(), "image/jpeg")},
+        headers=admin_headers,
+    ).json()
+
+    # The hash serves. This half is what makes the other half meaningful.
+    assert client.get(body["thumbnail_url"]).status_code == 200
+    assert body["sha256"] in body["thumbnail_url"]
+
+    # The id of that very same image serves nothing.
+    assert client.get(f"/api/images/{body['id']}/thumb").status_code == 404
+    assert client.get(f"/api/images/{body['id']}/web").status_code == 404
+
+
 def test_the_original_is_not_reachable_over_http(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

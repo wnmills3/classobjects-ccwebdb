@@ -38,11 +38,20 @@ router = APIRouter(prefix="/images", tags=["images"])
 CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
-def image_urls(image_id: int) -> dict[str, str]:
-    """Where an image's renditions are served from. Never the original."""
+def image_urls(sha256: str) -> dict[str, str]:
+    """Where an image's renditions are served from. Never the original.
+
+    Keyed by the content hash, not the row id. These URLs have to work in a
+    plain `<img>` tag -- for an anonymous buyer in the shop and for the owner
+    in the console -- and an `<img>` cannot carry a bearer token, so the route
+    behind them is public. A sequential id therefore made every photograph in
+    the collection reachable by counting from 1, and most of this collection
+    is not for sale. The hash is unguessable and unique (`uq_image_sha256`),
+    so there is nothing left to enumerate.
+    """
     return {
-        "thumbnail_url": f"{settings.api_prefix}/images/{image_id}/thumb",
-        "image_url": f"{settings.api_prefix}/images/{image_id}/web",
+        "thumbnail_url": f"{settings.api_prefix}/images/{sha256}/thumb",
+        "image_url": f"{settings.api_prefix}/images/{sha256}/web",
     }
 
 
@@ -56,7 +65,7 @@ def to_image_out(image: Image) -> ImageOut:
         width=image.width,
         height=image.height,
         captured_at=image.captured_at,
-        **image_urls(image.id),
+        **image_urls(image.sha256),
     )
 
 
@@ -210,7 +219,7 @@ def list_images(
         ).all()
         return [
             ImageLinkOut(
-                image_id=row.id, captured_at=row.captured_at, **image_urls(row.id)
+                image_id=row.id, captured_at=row.captured_at, **image_urls(row.sha256)
             )
             for row in rows
         ]
@@ -235,16 +244,28 @@ def _link_out(db: Session, link: ItemImage) -> ImageLinkOut:
         is_primary=link.is_primary,
         sort_order=link.sort_order,
         captured_at=link.image.captured_at,
-        **image_urls(link.image_id),
+        **image_urls(link.image.sha256),
     )
 
 
-@router.get("/{image_id}/{kind}")
-def get_derivative(image_id: int, kind: DerivativeKind, db: DbSession) -> Response:
-    """Serve a rendition. Public, and the only way image bytes leave the app."""
+@router.get("/{sha256}/{kind}")
+def get_derivative(sha256: str, kind: DerivativeKind, db: DbSession) -> Response:
+    """Serve a rendition. Public, and the only way image bytes leave the app.
+
+    Public is deliberate: a listed coin's photograph must load for a buyer who
+    has never signed in. What keeps the unlisted rest of the collection out of
+    reach is the path -- see `image_urls`. Addressed by content hash, so a
+    caller who has not been given a URL has nothing to walk.
+    """
+    image = db.scalar(select(Image).where(Image.sha256 == sha256))
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
+        )
+
     derivative = db.scalar(
         select(ImageDerivative).where(
-            ImageDerivative.image_id == image_id, ImageDerivative.kind == kind
+            ImageDerivative.image_id == image.id, ImageDerivative.kind == kind
         )
     )
     if derivative is None:
@@ -262,10 +283,9 @@ def get_derivative(image_id: int, kind: DerivativeKind, db: DbSession) -> Respon
             status_code=status.HTTP_404_NOT_FOUND, detail="Image data missing"
         ) from exc
 
-    image = db.get(Image, image_id)
     return Response(
         content=data,
-        media_type=image.media_type if image else "image/jpeg",
+        media_type=image.media_type,
         headers={"Cache-Control": CACHE_CONTROL},
     )
 
