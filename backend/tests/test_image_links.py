@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 from app import image_links
-from app.models import Image, ImageRole, ItemImage, Listing
+from app.models import Image, ImageRole, InventoryItem, ItemImage, Listing
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -149,3 +149,64 @@ def test_attaching_to_a_listed_item_is_refused_until_acknowledged(
         headers=admin_headers,
     )
     assert made.status_code == 201, made.text
+
+
+def test_a_photograph_can_be_re_roled_and_promoted(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    item = build_item(db)
+    first = image_links.attach(
+        db, image=_image(db, "9" * 64), item=item, role="obverse", is_primary=True
+    )
+    second = image_links.attach(
+        db, image=_image(db, "a1" * 32), item=item, role=None, is_primary=False
+    )
+    db.commit()
+
+    changed = client.patch(
+        f"/api/image-links/{second.id}",
+        json={"image_role": "reverse", "is_primary": True},
+        headers=admin_headers,
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["image_role"] == "reverse"
+    assert changed.json()["is_primary"] is True
+
+    db.expire_all()
+    assert db.get(ItemImage, first.id).is_primary is False
+
+
+def test_detaching_keeps_the_photograph(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    item = build_item(db)
+    image = _image(db, "b1" * 32)
+    link = image_links.attach(db, image=image, item=item, role=None, is_primary=False)
+    db.commit()
+
+    gone = client.delete(f"/api/image-links/{link.id}", headers=admin_headers)
+    assert gone.status_code == 204, gone.text
+
+    db.expire_all()
+    assert db.get(ItemImage, link.id) is None
+    assert db.get(Image, image.id) is not None
+
+
+def test_detaching_from_a_listed_item_is_refused_until_acknowledged(
+    client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    item = db.get(InventoryItem, listing.inventory_item_id)
+    assert item is not None
+    link = image_links.attach(
+        db, image=_image(db, "c1" * 32), item=item, role=None, is_primary=True
+    )
+    db.commit()
+
+    refused = client.delete(f"/api/image-links/{link.id}", headers=admin_headers)
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+
+    gone = client.delete(
+        f"/api/image-links/{link.id}?acknowledge_for_sale=true", headers=admin_headers
+    )
+    assert gone.status_code == 204, gone.text
