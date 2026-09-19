@@ -382,6 +382,10 @@ links each photograph to the item its filename names, through the same writer
     python -m app.photo_import            report, touching nothing
     python -m app.photo_import --commit   write the links
 
+"Touching nothing" is literal: a dry run decodes and validates every file
+through the same imaging layer, so it still names one the imaging layer would
+refuse, but it writes no rows **and no bytes into media storage**.
+
 `--root` defaults to `settings.photo_library_root`, the real library --
 **never point this at it without `--commit` having been asked for on
 purpose**; the owner watches the first real run personally.
@@ -400,7 +404,10 @@ than guessed at: a name that does not match the convention, an item code
 nothing recognises, an item that was deleted or split, two files in this run
 claiming the same slot (a collision links *neither* -- there is no way to
 prefer one claimant from the filename alone), or a slot an earlier run
-already filled. The console's **Photos** page (`/owner/photos`) is where
+already filled. An item that already has a primary photograph keeps it: the
+`_01` is still filed at sequence 1, but non-primary, and the report names it
+under `primary` -- what a buyer sees is not changed without being told. The
+console's **Photos** page (`/owner/photos`) is where
 those unattached photographs get filed onto the item they belong to by hand.
 A photograph the pass links onto an item that is for sale is not refused --
 it is reported, by item code, so the owner knows what changed under an active

@@ -105,6 +105,14 @@ and no way to choose, linking one of them is a coin flip presented as a fact.
 And **an occupied sequence is never replaced silently** -- a re-shoot is a
 decision, and the console is where decisions are made.
 
+**An existing primary is not taken away silently either.** A `_01` would be
+promoted, and every console upload files at `sort_order` 0, so a
+hand-attached photograph is invisible to the occupied check above. The pass
+therefore looks for an existing primary before promoting: if the item has one,
+the file is still linked at sequence 1 but stays non-primary, and the report
+names it alongside what kept the primary. `is_primary` decides what a buyer
+sees, so changing it is the same kind of decision as replacing a sequence.
+
 ## The pass
 
 `python -m app.photo_import`, following `app.vendor_cleanup`'s shape exactly:
@@ -192,6 +200,16 @@ transaction -- because `uq_item_image_primary` is a partial unique index and
 will reject a second primary outright. It is also the single place the pass and
 the console share, so the two cannot drift about what a link means.
 
+It also **fills the vacancy**: attaching to an item that has no primary yet
+makes the new link primary even when the caller did not ask. `routers/catalog`
+serves an item's primary link and has no fallback to "the first photograph",
+so a photograph filed without one is a photograph the shop will never show --
+and `/owner/photos` is precisely where photographs of items with no other
+photograph are filed. Filling a vacancy is never a demotion; an incumbent is
+displaced only when the caller asked for `is_primary`. Putting it here rather
+than in each caller is what keeps the unattached page, the item editor's
+upload and the receiving screen from disagreeing about it.
+
 ### All four paths go through `sale_state.guard`
 
 Attaching, detaching, changing the primary and deleting a photograph all change
@@ -208,10 +226,14 @@ sequence, unknown extension, and the `_01`/`_02`/`_03+` role mapping. Pure
 because a convention rots quietly, and a table puts every rule in one readable
 place.
 
-**The pass**, against a temporary library root: a dry run writes nothing;
-`--commit` links what it said it would; a second run changes nothing; unmatched
-files land unattached and are named; a duplicate code-and-sequence links
-neither; an occupied sequence is skipped rather than replaced.
+**The pass**, against a temporary library root: a dry run writes nothing --
+**no rows and no bytes in media storage**, asserted separately, because
+`ingest` stores the original and both derivatives before any rollback could
+undo them and a database-only assertion cannot see that; `--commit` links what
+it said it would; a second run changes nothing; unmatched files land unattached
+and are named; a duplicate code-and-sequence links neither; an occupied
+sequence is skipped rather than replaced; an item that already has a primary
+keeps it, and the `_01` that would have taken it is reported.
 
 **The primary swap gets a mutation test.** Remove the clear-the-old-primary
 step and `uq_item_image_primary` must reject the write -- which proves the
