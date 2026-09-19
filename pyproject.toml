@@ -126,7 +126,11 @@ convention = "google"
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.13"
-files = ["backend/app"]
+# The tests are checked too. They were not, until 2026-09-19, and the gap hid
+# six helpers annotated `-> None` while returning a value -- 97 call sites
+# reading fields off something the checker believed was None. ruff's ANN rules
+# only ask that an annotation exist; nothing was asking whether it was true.
+files = ["backend/app", "backend/tests"]
 plugins = ["pydantic.mypy"]
 # Start strict about the things that actually catch bugs, rather than turning
 # on everything and drowning the signal in `Any` complaints from libraries.
