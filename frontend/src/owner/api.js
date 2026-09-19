@@ -198,6 +198,42 @@ export const api = {
     form.append('acknowledge_for_sale', String(acknowledgeForSale))
     return send('/api/images', { method: 'POST', body: form })
   },
+  listItemImages: (inventoryItemId) =>
+    send(`/api/images?inventory_item_id=${inventoryItemId}`),
+  listUnattachedImages: () => send('/api/images?unattached=true'),
+  attachImage: (
+    imageId,
+    {
+      inventoryItemId,
+      imageRole,
+      isPrimary = false,
+      sortOrder = 0,
+      acknowledgeForSale = false,
+    },
+  ) =>
+    send(`/api/images/${imageId}/links`, {
+      method: 'POST',
+      body: {
+        inventory_item_id: inventoryItemId,
+        image_role: imageRole ?? null,
+        is_primary: isPrimary,
+        sort_order: sortOrder,
+        acknowledge_for_sale: acknowledgeForSale,
+      },
+    }),
+  updateImageLink: (linkId, { imageRole, isPrimary, acknowledgeForSale = false }) =>
+    send(`/api/image-links/${linkId}`, {
+      method: 'PATCH',
+      body: {
+        image_role: imageRole ?? null,
+        is_primary: isPrimary ?? null,
+        acknowledge_for_sale: acknowledgeForSale,
+      },
+    }),
+  detachImage: (linkId, { acknowledgeForSale = false } = {}) =>
+    send(`/api/image-links/${linkId}?acknowledge_for_sale=${acknowledgeForSale}`, {
+      method: 'DELETE',
+    }),
 
   // accounts -- who can sign in
   listOrders: () => send('/api/orders'),
