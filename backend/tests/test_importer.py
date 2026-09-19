@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 import pytest
 from app.importers.engine import COMMIT, DRY_RUN, ImportEngine
@@ -41,7 +42,14 @@ HEADERS = [
 ]
 
 
-def make_row(n: int = 2, **overrides: str) -> RawRow:
+def make_row(n: int = 2, /, **overrides: str) -> RawRow:
+    """One source row: `n` is the row number, every other name is a column.
+
+    `n` is positional-only because the column names arrive as `**overrides`.
+    A caller spreading a mapping of cells -- `make_row(**{"Grading#": "x"})` --
+    could otherwise be supplying `n` as text, which is the one thing that must
+    stay an int.
+    """
     values = dict.fromkeys(HEADERS)
     values.update(overrides)
     return RawRow(row_number=n, values=values)
@@ -330,7 +338,10 @@ def test_the_received_column_decides_whether_an_item_is_in_hand(
 ) -> None:
     """An `x` is the owner's mark that the object arrived."""
 
-    def marker(**cells: str) -> str:
+    def marker(**cells: str) -> object:
+        # `RowResult.fields` is `dict[str, object]` on purpose, and this
+        # helper only ever feeds the comparisons below, so it hands back what
+        # the profile stored rather than claiming a type nothing here checks.
         return profile.inspect(make_row(Denom="1", **cells)).fields["status_marker"]
 
     assert marker(Received="x") == "received"
@@ -627,7 +638,7 @@ def test_report_names_rows_for_corrections(profile: CollectionV1Profile) -> None
 # --------------------------------------------------------------------------
 
 
-def _profiled(rows: list[dict[str, str]]) -> list[ColumnProfile]:
+def _profiled(rows: list[RawRow]) -> dict[str, ColumnProfile]:
     from app.importers import profiling
 
     report = ImportEngine(CollectionV1Profile()).run(FakeSource(rows), mode=DRY_RUN)
@@ -734,8 +745,16 @@ def test_uncertain_and_range_years_are_not_flagged() -> None:
 # --------------------------------------------------------------------------
 
 
-def weight_of(profile: CollectionV1Profile, denom: str) -> None:
-    return profile.inspect(make_row(Denom=denom)).fields.get("weight_ozt")
+def weight_of(profile: CollectionV1Profile, denom: str) -> Decimal | None:
+    """The troy-ounce weight the profile read, or None when there is none.
+
+    `RowResult.fields` is `dict[str, object]` by design, so the value type is
+    narrowed here rather than in the profile. That the weight really is a
+    `Decimal` and never a float is not assumed: it is what
+    `test_weight_is_decimal_never_float` checks at runtime.
+    """
+    weight = profile.inspect(make_row(Denom=denom)).fields.get("weight_ozt")
+    return cast("Decimal | None", weight)
 
 
 @pytest.mark.parametrize(
@@ -772,6 +791,7 @@ def test_weight_is_decimal_never_float(profile: CollectionV1Profile) -> None:
     assert isinstance(value, Decimal)
     # three tenth-ounce coins are exactly three tenths, not 0.30000000000000004
     tenth = weight_of(profile, "Gold Maple 1/10 oz")
+    assert tenth is not None
     assert tenth * 3 == Decimal("0.300000")
 
 
@@ -927,4 +947,8 @@ def test_a_lot_id_is_recoverable_from_the_link_the_profile_emits() -> None:
         )
     ).fields
 
-    assert identify(fields["listing_url"]) == ("226778844", True)
+    # `fields` is `dict[str, object]`; `identify` takes the text the profile
+    # emits for `listing_url`, which is exactly what this test is checking it
+    # can be fed, so the cast states the contract under test rather than
+    # weakening it -- a non-string there fails the assertion just as before.
+    assert identify(cast("str", fields["listing_url"])) == ("226778844", True)

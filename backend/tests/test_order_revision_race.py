@@ -47,6 +47,19 @@ from sqlalchemy.orm.util import identity_key
 from tests.test_concurrency import RACE_TITLE, _code_id, _seed
 
 
+def _present[T](instance: T | None) -> T:
+    """A row this test just committed, with its existence stated not assumed.
+
+    Every id handed to `Session.get` or `_load` below was committed a few
+    lines earlier -- by `_seed`, by `_extra_listing`, or by the writer under
+    test -- so a `None` here is a broken fixture rather than a case any of
+    these tests means to handle. Failing on it by name beats letting it
+    surface later as an attribute error on `None`.
+    """
+    assert instance is not None
+    return instance
+
+
 def _extra_listing(factory: sessionmaker[Session], *, stock: int) -> int:
     """A second RACE_TITLE listing, sharing `_seed`'s item shape without new users.
 
@@ -112,7 +125,7 @@ def test_a_stale_read_is_refused_not_a_lost_update(
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=3, buyers=2)
 
     with committed() as session_a:
-        buyer = session_a.get(User, buyer_id)
+        buyer = _present(session_a.get(User, buyer_id))
         order = place_order(
             session_a,
             customer_for_user(session_a, buyer),
@@ -129,17 +142,16 @@ def test_a_stale_read_is_refused_not_a_lost_update(
         # items below, and the identity map would happily hand back a freshly
         # queried (and so accidentally correct) object -- passing the test
         # for the wrong reason, whether or not the fix is present.
-        order = _load(session_a, order_id)
-        assert order is not None
+        order = _present(_load(session_a, order_id))
         stale_listing = order.items[0].listing
         assert stale_listing.quantity_available == 2
 
         with committed() as session_b:
-            listing_b = session_b.get(Listing, listing_id)
+            listing_b = _present(session_b.get(Listing, listing_id))
             listing_b.quantity_available = 0
             session_b.commit()
 
-        admin = session_a.get(User, admin_id)
+        admin = _present(session_a.get(User, admin_id))
         with pytest.raises(HTTPException) as excinfo:
             revise_order(
                 session_a,
@@ -155,7 +167,7 @@ def test_a_stale_read_is_refused_not_a_lost_update(
     assert f"Only 0 more of listing {listing_id}" in excinfo.value.detail
 
     with committed() as session_c:
-        remaining = session_c.get(Listing, listing_id).quantity_available
+        remaining = _present(session_c.get(Listing, listing_id)).quantity_available
     assert remaining == 0
 
 
@@ -173,8 +185,8 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
     """
     listing_id, (buyer_id, holder_id, admin_id) = _seed(committed, stock=2, buyers=3)
     with committed() as s:
-        s.get(User, admin_id).role = UserRole.admin
-        holder = s.get(User, holder_id)
+        _present(s.get(User, admin_id)).role = UserRole.admin
+        holder = _present(s.get(User, holder_id))
         order = place_order(
             s, customer_for_user(s, holder), [Line(listing_id, 1)], holder
         )
@@ -186,7 +198,7 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
     def checkout() -> str | int:
         s = committed()
         try:
-            user = s.get(User, buyer_id)
+            user = _present(s.get(User, buyer_id))
             customer = customer_for_user(s, user)
             barrier.wait(timeout=10)
             place_order(s, customer, [Line(listing_id, 1)], user)
@@ -201,8 +213,8 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
     def edit() -> str | int:
         s = committed()
         try:
-            o = s.get(SalesOrder, order_id)
-            admin_user = s.get(User, admin_id)
+            o = _present(s.get(SalesOrder, order_id))
+            admin_user = _present(s.get(User, admin_id))
             customer = o.customer
             barrier.wait(timeout=10)
             revise_order(
@@ -226,7 +238,7 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
         outcomes = sorted(pool.map(lambda f: f(), [checkout, edit]), key=str)
 
     with committed() as s:
-        remaining = s.get(Listing, listing_id).quantity_available
+        remaining = _present(s.get(Listing, listing_id)).quantity_available
     assert remaining == 0
     assert outcomes.count(409) == 1, outcomes
     assert len([o for o in outcomes if o in ("checkout", "edit")]) == 1, outcomes
@@ -259,8 +271,8 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=5, buyers=2)
     with committed() as s:
-        s.get(User, admin_id).role = UserRole.admin
-        buyer = s.get(User, buyer_id)
+        _present(s.get(User, admin_id)).role = UserRole.admin
+        buyer = _present(s.get(User, buyer_id))
         order = place_order(
             s, customer_for_user(s, buyer), [Line(listing_id, 2)], buyer
         )
@@ -268,14 +280,14 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
         order_id, version = order.id, order.version
 
     with committed() as s:
-        assert s.get(Listing, listing_id).quantity_available == 3
+        assert _present(s.get(Listing, listing_id)).quantity_available == 3
 
     barrier = threading.Barrier(2)
 
     def cancel() -> str | int:
         s = committed()
         try:
-            admin = s.get(User, admin_id)
+            admin = _present(s.get(User, admin_id))
             payload = OrderStatusUpdate(status="cancelled")
             barrier.wait(timeout=10)
             update_order_status(order_id, payload, s, admin)
@@ -289,8 +301,8 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     def edit() -> str | int:
         s = committed()
         try:
-            o = s.get(SalesOrder, order_id)
-            admin = s.get(User, admin_id)
+            o = _present(s.get(SalesOrder, order_id))
+            admin = _present(s.get(User, admin_id))
             customer = o.customer
             barrier.wait(timeout=10)
             revise_order(
@@ -325,8 +337,8 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     edit_won = "edit" in outcomes
 
     with committed() as s:
-        listing = s.get(Listing, listing_id)
-        final_order = s.get(SalesOrder, order_id)
+        listing = _present(s.get(Listing, listing_id))
+        final_order = _present(s.get(SalesOrder, order_id))
         final_status = _status_code(s, final_order)
         final_items = [item.quantity for item in final_order.items]
 
@@ -366,31 +378,30 @@ def test_a_stale_item_write_in_revise_order_is_refused_not_a_500(
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=2, buyers=2)
 
     with committed() as session_a:
-        buyer = session_a.get(User, buyer_id)
+        buyer = _present(session_a.get(User, buyer_id))
         order = place_order(
             session_a, customer_for_user(session_a, buyer), [Line(listing_id, 1)], buyer
         )
         session_a.commit()
         order_id, version = order.id, order.version
 
-        listing = session_a.get(Listing, listing_id)
+        listing = _present(session_a.get(Listing, listing_id))
         assert listing.quantity_available == 1
         item_id = listing.inventory_item_id
         # Keep a live reference in A's identity map, exactly as the
         # stale-read test above keeps `stale_listing`: without it,
         # `_after_stock_change`'s `db.get` would simply re-query and see
         # B's committed version, missing the race this test targets.
-        stale_item = session_a.get(InventoryItem, item_id)
+        stale_item = _present(session_a.get(InventoryItem, item_id))
         assert stale_item.disposition.code == "listed"
 
         with committed() as session_b:
-            item_b = session_b.get(InventoryItem, item_id)
+            item_b = _present(session_b.get(InventoryItem, item_id))
             item_b.description = "touched by session B"
             session_b.commit()
 
-        order = _load(session_a, order_id)
-        assert order is not None
-        admin = session_a.get(User, admin_id)
+        order = _present(_load(session_a, order_id))
+        admin = _present(session_a.get(User, admin_id))
         with pytest.raises(HTTPException) as excinfo:
             revise_order(
                 session_a,
@@ -406,8 +417,8 @@ def test_a_stale_item_write_in_revise_order_is_refused_not_a_500(
     assert "reload" in excinfo.value.detail.lower()
 
     with committed() as session_c:
-        remaining = session_c.get(Listing, listing_id).quantity_available
-        order_c = session_c.get(SalesOrder, order_id)
+        remaining = _present(session_c.get(Listing, listing_id)).quantity_available
+        order_c = _present(session_c.get(SalesOrder, order_id))
         item_lines = [i.quantity for i in order_c.items]
     assert remaining == 1
     assert item_lines == [1]
@@ -435,11 +446,11 @@ def test_a_stale_autoflush_mid_cancel_is_refused_not_a_500(
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=1, buyers=2)
     other_listing_id = _extra_listing(committed, stock=5)
     with committed() as s:
-        s.get(User, admin_id).role = UserRole.admin
+        _present(s.get(User, admin_id)).role = UserRole.admin
         s.commit()
 
     with committed() as session_a:
-        buyer = session_a.get(User, buyer_id)
+        buyer = _present(session_a.get(User, buyer_id))
         order = place_order(
             session_a,
             customer_for_user(session_a, buyer),
@@ -449,17 +460,17 @@ def test_a_stale_autoflush_mid_cancel_is_refused_not_a_500(
         session_a.commit()
         order_id = order.id
 
-        listing = session_a.get(Listing, listing_id)
+        listing = _present(session_a.get(Listing, listing_id))
         assert listing.quantity_available == 0
         item_id = listing.inventory_item_id
         # As above: a live reference in A's identity map, so the autoflush
         # inside `return_stock` finds this stale instance rather than a
         # freshly queried, already-current one.
-        stale_item = session_a.get(InventoryItem, item_id)
+        stale_item = _present(session_a.get(InventoryItem, item_id))
         assert stale_item.disposition.code == "sold"
 
         with committed() as session_b:
-            item_b = session_b.get(InventoryItem, item_id)
+            item_b = _present(session_b.get(InventoryItem, item_id))
             item_b.description = "touched by session B"
             session_b.commit()
 
@@ -470,10 +481,11 @@ def test_a_stale_autoflush_mid_cancel_is_refused_not_a_500(
         # than returning an already-loaded instance for free. Fetched
         # through a separate session so this check does not itself load it.
         with committed() as probe:
-            other_item_id = probe.get(Listing, other_listing_id).inventory_item_id
+            other_listing = _present(probe.get(Listing, other_listing_id))
+            other_item_id = other_listing.inventory_item_id
         assert identity_key(InventoryItem, other_item_id) not in session_a.identity_map
 
-        admin = session_a.get(User, admin_id)
+        admin = _present(session_a.get(User, admin_id))
         payload = OrderStatusUpdate(status="cancelled")
         with pytest.raises(HTTPException) as excinfo:
             update_order_status(order_id, payload, session_a, admin)
@@ -482,9 +494,11 @@ def test_a_stale_autoflush_mid_cancel_is_refused_not_a_500(
     assert "reload" in excinfo.value.detail.lower()
 
     with committed() as session_c:
-        sold_out = session_c.get(Listing, listing_id)
-        other = session_c.get(Listing, other_listing_id)
-        final_status = _status_code(session_c, session_c.get(SalesOrder, order_id))
+        sold_out = _present(session_c.get(Listing, listing_id))
+        other = _present(session_c.get(Listing, other_listing_id))
+        final_status = _status_code(
+            session_c, _present(session_c.get(SalesOrder, order_id))
+        )
     assert sold_out.quantity_available == 0
     assert other.quantity_available == 3
     assert final_status == "pending"
