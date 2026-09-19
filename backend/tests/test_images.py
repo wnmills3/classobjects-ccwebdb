@@ -467,3 +467,16 @@ def test_listing_every_photograph_at_once_is_refused(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     assert client.get("/api/images", headers=admin_headers).status_code == 422
+
+
+def test_listing_with_both_filters_at_once_is_refused(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    from tests.conftest import build_item
+
+    item = build_item(db)
+    response = client.get(
+        f"/api/images?inventory_item_id={item.id}&unattached=true",
+        headers=admin_headers,
+    )
+    assert response.status_code == 422

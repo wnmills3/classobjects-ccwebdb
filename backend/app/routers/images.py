@@ -28,7 +28,7 @@ from ..models import (
     InventoryItem,
     ItemImage,
 )
-from ..schemas import ImageLinkOut, ImageOut
+from ..schemas import ImageLinkIn, ImageLinkOut, ImageOut
 from ..storage import get_storage
 
 router = APIRouter(prefix="/images", tags=["images"])
@@ -122,6 +122,48 @@ async def upload_image(
     db.commit()
     db.refresh(image)
     return to_image_out(image)
+
+
+@router.post(
+    "/{image_id}/links",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ImageLinkOut,
+)
+def attach_image(
+    image_id: int, payload: ImageLinkIn, db: DbSession, _admin: AdminUser
+) -> ImageLinkOut:
+    """File a photograph against an item.
+
+    Refused with 409 for an item that is for sale until the caller
+    acknowledges it: the shop serves an item's primary photograph, so filing
+    one changes what a buyer is looking at.
+    """
+    image = db.get(Image, image_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    item = db.get(InventoryItem, payload.inventory_item_id)
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No such item: {payload.inventory_item_id}",
+        )
+
+    sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
+
+    try:
+        link = image_links.attach(
+            db,
+            image=image,
+            item=item,
+            role=payload.image_role,
+            is_primary=payload.is_primary,
+            sort_order=payload.sort_order,
+        )
+    except image_links.LinkRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(link)
+    return _link_out(db, link)
 
 
 @router.get("", response_model=list[ImageLinkOut])
