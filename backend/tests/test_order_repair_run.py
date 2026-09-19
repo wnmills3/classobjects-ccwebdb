@@ -10,6 +10,8 @@ change, not to assert what the behaviour ought to be.
 
 from __future__ import annotations
 
+from datetime import date
+
 from app.importers.models import ImportBatch, ImportRow
 from app.models import InventoryItem, PurchaseOrder, Vendor
 from app.order_repair import run
@@ -22,6 +24,9 @@ from tests.conftest import build_item
 HIBID = "https://hibid.com/lot/226778844/1886-morgan"
 PROXIBID = "https://www.proxibid.com/lotinformation/91896928/1928p-gold"
 UNKNOWN = "https://example.com/some/page"
+# An eBay item number: it names a listing, not a purchase, so the repair puts
+# it in `source_url` and leaves `order_number` null.
+EBAY = "https://www.ebay.com/itm/306947694169"
 
 
 def _vendor(db: Session, name: str) -> Vendor:
@@ -192,3 +197,63 @@ def test_a_fabricated_order_still_holding_items_is_kept(db: Session) -> None:
         select(InventoryItem.id).where(InventoryItem.purchase_order_id == bad.id)
     ).all()
     assert remaining == [orphan.id]
+
+
+def test_a_second_commit_run_changes_nothing(db: Session) -> None:
+    """The pass is safe to run twice, which its own eBay rule made it not.
+
+    An eBay purchase comes out of the first run as an order with
+    `order_number` null and the link in `source_url`. Selecting fabricated
+    orders on the null number alone took that output back as input: a second
+    run created a fresh order and `_drop_emptied` deleted the first, so the
+    item's order changed id for no reason on every run.
+
+    Asserted on the id, not on a count. The counts are identical either way --
+    one order in, one order out -- so a test that counted rows would pass
+    against exactly the behaviour this is here to stop.
+    """
+    vendor = _vendor(db, "eBay")
+    bad = _fabricated(db, vendor)
+    batch = _batch(db)
+    item = _item(db, bad, batch, EBAY, 1)
+
+    run(db, commit=True)
+    db.refresh(item)
+    first = item.purchase_order_id
+    assert first != bad.id
+    assert db.get_one(PurchaseOrder, first).order_number is None
+
+    second = run(db, commit=True)
+
+    assert second == {}, "a repaired collection has nothing left to repair"
+    db.refresh(item)
+    assert item.purchase_order_id == first
+
+
+def test_an_order_identified_only_by_its_url_is_left_alone(db: Session) -> None:
+    """The loader writes this shape too, and it carries the purchase date.
+
+    `loader.purchase_order_id` gives an eBay row an order with no number and
+    the link in `source_url` -- but, unlike the repair, it also records
+    `ordered_on`. Treating that as fabricated would rebuild the order from
+    vendor, number and URL alone and drop the date on the way, which in the
+    live collection is 1,234 orders holding 1,857 items.
+    """
+    vendor = _vendor(db, "eBay")
+    order = PurchaseOrder(
+        vendor_id=vendor.id,
+        order_number=None,
+        source_url=EBAY,
+        ordered_on=date(2024, 3, 11),
+    )
+    db.add(order)
+    db.flush()
+    batch = _batch(db)
+    item = _item(db, order, batch, EBAY, 1)
+
+    assert run(db, commit=True) == {}
+
+    db.refresh(item)
+    db.refresh(order)
+    assert item.purchase_order_id == order.id
+    assert order.ordered_on == date(2024, 3, 11)

@@ -82,13 +82,33 @@ def identify(link: str | None) -> tuple[str, bool] | None:
 
 
 def _fabricated_ids(db: Session) -> set[int]:
-    """Every order standing in for "I do not know the number"."""
+    """Every order standing in for "I do not know the number".
+
+    A missing order number is not enough to condemn an order, and this pass's
+    own output is the proof: an eBay purchase gets an order with
+    `order_number` left null and the link in `source_url` (see this module's
+    header), and `loader.purchase_order_id` now writes that same shape. Such
+    an order names a real transaction -- it simply names it with a URL,
+    because an eBay item number must not masquerade as an order number.
+
+    Selecting on the null number alone made this pass destructive to re-run.
+    It would have taken its own 1,234 eBay orders, holding 1,857 items, as
+    fabricated; `_order_id_for` never looks up an existing order for the
+    URL-identified case, so it would have created 1,234 fresh rows and
+    `_drop_emptied` deleted the originals. The new rows carry only vendor,
+    number and URL, so every one of those orders would have silently lost its
+    `ordered_on` -- the purchase date of a fifth of the collection.
+
+    Fabricated means no number *and* no URL: nothing that says which
+    transaction this was.
+    """
     return {
         order_id
         for (order_id,) in db.execute(
             select(PurchaseOrder.id).where(
                 (PurchaseOrder.order_number.is_(None))
-                | (PurchaseOrder.order_number == "")
+                | (PurchaseOrder.order_number == ""),
+                PurchaseOrder.source_url.is_(None),
             )
         )
     }
