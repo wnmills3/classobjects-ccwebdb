@@ -31,7 +31,7 @@ export default function CoinDetail() {
   useEffect(() => {
     let cancelled = false
     api
-      .getCoin(id)
+      .getCatalogItem(id)
       .then((data) => {
         if (!cancelled) setCoin(data)
       })
