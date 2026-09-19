@@ -15,7 +15,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import sale_state
+from .. import image_links, sale_state
 from ..config import settings
 from ..deps import AdminUser, DbSession
 from ..image_store import ingest
@@ -28,7 +28,6 @@ from ..models import (
     InventoryItem,
     ItemImage,
 )
-from ..references import code_to_id
 from ..schemas import ImageLinkOut, ImageOut
 from ..storage import get_storage
 
@@ -93,27 +92,32 @@ async def upload_image(
                 detail=f"Unknown inventory_item_id: {inventory_item_id}",
             )
         sale_state.guard(db, [item], acknowledged=acknowledge_for_sale)
-        link = db.scalar(
-            select(ItemImage).where(
-                ItemImage.inventory_item_id == inventory_item_id,
-                ItemImage.image_id == image.id,
-            )
-        )
-        if link is None:
-            link = ItemImage(inventory_item_id=inventory_item_id, image_id=image.id)
-            db.add(link)
-        link.image_role_id = code_to_id(db, ImageRole, image_role, "image_role")
 
-        if is_primary:
-            # At most one primary per item -- enforced by a partial unique
-            # index, so the previous one must be cleared in the same
-            # transaction rather than left to collide.
-            db.query(ItemImage).filter(
-                ItemImage.inventory_item_id == inventory_item_id,
-                ItemImage.image_id != image.id,
-                ItemImage.is_primary.is_(True),
-            ).update({"is_primary": False}, synchronize_session=False)
-            link.is_primary = True
+        try:
+            link = image_links.attach(
+                db,
+                image=image,
+                item=item,
+                role=image_role,
+                is_primary=is_primary,
+            )
+        except image_links.LinkRefused:
+            # Re-uploading a photograph the item already has updates how it is
+            # filed rather than refusing: the upload endpoint has always been
+            # an upsert, and the caller is a file picker, not a filing
+            # decision. Both writes still go through `image_links`, which is
+            # what keeps the primary swap in one place.
+            existing = db.scalar(
+                select(ItemImage).where(
+                    ItemImage.inventory_item_id == item.id,
+                    ItemImage.image_id == image.id,
+                )
+            )
+            assert existing is not None
+            link = existing
+            image_links.set_role(db, link, image_role)
+            if is_primary:
+                image_links.make_primary(db, link)
 
     db.commit()
     db.refresh(image)
