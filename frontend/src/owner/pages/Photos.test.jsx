@@ -134,6 +134,14 @@ describe('Photos', () => {
       inventoryItemId: 42,
       acknowledgeForSale: false,
     })
+    // `error` and `refusal` render the same verbatim text through different
+    // elements, so the message alone does not say which branch produced it.
+    // The refusal block's "Link anyway" control is the ordinary-error branch's
+    // one visible difference -- its presence is what proves this came from
+    // the refusal path rather than the plain error path.
+    expect(
+      within(row).getByRole('button', { name: /link anyway/i }),
+    ).toBeInTheDocument()
     // A refusal is a question, not a removal -- the row is still here to
     // answer it.
     expect(screen.getAllByRole('listitem')).toHaveLength(1)

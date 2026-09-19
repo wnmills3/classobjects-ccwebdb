@@ -197,6 +197,7 @@ function PhotoRow({ row, onLinked }) {
         // Anything else (a network failure, a 404 because the item was
         // deleted between the search and the click) is an ordinary failure.
         if (err.status === 409 && err.message.startsWith('For sale')) {
+          setError('')
           setRefusal(err.message)
           return
         }
