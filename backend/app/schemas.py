@@ -124,6 +124,15 @@ class ImageLinkOut(BaseModel):
     image_url: str
 
 
+class ImageLinkUpdate(BaseModel):
+    """What may change about a filed photograph."""
+
+    image_role: str | None = None
+    is_primary: bool | None = None
+    #: Set after a refusal (app.sale_state).
+    acknowledge_for_sale: bool = False
+
+
 class ImageLinkIn(BaseModel):
     """Filing a photograph against an item."""
 
