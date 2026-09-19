@@ -29,6 +29,8 @@ vi.mock('../../api', () => ({
     endListing: vi.fn(),
     listSalesVenues: vi.fn(),
     createOffers: vi.fn(),
+    // PhotosPanel's, through the same ItemEditForm.
+    listItemImages: vi.fn(),
   },
 }))
 
@@ -80,6 +82,7 @@ beforeEach(() => {
     values: [],
   })
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 412, errors: [] })
+  api.listItemImages.mockResolvedValue([])
 })
 
 describe('ReceiptPanel', () => {

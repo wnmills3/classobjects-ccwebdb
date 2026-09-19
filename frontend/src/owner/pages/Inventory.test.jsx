@@ -17,6 +17,8 @@ vi.mock('../api', () => ({
     endListing: vi.fn(),
     listSalesVenues: vi.fn(),
     createOffers: vi.fn(),
+    // PhotosPanel, in the item editor.
+    listItemImages: vi.fn(),
   },
 }))
 
@@ -52,6 +54,7 @@ beforeEach(() => {
     reviewed: [],
   })
   api.getItemErrors.mockResolvedValue({ inventory_item_id: 7, errors: [] })
+  api.listItemImages.mockResolvedValue([])
 })
 
 async function openItem(user) {
