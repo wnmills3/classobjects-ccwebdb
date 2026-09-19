@@ -257,6 +257,17 @@ def split_item(
     # `offering_writes`, the only writer of listing status and claims, so the
     # claims that held the lot are released with them.
     parent.split_at = now
+    # Flushed before the ending, not after. `end_offer` locks and re-reads the
+    # items it affects with `populate_existing=True` (`offering_writes._lock_items`),
+    # and the parent is one of them -- an assignment still sitting in the
+    # session is overwritten by that re-read and lost. The lot would then
+    # keep its pieces and still look unsplit.
+    #
+    # Nothing here flushes it implicitly: `SessionLocal` sets
+    # `autoflush=False`. The test suite runs with autoflush on, so the query
+    # below would flush it there and the fault never appears -- which is why
+    # the regression test turns autoflush off by hand.
+    db.flush()
     for listing in db.scalars(
         select(Listing).where(
             Listing.inventory_item_id == parent.id,
