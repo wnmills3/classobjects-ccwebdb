@@ -51,7 +51,18 @@ def attach(
     is_primary: bool,
     sort_order: int = 0,
 ) -> ItemImage:
-    """Link `image` to `item`. Raises `LinkRefused` if it is already linked."""
+    """Link `image` to `item`. Raises `LinkRefused` if it is already linked.
+
+    An item that has photographs gets one the shop can show. `routers.catalog`
+    serves an item's *primary* link and has no fallback to "the first one", so
+    a photograph filed without `is_primary` onto an item that has no primary
+    would otherwise be a photograph no buyer ever sees. Filling that vacancy
+    here rather than in each caller is why `/owner/photos`, the item editor's
+    upload and the receiving screen cannot disagree about it.
+
+    Filling a vacancy is never a demotion: an incumbent is displaced only when
+    the caller asked for `is_primary`.
+    """
     existing = db.scalar(
         select(ItemImage).where(
             ItemImage.inventory_item_id == item.id,
@@ -65,6 +76,13 @@ def attach(
 
     if is_primary:
         _clear_primary(db, item.id)
+    else:
+        incumbent = db.scalar(
+            select(ItemImage.id).where(
+                ItemImage.inventory_item_id == item.id, ItemImage.is_primary
+            )
+        )
+        is_primary = incumbent is None
 
     link = ItemImage(
         inventory_item_id=item.id,

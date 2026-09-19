@@ -101,7 +101,7 @@ async def upload_image(
                 role=image_role,
                 is_primary=is_primary,
             )
-        except image_links.LinkRefused:
+        except image_links.LinkRefused as exc:
             # Re-uploading a photograph the item already has updates how it is
             # filed rather than refusing: the upload endpoint has always been
             # an upsert, and the caller is a file picker, not a filing
@@ -113,9 +113,23 @@ async def upload_image(
                     ItemImage.image_id == image.id,
                 )
             )
-            assert existing is not None
+            if existing is None:
+                # `LinkRefused` says the link is there, so not finding it
+                # means it was removed between the refusal and this read.
+                # A real check, not a bare `assert`: an assert vanishes
+                # under `python -O` and this branch would then go on to
+                # call `set_role` on None.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+                ) from exc
             link = existing
-            image_links.set_role(db, link, image_role)
+            # Only when the form actually carried a role. A file picker
+            # re-picking the same file sends no `image_role`, and an
+            # unconditional `set_role` would clear whatever the operator had
+            # just set -- the same omitted-versus-explicit-null distinction
+            # `routers.image_links.update_link` draws.
+            if image_role is not None:
+                image_links.set_role(db, link, image_role)
             if is_primary:
                 image_links.make_primary(db, link)
 
