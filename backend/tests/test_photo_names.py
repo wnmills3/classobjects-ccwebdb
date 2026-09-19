@@ -34,6 +34,12 @@ from app.photo_names import ParsedName, parse
             "box3/CC-000001_01.png",
             ParsedName("CC-000001", 1, "obverse", True),
         ),
+        # The library is read on Windows, where the tree walk yields
+        # backslash-separated paths.
+        (
+            "box3\\CC-000001_01.png",
+            ParsedName("CC-000001", 1, "obverse", True),
+        ),
     ],
 )
 def test_names_that_follow_the_convention(filename: str, expected: ParsedName) -> None:
