@@ -258,3 +258,6 @@ frontend/coverage/
 
 # SonarQube CLI state, created by `sonar` commands under scripts\.
 scripts/.sonar/
+
+# Photographs waiting to be imported (app.photo_import). Not source.
+/photos/
