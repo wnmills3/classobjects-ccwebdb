@@ -141,8 +141,9 @@ class ItemImage(Base):
 
     ``inventory_item_id`` is **nullable** on purpose. Photographs exist before
     anyone has decided what they depict, and must be storable, browsable and
-    searchable in that state -- camera filenames carry only a timestamp, so
-    linking is a manual, UI-assisted task rather than an import step.
+    searchable in that state -- a filename following the ``<item_code>_<nn>``
+    convention is linked by `app.photo_import`; the console places the rest,
+    and corrects anything the import pass left unfiled.
     """
 
     __tablename__ = "item_image"
