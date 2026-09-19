@@ -1,5 +1,13 @@
 import { screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// Only the one call the unattached-photographs page makes on mount. Every
+// other case here renders at '/nowhere', which mounts no page at all, so this
+// mock does not have to grow into the full surface the note below warns
+// about -- and without it the '/photos' case would reach the real fetch.
+vi.mock('./api', () => ({
+  api: { listUnattachedImages: vi.fn().mockResolvedValue([]) },
+}))
 
 import OwnerApp from './OwnerApp'
 import { adminAuth, anonymousAuth, renderWithProviders } from '../test/helpers'
@@ -30,12 +38,27 @@ describe('owner console shell', () => {
   it('renders the console navigation for an administrator', () => {
     renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
     expect(screen.getByRole('link', { name: /coins/i })).toBeInTheDocument()
+    // The unattached-photographs page's only way in. Without this the
+    // /photos nav link and route could both be deleted with the suite
+    // staying green.
+    expect(screen.getByRole('link', { name: /photos/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /new purchase/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^orders$/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /people/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /listings/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /platforms/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /vocabularies/i })).toBeInTheDocument()
+  })
+
+  it('routes /photos to the unattached-photographs page', async () => {
+    // The nav link above proves only that the link is rendered. This is the
+    // other half of the wiring: deleting the <Route path="/photos" ...> line
+    // leaves the link in place and lands the operator on "Page not found",
+    // which no assertion on the navigation can see.
+    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/photos' })
+    expect(
+      await screen.findByRole('heading', { name: /unattached photographs/i }),
+    ).toBeInTheDocument()
   })
 
   it('offers sign-in without a guard, so the guard cannot lock everyone out', () => {
