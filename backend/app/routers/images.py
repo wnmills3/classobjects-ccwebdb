@@ -13,18 +13,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from .. import sale_state
 from ..config import settings
 from ..deps import AdminUser, DbSession
-from ..imaging import (
-    ImageRejected,
-    cleanse,
-    derivative_key,
-    make_derivative,
-    original_key,
-)
+from ..image_store import ingest
+from ..imaging import ImageRejected
 from ..models import (
     DerivativeKind,
     Image,
@@ -38,14 +32,6 @@ from ..schemas import ImageOut
 from ..storage import get_storage
 
 router = APIRouter(prefix="/images", tags=["images"])
-
-#: Longest edge per rendition. Both are generated at ingest rather than on
-#: demand: a catalogue page asks for dozens of thumbnails at once, and
-#: resizing on request turns one page view into dozens of decodes.
-DERIVATIVE_SIZES: dict[DerivativeKind, int] = {
-    DerivativeKind.thumb: settings.thumbnail_max_px,
-    DerivativeKind.web: settings.web_max_px,
-}
 
 #: A derivative is immutable -- its key contains the hash of its source -- so
 #: it can be cached hard. A year is the usual maximum.
@@ -74,54 +60,6 @@ def to_image_out(image: Image) -> ImageOut:
     )
 
 
-def ingest(db: Session, raw: bytes, source_ref: str | None) -> Image:
-    """Cleanse, store and record one uploaded file. Idempotent by content."""
-    try:
-        cleansed = cleanse(raw)
-    except ImageRejected as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-
-    existing = db.scalar(select(Image).where(Image.sha256 == cleansed.sha256))
-    if existing is not None:
-        return existing
-
-    storage = get_storage()
-    key = original_key(cleansed.sha256, cleansed.media_type)
-    storage.put(key, cleansed.data)
-
-    image = Image(
-        sha256=cleansed.sha256,
-        storage_key=key,
-        media_type=cleansed.media_type,
-        byte_size=len(cleansed.data),
-        width=cleansed.width,
-        height=cleansed.height,
-        captured_at=cleansed.captured_at,
-        source_ref=source_ref,
-    )
-    db.add(image)
-    db.flush()
-
-    for kind, longest_edge in DERIVATIVE_SIZES.items():
-        data, width, height, media_type = make_derivative(cleansed.data, longest_edge)
-        derived_key = derivative_key(cleansed.sha256, kind.value, media_type)
-        storage.put(derived_key, data)
-        db.add(
-            ImageDerivative(
-                image_id=image.id,
-                kind=kind,
-                storage_key=derived_key,
-                width=width,
-                height=height,
-            )
-        )
-
-    db.flush()
-    return image
-
-
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_image(
     db: DbSession,
@@ -139,7 +77,12 @@ async def upload_image(
     browsable and searchable -- linking is a separate, human step.
     """
     raw = await file.read()
-    image = ingest(db, raw, source_ref=file.filename)
+    try:
+        image = ingest(db, raw, source_ref=file.filename)
+    except ImageRejected as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
     if inventory_item_id is not None:
         item = db.get(InventoryItem, inventory_item_id)
