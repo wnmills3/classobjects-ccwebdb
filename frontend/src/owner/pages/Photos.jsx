@@ -36,6 +36,32 @@ import { api } from '../api'
  * to finish; a refetch would re-order or re-page underneath them and lose
  * their place for no benefit, since the row they just filed is exactly the
  * one row that is certainly gone from the server's unattached set now.
+ *
+ * The for-sale acknowledgement is driven by the server's refusal, the same
+ * shape `ReceiptPanel` uses and for the same reason: this page holds no
+ * `sale_state` for the items it can attach to -- the row does not even know
+ * which item that is until an `ItemPicker` search returns one -- so an
+ * always-present "attach anyway" checkbox would be guessing on every row
+ * whether there is anything to acknowledge. `ForSaleNotice`'s own docstring
+ * names the cost of guessing wrong: a control that is on for every row
+ * regardless teaches the operator to tick it without reading it. Fetching
+ * `sale_state` per picked item to decide would avoid that, but at the price
+ * of a request per selection just to answer a question the attach attempt
+ * already answers for free -- `PhotoRow` attempts the attach with no
+ * acknowledgement first, and only shows anything when the 409 says there is
+ * something to acknowledge, with the server's own message displayed
+ * verbatim so the operator sees which listing or order they would be
+ * overriding.
+ *
+ * That confirmation renders inline in the row rather than in `ReceiptPanel`'s
+ * `ModalDialog`. `ModalDialog`'s own docstring gives its reason for being
+ * modal: a form in the page's normal flow lands under a full table and pager,
+ * below the fold, so acting on it looks like it did nothing. Nothing here is
+ * below any fold -- the refusal appears in the exact row the operator just
+ * clicked Link on, already on screen -- and this page is a grid of many rows
+ * an operator works through one after another, where blocking every other
+ * row's picker and Link button until one row's question is answered would
+ * cost more than the modal's isolation buys back.
  */
 
 const INVENTORY_VIEWS = ['coins', 'currency']
@@ -127,15 +153,32 @@ function ItemPicker({ onPick }) {
   )
 }
 
-/** One unattached photograph: its thumbnail, an item picker, and the Link
- * action that files it. */
+/**
+ * One unattached photograph: its thumbnail, an item picker, and the Link
+ * action that files it.
+ *
+ * `refusal` holds the server's 409 message while it is being answered -- a
+ * question, not a failure, the same distinction `ReceiptPanel` draws with
+ * `forSaleRefusal`, so it is kept out of `error` (the plain "something went
+ * wrong" line) and shown as its own inline block instead. Picking a
+ * different item clears it: a refusal names a specific listing or order on
+ * the item that was selected when the attempt was made, and it would be
+ * wrong to carry that answer over to a different item nobody has attempted
+ * yet.
+ */
 function PhotoRow({ row, onLinked }) {
   const [selected, setSelected] = useState(null)
-  const [acknowledgeForSale, setAcknowledgeForSale] = useState(false)
   const [error, setError] = useState('')
+  const [refusal, setRefusal] = useState('')
   const [linking, setLinking] = useState(false)
 
-  function link() {
+  function pickItem(item) {
+    setSelected(item)
+    setError('')
+    setRefusal('')
+  }
+
+  function attempt(acknowledgeForSale) {
     if (!selected) return
     setLinking(true)
     api
@@ -145,34 +188,57 @@ function PhotoRow({ row, onLinked }) {
       })
       .then(() => {
         setError('')
+        setRefusal('')
         onLinked(row.image_id)
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => {
+        // A 409 whose message starts "For sale" is `sale_state.guard`
+        // asking to be told again, on purpose -- see the module docstring.
+        // Anything else (a network failure, a 404 because the item was
+        // deleted between the search and the click) is an ordinary failure.
+        if (err.status === 409 && err.message.startsWith('For sale')) {
+          setRefusal(err.message)
+          return
+        }
+        setRefusal('')
+        setError(err.message)
+      })
       .finally(() => setLinking(false))
   }
 
   return (
     <li className="photo-picker-row">
       <img src={row.thumbnail_url} alt="Unattached photograph" />
-      <ItemPicker onPick={setSelected} />
+      <ItemPicker onPick={pickItem} />
       {selected && (
         <p className="muted">
           Chosen: <span className="mono">{selected.item_code}</span>{' '}
           {selected.description}
         </p>
       )}
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={acknowledgeForSale}
-          onChange={(e) => setAcknowledgeForSale(e.target.checked)}
-        />
-        Attach even though the item is for sale
-      </label>
       {error && <p className="error">{error}</p>}
-      <button type="button" disabled={!selected || linking} onClick={link}>
-        Link
-      </button>
+      {!refusal && (
+        <button
+          type="button"
+          disabled={!selected || linking}
+          onClick={() => attempt(false)}
+        >
+          Link
+        </button>
+      )}
+      {refusal && (
+        <div className="for-sale" role="alert">
+          {refusal}
+          <div className="row">
+            <button type="button" disabled={linking} onClick={() => attempt(true)}>
+              {linking ? 'Linking...' : 'Link anyway'}
+            </button>
+            <button type="button" className="link" onClick={() => setRefusal('')}>
+              Leave it unlinked
+            </button>
+          </div>
+        </div>
+      )}
     </li>
   )
 }

@@ -35,6 +35,24 @@ const foundItem = (overrides) => ({
   ...overrides,
 })
 
+// Mirrors `ApiError` well enough for these tests: `PhotoRow` only ever
+// reads `.status` and `.message`, never `instanceof`s the real class.
+function forSaleError(message = 'For sale -- listing #3 at 120.00.') {
+  const err = new Error(message)
+  err.status = 409
+  return err
+}
+
+// A row's search-and-pick sequence, factored out because the refusal tests
+// below all need it at least twice -- once before the refusal and once
+// after -- and repeating it inline would bury which row is being acted on
+// under boilerplate identical across every call site.
+async function pickItem(user, row) {
+  await user.type(within(row).getByLabelText('Item code'), 'C-100')
+  await user.click(within(row).getByRole('button', { name: 'Find' }))
+  await user.click(await within(row).findByRole('button', { name: /C-100/ }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -91,14 +109,68 @@ describe('Photos', () => {
     })
   })
 
-  it('the acknowledgement checkbox is per row, not a single shared control', async () => {
-    // Two rows so a leak is visible: row 7's checkbox is ticked and row 9's
-    // is left alone. If the checkbox were backed by one shared piece of
-    // state instead of state that lives inside each PhotoRow, ticking row
-    // 7's box would silently acknowledge for row 9 too, and row 9's call
-    // would carry acknowledgeForSale: true even though nobody touched its
-    // control. Both calls assert the *full* argument object, not a partial
-    // match, so a wrong item id or a dropped field fails here too.
+  it('a refused attach shows the server refusal for that row and keeps it listed', async () => {
+    // The first attempt never acknowledges -- see the module docstring: the
+    // question is asked only once the server has actually said there is
+    // one to ask. `mockRejectedValueOnce` enforces that there is exactly
+    // one call, and it carries acknowledgeForSale: false.
+    const user = userEvent.setup()
+    api.listUnattachedImages.mockResolvedValue([unattached({ image_id: 7 })])
+    api.searchInventory.mockImplementation((view) =>
+      Promise.resolve({ view, rows: view === 'coins' ? [foundItem()] : [] }),
+    )
+    const message = 'For sale -- listing #3 at 120.00.'
+    api.attachImage.mockRejectedValueOnce(forSaleError(message))
+
+    renderWithProviders(<Photos />)
+
+    const row = (await screen.findAllByRole('listitem'))[0]
+    await pickItem(user, row)
+    await user.click(within(row).getByRole('button', { name: 'Link' }))
+
+    expect(await within(row).findByText(message)).toBeVisible()
+    expect(api.attachImage).toHaveBeenCalledTimes(1)
+    expect(api.attachImage).toHaveBeenCalledWith(7, {
+      inventoryItemId: 42,
+      acknowledgeForSale: false,
+    })
+    // A refusal is a question, not a removal -- the row is still here to
+    // answer it.
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+  })
+
+  it('confirming the refusal re-attempts with acknowledgeForSale: true, and the row then leaves', async () => {
+    const user = userEvent.setup()
+    api.listUnattachedImages.mockResolvedValue([unattached({ image_id: 7 })])
+    api.searchInventory.mockImplementation((view) =>
+      Promise.resolve({ view, rows: view === 'coins' ? [foundItem()] : [] }),
+    )
+    api.attachImage.mockRejectedValueOnce(forSaleError()).mockResolvedValueOnce({})
+
+    renderWithProviders(<Photos />)
+
+    const row = (await screen.findAllByRole('listitem'))[0]
+    await pickItem(user, row)
+    await user.click(within(row).getByRole('button', { name: 'Link' }))
+    await within(row).findByText(/for sale/i)
+
+    await user.click(within(row).getByRole('button', { name: /link anyway/i }))
+
+    expect(api.attachImage).toHaveBeenCalledTimes(2)
+    expect(api.attachImage).toHaveBeenNthCalledWith(2, 7, {
+      inventoryItemId: 42,
+      acknowledgeForSale: true,
+    })
+    await waitFor(() => expect(screen.queryAllByRole('listitem')).toHaveLength(0))
+  })
+
+  it('a refusal on one row leaves a second row untouched -- no refusal shown, no acknowledgement carried', async () => {
+    // Two rows, the same discipline the row-leaves test below uses: row 7
+    // is refused and answered; row 9 is never clicked into a refusal at
+    // all. If the refusal (or the acknowledgement it unlocks) were held in
+    // state shared across rows rather than inside each PhotoRow, row 9
+    // would either show row 7's refusal text or send
+    // acknowledgeForSale: true despite never having been told to.
     const user = userEvent.setup()
     api.listUnattachedImages.mockResolvedValue([
       unattached({ image_id: 7, thumbnail_url: '/thumb/7' }),
@@ -107,7 +179,7 @@ describe('Photos', () => {
     api.searchInventory.mockImplementation((view) =>
       Promise.resolve({ view, rows: view === 'coins' ? [foundItem()] : [] }),
     )
-    api.attachImage.mockResolvedValue({})
+    api.attachImage.mockRejectedValueOnce(forSaleError()).mockResolvedValueOnce({})
 
     renderWithProviders(<Photos />)
 
@@ -119,30 +191,42 @@ describe('Photos', () => {
       (r) => within(r).getByRole('img').getAttribute('src') === '/thumb/9',
     )
 
-    // Row 7: tick the acknowledgement, then pick an item and link.
-    await user.click(within(row7).getByRole('checkbox', { name: /for sale/i }))
-    await user.type(within(row7).getByLabelText('Item code'), 'C-100')
-    await user.click(within(row7).getByRole('button', { name: 'Find' }))
-    await user.click(await within(row7).findByRole('button', { name: /C-100/ }))
+    await pickItem(user, row7)
     await user.click(within(row7).getByRole('button', { name: 'Link' }))
+    await within(row7).findByText(/for sale/i)
 
-    expect(api.attachImage).toHaveBeenCalledWith(7, {
-      inventoryItemId: 42,
-      acknowledgeForSale: true,
-    })
+    expect(within(row9).queryByRole('alert')).toBeNull()
+    expect(within(row9).queryByRole('button', { name: /link anyway/i })).toBeNull()
 
-    // Row 9: never touched, so its checkbox stays at the default. Linking
-    // it must send acknowledgeForSale: false -- proving row 7's tick did
-    // not leak into row 9's call.
-    await user.type(within(row9).getByLabelText('Item code'), 'C-100')
-    await user.click(within(row9).getByRole('button', { name: 'Find' }))
-    await user.click(await within(row9).findByRole('button', { name: /C-100/ }))
+    await pickItem(user, row9)
     await user.click(within(row9).getByRole('button', { name: 'Link' }))
 
     expect(api.attachImage).toHaveBeenCalledWith(9, {
       inventoryItemId: 42,
       acknowledgeForSale: false,
     })
+  })
+
+  it('a non-"For sale" failure shows an ordinary error and keeps the row', async () => {
+    // Not a 409, and not the "For sale" prefix `sale_state.guard` always
+    // uses -- this must take the plain error branch, never the refusal one.
+    const user = userEvent.setup()
+    api.listUnattachedImages.mockResolvedValue([unattached({ image_id: 7 })])
+    api.searchInventory.mockImplementation((view) =>
+      Promise.resolve({ view, rows: view === 'coins' ? [foundItem()] : [] }),
+    )
+    api.attachImage.mockRejectedValueOnce(new Error('Network error'))
+
+    renderWithProviders(<Photos />)
+
+    const row = (await screen.findAllByRole('listitem'))[0]
+    await pickItem(user, row)
+    await user.click(within(row).getByRole('button', { name: 'Link' }))
+
+    expect(await within(row).findByText('Network error')).toBeVisible()
+    // No refusal UI for an ordinary failure -- nothing here to "confirm".
+    expect(within(row).queryByRole('button', { name: /link anyway/i })).toBeNull()
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
   })
 
   it('a linked photograph leaves the list, and an untouched one stays', async () => {
