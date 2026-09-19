@@ -91,6 +91,60 @@ describe('Photos', () => {
     })
   })
 
+  it('the acknowledgement checkbox is per row, not a single shared control', async () => {
+    // Two rows so a leak is visible: row 7's checkbox is ticked and row 9's
+    // is left alone. If the checkbox were backed by one shared piece of
+    // state instead of state that lives inside each PhotoRow, ticking row
+    // 7's box would silently acknowledge for row 9 too, and row 9's call
+    // would carry acknowledgeForSale: true even though nobody touched its
+    // control. Both calls assert the *full* argument object, not a partial
+    // match, so a wrong item id or a dropped field fails here too.
+    const user = userEvent.setup()
+    api.listUnattachedImages.mockResolvedValue([
+      unattached({ image_id: 7, thumbnail_url: '/thumb/7' }),
+      unattached({ image_id: 9, thumbnail_url: '/thumb/9' }),
+    ])
+    api.searchInventory.mockImplementation((view) =>
+      Promise.resolve({ view, rows: view === 'coins' ? [foundItem()] : [] }),
+    )
+    api.attachImage.mockResolvedValue({})
+
+    renderWithProviders(<Photos />)
+
+    const rows = await screen.findAllByRole('listitem')
+    const row7 = rows.find(
+      (r) => within(r).getByRole('img').getAttribute('src') === '/thumb/7',
+    )
+    const row9 = rows.find(
+      (r) => within(r).getByRole('img').getAttribute('src') === '/thumb/9',
+    )
+
+    // Row 7: tick the acknowledgement, then pick an item and link.
+    await user.click(within(row7).getByRole('checkbox', { name: /for sale/i }))
+    await user.type(within(row7).getByLabelText('Item code'), 'C-100')
+    await user.click(within(row7).getByRole('button', { name: 'Find' }))
+    await user.click(await within(row7).findByRole('button', { name: /C-100/ }))
+    await user.click(within(row7).getByRole('button', { name: 'Link' }))
+
+    expect(api.attachImage).toHaveBeenCalledWith(7, {
+      inventoryItemId: 42,
+      acknowledgeForSale: true,
+    })
+
+    // Row 9: never touched, so its checkbox stays at the default. Linking
+    // it must send acknowledgeForSale: false -- proving row 7's tick did
+    // not leak into row 9's call.
+    await user.type(within(row9).getByLabelText('Item code'), 'C-100')
+    await user.click(within(row9).getByRole('button', { name: 'Find' }))
+    await user.click(await within(row9).findByRole('button', { name: /C-100/ }))
+    await user.click(within(row9).getByRole('button', { name: 'Link' }))
+
+    expect(api.attachImage).toHaveBeenCalledWith(9, {
+      inventoryItemId: 42,
+      acknowledgeForSale: false,
+    })
+  })
+
   it('a linked photograph leaves the list, and an untouched one stays', async () => {
     // Two rows, not one -- linking the only row would leave the list empty
     // whether or not the row-removal code does anything at all. The second
