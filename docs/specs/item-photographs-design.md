@@ -1,6 +1,6 @@
 # Photographs on an item: importing them, and putting them right
 
-Design. Status: **agreed with the owner 2026-09-18**; not built.
+Design. Status: **agreed with the owner 2026-09-18**; built.
 
 ## The problem
 

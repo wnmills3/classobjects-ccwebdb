@@ -373,6 +373,39 @@ The report also lists **bare numbers with nothing to settle the strike**
 and **attributes for the other kind of item** (a note rated FDOI). Every
 proposal is written to `rating_pass.csv` in the log directory.
 
+### Filing photographs: the photo import pass
+
+`python -m app.photo_import` walks the safe-deposit-box photograph library and
+links each photograph to the item its filename names, through the same writer
+(`app.image_links.attach`) the console's Photos page uses:
+
+    python -m app.photo_import            report, touching nothing
+    python -m app.photo_import --commit   write the links
+
+`--root` defaults to `settings.photo_library_root`, the real library --
+**never point this at it without `--commit` having been asked for on
+purpose**; the owner watches the first real run personally.
+
+The filename convention is `<item_code>_<nn>.<ext>` (`app.photo_names`), for
+example `CC-000412_01.jpg`. Nothing here repairs a filename that misses it --
+a lowercase `cc-` is a miss, not a correction. The sequence carries a role as
+well as the order: `01` is obverse and becomes the item's primary photograph,
+`02` is reverse, and anything past that is `unassigned`, left for a person to
+set. Every file is stored regardless of what its name says -- an import step
+must never be the reason a photograph is lost -- so only the *link* is ever
+withheld.
+
+A photograph the pass cannot place is stored, unattached, and reported rather
+than guessed at: a name that does not match the convention, an item code
+nothing recognises, an item that was deleted or split, two files in this run
+claiming the same slot (a collision links *neither* -- there is no way to
+prefer one claimant from the filename alone), or a slot an earlier run
+already filled. The console's **Photos** page (`/owner/photos`) is where
+those unattached photographs get filed onto the item they belong to by hand.
+A photograph the pass links onto an item that is for sale is not refused --
+it is reported, by item code, so the owner knows what changed under an active
+listing without the pass needing to ask anyone to acknowledge it.
+
 ### How an item comes into being
 
 Four paths create an `inventory_item`.
