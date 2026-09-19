@@ -1118,7 +1118,59 @@ def attach_image(
 
 Add `from .. import image_links, sale_state` and import `ImageLinkIn`.
 
-- [ ] **Step 5: Run to verify, gate and commit**
+- [ ] **Step 5: Retire the router's own `item_image` writes**
+
+`upload_image` in the same file still builds an `ItemImage` by hand and runs
+its own primary swap with a raw `db.query(ItemImage).filter(...).update(...)`.
+That is a second implementation of the thing `image_links` exists to own, and
+leaving it means the global constraint "`image_links.py` is the only writer of
+`item_image`" is false at the end of this branch. Two implementations of a
+swap ordered against a partial unique index is exactly the drift the module was
+written to prevent.
+
+**It is not a straight swap, so read this before editing.** `upload_image` is
+an *upsert*: re-uploading the same photograph to the same item finds the
+existing link and updates its role. `image_links.attach` refuses a duplicate
+with `LinkRefused`. Preserve the existing behaviour by trying to attach and
+falling back to the module's own updaters:
+
+```python
+        try:
+            link = image_links.attach(
+                db,
+                image=image,
+                item=item,
+                role=image_role,
+                is_primary=is_primary,
+            )
+        except image_links.LinkRefused:
+            # Re-uploading a photograph the item already has updates how it is
+            # filed rather than refusing: the upload endpoint has always been
+            # an upsert, and the caller is a file picker, not a filing
+            # decision. Both writes still go through `image_links`, which is
+            # what keeps the primary swap in one place.
+            link = db.scalar(
+                select(ItemImage).where(
+                    ItemImage.inventory_item_id == item.id,
+                    ItemImage.image_id == image.id,
+                )
+            )
+            assert link is not None
+            image_links.set_role(db, link, image_role)
+            if is_primary:
+                image_links.make_primary(db, link)
+```
+
+Delete the hand-built `ItemImage(...)`, the `link.image_role_id = ...` line,
+and the whole `if is_primary:` block with its raw `db.query(...).update(...)`.
+Keep the 404 and the `sale_state.guard` call exactly where they are.
+
+**`backend/tests/test_images.py` must still pass unedited.** It covers this
+endpoint's upsert and primary behaviour today, and it is the proof the
+migration preserved them. If a test there fails, the behaviour changed — fix
+the code, not the test.
+
+- [ ] **Step 6: Run to verify, gate and commit**
 
 Run: `python -m pytest backend/tests/test_image_links.py -v`
 Expected: PASS
