@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     sales_tax_rate: Decimal = Field(default=Decimal("0.0635"), ge=0, le=1)
     sales_tax_includes_shipping: bool = True
 
+    # --- photograph library -------------------------------------------------
+    # Where `python -m app.photo_import` looks for files to import. A
+    # directory rather than an upload, because the photographs are already on
+    # the machine and 673 of them through a file picker is a long sitting.
+    # Git-ignored: a coin collection's photographs are not source code.
+    photo_library_root: Path = REPO_ROOT / "photos"
+
 
 @lru_cache
 def get_settings() -> Settings:

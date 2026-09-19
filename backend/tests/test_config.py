@@ -8,6 +8,9 @@ object -- a traceback, a log line, a debugger -- leaks the same way.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from app.config import settings
 
 #: Fields whose values are credentials. `database_url` is one because it
@@ -29,3 +32,20 @@ def test_printing_the_settings_shows_no_secret() -> None:
 def test_the_secrets_are_still_readable_by_the_code_that_needs_them() -> None:
     """Hiding them from display must not hide them from use."""
     assert all(getattr(settings, name) for name in SECRET_FIELDS)
+
+
+def test_the_photograph_library_defaults_beside_the_repository() -> None:
+    """Unconfigured, the import pass looks next to the checkout."""
+    from app.config import REPO_ROOT, Settings
+
+    assert Settings().photo_library_root == REPO_ROOT / "photos"
+
+
+def test_the_photograph_library_can_be_moved_by_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PHOTO_LIBRARY_ROOT overrides the default, like media_root's own var."""
+    from app.config import Settings
+
+    monkeypatch.setenv("PHOTO_LIBRARY_ROOT", "/tmp/elsewhere")
+    assert Settings().photo_library_root == Path("/tmp/elsewhere")
