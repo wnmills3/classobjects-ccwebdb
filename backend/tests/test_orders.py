@@ -15,13 +15,14 @@ from app.models import Customer, Listing, SalesOrder, SalesOrderStatus, User
 from app.sales_venues import store_venue_id
 from app.security import hash_password
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
 def place(
     client: TestClient, headers: dict[str, str], listing_id: int, quantity: int
-) -> None:
+) -> Response:
     return client.post(
         "/api/orders",
         json={"items": [{"listing_id": listing_id, "quantity": quantity}]},
@@ -119,6 +120,9 @@ def test_selling_the_last_unit_marks_the_item_sold(
 
     db.expire_all()
     refreshed = db.get(Listing, only_one.id)
+    # Expired above, not deleted: selling the last unit must leave the listing
+    # in place, so a None here is itself a failure worth naming.
+    assert refreshed is not None
     assert refreshed.quantity_available == 0
     assert refreshed.inventory_item.disposition.code == "sold"
     # How it was acquired is untouched by selling it.
