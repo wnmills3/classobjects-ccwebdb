@@ -29,8 +29,11 @@ beforeEach(() => {
       is_active: true,
     },
   ])
+  // `display_name`, which is what `CustomerOut` actually returns. The fixture
+  // said `full_name` -- a field no customer response has ever carried -- so
+  // the name column rendered blank in every test here and nothing noticed.
   api.listCustomers.mockResolvedValue([
-    { id: 5, full_name: 'Ada Lovelace', email: 'ada@example.com', addresses: [] },
+    { id: 5, display_name: 'Ada Lovelace', email: 'ada@example.com', addresses: [] },
   ])
 })
 
@@ -46,8 +49,10 @@ describe('AdminPeople', () => {
     await screen.findByText('staff@example.com')
 
     await user.click(screen.getByRole('button', { name: 'Customers' }))
-    // The customers table identifies a row by email, not by name.
     expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
+    // The name too. It used to be absent because the fixture named the field
+    // wrongly, and the assertion was dropped rather than the fixture fixed.
+    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
   })
 
   it('reveals the address form for one customer on request', async () => {
@@ -134,5 +139,46 @@ describe('AdminPeople', () => {
     api.listUsers.mockRejectedValue(new Error('cannot reach the server'))
     renderWithProviders(<AdminPeople />, { auth: adminAuth() })
     expect(await screen.findByText('cannot reach the server')).toBeInTheDocument()
+  })
+
+  it('keeps the accounts table when an action is refused', async () => {
+    // The last-administrator guard answers 409, and that refusal is about a
+    // row. Replacing the page with it left the operator with an error and no
+    // rows -- unable to see which account they had just tried to change, or
+    // to act on the advice.
+    api.updateUser.mockRejectedValue(
+      new Error('That is the last administrator; promote another first.'),
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<AdminPeople />, { auth: adminAuth() })
+
+    await user.click(await screen.findByRole('button', { name: 'Active' }))
+
+    expect(
+      await screen.findByText('That is the last administrator; promote another first.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('staff@example.com')).toBeInTheDocument()
+  })
+
+  it('keeps a customer edit on screen when saving it is refused', async () => {
+    // `draft` holds what the operator typed. It is React state, so it
+    // survives the failure -- but only if the input is still mounted. The
+    // page used to unmount the whole table, taking the half-finished edit
+    // with it and offering no way back.
+    api.updateCustomer.mockRejectedValue(new Error('that email is already in use'))
+    const user = userEvent.setup()
+    renderWithProviders(<AdminPeople />, { auth: adminAuth() })
+
+    await user.click(await screen.findByRole('button', { name: 'Customers' }))
+    await user.click(await screen.findByRole('button', { name: 'Edit' }))
+
+    const name = screen.getByDisplayValue('Ada Lovelace')
+    await user.clear(name)
+    await user.type(name, 'Ada King')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('that email is already in use')).toBeInTheDocument()
+    // The typing is still there to be corrected, not retyped.
+    expect(screen.getByDisplayValue('Ada King')).toBeInTheDocument()
   })
 })

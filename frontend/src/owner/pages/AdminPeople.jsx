@@ -154,11 +154,16 @@ function Accounts({ notify }) {
     }
   }
 
-  if (error) return <p className="error">{error}</p>
+  // Only when the list never loaded. A failed action lands in `error` too --
+  // the last-administrator 409 most of all -- and returning it instead of the
+  // page unmounted the table and the password field mid-entry. The refusal is
+  // information about a row, so the rows have to stay on screen.
+  if (error && !rows) return <p className="error">{error}</p>
   if (!rows) return <p className="muted">Loading...</p>
 
   return (
     <>
+      {error && <p className="error">{error}</p>}
       <p className="muted">
         Accounts are never deleted, only deactivated -- a person who has placed orders
         cannot be removed without breaking that history.
@@ -354,7 +359,11 @@ function Customers({ notify }) {
     }
   }
 
-  if (error) return <p className="error">{error}</p>
+  // Only when the list never loaded. `saveEdit` puts its refusal here, and
+  // returning it instead of the table unmounted the row being edited --
+  // taking `draft`, the operator's unsaved typing, off screen with no way
+  // back, since nothing clears `error` but a later successful load.
+  if (error && !rows) return <p className="error">{error}</p>
   if (!rows) return <p className="muted">Loading...</p>
   if (rows.length === 0)
     return (
@@ -365,105 +374,112 @@ function Customers({ notify }) {
     )
 
   return (
-    <table className="table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Email</th>
-          <th>Phone</th>
-          <th>Shipping address</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((c) => {
-          const shipping = (c.addresses ?? []).find(
-            (a) => a.address_kind === 'shipping' && a.is_default,
-          )
-          const isEditing = editing === c.id
-          return (
-            <tr key={c.id}>
-              <td>
-                {isEditing ? (
-                  <input
-                    value={draft.display_name ?? c.display_name}
-                    onChange={(e) =>
-                      setDraft({ ...draft, display_name: e.target.value })
-                    }
-                  />
-                ) : (
-                  c.display_name
-                )}
-              </td>
-              <td className="mono">
-                {isEditing ? (
-                  <input
-                    value={draft.email ?? c.email ?? ''}
-                    onChange={(e) => setDraft({ ...draft, email: e.target.value })}
-                  />
-                ) : (
-                  c.email || <span className="muted">-</span>
-                )}
-              </td>
-              <td className="mono">
-                {isEditing ? (
-                  <input
-                    // Prefilled with the country code rather than storing it
-                    // separately: the number is kept whole in E.164 so it is
-                    // dialable from anywhere, and two columns could disagree.
-                    value={draft.phone ?? c.phone ?? PHONE_DEFAULT_CC}
-                    onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
-                    placeholder="+12125551234"
-                  />
-                ) : (
-                  c.phone || <span className="muted">-</span>
-                )}
-              </td>
-              <td>
-                {shipping ? addressLine(shipping) : <span className="muted">none</span>}
-              </td>
-              <td>
-                {isEditing ? (
-                  <span className="row">
-                    <button onClick={() => saveEdit(c.id)}>Save</button>
-                    <button className="link" onClick={() => setEditing(null)}>
-                      Cancel
-                    </button>
-                  </span>
-                ) : (
-                  <span className="row">
-                    <button
-                      className="link"
-                      onClick={() => {
-                        setEditing(c.id)
-                        setDraft({})
+    <>
+      {error && <p className="error">{error}</p>}
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Shipping address</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => {
+            const shipping = (c.addresses ?? []).find(
+              (a) => a.address_kind === 'shipping' && a.is_default,
+            )
+            const isEditing = editing === c.id
+            return (
+              <tr key={c.id}>
+                <td>
+                  {isEditing ? (
+                    <input
+                      value={draft.display_name ?? c.display_name}
+                      onChange={(e) =>
+                        setDraft({ ...draft, display_name: e.target.value })
+                      }
+                    />
+                  ) : (
+                    c.display_name
+                  )}
+                </td>
+                <td className="mono">
+                  {isEditing ? (
+                    <input
+                      value={draft.email ?? c.email ?? ''}
+                      onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+                    />
+                  ) : (
+                    c.email || <span className="muted">-</span>
+                  )}
+                </td>
+                <td className="mono">
+                  {isEditing ? (
+                    <input
+                      // Prefilled with the country code rather than storing it
+                      // separately: the number is kept whole in E.164 so it is
+                      // dialable from anywhere, and two columns could disagree.
+                      value={draft.phone ?? c.phone ?? PHONE_DEFAULT_CC}
+                      onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
+                      placeholder="+12125551234"
+                    />
+                  ) : (
+                    c.phone || <span className="muted">-</span>
+                  )}
+                </td>
+                <td>
+                  {shipping ? (
+                    addressLine(shipping)
+                  ) : (
+                    <span className="muted">none</span>
+                  )}
+                </td>
+                <td>
+                  {isEditing ? (
+                    <span className="row">
+                      <button onClick={() => saveEdit(c.id)}>Save</button>
+                      <button className="link" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="row">
+                      <button
+                        className="link"
+                        onClick={() => {
+                          setEditing(c.id)
+                          setDraft({})
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button className="link" onClick={() => setAddressFor(c.id)}>
+                        New address
+                      </button>
+                    </span>
+                  )}
+                  {addressFor === c.id && (
+                    <AddressForm
+                      customerId={c.id}
+                      notify={notify}
+                      setError={setError}
+                      onCancel={() => setAddressFor(null)}
+                      onSaved={() => {
+                        setAddressFor(null)
+                        load()
                       }}
-                    >
-                      Edit
-                    </button>
-                    <button className="link" onClick={() => setAddressFor(c.id)}>
-                      New address
-                    </button>
-                  </span>
-                )}
-                {addressFor === c.id && (
-                  <AddressForm
-                    customerId={c.id}
-                    notify={notify}
-                    setError={setError}
-                    onCancel={() => setAddressFor(null)}
-                    onSaved={() => {
-                      setAddressFor(null)
-                      load()
-                    }}
-                  />
-                )}
-              </td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
+                    />
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </>
   )
 }
 
