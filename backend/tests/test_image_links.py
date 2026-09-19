@@ -132,6 +132,119 @@ def test_detaching_leaves_the_photograph(db: Session) -> None:
     assert link.image_role_id is None
 
 
+def test_detaching_the_primary_promotes_the_next_in_display_order(
+    db: Session,
+) -> None:
+    """An item with photographs must never be left without a primary.
+
+    `routers.catalog` serves the primary link and has no fallback, so three
+    photographs and no primary is three photographs no buyer can see.
+
+    The three are attached in an order that is deliberately not their display
+    order, and the primary is the one attached first. If the code promoted
+    "the next row" or "the lowest id" instead of the display successor, this
+    fixture tells the difference; a fixture that attached them in order could
+    not.
+    """
+    item = build_item(db)
+    leaving = image_links.attach(
+        db,
+        image=_image(db, "10" * 32),
+        item=item,
+        role=None,
+        is_primary=True,
+        sort_order=5,
+    )
+    last = image_links.attach(
+        db,
+        image=_image(db, "11" * 32),
+        item=item,
+        role=None,
+        is_primary=False,
+        sort_order=9,
+    )
+    successor = image_links.attach(
+        db,
+        image=_image(db, "12" * 32),
+        item=item,
+        role=None,
+        is_primary=False,
+        sort_order=1,
+    )
+    db.flush()
+    assert leaving.is_primary is True
+
+    image_links.detach(db, leaving)
+    db.flush()
+
+    db.refresh(successor)
+    db.refresh(last)
+    assert successor.is_primary is True, "the lowest sort_order should take over"
+    assert last.is_primary is False
+
+
+def test_detaching_the_last_photograph_promotes_nothing(db: Session) -> None:
+    """An item with no photographs left has no primary to give, and that is fine."""
+    item = build_item(db)
+    only = image_links.attach(
+        db, image=_image(db, "13" * 32), item=item, role=None, is_primary=True
+    )
+    db.flush()
+
+    image_links.detach(db, only)
+    db.flush()
+
+    remaining = db.scalars(
+        select(ItemImage).where(ItemImage.inventory_item_id == item.id)
+    ).all()
+    assert remaining == []
+
+
+def test_detaching_a_non_primary_leaves_the_primary_alone(db: Session) -> None:
+    """Only a vacancy is filled; an item that still has a primary is untouched.
+
+    Three links, and the surviving primary has the *highest* sort_order. So
+    if the promotion ran without first checking whether a primary is still
+    held, it would promote the sort_order 1 link alongside the incumbent --
+    two primaries, which `uq_item_image_primary` refuses. The check is what
+    this fixture makes load-bearing.
+    """
+    item = build_item(db)
+    primary = image_links.attach(
+        db,
+        image=_image(db, "14" * 32),
+        item=item,
+        role=None,
+        is_primary=True,
+        sort_order=9,
+    )
+    spare = image_links.attach(
+        db,
+        image=_image(db, "15" * 32),
+        item=item,
+        role=None,
+        is_primary=False,
+        sort_order=5,
+    )
+    lowest = image_links.attach(
+        db,
+        image=_image(db, "16" * 32),
+        item=item,
+        role=None,
+        is_primary=False,
+        sort_order=1,
+    )
+    db.flush()
+
+    image_links.detach(db, spare)
+    db.flush()
+
+    db.refresh(primary)
+    db.refresh(lowest)
+    assert primary.is_primary is True
+    assert lowest.is_primary is False
+
+
 def test_the_same_photograph_cannot_be_attached_twice(db: Session) -> None:
     item = build_item(db)
     image = _image(db, "0" * 64)
@@ -262,6 +375,53 @@ def test_omitting_the_role_leaves_it_alone(
 
     db.expire_all()
     assert db.get_one(ItemImage, link.id).image_role_id == role_id
+
+
+def test_destroying_the_primary_image_promotes_a_survivor(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """The cascade path leaves a primary behind too.
+
+    `DELETE /api/images/{id}` destroys the image, and the database cascades
+    its `item_image` rows away -- the one removal that never runs through
+    `app.image_links`. Without a repair afterwards the item keeps two
+    photographs and no primary, and the shop shows a buyer nothing.
+
+    Goes through the API rather than calling the module, because calling the
+    module is exactly what this path does not do.
+    """
+    item = build_item(db)
+    doomed = _image(db, "c1" * 32)
+    image_links.attach(
+        db, image=doomed, item=item, role=None, is_primary=True, sort_order=5
+    )
+    image_links.attach(
+        db,
+        image=_image(db, "c2" * 32),
+        item=item,
+        role=None,
+        is_primary=False,
+        sort_order=9,
+    )
+    survivor = image_links.attach(
+        db,
+        image=_image(db, "c3" * 32),
+        item=item,
+        role=None,
+        is_primary=False,
+        sort_order=1,
+    )
+    db.commit()
+
+    removed = client.delete(f"/api/images/{doomed.id}", headers=admin_headers)
+    assert removed.status_code == 204, removed.text
+
+    db.expire_all()
+    remaining = db.scalars(
+        select(ItemImage).where(ItemImage.inventory_item_id == item.id)
+    ).all()
+    assert len(remaining) == 2
+    assert [link.id for link in remaining if link.is_primary] == [survivor.id]
 
 
 def test_detaching_keeps_the_photograph(

@@ -325,4 +325,11 @@ def delete_image(
     storage.delete(image.storage_key)
 
     db.delete(image)
+    db.flush()
+
+    # Deleting the image cascades its `item_image` rows away in the database,
+    # which is the one removal path that does not run through `image_links`.
+    # An item that kept two other photographs would be left with no primary,
+    # and the shop shows a buyer nothing at all in that state.
+    image_links.fill_primary_vacancy(db, [item.id for item in attached])
     db.commit()
