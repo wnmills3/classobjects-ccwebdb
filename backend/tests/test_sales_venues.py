@@ -32,7 +32,9 @@ def test_platform_kinds_cannot_be_retired() -> None:
 
 
 def _kind_id(db: Session, code: str) -> int:
-    return db.scalar(select(SalesVenueKind.id).where(SalesVenueKind.code == code))
+    return db.scalars(
+        select(SalesVenueKind.id).where(SalesVenueKind.code == code)
+    ).one()
 
 
 def test_the_test_database_has_exactly_one_store(db: Session) -> None:

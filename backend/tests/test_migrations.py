@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,7 @@ ALEMBIC_VERSIONS = BACKEND_DIR / "alembic" / "versions"
 
 
 @pytest.fixture
-def migrated_url() -> str:
+def migrated_url() -> Iterator[str]:
     """A throwaway database built purely by running the migrations."""
     url = TEST_URL
     name = f"{url.database}_migrations"
@@ -57,7 +58,7 @@ def migrated_url() -> str:
 
 
 @pytest.fixture
-def round_trip_url() -> str:
+def round_trip_url() -> Iterator[str]:
     """A throwaway database of its own.
 
     So this test cannot fight `migrated_url` for one database while both
@@ -90,7 +91,7 @@ def round_trip_url() -> str:
 
 
 @pytest.fixture
-def grade_migration_url() -> str:
+def grade_migration_url() -> Iterator[str]:
     """A throwaway database for migrating real grades, not an empty table."""
     url = TEST_URL
     name = f"{url.database}_migrations_grades"
@@ -116,7 +117,7 @@ def grade_migration_url() -> str:
 
 
 @pytest.fixture
-def sales_venue_migration_url() -> str:
+def sales_venue_migration_url() -> Iterator[str]:
     """A throwaway database for migrating real listings, not an empty table."""
     url = TEST_URL
     name = f"{url.database}_migrations_venues"
@@ -142,7 +143,7 @@ def sales_venue_migration_url() -> str:
 
 
 @pytest.fixture
-def offer_claim_migration_url() -> str:
+def offer_claim_migration_url() -> Iterator[str]:
     """A throwaway database for migrating real listings, not an empty table."""
     url = TEST_URL
     name = f"{url.database}_migrations_claims"
@@ -278,13 +279,15 @@ def test_the_grade_migration_moves_real_items(grade_migration_url: str) -> None:
 
     downgrade(config, "d9a2e47b1c05")
     with engine.connect() as conn:
-        back = dict(
+        back: dict[str, str | None] = dict(
             conn.execute(
                 text(
                     "SELECT i.grade_raw, g.code FROM inventory_item i "
                     "LEFT JOIN grade g ON g.id = i.grade_id"
                 )
-            ).all()
+            )
+            .tuples()
+            .all()
         )
     engine.dispose()
     assert back["MS65"] == "MS65"
@@ -420,7 +423,9 @@ def test_the_sales_venue_migration_moves_real_rows(
 
     downgrade(config, "c2d7a9e5f614")
     with engine.connect() as conn:
-        back = dict(conn.execute(text("SELECT id, is_active FROM listing")).all())
+        back: dict[int, bool] = dict(
+            conn.execute(text("SELECT id, is_active FROM listing")).tuples().all()
+        )
     engine.dispose()
     assert back == {listing_ids[True]: True, listing_ids[False]: False}
 
@@ -499,13 +504,15 @@ def test_the_offer_claim_migration_claims_existing_listings(
 
     upgrade(config, "head")
     with engine.connect() as conn:
-        state_by_status = dict(
+        state_by_status: dict[str, str] = dict(
             conn.execute(
                 text(
                     "SELECT l.status::text, c.state::text FROM offer_claim c "
                     "JOIN listing l ON l.id = c.listing_id"
                 )
-            ).all()
+            )
+            .tuples()
+            .all()
         )
         assert state_by_status == {
             "active": "active",
@@ -517,8 +524,8 @@ def test_the_offer_claim_migration_claims_existing_listings(
 
     downgrade(config, "d6a1f3b8c402")
     with engine.connect() as conn:
-        statuses = dict(
-            conn.execute(text("SELECT id, status::text FROM listing")).all()
+        statuses: dict[int, str] = dict(
+            conn.execute(text("SELECT id, status::text FROM listing")).tuples().all()
         )
         claim_table = conn.scalar(text("SELECT to_regclass('offer_claim')"))
     engine.dispose()

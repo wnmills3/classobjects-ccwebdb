@@ -392,7 +392,8 @@ def test_renaming_a_label_takes_effect_everywhere_at_once(
     assert response.status_code == 200
 
     db.expire_all()
-    refreshed = db.get(InventoryItem, item.id)
+    refreshed = db.get_one(InventoryItem, item.id)
+    assert refreshed.grade is not None
     assert refreshed.grade.label == "MS-65 (Gem Uncirculated)"
     # ...and the code, which is the contract, is untouched.
     assert refreshed.grade.code == "65"

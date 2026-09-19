@@ -182,7 +182,7 @@ def test_kinds_listing_lets_an_ordered_but_unlisted_split_reach_split_item(
     )
     assert ordered.status_code == 201, ordered.text
     db.expire_all()
-    assert db.get(Listing, listing.id).quantity_available == 0
+    assert db.get_one(Listing, listing.id).quantity_available == 0
 
     refused = client.post(
         f"/api/inventory/{listing.inventory_item_id}/split",
@@ -397,6 +397,7 @@ def test_a_merge_reports_the_items_for_sale_then_refuses(
 ) -> None:
     item = db.get(InventoryItem, listing.inventory_item_id)
     assert item is not None
+    assert item.grade is not None
     # `grade` codes are the bare Sheldon number ("64"), not the compound
     # form a collector writes ("MS64") -- app.grades.split is what turns one
     # into the other, and this table's own values are already numeric.

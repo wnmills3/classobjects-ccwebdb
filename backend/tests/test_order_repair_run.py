@@ -107,7 +107,7 @@ def test_a_commit_moves_the_item_and_removes_the_empty_order(db: Session) -> Non
     assert item.purchase_order_id != bad.id
     assert db.get(PurchaseOrder, bad.id) is None
 
-    moved_to = db.get(PurchaseOrder, item.purchase_order_id)
+    moved_to = db.get_one(PurchaseOrder, item.purchase_order_id)
     assert moved_to.order_number == "226778844"
     assert moved_to.source_url == HIBID
 

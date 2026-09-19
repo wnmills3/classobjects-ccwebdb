@@ -304,7 +304,7 @@ def test_an_existing_primary_is_never_demoted_silently(
     assert report.primary_kept == [(f"{item.item_code}_01.jpg", "hand-attached.jpg")]
 
     db.expire_all()
-    assert db.get(ItemImage, incumbent.id).is_primary is True
+    assert db.get_one(ItemImage, incumbent.id).is_primary is True
     imported = db.scalar(
         select(ItemImage).where(
             ItemImage.inventory_item_id == item.id, ItemImage.sort_order == 1

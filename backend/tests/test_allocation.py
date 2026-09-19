@@ -13,7 +13,7 @@ import pytest
 from app.allocation import AllocationError, allocate
 
 
-def D(value: str) -> Decimal:
+def D(value: str | int) -> Decimal:
     return Decimal(value)
 
 

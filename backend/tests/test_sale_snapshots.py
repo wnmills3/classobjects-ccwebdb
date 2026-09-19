@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.models import Listing, SalesOrderItem
+from app.models import InventoryItem, Listing, SalesOrderItem
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+ItemFactory = Callable[..., InventoryItem]
 ListingFactory = Callable[..., Listing]
 
 
@@ -170,8 +171,9 @@ def test_a_revision_snapshots_a_new_line_and_keeps_an_old_one(
         )
     }
     assert lines[kept.id].item_snapshot == before
-    assert lines[added.id].item_snapshot is not None
-    assert lines[added.id].item_snapshot["item"]["source_title"] == "Added"
+    added_snapshot = lines[added.id].item_snapshot
+    assert added_snapshot is not None
+    assert added_snapshot["item"]["source_title"] == "Added"
 
 
 # --- for sale ----------------------------------------------------------------------
@@ -251,11 +253,11 @@ def test_an_ended_listing_is_not_for_sale(
 def test_bulk_edit_names_the_items_for_sale(
     client: TestClient,
     listing: Listing,
-    make_item: Callable[..., object],
+    make_item: ItemFactory,
     admin_headers: dict[str, str],
 ) -> None:
     held = make_item()
-    ids = [listing.inventory_item_id, held.id]  # type: ignore[attr-defined]
+    ids = [listing.inventory_item_id, held.id]
     code = client.get(
         f"/api/inventory/{listing.inventory_item_id}", headers=admin_headers
     ).json()["item_code"]
@@ -267,7 +269,7 @@ def test_bulk_edit_names_the_items_for_sale(
     )
     assert refused.status_code == 409
     assert code in refused.json()["detail"]
-    assert held.item_code not in refused.json()["detail"]  # type: ignore[attr-defined]
+    assert held.item_code not in refused.json()["detail"]
 
     made = client.post(
         "/api/inventory/bulk",
