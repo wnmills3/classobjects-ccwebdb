@@ -9,6 +9,7 @@ import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
 import OffersPanel from './OffersPanel'
+import PhotosPanel from './PhotosPanel'
 
 /**
  * One item, every field, with what the lot claimed beside each.
@@ -671,6 +672,12 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         kind={value('item_kind')}
         saleState={item.sale_state ?? []}
       />
+
+      {/* Self-loading and self-saving, the same as the errors panel above:
+          a photograph attached, re-roled or removed here is independent of
+          the form's own Save. This is the only moment other than receiving
+          that an item can gain a photograph -- see PhotosPanel's docstring. */}
+      <PhotosPanel itemId={itemId} saleState={item.sale_state ?? []} />
 
       {item.item_kind === 'currency' && (
         <>
