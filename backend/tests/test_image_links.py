@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import pytest
 from app import image_links
-from app.models import Image, ImageRole, ItemImage
+from app.models import Image, ImageRole, ItemImage, Listing
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -106,3 +107,45 @@ def test_the_same_photograph_cannot_be_attached_twice(db: Session) -> None:
     db.flush()
     with pytest.raises(image_links.LinkRefused):
         image_links.attach(db, image=image, item=item, role=None, is_primary=False)
+
+
+def test_attaching_through_the_api_files_the_photograph(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    item = build_item(db)
+    image = _image(db, "7" * 64)
+    db.commit()
+
+    made = client.post(
+        f"/api/images/{image.id}/links",
+        json={
+            "inventory_item_id": item.id,
+            "image_role": "obverse",
+            "is_primary": True,
+        },
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
+    assert made.json()["is_primary"] is True
+    assert made.json()["item_code"] == item.item_code
+
+
+def test_attaching_to_a_listed_item_is_refused_until_acknowledged(
+    client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    image = _image(db, "8" * 64)
+    db.commit()
+    body = {"inventory_item_id": listing.inventory_item_id, "image_role": "obverse"}
+
+    refused = client.post(
+        f"/api/images/{image.id}/links", json=body, headers=admin_headers
+    )
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+
+    made = client.post(
+        f"/api/images/{image.id}/links",
+        json={**body, "acknowledge_for_sale": True},
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
