@@ -394,7 +394,10 @@ def test_an_items_photographs_come_back_in_order(
     from tests.conftest import build_item
 
     item = build_item(db)
-    for index, sha in enumerate(("1" * 64, "2" * 64), start=1):
+    # Attached in the opposite order from the desired sort_order, so a result
+    # that merely came back in insertion (id) order -- rather than one that
+    # actually obeyed ORDER BY sort_order -- would read [2, 1], not [1, 2].
+    for sha, order in (("2" * 64, 2), ("1" * 64, 1)):
         image = Image(
             sha256=sha,
             storage_key=f"orig/{sha}.jpg",
@@ -408,8 +411,8 @@ def test_an_items_photographs_come_back_in_order(
             image=image,
             item=item,
             role=None,
-            is_primary=index == 1,
-            sort_order=index,
+            is_primary=order == 1,
+            sort_order=order,
         )
     db.commit()
 
@@ -426,6 +429,10 @@ def test_an_items_photographs_come_back_in_order(
 def test_unattached_photographs_can_be_listed(
     client: TestClient, db: Session, admin_headers: dict[str, str]
 ) -> None:
+    from app import image_links
+
+    from tests.conftest import build_item
+
     image = Image(
         sha256="3" * 64,
         storage_key="orig/3.jpg",
@@ -433,6 +440,22 @@ def test_unattached_photographs_can_be_listed(
         byte_size=10,
     )
     db.add(image)
+    db.flush()
+
+    # A filed photograph in the same table -- present so a listing that
+    # forgot to exclude linked images would return it too.
+    filed = Image(
+        sha256="4" * 64,
+        storage_key="orig/4.jpg",
+        media_type="image/jpeg",
+        byte_size=10,
+    )
+    db.add(filed)
+    db.flush()
+    item = build_item(db)
+    image_links.attach(
+        db, image=filed, item=item, role=None, is_primary=True, sort_order=0
+    )
     db.commit()
 
     listed = client.get("/api/images?unattached=true", headers=admin_headers)
