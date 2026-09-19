@@ -179,8 +179,10 @@ function ListingForm({ listing, onSaved, onClose }) {
 export default function Listings() {
   const [listings, setListings] = useState(null)
   const [venues, setVenues] = useState([])
-  // The load failed and there is no table to show. An action's refusal is
-  // `refusal` below instead, which leaves the table where it is.
+  // A load failed. Shared by both loads below, so it does NOT mean there is
+  // nothing to show: the platforms can fail while the listings arrive, and
+  // the platforms are only wanted for the filter dropdown. An action's
+  // refusal is `refusal` below instead, which leaves the table where it is.
   const [error, setError] = useState('')
   const [refusal, setRefusal] = useState('')
   const [filters, setFilters] = useState({ venue: '', format: '', status: '' })
@@ -248,7 +250,13 @@ export default function Listings() {
     }
   }
 
-  if (error) return <p className="error">{error}</p>
+  // Only when there is nothing to show. `error` is also where a failed
+  // *action* lands -- an end-offer refusal, a stale-version 409 -- and
+  // returning it instead of the page unmounted the table, the filters and
+  // any open confirmation. The operator lost their place and their work at
+  // the exact moment they needed both to react to the refusal, and nothing
+  // clears `error` except a later successful load.
+  if (error && listings === null) return <p className="error">{error}</p>
   if (listings === null) return <p className="muted">Loading...</p>
 
   const byId = new Map(listings.map((l) => [l.id, l]))
@@ -272,6 +280,7 @@ export default function Listings() {
         What is offered for sale. An item is offered in one place at a time; a store
         listing set aside for an offer elsewhere resumes when that offer ends.
       </p>
+      {error && <p className="error">{error}</p>}
       {refusal && <p className="error">{refusal}</p>}
       <div className="filter-grid">
         <label>

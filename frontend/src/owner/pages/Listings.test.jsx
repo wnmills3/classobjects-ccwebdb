@@ -244,6 +244,19 @@ describe('Listings', () => {
     expect(letters.filter((l) => 'def'.includes(l))).toEqual([])
   })
 
+  it('keeps the listings when only the platform list fails to load', async () => {
+    // Two independent loads share one `error`. The platforms are needed for
+    // the filter dropdown and nothing else, so losing them is no reason to
+    // withhold the listings -- but the page used to return the error instead
+    // of itself, and a failure in the lesser of the two blanked the whole
+    // page. The rows are what the operator came for.
+    api.listSalesVenues.mockRejectedValue(new Error('cannot load platforms'))
+    renderPage()
+
+    expect(await screen.findByText('cannot load platforms')).toBeInTheDocument()
+    expect(await screen.findByRole('row', { name: /^eBay/ })).toBeInTheDocument()
+  })
+
   it('shows a refusal in place and keeps the form open', async () => {
     const user = userEvent.setup()
     api.updateListing.mockRejectedValue(new Error(STALE))

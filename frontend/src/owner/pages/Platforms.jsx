@@ -394,6 +394,10 @@ export default function Platforms() {
     setOpen(null)
   }
 
+  // Unlike `Listings` and `AdminPeople`, this page really can only fail
+  // before it has anything to show: both its loads are one `Promise.all`, so
+  // either failing leaves `venues` null, and the editor dialog keeps its own
+  // refusal in its own state rather than setting this one.
   if (error) return <p className="error">{error}</p>
   if (venues === null) return <p className="muted">Loading...</p>
 
