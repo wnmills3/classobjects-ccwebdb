@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterator
 from decimal import Decimal
+from typing import cast
 
 import pytest
 from app.config import settings
@@ -29,6 +30,7 @@ from app.models import (
     ItemStatus,
     Listing,
     ListingStatus,
+    ReferenceMixin,
     StorageForm,
     StrikeType,
     User,
@@ -243,7 +245,7 @@ def customer_headers(client: TestClient, customer_user: User) -> dict[str, str]:
 # --------------------------------------------------------------------------
 
 
-def _code_id(db: Session, model: type, code: str) -> int:
+def _code_id(db: Session, model: type[ReferenceMixin], code: str) -> int:
     return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
@@ -263,13 +265,24 @@ def build_item(db: Session, **overrides: object) -> InventoryItem:
     most of the collection is not, and the search tests care about items
     rather than about what is offered.
     """
+    # `storage_quantity` is this fixture's own spelling of the piece count and
+    # `piece_count` is the column's own name. Both are popped, so whichever
+    # spelling the caller used cannot also reach the constructor through
+    # `**overrides` and collide with the keyword below -- which is what made
+    # `make_item(piece_count=4)` raise "got multiple values for piece_count".
+    piece_count = overrides.pop("storage_quantity", overrides.pop("piece_count", 1))
+    # `**overrides: object` erases the value type. These keys are classifier
+    # codes by this helper's contract, and `_code_id` fails loudly (no row
+    # found) rather than silently on anything that is not one.
+    kind = cast("str", overrides.pop("kind", "coin"))
+
     item = InventoryItem(
         source_title=overrides.pop("title", "1881-S Morgan Silver Dollar"),
         description=overrides.pop("description", "Test fixture item."),
         year_start=overrides.pop("year_start", 1881),
         year_end=overrides.pop("year_end", None),
-        piece_count=overrides.pop("storage_quantity", 1),
-        item_kind_id=_code_id(db, ItemKind, overrides.pop("kind", "coin")),
+        piece_count=piece_count,
+        item_kind_id=_code_id(db, ItemKind, kind),
         country_id=_code_id(db, Country, "US"),
         storage_form_id=_code_id(db, StorageForm, "single"),
         authenticity_id=_code_id(db, Authenticity, "unverified"),
@@ -313,8 +326,12 @@ def build_listing(db: Session, **overrides: object) -> Listing:
             "year_end": overrides.pop("year_end", None),
             "piece_count": overrides.pop("storage_quantity", 1),
         }
-        kind = overrides.pop("kind", "coin")
-        country = overrides.pop("country", "US")
+        # `**overrides: object` erases the value type. These three are
+        # classifier codes by this helper's contract -- `country` may also be
+        # None, meaning "no country" -- and `_code_id` fails loudly (no row
+        # found) rather than silently on anything that is not one.
+        kind = cast("str", overrides.pop("kind", "coin"))
+        country = cast("str | None", overrides.pop("country", "US"))
         grade = overrides.pop("grade", "MS64")
 
         item = InventoryItem(
@@ -357,7 +374,7 @@ def listing(db: Session) -> Listing:
 
 
 @pytest.fixture
-def make_listing(db: Session) -> None:
+def make_listing(db: Session) -> Callable[..., Listing]:
     """Factory for additional catalogue entries within a test."""
 
     def _make(**overrides: object) -> Listing:
