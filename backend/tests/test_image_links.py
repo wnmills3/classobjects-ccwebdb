@@ -210,3 +210,30 @@ def test_detaching_from_a_listed_item_is_refused_until_acknowledged(
         f"/api/image-links/{link.id}?acknowledge_for_sale=true", headers=admin_headers
     )
     assert gone.status_code == 204, gone.text
+
+
+def test_re_roling_a_listed_items_photograph_is_refused_until_acknowledged(
+    client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    item = db.get(InventoryItem, listing.inventory_item_id)
+    assert item is not None
+    link = image_links.attach(
+        db, image=_image(db, "d2" * 32), item=item, role=None, is_primary=False
+    )
+    db.commit()
+
+    refused = client.patch(
+        f"/api/image-links/{link.id}",
+        json={"image_role": "reverse"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409
+    assert "For sale" in refused.json()["detail"]
+
+    changed = client.patch(
+        f"/api/image-links/{link.id}",
+        json={"image_role": "reverse", "acknowledge_for_sale": True},
+        headers=admin_headers,
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["image_role"] == "reverse"
