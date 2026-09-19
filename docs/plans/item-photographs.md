@@ -893,8 +893,11 @@ class ImageLinkOut(BaseModel):
     is_primary: bool = False
     sort_order: int = 0
     captured_at: datetime | None = None
+    #: These two names are `routers.images.image_urls`'s own keys, so the
+    #: helper can be splatted straight in. It returns `image_url`, not
+    #: `web_url` -- matching `ImageOut`, which does the same.
     thumbnail_url: str
-    web_url: str
+    image_url: str
 ```
 
 - [ ] **Step 4: Add the route**
@@ -1260,14 +1263,13 @@ from .. import image_links, sale_state
 from ..deps import AdminUser, DbSession
 from ..models import InventoryItem, ItemImage
 from ..schemas import ImageLinkOut, ImageLinkUpdate
+from sqlalchemy.orm import Session
 from .images import _link_out
 
 router = APIRouter(prefix="/image-links", tags=["images"])
 
 
-def _guarded_link(
-    db: DbSession, link_id: int, *, acknowledged: bool
-) -> ItemImage:
+def _guarded_link(db: Session, link_id: int, *, acknowledged: bool) -> ItemImage:
     """The link, with its item's for-sale warning already answered."""
     link = db.get(ItemImage, link_id)
     if link is None:
