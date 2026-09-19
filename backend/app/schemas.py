@@ -99,6 +99,31 @@ class ImageOut(BaseModel):
     image_url: str
 
 
+class ImageLinkOut(BaseModel):
+    """One photograph as it is filed: the link, and the image it points at.
+
+    Both together because every console surface that lists photographs needs
+    both, and a second request per thumbnail is a page that arrives in pieces.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    #: Null for a photograph nobody has filed yet.
+    link_id: int | None = None
+    inventory_item_id: int | None = None
+    item_code: str | None = None
+    image_id: int
+    image_role: str | None = None
+    is_primary: bool = False
+    sort_order: int = 0
+    captured_at: datetime | None = None
+    #: These two names are `routers.images.image_urls`'s own keys, so the
+    #: helper can be splatted straight in. It returns `image_url`, not
+    #: `web_url` -- matching `ImageOut`, which does the same.
+    thumbnail_url: str
+    image_url: str
+
+
 class CatalogItemOut(BaseModel):
     """What a buyer sees.
 

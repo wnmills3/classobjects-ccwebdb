@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from .. import sale_state
 from ..config import settings
@@ -28,7 +29,7 @@ from ..models import (
     ItemImage,
 )
 from ..references import code_to_id
-from ..schemas import ImageOut
+from ..schemas import ImageLinkOut, ImageOut
 from ..storage import get_storage
 
 router = APIRouter(prefix="/images", tags=["images"])
@@ -117,6 +118,65 @@ async def upload_image(
     db.commit()
     db.refresh(image)
     return to_image_out(image)
+
+
+@router.get("", response_model=list[ImageLinkOut])
+def list_images(
+    db: DbSession,
+    _admin: AdminUser,
+    inventory_item_id: int | None = None,
+    unattached: bool = False,
+) -> list[ImageLinkOut]:
+    """An item's photographs, or the ones nobody has filed yet.
+
+    One filter is required. An unfiltered list of every photograph in the
+    collection is a page nobody asked for and a query that grows without
+    bound; making the caller say which set it wants costs one parameter.
+    """
+    if (inventory_item_id is None) == (not unattached):
+        raise HTTPException(
+            status_code=422,
+            detail="Pass exactly one of inventory_item_id or unattached=true.",
+        )
+
+    if unattached:
+        linked = select(ItemImage.image_id).where(
+            ItemImage.inventory_item_id.is_not(None)
+        )
+        rows = db.scalars(
+            select(Image)
+            .where(Image.id.not_in(linked))
+            .order_by(Image.captured_at.desc().nullslast(), Image.id)
+        ).all()
+        return [
+            ImageLinkOut(
+                image_id=row.id, captured_at=row.captured_at, **image_urls(row.id)
+            )
+            for row in rows
+        ]
+
+    links = db.scalars(
+        select(ItemImage)
+        .where(ItemImage.inventory_item_id == inventory_item_id)
+        .order_by(ItemImage.sort_order, ItemImage.id)
+    ).all()
+    return [_link_out(db, link) for link in links]
+
+
+def _link_out(db: Session, link: ItemImage) -> ImageLinkOut:
+    """Project a filed photograph into the API shape."""
+    role = db.get(ImageRole, link.image_role_id) if link.image_role_id else None
+    return ImageLinkOut(
+        link_id=link.id,
+        inventory_item_id=link.inventory_item_id,
+        item_code=link.item.item_code if link.item else None,
+        image_id=link.image_id,
+        image_role=role.code if role else None,
+        is_primary=link.is_primary,
+        sort_order=link.sort_order,
+        captured_at=link.image.captured_at,
+        **image_urls(link.image_id),
+    )
 
 
 @router.get("/{image_id}/{kind}")
