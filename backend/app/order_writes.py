@@ -138,25 +138,44 @@ def _line(
     )
 
 
-def _add_shares(
+def _sync_shares(
     db: Session, line: SalesOrderItem, listing: Listing, amount: Decimal
 ) -> None:
-    """Divide a line's money among the items the listing offered.
+    """Make a line's shares match its money, whether they are new or old.
 
-    Fees are not known at checkout -- the shop charges none -- so
-    `fee_amount` keeps its zero default. An outside sale sets it through
-    `sales_writes`.
+    `place_order` calls this once for a line that has never had a share:
+    `existing` is empty, so this always inserts. `revise_order` calls it for
+    that same case, and also for a line whose quantity or price just
+    changed, where a share already exists and only `amount` need move --
+    two writers, one place the rule "a share's amount equals its line's
+    money" is enforced, so it cannot drift between them.
+
+    Today a listing names exactly one item, so there is exactly one share
+    and it always carries the whole `amount` -- the loop below still keys
+    by `inventory_item_id` rather than assuming a single row, so widening
+    it to a lot listing's several members (phase 3) is a matter of dividing
+    `amount` among them, not restructuring this function.
+
+    Fees are not known at checkout or a plain revision -- neither prices
+    them -- so a new share's `fee_amount` keeps its zero default, and an
+    existing share's is left as `sales_writes` last set it. An outside sale
+    fills fees in there, not here.
     """
     if listing.inventory_item_id is None:  # pragma: no cover - phase 3 lots
         return
-    db.add(
-        SalesOrderItemShare(
-            sales_order_item_id=line.id,
-            inventory_item_id=listing.inventory_item_id,
-            amount=amount,
-            fee_amount=Decimal("0.00"),
+    existing = {share.inventory_item_id: share for share in line.shares}
+    share = existing.get(listing.inventory_item_id)
+    if share is None:
+        db.add(
+            SalesOrderItemShare(
+                sales_order_item_id=line.id,
+                inventory_item_id=listing.inventory_item_id,
+                amount=amount,
+                fee_amount=Decimal("0.00"),
+            )
         )
-    )
+    else:
+        share.amount = amount
 
 
 def place_order(
@@ -267,7 +286,7 @@ def place_order(
         # earlier than `_after_stock_change`, which reads `InventoryItem`
         # rows this same flush would otherwise touch first.
         db.flush()
-        _add_shares(db, order.items[-1], listing, line_amount)
+        _sync_shares(db, order.items[-1], listing, line_amount)
     db.flush()
     db.add(
         SalesOrderChange(
@@ -402,6 +421,14 @@ def revise_order(
             )
 
         old_total = order.total_amount
+        # Lines to bring into money-agreement with their shares, once this
+        # loop's mutations are flushed: a new line has no share yet, and a
+        # modified one's existing share now disagrees with its new
+        # quantity or price. Deferred rather than synced inline, because a
+        # new line's id -- which its share needs -- does not exist until it
+        # is flushed, and this loop still has row locks to take for the
+        # other listings first.
+        to_sync: list[tuple[SalesOrderItem, Listing, Decimal]] = []
         for listing_id in sorted(ids):
             listing = listings[listing_id]
             delta = deltas[listing_id]
@@ -413,7 +440,9 @@ def revise_order(
             line = desired.get(listing_id)
             if existing is None and line is not None:
                 price = listing.price if line.unit_price is None else line.unit_price
-                order.items.append(_line(db, listing, line.quantity, price))
+                new_item = _line(db, listing, line.quantity, price)
+                order.items.append(new_item)
+                to_sync.append((new_item, listing, price * line.quantity))
                 record(
                     SalesOrderChangeKind.line_added,
                     listing_id,
@@ -427,6 +456,7 @@ def revise_order(
                     before=f"{existing.quantity} @ {money(existing.unit_price)}",
                 )
             elif existing is not None and line is not None:
+                money_changed = False
                 if delta:
                     record(
                         SalesOrderChangeKind.quantity,
@@ -435,6 +465,7 @@ def revise_order(
                         str(line.quantity),
                     )
                     existing.quantity = line.quantity
+                    money_changed = True
                 if (
                     line.unit_price is not None
                     and line.unit_price != existing.unit_price
@@ -446,6 +477,11 @@ def revise_order(
                         money(line.unit_price),
                     )
                     existing.unit_price = line.unit_price
+                    money_changed = True
+                if money_changed:
+                    to_sync.append(
+                        (existing, listing, existing.unit_price * existing.quantity)
+                    )
 
         if customer.id != order.customer_id:
             record(
@@ -471,7 +507,13 @@ def revise_order(
             # only moves when that row is updated -- so touch it.
             order.updated_at = stamp
             db.add_all(changes)
+            # Flushed before `_sync_shares`: a new line in `to_sync` has no
+            # id until this INSERT runs, and `SalesOrderItemShare.
+            # sales_order_item_id` is NOT NULL. Explicit, matching
+            # `place_order` -- production runs with autoflush disabled.
             db.flush()
+            for synced_line, synced_listing, amount in to_sync:
+                _sync_shares(db, synced_line, synced_listing, amount)
     except StaleDataError:
         # The order lock makes a stale write to the `sales_order` row itself
         # hard to hit here -- it was locked and re-read above, and

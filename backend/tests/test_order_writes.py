@@ -20,6 +20,7 @@ from app.models import (
     SalesOrder,
     SalesOrderChange,
     SalesOrderChangeKind,
+    SalesOrderItemShare,
     SalesOrderStatus,
     SalesVenue,
     SalesVenueKind,
@@ -286,6 +287,41 @@ def test_an_outside_sale_records_its_platform_and_status(
     assert order_status.code == "paid"
 
 
+def test_an_outside_sale_gets_a_share_at_version_one(
+    db: Session, ebay_listing: Listing, admin_user: User, ebay_venue: SalesVenue
+) -> None:
+    """Recording an outside sale carries a share too, at a fresh version.
+
+    `sale_state` (a later task) will find an order's items through shares
+    no matter where the order came from, so an outside sale's line needs
+    one exactly as a checkout line does. `version == 1` is pinned
+    separately: it is correct by construction (a single INSERT, priced
+    before it happens), but nothing else here checks it, and version is
+    exactly what regressed when `place_order`'s insert/update ordering was
+    wrong the first time.
+    """
+    buyer = venue_buyer(db, ebay_venue, "coinfan88")
+    order = place_order(
+        db,
+        buyer,
+        [Line(listing_id=ebay_listing.id, quantity=1, unit_price=Decimal("120.00"))],
+        admin_user,
+        venue=ebay_venue,
+        status_code="paid",
+    )
+    assert order.version == 1
+    shares = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == order.items[0].id
+        )
+    ).all()
+    assert [share.inventory_item_id for share in shares] == [
+        ebay_listing.inventory_item_id
+    ]
+    assert shares[0].amount == Decimal("120.00")
+    assert shares[0].fee_amount == Decimal("0.00")
+
+
 def test_an_outside_listing_is_not_refused_for_being_outside_the_shop(
     db: Session, ebay_listing: Listing, admin_user: User, ebay_venue: SalesVenue
 ) -> None:
@@ -379,6 +415,83 @@ def test_raising_a_quantity_takes_stock_and_records_it(
         ("quantity", "2", "3"),
         ("total", "378.00", "567.00"),
     ]
+
+
+def test_revising_a_lines_quantity_and_price_brings_its_share_back_in_line(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """Raising a line's quantity and price must raise its share too.
+
+    A share is a line's money kept in another table -- otherwise the two
+    would silently drift apart.
+    """
+    order = _place(client, customer_headers, listing.id, 2)
+    original_item_id = order["items"][0]["id"]
+    original_share = db.scalar(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == original_item_id
+        )
+    )
+    assert original_share is not None
+    assert original_share.amount == Decimal("378.00")  # 2 x 189.00
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [{"listing_id": listing.id, "quantity": 3, "unit_price": "200.00"}],
+    )
+
+    assert response.status_code == 200, response.text
+    db.refresh(original_share)
+    # Still the same share row (same line, same item) -- its amount, and
+    # only its amount, now matches the revised line: 3 x 200.00.
+    assert original_share.sales_order_item_id == original_item_id
+    assert original_share.amount == Decimal("600.00")
+
+
+def test_revising_in_a_new_line_gives_it_a_share(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """A line added by a revision needs a share exactly as a checkout one does.
+
+    `_line` is the only place a `SalesOrderItem` is built; the "line added"
+    branch of `revise_order` is the one path into it that a plain checkout
+    never exercises, and so the one Task 5's own test missed.
+    """
+    kept = make_listing(title="Kept", price=Decimal("50.00"), quantity_available=5)
+    added = make_listing(title="Added", price=Decimal("30.00"), quantity_available=5)
+    order = _place(client, customer_headers, kept.id, 1)
+
+    response = _revise(
+        client,
+        admin_headers,
+        order,
+        [
+            {"listing_id": kept.id, "quantity": 1, "unit_price": "50.00"},
+            {"listing_id": added.id, "quantity": 2, "unit_price": "30.00"},
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    added_item = next(
+        item for item in response.json()["items"] if item["listing_id"] == added.id
+    )
+    shares = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == added_item["id"]
+        )
+    ).all()
+    assert [share.inventory_item_id for share in shares] == [added.inventory_item_id]
+    assert shares[0].amount == Decimal("60.00")
 
 
 def test_one_listing_swapped_for_another_at_an_agreed_price_in_one_save(
