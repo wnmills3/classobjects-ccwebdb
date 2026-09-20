@@ -458,6 +458,12 @@ def _value(client: TestClient, table: str, code: str) -> dict:
         ("strike_type", "proof"),
         ("storage_form", "single"),
         ("country", "US"),
+        # `photo_names` names these from a filename's sequence number and
+        # `photo_import` resolves them by code, so retiring one would fail
+        # every import of a photograph filed as that side.
+        ("image_role", "obverse"),
+        ("image_role", "reverse"),
+        ("image_role", "unassigned"),
     ],
 )
 def test_a_value_the_application_looks_up_cannot_be_retired(
@@ -483,6 +489,18 @@ def test_a_value_the_application_looks_up_cannot_be_retired(
     )
     assert renamed.status_code == 200
     assert renamed.json()["label"] == f"{label} (renamed)"
+
+
+def test_a_descriptive_image_role_is_still_retirable(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Only the three roles the code names are protected, not the table.
+
+    Without this the entry above could be widened to the whole `image_role`
+    table and nothing would notice. "slab" is a description a person chooses
+    from a list; no code looks it up.
+    """
+    assert _value(client, "image_role", "slab")["retirable"] is True
 
 
 def test_a_descriptive_value_can_be_retired_and_restored(

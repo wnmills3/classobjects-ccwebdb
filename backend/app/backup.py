@@ -120,23 +120,43 @@ def _resync_sequences(session: Session, table: Table) -> None:
 
     Without this the copy accepts existing rows and then collides on the first
     insert, which would make a restored backup look fine until someone used it.
-    Skipped silently on dialects without sequences.
+
+    **A failure here is raised, not swallowed.** This used to sit under a bare
+    `except Exception: session.rollback()`, which produced exactly the state
+    the paragraph above warns about, silently -- the restore reported success
+    and the first insert into it collided. The two cases that are genuinely
+    not failures are checked for instead: a dialect with no sequences, and a
+    table whose id is not backed by one.
     """
     name = getattr(table, "name", None)
     primary = list(table.primary_key.columns)
     if name is None or len(primary) != 1 or primary[0].name != "id":
         return
-    try:
-        session.execute(
-            text(
-                "SELECT setval(pg_get_serial_sequence(:t, 'id'), "
-                "coalesce((SELECT max(id) FROM " + name + "), 1), true)"
-            ),
-            {"t": name},
-        )
-        session.commit()
-    except Exception:
-        session.rollback()
+    bind = session.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+
+    # NULL when the column has no owned sequence -- an id the application
+    # assigns rather than the database. Asked separately so that case can be
+    # told from a sequence that exists and could not be set.
+    sequence = session.execute(
+        text("SELECT pg_get_serial_sequence(:t, 'id')"), {"t": name}
+    ).scalar()
+    if sequence is None:
+        return
+
+    # The table name is interpolated because an identifier cannot be a bind
+    # parameter. It comes from SQLAlchemy's own metadata, never from input,
+    # and is quoted by the dialect's preparer so a reserved or mixed-case
+    # name survives.
+    quoted = bind.dialect.identifier_preparer.quote(name)
+    session.execute(
+        text(
+            "SELECT setval(:s, coalesce((SELECT max(id) FROM " + quoted + "), 1), true)"
+        ),
+        {"s": sequence},
+    )
+    session.commit()
 
 
 def compare(source: Engine, target: Engine) -> list[tuple[str, int, int]]:
