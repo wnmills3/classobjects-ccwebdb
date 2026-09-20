@@ -7,6 +7,7 @@ and the one that makes it portable.
 
 from __future__ import annotations
 
+import pytest
 from app.backup import generated_columns, timestamped_name
 from app.models import Base
 from sqlalchemy.engine import make_url
@@ -83,3 +84,110 @@ def test_backup_names_sort_chronologically() -> None:
     stamp = name.removeprefix("ccwebdb_bak_")
     assert len(stamp) == len("20260908_123538")
     assert stamp.replace("_", "").isdigit(), "no day names -- they do not sort"
+
+
+class _FakeDialect:
+    """Just enough dialect for `_resync_sequences` to branch on."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.identifier_preparer = self
+
+    def quote(self, value: str) -> str:
+        """Identifier quoting, as the real preparer would do it."""
+        return f'"{value}"'
+
+
+class _FakeBind:
+    def __init__(self, dialect_name: str) -> None:
+        self.dialect = _FakeDialect(dialect_name)
+
+
+class _FakeSession:
+    """Records what was executed and can be told to fail."""
+
+    def __init__(self, dialect_name: str = "postgresql", fail: bool = False) -> None:
+        self._bind = _FakeBind(dialect_name)
+        self.fail = fail
+        self.executed: list[str] = []
+        self.committed = 0
+        self.rolled_back = 0
+
+    def get_bind(self) -> _FakeBind:
+        """The engine this session is bound to."""
+        return self._bind
+
+    def execute(self, statement: object, params: object = None) -> object:
+        """Run a statement, failing only on the `setval` if asked to.
+
+        Only on `setval`, deliberately. Failing the first call instead makes
+        the sequence *lookup* raise, which propagates whatever the code does
+        about setval -- so the test would pass against the swallowing version
+        and prove nothing. A mutation run caught exactly that.
+        """
+        sql = str(statement)
+        self.executed.append(sql)
+        if self.fail and "setval" in sql:
+            raise RuntimeError("permission denied for sequence")
+        return _FakeResult()
+
+    def commit(self) -> None:
+        """Count a commit."""
+        self.committed += 1
+
+    def rollback(self) -> None:
+        """Count a rollback."""
+        self.rolled_back += 1
+
+
+class _FakeResult:
+    def scalar(self) -> str:
+        """The sequence name `pg_get_serial_sequence` would return."""
+        return "public.inventory_item_id_seq"
+
+
+def test_a_sequence_that_cannot_be_reset_is_an_error() -> None:
+    """A failed resync must not be swallowed.
+
+    This ran under a bare `except Exception: rollback()`, which produced
+    precisely the failure its own docstring warns about -- a backup that
+    reports success and collides on the first insert into it -- with nothing
+    said. The restore is the moment the collection is recovered from, so a
+    silent defect here is the most expensive kind in the codebase.
+    """
+    from app.backup import _resync_sequences
+
+    session = _FakeSession(fail=True)
+    table = Base.metadata.tables["inventory_item"]
+
+    with pytest.raises(RuntimeError, match="permission denied"):
+        _resync_sequences(session, table)  # type: ignore[arg-type]
+
+
+def test_a_dialect_without_sequences_is_skipped_quietly() -> None:
+    """The one case that really is not a failure stays quiet.
+
+    Without this the fix above would turn every non-PostgreSQL target into an
+    error, which is the overcorrection that makes people restore the bare
+    `except`.
+    """
+    from app.backup import _resync_sequences
+
+    session = _FakeSession(dialect_name="sqlite", fail=True)
+    table = Base.metadata.tables["inventory_item"]
+
+    _resync_sequences(session, table)  # type: ignore[arg-type]
+    assert session.executed == []
+    assert session.committed == 0
+
+
+def test_a_successful_resync_commits_the_setval() -> None:
+    """The happy path, so the two tests above cannot both pass on a no-op."""
+    from app.backup import _resync_sequences
+
+    session = _FakeSession()
+    _resync_sequences(session, Base.metadata.tables["inventory_item"])  # type: ignore[arg-type]
+
+    assert any("setval" in sql for sql in session.executed)
+    assert session.committed == 1
+    assert session.rolled_back == 0

@@ -764,10 +764,14 @@ describe('Photographs panel', () => {
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
 
-    expect(api.listItemImages).toHaveBeenCalledWith(12)
+    // The panel's own effect is awaited before the call is asserted.
+    // `findByDisplayValue` above only waits for the FORM to load; the panel
+    // is a child with its own effect, and under a loaded suite that effect
+    // had not always run by the time the assertion did.
     expect(
       await screen.findByRole('heading', { name: 'Photographs' }),
     ).toBeInTheDocument()
+    expect(api.listItemImages).toHaveBeenCalledWith(12)
   })
 })
 
@@ -776,8 +780,10 @@ describe('Errors panel', () => {
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
 
-    expect(api.getItemErrors).toHaveBeenCalledWith(12)
+    // Panel first, call second -- see the note in the Photographs test. This
+    // one really did fail intermittently in a full run.
     expect(await screen.findByRole('button', { name: 'Add error' })).toBeInTheDocument()
+    expect(api.getItemErrors).toHaveBeenCalledWith(12)
   })
 
   it("passes the item's kind through, so the picker offers only that kind's errors", async () => {

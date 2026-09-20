@@ -71,6 +71,14 @@ _CODE_KEYED_VALUES = frozenset(
         ("currency", "USD"),
         ("country", "US"),
         ("note_type", "frn"),
+        # `photo_names` turns a filename's sequence number into one of these
+        # three codes and `photo_import` resolves each through `code_to_id`,
+        # which refuses a retired value. Retiring one would fail every
+        # import of a photograph named for it -- the other image roles are
+        # descriptive and may be retired freely.
+        ("image_role", "obverse"),
+        ("image_role", "reverse"),
+        ("image_role", "unassigned"),
     }
 )
 
