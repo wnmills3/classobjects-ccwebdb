@@ -65,3 +65,43 @@ def require_admin(user: CurrentUser) -> User:
 
 
 AdminUser = Annotated[User, Depends(require_admin)]
+
+#: The same scheme, but a missing Authorization header is not an error. Used
+#: only by `get_optional_user`; every gated endpoint keeps `oauth2_scheme`,
+#: which still answers 401.
+_optional_scheme = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.api_prefix}/auth/login", auto_error=False
+)
+
+
+def get_optional_user(
+    db: DbSession,
+    token: Annotated[str | None, Depends(_optional_scheme)],
+) -> User | None:
+    """Who is calling, when the endpoint serves anonymous callers too.
+
+    For a public endpoint that shows an administrator more than it shows a
+    buyer -- `routers.catalog.list_catalog` and its `include_inactive`. The
+    shop must answer a signed-out browser, so the whole endpoint cannot take
+    `CurrentUser`, and a parameter documented as an admin preview cannot be
+    honoured on the strength of a caller asking for it.
+
+    Anything short of a good token is `None`, not a 401: an expired or
+    revoked one is a caller with no privileges, and on an endpoint that
+    serves everyone that is the same as being signed out. Failing closed is
+    what makes `None` safe to treat as "show the public view".
+    """
+    if token is None:
+        return None
+    try:
+        return get_current_user(db, token)
+    except HTTPException:
+        return None
+
+
+OptionalUser = Annotated[User | None, Depends(get_optional_user)]
+
+
+def is_admin(user: User | None) -> bool:
+    """Whether this caller is a signed-in administrator."""
+    return user is not None and user.role is UserRole.admin

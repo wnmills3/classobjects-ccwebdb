@@ -24,7 +24,7 @@ from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import grades, offering_writes
-from ..deps import DbSession
+from ..deps import DbSession, OptionalUser, is_admin
 from ..models import (
     Country,
     Grade,
@@ -128,6 +128,7 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
 @router.get("")
 def list_catalog(
     db: DbSession,
+    caller: OptionalUser,
     q: Annotated[
         str | None, Query(description="Free text over title and description")
     ] = None,
@@ -143,7 +144,19 @@ def list_catalog(
     limit: Annotated[int, Query(ge=1, le=200)] = 24,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> CatalogPage:
-    """Browse the catalogue. Withdrawn listings are hidden by default."""
+    """Browse the catalogue. Withdrawn listings are for administrators only.
+
+    The endpoint itself is public -- the shop has to answer a signed-out
+    browser -- but `include_inactive` is not. A withdrawn listing is stock
+    the owner took off sale, often because it sold somewhere else, and the
+    full set of them is a history of the collection that no buyer is owed.
+    """
+    if include_inactive and not is_admin(caller):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator privileges required to see withdrawn listings",
+        )
+
     # or_() returns a ColumnElement, which is wider than the
     # BinaryExpression the first append would otherwise pin this to.
     # The shop's catalogue is the web store's active fixed-price listings, and

@@ -1,4 +1,9 @@
-"""Catalogue reads. Public: no authorisation of any kind is needed to browse.
+"""Catalogue reads. Browsing is public; seeing what is *not* for sale is not.
+
+No authorisation of any kind is needed to browse. The one exception is
+`include_inactive`, the administrator's preview of withdrawn listings, which
+is checked here rather than by a dependency because the endpoint itself has
+to answer a signed-out browser.
 
 Ported from the scaffold's test_coins.py. One behaviour did not survive and
 should not have: the scaffold enforced a unique `sku` per catalogue row. The
@@ -58,7 +63,51 @@ def test_withdrawn_listings_hidden_by_default(
 ) -> None:
     make_listing(is_active=False)
     assert client.get("/api/catalog").json()["total"] == 0
-    assert client.get("/api/catalog?include_inactive=true").json()["total"] == 1
+
+
+def test_a_stranger_cannot_ask_to_see_withdrawn_listings(
+    client: TestClient, make_listing: Callable[..., Listing]
+) -> None:
+    """`include_inactive` is described as an admin preview, so make it one.
+
+    The endpoint is public and must stay so -- the shop answers signed-out
+    browsers. But the parameter was honoured for anyone who passed it, so
+    every listing the owner had ever withdrawn was one query string away.
+    That set is the stock taken off sale, mostly because it sold elsewhere:
+    a history of the collection no buyer is owed.
+    """
+    make_listing(is_active=False)
+    refused = client.get("/api/catalog?include_inactive=true")
+    assert refused.status_code == 403, refused.text
+    assert "Administrator" in refused.json()["detail"]
+
+
+def test_a_customer_is_not_enough_to_see_withdrawn_listings(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+) -> None:
+    """Signed in is not the same as being an administrator.
+
+    Separate from the anonymous case on purpose: a check written as "is there
+    a token" would pass that one and fail this, and a shop full of customer
+    accounts is exactly where the difference bites.
+    """
+    make_listing(is_active=False)
+    refused = client.get("/api/catalog?include_inactive=true", headers=customer_headers)
+    assert refused.status_code == 403, refused.text
+
+
+def test_an_administrator_may_preview_withdrawn_listings(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    admin_headers: dict[str, str],
+) -> None:
+    """The preview still works, which is what stops the guard being a removal."""
+    make_listing(is_active=False)
+    allowed = client.get("/api/catalog?include_inactive=true", headers=admin_headers)
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["total"] == 1
 
 
 def test_search_matches_title_and_description(
@@ -136,8 +185,11 @@ def test_catalogue_never_exposes_cost_basis_or_location(
 ) -> None:
     """Cost basis and location must not reach a customer.
 
-    The same authorisation boundary the public_catalog view enforces, at
-    the API layer. A field added for staff must not reach a customer.
+    This test is the enforcement, not a second copy of it. The
+    `public_catalog` view describes the same boundary but no endpoint reads
+    it; what actually shapes this response is `catalog.to_catalog_item`
+    building it field by field. So a field added for staff is kept out by
+    that function plus this assertion, and by nothing else.
     """
     body = client.get(f"/api/catalog/{listing.id}").json()
     forbidden = {
