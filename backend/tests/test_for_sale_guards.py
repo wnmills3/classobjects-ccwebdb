@@ -22,6 +22,7 @@ from app.models import (
     ListingStatus,
     OfferClaim,
     SalesOrderItemShare,
+    SalesOrderStatus,
     SalesVenue,
     User,
 )
@@ -492,8 +493,14 @@ def test_an_item_sold_through_a_finished_sale_still_warns(
 ) -> None:
     """A sold coin's record is what a buyer was shown; editing it needs care.
 
-    The claim is `released` at sale and the listing is `ended`, so before
-    shares existed neither half of `for_sale` could find this item.
+    Pins `record_sale`'s end-to-end path, through a claim that is `released`
+    and a listing that is `ended`: an `"order"` use is still reachable for
+    the item afterwards. **Not the mutation-discriminating case** -- the old
+    direct-link query carried no listing-status filter and read
+    `Listing.inventory_item_id`, which an ended listing still has, so it
+    already found this item too; only a lot's member, which the direct link
+    can never name, tells the two queries apart
+    (`test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot`).
     """
     item_id = ebay_listing.inventory_item_id
     record_sale(
@@ -522,9 +529,15 @@ def test_a_delivered_auction_house_sale_does_not_warn(
     starts the order at `delivered`, past every status in between), so this
     is that same rule reached one step further along, not a new exception
     carved out for it.
+
+    A bare `item_id not in uses` would also pass if the order half returned
+    nothing at all -- indistinguishable from a broken join -- so the order
+    and its share are read back directly first, to show the mechanism did
+    run and produce real rows; only the status filter is what then excludes
+    them from `for_sale`.
     """
     item_id = heritage_listing.inventory_item_id
-    record_sale(
+    order = record_sale(
         db,
         heritage_listing,
         price=Decimal("500.00"),
@@ -533,6 +546,16 @@ def test_a_delivered_auction_house_sale_does_not_warn(
         fees=[],
         recorded_by=admin_user,
     )
+    status = db.get(SalesOrderStatus, order.sales_order_status_id)
+    assert status is not None
+    assert status.code == "delivered"
+    share = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == order.items[0].id
+        )
+    ).one()
+    assert share.inventory_item_id == item_id
+
     uses = sale_state.for_sale(db, [item_id])
     assert item_id not in uses
 
@@ -549,8 +572,9 @@ def test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot(
     a delivered auction sale distinguishes them. Only a lot's member does: the
     listing's own `inventory_item_id` names the lot, never a piece, so the
     piece is findable only through its share. No write path divides a lot's
-    line among its members yet (phase 3), so the piece's share is added
-    directly here, the same reason
+    line among its members yet (phase 3), so `place_order`'s own
+    lot-shaped share (naming the lot, per today's one-item-per-listing rule)
+    is repointed to the piece directly here, the same reason
     `test_a_missing_piece_ends_the_lot_listing_that_held_it` above adds its
     claim directly.
     """
@@ -584,14 +608,18 @@ def test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot(
         admin_user,
     )
     line = order.items[0]
-    db.add(
-        SalesOrderItemShare(
-            sales_order_item_id=line.id,
-            inventory_item_id=piece.id,
-            amount=Decimal("200.00"),
-            fee_amount=Decimal("0.00"),
+    # Repointed, not added alongside: phase 3 divides a line's money among
+    # its members with no share left for the lot itself, and a second share
+    # here would leave the line's shares summing to 400.00 against its own
+    # 200.00 (`SalesOrderItemShare`'s own docstring: "shares sum to their
+    # line exactly"). Same discriminating shape -- a piece findable only
+    # through a share -- without manufacturing a state the invariant forbids.
+    lot_share = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == line.id
         )
-    )
+    ).one()
+    lot_share.inventory_item_id = piece.id
     db.commit()
 
     uses = sale_state.for_sale(db, [piece.id])

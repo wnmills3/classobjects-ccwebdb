@@ -13,6 +13,22 @@ person's history, and a second partial unique index reserving each platform's
 single undisclosed-buyer row (no username at all), used by auction houses
 that do not name buyers.
 
+**Backfills `sales_order_item_share`** for every order line that predates
+this migration: one row per `sales_order_item`, `amount` = that line's
+`unit_price * quantity`, `fee_amount` zero, `inventory_item_id` read from
+the line's own listing. That is correct even for a line a later revision
+changed, because `unit_price` and `quantity` are the line's current values
+-- whatever `order_writes.revise_order` last set them to -- and a share
+built from them now is exactly the share `_sync_shares` would have written
+at that same revision had shares existed yet; nothing here needs the line's
+history, only its present money. Lines whose listing names no item are
+skipped rather than failing the migration; there are none today (every
+listing's `inventory_item_id` is `NOT NULL`), and a lot listing that names
+none is phase 3's case to handle, not this backfill's. Without this, a
+database with order lines older than this migration would silently lose
+`app.sale_state`'s for-sale warning for the items on them, since the order
+half of that check now reaches an item only through this table.
+
 Revision ID: c6908f789bf8
 Revises: e7c3a5b19d84
 Create Date: 2026-09-20 15:48:59.464652
@@ -137,6 +153,21 @@ def upgrade() -> None:
         "ix_sales_order_item_share_inventory_item_id",
         "sales_order_item_share",
         ["inventory_item_id"],
+    )
+    # Backfill: every line placed before this migration existed gets the
+    # share `order_writes._sync_shares` would have given it -- see the
+    # module docstring above for why the line's current unit_price and
+    # quantity are the right source even for a since-revised line. Listings
+    # with no item are excluded defensively; none exist today.
+    bind.execute(
+        sa.text(
+            "INSERT INTO sales_order_item_share "
+            "(sales_order_item_id, inventory_item_id, amount, fee_amount) "
+            "SELECT soi.id, l.inventory_item_id, soi.unit_price * soi.quantity, 0 "
+            "FROM sales_order_item soi "
+            "JOIN listing l ON l.id = soi.listing_id "
+            "WHERE l.inventory_item_id IS NOT NULL"
+        )
     )
 
     op.add_column(
