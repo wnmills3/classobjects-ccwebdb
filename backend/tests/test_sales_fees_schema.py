@@ -50,6 +50,35 @@ def test_one_buyer_per_platform_username(db: Session, ebay_venue: SalesVenue) ->
         db.flush()
 
 
+def test_the_same_username_differently_cased_still_collides(
+    db: Session, ebay_venue: SalesVenue
+) -> None:
+    """The uniqueness rule is on the lowered username, not the raw column.
+
+    A platform displays one account's name inconsistently ("CoinFan88" one
+    order, "coinfan88" the next); this is the case the index exists for, and
+    `test_one_buyer_per_platform_username` -- same case both times -- cannot
+    tell an index on `venue_username` from one on `lower(venue_username)`.
+    """
+    db.add(
+        Customer(
+            display_name="coinfan88",
+            sales_venue_id=ebay_venue.id,
+            venue_username="coinfan88",
+        )
+    )
+    db.flush()
+    db.add(
+        Customer(
+            display_name="CoinFan88 again",
+            sales_venue_id=ebay_venue.id,
+            venue_username="CoinFan88",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
 def test_one_undisclosed_buyer_per_platform(
     db: Session, ebay_venue: SalesVenue
 ) -> None:
@@ -75,10 +104,16 @@ def test_store_customers_are_unaffected(db: Session) -> None:
 
 def test_fee_and_share_amounts_are_exact(db: Session) -> None:
     """Money columns are numeric(12,2), so a cent is a cent."""
-    scale = db.scalar(
-        text(
-            "SELECT numeric_scale FROM information_schema.columns "
-            "WHERE table_name = 'sales_order_fee' AND column_name = 'amount'"
+
+    def scale(table: str, column: str) -> int | None:
+        return db.scalar(
+            text(
+                "SELECT numeric_scale FROM information_schema.columns "
+                "WHERE table_name = :table AND column_name = :column"
+            ),
+            {"table": table, "column": column},
         )
-    )
-    assert scale == 2
+
+    assert scale("sales_order_fee", "amount") == 2
+    assert scale("sales_order_item_share", "amount") == 2
+    assert scale("sales_order_item_share", "fee_amount") == 2
