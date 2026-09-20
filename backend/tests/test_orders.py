@@ -128,6 +128,48 @@ def test_a_checkout_line_carries_a_share(
     assert shares[0].fee_amount == Decimal("0.00")
 
 
+def test_a_two_line_order_attributes_each_share_to_its_own_line(
+    client: TestClient,
+    make_listing: Callable[..., Listing],
+    customer_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """Two lines, two shares -- each naming its own item and its own money.
+
+    A single-line order cannot catch a transposition: swapped amounts, or
+    both shares pointing at the same item, would still pass a one-row test.
+    Two distinct listings with two distinct prices make either mistake show.
+    """
+    first = make_listing(price=Decimal("50.00"), quantity_available=5)
+    second = make_listing(price=Decimal("75.00"), quantity_available=5)
+    response = client.post(
+        "/api/orders",
+        json={
+            "items": [
+                {"listing_id": first.id, "quantity": 2},
+                {"listing_id": second.id, "quantity": 3},
+            ]
+        },
+        headers=customer_headers,
+    )
+    assert response.status_code == 201
+    item_id_by_listing = {
+        item["listing_id"]: item["id"] for item in response.json()["items"]
+    }
+
+    for listing, quantity in ((first, 2), (second, 3)):
+        shares = db.scalars(
+            select(SalesOrderItemShare).where(
+                SalesOrderItemShare.sales_order_item_id
+                == item_id_by_listing[listing.id]
+            )
+        ).all()
+        assert [share.inventory_item_id for share in shares] == [
+            listing.inventory_item_id
+        ], f"listing {listing.id}"
+        assert shares[0].amount == listing.price * quantity, f"listing {listing.id}"
+
+
 def test_order_decrements_availability(
     client: TestClient, listing: Listing, customer_headers: dict[str, str], db: Session
 ) -> None:
