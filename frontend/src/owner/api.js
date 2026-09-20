@@ -221,15 +221,21 @@ export const api = {
         acknowledge_for_sale: acknowledgeForSale,
       },
     }),
-  updateImageLink: (linkId, { imageRole, isPrimary, acknowledgeForSale = false }) =>
-    send(`/api/image-links/${linkId}`, {
-      method: 'PATCH',
-      body: {
-        image_role: imageRole ?? null,
-        is_primary: isPrimary ?? null,
-        acknowledge_for_sale: acknowledgeForSale,
-      },
-    }),
+  // Only the fields the caller actually named. The API tells an omitted
+  // field from an explicit null (`model_fields_set` in
+  // `routers/image_links.py`): omitted leaves the role alone, null clears
+  // it. Sending `image_role: imageRole ?? null` erased that distinction, so
+  // "make primary" -- which names no role -- arrived as an instruction to
+  // clear the role, and promoting a photograph wiped its obverse/reverse.
+  //
+  // `!== undefined`, not a truthiness check: `setRole(row, null)` is how the
+  // console's blank option clears a role, and that null must still be sent.
+  updateImageLink: (linkId, { imageRole, isPrimary, acknowledgeForSale = false }) => {
+    const body = { acknowledge_for_sale: acknowledgeForSale }
+    if (imageRole !== undefined) body.image_role = imageRole
+    if (isPrimary !== undefined) body.is_primary = isPrimary
+    return send(`/api/image-links/${linkId}`, { method: 'PATCH', body })
+  },
   detachImage: (linkId, { acknowledgeForSale = false } = {}) =>
     send(`/api/image-links/${linkId}?acknowledge_for_sale=${acknowledgeForSale}`, {
       method: 'DELETE',
