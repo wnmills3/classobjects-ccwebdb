@@ -525,8 +525,9 @@ class ItemDetailOut(InventoryItemOut):
     be computed from anything. Neither replaces the other.
     """
 
-    #: The lot this piece came out of, if any. Absent for 7,591 of 7,591
-    #: items today: no parent is the normal state, not an orphan.
+    #: The lot this piece came out of, if any. Absent for every item as of
+    #: 2026-09-20, nothing having been split yet: no parent is the normal
+    #: state, not an orphan.
     parent_item_code: str | None = None
     #: What the lot said, for the fields a piece inherits. The form shows
     #: these beside the item's own values, so it is always visible what is

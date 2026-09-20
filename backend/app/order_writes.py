@@ -2,8 +2,14 @@
 
 Checkout, an administrator placing an order for a customer, and an
 administrator revising one all come through here, so the row locking that
-stops an oversell exists once. Functions flush and never commit; the caller's
-request owns the transaction.
+stops an oversell exists once.
+
+Functions flush and never commit; the caller's request owns the transaction.
+The one thing that ends it here is `_refuse`, which rolls back before raising
+so the row locks are released rather than held until the request unwinds --
+reached from `place_order`, `revise_order` and `_lock_listings`. A caller
+that catches one of those refusals is holding a rolled-back session, not a
+live one.
 """
 
 from __future__ import annotations
@@ -137,7 +143,14 @@ def place_order(
     placed_by: User,
     notes: str | None = None,
 ) -> SalesOrder:
-    """Create an order, taking its stock under row locks."""
+    """Create an order, taking its stock under row locks.
+
+    Raises `HTTPException`: 404 for a listing that does not exist, and 409
+    for one no longer sellable in the shop, one without the stock asked for,
+    and a version that has moved. Every one goes through `_refuse`, which
+    rolls the transaction back before raising -- so a caller that catches
+    one holds a rolled-back session.
+    """
     listings = _lock_listings(db, {line.listing_id for line in lines})
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]

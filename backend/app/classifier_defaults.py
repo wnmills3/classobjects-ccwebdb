@@ -681,7 +681,16 @@ def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
 
 
 def apply(db: Session, report: Report, *, commit: bool = True) -> None:
-    """Write the report's changes and record each field as derived."""
+    """Write the report's changes and record each field as derived.
+
+    **Commits by default**, unlike every other pass here, which takes a
+    keyword-only `commit` with no default so the caller has to state its
+    intent. The default is kept because the CLI entry point is the usual
+    caller and a pass that writes nothing is useless; `refresh_items` -- run
+    inside a request handler on every item create and edit -- passes
+    `commit=False` so it does not commit someone else's transaction, and any
+    other in-request caller must do the same.
+    """
     by_item: dict[int, list[Change]] = {}
     for change in report.changes:
         by_item.setdefault(change.item_id, []).append(change)

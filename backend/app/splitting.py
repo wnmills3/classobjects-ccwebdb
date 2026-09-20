@@ -146,7 +146,18 @@ def split_item(
     pieces: list[SplitPiece],
     mode: str = EQUAL,
 ) -> list[InventoryItem]:
-    """Break `parent` into `pieces`, dividing its cost between them."""
+    """Break `parent` into `pieces`, dividing its cost between them.
+
+    Raises `SplitError` for an unknown mode, fewer than two pieces, a lot
+    already split, a lot that is itself a piece, a piece holding less than
+    one item, or a lot that appears in an order -- and `AllocationError`
+    from `allocate` if the cost cannot be divided. `routers.inventory`
+    catches only the first, so an `AllocationError` here is a 500.
+
+    `mode` is `EQUAL` or `RELATIVE`; anything else is a `SplitError`. The
+    API edge constrains it further (`SplitRequest.mode` carries a pattern),
+    so the type here is weaker than the contract one layer out.
+    """
     if mode not in MODES:
         raise SplitError(f"unknown mode {mode!r}; expected one of {MODES}")
     if len(pieces) < 2:
@@ -205,8 +216,12 @@ def split_item(
     children: list[InventoryItem] = []
     for piece, cost, ship in zip(pieces, costs, shipping, strict=True):
         values = {column: getattr(parent, column) for column in INHERITED}
-        # Packaging is inherited but routinely overridden: pieces come out of
-        # a tube or a set as singles, whatever the lot was packaged as.
+        # Packaging is copied from the lot here, and overridden a line later
+        # if the caller asked. `storage_form_id` is deliberately absent from
+        # INHERITED so that this copy is the only thing that sets it, which
+        # is what leaves `piece.overrides` free to replace it --
+        # `routers.inventory._to_piece` sends "single" for exactly that
+        # reason, since pieces come out of a tube or a set individually.
         values["storage_form_id"] = parent.storage_form_id
         values.update(piece.overrides)
 
@@ -278,11 +293,3 @@ def split_item(
 
     db.flush()
     return children
-
-
-def storage_form_override(db: Session, code: str) -> dict[str, int]:
-    """Convenience for the common case: pieces come out as singles."""
-    from .models import StorageForm
-
-    single = db.scalar(select(StorageForm.id).where(StorageForm.code == code))
-    return {"storage_form_id": single} if single else {}

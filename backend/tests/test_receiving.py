@@ -328,3 +328,34 @@ def test_a_customer_cannot_receive(
         headers=customer_headers,
     )
     assert res.status_code == 403
+
+
+def test_the_reply_says_which_outcome_was_recorded(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """A cancellation must not answer "received".
+
+    The endpoint takes `missing`, `returned` and `canceled` as well, and
+    replied `{"received": n}` to all of them -- describing the opposite of
+    what it had just done for three of the four.
+
+    Both outcomes are checked, because a reply that simply echoed a constant
+    string would satisfy either one alone.
+    """
+    arrived = _ordered(db)
+    ok = client.post(
+        "/api/inventory/receive",
+        json={"item_ids": [arrived.id], "outcome": "received"},
+        headers=admin_headers,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json() == {"outcome": "received", "items": 1}
+
+    lost = _ordered(db)
+    gone = client.post(
+        "/api/inventory/receive",
+        json={"item_ids": [lost.id], "outcome": "canceled"},
+        headers=admin_headers,
+    )
+    assert gone.status_code == 200, gone.text
+    assert gone.json() == {"outcome": "canceled", "items": 1}
