@@ -187,6 +187,7 @@ def place_order(
     *,
     venue: SalesVenue | None = None,
     status_code: str = "pending",
+    external_order_id: str | None = None,
 ) -> SalesOrder:
     """Create an order, taking its stock under row locks.
 
@@ -201,6 +202,13 @@ def place_order(
     `status_code` is `pending` for checkout, which the buyer has not paid
     yet. An outside platform has already collected the money (`paid`), and an
     auction house may already have shipped (`delivered`).
+
+    `external_order_id` is the platform's own order number, for a sale
+    recorded from elsewhere; None for a shop checkout. It is a constructor
+    argument, not a later assignment, for the same reason `total_amount` is
+    priced before the order exists: assigning it after the row has already
+    been inserted would be a second statement against that row, bumping
+    `version` to 2 on a brand-new order.
 
     Raises `HTTPException`: 404 for a listing that does not exist, and 409
     for one no longer sellable in the shop, one without the stock asked for,
@@ -260,6 +268,7 @@ def place_order(
         placed_by_id=placed_by.id,
         notes=notes,
         total_amount=total,
+        external_order_id=external_order_id,
     )
     # Added now, not after the loop: a share needs its line's id, which does
     # not exist until both the order and the line have been flushed. Adding

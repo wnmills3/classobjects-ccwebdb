@@ -37,6 +37,7 @@ from .models import (
     SalesOrder,
     SalesOrderFee,
     SalesOrderItemShare,
+    SalesOrderStatus,
     User,
 )
 from .references import require_code
@@ -46,12 +47,19 @@ __all__ = ["FeeLine", "SaleRefused", "record_sale"]
 #: What a sale's order status is, by the kind of platform it happened on.
 #: A marketplace or live auction has collected the money and the owner still
 #: has to ship; an auction house has already shipped for us.
+#:
+#: Subscripted, never `.get(..., "paid")`: a venue kind this dictionary does
+#: not name must be refused, not silently treated as "paid" -- the one
+#: default that would misreport a sale as money already collected.
 _STATUS_BY_VENUE_KIND = {
     "own_store": "paid",
     "marketplace": "paid",
     "live_auction": "paid",
     "auction_house": "delivered",
 }
+
+#: Money in this module is Decimal to the cent; nothing here rounds.
+_CENT = Decimal("0.01")
 
 
 class SaleRefused(Exception):
@@ -107,30 +115,53 @@ def record_sale(
 ) -> SalesOrder:
     """Record that `listing` sold, and end it. Caller commits.
 
-    Raises `SaleRefused` before writing anything if the listing is not on
-    offer or a fee is negative, so a refused sale leaves everything as it
-    was. An unknown fee kind code is resolved before the order is created
-    too, for the same reason -- it fails as `HTTPException`, the way every
-    other classifier lookup in this codebase does.
+    Raises `SaleRefused` before writing anything if: the listing is not on
+    offer; a fee is negative or given to less than the cent (this branch's
+    money reconciles exactly, and a sub-cent amount cannot -- PostgreSQL's
+    rounding of `Numeric(12, 2)` and `allocate`'s `ROUND_HALF_EVEN` do not
+    agree on one, so the fee row and its shares would disagree by a cent);
+    or `venue`'s kind has no default order status and no `status_code` was
+    given explicitly. An unknown fee kind code, or an explicit `status_code`
+    that is not itself a real status, is resolved before the order is
+    created too, for the same reason -- each fails as `HTTPException`, the
+    way every other classifier lookup in this codebase does, rather than
+    reaching `place_order` after a write has already happened.
     """
     if listing.status is not ListingStatus.active:
         raise SaleRefused(
             f"Listing {listing.id} is not on offer ({listing.status.value})"
         )
-    if any(fee.amount < 0 for fee in fees):
-        raise SaleRefused("A fee cannot be negative")
+    for fee in fees:
+        if fee.amount < 0:
+            raise SaleRefused("A fee cannot be negative")
+        if fee.amount != fee.amount.quantize(_CENT):
+            raise SaleRefused(f"A fee must be given to the cent, not {fee.amount}")
 
     venue = listing.sales_venue
     items = _shared_items(listing)
     # Resolved before the order exists, not inside the write loop below: an
     # unknown fee kind code must fail before anything is written, the same
-    # discipline as the two checks above.
+    # discipline as the checks above.
     fee_kind_ids = [
         require_code(db, SalesFeeKind, fee.kind_code, "fee") for fee in fees
     ]
 
+    # Resolved and validated here, above `venue_buyer` -- the first thing
+    # below that writes -- rather than after `place_order` has already
+    # flushed: an unmapped venue kind or an unknown `status_code` must both
+    # fail before anything is written, not partway through.
+    if status_code is not None:
+        status = status_code
+    else:
+        try:
+            status = _STATUS_BY_VENUE_KIND[venue.kind.code]
+        except KeyError:
+            raise SaleRefused(
+                f"No default order status for sales venue kind {venue.kind.code!r}"
+            ) from None
+    require_code(db, SalesOrderStatus, status, "status")
+
     buyer = venue_buyer(db, venue, buyer_username)
-    status = status_code or _STATUS_BY_VENUE_KIND.get(venue.kind.code, "paid")
 
     order = order_writes.place_order(
         db,
@@ -139,13 +170,13 @@ def record_sale(
         recorded_by,
         venue=venue,
         status_code=status,
+        external_order_id=external_order_id,
     )
     # Captured once, right after the order exists: a flush below that fails
     # (an unlikely one, since everything refusable was checked above) leaves
     # every attribute read raising `PendingRollbackError` instead of the
     # error meant to surface.
     order_id = order.id
-    order.external_order_id = external_order_id
 
     total_fees = Decimal("0.00")
     for fee, kind_id in zip(fees, fee_kind_ids, strict=True):
