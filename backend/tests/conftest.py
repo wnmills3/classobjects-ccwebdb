@@ -336,6 +336,59 @@ def ebay_listing(
     )
 
 
+@pytest.fixture
+def heritage_listing(
+    db: Session, received_item: InventoryItem, heritage_venue: SalesVenue
+) -> Listing:
+    """An item consigned to an auction house, which ships what it sells.
+
+    Same shape as `ebay_listing`, on a venue whose kind is `auction_house`
+    rather than `marketplace` -- the distinction `record_sale` reads to pick
+    an order's starting status.
+    """
+    return offering_writes.offer(
+        db,
+        item=received_item,
+        venue=heritage_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("500.00"),
+        title="1893-S Morgan Dollar",
+        description="",
+        external_id=None,
+    )
+
+
+@pytest.fixture
+def stored_then_ebay(
+    db: Session, listing: Listing, ebay_venue: SalesVenue
+) -> tuple[Listing, Listing]:
+    """A store listing paused because the same item is also offered on eBay.
+
+    Built in that order, through `offering_writes.offer`, so the store
+    listing carries the real `paused` state and `paused_by_listing_id` an
+    actual second offer produces -- not a fixture that merely looks paused.
+    """
+    ebay_listing_ = offering_writes.offer(
+        db,
+        item=listing.inventory_item,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("120.00"),
+        title="1881-S Morgan Dollar",
+        description="",
+        external_id="123456",
+    )
+    db.flush()
+    db.refresh(listing)
+    return listing, ebay_listing_
+
+
+@pytest.fixture
+def three_item_costs() -> list[Decimal]:
+    """Three equal cost bases -- the case an equal split cannot divide evenly."""
+    return [Decimal("40.00"), Decimal("40.00"), Decimal("40.00")]
+
+
 # --------------------------------------------------------------------------
 # Catalogue fixtures
 #
