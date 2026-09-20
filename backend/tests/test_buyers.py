@@ -43,3 +43,35 @@ def test_undisclosed_buyer_is_one_per_platform(
     second = venue_buyer(db, heritage_venue, None)
     assert first.id == second.id
     assert first.display_name == "Undisclosed buyer (Heritage)"
+
+
+def test_empty_username_is_the_same_undisclosed_buyer_as_none(
+    db: Session, heritage_venue: SalesVenue
+) -> None:
+    """An untouched optional form field sends `""`, not a missing field.
+
+    That must not create a second, indistinguishable-looking "undisclosed
+    buyer" row beside the real one: `venue_username = ''` is a distinct
+    non-null value, so the partial unique index cannot catch it.
+    """
+    undisclosed = venue_buyer(db, heritage_venue, None)
+    empty = venue_buyer(db, heritage_venue, "")
+    assert empty.id == undisclosed.id
+
+
+def test_whitespace_only_username_is_the_same_undisclosed_buyer_as_none(
+    db: Session, heritage_venue: SalesVenue
+) -> None:
+    """Whitespace typed into an otherwise-empty field is still no username."""
+    undisclosed = venue_buyer(db, heritage_venue, None)
+    blank = venue_buyer(db, heritage_venue, "   ")
+    assert blank.id == undisclosed.id
+
+
+def test_surrounding_whitespace_is_not_part_of_the_username(
+    db: Session, ebay_venue: SalesVenue
+) -> None:
+    """A transcription space around a real username is not a different buyer."""
+    first = venue_buyer(db, ebay_venue, "coinfan88")
+    second = venue_buyer(db, ebay_venue, " coinfan88 ")
+    assert first.id == second.id
