@@ -427,3 +427,57 @@ def test_a_merge_reports_the_items_for_sale_then_refuses(
         headers=admin_headers,
     )
     assert made.status_code == 200, made.text
+
+
+def test_a_missing_piece_ends_the_lot_listing_that_held_it(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """A piece has no listing of its own; the lot's listing is what holds it.
+
+    `receive_items` asked only for listings whose `inventory_item_id` is one
+    of the received items, so a piece going missing left the lot still on
+    sale -- offering something that can no longer be delivered, which is the
+    exact thing the comment above that query promises not to do.
+
+    No write path builds this state yet (lot offers are phase 3), so the
+    claim is made directly. `offering_writes` already handles it everywhere
+    else, which is why the inconsistency is worth closing before the write
+    path arrives rather than after.
+    """
+    lot = build_item(db)
+    piece = build_item(db)
+    venue = db.scalars(select(SalesVenue).where(SalesVenue.is_own_store)).first()
+    assert venue is not None
+    made = offering_writes.offer(
+        db,
+        item=lot,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("120.00"),
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
+    # The lot's listing also holds the piece.
+    db.add(
+        OfferClaim(
+            inventory_item_id=piece.id, listing_id=made.id, state=ClaimState.active
+        )
+    )
+    db.commit()
+
+    response = client.post(
+        "/api/inventory/receive",
+        json={
+            "item_ids": [piece.id],
+            "outcome": "missing",
+            "acknowledge_for_sale": True,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+
+    db.expire_all()
+    ended = db.get_one(Listing, made.id)
+    assert ended.status is ListingStatus.ended, "the lot must come off sale"

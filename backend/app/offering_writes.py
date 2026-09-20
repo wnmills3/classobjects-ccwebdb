@@ -59,6 +59,7 @@ __all__ = [
     "claims_for",
     "end_offer",
     "offer",
+    "offers_holding",
     "sellable_in_shop",
     "shop_listing_filters",
 ]
@@ -240,6 +241,38 @@ def _lock_items(db: Session, item_ids: Collection[int]) -> None:
         .order_by(InventoryItem.id)
         .with_for_update()
         .execution_options(populate_existing=True)
+    ).all()
+
+
+def offers_holding(db: Session, item_ids: Collection[int]) -> Sequence[Listing]:
+    """Every live offer that holds any of these items, without locking.
+
+    The same definition `_locked_offers` uses, for callers that are about to
+    end offers on a batch of items rather than offer one: both the listings
+    written *against* an item and any listing written against something else
+    that claims it. A piece of a lot is offered by the lot's listing and has
+    no listing of its own, so asking only the first half silently ignores
+    exactly the case the claim table exists for.
+
+    Public because `routers.inventory.receive_items` needs it and asked the
+    first half only -- marking a piece missing left the lot holding it still
+    on sale. One definition of "holds this item" or there are two, and the
+    pair drift.
+    """
+    ids = set(item_ids)
+    if not ids:
+        return []
+    claimed = select(OfferClaim.listing_id).where(
+        OfferClaim.inventory_item_id.in_(ids),
+        OfferClaim.state.in_(HELD_BY),
+    )
+    return db.scalars(
+        select(Listing)
+        .where(
+            Listing.status.in_(ON_OFFER),
+            or_(Listing.inventory_item_id.in_(ids), Listing.id.in_(claimed)),
+        )
+        .order_by(Listing.id)
     ).all()
 
 

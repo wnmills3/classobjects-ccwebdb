@@ -112,6 +112,18 @@ def for_sale(db: Session, item_ids: Collection[int]) -> dict[int, list[SaleUse]]
                 found.setdefault(item_id, []).append(
                     SaleUse("listing", listing_id, described[listing_id])
                 )
+    # **This half asks only the direct link, unlike `_offering` above.** An
+    # order reaches an item through `listing.inventory_item_id`; a listing
+    # that holds the item through a claim instead is not considered, so
+    # ordering a lot would not warn about editing one of its pieces.
+    #
+    # Left as it is deliberately. Every listing today names exactly one item
+    # (`offering_writes.offer` takes one), so the two halves cannot yet
+    # disagree. Closing it needs a decision the codebase has not made: a
+    # claim is `released` once its listing sells, so for a sold lot neither
+    # the claim nor the direct link finds the pieces, and guessing at the
+    # rule here would put a wrong one in the module that defines "for sale".
+    # Phase 3, which introduces lot offers, is where that belongs.
     orders = db.execute(
         select(Listing.inventory_item_id, SalesOrder.id, SalesOrderStatus.code)
         .join(SalesOrderItem, SalesOrderItem.listing_id == Listing.id)
