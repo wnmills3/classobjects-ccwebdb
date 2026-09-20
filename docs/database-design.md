@@ -681,15 +681,30 @@ create view item_valuation     as select ... melt, numismatic, reported, profit,
 create view public_catalog     as select ... from listing join inventory_item ...;
 ```
 
-The API and UI consume the views, so coins and currency read as independent
-inventories with their own columns, filters and type catalogues, while nothing
-shared is implemented twice and field names cannot drift apart.
+The views define coins and currency as independent inventories with their own
+columns, filters and type catalogues, so nothing shared is described twice and
+field names cannot drift apart.
 
-**`public_catalog` is the authorisation boundary.** It must never expose
-`storage_location_id`, `local_catalog_number`, `location_history`,
-`item_certification` internals, cost basis, or inventory photographs. Staff-facing
-views must never leak customer PII into listings. Both directions belong in
-authorisation tests.
+**As built, nothing reads them.** `app/inventory_search.py` queries the base
+tables instead, and explains why in its own docstring: the views join fourteen
+tables, so every query pays for all of them, and a page plus facets measured
+220 ms through the view against 7 ms without it. The four views exist and are
+maintained; a grep for their names across `backend/app` returns only comments.
+
+**`public_catalog` therefore states the authorisation boundary rather than
+enforcing it.** It must never expose `storage_location_id`,
+`local_catalog_number`, `location_history`, `item_certification` internals,
+cost basis, or inventory photographs -- and `PUBLIC_CATALOG_FORBIDDEN_COLUMNS`
+in `models/views.py` is asserted against the view's column list so a later
+`select *` cannot widen it. But what actually keeps those columns from a buyer
+is `routers/catalog.py:to_catalog_item`, which builds the public shape field
+by field, together with `CatalogItemOut` and
+`test_catalogue_never_exposes_cost_basis_or_location`.
+
+Staff-facing views must never leak customer PII into listings. Both directions
+belong in authorisation tests. **Anything later built on these views inherits
+the view's rules, not the router's** -- which is the reason to keep the view
+honest even while it is unread.
 
 ---
 

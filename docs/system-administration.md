@@ -1081,6 +1081,72 @@ cannot be entered a second time while its errors are still pending.
 Error types grow the same way attributes do: "+ Add a new value..." on the
 type picker, one field, no group to choose.
 
+## Backing up and restoring
+
+The database is the system of record. The spreadsheet is not a backup -- it is
+a historical source, and it has not described the collection since the import.
+
+`app.backup` copies the whole database into another database, schema and all,
+building the schema from the SQLAlchemy models rather than from PostgreSQL. A
+`pg_dump` file is still the fastest way to get a copy *off* the machine; this
+is for keeping a working copy beside the live one and for moving to another
+engine.
+
+Run from `backend\`, with the conda environment active:
+
+```cmd
+python -m app.backup                      copy to a timestamped database
+python -m app.backup --name before_split  copy under a name you choose
+python -m app.backup --list               what copies exist, and their size
+python -m app.backup --verify <name>      compare a copy against the live database
+```
+
+**Always verify, and never trust `--list`.** Size is not evidence. A copy that
+aborted partway still appears in the listing at a plausible size: on
+2026-09-20 the newest copy, `ccwebdb_bak_20260917_190359`, listed at 13 MB and
+contained **no inventory items and no purchase orders at all**. `--verify` is
+what found that; the listing had shown it as a backup for three days.
+
+A verify prints either
+
+```
+ccwebdb_bak_20260920_183627 matches the source on every table
+```
+
+or the tables that differ, and exits non-zero. Two kinds of difference:
+
+- **Row counts that disagree.** For a copy taken today, any disagreement is a
+  failed backup. For an older copy, small differences are expected and correct
+  -- it is a record of what the collection was then.
+- **`OLDER SCHEMA -- ... has no <table>`.** The copy predates a migration. It
+  is a usable record of its own moment but cannot be restored over the current
+  application without running the migrations, and the tables added since will
+  be empty.
+
+### Restoring
+
+There is no `--restore` flag; a restore is a copy in the other direction, so
+the same code and the same verification apply. Set `DATABASE_URL` to the copy
+and copy it into a fresh database:
+
+```cmd
+set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_bak_20260920_183627"
+python -m app.backup --name ccwebdb_restored
+```
+
+Then point the application at `ccwebdb_restored` by setting `DATABASE_URL` in
+`.env`, and restart. Restoring *into a new database* rather than over the live
+one is the point: the original stays untouched until the replacement has been
+checked, and switching back is an edit to one line.
+
+This procedure was run end to end on 2026-09-20 -- live to copy to restored
+copy, 7,656 items, verifying against the live database on every table.
+
+**Take one before any migration.** The three copies that hold the collection
+all predate `offer_claim`, `sales_venue` and `item_attribute`, so before
+2026-09-20 there was no copy that had both the current schema and the
+collection in it.
+
 ## Things that are deliberately not configurable
 
 Worth knowing so nobody goes looking for a setting that was never written:
@@ -1092,6 +1158,9 @@ Worth knowing so nobody goes looking for a setting that was never written:
   id, and `ON DELETE SET NULL` on those columns exists so that deactivating a
   member of staff never erases the record that the work was done.
 - **A storage location that customers can see.** `models/lifecycle.py` calls
-  this an authorisation boundary enforced by the `public_catalog` view and by
-  tests, not a convention: a public listing that leaked the safe-deposit box
-  holding an item would be a security failure, not a cosmetic one.
+  this an authorisation boundary, not a convention: a public listing that
+  leaked the safe-deposit box holding an item would be a security failure,
+  not a cosmetic one. What enforces it is `routers/catalog.py`, which builds
+  every public response field by field, and the test that asserts the result
+  carries no location -- not the `public_catalog` view, which forbids the
+  column but which no endpoint actually reads.

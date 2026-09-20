@@ -33,7 +33,7 @@ import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
-from sqlalchemy import Table, create_engine, func, insert, select, text
+from sqlalchemy import Table, create_engine, func, insert, inspect, select, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 
@@ -159,12 +159,30 @@ def _resync_sequences(session: Session, table: Table) -> None:
     session.commit()
 
 
+#: Reported as the copy's row count for a table the copy does not have. A
+#: real count is never negative, so it cannot be mistaken for one, and it
+#: sorts below every genuine shortfall.
+MISSING = -1
+
+
 def compare(source: Engine, target: Engine) -> list[tuple[str, int, int]]:
-    """Row counts per table on both sides. Any mismatch is a failed backup."""
+    """Row counts per table on both sides. Any mismatch is a failed backup.
+
+    A table absent from the copy counts `MISSING` rather than raising. A copy
+    taken before a migration added a table is the ordinary case -- it is what
+    an old backup *is* -- and answering "cannot verify" with a traceback from
+    the tool you reach for when you are already worried about a backup is the
+    wrong moment to be unhelpful.
+    """
     out: list[tuple[str, int, int]] = []
+    inspector = inspect(target)
+    present = set(inspector.get_table_names())
     with Session(source) as a, Session(target) as b:
         for table in Base.metadata.sorted_tables:
             left = a.execute(select(func.count()).select_from(table)).scalar() or 0
+            if table.name not in present:
+                out.append((table.name, left, MISSING))
+                continue
             right = b.execute(select(func.count()).select_from(table)).scalar() or 0
             out.append((table.name, left, right))
     return out
@@ -227,9 +245,18 @@ def main(argv: list[str] | None = None) -> int:
             if row[1] != row[2]
         ]
         if differences:
+            absent = [row for row in differences if row[2] == MISSING]
+            if absent:
+                print(
+                    f"OLDER SCHEMA -- {args.verify} has no "
+                    f"{', '.join(t for t, _, _ in absent)}."
+                )
+                print("It predates a migration, so it cannot be compared table")
+                print("for table. It is not a usable backup of the collection now.")
             print("MISMATCH -- this backup is not a faithful copy:")
             for table, left, right in differences:
-                print(f"  {table:<28}source {left:>8,}   copy {right:>8,}")
+                shown = "absent" if right == MISSING else f"{right:>8,}"
+                print(f"  {table:<28}source {left:>8,}   copy {shown:>8}")
             return 1
         print(f"{args.verify} matches the source on every table")
         return 0
