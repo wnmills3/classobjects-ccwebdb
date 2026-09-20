@@ -790,3 +790,58 @@ def test_the_item_lock_re_reads_the_row_it_locked(
 
     with pytest.raises(offering_writes.OfferRefused, match="not received"):
         _offer_on(db, item, venue)
+
+
+# --------------------------------------------------------------------------
+# "Holds this item" is two halves, and both readers must ask both
+# --------------------------------------------------------------------------
+
+
+def test_offers_holding_finds_a_listing_that_only_claims_the_item(
+    db: Session, listing: Listing, make_item: ItemFactory
+) -> None:
+    """A piece of a lot is offered by the lot's listing, not by one of its own.
+
+    No write path creates this state yet -- `offer` takes a single item, and
+    lot offers are phase 3 -- so the claim is constructed directly. It is
+    still the state every other reader in this module is careful to handle
+    (`_locked_offers`, `_still_offered`, `_affected_items`), and a reader
+    that asks only `Listing.inventory_item_id` silently returns nothing for
+    exactly the case the claim table exists for.
+    """
+    piece = make_item()
+    _claim(db, piece, listing, ClaimState.active)
+    db.flush()
+
+    # The listing is written against a different item entirely.
+    assert listing.inventory_item_id != piece.id
+
+    found = offering_writes.offers_holding(db, [piece.id])
+    assert [held.id for held in found] == [listing.id]
+
+
+def test_offers_holding_ignores_a_released_claim(
+    db: Session, listing: Listing, make_item: ItemFactory
+) -> None:
+    """A released claim holds nothing, so the listing does not hold the item.
+
+    The counterpart to the test above: without it, `offers_holding` could
+    return every listing that had ever claimed the item and still pass.
+    """
+    piece = make_item()
+    _claim(db, piece, listing, ClaimState.released)
+    db.flush()
+
+    assert offering_writes.offers_holding(db, [piece.id]) == []
+
+
+def test_offers_holding_ignores_an_ended_listing(
+    db: Session, make_listing: ListingFactory, make_item: ItemFactory
+) -> None:
+    """Only live offers. An ended listing holds nothing whatever its claims say."""
+    ended = make_listing(is_active=False)
+    piece = make_item()
+    _claim(db, piece, ended, ClaimState.active)
+    db.flush()
+
+    assert offering_writes.offers_holding(db, [piece.id]) == []

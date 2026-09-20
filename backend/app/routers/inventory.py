@@ -438,14 +438,13 @@ def receive_items(
     # A coin that cannot be delivered must not stay offered. Ended through
     # `offering_writes`, the only writer of listing status and claims -- never
     # by assigning `listing.status` here.
+    #
+    # `offers_holding` rather than a query on `inventory_item_id`: a piece of
+    # a lot is offered by the *lot's* listing and has no listing of its own,
+    # so the direct query left the lot on sale after one of its pieces went
+    # missing.
     if ends_offer:
-        offered = db.scalars(
-            select(Listing).where(
-                Listing.inventory_item_id.in_([item.id for item in items]),
-                Listing.status.in_(offering_writes.ON_OFFER),
-            )
-        ).all()
-        for live in offered:
+        for live in offering_writes.offers_holding(db, [item.id for item in items]):
             offering_writes.end_offer(db, live)
 
     db.commit()
