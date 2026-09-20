@@ -238,10 +238,38 @@ sit in the collection. Nothing warns you; the import simply starts at
 To remove them after seeding the administrator:
 
 ```sql
-DELETE FROM listing WHERE inventory_item_id IN
-  (SELECT id FROM inventory_item WHERE price = 0 AND parent_item_id IS NULL);
-DELETE FROM inventory_item WHERE price = 0 AND parent_item_id IS NULL;
+BEGIN;
+
+-- The five demo items, named by the titles `app.seed` itself matches on.
+-- Not "price = 0": `inventory_item` has no `price` column -- price belongs
+-- to a listing -- so the version of this that tested one failed outright.
+CREATE TEMP VIEW demo_items AS
+  SELECT id FROM inventory_item WHERE source_title IN (
+    '1881-S Morgan Silver Dollar',
+    '1916-D Mercury Dime',
+    '2021 American Silver Eagle',
+    '1957-B $1 Silver Certificate',
+    '1964 Kennedy Half Dollar'
+  );
+
+-- Check before deleting. Five rows, and all five demo titles.
+SELECT item_code, source_title FROM inventory_item
+  WHERE id IN (SELECT id FROM demo_items) ORDER BY item_code;
+
+-- Claims and listings first: both restrict on delete, so the item will not
+-- go while either holds it. Everything else (details, history, photographs,
+-- errors) cascades.
+DELETE FROM offer_claim    WHERE inventory_item_id IN (SELECT id FROM demo_items);
+DELETE FROM listing        WHERE inventory_item_id IN (SELECT id FROM demo_items);
+DELETE FROM inventory_item WHERE id IN (SELECT id FROM demo_items);
+
+-- COMMIT when the counts above were what you expected; ROLLBACK otherwise.
+ROLLBACK;
 ```
+
+Wrapped in a transaction deliberately: the `SELECT` in the middle is the only
+chance to see what is about to go, and a collection is not something to delete
+rows from on the strength of a query nobody read the output of.
 
 Then verify the collection totals before trusting anything downstream: the item
 count, the cost basis and `sum(fine_weight_ozt * storage_quantity)`. **Multiply
