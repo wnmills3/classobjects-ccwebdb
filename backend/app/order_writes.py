@@ -33,6 +33,7 @@ from .models import (
     SalesOrderChange,
     SalesOrderChangeKind,
     SalesOrderItem,
+    SalesOrderItemShare,
     SalesOrderStatus,
     SalesVenue,
     User,
@@ -137,6 +138,27 @@ def _line(
     )
 
 
+def _add_shares(
+    db: Session, line: SalesOrderItem, listing: Listing, amount: Decimal
+) -> None:
+    """Divide a line's money among the items the listing offered.
+
+    Fees are not known at checkout -- the shop charges none -- so
+    `fee_amount` keeps its zero default. An outside sale sets it through
+    `sales_writes`.
+    """
+    if listing.inventory_item_id is None:  # pragma: no cover - phase 3 lots
+        return
+    db.add(
+        SalesOrderItemShare(
+            sales_order_item_id=line.id,
+            inventory_item_id=listing.inventory_item_id,
+            amount=amount,
+            fee_amount=Decimal("0.00"),
+        )
+    )
+
+
 def place_order(
     db: Session,
     customer: Customer,
@@ -194,25 +216,58 @@ def place_order(
                 f"(requested {line.quantity})",
             )
 
+    # Priced in its own pass, before the order exists: `SalesOrder` is
+    # version-tracked (`version_id_col`), and a share needs a later flush to
+    # get its line's id. If `total_amount` were assigned after that flush had
+    # already inserted the order row, the assignment would be a second
+    # statement against that row -- an UPDATE the version column counts,
+    # bumping `version` to 2 on a brand-new order. Pricing everything first
+    # means the single INSERT below already carries the right total.
+    prices = {
+        line.listing_id: (
+            listings[line.listing_id].price
+            if line.unit_price is None
+            else line.unit_price
+        )
+        for line in lines
+    }
+    total = sum(
+        (prices[line.listing_id] * line.quantity for line in lines), Decimal("0.00")
+    )
     order = SalesOrder(
         customer_id=customer.id,
         sales_venue_id=store_venue_id(db) if venue is None else venue.id,
         sales_order_status_id=require_code(db, SalesOrderStatus, status_code, "status"),
         placed_by_id=placed_by.id,
         notes=notes,
+        total_amount=total,
     )
-    total = Decimal("0.00")
+    # Added now, not after the loop: a share needs its line's id, which does
+    # not exist until both the order and the line have been flushed. Adding
+    # the (still-empty) order here lets each `order.items.append` below
+    # cascade the new line into the session, so the per-line flush actually
+    # assigns it one.
+    db.add(order)
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]
         before = listing.quantity_available
         listing.quantity_available -= line.quantity
-        price = listing.price if line.unit_price is None else line.unit_price
-        total += price * line.quantity
+        price = prices[line.listing_id]
+        line_amount = price * line.quantity
         # The snapshot before the stock change: the item as it was offered.
         order.items.append(_line(db, listing, line.quantity, price))
         _after_stock_change(db, listing, before)
-    order.total_amount = total
-    db.add(order)
+        # Every line gets shares, a single item included: `sale_state` and
+        # realised gain both ask this table "which items did this order
+        # carry", and a line with no shares would silently answer "none".
+        # A lot listing's line is divided among its members (phase 3); an
+        # item listing's line is one share carrying the whole amount. The
+        # flush is explicit -- production runs with autoflush disabled, so
+        # nothing here can rely on an implicit one -- and it must not move
+        # earlier than `_after_stock_change`, which reads `InventoryItem`
+        # rows this same flush would otherwise touch first.
+        db.flush()
+        _add_shares(db, order.items[-1], listing, line_amount)
     db.flush()
     db.add(
         SalesOrderChange(

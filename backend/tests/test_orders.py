@@ -11,7 +11,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from decimal import Decimal
 
-from app.models import Customer, Listing, SalesOrder, SalesOrderStatus, User
+from app.models import (
+    Customer,
+    Listing,
+    SalesOrder,
+    SalesOrderItemShare,
+    SalesOrderStatus,
+    User,
+)
 from app.sales_venues import store_venue_id
 from app.security import hash_password
 from fastapi.testclient import TestClient
@@ -97,6 +104,28 @@ def test_order_across_multiple_items_sums_correctly(
     assert response.status_code == 201
     # 3 x 19.99 = 59.97, plus 7 x 0.01 = 0.07 -> 60.04
     assert response.json()["total_amount"] == "60.04"
+
+
+def test_a_checkout_line_carries_a_share(
+    client: TestClient, listing: Listing, customer_headers: dict[str, str], db: Session
+) -> None:
+    """One share for one item: the permanent order-to-item link.
+
+    Without this, `sale_state` would find store orders through shares and
+    outside orders not at all -- two query shapes and one of them wrong.
+    """
+    response = place(client, customer_headers, listing.id, 1)
+    assert response.status_code == 201
+    order_item_id = response.json()["items"][0]["id"]
+
+    shares = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == order_item_id
+        )
+    ).all()
+    assert [share.inventory_item_id for share in shares] == [listing.inventory_item_id]
+    assert shares[0].amount == listing.price
+    assert shares[0].fee_amount == Decimal("0.00")
 
 
 def test_order_decrements_availability(
