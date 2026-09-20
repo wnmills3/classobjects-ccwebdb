@@ -41,6 +41,17 @@ from .models import (
 __all__ = ["OPEN_ORDER_STATUSES", "SaleUse", "for_sale", "guard", "refusal"]
 
 #: Orders that hold an item but have not shipped it.
+#:
+#: `delivered` is deliberately excluded, an auction house included: an
+#: auction house has already shipped for us by the time its sale is
+#: recorded (`sales_writes._STATUS_BY_VENUE_KIND` starts that order
+#: straight at `delivered`, past every status in between), and this
+#: module's own docstring already treats "shipped" as the point past which
+#: editing the item is ordinary again -- the snapshot on the line, not the
+#: live record, is what a buyer was shown. `delivered` is strictly further
+#: along than `shipped`, so leaving it out is that same rule reached one
+#: step further, not a new exception. Widening this constant to include it
+#: would also widen every other reader -- check for one before changing it.
 OPEN_ORDER_STATUSES = frozenset({"pending", "paid", "packed"})
 
 

@@ -6,10 +6,9 @@ from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
-from app import offering_writes, sale_state
+from app import offering_writes, order_writes, sale_state
 from app.models import (
     ClaimState,
-    Customer,
     Disposition,
     InventoryItem,
     ItemStatus,
@@ -18,9 +17,6 @@ from app.models import (
     ListingStatus,
     OfferClaim,
     SalesOrder,
-    SalesOrderItem,
-    SalesOrderItemShare,
-    SalesOrderStatus,
     SalesVenue,
     SalesVenueKind,
     User,
@@ -167,42 +163,29 @@ def _order_holding(
 ) -> SalesOrder:
     """An order with one line on this listing, in the state the code names.
 
-    Built with a share, not just the raw `SalesOrderItem` row: every real
-    order (`order_writes.place_order`) carries one, and `sale_state` now
-    reaches an order's items through it rather than through the line's
-    listing -- a fixture without one would test a shape no real order has.
+    Built through `order_writes.place_order`, not by hand: that is the one
+    place a line's share is created, and a fixture that built its own share
+    would state that invariant a second time -- silently out of step the
+    moment phase 3 changes it to one share per lot member, dividing the
+    line's amount rather than repeating it whole. Checkout's own guards
+    apply (`venue=None`): the `listing` fixture is the store's, active, and
+    holds 5, so taking 1 passes `sellable_in_shop`/`is_active` and does not
+    cross the stock to zero -- the item's disposition stays `listed`, which
+    matters because `_refuse_sold` has a disposition branch and an order
+    branch, and these two callers are testing the order branch specifically.
     """
-    customer = Customer(user_id=customer_user.id, display_name="Buyer")
-    db.add(customer)
-    db.flush()
-    order = SalesOrder(
-        customer_id=customer.id,
-        sales_venue_id=listing.sales_venue_id,
-        sales_order_status_id=db.scalars(
-            select(SalesOrderStatus.id).where(SalesOrderStatus.code == status_code)
-        ).one(),
-        placed_by_id=admin_user.id,
+    customer = order_writes.customer_for_user(db, customer_user)
+    return order_writes.place_order(
+        db,
+        customer,
+        [
+            order_writes.Line(
+                listing_id=listing.id, quantity=1, unit_price=Decimal("99.00")
+            )
+        ],
+        admin_user,
+        status_code=status_code,
     )
-    db.add(order)
-    db.flush()
-    line = SalesOrderItem(
-        sales_order_id=order.id,
-        listing_id=listing.id,
-        quantity=1,
-        unit_price=Decimal("99.00"),
-    )
-    db.add(line)
-    db.flush()
-    db.add(
-        SalesOrderItemShare(
-            sales_order_item_id=line.id,
-            inventory_item_id=listing.inventory_item_id,
-            amount=Decimal("99.00"),
-            fee_amount=Decimal("0.00"),
-        )
-    )
-    db.flush()
-    return order
 
 
 def _set_disposition(db: Session, item: InventoryItem, code: str) -> None:
