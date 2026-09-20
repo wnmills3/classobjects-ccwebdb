@@ -8,15 +8,22 @@ import pytest
 from app import offering_writes
 from app.allocation import allocate
 from app.models import (
+    ClaimState,
+    InventoryItem,
     Listing,
+    ListingFormat,
     ListingStatus,
+    OfferClaim,
     SalesOrder,
+    SalesOrderFee,
     SalesOrderItemShare,
     SalesOrderStatus,
     SalesVenue,
+    SalesVenueKind,
     User,
 )
 from app.sales_writes import FeeLine, SaleRefused, record_sale
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -36,6 +43,7 @@ def test_the_sale_ends_the_listing_and_releases_its_claim(
     db: Session, ebay_listing: Listing, admin_user: User
 ) -> None:
     """A sold listing is over: ended, claims released, item sold."""
+    ebay_listing_id = ebay_listing.id
     record_sale(
         db,
         ebay_listing,
@@ -48,11 +56,25 @@ def test_the_sale_ends_the_listing_and_releases_its_claim(
     assert ebay_listing.status is ListingStatus.ended
     assert ebay_listing.inventory_item.disposition.code == "sold"
 
+    claim = db.scalar(
+        select(OfferClaim).where(OfferClaim.listing_id == ebay_listing_id)
+    )
+    assert claim is not None
+    assert claim.state is ClaimState.released
+
 
 def test_fees_are_stored_as_given(
     db: Session, ebay_listing: Listing, admin_user: User
 ) -> None:
-    """The platform's own figures, not an estimate from the venue's rates."""
+    """The platform's own figures, not an estimate from the venue's rates.
+
+    Two fee lines, not one: the only way to catch `total_fees` accumulating
+    wrong (for example the last fee winning instead of the sum) is a case
+    where the sum differs from either individual amount. Read with a fresh
+    `select()`, not `order.fees` or a line's `.shares` -- both are
+    relationships this same session could have already cached empty before
+    the row existed, the same shape of bug `_sync_shares` has upstream.
+    """
     order = record_sale(
         db,
         ebay_listing,
@@ -65,10 +87,21 @@ def test_fees_are_stored_as_given(
         ],
         recorded_by=admin_user,
     )
-    assert sorted(fee.amount for fee in order.fees) == [
+    fee_rows = db.scalars(
+        select(SalesOrderFee).where(SalesOrderFee.sales_order_id == order.id)
+    ).all()
+    assert sorted(fee.amount for fee in fee_rows) == [
         Decimal("5.35"),
         Decimal("15.90"),
     ]
+
+    share = db.scalar(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == order.items[0].id
+        )
+    )
+    assert share is not None
+    assert share.fee_amount == Decimal("21.25")
 
 
 def test_a_single_item_sale_still_gets_a_share(
@@ -160,6 +193,91 @@ def test_a_negative_fee_is_refused(
         )
 
 
+def test_a_sub_cent_fee_is_refused(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """A fraction of a cent cannot reconcile against a `Numeric(12, 2)` row.
+
+    PostgreSQL rounds 15.905 half away from zero, to 15.91; `allocate`
+    quantizes the same figure half to even, to 15.90. Refusing sub-cent
+    precision up front is what keeps the stored fee and its shares from
+    ever disagreeing by that cent.
+    """
+    with pytest.raises(SaleRefused, match="cent"):
+        record_sale(
+            db,
+            ebay_listing,
+            price=Decimal("120.00"),
+            buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[FeeLine("commission", Decimal("15.905"))],
+            recorded_by=admin_user,
+        )
+    assert ebay_listing.status is ListingStatus.active
+
+
+def test_an_unmapped_venue_kind_is_refused(
+    db: Session, received_item: InventoryItem, admin_user: User
+) -> None:
+    """A venue kind with no default status must be named, not guessed as paid.
+
+    Nothing in the seeded vocabulary lacks a default today, so this proves
+    the guard with a kind manufactured for the test -- the day a real one
+    (a consignment shop, a dealer-to-dealer venue) is added, this is exactly
+    the failure it must hit instead of silently recording it as `paid`.
+    """
+    kind = SalesVenueKind(code="dealer_network", label="Dealer network", sort_order=99)
+    db.add(kind)
+    db.flush()
+    venue = SalesVenue(
+        code="some-dealer",
+        name="Some Dealer",
+        sales_venue_kind_id=kind.id,
+    )
+    db.add(venue)
+    db.flush()
+    listing = offering_writes.offer(
+        db,
+        item=received_item,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("50.00"),
+        title="",
+        description="",
+        external_id=None,
+    )
+
+    with pytest.raises(SaleRefused, match="dealer_network"):
+        record_sale(
+            db,
+            listing,
+            price=Decimal("50.00"),
+            buyer_username=None,
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
+    assert listing.status is ListingStatus.active
+
+
+def test_an_unknown_explicit_status_code_is_refused_before_writing(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """A bad explicit `status_code` must fail before `place_order` ever runs."""
+    with pytest.raises(HTTPException):
+        record_sale(
+            db,
+            ebay_listing,
+            price=Decimal("120.00"),
+            buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+            status_code="not-a-real-status",
+        )
+    assert ebay_listing.status is ListingStatus.active
+
+
 def test_an_already_ended_listing_cannot_be_sold(
     db: Session, ebay_listing: Listing, admin_user: User
 ) -> None:
@@ -196,6 +314,29 @@ def test_a_sold_item_s_paused_store_listing_ends_rather_than_resuming(
 
     ended = db.scalar(select(Listing.status).where(Listing.id == store_listing.id))
     assert ended is ListingStatus.ended
+
+
+def test_an_outside_sale_writes_its_order_once(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """`external_order_id` must not bump `version` with a second UPDATE.
+
+    Set at construction inside `place_order`, the same way `total_amount`
+    is -- a later assignment on an already-inserted row is exactly the bug
+    that regressed the shares task in the other direction (a value assigned
+    after the flush that inserts the row, rather than before it).
+    """
+    order = record_sale(
+        db,
+        ebay_listing,
+        price=Decimal("120.00"),
+        buyer_username="coinfan88",
+        external_order_id="04-12345-67890",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    assert order.external_order_id == "04-12345-67890"
+    assert order.version == 1
 
 
 def test_shares_of_an_indivisible_fee_still_sum_to_it(
