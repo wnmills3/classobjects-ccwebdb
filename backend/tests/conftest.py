@@ -272,6 +272,34 @@ def ebay_venue(db: Session) -> SalesVenue:
     return venue
 
 
+@pytest.fixture
+def whatnot_venue(db: Session) -> SalesVenue:
+    """A second marketplace platform, distinct from `ebay_venue`."""
+    venue = SalesVenue(
+        code="whatnot",
+        name="Whatnot",
+        sales_venue_kind_id=require_code(db, SalesVenueKind, "marketplace", "kind"),
+        commission_rate=Decimal("0.08"),
+    )
+    db.add(venue)
+    db.flush()
+    return venue
+
+
+@pytest.fixture
+def heritage_venue(db: Session) -> SalesVenue:
+    """An auction house that sells on the owner's behalf without naming buyers."""
+    venue = SalesVenue(
+        code="heritage",
+        name="Heritage",
+        sales_venue_kind_id=require_code(db, SalesVenueKind, "auction_house", "kind"),
+        commission_rate=Decimal("0.20"),
+    )
+    db.add(venue)
+    db.flush()
+    return venue
+
+
 # --------------------------------------------------------------------------
 # Catalogue fixtures
 #
