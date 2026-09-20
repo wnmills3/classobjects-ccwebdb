@@ -9,9 +9,14 @@ specifications.
 implementation reads `coin_inventory`, which is what those views are for. It is
 also thirty times slower, because the view joins fourteen tables and every
 query pays for all of them -- a `count(*)` that needs no join at all, a facet
-that needs one. Measured over 6,370 coins: a page plus facets took 220 ms
-through the view and 7 ms against the base tables with only the joins each
-query actually needs.
+that needs one. Measured when this was decided, over 6,370 coins: a page plus
+facets took 220 ms through the view and 7 ms against the base tables with
+only the joins each query actually needs.
+
+That benchmark is a record of the decision, not a current reading -- the
+`coins` view counts 4,384 as of 2026-09-20, the difference being how bullion
+and sets are counted rather than anything lost. The ratio is the part that
+matters, and it widens with the collection rather than narrowing.
 
 That measurement settled a design question. Copying classifier labels onto
 every item would have made searching fast, at the price of a second copy of

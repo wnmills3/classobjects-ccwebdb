@@ -102,6 +102,7 @@ def run(
     merges: Sequence[tuple[int, int]],
     kinds: Sequence[tuple[int, str]],
     deletes: Sequence[int],
+    *,
     commit: bool,
     renames: Sequence[tuple[int, str]] = (),
 ) -> Report:
@@ -110,6 +111,11 @@ def run(
     Renames run last, so a merge in the same call frees the name it removes:
     the two Bullion Shark spellings become one row named for the website the
     owner actually bought from. Rolls back unless `commit`.
+
+    `commit` is keyword-only, as it is on every other pass here. Positional,
+    it sat between two sequences, where passing `renames` one argument early
+    made it the commit flag -- a non-empty list being truthy, that is a
+    silent write instead of a refusal.
     """
     report = Report()
     try:

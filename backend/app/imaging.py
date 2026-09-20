@@ -150,19 +150,34 @@ def _assert_no_metadata(data: bytes) -> None:
     """Step 4. Re-read what was written and prove it is clean."""
     with Image.open(io.BytesIO(data)) as check:
         exif = check.getexif()
-        if exif and len(exif):
+        if exif:
+            # GPS first, and on its own. It is the reason this pipeline
+            # exists, and "GPS survived" is a different emergency from "some
+            # EXIF survived" -- worth saying by name.
+            #
+            # Order matters: GPS data is reached through the 0x8825 pointer,
+            # which is itself a top-level EXIF entry, so anything carrying
+            # GPS also makes the general check below fire. Tested after it,
+            # this branch could never be reached, and the one line naming the
+            # module's headline guarantee was dead code.
+            if exif.get_ifd(_EXIF_GPS_IFD):
+                raise MetadataRemainsError("GPS data survived the strip")
             raise MetadataRemainsError(
                 f"EXIF survived the strip: {sorted(exif.keys())}"
             )
-        if exif and exif.get_ifd(_EXIF_GPS_IFD):
-            raise MetadataRemainsError("GPS data survived the strip")
         for channel in ("exif", "icc_profile", "XML:com.adobe.xmp", "comment"):
             if check.info.get(channel):
                 raise MetadataRemainsError(f"{channel} survived the strip")
 
 
 def cleanse(raw: bytes) -> CleansedImage:
-    """Run the whole pipeline over one uploaded file."""
+    """Run the whole pipeline over one uploaded file.
+
+    Raises `ImageRejected` for a file that is too large, not an image, or an
+    implausible decompression bomb, and `MetadataRemainsError` (a subclass)
+    when the strip could not be verified. Both are caught by name in
+    `photo_import.run` and `routers.images.upload_image`.
+    """
     image = _open(raw)
 
     # 1. read -- before anything destroys it
@@ -193,6 +208,9 @@ def cleanse(raw: bytes) -> CleansedImage:
 
 def make_derivative(data: bytes, longest_edge: int) -> tuple[bytes, int, int, str]:
     """A public-safe rendition, scaled to fit a box of `longest_edge`.
+
+    Returns `(encoded, width, height, media_type)`. The two integers are
+    width then height, in that order, which the type cannot say.
 
     Derived from the already-cleansed bytes, so a derivative cannot reintroduce
     metadata the original no longer has. Never enlarges: a 200px photograph

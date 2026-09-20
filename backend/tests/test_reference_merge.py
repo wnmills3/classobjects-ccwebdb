@@ -163,6 +163,60 @@ def test_an_item_with_both_attributes_keeps_one(
     assert sorted(links) == sorted([(both.id, first), (only_early.id, first)])
 
 
+def test_a_dry_run_reports_the_rows_it_would_drop(
+    db: Session,
+    make_item: ItemFactory,
+    client: TestClient,
+    admin_headers: dict[str, str],
+) -> None:
+    """The preview's `dropped` must mean what the merge will do.
+
+    `dry_run` runs `plan` alone, which never counted duplicates, so every
+    preview said `dropped: 0` and the merge then dropped some. It is the one
+    number in a confirmation dialog that cannot be checked afterwards --
+    whoever approved the merge has already lost the rows it did not mention.
+
+    The same fixture as `test_an_item_with_both_attributes_keeps_one`, so
+    the two numbers are directly comparable: whatever the dry run promises
+    here, that test proves the merge delivers.
+    """
+    early = _id(db, ItemAttribute, "early_releases")
+    first = _id(db, ItemAttribute, "first_releases")
+    both = make_item()
+    only_early = make_item()
+    for item, attribute in ((both, early), (both, first), (only_early, early)):
+        db.add(
+            ItemAttributeLink(
+                inventory_item_id=item.id,
+                item_attribute_id=attribute,
+                source=ProvenanceSource.manual,
+            )
+        )
+    db.commit()
+
+    response = _merge(
+        client,
+        admin_headers,
+        "item_attribute",
+        "early_releases",
+        "first_releases",
+        dry_run=True,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["items"], body["dropped"]) == (2, 1)
+
+    # And it really was a preview: nothing moved.
+    db.expire_all()
+    links = db.execute(
+        select(ItemAttributeLink.inventory_item_id, ItemAttributeLink.item_attribute_id)
+    ).all()
+    assert sorted(links) == sorted(
+        [(both.id, early), (both.id, first), (only_early.id, early)]
+    )
+
+
 def test_a_form_opened_before_the_merge_is_refused(
     db: Session,
     make_item: ItemFactory,

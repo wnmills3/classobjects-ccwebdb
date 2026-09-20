@@ -156,6 +156,21 @@ def plan(
         result.moved[f"{owner}.{column.name}"] = count
         item_column = column.table.c[RECORD_TABLES[owner]]
         items.update(db.scalars(select(item_column).where(column == source.id)))
+        if owner in _ONCE_PER_ITEM:
+            # Counted here as well as in `merge`, because the dry run calls
+            # only this function. Without it the preview promised to move N
+            # rows and always reported 0 dropped, then the real merge dropped
+            # some -- the one number in the preview that could not be
+            # believed. Same predicate as `merge`, which deletes them.
+            has_target = select(item_column).where(column == target.id)
+            result.dropped += (
+                db.scalar(
+                    select(func.count())
+                    .select_from(column.table)
+                    .where((column == source.id) & item_column.in_(has_target))
+                )
+                or 0
+            )
     if others:
         raise MergeError(
             f"{source.label} is also used by {', '.join(others)}; "
@@ -201,14 +216,11 @@ def merge(
         item_column = column.table.c[RECORD_TABLES[owner]]
         items.update(db.scalars(select(item_column).where(column == source.id)))
         if owner in _ONCE_PER_ITEM:
+            # `plan` -- called at the top of this function -- has already
+            # counted these into `result.dropped`, so only the deletion
+            # happens here. Counting again would double it.
             has_target = select(item_column).where(column == target.id)
             duplicate = (column == source.id) & item_column.in_(has_target)
-            result.dropped += (
-                db.scalar(
-                    select(func.count()).select_from(column.table).where(duplicate)
-                )
-                or 0
-            )
             db.execute(delete(column.table).where(duplicate))
         db.execute(
             update(column.table).where(column == source.id).values({column: target.id})

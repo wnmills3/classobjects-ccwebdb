@@ -1,13 +1,26 @@
 """Database views.
 
-The API and UI read these rather than the base tables, so coins and currency
-present as independent inventories with their own columns while nothing shared
-is implemented twice.
+They present coins and currency as independent inventories with their own
+columns while nothing shared is implemented twice.
 
-``public_catalog`` is an **authorisation boundary**, not a convenience. It must
-never expose storage location, local catalogue numbers, cost basis, or
-inventory photographs. That is asserted by tests against the column list, so a
-later ``select *`` cannot quietly widen it.
+**Nothing in the application reads them.** They are maintained and unread: a
+grep for these four names across `backend/app` finds only comments, and the
+frontend none at all. `app.inventory_search` explains in its own docstring
+why it queries the base tables instead -- the joins cost about thirty times
+the time -- and the shop's responses are built by
+`routers.catalog.to_catalog_item`, field by field, in Python.
+
+``public_catalog`` therefore **describes** an authorisation boundary rather
+than enforcing one. It must never expose storage location, local catalogue
+numbers, cost basis, or inventory photographs, and a test asserts that
+against `PUBLIC_CATALOG_FORBIDDEN_COLUMNS` so a later ``select *`` cannot
+quietly widen the view. But no request passes through it, so what actually
+keeps those columns away from a buyer is `to_catalog_item` plus
+`CatalogItemOut` -- see `test_catalogue_never_exposes_cost_basis_or_location`,
+which is the enforcement rather than a second copy of it.
+
+Keeping the view honest is still worth doing: it is the schema's statement of
+which columns are public, and anything later built on it inherits that.
 
 Views are not part of ``Base.metadata`` -- Alembic autogenerate reflects tables
 only -- so they are created and dropped explicitly by the migration that owns
@@ -27,6 +40,12 @@ __all__ = [
 ]
 
 #: Columns that must never appear in `public_catalog`. Asserted by a test.
+#:
+#: Note what is absent: no image column appears here, although the module
+#: docstring's promise includes inventory photographs. The view selects
+#: none today, so that half of the promise holds by accident rather than
+#: by this assertion. Add the image columns here if the view ever grows
+#: one.
 #:
 #: The cost columns are listed under **both** names. The old ones cannot
 #: appear any more, so on their own this set would have quietly stopped

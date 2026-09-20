@@ -50,10 +50,16 @@ _ON_DELETE_SET_NULL = "SET NULL"
 class StorageLocation(TimestampMixin, Base):
     """Where items physically are.
 
-    Never customer-visible. This is an authorisation boundary enforced by the
-    `public_catalog` view and by tests, not a convention -- a public listing
-    that leaked the safe-deposit box holding the item would be a security
-    failure, not a cosmetic one.
+    Never customer-visible. This is an authorisation boundary, not a
+    convention -- a public listing that leaked the safe-deposit box holding
+    the item would be a security failure, not a cosmetic one.
+
+    What enforces it is `routers.catalog.to_catalog_item`, which builds every
+    public response field by field, and the test that asserts the result
+    carries no location. **Not** the `public_catalog` view: that view forbids
+    the column too, but no endpoint reads it (see `models.views`), so
+    trusting it to keep this column private would be trusting something that
+    is not on the path.
     """
 
     __tablename__ = "storage_location"

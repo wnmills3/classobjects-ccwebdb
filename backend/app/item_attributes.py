@@ -91,8 +91,13 @@ def set_attributes(
 ) -> bool:
     """Make the item's attributes exactly `codes`; True if anything changed.
 
-    Refused, before anything is written, for a code that is unknown, retired,
-    or for the other kind of item (a star note on a coin).
+    Refused, before anything is written, for a code that is unknown or for
+    the other kind of item (a star note on a coin).
+
+    A *retired* code is refused as unknown rather than as retired: the lookup
+    filters on `is_active`, so the two are indistinguishable by the time the
+    refusal is written. Worth knowing when reading the message, which will
+    say "Unknown attribute(s)" about a code that plainly exists.
     """
     wanted = list(dict.fromkeys(codes))
     found = {

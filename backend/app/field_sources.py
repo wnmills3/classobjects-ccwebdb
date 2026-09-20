@@ -105,6 +105,11 @@ def sources_by_item(
 
     Scoped when a single save asks, so saving one item does not read the
     provenance of the whole collection.
+
+    Includes `HELD` rows, which are not a rule at all -- they record that a
+    person emptied the field. `derived_fields` filters them out and this does
+    not, so the two readers of this table mean different things by a row;
+    `classifier_defaults.classify` separates them by hand after calling this.
     """
     query = select(
         ItemFieldSource.inventory_item_id,

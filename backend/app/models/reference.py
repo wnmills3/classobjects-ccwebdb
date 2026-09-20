@@ -5,9 +5,14 @@ is_active, source. A handful carry extra columns, and those are the interesting
 ones -- each extra column exists because some question could not be answered
 without it.
 
-Foreign keys pointing at these tables are ``ON DELETE RESTRICT`` throughout: a
-classifier that is in use must not be able to vanish and orphan the rows that
-reference it.
+Foreign keys pointing at these tables are ``ON DELETE RESTRICT``: a classifier
+that is in use must not be able to vanish and orphan the rows that reference
+it.
+
+**Two exceptions, both deliberate.** ``series_alias.series_id`` and
+``series_year_range.series_id`` cascade, because those rows belong to their
+series rather than referring to it -- they are `reference_merge._OWNED`, and
+deleting a series is meant to take them with it. Everything else restricts.
 """
 
 from __future__ import annotations

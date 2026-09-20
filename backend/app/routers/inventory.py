@@ -297,7 +297,7 @@ def _classifier_code(db: Session, model: type, fk: int | None) -> str | None:
 @router.post("/receive")
 def receive_items(
     payload: ReceiveRequest, db: DbSession, admin: AdminUser
-) -> dict[str, int]:
+) -> dict[str, int | str]:
     """Record what arrived, for one item or a whole box of them.
 
     All or nothing, in one transaction, the same as `POST /bulk` and for the
@@ -448,7 +448,10 @@ def receive_items(
             offering_writes.end_offer(db, live)
 
     db.commit()
-    return {"received": len(items)}
+    # The outcome as well as the count. This endpoint records `missing`,
+    # `returned` and `canceled` too, and answering a cancellation with
+    # `{"received": 12}` describes the opposite of what happened.
+    return {"outcome": payload.outcome, "items": len(items)}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -654,7 +657,8 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
     """One item, with what its lot claimed and what has been confirmed.
 
     Both in one response because the edit form needs both on every field, and
-    three round trips per coin is three per coin across 7,591 of them.
+    three round trips per coin is three per coin across the collection
+    (7,656 items as of 2026-09-20).
 
     Carries every field EDITABLE_SCALARS and ITEM_CLASSIFIERS accept, not a
     hand-picked subset -- see test_the_detail_payload_covers_every_editable_field.
@@ -1635,9 +1639,10 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
 def detach_item(item_id: int, db: DbSession, _admin: AdminUser) -> InventoryItem:
     """Set an item's `parent_item_id` back to null.
 
-    An item with no parent is complete, not orphaned -- 7,591 of 7,591 have
-    none. So this moves nothing and repairs nothing: the piece keeps the cost
-    it was allocated, and simply stops recording where it came from.
+    An item with no parent is complete, not orphaned: as of 2026-09-20 all
+    7,656 items have none, because nothing has been split yet. So this moves
+    nothing and repairs nothing -- the piece keeps the cost it was allocated,
+    and simply stops recording where it came from.
 
     Idempotent, because the end state is exactly what was asked for.
     """

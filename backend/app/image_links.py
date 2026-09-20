@@ -71,6 +71,11 @@ def attach(
 
     Filling a vacancy is never a demotion: an incumbent is displaced only when
     the caller asked for `is_primary`.
+
+    So `is_primary` is an input *and* an output: passing False may still
+    produce a primary link, and the caller learns that only from
+    `link.is_primary` on the row returned. `photo_import` reports on it and
+    has to check the vacancy itself to do so.
     """
     existing = db.scalar(
         select(ItemImage).where(

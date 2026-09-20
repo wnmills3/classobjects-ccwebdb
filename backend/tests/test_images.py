@@ -151,6 +151,45 @@ def test_verification_rejects_an_image_it_could_not_clean(
         imaging.cleanse(jpeg)
 
 
+def test_surviving_gps_is_reported_as_gps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal must name GPS when GPS is what survived.
+
+    GPS is the reason this pipeline exists -- a photograph of a valuable
+    carries the coordinates of where it is kept -- so "GPS data survived the
+    strip" is a different emergency from "some EXIF survived", and the person
+    reading the error needs to be told which.
+
+    This could not happen before: GPS is reached through the 0x8825 pointer,
+    which is itself a top-level EXIF entry, so the general check always fired
+    first and the GPS branch was unreachable. Asserting on the message, not
+    just the exception type, is what makes that difference visible -- the old
+    code raised `MetadataRemainsError` here too, and a test that checked only
+    the type would have passed against the dead branch.
+    """
+    import app.imaging as imaging
+
+    def leaks_gps(image: PILImage.Image, quality: int = 90) -> tuple[bytes, str]:
+        buffer = io.BytesIO()
+        exif = {
+            "0th": {},
+            "Exif": {},
+            "GPS": {
+                piexif.GPSIFD.GPSLatitudeRef: b"N",
+                piexif.GPSIFD.GPSLatitude: ((41, 1), (52, 1), (0, 1)),
+            },
+            "1st": {},
+            "thumbnail": None,
+        }
+        image.convert("RGB").save(buffer, format="JPEG", exif=piexif.dump(exif))
+        return buffer.getvalue(), "image/jpeg"
+
+    monkeypatch.setattr(imaging, "_encode", leaks_gps)
+    with pytest.raises(MetadataRemainsError, match="GPS"):
+        imaging.cleanse(make_jpeg())
+
+
 # ---------------------------------------------------------------------------
 # Ingest behaviour
 # ---------------------------------------------------------------------------

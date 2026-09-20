@@ -2,10 +2,13 @@
 
 An anomaly is a check with a name, not a generic field filter.
 `issue=no_grade` means *a coin or banknote with no grade*, because bullion has
-no grade by nature and 712 rounds have no weight either -- a generic
-`grade=null` would bury 2,965 real cases under rounds that will never have
-one. The domain knowledge belongs here, written once, rather than in the head
-of whoever types the filter.
+no grade by nature and 730 rounds have no weight either -- a generic
+`grade=null` would bury 2,680 real cases under rounds that will never have
+one. (Both counts measured 2026-09-20; they move as the collection is
+catalogued, and the argument does not depend on their exact size.)
+
+The domain knowledge belongs here, written once, rather than in the head of
+whoever types the filter.
 
 Each check appears three ways from this one definition: a filter
 (`?issue=no_year`), a count returned with the page so the size of a job is
