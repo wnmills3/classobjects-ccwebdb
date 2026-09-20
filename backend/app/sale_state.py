@@ -10,6 +10,11 @@ to buy, so the console warns and a save must say it knows
 (`acknowledge_for_sale`). Once an order ships, its lines keep a snapshot of
 the item as sold (app.sale_snapshot), and editing the item is ordinary
 again.
+
+An order reaches its items through `sales_order_item_share`, not through
+`listing.inventory_item_id`: a claim is released the moment its listing
+sells and a lot listing (phase 3) names no item at all, so the share is the
+only link that still finds a sold item's pieces.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from .models import (
     ListingStatus,
     SalesOrder,
     SalesOrderItem,
+    SalesOrderItemShare,
     SalesOrderStatus,
     SalesVenue,
 )
@@ -112,25 +118,28 @@ def for_sale(db: Session, item_ids: Collection[int]) -> dict[int, list[SaleUse]]
                 found.setdefault(item_id, []).append(
                     SaleUse("listing", listing_id, described[listing_id])
                 )
-    # **This half asks only the direct link, unlike `_offering` above.** An
-    # order reaches an item through `listing.inventory_item_id`; a listing
-    # that holds the item through a claim instead is not considered, so
-    # ordering a lot would not warn about editing one of its pieces.
-    #
-    # Left as it is deliberately. Every listing today names exactly one item
-    # (`offering_writes.offer` takes one), so the two halves cannot yet
-    # disagree. Closing it needs a decision the codebase has not made: a
-    # claim is `released` once its listing sells, so for a sold lot neither
-    # the claim nor the direct link finds the pieces, and guessing at the
-    # rule here would put a wrong one in the module that defines "for sale".
-    # Phase 3, which introduces lot offers, is where that belongs.
+    # Reached through `sales_order_item_share`, which names every item on
+    # every line -- one share for an item listing, one per member for a lot.
+    # The direct link (`listing.inventory_item_id`) cannot do this: a lot
+    # listing names no item, and after a sale the claim is `released`, so
+    # neither the claim nor the link finds the pieces that were sold. A share
+    # is permanent, which is why every line has them, a single-item store
+    # sale included (`order_writes._sync_shares`). Decided 2026-09-20; this
+    # is the rule the module previously deferred to phase 3.
     orders = db.execute(
-        select(Listing.inventory_item_id, SalesOrder.id, SalesOrderStatus.code)
-        .join(SalesOrderItem, SalesOrderItem.listing_id == Listing.id)
+        select(
+            SalesOrderItemShare.inventory_item_id,
+            SalesOrder.id,
+            SalesOrderStatus.code,
+        )
+        .join(
+            SalesOrderItem,
+            SalesOrderItem.id == SalesOrderItemShare.sales_order_item_id,
+        )
         .join(SalesOrder, SalesOrder.id == SalesOrderItem.sales_order_id)
         .join(SalesOrderStatus, SalesOrderStatus.id == SalesOrder.sales_order_status_id)
         .where(
-            Listing.inventory_item_id.in_(ids),
+            SalesOrderItemShare.inventory_item_id.in_(ids),
             SalesOrderStatus.code.in_(OPEN_ORDER_STATUSES),
         )
         .distinct()

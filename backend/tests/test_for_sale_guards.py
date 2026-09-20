@@ -11,17 +11,21 @@ from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
-from app import offering_writes, sale_state
+from app import offering_writes, order_writes, sale_state
 from app.models import (
     ClaimState,
+    Customer,
     InventoryItem,
     ItemStatus,
     Listing,
     ListingFormat,
     ListingStatus,
     OfferClaim,
+    SalesOrderItemShare,
     SalesVenue,
+    User,
 )
+from app.sales_writes import record_sale
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -481,3 +485,114 @@ def test_a_missing_piece_ends_the_lot_listing_that_held_it(
     db.expire_all()
     ended = db.get_one(Listing, made.id)
     assert ended.status is ListingStatus.ended, "the lot must come off sale"
+
+
+def test_an_item_sold_through_a_finished_sale_still_warns(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """A sold coin's record is what a buyer was shown; editing it needs care.
+
+    The claim is `released` at sale and the listing is `ended`, so before
+    shares existed neither half of `for_sale` could find this item.
+    """
+    item_id = ebay_listing.inventory_item_id
+    record_sale(
+        db,
+        ebay_listing,
+        price=Decimal("120.00"),
+        buyer_username="coinfan88",
+        external_order_id=None,
+        fees=[],
+        recorded_by=admin_user,
+    )
+    uses = sale_state.for_sale(db, [item_id])
+    assert any(use.kind == "order" for use in uses[item_id])
+
+
+def test_a_delivered_auction_house_sale_does_not_warn(
+    db: Session, heritage_listing: Listing, admin_user: User
+) -> None:
+    """Delivered is deliberately excluded, the same as shipped already is.
+
+    `OPEN_ORDER_STATUSES` is `{pending, paid, packed}` -- this module's own
+    docstring says an order that has shipped stops warning, because its line
+    keeps a snapshot of the item as sold and the live record is no longer
+    what a buyer is looking at. An auction house has already shipped for us
+    by the time its sale is recorded (`sales_writes._STATUS_BY_VENUE_KIND`
+    starts the order at `delivered`, past every status in between), so this
+    is that same rule reached one step further along, not a new exception
+    carved out for it.
+    """
+    item_id = heritage_listing.inventory_item_id
+    record_sale(
+        db,
+        heritage_listing,
+        price=Decimal("500.00"),
+        buyer_username=None,
+        external_order_id=None,
+        fees=[],
+        recorded_by=admin_user,
+    )
+    uses = sale_state.for_sale(db, [item_id])
+    assert item_id not in uses
+
+
+def test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot(
+    db: Session, admin_user: User
+) -> None:
+    """The one case that actually tells the two queries apart.
+
+    Every write path today (`order_writes._sync_shares`) keys a line's share
+    by `listing.inventory_item_id`, so a single-item listing's order is found
+    exactly as well by the old direct-link query as by the new share query --
+    neither `test_an_item_sold_through_a_finished_sale_still_warns` above nor
+    a delivered auction sale distinguishes them. Only a lot's member does: the
+    listing's own `inventory_item_id` names the lot, never a piece, so the
+    piece is findable only through its share. No write path divides a lot's
+    line among its members yet (phase 3), so the piece's share is added
+    directly here, the same reason
+    `test_a_missing_piece_ends_the_lot_listing_that_held_it` above adds its
+    claim directly.
+    """
+    lot = build_item(db)
+    piece = build_item(db)
+    venue = db.scalars(select(SalesVenue).where(SalesVenue.is_own_store)).first()
+    assert venue is not None
+    made = offering_writes.offer(
+        db,
+        item=lot,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("200.00"),
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
+    db.flush()
+    buyer = Customer(display_name="Walk-in Buyer", email=None)
+    db.add(buyer)
+    db.flush()
+    order = order_writes.place_order(
+        db,
+        buyer,
+        [
+            order_writes.Line(
+                listing_id=made.id, quantity=1, unit_price=Decimal("200.00")
+            )
+        ],
+        admin_user,
+    )
+    line = order.items[0]
+    db.add(
+        SalesOrderItemShare(
+            sales_order_item_id=line.id,
+            inventory_item_id=piece.id,
+            amount=Decimal("200.00"),
+            fee_amount=Decimal("0.00"),
+        )
+    )
+    db.commit()
+
+    uses = sale_state.for_sale(db, [piece.id])
+    assert any(use.kind == "order" for use in uses[piece.id])

@@ -19,6 +19,7 @@ from app.models import (
     OfferClaim,
     SalesOrder,
     SalesOrderItem,
+    SalesOrderItemShare,
     SalesOrderStatus,
     SalesVenue,
     SalesVenueKind,
@@ -164,7 +165,13 @@ def _order_holding(
     admin_user: User,
     status_code: str = "pending",
 ) -> SalesOrder:
-    """An order with one line on this listing, in the state the code names."""
+    """An order with one line on this listing, in the state the code names.
+
+    Built with a share, not just the raw `SalesOrderItem` row: every real
+    order (`order_writes.place_order`) carries one, and `sale_state` now
+    reaches an order's items through it rather than through the line's
+    listing -- a fixture without one would test a shape no real order has.
+    """
     customer = Customer(user_id=customer_user.id, display_name="Buyer")
     db.add(customer)
     db.flush()
@@ -178,12 +185,20 @@ def _order_holding(
     )
     db.add(order)
     db.flush()
+    line = SalesOrderItem(
+        sales_order_id=order.id,
+        listing_id=listing.id,
+        quantity=1,
+        unit_price=Decimal("99.00"),
+    )
+    db.add(line)
+    db.flush()
     db.add(
-        SalesOrderItem(
-            sales_order_id=order.id,
-            listing_id=listing.id,
-            quantity=1,
-            unit_price=Decimal("99.00"),
+        SalesOrderItemShare(
+            sales_order_item_id=line.id,
+            inventory_item_id=listing.inventory_item_id,
+            amount=Decimal("99.00"),
+            fee_amount=Decimal("0.00"),
         )
     )
     db.flush()
