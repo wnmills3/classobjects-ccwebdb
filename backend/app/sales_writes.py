@@ -116,11 +116,13 @@ def record_sale(
     """Record that `listing` sold, and end it. Caller commits.
 
     Raises `SaleRefused` before writing anything if: the listing is not on
-    offer; a fee is negative or given to less than the cent (this branch's
-    money reconciles exactly, and a sub-cent amount cannot -- PostgreSQL's
-    rounding of `Numeric(12, 2)` and `allocate`'s `ROUND_HALF_EVEN` do not
-    agree on one, so the fee row and its shares would disagree by a cent);
-    or `venue`'s kind has no default order status and no `status_code` was
+    offer; `price` or a fee is given to less than the cent, or a fee is
+    negative (this branch's money reconciles exactly, and a sub-cent amount
+    cannot -- PostgreSQL's rounding of `Numeric(12, 2)` and `allocate`'s
+    `ROUND_HALF_EVEN` do not agree on one, so a row and the shares split
+    from it would disagree by a cent -- true of `price` the moment a lot
+    listing divides it through `allocate` too, not only of a fee today); or
+    `venue`'s kind has no default order status and no `status_code` was
     given explicitly. An unknown fee kind code, or an explicit `status_code`
     that is not itself a real status, is resolved before the order is
     created too, for the same reason -- each fails as `HTTPException`, the
@@ -131,6 +133,8 @@ def record_sale(
         raise SaleRefused(
             f"Listing {listing.id} is not on offer ({listing.status.value})"
         )
+    if price != price.quantize(_CENT):
+        raise SaleRefused(f"Price must be given to the cent, not {price}")
     for fee in fees:
         if fee.amount < 0:
             raise SaleRefused("A fee cannot be negative")

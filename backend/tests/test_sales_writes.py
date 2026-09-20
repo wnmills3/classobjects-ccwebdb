@@ -9,6 +9,7 @@ from app import offering_writes
 from app.allocation import allocate
 from app.models import (
     ClaimState,
+    Customer,
     InventoryItem,
     Listing,
     ListingFormat,
@@ -24,7 +25,7 @@ from app.models import (
 )
 from app.sales_writes import FeeLine, SaleRefused, record_sale
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 
@@ -37,6 +38,22 @@ def _status_code(db: Session, order: SalesOrder) -> str:
     row = db.get(SalesOrderStatus, order.sales_order_status_id)
     assert row is not None
     return row.code
+
+
+def _customer_count(db: Session, sales_venue_id: int) -> int:
+    """How many customers exist for a venue, to prove a refusal wrote none.
+
+    `venue_buyer`'s find-or-create is the first write in `record_sale`'s
+    body; a refusal decided above it must leave this at zero.
+    """
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(Customer)
+            .where(Customer.sales_venue_id == sales_venue_id)
+        )
+        or 0
+    )
 
 
 def test_the_sale_ends_the_listing_and_releases_its_claim(
@@ -216,6 +233,35 @@ def test_a_sub_cent_fee_is_refused(
     assert ebay_listing.status is ListingStatus.active
 
 
+def test_a_sub_cent_price_is_refused(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """The same disagreement `price` will hit the day `allocate` divides it.
+
+    `_sync_shares` assigns a single item's share `amount` by straight
+    assignment today, so a sub-cent `price` happens to round the same way
+    in PostgreSQL and in `allocate` right now -- but a lot listing's line
+    (phase 3) is divided among its members *through* `allocate`, which
+    reintroduces exactly the fee disagreement for `price` too. Refusing it
+    now costs a line; finding it later costs a debugging session on money
+    that will not reconcile. Same value shape as the fee test (120.005:
+    PostgreSQL rounds half away from zero to 120.01, `allocate` quantizes
+    half to even to 120.00), and a message distinguishable from the fee
+    one so a caller knows which field is wrong.
+    """
+    with pytest.raises(SaleRefused, match="Price"):
+        record_sale(
+            db,
+            ebay_listing,
+            price=Decimal("120.005"),
+            buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
+    assert ebay_listing.status is ListingStatus.active
+
+
 def test_an_unmapped_venue_kind_is_refused(
     db: Session, received_item: InventoryItem, admin_user: User
 ) -> None:
@@ -258,12 +304,26 @@ def test_an_unmapped_venue_kind_is_refused(
             recorded_by=admin_user,
         )
     assert listing.status is ListingStatus.active
+    # Proves the refusal happened *before* `venue_buyer`, not merely that it
+    # happened: this would also pass if the mapping lookup moved back below
+    # `venue_buyer`, since that write only touches the store's own customer
+    # rows -- catching that requires counting rows on this new venue.
+    assert _customer_count(db, venue.id) == 0
 
 
 def test_an_unknown_explicit_status_code_is_refused_before_writing(
-    db: Session, ebay_listing: Listing, admin_user: User
+    db: Session, ebay_listing: Listing, admin_user: User, ebay_venue: SalesVenue
 ) -> None:
-    """A bad explicit `status_code` must fail before `place_order` ever runs."""
+    """A bad explicit `status_code` must fail before `place_order` ever runs.
+
+    `pytest.raises(HTTPException)` alone proves too little: `place_order`
+    raises the identical exception from its own `require_code` call, after
+    `venue_buyer` has already flushed a `Customer` row -- so a version of
+    `record_sale` with no pre-write validation of its own would pass this
+    test just as well. Counting customers on the venue is what actually
+    distinguishes "refused before anything is written" from "refused
+    eventually, by someone else, after a write already happened."
+    """
     with pytest.raises(HTTPException):
         record_sale(
             db,
@@ -276,6 +336,7 @@ def test_an_unknown_explicit_status_code_is_refused_before_writing(
             status_code="not-a-real-status",
         )
     assert ebay_listing.status is ListingStatus.active
+    assert _customer_count(db, ebay_venue.id) == 0
 
 
 def test_an_already_ended_listing_cannot_be_sold(
