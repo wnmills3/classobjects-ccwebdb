@@ -38,7 +38,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
-from .base import Base, TimestampMixin, enum_column, utcnow
+from .base import Base, ReferenceMixin, TimestampMixin, enum_column, utcnow
 
 if TYPE_CHECKING:  # relationship targets only -- importing them at
     # runtime would make core and sales import each other in a cycle.
@@ -55,10 +55,13 @@ __all__ = [
     "ListingFormat",
     "ListingStatus",
     "OfferClaim",
+    "SalesFeeKind",
     "SalesOrder",
     "SalesOrderChange",
     "SalesOrderChangeKind",
+    "SalesOrderFee",
     "SalesOrderItem",
+    "SalesOrderItemShare",
     "SalesVenue",
     "Shipment",
 ]
@@ -377,13 +380,43 @@ class Customer(TimestampMixin, Base):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The platform this buyer is known on; null for a store customer.
+    sales_venue_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sales_venue.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    #: Their username there ("coinfan88"). Null on the platform's single
+    #: undisclosed buyer, used by auction houses that do not name buyers.
+    venue_username: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     addresses: Mapped[list[Address]] = relationship(
         back_populates="customer", cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
     orders: Mapped[list[SalesOrder]] = relationship(back_populates="customer")
 
-    __table_args__ = (UniqueConstraint("user_id", name="uq_customer_user"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_customer_user"),
+        # Indexed on the lowered username, not the plain column: platforms
+        # display one account's name inconsistently ("CoinFan88" one order,
+        # "coinfan88" the next), and two rows would split one buyer's history
+        # in two. Written exactly as PostgreSQL stores it -- see the note on
+        # ix_inventory_item_fts in core.py -- or the drift test reports this
+        # index as changed on every run.
+        Index(
+            "uq_customer_venue_username",
+            "sales_venue_id",
+            text("lower(venue_username::text)"),
+            unique=True,
+            postgresql_where=text("venue_username IS NOT NULL"),
+        ),
+        Index(
+            "uq_customer_venue_undisclosed",
+            "sales_venue_id",
+            unique=True,
+            postgresql_where=text(
+                "(venue_username IS NULL) AND (sales_venue_id IS NOT NULL)"
+            ),
+        ),
+    )
 
 
 class Address(TimestampMixin, Base):
@@ -484,6 +517,9 @@ class SalesOrder(TimestampMixin, Base):
     items: Mapped[list[SalesOrderItem]] = relationship(
         back_populates="order", cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
+    fees: Mapped[list[SalesOrderFee]] = relationship(
+        back_populates="order", cascade=_CASCADE_ALL_DELETE_ORPHAN
+    )
     shipments: Mapped[list[Shipment]] = relationship(
         back_populates="order", cascade=_CASCADE_ALL_DELETE_ORPHAN
     )
@@ -534,11 +570,98 @@ class SalesOrderItem(Base):
 
     order: Mapped[SalesOrder] = relationship(back_populates="items")
     listing: Mapped[Listing] = relationship(back_populates="order_items")
+    shares: Mapped[list[SalesOrderItemShare]] = relationship(
+        back_populates="line", cascade=_CASCADE_ALL_DELETE_ORPHAN
+    )
 
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_sales_order_item_quantity_positive"),
         CheckConstraint(
             "unit_price >= 0", name="ck_sales_order_item_price_non_negative"
+        ),
+    )
+
+
+class SalesFeeKind(ReferenceMixin, Base):
+    """A kind of fee a platform charges on a sale.
+
+    Seeded with the schema rather than from `backend/data/reference/`: this is
+    a closed vocabulary the product defines, not numismatic reference data
+    with an outside source to cite.
+    """
+
+    __tablename__ = "sales_fee_kind"
+
+
+class SalesOrderFee(Base):
+    """One fee line on an order, as the platform's statement shows it.
+
+    Actual money, not an estimate: the platform's own figures are what a tax
+    return needs. The estimates shown while offering come from
+    `sales_venue`'s default rates and are never stored.
+
+    Net payout is `sales_order.total_amount - sum(amount)`, computed when
+    asked. Storing it would give two places to disagree.
+    """
+
+    __tablename__ = "sales_order_fee"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sales_order_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_order.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    sales_fee_kind_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_fee_kind.id", ondelete="RESTRICT"), nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    order: Mapped[SalesOrder] = relationship(back_populates="fees")
+    fee_kind: Mapped[SalesFeeKind] = relationship()
+
+    __table_args__ = (
+        CheckConstraint("amount >= 0", name="ck_sales_order_fee_non_negative"),
+    )
+
+
+class SalesOrderItemShare(Base):
+    """One item's share of an order line's money.
+
+    Every sold line has shares: one row for a single-item listing, one per
+    member for a lot. A share of one looks redundant and is deliberate --
+    it makes this table the single permanent answer to "which items did this
+    order carry", with one query shape instead of two. `app.sale_state`
+    depends on that, and so will realised-gain reporting.
+
+    Shares sum to their line exactly (`app.allocation`), so a cent is never
+    lost between the order total and the items that made it up.
+    """
+
+    __tablename__ = "sales_order_item_share"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sales_order_item_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_order_item.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    #: This item's share of `sales_order_item.unit_price * quantity`.
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    #: This item's share of the order's fees.
+    fee_amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, server_default=text("0")
+    )
+
+    line: Mapped[SalesOrderItem] = relationship(back_populates="shares")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "sales_order_item_id",
+            "inventory_item_id",
+            name="uq_share_line_item",
         ),
     )
 

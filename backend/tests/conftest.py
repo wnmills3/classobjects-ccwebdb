@@ -31,6 +31,9 @@ from app.models import (
     Listing,
     ListingStatus,
     ReferenceMixin,
+    SalesFeeKind,
+    SalesVenue,
+    SalesVenueKind,
     StorageForm,
     StrikeType,
     User,
@@ -38,6 +41,7 @@ from app.models import (
     ValuationBasis,
 )
 from app.models.views import CREATE_VIEWS
+from app.references import require_code
 from app.sales_venues import ensure_store_venue, store_venue_id
 from app.security import hash_password
 from app.seeding import seed_all
@@ -63,6 +67,17 @@ def _test_database_url() -> URL:
 
 
 TEST_URL = _test_database_url()
+
+#: Matches the INSERT the migration seeds `sales_fee_kind` with -- see
+#: `<generated>_sales_fees_and_shares.py`.
+_FEE_KINDS: tuple[tuple[str, str, int], ...] = (
+    ("commission", "Commission", 10),
+    ("processing", "Payment processing", 20),
+    ("listing", "Listing fee", 30),
+    ("shipping_label", "Shipping label", 40),
+    ("promotion", "Promotion", 50),
+    ("other", "Other", 60),
+)
 
 
 @pytest.fixture(scope="session")
@@ -122,6 +137,13 @@ def engine() -> Iterator[Engine]:
         # The migration creates the web store platform on a real database;
         # this one is built from the models, so it is created here.
         ensure_store_venue(session)
+        # Likewise the fee kind vocabulary: the migration seeds it with an
+        # INSERT because it is a closed vocabulary the product defines, not
+        # data from backend/data/reference/ that seed_all would pick up.
+        session.add_all(
+            SalesFeeKind(code=code, label=label, sort_order=order, is_active=True)
+            for code, label, order in _FEE_KINDS
+        )
         session.commit()
 
     yield test_engine
@@ -234,6 +256,20 @@ def admin_headers(client: TestClient, admin_user: User) -> dict[str, str]:
 @pytest.fixture
 def customer_headers(client: TestClient, customer_user: User) -> dict[str, str]:
     return _token_headers(client, customer_user.email, CUSTOMER_PASSWORD)
+
+
+@pytest.fixture
+def ebay_venue(db: Session) -> SalesVenue:
+    """A marketplace platform to offer and sell on, separate from the store."""
+    venue = SalesVenue(
+        code="ebay",
+        name="eBay",
+        sales_venue_kind_id=require_code(db, SalesVenueKind, "marketplace", "kind"),
+        commission_rate=Decimal("0.1325"),
+    )
+    db.add(venue)
+    db.flush()
+    return venue
 
 
 # --------------------------------------------------------------------------
