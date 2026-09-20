@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import cast
 
 import pytest
+from app import offering_writes
 from app.config import settings
 from app.database import Base, get_db
 from app.grades import GRADE_DISPLAY_SQL, split_fields
@@ -29,6 +30,7 @@ from app.models import (
     ItemKind,
     ItemStatus,
     Listing,
+    ListingFormat,
     ListingStatus,
     ReferenceMixin,
     SalesFeeKind,
@@ -298,6 +300,40 @@ def heritage_venue(db: Session) -> SalesVenue:
     db.add(venue)
     db.flush()
     return venue
+
+
+@pytest.fixture
+def received_item(make_item: Callable[..., InventoryItem]) -> InventoryItem:
+    """An item ready to be offered: received, not yet listed anywhere.
+
+    `make_item` (below) defaults an item's status to `received`, which is
+    exactly the state `offering_writes.offer` requires -- so this fixture is
+    only a name for that default, not a second way to build one.
+    """
+    return make_item()
+
+
+@pytest.fixture
+def ebay_listing(
+    db: Session, received_item: InventoryItem, ebay_venue: SalesVenue
+) -> Listing:
+    """An item offered on eBay, with the claim that `offer` creates.
+
+    Built through `offering_writes.offer` rather than a bare `Listing(...)`
+    so this listing carries the same `OfferClaim` a real eBay offer would --
+    which is the fixture's whole point: it is a listing the shop's checkout
+    guards must refuse, not a listing that merely looks like one.
+    """
+    return offering_writes.offer(
+        db,
+        item=received_item,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("120.00"),
+        title="1881-S Morgan Dollar",
+        description="",
+        external_id="123456",
+    )
 
 
 # --------------------------------------------------------------------------

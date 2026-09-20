@@ -34,6 +34,7 @@ from .models import (
     SalesOrderChangeKind,
     SalesOrderItem,
     SalesOrderStatus,
+    SalesVenue,
     User,
 )
 from .models.base import utcnow
@@ -142,8 +143,23 @@ def place_order(
     lines: Sequence[Line],
     placed_by: User,
     notes: str | None = None,
+    *,
+    venue: SalesVenue | None = None,
+    status_code: str = "pending",
 ) -> SalesOrder:
     """Create an order, taking its stock under row locks.
+
+    `venue` is None for a shop checkout: the order is the store's and the
+    shop's rules apply -- the listing must be this shop's, active, and hold
+    the stock asked for. Passing a venue means the sale happened somewhere
+    else and is being recorded after the fact, so those first two checks do
+    not apply: an eBay listing is not meant to be sellable in the shop, and by
+    the time a sale is recorded the offer is over. What still applies to both
+    is the row lock and the stock check.
+
+    `status_code` is `pending` for checkout, which the buyer has not paid
+    yet. An outside platform has already collected the money (`paid`), and an
+    auction house may already have shipped (`delivered`).
 
     Raises `HTTPException`: 404 for a listing that does not exist, and 409
     for one no longer sellable in the shop, one without the stock asked for,
@@ -154,21 +170,22 @@ def place_order(
     listings = _lock_listings(db, {line.listing_id for line in lines})
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]
-        # `active_only=False`: whether the listing is this shop's at all is one
-        # question, and whether it is on offer this minute is another with its
-        # own message below. `offering_writes` owns both halves of the rule.
-        if not sellable_in_shop(listing, active_only=False):
-            _refuse(
-                db,
-                status.HTTP_409_CONFLICT,
-                f"Listing {listing.id} is not sold in this shop",
-            )
-        if not listing.is_active:
-            _refuse(
-                db,
-                status.HTTP_409_CONFLICT,
-                f"Listing {listing.id} is not currently for sale",
-            )
+        if venue is None:
+            # `active_only=False`: whether the listing is this shop's at all is
+            # one question, and whether it is on offer this minute is another
+            # with its own message below. `offering_writes` owns both halves.
+            if not sellable_in_shop(listing, active_only=False):
+                _refuse(
+                    db,
+                    status.HTTP_409_CONFLICT,
+                    f"Listing {listing.id} is not sold in this shop",
+                )
+            if not listing.is_active:
+                _refuse(
+                    db,
+                    status.HTTP_409_CONFLICT,
+                    f"Listing {listing.id} is not currently for sale",
+                )
         if listing.quantity_available < line.quantity:
             _refuse(
                 db,
@@ -179,8 +196,8 @@ def place_order(
 
     order = SalesOrder(
         customer_id=customer.id,
-        sales_venue_id=store_venue_id(db),
-        sales_order_status_id=require_code(db, SalesOrderStatus, "pending", "status"),
+        sales_venue_id=store_venue_id(db) if venue is None else venue.id,
+        sales_order_status_id=require_code(db, SalesOrderStatus, status_code, "status"),
         placed_by_id=placed_by.id,
         notes=notes,
     )
