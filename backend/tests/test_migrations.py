@@ -590,6 +590,42 @@ def test_migrations_match_models(migrated_url: str) -> None:
     assert meaningful == [], f"models and migrations disagree: {meaningful}"
 
 
+def test_the_fee_kind_migration_seeds_the_vocabulary(migrated_url: str) -> None:
+    """`c6908f789bf8`'s INSERT actually runs, on a database built only by it.
+
+    `test_fee_kinds_are_seeded` (test_sales_fees_schema.py) runs against the
+    `create_all`-built test database, so it passes because of conftest's own
+    `_FEE_KINDS` seeding -- which mirrors `ensure_store_venue` for the same
+    reason -- and would stay green even if this migration's INSERT were
+    deleted entirely. Only a database built purely by running the migrations
+    can catch that, which is what `migrated_url` is for.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", migrated_url)
+    upgrade(config, "head")
+
+    engine = create_engine(migrated_url)
+    try:
+        with engine.connect() as connection:
+            codes = set(
+                connection.execute(
+                    text("SELECT code FROM sales_fee_kind WHERE is_active")
+                ).scalars()
+            )
+    finally:
+        engine.dispose()
+
+    assert codes == {
+        "commission",
+        "processing",
+        "listing",
+        "shipping_label",
+        "promotion",
+        "other",
+    }
+
+
 def _create_views_kwargs(file_stem: str, function_name: str) -> dict[str, bool]:
     """The literal keyword arguments a migration's `create_views(...)` call passes.
 
