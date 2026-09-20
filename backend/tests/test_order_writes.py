@@ -10,6 +10,8 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
+import pytest
+from app.buyers import venue_buyer
 from app.models import (
     Customer,
     Listing,
@@ -23,7 +25,9 @@ from app.models import (
     SalesVenueKind,
     User,
 )
+from app.order_writes import Line, place_order
 from app.sales_venues import store_venue_id
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import select
@@ -261,6 +265,62 @@ def test_checkout_refuses_an_auction_listing(
 
     assert response.status_code == 409
     assert "not sold in this shop" in response.json()["detail"]
+
+
+def test_an_outside_sale_records_its_platform_and_status(
+    db: Session, ebay_listing: Listing, admin_user: User, ebay_venue: SalesVenue
+) -> None:
+    """A sale on eBay is stored against eBay, already paid."""
+    buyer = venue_buyer(db, ebay_venue, "coinfan88")
+    order = place_order(
+        db,
+        buyer,
+        [Line(listing_id=ebay_listing.id, quantity=1, unit_price=Decimal("120.00"))],
+        admin_user,
+        venue=ebay_venue,
+        status_code="paid",
+    )
+    assert order.sales_venue_id == ebay_venue.id
+    order_status = db.get(SalesOrderStatus, order.sales_order_status_id)
+    assert order_status is not None
+    assert order_status.code == "paid"
+
+
+def test_an_outside_listing_is_not_refused_for_being_outside_the_shop(
+    db: Session, ebay_listing: Listing, admin_user: User, ebay_venue: SalesVenue
+) -> None:
+    """The shop guards are checkout's rules, not every order's."""
+    buyer = venue_buyer(db, ebay_venue, "coinfan88")
+    order = place_order(
+        db,
+        buyer,
+        [Line(listing_id=ebay_listing.id, quantity=1, unit_price=Decimal("120.00"))],
+        admin_user,
+        venue=ebay_venue,
+        status_code="paid",
+    )
+    assert order.id is not None
+
+
+def test_checkout_still_refuses_a_listing_from_another_platform(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """Without a venue this is checkout, and checkout is the shop only.
+
+    This is the guard that stops a shop request buying an eBay listing; the
+    new keyword must not have opened it.
+    """
+    customer = _new_customer(db)
+
+    with pytest.raises(HTTPException) as caught:
+        place_order(
+            db,
+            customer,
+            [Line(listing_id=ebay_listing.id, quantity=1)],
+            admin_user,
+        )
+    assert caught.value.status_code == 409
+    assert "not sold in this shop" in caught.value.detail
 
 
 def _revise(
