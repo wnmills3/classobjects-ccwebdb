@@ -1,6 +1,9 @@
 # Selling: platforms, offers, sales lots and auctions
 
 Design. Status: **agreed with the owner 2026-09-17**; phases 0-2 (offering) built.
+**Revised 2026-09-20** with the owner: the phase-2 remainder, phase 3 and phase
+4 were scoped together and four points where this document and the built code
+had drifted apart were reconciled. See *Revision, 2026-09-20* below.
 
 ## The problem
 
@@ -42,6 +45,14 @@ Made by the owner during design, 2026-09-17.
 | Grouping items for sale | A **sales lot**: a temporary grouping offered as one sale item in any format on any platform, which **dissolves back into its items** if it does not sell. |
 | The Manage page | **Retired**, replaced by the Listings page. |
 
+Added 2026-09-20, scoping the rest of the work:
+
+| Question | Decision |
+|---|---|
+| Order of the remaining work | **Record-a-sale, then sales lots, then auctions.** Settlement is defined in terms of record-a-sale, so any other order writes it twice. |
+| When live is migrated | **Once, after all three are merged.** One migration per phase for testing; one backup and one apply. |
+| Warning on a lot's pieces after it sells | **Through `sales_order_item_share`**, which names every item on every order line permanently. Closes the gap `sale_state.py` defers to phase 3. |
+
 Rejected:
 
 - *Renaming `vendor` to a partner table with both roles.* Cleanest on paper,
@@ -78,8 +89,18 @@ sales lot of one.
 
 ### Reference vocabularies (shipped with the product)
 
-Seeded JSON in `backend/data/reference/`, each with a `_comment` naming its
-source, per `docs/database-design.md` section 12.
+Seeded by an `INSERT` in the migration that creates the table, as phase 1 did
+for `sales_venue_kind` in `d6a1f3b8c402`. These are small, closed vocabularies
+that the product defines rather than the installation, and seeding them with
+the schema keeps a freshly migrated database usable without a separate seed
+step.
+
+(This paragraph originally said the vocabularies were seeded from JSON in
+`backend/data/reference/`, per `docs/database-design.md` section 12. The
+implementation did not do that, and the migration `INSERT` is the better fit
+here: the JSON files carry numismatic reference *data* with a `_comment`
+naming its source, which these vocabularies are not. Corrected 2026-09-20 to
+describe what phase 1 built.)
 
 - **`sales_venue_kind`**: `own_store`, `marketplace` (fixed-price listings on
   eBay, Whatnot), `live_auction` (eBay Live, Whatnot shows), `auction_house`
@@ -196,6 +217,13 @@ an auction with one lot.
   weight is each item's `total_cost`; **equal** is chosen explicitly, and used
   when every weight is zero. Fees are divided the same way. This is what keeps
   realised gain answerable per item.
+
+  **Every sold line gets shares, including a store sale of a single item** --
+  one row carrying the whole line. A share of one looks redundant, and is
+  deliberate: it makes `sales_order_item_share` the single, permanent answer to
+  "which items did this order carry", with one query shape rather than two and
+  an `IS NULL` branch between them. `app.sale_state` depends on that (below),
+  and so will realised-gain reporting. Decided with the owner 2026-09-20.
 - **Order status on an outside sale.** `marketplace` and `live_auction` sales
   are created `paid` -- the platform collected payment and the owner ships,
   through the existing Orders page. `auction_house` sales are created
@@ -364,6 +392,13 @@ Each phase is merged and applied on its own.
    page and item Offers panel, record-a-sale with `sales_fee_kind`,
    `sales_order_fee`, `sales_order_item_share` and platform buyers. Manage and
    the catalogue write endpoints are retired.
+   **Delivered without record-a-sale** -- see phase 2R.
+2R. **Record a sale** (the phase-2 remainder, scoped 2026-09-20):
+   `sales_fee_kind`, `sales_order_fee`, `sales_order_item_share`,
+   `customer.sales_venue_id`/`venue_username` and the undisclosed buyer,
+   `app/sales_writes.py`, `POST /api/listings/{id}/sale`, **Record sale...**
+   on the Listings page. Phase 2 merged without any of it: `end_offer`'s
+   `sold=True` branch has no caller on `main`.
 3. **Sales lots**: `sales_lot`, `sales_lot_item`, nullable
    `listing.inventory_item_id`, lot listings in the shop, the Lots page.
 4. **Auctions**: `auction`, `auction_lot`, the `consigned` location kind, the
@@ -371,6 +406,61 @@ Each phase is merged and applied on its own.
 
 `paused_by_listing_id` is introduced in phase 2, the first phase that pauses a
 store listing (offering a stored item on eBay pauses its store listing).
+
+**Phase 2R comes before phase 3 and cannot be skipped.** Settlement in phase 4
+is defined in this document as "one order per buyer holding their lots, fees,
+shares; as Record a sale". Building auctions first would mean writing
+settlement against a function that does not exist, and then writing it again.
+
+## Revision, 2026-09-20
+
+Scoping the remaining phases with the owner turned up four places where this
+document and the code that implements it had drifted apart. All four are
+reconciled as part of phases 2R-4 rather than left to disagree.
+
+1. **Vocabulary seeding.** The document said JSON; phase 1 used a migration
+   `INSERT`. The code is right and the document is corrected (*Reference
+   vocabularies*, above).
+2. **`app/seed.py` creates a listing with no `offer_claim`**, the one
+   sanctioned exception to "every listing has a claim". `app.sale_state`
+   silently compensates by asking both the claim and `listing.inventory_item_id`.
+   Once a lot listing exists that compensation is load-bearing for a dev-only
+   bug, so `seed.py` is fixed in phase 2R to go through `offering_writes.offer`.
+3. **The suite-wide invariant test does not exist.** *Testing*, above, requires
+   claim state to equal listing status after every write in the suite; it was
+   never built, and it would have caught (2) by itself. Built in phase 2R, and
+   extended in phase 3 to cover lot membership against lot status.
+4. **`app.sale_state`'s order half.** It reaches an item only through
+   `listing.inventory_item_id`, so a lot's members are invisible to it, and
+   a sold lot's members are invisible through the claim too -- the claim is
+   `released` at sale. The module's own comment defers the rule to phase 3.
+   **Decided: the order half joins through `sales_order_item_share`**, which
+   names every item on every line, lot or single, and is permanent. This is
+   why a single-item store sale also gets a share row (*Sales*, above).
+
+**Where record-a-sale lives.** *How things move*, above, says a sale is
+recorded "via `order_writes`". That stays true and is made exact here:
+`app/sales_writes.py` is a new module that **orchestrates** a sale and owns the
+two facts nothing else writes, `sales_order_fee` and `sales_order_item_share`.
+It creates the order and its snapshot through `order_writes.place_order`, and
+ends the listing through `offering_writes.end_offer(sold=True)`.
+`order_writes` remains the only writer of orders and `offering_writes` the only
+writer of listings and claims; `sales_writes` adds no second path to either.
+It has one entry point, `record_sale`, with three callers: the Listings page's
+Record sale, store checkout, and auction settlement -- which is what keeps
+settlement from growing its own copy of fees and shares.
+
+**Delivery.** Three branches, merged in order: the phase-2 remainder, sales
+lots, auctions. One migration each, so `test_migrations_round_trip` exercises
+them separately, but **live is not migrated until all three are merged** -- one
+backup, one `alembic upgrade head`, one verification pass.
+
+**Out of scope, added 2026-09-20.** Relisting clears `ended_at` and there is no
+listing history table, so a re-offer loses the previous ending's timestamp. A
+`listing_status_history` mirroring `ItemStatusHistory` is the fix. Auction
+settlement is the first thing that makes a listing's ending part of the
+financial record, so phase 4 documents the limit where it starts to matter
+rather than quietly inheriting it. Building the table is a separate decision.
 
 ## Not in this design
 
