@@ -15,6 +15,7 @@ vi.mock('../api', () => ({
 import { api } from '../api'
 import Listings from './Listings'
 import { marginPercent } from './platform-rates'
+import { subjectOf } from './listing-labels'
 import { date } from '../../shared/format'
 import { adminAuth, emptyReference, renderWithProviders } from '../../test/helpers'
 
@@ -85,6 +86,27 @@ const ACTIVE_STORE = {
   status: 'active',
   paused_by_listing_id: null,
   version: 4,
+}
+
+// A LOT offered on eBay: three coins sold as one thing. `item_id` and
+// `item_code` are null -- a lot is not an item and has no code -- and
+// `item_title` carries the lot's own title, with `member_count` beside it.
+// `ck_listing_item_xor_lot` is what makes those two shapes exclusive.
+const LOT = {
+  ...EBAY,
+  id: 41,
+  item_id: null,
+  item_code: null,
+  item_title: 'Three Morgans',
+  sales_lot_id: 4,
+  member_count: 3,
+  price: '1000.00',
+  title: 'Three Morgan Dollars, 1881-1883',
+  description: 'A short date run.',
+  external_id: null,
+  external_url: null,
+  cost_basis: '600.00',
+  version: 1,
 }
 
 const VENUES = [
@@ -568,6 +590,57 @@ describe('Listings', () => {
     })
 
     expect(screen.queryByText('175.00 USD')).toBeNull()
+  })
+})
+
+describe('a lot listing', () => {
+  // `listing.inventory_item_id` became nullable when lots arrived, and
+  // `ListingOut.item_code` with it. This page was in no task's file list, so
+  // every lot row rendered a blank first cell and built the aria-label
+  // "Edit null on eBay" -- on the page whose whole job is listing offers.
+  beforeEach(() => {
+    api.listListings.mockResolvedValue([LOT])
+  })
+
+  it('names a lot row by the lot, not by a null item code', async () => {
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    expect(within(row).getByText('Three Morgans (3 items)')).toBeInTheDocument()
+    // The word itself, because that is what the broken version printed --
+    // and an assertion that merely finds *something* in the cell passes
+    // against a cell holding "null".
+    expect(within(row).queryByText('null')).toBeNull()
+  })
+
+  it('labels the edit window for a lot without a null in it', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+    expect(
+      screen.getByRole('dialog', { name: 'Edit Three Morgans (3 items) on eBay' }),
+    ).toBeVisible()
+  })
+
+  it('says how many coins a lot holds, so it does not read as one coin', async () => {
+    // The count is the whole point of naming the lot rather than the
+    // listing: "Three Morgans" at 1000.00 is a plausible single coin.
+    api.listListings.mockResolvedValue([{ ...LOT, member_count: 1 }])
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    expect(within(row).getByText('Three Morgans (1 item)')).toBeInTheDocument()
+  })
+})
+
+describe('naming what a listing offers', () => {
+  it('uses the item code when there is one', () => {
+    expect(subjectOf(EBAY)).toBe('C-0007')
+  })
+
+  it('falls back to the title alone when a lot row has no count', () => {
+    // Nothing is invented: a row with no `member_count` is named, not
+    // counted. "(undefined items)" would be worse than the null it replaced.
+    expect(subjectOf({ ...LOT, member_count: null })).toBe('Three Morgans')
   })
 })
 

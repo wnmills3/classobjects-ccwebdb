@@ -38,3 +38,31 @@ export const labelFor = (table, code) =>
 
 /** Nothing to show, in a place a cell would otherwise be blank. */
 export const UNKNOWN = '--'
+
+/**
+ * What a listing is an offer *of*, named the way a person would name it.
+ *
+ * An item's permanent code for an item listing, and for a **lot** listing the
+ * lot's own title with how many coins are in it. `ListingOut.item_code` has
+ * been nullable since lots existed -- a lot is not an item and has no code --
+ * and every screen that read it unconditionally printed the word `null`:
+ * "Edit null on eBay", "null is withdrawn from eBay at 1000.00", and a blank
+ * first cell on the page whose whole job is listing offers.
+ *
+ * Both halves come off the row itself. `item_title` is the item's
+ * `source_title` or the **lot's** title -- one field the console can always
+ * show, whichever kind the row is -- and `member_count` is how many coins the
+ * lot holds, sent so this needs no request per row. The count is included
+ * because it is the difference that matters: "Three Morgans" priced at
+ * 1000.00 reads as one coin without it.
+ *
+ * A row with neither a code nor a count -- an older response, or a lot whose
+ * count the API could not give -- falls back to the title alone rather than
+ * inventing a number.
+ */
+export function subjectOf(listing) {
+  if (listing.item_code) return listing.item_code
+  const count = listing.member_count
+  if (count === null || count === undefined) return listing.item_title
+  return `${listing.item_title} (${count} ${count === 1 ? 'item' : 'items'})`
+}
