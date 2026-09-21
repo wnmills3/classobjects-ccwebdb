@@ -226,6 +226,28 @@ describe('RecordSaleDialog', () => {
     await waitFor(() => expect(onRecorded).toHaveBeenCalledTimes(1))
   })
 
+  it('names a lot by the lot, not by a null item code', async () => {
+    // The Listings page offers "Record sale..." on any active row that is
+    // not the shop's own, and a lot listing on eBay is one: this window --
+    // the one that enters the money -- announced itself as "Record sale of
+    // null on eBay" for every lot sold on a platform.
+    renderDialog({
+      listing: {
+        ...LISTING,
+        item_id: null,
+        item_code: null,
+        item_title: 'Three Morgans',
+        sales_lot_id: 4,
+        member_count: 3,
+      },
+    })
+    expect(
+      screen.getByRole('dialog', {
+        name: 'Record sale of Three Morgans (3 items) on eBay',
+      }),
+    ).toBeVisible()
+  })
+
   it('gives the dialog unique, unreserved access keys', async () => {
     renderDialog()
     const dialog = screen.getByRole('dialog')

@@ -5,7 +5,7 @@ import { api } from '../api'
 import ModalDialog from '../ModalDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { fromCents, isMoney, toCents } from './orders/cents'
-import { UNKNOWN } from './listing-labels'
+import { UNKNOWN, subjectOf } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
 
 /**
@@ -167,7 +167,11 @@ export default function RecordSaleDialog({
       ? String(Math.round(((netCents - toCents(costText)) * 1000) / priceCents) / 10)
       : ''
 
-  const label = `Record sale of ${listing.item_code} on ${listing.venue_name}`
+  // `subjectOf`, not `item_code`. The Listings page offers "Record sale..."
+  // on any active row that is not the shop's own, and a lot listing on eBay
+  // is exactly such a row: this read "Record sale of null on eBay" -- on the
+  // window that enters the money.
+  const label = `Record sale of ${subjectOf(listing)} on ${listing.venue_name}`
 
   return (
     <ModalDialog label={label} onClose={onClose}>
