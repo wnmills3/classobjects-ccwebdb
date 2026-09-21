@@ -30,6 +30,7 @@ from .models import (
     Disposition,
     InventoryItem,
     Listing,
+    ListingStatus,
     SalesOrder,
     SalesOrderChange,
     SalesOrderChangeKind,
@@ -495,7 +496,10 @@ def revise_order(
     line and no stock. Returns whether anything changed.
 
     A line added here that buys a lot listing outright ends it as sold, the
-    same as a checkout does (`_settle_sold_lots`).
+    same as a checkout does (`_settle_sold_lots`). A line **removed** whose
+    listing has already ended is refused instead, because its stock has
+    nowhere to go back to -- the same refusal, for the same reason, that
+    `routers.orders` makes when such an order is cancelled.
     """
     order = db.execute(
         select(SalesOrder)
@@ -563,6 +567,23 @@ def revise_order(
                         f"{listing_id} are available (this change needs "
                         f"{deltas[listing_id]})",
                     )
+            # Giving stock back to an ended listing strands what it sold, and
+            # this is the same refusal `routers.orders._no_stock_to_return`
+            # makes for a cancellation -- the other way to hand a line's stock
+            # back. `_after_stock_change` moves items off `sold` only while
+            # the listing is active, so the quantity would return to a listing
+            # nobody can see while the coins stayed `sold` and un-offerable.
+            # Reached by removing a **lot** line, whose listing this module
+            # ended when the lot was bought, and by removing or shrinking a
+            # line of a sale recorded from an outside platform.
+            elif deltas[listing_id] < 0 and listing.status is ListingStatus.ended:
+                _refuse(
+                    db,
+                    status.HTTP_409_CONFLICT,
+                    f"Listing {listing_id} has ended, so the stock this order "
+                    "holds cannot be put back on sale. A lot is sold as one "
+                    "group and its listing ends with the sale.",
+                )
 
         stamp = utcnow()
 

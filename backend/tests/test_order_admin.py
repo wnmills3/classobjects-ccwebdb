@@ -23,6 +23,47 @@ def _set(
     )
 
 
+def test_cancelling_a_shop_order_that_bought_a_lot_is_refused(
+    client: TestClient,
+    db: Session,
+    store_lot_listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """Returning the stock would strand the coins, so the transition is refused.
+
+    A lot is sold as one group, so buying it ends its listing (the lot has to
+    end `sold` with its members released, not stay `offered` for ever).
+    `return_stock` would then add the unit back to an **ended** listing, and
+    `_after_stock_change` moves items off `sold` only while the listing is
+    active -- leaving phantom stock on a listing nobody can see and three
+    coins `offering_writes._refuse_sold` will never let anyone offer again.
+    That is the same state an outside-platform order is refused for; the
+    refusal is the remedy, because the console has none.
+    """
+    listing_id = store_lot_listing.id
+    lot = store_lot_listing.sales_lot
+    assert lot is not None
+    placed = place(client, customer_headers, listing_id, 1)
+    assert placed.status_code == 201, placed.text
+    order_id = placed.json()["id"]
+
+    refused = _set(client, admin_headers, order_id, "cancelled")
+
+    assert refused.status_code == 409, refused.text
+    detail = refused.json()["detail"]
+    assert "cannot be cancelled" in detail
+    assert f"#{listing_id}" in detail
+    # Nothing moved: no phantom stock, and the order still stands.
+    db.expire_all()
+    still = db.get(Listing, listing_id)
+    assert still is not None
+    assert still.quantity_available == 0
+    assert still.status.value == "ended"
+    current = client.get(f"/api/orders/{order_id}", headers=admin_headers).json()
+    assert current["status"] == "pending"
+
+
 def test_an_order_names_its_customer_and_what_was_bought(
     client: TestClient,
     listing: Listing,

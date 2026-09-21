@@ -236,6 +236,10 @@ class CatalogItemOut(BaseModel):
     fineness: Decimal | None = None
     gross_weight_ozt: Decimal | None = None
     fine_weight_ozt: Decimal | None = None
+    #: How many objects this entry is: the item's own count for a coin, and
+    #: the **sum** of its members' for a lot. Summed rather than counted
+    #: because a member may itself be a multi-piece row, and never left at 1
+    #: for a group -- a wrong count reads exactly like a genuine single piece.
     piece_count: int = 1
 
     price: Decimal
@@ -250,9 +254,16 @@ class CatalogItemOut(BaseModel):
     thumbnail_url: str | None = None
     image_url: str | None = None
 
-    #: The coins in a lot, in item id order -- the one order every lot reader
-    #: uses. Empty for a listing that offers a single item, so a client can
-    #: read this field without first asking which kind of entry it holds.
+    #: The coins the lot is made of, in item id order -- the one order every
+    #: lot reader uses. Empty for a listing that offers a single item, so a
+    #: client can read this field without first asking which kind of entry it
+    #: holds, and never empty for a lot.
+    #:
+    #: Past tense once the listing has ended: a lot releases every membership
+    #: when it is sold or dissolved, so these are the coins the group **held**
+    #: -- after a dissolved lot, one of them may already be on sale again on
+    #: its own. `lot_writes.members_held` is what answers that question;
+    #: `offered_items`, which answers "offered now", would say none.
     members: list[CatalogMemberOut] = Field(default_factory=list)
 
     created_at: datetime

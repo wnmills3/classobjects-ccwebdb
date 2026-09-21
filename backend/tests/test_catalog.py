@@ -197,6 +197,27 @@ def test_limit_is_bounded(client: TestClient) -> None:
     assert client.get("/api/catalog?limit=500").status_code == 422
 
 
+#: Staff-only names that must never reach a customer, whether the entry is a
+#: single coin or a lot. One set, used by both boundary tests: the member
+#: half of the boundary was the weaker of the two while it had a list of its
+#: own, so `numismatic_value` or `purchase_order_id` added to
+#: `CatalogMemberOut` would have shipped green past both.
+PRIVATE_FIELD_NAMES = (
+    "total_cost",
+    "item_cost",
+    "sales_tax",
+    "shipping",
+    "shipping_cost",
+    "tax_rate",
+    "numismatic_value",
+    "storage_location",
+    "storage_location_id",
+    "local_catalog_number",
+    "purchase_order_id",
+    "notes_raw",
+)
+
+
 def test_catalogue_never_exposes_cost_basis_or_location(
     client: TestClient, listing: Listing
 ) -> None:
@@ -209,17 +230,7 @@ def test_catalogue_never_exposes_cost_basis_or_location(
     that function plus this assertion, and by nothing else.
     """
     body = client.get(f"/api/catalog/{listing.id}").json()
-    forbidden = {
-        "total_cost",
-        "sales_tax",
-        "shipping",
-        "tax_rate",
-        "numismatic_value",
-        "storage_location_id",
-        "local_catalog_number",
-        "purchase_order_id",
-        "notes_raw",
-    }
+    forbidden = set(PRIVATE_FIELD_NAMES)
     assert not (set(body) & forbidden), f"leaked: {sorted(set(body) & forbidden)}"
 
 
@@ -327,6 +338,28 @@ def test_a_store_lot_has_a_detail_page_too(
     assert len(body["members"]) == 3
 
 
+def _offer_in_store(
+    db: Session,
+    lot: SalesLot,
+    *,
+    title: str = "Two Morgan Dollars",
+    description: str = "Both together.",
+) -> Listing:
+    """Offer a lot in the web store, the way the `store_lot_listing` fixture does."""
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    return offering_writes.offer(
+        db,
+        lot=lot,
+        venue=store,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("75.00"),
+        title=title,
+        description=description,
+        external_id=None,
+    )
+
+
 def test_a_lot_entry_shows_the_offer_wording_not_the_lots(
     client: TestClient,
     db: Session,
@@ -344,23 +377,70 @@ def test_a_lot_entry_shows_the_offer_wording_not_the_lots(
         title="Working name nobody should see",
         description="Internal note.",
     )
-    store = db.get(SalesVenue, store_venue_id(db))
-    assert store is not None
-    listing = offering_writes.offer(
-        db,
-        lot=lot,
-        venue=store,
-        listing_format=ListingFormat.fixed_price,
-        price=Decimal("75.00"),
-        title="Two Morgan Dollars",
-        description="Both together.",
-        external_id=None,
-    )
+    listing = _offer_in_store(db, lot)
     db.commit()
 
     entry = _entry(client, listing.id)
     assert entry["title"] == "Two Morgan Dollars"
     assert entry["description"] == "Both together."
+
+
+def test_a_buyers_order_line_calls_a_lot_what_the_shop_called_it(
+    client: TestClient,
+    db: Session,
+    make_item: Callable[..., InventoryItem],
+    make_lot: Callable[..., SalesLot],
+    customer_headers: dict[str, str],
+) -> None:
+    """The same purchase, seen afterwards, must carry the same name.
+
+    `routers.orders._sold_as` preferred the snapshot's `lot.title` -- the
+    group's working name, which the test above establishes is not for buyers
+    -- over the listing wording sitting beside it in the same snapshot. So
+    the shop said "Two Morgan Dollars" and the buyer's own order said
+    "Working name nobody should see". Asserted against the catalogue entry
+    rather than against a literal, because agreeing with each other is the
+    property that matters.
+    """
+    lot = make_lot(
+        [make_item(title="First coin"), make_item(title="Second coin")],
+        title="Working name nobody should see",
+    )
+    listing = _offer_in_store(db, lot)
+    db.commit()
+
+    entry = _entry(client, listing.id)
+    placed = _buy(client, customer_headers, listing.id)
+
+    assert placed["items"][0]["title"] == entry["title"] == "Two Morgan Dollars"
+
+
+def test_a_lot_entry_counts_every_piece_in_it(
+    client: TestClient,
+    db: Session,
+    make_item: Callable[..., InventoryItem],
+    make_lot: Callable[..., SalesLot],
+) -> None:
+    """`piece_count` is how many objects the entry is, so a lot sums its members.
+
+    One member is a five-coin roll, so the three candidate answers are all
+    different: 7 (the truth), 3 (the number of members, which a multi-piece
+    member makes wrong) and 1 (the field's default, which reads exactly like
+    a genuine single coin and is what a lot reported before).
+    """
+    lot = make_lot(
+        [
+            make_item(title="A roll of Morgans", piece_count=5),
+            make_item(title="One Morgan"),
+            make_item(title="Another Morgan"),
+        ]
+    )
+    listing = _offer_in_store(db, lot)
+    db.commit()
+
+    entry = _entry(client, listing.id)
+    assert entry["piece_count"] == 7
+    assert len(entry["members"]) == 3
 
 
 def test_a_lot_entry_never_carries_cost_or_location(
@@ -369,16 +449,30 @@ def test_a_lot_entry_never_carries_cost_or_location(
     """The authorisation boundary is `to_catalog_item` building fields by name.
 
     A lot widens what that function must build; this asserts the widening did
-    not reach for the whole row. `json.dumps` rather than a key check for
-    storage location, because it could arrive nested inside a member.
+    not reach for the whole row. Three assertions, and they are not
+    redundant: the whole-entry key check catches a field added to
+    `CatalogItemOut`, the per-member key check catches one added to
+    `CatalogMemberOut` -- which is what actually bites, since a lot's private
+    data arrives nested -- and `json.dumps` over the whole payload catches a
+    name appearing anywhere at all, including inside a structure neither
+    model declares today.
+
+    The deny list is `PRIVATE_FIELD_NAMES`, the same one the single-item
+    boundary test uses. Two lists drift, and the member half is the one a
+    reader is most likely to widen.
     """
     db.commit()
     entry = _entry(client, store_lot_listing.id)
-    assert "total_cost" not in entry
-    assert "storage_location" not in json.dumps(entry)
-    assert "item_cost" not in json.dumps(entry)
+    forbidden = set(PRIVATE_FIELD_NAMES)
+    assert not (set(entry) & forbidden), f"leaked: {sorted(set(entry) & forbidden)}"
     for member in entry["members"]:
-        assert "total_cost" not in member
+        leaked = set(member) & forbidden
+        assert not leaked, f"leaked on a member: {sorted(leaked)}"
+    payload = json.dumps(entry)
+    assert not [name for name in PRIVATE_FIELD_NAMES if name in payload], (
+        f"leaked somewhere in the payload: "
+        f"{[name for name in PRIVATE_FIELD_NAMES if name in payload]}"
+    )
 
 
 def test_a_non_store_lot_listing_stays_out_of_the_catalogue(
@@ -455,3 +549,31 @@ def test_buying_a_lot_ends_it_sold_and_releases_its_members(
         )
     ).all()
     assert not still_open, f"still open: {[row.id for row in still_open]}"
+
+
+def test_a_sold_lots_page_still_says_which_coins_it_held(
+    client: TestClient,
+    db: Session,
+    customer_headers: dict[str, str],
+    store_lot_listing: Listing,
+) -> None:
+    """Selling a lot releases its memberships; the page must still list them.
+
+    The detail endpoint serves an ended listing on purpose, so a page someone
+    bookmarked can say the offer is over. Asked through
+    `offering_writes.offered_items` -- "what does this listing offer now" --
+    that page came back as a group with nothing in it, because ending a lot
+    releases every membership in the same transaction. `members_held` is the
+    past-tense reader that answers it.
+    """
+    db.commit()
+    listing_id = store_lot_listing.id
+    _buy(client, customer_headers, listing_id)
+
+    response = client.get(f"/api/catalog/{listing_id}")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["is_active"] is False
+    assert len(body["members"]) == 3
+    assert all(member["item_code"] for member in body["members"])
