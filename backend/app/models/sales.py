@@ -638,6 +638,7 @@ class SalesOrder(TimestampMixin, Base):
     )
 
     customer: Mapped[Customer] = relationship(back_populates="orders")
+    sales_venue: Mapped[SalesVenue] = relationship()
     items: Mapped[list[SalesOrderItem]] = relationship(
         back_populates="order", cascade=_CASCADE_ALL_DELETE_ORPHAN
     )

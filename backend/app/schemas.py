@@ -371,6 +371,11 @@ class OrderOut(BaseModel):
     #: nothing they did not know; the owner console needs it to say who.
     customer_name: str
     customer_email: str | None
+    #: The platform this order sold on. Safe for a shopper: which platform a
+    #: sale happened on is not staff-only, and a store order simply reads
+    #: `store`.
+    sales_venue_code: str
+    sales_venue_name: str
     status: str
     total_amount: Decimal
     placed_at: datetime

@@ -153,15 +153,17 @@ describe('RecordSaleDialog', () => {
     const user = userEvent.setup()
     const onRecorded = vi.fn()
     api.recordSale.mockRejectedValue(
-      new ApiError(409, 'Listing 14 is not on offer (ended)', {
-        detail: 'Listing 14 is not on offer (ended)',
+      new ApiError(409, 'Listing 14 on eBay is not on offer (ended)', {
+        detail: 'Listing 14 on eBay is not on offer (ended)',
       }),
     )
     renderDialog({ onRecorded })
     await user.type(screen.getByLabelText('Sale price'), '115.00')
     await user.click(screen.getByRole('button', { name: 'Record sale' }))
 
-    expect(await screen.findByText('Listing 14 is not on offer (ended)')).toBeVisible()
+    expect(
+      await screen.findByText('Listing 14 on eBay is not on offer (ended)'),
+    ).toBeVisible()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(onRecorded).not.toHaveBeenCalled()
   })
