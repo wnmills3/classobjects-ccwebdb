@@ -174,6 +174,12 @@ export const api = {
   updateListing: (id, payload) =>
     send(`/api/listings/${id}`, { method: 'PATCH', body: payload }),
   endListing: (id) => send(`/api/listings/${id}/end`, { method: 'POST' }),
+  // Recording a sale that happened on the platform, with its actual fees.
+  // `body`'s money fields are decimal strings already -- see
+  // `RecordSaleDialog.jsx` -- and this sends them exactly as given; a
+  // `Number` round-trip here is how a cent goes missing.
+  recordSale: (listingId, body) =>
+    send(`/api/listings/${listingId}/sale`, { method: 'POST', body }),
 
   createPurchaseOrder: (payload) =>
     send('/api/purchase-orders', { method: 'POST', body: payload }),

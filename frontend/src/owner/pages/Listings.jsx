@@ -4,6 +4,7 @@ import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
 import EndOfferConfirm from './EndOfferConfirm'
 import ModalDialog from '../ModalDialog'
+import RecordSaleDialog from './RecordSaleDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { isMoney } from './orders/cents'
 import { FORMATS, STATUSES, UNKNOWN, labelFor } from './listing-labels'
@@ -185,12 +186,17 @@ export default function Listings() {
   // refusal is `refusal` below instead, which leaves the table where it is.
   const [error, setError] = useState('')
   const [refusal, setRefusal] = useState('')
+  // A one-line confirmation of what was just recorded, cleared by the next
+  // action so it cannot outlive the row it described.
+  const [notice, setNotice] = useState('')
   const [filters, setFilters] = useState({ venue: '', format: '', status: '' })
   const [open, setOpen] = useState(null)
   // The listing End was pressed on, waiting for the question to be answered,
   // and then the one whose request is in flight.
   const [confirming, setConfirming] = useState(null)
   const [ending, setEnding] = useState(null)
+  // The listing Record sale was pressed on, while that dialog is open.
+  const [selling, setSelling] = useState(null)
   // Bumped to ask for the list again after a write that can change rows this
   // page did not touch.
   const [reloads, setReloads] = useState(0)
@@ -228,11 +234,13 @@ export default function Listings() {
     // or a claim -- so the row is replaced in place rather than refetched.
     setListings((current) => current.map((l) => (l.id === listing.id ? listing : l)))
     setOpen(null)
+    setNotice('')
   }
 
   async function end(listing) {
     setEnding(listing.id)
     setRefusal('')
+    setNotice('')
     try {
       await api.endListing(listing.id)
       setConfirming(null)
@@ -248,6 +256,20 @@ export default function Listings() {
     } finally {
       setEnding(null)
     }
+  }
+
+  // `RecordSaleDialog` calls this once the API has already accepted the
+  // sale; there is nothing left here to refuse. Reload rather than patch the
+  // one row, for the same reason `end` does: recording a sale also ends the
+  // listing (`record_sale`), which can resume a store listing this page
+  // never touched.
+  function recorded(sale) {
+    setSelling(null)
+    setNotice(
+      `Recorded ${sale.item_codes.join(', ')} sold to ${sale.buyer} for ` +
+        `${sale.net_amount} net.`,
+    )
+    setReloads((n) => n + 1)
   }
 
   // Only when there is nothing to show. `error` is also where a failed
@@ -282,6 +304,7 @@ export default function Listings() {
       </p>
       {error && <p className="error">{error}</p>}
       {refusal && <p className="error">{refusal}</p>}
+      {notice && <p className="notice">{notice}</p>}
       <div className="filter-grid">
         <label>
           Platform
@@ -368,7 +391,13 @@ export default function Listings() {
                       out of the shop edits something nobody can see. No Edit
                       or End on an ended one either -- it is history. */}
                   {l.status === 'active' && (
-                    <button className="link" onClick={() => setOpen(l)}>
+                    <button
+                      className="link"
+                      onClick={() => {
+                        setNotice('')
+                        setOpen(l)
+                      }}
+                    >
                       Edit
                     </button>
                   )}
@@ -378,9 +407,27 @@ export default function Listings() {
                     <button
                       className="link"
                       disabled={ending !== null}
-                      onClick={() => setConfirming(l)}
+                      onClick={() => {
+                        setNotice('')
+                        setConfirming(l)
+                      }}
                     >
                       End
+                    </button>
+                  )}
+                  {/* Only an active row: `record_sale` itself refuses a
+                      paused or ended listing with "not on offer", and a
+                      paused row is a store listing set aside for an offer
+                      elsewhere, not something that just sold there. */}
+                  {l.status === 'active' && (
+                    <button
+                      className="link"
+                      onClick={() => {
+                        setNotice('')
+                        setSelling(l)
+                      }}
+                    >
+                      Record sale…
                     </button>
                   )}
                 </td>
@@ -401,6 +448,19 @@ export default function Listings() {
           busy={ending !== null}
           onConfirm={() => end(confirming)}
           onCancel={() => setConfirming(null)}
+        />
+      )}
+      {selling !== null && (
+        <RecordSaleDialog
+          listing={selling}
+          // `venues` may not have loaded, or may have failed to (this page
+          // shows the listings anyway -- see the load above): an unmatched
+          // platform reads as "not an auction house" rather than guessing.
+          isAuctionHouse={
+            venues.find((v) => v.code === selling.venue)?.kind === 'auction_house'
+          }
+          onRecorded={recorded}
+          onClose={() => setSelling(null)}
         />
       )}
     </section>
