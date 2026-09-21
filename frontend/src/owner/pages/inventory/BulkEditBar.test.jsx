@@ -8,11 +8,16 @@ vi.mock('../../api', () => ({
     // OfferDialog's own calls, reachable once "Offer for sale..." is pressed.
     listSalesVenues: vi.fn(),
     createOffers: vi.fn(),
+    // And the lot calls, reachable once "Group into lot..." is pressed.
+    listLots: vi.fn(),
+    createLot: vi.fn(),
+    updateLot: vi.fn(),
   },
 }))
 
 import { api } from '../../api'
 import BulkEditBar from './BulkEditBar'
+import { renderWithProviders } from '../../../test/helpers'
 
 // What the inventory page has on screen: the current page of results. Only
 // these rows can be priced, because only these have been loaded.
@@ -49,6 +54,7 @@ const VENUES = [
 beforeEach(() => {
   vi.resetAllMocks()
   api.listSalesVenues.mockResolvedValue(VENUES)
+  api.listLots.mockResolvedValue({ lots: [] })
 })
 
 describe('BulkEditBar', () => {
@@ -217,6 +223,115 @@ describe('BulkEditBar', () => {
   it('cannot offer a selection with nothing on this page', () => {
     render(<BulkEditBar ids={[5]} rows={ROWS} onApplied={vi.fn()} onClear={vi.fn()} />)
     expect(screen.getByRole('button', { name: 'Offer for sale...' })).toBeDisabled()
+  })
+
+  // The brief for this task asserted one call --
+  // `api.createLot({add_item_ids: [1, 2]})` -- and the API refuses that body:
+  // `SalesLotIn` is `extra="forbid"` over `title` and `description` alone,
+  // because "a lot begins assembling and empty; members are a PATCH"
+  // (`routers/lots.create_sales_lot`). So a passing single-call assertion
+  // would have pinned a request that is a 422 every time it is really sent.
+  // Both calls are asserted instead, and `owner/api.test.js` pins each body.
+  it('groups the selection into a lot', async () => {
+    const user = userEvent.setup()
+    api.createLot.mockResolvedValue({
+      id: 5,
+      title: 'Two silver certificates',
+      version: 1,
+      members: [],
+    })
+    api.updateLot.mockResolvedValue({
+      id: 5,
+      title: 'Two silver certificates',
+      version: 2,
+      members: [],
+    })
+    renderWithProviders(<BulkEditBar ids={[1, 2]} rows={ROWS} view="coins" />, {
+      strict: true,
+    })
+    await user.click(screen.getByRole('button', { name: /group into lot/i }))
+    await user.type(await screen.findByLabelText('Title'), 'Two silver certificates')
+    await user.click(await screen.findByRole('button', { name: /^create lot$/i }))
+
+    expect(api.createLot).toHaveBeenCalledWith({
+      title: 'Two silver certificates',
+      description: '',
+    })
+    expect(api.updateLot).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({ add_item_ids: [1, 2] }),
+    )
+  })
+
+  it('adds the selection to a lot that is already assembling', async () => {
+    // The other half of the dialog, and the one the Lots page relies on for
+    // its own "add": a coin joins an existing lot with one PATCH and no new
+    // lot at all. Without this case, a dialog that quietly started a second
+    // lot named after the first would still pass everything above.
+    const user = userEvent.setup()
+    api.listLots.mockResolvedValue({
+      lots: [{ id: 3, title: 'Three Morgans', version: 7, members: [] }],
+    })
+    api.updateLot.mockResolvedValue({
+      id: 3,
+      title: 'Three Morgans',
+      version: 8,
+      members: [],
+    })
+    renderWithProviders(<BulkEditBar ids={[1, 2]} rows={ROWS} view="coins" />, {
+      strict: true,
+    })
+    await user.click(screen.getByRole('button', { name: /group into lot/i }))
+    await user.selectOptions(await screen.findByLabelText('Lot'), '3')
+    await user.click(await screen.findByRole('button', { name: /^add to lot$/i }))
+
+    expect(api.createLot).not.toHaveBeenCalled()
+    expect(api.updateLot).toHaveBeenCalledWith(3, {
+      add_item_ids: [1, 2],
+      version: 7,
+    })
+  })
+
+  it('groups a selection that reaches past this page of results', async () => {
+    // Grouping needs only ids, so the off-page half of a selection goes in
+    // too. Offering cannot do that -- it needs a price and a cost basis per
+    // item -- and copying its `chosen` rows here would have built a lot of
+    // two out of a selection of four without saying so.
+    const user = userEvent.setup()
+    api.createLot.mockResolvedValue({ id: 5, title: 'Four', version: 1, members: [] })
+    api.updateLot.mockResolvedValue({ id: 5, title: 'Four', version: 2, members: [] })
+    renderWithProviders(<BulkEditBar ids={[1, 2, 5, 6]} rows={ROWS} view="coins" />, {
+      strict: true,
+    })
+    await user.click(screen.getByRole('button', { name: /group into lot/i }))
+    await user.type(await screen.findByLabelText('Title'), 'Four')
+    await user.click(await screen.findByRole('button', { name: /^create lot$/i }))
+
+    expect(api.updateLot).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({ add_item_ids: [1, 2, 5, 6] }),
+    )
+  })
+
+  it('says the lot was started when only its coins were refused', async () => {
+    // The PATCH is all or nothing, so a refusal leaves a lot that exists and
+    // is empty. Reporting the bare refusal would send the operator looking
+    // for a lot they had been told nothing about.
+    const user = userEvent.setup()
+    api.createLot.mockResolvedValue({ id: 5, title: 'Two', version: 1, members: [] })
+    api.updateLot.mockRejectedValue(new Error('CC-000002 is already in a lot'))
+    renderWithProviders(<BulkEditBar ids={[1, 2]} rows={ROWS} view="coins" />, {
+      strict: true,
+    })
+    await user.click(screen.getByRole('button', { name: /group into lot/i }))
+    await user.type(await screen.findByLabelText('Title'), 'Two')
+    await user.click(await screen.findByRole('button', { name: /^create lot$/i }))
+
+    expect(
+      await screen.findByText(
+        'Two was started but is empty: CC-000002 is already in a lot',
+      ),
+    ).toBeVisible()
   })
 
   it('does not offer it for another refusal', async () => {

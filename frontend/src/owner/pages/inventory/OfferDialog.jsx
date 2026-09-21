@@ -16,6 +16,19 @@ import {
 /**
  * Offering items for sale: one platform, one format, a price per item.
  *
+ * **Or one assembled lot**, which is one thing however many coins are in it.
+ * `OfferIn` takes exactly one subject -- a list of `items` or a `lot_id` --
+ * and a lot body carries one price, title, description and listing number at
+ * the top level rather than a row per coin. This dialog is the same dialog
+ * for both because the decision being made is the same one: which platform,
+ * which format, what price. It shows one row for the lot, priced as a whole,
+ * because that is what is being sold; the coins inside it are the Lots page's
+ * business, not this dialog's.
+ *
+ * `quantity` is never sent for a lot: `ck_listing_lot_quantity_one` caps a lot
+ * listing at one unit, and `OfferIn` answers 422 rather than quietly ignoring
+ * a second one.
+ *
  * One platform for the whole batch because that is what the API takes
  * (`OfferIn`), and what the API takes is what the claim table can express:
  * an item is offered in one place at a time, so a batch that spanned
@@ -48,20 +61,60 @@ const KEYS = {
 /** A blank listing number is an absence, which the API spells `null`. */
 const orNull = (text) => (text.trim() === '' ? null : text.trim())
 
-/** What the form holds for one item before anything is typed. */
-const draftFor = (item) => ({
+/**
+ * What is being offered, as one row each, whichever shape it arrived in.
+ *
+ * An inventory row and a lot carry their wording under different names --
+ * `source_title` against `title`, `total_cost` against `cost_basis` -- and
+ * a lot is one row however many coins it holds. Reducing both to this shape
+ * here is what lets the form, the pricing and the refusal below be written
+ * once. `key` is what the draft table is keyed by, and is prefixed for a lot
+ * so a lot id can never collide with an item id.
+ */
+function subjectsFor(items, lot) {
+  if (lot) {
+    return [
+      {
+        key: `lot-${lot.id}`,
+        label: lot.title,
+        title: lot.title,
+        description: lot.description ?? '',
+        cost: lot.cost_basis,
+      },
+    ]
+  }
+  return items.map((item) => ({
+    key: String(item.id),
+    itemId: item.id,
+    label: item.item_code,
+    title: item.source_title ?? '',
+    description: item.description ?? '',
+    cost: item.total_cost,
+  }))
+}
+
+/** What the form holds for one subject before anything is typed. */
+const draftFor = (subject) => ({
   price: '',
-  title: item.source_title ?? '',
-  description: item.description ?? '',
+  title: subject.title,
+  description: subject.description,
   external_id: '',
 })
 
-export default function OfferDialog({ items, skipped = 0, onOffered, onClose }) {
+export default function OfferDialog({
+  items = [],
+  lot = null,
+  skipped = 0,
+  onOffered,
+  onClose,
+}) {
   const [venues, setVenues] = useState([])
   const [venue, setVenue] = useState('')
   const [format, setFormat] = useState(FORMATS[0][0])
   const [rows, setRows] = useState(() =>
-    Object.fromEntries(items.map((item) => [item.id, draftFor(item)])),
+    Object.fromEntries(
+      subjectsFor(items, lot).map((subject) => [subject.key, draftFor(subject)]),
+    ),
   )
   const [error, setError] = useState('')
   const [refused, setRefused] = useState([])
@@ -102,15 +155,22 @@ export default function OfferDialog({ items, skipped = 0, onOffered, onClose }) 
   useSaveShortcut(offer, !offering)
 
   const chosen = venues.find((v) => v.code === venue) ?? null
-  // The draft for one item. An item this dialog was handed after it opened
+  const subjects = subjectsFor(items, lot)
+  // The draft for one subject. An item this dialog was handed after it opened
   // has none yet, and reading through `undefined` would take the whole editor
   // down; a blank draft instead has no price, so that item is named in the
   // refusal below rather than offered at some invented figure.
-  const rowFor = (item) => rows[item.id] ?? draftFor(item)
-  const set = (id, key) => (e) =>
+  const rowFor = (subject) => rows[subject.key] ?? draftFor(subject)
+  const set = (subject, key) => (e) =>
     setRows((current) => ({
       ...current,
-      [id]: { ...current[id], [key]: e.target.value },
+      // Read out of `current`, not out of the render's `rows`: two keystrokes
+      // batched into one update would otherwise both start from the older
+      // draft and the first of them would be lost.
+      [subject.key]: {
+        ...(current[subject.key] ?? draftFor(subject)),
+        [key]: e.target.value,
+      },
     }))
 
   async function offer() {
@@ -121,11 +181,11 @@ export default function OfferDialog({ items, skipped = 0, onOffered, onClose }) 
     // Said here rather than left to the API, whose refusal for a blank price
     // is a schema complaint about a Decimal -- true, and no help to someone
     // who has not filled a row in yet.
-    const unpriced = items.filter((item) => !isMoney(rowFor(item).price))
+    const unpriced = subjects.filter((subject) => !isMoney(rowFor(subject).price))
     if (unpriced.length > 0) {
       setError(
         `Price must be an amount like 189.00: ${unpriced
-          .map((item) => item.item_code)
+          .map((subject) => subject.label)
           .join(', ')}`,
       )
       return
@@ -134,21 +194,43 @@ export default function OfferDialog({ items, skipped = 0, onOffered, onClose }) 
     setError('')
     setRefused([])
     try {
-      const batch = await api.createOffers({
-        venue,
-        format,
-        items: items.map((item) => ({
-          // A number, like `OfferItemIn.item_id`: Pydantic v2 does not
-          // coerce "7" and answers 422.
-          item_id: item.id,
-          price: rowFor(item).price.trim(),
-          title: rowFor(item).title.trim(),
-          // Sent as typed, including empty: `description` is NOT NULL on the
-          // row, and an empty string is how the wording is left blank.
-          description: rowFor(item).description,
-          external_id: orNull(rowFor(item).external_id),
-        })),
-      })
+      // Exactly one subject, the way `OfferIn._one_subject` requires it. A
+      // lot body carries no `items` key at all rather than an empty list:
+      // the schema forbids the pair, and an empty list happens to slip past
+      // that check today only because it is falsy.
+      const batch = await api.createOffers(
+        lot
+          ? {
+              venue,
+              format,
+              // A number, like `OfferIn.lot_id`: Pydantic v2 does not
+              // coerce "7" and answers 422.
+              lot_id: lot.id,
+              price: rowFor(subjects[0]).price.trim(),
+              title: rowFor(subjects[0]).title.trim(),
+              description: rowFor(subjects[0]).description,
+              external_id: orNull(rowFor(subjects[0]).external_id),
+            }
+          : {
+              venue,
+              format,
+              items: subjects.map((subject) => {
+                const draft = rowFor(subject)
+                return {
+                  // A number, like `OfferItemIn.item_id`: Pydantic v2 does
+                  // not coerce "7" and answers 422.
+                  item_id: subject.itemId,
+                  price: draft.price.trim(),
+                  title: draft.title.trim(),
+                  // Sent as typed, including empty: `description` is NOT
+                  // NULL on the row, and an empty string is how the wording
+                  // is left blank.
+                  description: draft.description,
+                  external_id: orNull(draft.external_id),
+                }
+              }),
+            },
+      )
       if (!mounted.current) return
       onOffered(batch.listings)
     } catch (err) {
@@ -163,8 +245,13 @@ export default function OfferDialog({ items, skipped = 0, onOffered, onClose }) 
     }
   }
 
-  const label = `Offer ${items.length} item(s) for sale`
-  const buttonText = offering ? 'Offering...' : `Offer ${items.length} for sale`
+  // A lot is named rather than counted: "Offer 1 item(s) for sale" would be
+  // true of a three-coin lot and would read as a single coin.
+  const label = lot
+    ? `Offer the lot ${lot.title} for sale`
+    : `Offer ${items.length} item(s) for sale`
+  const action = lot ? 'Offer the lot for sale' : `Offer ${items.length} for sale`
+  const buttonText = offering ? 'Offering...' : action
 
   return (
     <ModalDialog label={label} onClose={onClose}>
@@ -219,7 +306,7 @@ export default function OfferDialog({ items, skipped = 0, onOffered, onClose }) 
       <table>
         <thead>
           <tr>
-            <th>Item</th>
+            <th>{lot ? 'Lot' : 'Item'}</th>
             <th>Price</th>
             <th>Title</th>
             <th>Description</th>
@@ -231,49 +318,49 @@ export default function OfferDialog({ items, skipped = 0, onOffered, onClose }) 
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => {
-            const draft = rowFor(item)
+          {subjects.map((subject) => {
+            const draft = rowFor(subject)
             const price = draft.price
             const fees = estimatedFees(price, chosen)
             const net = netAfterFees(price, chosen)
-            const margin = netMarginPercent(price, item.total_cost, chosen)
+            const margin = netMarginPercent(price, subject.cost, chosen)
             return (
-              <tr key={item.id}>
-                <td className="mono">{item.item_code}</td>
+              <tr key={subject.key}>
+                <td className="mono">{subject.label}</td>
                 <td>
                   {/* Text, not number: money crosses the API as a decimal
                       string and a number input hands back a float. */}
                   <input
                     inputMode="decimal"
-                    aria-label={`Price for ${item.item_code}`}
+                    aria-label={`Price for ${subject.label}`}
                     value={price}
-                    onChange={set(item.id, 'price')}
+                    onChange={set(subject, 'price')}
                   />
                 </td>
                 <td>
                   <input
-                    aria-label={`Title for ${item.item_code}`}
+                    aria-label={`Title for ${subject.label}`}
                     value={draft.title}
-                    onChange={set(item.id, 'title')}
+                    onChange={set(subject, 'title')}
                   />
                 </td>
                 <td>
                   <textarea
                     rows={2}
-                    aria-label={`Description for ${item.item_code}`}
+                    aria-label={`Description for ${subject.label}`}
                     value={draft.description}
-                    onChange={set(item.id, 'description')}
+                    onChange={set(subject, 'description')}
                   />
                 </td>
                 <td>
                   <input
-                    aria-label={`Listing number for ${item.item_code}`}
+                    aria-label={`Listing number for ${subject.label}`}
                     value={draft.external_id}
-                    onChange={set(item.id, 'external_id')}
+                    onChange={set(subject, 'external_id')}
                     placeholder="the platform's own number"
                   />
                 </td>
-                <td>{item.total_cost ?? UNKNOWN}</td>
+                <td>{subject.cost ?? UNKNOWN}</td>
                 {/* Blank rather than zero when nobody has recorded what this
                     platform charges: "free" and "not looked up" are
                     different facts. */}

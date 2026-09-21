@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from 'vitest'
 // mock does not have to grow into the full surface the note below warns
 // about -- and without it the '/photos' case would reach the real fetch.
 vi.mock('./api', () => ({
-  api: { listUnattachedImages: vi.fn().mockResolvedValue([]) },
+  api: {
+    listUnattachedImages: vi.fn().mockResolvedValue([]),
+    listLots: vi.fn().mockResolvedValue({ lots: [] }),
+  },
 }))
 
 import OwnerApp from './OwnerApp'
@@ -58,6 +61,21 @@ describe('owner console shell', () => {
     renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/photos' })
     expect(
       await screen.findByRole('heading', { name: /unattached photographs/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('links to the Lots page', () => {
+    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
+    expect(screen.getByRole('link', { name: /^lots$/i })).toBeInTheDocument()
+  })
+
+  it('routes /lots to the sales lots page', async () => {
+    // The link above proves only that the link renders. Deleting the
+    // <Route path="/lots" ...> line leaves it in place and lands the operator
+    // on "Page not found", which no assertion on the navigation can see.
+    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/lots' })
+    expect(
+      await screen.findByRole('heading', { name: /sales lots/i }),
     ).toBeInTheDocument()
   })
 

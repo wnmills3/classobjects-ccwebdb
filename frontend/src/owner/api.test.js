@@ -142,3 +142,50 @@ describe('recordSale', () => {
     expect(body.fees).toEqual([])
   })
 })
+
+describe('sales lots', () => {
+  it('sends lot membership changes as the API expects', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.updateLot(1, { version: 3, add_item_ids: [7] })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/sales-lots/1')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body)).toEqual({ version: 3, add_item_ids: [7] })
+  })
+
+  it('starts a lot with its wording alone', async () => {
+    // `SalesLotIn` is `extra="forbid"` and holds only `title` and
+    // `description`: "a lot begins assembling and empty; members are a
+    // PATCH". A `createLot` that passed membership through would be a 422
+    // every time, so what this asserts is the *absence* of it.
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.createLot({ title: 'Three Morgans', description: 'A run.' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/sales-lots')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({
+      title: 'Three Morgans',
+      description: 'A run.',
+    })
+  })
+
+  it('asks for one status without sending the empty ones', async () => {
+    // A blank filter must not arrive as `status=`: the endpoint resolves
+    // whatever it is given against `SalesLotStatus` and answers 422 for an
+    // empty string, so a page whose filter starts blank would fail to load.
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.listLots({ status: 'assembling' })
+    await api.listLots({ status: '' })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/sales-lots?status=assembling')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/sales-lots')
+  })
+})
