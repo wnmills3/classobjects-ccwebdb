@@ -64,6 +64,40 @@ def test_cancelling_a_shop_order_that_bought_a_lot_is_refused(
     assert current["status"] == "pending"
 
 
+def test_a_shipped_lot_order_can_still_be_cancelled_as_a_refund(
+    client: TestClient,
+    db: Session,
+    store_lot_listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """The refusal must match the danger, and a shipped order has none.
+
+    Cancelling returns stock only when the order has not shipped
+    (`SHIPPED_STATUSES`), so cancelling a shipped one moves nothing that
+    could be stranded -- it is how a refund is recorded once the coins have
+    left. Refusing it bought no safety and closed a real workflow, which is
+    what the first version of this refusal did by asking about the listing
+    whatever the order's status.
+    """
+    listing_id = store_lot_listing.id
+    placed = place(client, customer_headers, listing_id, 1)
+    assert placed.status_code == 201, placed.text
+    order_id = placed.json()["id"]
+    assert _set(client, admin_headers, order_id, "shipped").status_code == 200
+
+    cancelled = _set(client, admin_headers, order_id, "cancelled")
+
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+    # And no stock came back: a shipped order returns none, which is exactly
+    # why this was safe to allow.
+    db.expire_all()
+    still = db.get(Listing, listing_id)
+    assert still is not None
+    assert still.quantity_available == 0
+
+
 def test_an_order_names_its_customer_and_what_was_bought(
     client: TestClient,
     listing: Listing,
