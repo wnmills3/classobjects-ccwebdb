@@ -390,6 +390,17 @@ button.link.danger {
   grid-template-columns: 9rem minmax(12rem, 24rem) auto auto;
   margin-bottom: 0.4rem;
 }
+/* One lot being assembled, as a card.
+   The Lots page stacks these, and without a boundary one lot's Discard
+   button sits directly under the next lot's heading -- which is exactly the
+   pair of things that must never be confusable. */
+.lot {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+}
 /* The lot's claim must read as context, not as a value someone typed. */
 .lot-claim {
   color: #8a6d3b;

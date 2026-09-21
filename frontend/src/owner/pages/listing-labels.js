@@ -40,6 +40,19 @@ export const labelFor = (table, code) =>
 export const UNKNOWN = '--'
 
 /**
+ * Whether a listing offers a lot rather than a single item.
+ *
+ * `sales_lot_id`, not "item_code is missing": the two are exclusive by
+ * `ck_listing_item_xor_lot`, and asking the positive question means a row
+ * that arrives with neither -- an older response, a shape nobody planned --
+ * reads as an item rather than being announced as a group of coins it is
+ * not.
+ */
+export function isLot(listing) {
+  return listing.sales_lot_id !== null && listing.sales_lot_id !== undefined
+}
+
+/**
  * What a listing is an offer *of*, named the way a person would name it.
  *
  * An item's permanent code for an item listing, and for a **lot** listing the
@@ -60,19 +73,6 @@ export const UNKNOWN = '--'
  * count the API could not give -- falls back to the title alone rather than
  * inventing a number.
  */
-/**
- * Whether a listing offers a lot rather than a single item.
- *
- * `sales_lot_id`, not "item_code is missing": the two are exclusive by
- * `ck_listing_item_xor_lot`, and asking the positive question means a row
- * that arrives with neither -- an older response, a shape nobody planned --
- * reads as an item rather than being announced as a group of coins it is
- * not.
- */
-export function isLot(listing) {
-  return listing.sales_lot_id !== null && listing.sales_lot_id !== undefined
-}
-
 export function subjectOf(listing) {
   if (listing.item_code) return listing.item_code
   const count = listing.member_count

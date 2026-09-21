@@ -138,7 +138,19 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
     <ModalDialog label={label} onClose={onClose}>
       <h2>{label}</h2>
       {error && <p className="error">{error}</p>}
-      {codes.length > 0 && <p className="muted">{codes.join(', ')}</p>}
+      {codes.length > 0 && (
+        <p className="muted">
+          {codes.join(', ')}
+          {/* The heading counts the whole selection and this line can only
+              name the rows this page has loaded. Without the difference
+              spelled out, "Group 4 item(s) into a lot" over two codes reads
+              as two. The off-page ids DO go into the lot -- grouping needs
+              only ids -- which is the opposite of what the offer dialog says
+              about its own skipped rows, so this says which it is. */}
+          {codes.length < ids.length &&
+            ` and ${ids.length - codes.length} more not on this page, which are grouped too.`}
+        </p>
+      )}
       <div className="filter-grid">
         <label>
           Lot
