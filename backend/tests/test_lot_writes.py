@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.order_writes import Line, place_order, return_stock
 from app.references import require_code
+from app.sales_writes import record_sale
 from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -272,18 +273,57 @@ def test_a_sold_item_cannot_be_grouped(
     dispositions, because the shipped and delivered ones are exactly the two
     an open-order check cannot reach.
 
-    The disposition is set directly rather than by selling a lot. A member
-    sold inside a lot is never moved off `listed` today
-    (`order_writes._after_stock_change` returns silently on a lot listing's
-    NULL item id), so a lot-sale version of this test would go red for that
-    reason instead of this one, and would keep passing if this guard were
-    deleted. That route closes in Task 4 and the test for it belongs there.
+    The disposition is set directly rather than by selling a lot, because
+    when this test was written a member sold inside a lot was never moved
+    off `listed` (`order_writes._after_stock_change` returned silently on a
+    lot listing's NULL item id), so a lot-sale version would have gone red
+    for that reason instead of this one and would have kept passing with
+    this guard deleted. Task 4 closed that route;
+    `test_a_member_sold_inside_a_lot_cannot_be_grouped_again` below now
+    drives it end to end, and this one stays for the shipped and delivered
+    cases a single sale cannot reach.
     """
     lot = _lot(db)
     _set_disposition(db, received_item, disposition)
 
     with pytest.raises(LotRefused, match="has already been sold"):
         add_member(db, lot, received_item)
+
+
+def test_a_member_sold_inside_a_lot_cannot_be_grouped_again(
+    db: Session, offered_lot_listing: Listing, admin_user: User
+) -> None:
+    """The coin really sold, through the real sale path, and is refused for it.
+
+    The end-to-end case the parametrised test above could not take before
+    Task 4: nothing wrote a lot member's disposition, so selling a lot left
+    every member at `listed` and this refusal was unreachable from a real
+    sale. `record_sale` now moves them, which makes the guard testable
+    against the route an operator actually walks.
+
+    `match` names the disposition refusal specifically, so the test cannot
+    pass on some other gate -- `_refuse_unless_assembling` (a fresh lot is
+    assembling), `_refuse_partial` (which `_refuse_unofferable` runs before)
+    or "already in lot #n" (the membership was released by the sale) each
+    raise `LotRefused` with a different message.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member = lot_writes.open_members(db, lot)[0].item
+
+    record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-1",
+        fees=[],
+        recorded_by=admin_user,
+    )
+
+    assert member.disposition.code == "sold"
+    with pytest.raises(LotRefused, match="has already been sold"):
+        add_member(db, _lot(db, title="A second lot"), member)
 
 
 def test_a_returned_item_can_still_be_grouped(

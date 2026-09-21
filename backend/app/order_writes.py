@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
+from .allocation import allocate
 from .models import (
     Customer,
     Disposition,
@@ -39,7 +40,7 @@ from .models import (
     User,
 )
 from .models.base import utcnow
-from .offering_writes import sellable_in_shop
+from .offering_writes import offered_items, sellable_in_shop
 from .references import require_code
 from .sale_snapshot import take as take_snapshot
 from .sales_venues import store_venue_id
@@ -114,15 +115,29 @@ def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
 
 
 def _after_stock_change(db: Session, listing: Listing, before: int) -> None:
-    """Move the item's disposition when its listing's stock crosses zero."""
+    """Move every offered item's disposition when the stock crosses zero.
+
+    "Every offered item" is `offered_items`: one for an item listing, the
+    lot's open members for a lot listing. This used to read
+    `listing.inventory_item_id` and `return` when it was `None` -- which is
+    exactly a lot listing's shape, so selling a lot left every member at
+    `listed`, silently, with no error anywhere. A lot must be asked before
+    `offering_writes.end_offer` releases its memberships, which is the order
+    the sale path already runs in.
+
+    The before/after-zero rule itself is unchanged; only the set of items it
+    applies to widened.
+    """
     after = listing.quantity_available
-    item = db.get(InventoryItem, listing.inventory_item_id)
-    if item is None:
-        return
     if before > 0 and after == 0:
-        item.disposition_id = require_code(db, Disposition, "sold", "disposition")
+        code = "sold"
     elif before == 0 and after > 0 and listing.is_active:
-        item.disposition_id = require_code(db, Disposition, "listed", "disposition")
+        code = "listed"
+    else:
+        return
+    disposition_id = require_code(db, Disposition, code, "disposition")
+    for item in offered_items(db, listing):
+        item.disposition_id = disposition_id
 
 
 def _line(
@@ -135,6 +150,23 @@ def _line(
         unit_price=price,
         item_snapshot=take_snapshot(db, listing),
         snapshot_at=utcnow(),
+    )
+
+
+def _items_by_id(db: Session, ids: Sequence[int]) -> list[InventoryItem]:
+    """The named items, in id order -- the one order every lot reader uses.
+
+    One statement rather than a `db.get` per id, and returning rows rather
+    than `InventoryItem | None`, so a caller zipping this against a list of
+    the same ids fails loudly (`strict=True`) if one has gone missing rather
+    than quietly weighting it as nothing.
+    """
+    return list(
+        db.scalars(
+            select(InventoryItem)
+            .where(InventoryItem.id.in_(ids))
+            .order_by(InventoryItem.id)
+        ).all()
     )
 
 
@@ -166,40 +198,57 @@ def _sync_shares(
     instead of the relationship. With the flag, a checkout line's shares are
     never consulted and never poisoned.
 
-    Today a listing names exactly one item, so there is exactly one share
-    and it always carries the whole `amount` -- the loop below still keys
-    by `inventory_item_id` rather than assuming a single row. That is enough
-    to widen the insert branch to a lot listing's several members (phase 3):
-    one row per member, dividing `amount` among them. It is **not** enough
-    for the update branch: this function returns before either branch runs
-    when `listing.inventory_item_id is None`, which is exactly a lot
-    listing's shape, so phase 3 must remove that guard, and a revised lot
-    line's `amount` then needs to be redistributed across every existing
-    share for that line, not just moved into one row the way the update
-    branch does today.
+    **Where the member list comes from differs by branch, and that is the
+    whole of this function's lot handling.**
+
+    The *insert* branch asks `offering_writes.offered_items` -- one item for
+    an item listing, the lot's open members for a lot listing, in item id
+    order -- and divides `amount` among them with `allocation.allocate`,
+    weighted by `total_cost`, the same weighting `sales_writes._weights`
+    gives the fees. It cannot ask `line.shares`: `new_line=True` says there
+    are none, and reading the collection is what the flag exists to prevent.
+
+    The *update* branch asks the **shares that already exist**, never
+    `offered_items`. By the time a revision arrives, a sold lot's
+    memberships have been released by `offering_writes._end`, so
+    `offered_items` answers "none" for exactly the line a revision is most
+    likely to touch. The shares are the line's own record of which items it
+    covers; the new `amount` is redistributed across all of them, by the
+    same cost weighting, rather than moved into one row.
+
+    An update branch that finds no shares at all -- a line written before
+    shares existed -- falls through to the insert branch, which is what the
+    single-item version of this function did.
 
     Fees are not known at checkout or a plain revision -- neither prices
     them -- so a new share's `fee_amount` keeps its zero default, and an
     existing share's is left as `sales_writes` last set it. An outside sale
     fills fees in there, not here.
     """
-    if listing.inventory_item_id is None:  # pragma: no cover - phase 3 lots
-        return
     existing: dict[int, SalesOrderItemShare] = {}
     if not new_line:
         existing = {share.inventory_item_id: share for share in line.shares}
-    share = existing.get(listing.inventory_item_id)
-    if share is None:
+
+    if existing:
+        held = _items_by_id(db, sorted(existing))
+        for item, share_amount in zip(
+            held, allocate(amount, [item.total_cost for item in held]), strict=True
+        ):
+            existing[item.id].amount = share_amount
+        return
+
+    offered = offered_items(db, listing)
+    for item, share_amount in zip(
+        offered, allocate(amount, [item.total_cost for item in offered]), strict=True
+    ):
         db.add(
             SalesOrderItemShare(
                 sales_order_item_id=line.id,
-                inventory_item_id=listing.inventory_item_id,
-                amount=amount,
+                inventory_item_id=item.id,
+                amount=share_amount,
                 fee_amount=Decimal("0.00"),
             )
         )
-    else:
-        share.amount = amount
 
 
 def place_order(

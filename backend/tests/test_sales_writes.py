@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from app import offering_writes
+from app import offering_writes, order_writes
 from app.allocation import allocate
 from app.models import (
     ClaimState,
@@ -17,6 +17,7 @@ from app.models import (
     OfferClaim,
     SalesOrder,
     SalesOrderFee,
+    SalesOrderItem,
     SalesOrderItemShare,
     SalesOrderStatus,
     SalesVenue,
@@ -24,7 +25,7 @@ from app.models import (
     User,
 )
 from app.models.base import utcnow
-from app.sales_writes import FeeLine, SaleRefused, record_sale
+from app.sales_writes import FeeLine, SaleRefused, ShareMissing, record_sale
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -523,3 +524,152 @@ def test_shares_of_an_indivisible_fee_still_sum_to_it(
     amounts = allocate(Decimal("100.00"), three_item_costs)
     assert sum(amounts) == Decimal("100.00")
     assert amounts == [Decimal("33.34"), Decimal("33.33"), Decimal("33.33")]
+
+
+# --- selling a lot -----------------------------------------------------------------
+
+
+def test_selling_a_lot_divides_the_price_among_its_members(
+    db: Session, offered_lot_listing: Listing, admin_user: User
+) -> None:
+    """One line, one share per member, summing to the line exactly."""
+    order = record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-1",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    shares = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == order.items[0].id
+        )
+    ).all()
+    assert len(shares) == 3
+    assert sum(share.amount for share in shares) == Decimal("1000.00")
+
+
+def test_shares_are_weighted_by_cost_basis_by_default(
+    db: Session, offered_lot_listing: Listing, admin_user: User
+) -> None:
+    """A $500 coin and a $200 coin do not each take a third of the price.
+
+    The fixture's members cost 500, 300 and 200 with `tax_rate=0`, so
+    `total_cost` equals `item_cost` exactly and 1,000.00 divides as
+    500 / 300 / 200. An equal split would be 333.34 / 333.33 / 333.33, so
+    this assertion fails if the weighting is dropped -- which is the mutation
+    that proves it: divide the line equally and confirm it goes red.
+    """
+    order = record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-1",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    by_cost = {
+        share.inventory_item_id: share.amount
+        for share in db.scalars(
+            select(SalesOrderItemShare).where(
+                SalesOrderItemShare.sales_order_item_id == order.items[0].id
+            )
+        )
+    }
+    costs = {
+        item.id: item.total_cost
+        for item in db.scalars(
+            select(InventoryItem).where(InventoryItem.id.in_(by_cost))
+        )
+    }
+    assert {costs[item_id]: amount for item_id, amount in by_cost.items()} == {
+        Decimal("500.00"): Decimal("500.00"),
+        Decimal("300.00"): Decimal("300.00"),
+        Decimal("200.00"): Decimal("200.00"),
+    }
+
+
+def test_a_lot_s_members_all_become_sold(
+    db: Session, offered_lot_listing: Listing, admin_user: User
+) -> None:
+    """`_after_stock_change` returned early on a null item and skipped them.
+
+    Verified rather than assumed: `db.get(InventoryItem, None)` does *not*
+    raise in SQLAlchemy 2.0.52 -- it runs `SELECT ... WHERE id = NULL`,
+    returns `None`, and the function returned silently. So a lot's members
+    would stay `listed` forever with no error anywhere.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member_ids = [member.inventory_item_id for member in lot.members]
+    record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-1",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    for item_id in member_ids:
+        item = db.get(InventoryItem, item_id)
+        assert item is not None
+        assert item.disposition.code == "sold"
+
+
+def test_a_missing_share_is_an_internal_error_not_a_refusal(
+    db: Session,
+    offered_lot_listing: Listing,
+    admin_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Carried finding (c): a bare `KeyError` was an unhandled 500 with no name.
+
+    A share missing for one of a listing's items is an invariant violation
+    inside this codebase, not a conflict a caller can retry past -- so it is
+    `ShareMissing`, unmapped in `routers/offers.py` and therefore still a 500,
+    but one whose message names the item and the listing. Deliberately *not*
+    `SaleRefused`, which maps to 409 and would tell the caller to try again.
+
+    The scaffolding removes one share between `place_order` and the lookup,
+    which is the only way to reach the branch: nothing in production writes
+    a line with a member missing.
+    """
+    original = order_writes._sync_shares
+
+    def _drop_one(
+        db_: Session,
+        line: SalesOrderItem,
+        listing: Listing,
+        amount: Decimal,
+        *,
+        new_line: bool = False,
+    ) -> None:
+        """Write the shares the real way, then delete one to make the gap."""
+        original(db_, line, listing, amount, new_line=new_line)
+        db_.flush()
+        victim = db_.scalars(
+            select(SalesOrderItemShare)
+            .where(SalesOrderItemShare.sales_order_item_id == line.id)
+            .order_by(SalesOrderItemShare.inventory_item_id)
+            .limit(1)
+        ).one()
+        db_.delete(victim)
+        db_.flush()
+
+    monkeypatch.setattr(order_writes, "_sync_shares", _drop_one)
+    with pytest.raises(ShareMissing) as excinfo:
+        record_sale(
+            db,
+            offered_lot_listing,
+            price=Decimal("1000.00"),
+            buyer_username="coinfan88",
+            external_order_id="EB-1",
+            fees=[FeeLine("commission", Decimal("10.00"))],
+            recorded_by=admin_user,
+        )
+    assert f"listing {offered_lot_listing.id}" in str(excinfo.value)
+    assert "CC-" in str(excinfo.value)

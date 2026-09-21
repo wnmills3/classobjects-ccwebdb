@@ -45,7 +45,13 @@ from .models import (
 )
 from .references import require_code
 
-__all__ = ["FeeLine", "SaleInputInvalid", "SaleRefused", "record_sale"]
+__all__ = [
+    "FeeLine",
+    "SaleInputInvalid",
+    "SaleRefused",
+    "ShareMissing",
+    "record_sale",
+]
 
 #: What a sale's order status is, by the kind of platform it happened on.
 #: A marketplace or live auction has collected the money and the owner still
@@ -102,16 +108,39 @@ class FeeLine:
     note: str | None = None
 
 
-def _shared_items(listing: Listing) -> list[InventoryItem]:
+class ShareMissing(Exception):
+    """A line is missing a share for one of the items its listing offered.
+
+    Deliberately **not** a `SaleRefused`. `SaleRefused` maps to 409 in
+    `routers/offers.py`, which tells a caller "something is in the way, try
+    again" -- false here: `order_writes._sync_shares` writes one share per
+    offered item in the same transaction, so a gap is an invariant violation
+    inside this codebase that no retry can fix. Unmapped in the router on
+    purpose, so it surfaces as a 500 with a message naming the item and the
+    listing rather than as a bare `KeyError` naming an integer.
+    """
+
+
+def _shared_items(db: Session, listing: Listing) -> list[InventoryItem]:
     """The items a listing's money must be divided among.
 
-    One for an item listing. For a lot listing (phase 3) this becomes the
-    lot's members; until then a lot listing cannot exist.
+    One for an item listing; a lot listing's open members, in item id order,
+    for a lot. Asked through `offering_writes.offered_items` rather than
+    decided here, so the fee split, the shares `order_writes` writes and the
+    snapshot all divide the same group in the same order.
+
+    Must be asked *before* `end_offer` releases the memberships, which is the
+    order `record_sale` below already runs in.
+
+    An empty answer stays `SaleInputInvalid` -- 422, the spec's empty-lot
+    case. It is still reachable here even though `offering_writes.offer` now
+    refuses to create such a listing: a lot whose members were released by an
+    earlier ending would answer this way.
     """
-    item = listing.inventory_item
-    if item is None:  # pragma: no cover - phase 3 widens this
+    items = offering_writes.offered_items(db, listing)
+    if not items:
         raise SaleInputInvalid(f"Listing {listing.id} offers no item")
-    return [item]
+    return items
 
 
 def _weights(items: Sequence[InventoryItem], *, equal: bool) -> list[Decimal]:
@@ -209,7 +238,7 @@ def record_sale(
             raise SaleInputInvalid(f"A fee must be given to the cent, not {fee.amount}")
 
     venue = listing.sales_venue
-    items = _shared_items(listing)
+    items = _shared_items(db, listing)
     # Resolved before the order exists, not inside the write loop below: an
     # unknown fee kind code must fail before anything is written, the same
     # discipline as the checks above.
@@ -261,9 +290,11 @@ def record_sale(
         )
         total_fees += fee.amount
 
-    # `place_order` already created one share per item, carrying the whole
-    # line's `amount` and a zero `fee_amount` (`order_writes._sync_shares`).
-    # Only the fee half is this module's to fill in.
+    # `place_order` already created one share per offered item -- one for an
+    # item listing carrying the whole line's `amount`, one per member for a
+    # lot listing carrying its cost-weighted part -- each with a zero
+    # `fee_amount` (`order_writes._sync_shares`). Only the fee half is this
+    # module's to fill in; it never constructs a share.
     #
     # `line.shares` is safe to read here: `place_order` passes `new_line=True`,
     # so `_sync_shares` never consults that collection and so never leaves it
@@ -274,7 +305,13 @@ def record_sale(
     fee_amounts = allocate(total_fees, weights)
     shares_by_item = {share.inventory_item_id: share for share in line.shares}
     for item, fee_amount in zip(items, fee_amounts, strict=True):
-        shares_by_item[item.id].fee_amount = fee_amount
+        share = shares_by_item.get(item.id)
+        if share is None:
+            raise ShareMissing(
+                f"{item.item_code} has no share on the line for listing "
+                f"{listing.id}; order_writes wrote one per offered item"
+            )
+        share.fee_amount = fee_amount
 
     offering_writes.end_offer(db, listing, sold=True)
     db.flush()
