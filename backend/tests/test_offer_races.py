@@ -16,10 +16,12 @@ from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
 import pytest
-from app import offering_writes
+from app import lot_writes, offering_writes, order_writes
+from app.lot_writes import LotRefused
 from app.models import (
     Authenticity,
     ClaimState,
+    Customer,
     Disposition,
     InventoryItem,
     ItemKind,
@@ -29,28 +31,60 @@ from app.models import (
     ListingStatus,
     OfferClaim,
     ReferenceMixin,
+    SalesLot,
+    SalesLotItem,
+    SalesLotStatus,
+    SalesOrder,
+    SalesOrderItem,
+    SalesOrderItemShare,
     SalesVenue,
     SalesVenueKind,
     StorageForm,
+    User,
+    UserRole,
     ValuationBasis,
 )
 from app.offering_writes import OfferRefused
 from app.sales_venues import store_venue_id
+from app.security import hash_password
+from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
-from tests.conftest import ClaimInvariantViolation, check_claim_invariant
+from tests.conftest import (
+    ClaimInvariantViolation,
+    check_claim_invariant,
+    check_disposition_invariant,
+    check_lot_invariant,
+)
 
 RACE_TITLE = "RACE Offer Contested Item"
+
+#: What `_seed_lot_listing_and_buyer` names the people it commits, and what
+#: `_cleanup_race_rows` matches them on. A literal in one place, because the
+#: cleanup filter and the seed have to agree or the cleanup silently grades
+#: and deletes nothing.
+RACE_BUYER = "RACE Buyer"
+RACE_ADMIN_EMAIL = "race-admin@example.com"
 
 Outcome = str
 
 
 def _cleanup_race_rows(cleanup: Session) -> None:
-    """Check the claim invariant against these rows, then delete them regardless.
+    """Check all three suite invariants against these rows, then delete regardless.
+
+    All three -- `check_claim_invariant`, `check_lot_invariant` and
+    `check_disposition_invariant` -- are called here explicitly, for one
+    reason that applies equally to each: every test in this file takes
+    `committed`, not `db`, so `conftest.py`'s autouse `_claim_invariant`
+    fixture (which runs all three) does not run for any of them at all. An
+    invariant not called here is an invariant this file is exempt from --
+    and this is the one file in the suite that commits claims, lot
+    memberships and dispositions for real, so it is exactly the file where
+    an exemption would matter most.
 
     The check runs in a `try` and the deletes in its `finally` on purpose: a
     real violation must still fail the suite (the `raise` propagates once the
@@ -78,25 +112,86 @@ def _cleanup_race_rows(cleanup: Session) -> None:
     instead. No longer latent, and this is the one file in the suite that
     commits claims for real, so it is the one place it would surface.
 
-    Deletion order respects the FKs a claim and a listing carry:
-    ``offer_claim`` first (it points at both ``listing`` and
-    ``inventory_item``), then ``listing`` in one statement -- its
-    self-referential ``paused_by_listing_id`` is RESTRICT, but a single
-    DELETE removing both a paused listing and what it points to never
-    violates that -- then the item and the venues this file made.
+    A **lot** listing's `inventory_item_id` is NULL, so matching listings on
+    that column alone leaves every lot listing this file commits behind --
+    and the `inventory_item` delete two statements later then fails on
+    `sales_lot_item.inventory_item_id`'s `ondelete="RESTRICT"`, inside this
+    same `finally`, replacing whatever the `try` raised with a foreign-key
+    error. Hence the `or_` on `Listing.sales_lot_id` below: a lot listing is
+    this file's if any of its memberships names one of this file's items.
+
+    Deletion order, parent by parent, each step naming the FK that fixes it:
+
+    1. `sales_order_item_share`, `sales_order_item`, `sales_order` -- ahead
+       of the listings, because `sales_order_item.listing_id` is RESTRICT,
+       and ahead of `inventory_item`, because
+       `sales_order_item_share.inventory_item_id` is too. Children first
+       within the three, so nothing relies on a DB-level cascade this
+       ordering makes unnecessary.
+    2. `customer` then `users` -- `sales_order.customer_id` is RESTRICT, so
+       the orders must already be gone; `customer.user_id` is SET NULL, so
+       the user can follow the customer safely either way.
+    3. `offer_claim` -- it points at both `listing` and `inventory_item`.
+    4. `listing`, in one statement: its self-referential
+       `paused_by_listing_id` is RESTRICT, but a single DELETE removing both
+       a paused listing and what it points to never violates that.
+    5. `sales_lot_item`, then `sales_lot`. **After** the listings, because
+       `listing.sales_lot_id` is RESTRICT; **before** `inventory_item`,
+       because `sales_lot_item.inventory_item_id` is. `lot_ids` is
+       materialised into a Python list *first*: it is derived from
+       `sales_lot_item`, so as a live subquery it would read back empty the
+       moment those membership rows were deleted, and every lot this file
+       made would survive.
+    6. `inventory_item`, then the venues this file made.
     """
     item_ids = select(InventoryItem.id).where(InventoryItem.source_title == RACE_TITLE)
-    race_listing_ids = select(Listing.id).where(Listing.inventory_item_id.in_(item_ids))
+    race_lot_ids = select(SalesLotItem.sales_lot_id).where(
+        SalesLotItem.inventory_item_id.in_(item_ids)
+    )
+    is_race_listing = or_(
+        Listing.inventory_item_id.in_(item_ids),
+        Listing.sales_lot_id.in_(race_lot_ids),
+    )
+    race_listing_ids = select(Listing.id).where(is_race_listing)
+    race_customer_ids = select(Customer.id).where(Customer.display_name == RACE_BUYER)
+    race_order_ids = select(SalesOrder.id).where(
+        SalesOrder.customer_id.in_(race_customer_ids)
+    )
+    race_line_ids = select(SalesOrderItem.id).where(
+        SalesOrderItem.sales_order_id.in_(race_order_ids)
+    )
     try:
         check_claim_invariant(cleanup)
+        check_lot_invariant(cleanup)
+        check_disposition_invariant(cleanup)
     finally:
+        lot_ids = list(cleanup.scalars(race_lot_ids).all())
+        cleanup.query(SalesOrderItemShare).filter(
+            SalesOrderItemShare.sales_order_item_id.in_(race_line_ids)
+        ).delete(synchronize_session=False)
+        cleanup.query(SalesOrderItem).filter(
+            SalesOrderItem.sales_order_id.in_(race_order_ids)
+        ).delete(synchronize_session=False)
+        cleanup.query(SalesOrder).filter(SalesOrder.id.in_(race_order_ids)).delete(
+            synchronize_session=False
+        )
+        cleanup.query(Customer).filter(Customer.display_name == RACE_BUYER).delete(
+            synchronize_session=False
+        )
+        cleanup.query(User).filter(User.email == RACE_ADMIN_EMAIL).delete(
+            synchronize_session=False
+        )
         cleanup.query(OfferClaim).filter(
             or_(
                 OfferClaim.inventory_item_id.in_(item_ids),
                 OfferClaim.listing_id.in_(race_listing_ids),
             )
         ).delete(synchronize_session=False)
-        cleanup.query(Listing).filter(Listing.inventory_item_id.in_(item_ids)).delete(
+        cleanup.query(Listing).filter(is_race_listing).delete(synchronize_session=False)
+        cleanup.query(SalesLotItem).filter(
+            SalesLotItem.inventory_item_id.in_(item_ids)
+        ).delete(synchronize_session=False)
+        cleanup.query(SalesLot).filter(SalesLot.id.in_(lot_ids)).delete(
             synchronize_session=False
         )
         cleanup.query(InventoryItem).filter(
@@ -112,7 +207,7 @@ def _cleanup_race_rows(cleanup: Session) -> None:
 def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     """Real, committing sessions; removes every row the race creates.
 
-    Checks the suite-wide claim invariant against these rows *before*
+    Checks the three suite-wide invariants against these rows *before*
     deleting them, not after (see `_cleanup_race_rows`). `_claim_invariant`
     (conftest.py) is autouse, but this fixture is requested explicitly by
     name, and pytest tears an explicitly-requested fixture down before an
@@ -176,6 +271,75 @@ def _active_claims(factory: sessionmaker[Session], item_id: int) -> list[OfferCl
                 )
             ).all()
         )
+
+
+def _open_lot_ids(factory: sessionmaker[Session], item_id: int) -> list[int]:
+    """Which lots hold this item as an open member, right now.
+
+    Ids rather than `SalesLotItem` rows, and read with a plain `select`
+    rather than through `lot_writes.lot_holding`: `lot_holding` ends in
+    `.one_or_none()`, so it *raises* on the very state this asks about --
+    an item open in two lots at once. A test that means to assert "exactly
+    one" has to be able to see "two" and say so.
+    """
+    with factory() as session:
+        return list(
+            session.scalars(
+                select(SalesLotItem.sales_lot_id).where(
+                    SalesLotItem.inventory_item_id == item_id,
+                    SalesLotItem.released_at.is_(None),
+                )
+            ).all()
+        )
+
+
+def _store_venue_id(factory: sessionmaker[Session]) -> int:
+    """The web store's venue id, read in a committed session of its own."""
+    with factory() as session:
+        return store_venue_id(session)
+
+
+def _seed_lot_listing_and_buyer(
+    factory: sessionmaker[Session], member_ids: list[int], store_id: int
+) -> tuple[int, int, int]:
+    """A lot of these items, offered in the shop, plus a RACE buyer and admin.
+
+    Returns `(listing_id, customer_id, admin_id)` -- **ids, not instances**,
+    for the reason every other helper in this file returns ids: each racing
+    thread gets a session of its own, and an instance loaded here would
+    belong to a session that is already closed.
+
+    The customer's `display_name` and the administrator's email are the two
+    module constants `_cleanup_race_rows` matches on, so these rows cannot
+    outlive the test that made them.
+    """
+    with factory() as session:
+        lot = lot_writes.create_lot(
+            session, title="RACE lot in the shop", description=""
+        )
+        for item_id in member_ids:
+            lot_writes.add_member(session, lot, session.get_one(InventoryItem, item_id))
+        session.flush()
+        listing = offering_writes.offer(
+            session,
+            lot=lot,
+            venue=session.get_one(SalesVenue, store_id),
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("250.00"),
+            title="RACE lot in the shop",
+            description="",
+            external_id=None,
+        )
+        admin = User(
+            email=RACE_ADMIN_EMAIL,
+            full_name="RACE Admin",
+            hashed_password=hash_password("racepassword"),
+            role=UserRole.admin,
+        )
+        customer = Customer(display_name=RACE_BUYER, email=None)
+        session.add_all([admin, customer])
+        session.commit()
+        return listing.id, customer.id, admin.id
 
 
 def test_a_forced_violation_still_leaves_the_database_clean(
@@ -493,3 +657,318 @@ def test_offering_elsewhere_and_ending_the_store_listing_leave_no_orphan(
     # elsewhere paused it underneath them, using a version already gone by
     # the time this function's own item lock let it proceed.
     assert "stale" not in outcomes, outcomes
+
+
+def test_two_lots_cannot_both_claim_one_item(
+    committed: sessionmaker[Session],
+) -> None:
+    """Two lots being assembled around one coin at once: exactly one gets it.
+
+    Survives: removing the `uq_sales_lot_item_open` index from
+    `SalesLotItem.__table_args__` (`app/models/sales.py:481-486`) makes this
+    fail -- both memberships are then accepted and the coin is open in two
+    lots at once, which is the one thing `sales_lot_item` exists to prevent.
+    Measured, eight runs of eight: `AssertionError: ['won', 'won']`.
+
+    The race is decided by the *membership commit*, not by the offer. A
+    losing thread rolls its whole transaction back, membership included, so
+    a race that offers inside the same transaction hides the damage: with
+    the index gone the loser is still refused at the offer, still rolls
+    back, and still leaves exactly one membership behind. Committing the
+    assembly is what makes the second membership visible to be asserted on.
+    """
+    shared = _seed_item(committed)
+    # One item to warm each thread up with before the barrier, and three more
+    # to keep it busy after the contended add -- see `claim_it` for why the
+    # race needs both halves.
+    own_items = [[_seed_item(committed) for _ in range(4)] for _ in range(2)]
+    venue_id = _venue(committed, "race-lot-a")
+    barrier = threading.Barrier(2)
+
+    def claim_it(mine: list[int], title: str) -> Outcome:
+        """Assemble a lot around `shared`, committing the membership."""
+        warm, *tail = mine
+        with committed() as session:
+            try:
+                lot = lot_writes.create_lot(session, title=title, description="")
+                # A member of this thread's own before the barrier: same code
+                # path, no contention. It settles the connection, the lot's
+                # row lock and every statement `add_member` issues, so the
+                # two threads arrive at the contended add below in the same
+                # state rather than one of them paying first-call costs.
+                lot_writes.add_member(
+                    session, lot, session.get_one(InventoryItem, warm)
+                )
+                # The barrier sits *before* the contended `add_member`, never
+                # after it. `add_member` flushes its INSERT inside a savepoint
+                # as it goes, so a barrier placed after that flush is one
+                # neither thread can reach: the second thread's INSERT blocks
+                # on the first thread's uncommitted row, the first waits at
+                # the barrier for a partner that cannot arrive, and the race
+                # ends in `BrokenBarrierError` rather than in a result.
+                barrier.wait(timeout=10)
+                lot_writes.add_member(
+                    session, lot, session.get_one(InventoryItem, shared)
+                )
+                # Three more of this thread's own, between the contended
+                # INSERT and the COMMIT. `add_member`'s own docstring says
+                # `uq_sales_lot_item_open` "is the backstop, not the check
+                # above" -- and reaching the backstop means both threads must
+                # get past `lot_holding` before *either* commits. Committing
+                # straight after the contended add closes that window: the
+                # first thread commits in a round trip or two, and the second
+                # then loses to the sequential check instead, so the race
+                # decides nothing and the index is never asked.
+                for item_id in tail:
+                    lot_writes.add_member(
+                        session, lot, session.get_one(InventoryItem, item_id)
+                    )
+                session.commit()
+                return "won"
+            except (IntegrityError, LotRefused):
+                session.rollback()
+                return "refused"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(claim_it, own_items[0], "RACE lot A")
+        second = pool.submit(claim_it, own_items[1], "RACE lot B")
+        outcomes = sorted([first.result(), second.result()])
+
+    assert outcomes == ["refused", "won"], outcomes
+    holders = _open_lot_ids(committed, shared)
+    assert len(holders) == 1, holders
+
+    # The offer is made afterwards, single-threaded, and is not part of the
+    # race. It is here because the state the race leaves has to be one a real
+    # offer can still act on: a lot that cannot be offered would make the
+    # assertions above true of a database nobody could sell from.
+    with committed() as session:
+        offering_writes.offer(
+            session,
+            lot=session.get_one(SalesLot, holders[0]),
+            venue=session.get_one(SalesVenue, venue_id),
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("10.00"),
+            title="RACE lot winner",
+            description="",
+            external_id=None,
+        )
+        session.commit()
+    assert len(_active_claims(committed, shared)) == 1
+
+
+def test_offering_a_lot_races_offering_one_of_its_members(
+    committed: sessionmaker[Session],
+) -> None:
+    """A lot and one of its own members cannot both be offered.
+
+    Survives: removing `.with_for_update()` from
+    `offering_writes._lock_items` (`app/offering_writes.py:302`) makes this
+    fail -- neither writer holds the coin's row, both decide on what they
+    read before the other committed, and the loser's disposition write dies
+    on `InventoryItem.version` instead of being refused with a reason.
+    Measured, six runs of six: `AssertionError: ['stale', 'won']`.
+
+    **Not** `uq_offer_claim_active`, which is what this test was originally
+    specified against. Measured six runs of six with that index removed and
+    the item lock left in: all six pass. The lock serialises the two
+    writers, so the loser is refused by `_locked_offers` or `_refuse_grouped`
+    -- an ordinary sequential check -- and the partial unique index is never
+    reached. It is a real backstop and it is not what this race proves;
+    a test naming it here would be a test that cannot fail for its stated
+    reason. With *both* guards removed this also fails, six of six.
+    """
+    shared = _seed_item(committed)
+    partner = _seed_item(committed)
+    lot_venue = _venue(committed, "race-lot-c")
+    item_venue = _venue(committed, "race-item-c")
+    barrier = threading.Barrier(2)
+
+    def offer_the_lot() -> Outcome:
+        with committed() as session:
+            try:
+                lot = lot_writes.create_lot(session, title="RACE lot C", description="")
+                for item_id in (shared, partner):
+                    lot_writes.add_member(
+                        session, lot, session.get_one(InventoryItem, item_id)
+                    )
+                session.flush()
+                # Loaded before the barrier, exactly as a router handler would
+                # have it in hand already -- and, here, so that the two
+                # threads reach `offer` at the same instant instead of one of
+                # them paying for two `get_one` round trips first.
+                venue = session.get_one(SalesVenue, lot_venue)
+                barrier.wait(timeout=10)
+                offering_writes.offer(
+                    session,
+                    lot=lot,
+                    venue=venue,
+                    listing_format=ListingFormat.fixed_price,
+                    price=Decimal("10.00"),
+                    title="RACE lot C",
+                    description="",
+                    external_id=None,
+                )
+                session.commit()
+                return "won"
+            except (IntegrityError, OfferRefused):
+                session.rollback()
+                return "refused"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    def offer_the_member() -> Outcome:
+        with committed() as session:
+            try:
+                item = session.get_one(InventoryItem, shared)
+                venue = session.get_one(SalesVenue, item_venue)
+                barrier.wait(timeout=10)
+                offering_writes.offer(
+                    session,
+                    item=item,
+                    venue=venue,
+                    listing_format=ListingFormat.fixed_price,
+                    price=Decimal("10.00"),
+                    title="",
+                    description="",
+                    external_id=None,
+                )
+                session.commit()
+                return "won"
+            except (IntegrityError, OfferRefused):
+                session.rollback()
+                return "refused"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = sorted(
+            future.result()
+            for future in [pool.submit(offer_the_lot), pool.submit(offer_the_member)]
+        )
+    # `"stale"` named and asserted against separately, exactly as
+    # `test_offering_elsewhere_and_ending_the_store_listing_leave_no_orphan`
+    # does it: a loser is entitled to be *refused*, never to fail on an
+    # optimistic-lock conflict. Catching `StaleDataError` as an ordinary
+    # refusal would make this test pass with the item lock removed, which is
+    # the one guarantee it exists to prove.
+    assert "stale" not in outcomes, outcomes
+    assert outcomes == ["refused", "won"], outcomes
+    assert len(_active_claims(committed, shared)) == 1
+
+
+def test_two_checkouts_race_for_one_lot(
+    committed: sessionmaker[Session],
+) -> None:
+    """One lot sitting in two carts is bought exactly once, and ends once.
+
+    Survives: removing `.with_for_update()` from
+    `order_writes._lock_listings` (`app/order_writes.py:102-113`) makes this
+    fail -- both checkouts then decide on a `quantity_available` they read
+    before the other committed, and the loser dies on `Listing.version`
+    rather than being told what is left. Measured, ten runs of ten:
+    `AssertionError: ['stale', 'won']`.
+
+    **This is not the race the task specified**, and the substitution is
+    deliberate. The specified one was a checkout racing a *pause* of the same
+    lot, the pause coming from offering one member elsewhere. No such pause
+    exists any more: `offering_writes._refuse_grouped` refuses offering a
+    member of an `offered` lot at all, and a lot cannot be re-offered
+    (`_lot_members` refuses a lot that is not `assembling`) nor can a member
+    join a second open lot (`uq_sales_lot_item_open`) -- so nothing in the
+    code can pause an offered lot's store listing. Written as specified, the
+    race passed because the pause was simply refused, which is a Task 7
+    guarantee and not a concurrency one; and in the fuller run it instead hit
+    a genuine Postgres deadlock, because `place_order` takes listings before
+    items while `offering_writes.offer` takes items before listings. That
+    deadlock is reported as a defect rather than pinned by a test here.
+
+    Two checkouts of one lot listing is the guarantee that *is* both real and
+    lot-specific: `_settle_sold_lots` must end the lot exactly once, and its
+    members must be paid their shares exactly once.
+    """
+    members = [_seed_item(committed) for _ in range(2)]
+    store_id = _store_venue_id(committed)
+    listing_id, customer_id, admin_id = _seed_lot_listing_and_buyer(
+        committed, members, store_id
+    )
+    barrier = threading.Barrier(2)
+
+    def buy_it() -> Outcome:
+        with committed() as session:
+            try:
+                # Buyer and operator loaded before the barrier, the way a
+                # request handler already holds them -- and so that the two
+                # threads reach `place_order` together instead of one of them
+                # paying for two `get_one` round trips inside the race.
+                buyer = session.get_one(Customer, customer_id)
+                operator = session.get_one(User, admin_id)
+                barrier.wait(timeout=10)
+                order_writes.place_order(
+                    session,
+                    buyer,
+                    [order_writes.Line(listing_id=listing_id, quantity=1)],
+                    operator,
+                )
+                session.commit()
+                return "won"
+            except (HTTPException, IntegrityError):
+                session.rollback()
+                return "refused"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        # Both submitted before either is waited on. A tuple of two
+        # `pool.submit(...).result()` calls looks symmetric and is not: it
+        # is evaluated left to right, so the first thread would be waited
+        # out before the second was ever submitted, and the barrier inside
+        # would time out with nobody to meet.
+        first = pool.submit(buy_it)
+        second = pool.submit(buy_it)
+        outcomes = sorted([first.result(), second.result()])
+
+    # `"stale"` named apart from `"refused"`, the idiom this file already uses
+    # two tests above: the loser of a checkout is entitled to a 409 saying
+    # what is left, never to an optimistic-lock failure. Folding
+    # `StaleDataError` in with the refusals -- which is how the brief's
+    # version of this race caught it -- is what makes the test pass with the
+    # listing lock removed, because `Listing.version` then refuses the second
+    # writer instead of the lock serialising them.
+    assert "stale" not in outcomes, outcomes
+    assert outcomes == ["refused", "won"], outcomes
+    with committed() as verify:
+        sold = verify.get_one(Listing, listing_id)
+        # The outcome strings alone would pass on a listing left at -1, on a
+        # lot still `offered`, and on two orders against one listing. Each of
+        # those is the real damage the lock prevents, so each is asserted.
+        assert sold.quantity_available == 0
+        assert sold.status is ListingStatus.ended
+        assert sold.sales_lot_id is not None
+        lot = verify.get_one(SalesLot, sold.sales_lot_id)
+        assert lot.status is SalesLotStatus.sold
+        assert _open_lot_ids(committed, members[0]) == []
+        lines = list(
+            verify.scalars(
+                select(SalesOrderItem).where(SalesOrderItem.listing_id == listing_id)
+            ).all()
+        )
+        assert len(lines) == 1
+        # One share per member, exactly once: `_sync_shares` divides the
+        # line's money among the lot's open members, and a second winning
+        # checkout would either double them or find no members left to
+        # divide among.
+        shares = list(
+            verify.scalars(
+                select(SalesOrderItemShare).where(
+                    SalesOrderItemShare.sales_order_item_id == lines[0].id
+                )
+            ).all()
+        )
+        assert sorted(share.inventory_item_id for share in shares) == sorted(members)
+        assert sum((share.amount for share in shares), Decimal("0.00")) == Decimal(
+            "250.00"
+        )
