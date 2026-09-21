@@ -78,3 +78,147 @@ describe('CoinDetail', () => {
     expect(await screen.findByText('that coin is not for sale')).toBeInTheDocument()
   })
 })
+
+// A LOT: a group of coins sold as one thing. Every item-describing field is
+// null -- no single kind, grade, metal or year describes a group -- and so is
+// every photograph, because a lot has none of its own. `members` is the whole
+// description, and the page read none of it.
+const LOT = {
+  id: 12,
+  title: 'Three Morgan Dollars, 1881-1883',
+  description: 'A short date run.',
+  price: '1200.00',
+  quantity_available: 1,
+  inventory_item_id: null,
+  item_code: null,
+  item_kind: null,
+  country: null,
+  year_start: null,
+  grade_display: null,
+  thumbnail_url: null,
+  image_url: null,
+  piece_count: 3,
+  members: [
+    {
+      inventory_item_id: 7,
+      item_code: 'CC-000007',
+      title: '1881-S Morgan Dollar',
+      description: 'Blast white.',
+      country: 'US',
+      year_start: 1881,
+      denomination: 'dollar',
+      grade_display: 'MS64',
+      piece_count: 1,
+      thumbnail_url: '/media/thumb/aaa.jpg',
+      image_url: '/media/web/aaa.jpg',
+    },
+    {
+      inventory_item_id: 9,
+      item_code: 'CC-000009',
+      title: '1882-S Morgan Dollar',
+      description: '',
+      country: 'US',
+      year_start: 1882,
+      denomination: 'dollar',
+      grade_display: 'MS63',
+      piece_count: 1,
+      thumbnail_url: null,
+      image_url: null,
+    },
+    {
+      inventory_item_id: 11,
+      item_code: 'CC-000011',
+      title: '1883-O Morgan Dollar',
+      description: '',
+      country: 'US',
+      year_start: 1883,
+      denomination: 'dollar',
+      grade_display: 'MS62',
+      piece_count: 1,
+      thumbnail_url: null,
+      image_url: null,
+    },
+  ],
+}
+
+describe('a lot in the shop', () => {
+  it('lists the coins in a lot', async () => {
+    // Every FIELDS key above is null for a lot, so the specifications table
+    // renders nothing at all: without the members, the page is a title, a
+    // price, and no description of what is being sold.
+    api.getCatalogItem.mockResolvedValue(LOT)
+    show()
+
+    expect(await screen.findByText('1881-S Morgan Dollar')).toBeInTheDocument()
+    expect(screen.getByText('1882-S Morgan Dollar')).toBeInTheDocument()
+    expect(screen.getByText('1883-O Morgan Dollar')).toBeInTheDocument()
+    expect(screen.getByText('US - 1881 - dollar - MS64')).toBeInTheDocument()
+  })
+
+  it('says how many coins are in it, so the price is not read as one coin’s', async () => {
+    api.getCatalogItem.mockResolvedValue(LOT)
+    show()
+    expect(await screen.findByText('Lot of 3 items')).toBeInTheDocument()
+  })
+
+  it('counts the pieces as well when a member is more than one object', async () => {
+    // `piece_count` is summed over the members and a member may itself be a
+    // roll or a mint set. Three entries and twenty-two objects are both true
+    // and saying only one of them is how the wrong parcel is expected.
+    api.getCatalogItem.mockResolvedValue({ ...LOT, piece_count: 22 })
+    show()
+    expect(await screen.findByText('Lot of 3 items, 22 pieces in all')).toBeVisible()
+  })
+
+  it('shows a photograph of the lot, taken from the coin that has one', async () => {
+    // A lot's own `image_url` is null by design -- "its members carry theirs"
+    // -- so the page showed no picture at all for something being sold for
+    // 1200.00. The alt text says which coin it is rather than passing it off
+    // as a photograph of the group.
+    api.getCatalogItem.mockResolvedValue(LOT)
+    show()
+
+    const picture = await screen.findByRole('img', {
+      name: '1881-S Morgan Dollar, one of the 3 items in this lot',
+    })
+    expect(picture).toHaveAttribute('src', '/media/web/aaa.jpg')
+  })
+
+  it('still lists the coins a sold lot held', async () => {
+    // The detail endpoint serves an ended listing on purpose, so a page
+    // someone bookmarked can say the offer is over. `_lot_entry` reads
+    // `members_held`, the past-tense question, so the list is FULL after a
+    // sale -- `offered_items` would have answered "none" for exactly the
+    // page a buyer is most likely to be looking at. A page that hid the
+    // members once the lot was sold would throw that away again.
+    api.getCatalogItem.mockResolvedValue({
+      ...LOT,
+      quantity_available: 0,
+      is_active: false,
+    })
+    show()
+
+    expect(await screen.findByText('1881-S Morgan Dollar')).toBeInTheDocument()
+    expect(screen.getByText('Lot of 3 items')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sold out' })).toBeDisabled()
+  })
+
+  it('leaves a single coin alone', async () => {
+    // The other side of the branch: a coin must not sprout a "what is in
+    // this lot" section, and its own photograph must still be its own.
+    api.getCatalogItem.mockResolvedValue({
+      ...COIN,
+      image_url: '/media/web/bbb.jpg',
+      members: [],
+    })
+    show()
+
+    expect(await screen.findByText('CC-000007')).toBeInTheDocument()
+    expect(screen.queryByText(/what is in this lot/i)).toBeNull()
+    expect(screen.queryByText(/^Lot of/)).toBeNull()
+    expect(screen.getByRole('img', { name: 'Morgan Dollar 1921' })).toHaveAttribute(
+      'src',
+      '/media/web/bbb.jpg',
+    )
+  })
+})
