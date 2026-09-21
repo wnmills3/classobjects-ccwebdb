@@ -322,15 +322,15 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     naming rather than discovering later:
 
     - `test_offer_races.py`, `test_concurrency.py`, `test_concurrent_writes.py`
-      and `test_order_revision_race.py` -- four files, sixteen tests, every
-      one of them taking ``committed`` as its only fixture argument -- each
-      race real, independently committing sessions against that shared
-      fixture (not ``db``) and delete the rows the race made in the
-      fixture's own teardown. `db` is in none of those sixteen tests'
-      closures, so **this autouse check does not run for any of them at
-      all** -- not "runs against an emptied table," which was true before
-      this paragraph named the actual mechanism, but genuinely skipped, the
-      same way a `db`-free test is. Measured directly: a fixture requested
+      and `test_order_revision_race.py` -- four files, all of whose tests
+      take ``committed`` as their only fixture argument -- each race real,
+      independently committing sessions against that shared fixture (not
+      ``db``) and delete the rows the race made in the fixture's own
+      teardown. `db` is in none of those tests' closures, so **this autouse
+      check does not run for any of them at all** -- not "runs against an
+      emptied table," which was true before this paragraph named the actual
+      mechanism, but genuinely skipped, the same way a `db`-free test is.
+      Measured directly: a fixture requested
       explicitly by a test (``committed``) is torn down *before* an autouse
       fixture the test never named (confirmed with a throwaway probe:
       `committed teardown` then `auto teardown` then a fixture `committed`
