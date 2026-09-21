@@ -321,28 +321,33 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     Two further consequences of running for every test in the suite, worth
     naming rather than discovering later:
 
-    - `test_offer_races.py`, `test_concurrency.py` and
-      `test_concurrent_writes.py` each race real, independently committing
-      sessions against a shared ``committed`` fixture (not ``db``) and delete
-      the rows the race made in that fixture's own teardown. Measured
-      directly: a fixture requested explicitly by a test (``committed``) is
-      torn down *before* an autouse fixture the test never named
-      (confirmed with a throwaway probe: `committed teardown` then
-      `auto teardown` then a fixture `committed` itself depends on). So by
-      the time this fixture's own check below runs, ``committed``'s cleanup
-      has already deleted whatever the race wrote, and this fixture grades
-      an already-emptied set of rows -- exactly where a second writer racing
-      `offering_writes` would be most worth catching. `test_offer_races.py`
-      is the one of the three that actually writes `OfferClaim` rows, and its
+    - `test_offer_races.py`, `test_concurrency.py`, `test_concurrent_writes.py`
+      and `test_order_revision_race.py` -- four files, sixteen tests, every
+      one of them taking ``committed`` as its only fixture argument -- each
+      race real, independently committing sessions against that shared
+      fixture (not ``db``) and delete the rows the race made in the
+      fixture's own teardown. `db` is in none of those sixteen tests'
+      closures, so **this autouse check does not run for any of them at
+      all** -- not "runs against an emptied table," which was true before
+      this paragraph named the actual mechanism, but genuinely skipped, the
+      same way a `db`-free test is. Measured directly: a fixture requested
+      explicitly by a test (``committed``) is torn down *before* an autouse
+      fixture the test never named (confirmed with a throwaway probe:
+      `committed teardown` then `auto teardown` then a fixture `committed`
+      itself depends on) -- so even where `db` did happen to be in scope,
+      ``committed``'s cleanup would already have deleted whatever the race
+      wrote before this fixture's check could see it. `test_offer_races.py`
+      is the one of the four that actually writes `OfferClaim` rows, and its
       own `committed` fixture now calls `check_claim_invariant` on the
       `cleanup` session immediately before deleting anything (inside a
-      `try`/`finally` so a real violation still leaves the database clean --
-      see that fixture's own docstring), closing the gap for real committed
-      claim data. `test_concurrency.py` and `test_concurrent_writes.py` never
-      create an `OfferClaim` at all -- their races are over stock and
-      optimistic-lock versions -- so the same ordering pitfall exists there
-      in principle but has nothing to grade in practice; if either one ever
-      starts writing claims, its `committed` fixture will need the same fix.
+      `try`/`finally` so a real violation still leaves the database clean
+      for the rest of the run -- see that fixture's own docstring), closing
+      the gap for real committed claim data. The other three never create an
+      `OfferClaim`, `offering_writes`, or `record_sale` at all, so the same
+      gap exists there in principle but has nothing to grade in practice;
+      anyone adding claim-writing to one of them needs to call
+      `check_claim_invariant` explicitly the way `test_offer_races.py` does,
+      because the autouse fixture here cannot reach a `committed`-only test.
     - A test that caught an `IntegrityError` from an ORM flush and never
       called `db.rollback()` afterward is the one real case this skips:
       SQLAlchemy deactivates the session's transaction on that specific
@@ -386,7 +391,10 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
         db = request.getfixturevalue("db")
     yield
     waiver = request.node.get_closest_marker("claim_invariant_waiver")
-    if waiver is not None and not waiver.kwargs.get("reason"):
+    # `str(...).strip()`, not a bare truthiness check: `not "   "` is `False`,
+    # so a whitespace-only reason -- "   " or "\n\t" -- would otherwise pass
+    # this exactly the way an empty one is meant to be caught failing.
+    if waiver is not None and not str(waiver.kwargs.get("reason") or "").strip():
         pytest.fail(
             f"{request.node.name} is marked claim_invariant_waiver with no "
             "reason= naming the scenario it waives; add one"
