@@ -16,14 +16,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import offering_writes
+from . import offering_writes, sale_state
 from .models import (
     InventoryItem,
     Listing,
     SalesLot,
     SalesLotItem,
     SalesLotStatus,
-    SalesOrderItem,
 )
 
 __all__ = [
@@ -117,31 +116,42 @@ def _refuse_partial(db: Session, item: InventoryItem) -> None:
 
     A claim covers a whole item; a partly-sold or partly-listed item is not
     one (spec, *`sales_lot` and `sales_lot_item`*). Above one unit still on
-    offer, or any unit already sold through any listing of it, are both that
-    shape -- a broken-up lot is not a whole item either.
+    offer, or any unit an open order still holds, are both that shape -- a
+    broken-up lot is not a whole item either.
+
+    The sold half is asked through `sale_state.for_sale` rather than a second
+    query, so "spoken for" has one definition -- the one
+    `offering_writes._refuse_sold` already defers to -- instead of two that
+    can drift apart. A query restated here would have to rediscover
+    `for_sale`'s own filter to `OPEN_ORDER_STATUSES`; the first version of
+    this function did not, and so refused an item forever over an order that
+    had since been cancelled and its stock returned.
     """
-    over_listed = db.scalar(
-        select(Listing.id)
+    over_listed = db.execute(
+        select(Listing.id, Listing.quantity_available)
         .where(
             Listing.inventory_item_id == item.id,
             Listing.status.in_(offering_writes.ON_OFFER),
             Listing.quantity_available > 1,
         )
         .limit(1)
-    )
+    ).first()
     if over_listed is not None:
+        listing_id, quantity = over_listed
         raise LotRefused(
-            f"{item.item_code}: quantity_available is above 1 on listing "
-            f"#{over_listed}; a lot claims a whole item"
+            f"{item.item_code}: has more than one unit (quantity {quantity}) "
+            f"on listing #{listing_id}; a lot claims a whole item"
         )
-    sold = db.scalar(
-        select(SalesOrderItem.id)
-        .join(Listing, Listing.id == SalesOrderItem.listing_id)
-        .where(Listing.inventory_item_id == item.id)
-        .limit(1)
-    )
-    if sold is not None:
-        raise LotRefused(f"{item.item_code}: has sold units; a lot claims a whole item")
+    held_by_order = [
+        use
+        for use in sale_state.for_sale(db, [item.id]).get(item.id, [])
+        if use.kind == "order"
+    ]
+    if held_by_order:
+        raise LotRefused(
+            f"{item.item_code}: has sold units ({held_by_order[0].text}); "
+            "a lot claims a whole item"
+        )
 
 
 def _lot_holding(db: Session, item_id: int) -> SalesLot | None:
@@ -188,9 +198,20 @@ def add_member(db: Session, lot: SalesLot, item: InventoryItem) -> SalesLotItem:
         # the other session's row must already be committed (Postgres blocks
         # this insert on it rather than erroring immediately), so it can be
         # named the same way the sequential check above names it.
+        #
+        # `db.flush()` flushes the whole session, not just `row` -- in
+        # production (autoflush=False, unlike this module's own test
+        # fixture) a caller's own unrelated pending write can be what
+        # actually violates a constraint inside this savepoint. Only this
+        # specific constraint is a race this function knows how to explain;
+        # anything else is a different bug and must not be misreported as
+        # "already in lot".
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+        if constraint != "uq_sales_lot_item_open":
+            raise
         other = _lot_holding(db, item.id)
         if other is None:
-            raise LotRefused(f"{item.item_code} is already in lot") from exc
+            raise LotRefused(f"{item.item_code} is already in another lot") from exc
         raise LotRefused(f"{item.item_code} is already in lot #{other.id}") from exc
     return row
 
@@ -217,6 +238,8 @@ def remove_member(db: Session, lot: SalesLot, item: InventoryItem) -> None:
             SalesLotItem.inventory_item_id == item.id,
             SalesLotItem.released_at.is_(None),
         )
-    ).one()
+    ).one_or_none()
+    if row is None:
+        raise LotRefused(f"{item.item_code} is not in lot #{lot.id}")
     db.delete(row)
     db.flush()
