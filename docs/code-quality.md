@@ -197,17 +197,40 @@ reverted.
 `if True:`, or the text `MUTATION`. A `findstr /S /N` over `backend\app\*.py`
 is the whole check -- no PowerShell, no separate script.
 
-Ordered mutation testing on the selling branches disables a guard on purpose
--- once `if False:` in place of a shop-guard predicate in `order_writes.py`,
-once the `AdminUser` dependency deleted from an endpoint -- runs the test to
-confirm it goes red without the guard, then restores it. Both were reverted
-before commit and neither reached `main`; each was verified the same way,
-by grepping the committed tree, which is a practice rather than a control.
-Because this style of testing opens that window deliberately and repeatedly,
-a stub that did survive to a commit would be a live authorisation bypass, not
-a style nit, and remembering to check for it does not scale the way a gate
-does. `backend/app` contained none of the three at the time this stage was
-added, so there is no backlog to grandfather -- any match is new and real.
+Ordered mutation testing on the selling branches disables a guard on purpose,
+runs the test to confirm it goes red without the guard, then restores it.
+Once that was `if False:` in place of a shop-guard predicate in
+`order_writes.py` -- a literal this stage catches directly. Once it was the
+`AdminUser` dependency deleted from an endpoint -- and that leaves **none**
+of `if False:`, `if True:`, or `MUTATION` anywhere in the file, so this
+`findstr` cannot see it on its own; there is nothing to grep for. Both were
+reverted before commit and neither reached `main`; each was verified the
+same way, by grepping the committed tree, which is a practice rather than a
+control.
+
+**What actually closes the gap for the second shape is a convention, not
+code:** any deliberate mutation that would otherwise leave no trace --
+deleting a dependency, removing a check with no `if` to negate -- must leave
+a `MUTATION` comment at the site while the mutation is in place. This stage
+then catches the marker, not the mutation; a mutation left with no marker and
+none of the two `if` literals is **not detectable by this stage**, full stop.
+Say that plainly rather than let "gate" imply more than it does: the guard's
+job is to make committing a marker-less stub impossible to do by accident,
+by making the marker itself cheap to check for. It does not, on its own,
+notice a removed `AdminUser` dependency; that would need something
+structural -- an AST check, or a per-route list of what each endpoint is
+expected to require -- which is separate work, not built here.
+
+`MUTATION` is matched case-sensitively (no `/I`): the convention is to spell
+it in capitals, and `if False:`/`if True:` have no lowercase form in Python
+(`false`/`true` are not valid there), so nothing is lost by leaving case
+matching on. This is also a plain literal-text match, not a parser -- `if 0:`,
+`if not True:`, or an unusual whitespacing survive it untouched; that is a
+known, accepted gap, not an oversight to close by enumerating every
+equivalent form in `findstr`.
+
+`backend/app` contained none of the three at the time this stage was added,
+so there is no backlog to grandfather -- any match is new and real.
 
 ## Fast Refresh
 

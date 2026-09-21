@@ -47,13 +47,22 @@ if errorlevel 1 set "FAILED=!FAILED! lint"
 
 echo === mutation scaffolding guard ===
 rem  An ordered mutation test disables a guard on purpose -- an `if False:`
-rem  in place of a shop-guard predicate, an `AdminUser` dependency deleted
-rem  from an endpoint -- to prove the test would fail without it, then
-rem  restores it. That window is opened deliberately and repeatedly on this
-rem  branch, so a stub that survived to a commit would be a real
-rem  authorisation bypass, not a style nit. `backend\app` currently
-rem  contains none of `if False:`, `if True:` or the text MUTATION, so any
-rem  match here is new and real -- there is no backlog to grandfather.
+rem  in place of a shop-guard predicate is the shape this findstr catches
+rem  directly. A mutation that leaves no such literal, such as deleting an
+rem  `AdminUser` dependency from an endpoint, is invisible to this stage on
+rem  its own -- there is nothing here to grep. The rule that makes that
+rem  mutation catchable too is a convention, not code: leave a MUTATION
+rem  comment at the site of ANY deliberate mutation that would otherwise
+rem  leave no trace, and this stage catches the marker even though it
+rem  cannot see the mutation itself. A mutation left with no `if False:`,
+rem  `if True:`, or MUTATION marker is simply not detectable here -- this
+rem  stage enforces the marker convention, not the absence of bugs.
+rem  MUTATION is matched case-sensitively (no /I): the convention is to
+rem  spell it in caps, and `if False:`/`if True:` have no lowercase form in
+rem  Python, so nothing is lost. This is a literal-text check, not a parser:
+rem  `if 0:`, `if not True:`, or a `False` with unusual spacing all evade it.
+rem  `backend\app` currently contains none of these three, so any match here
+rem  is new and real -- there is no backlog to grandfather.
 set "MUTATION_HIT="
 for /f "delims=" %%L in ('findstr /S /N /C:"if False:" /C:"if True:" /C:"MUTATION" "%REPO%\backend\app\*.py" 2^>nul') do (
     echo   left in place: %%L
