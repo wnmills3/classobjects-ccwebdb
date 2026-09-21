@@ -39,7 +39,7 @@ addopts = "-q --strict-markers"
 # arrive quietly -- it needs this greppable line plus a `reason=` at each
 # use site.
 markers = [
-    "claim_invariant_waiver(reason): this test builds an OfferClaim/Listing pair no current write path can produce, to exercise a reader function against it (see reason=). The suite-wide claim invariant in tests/conftest.py still runs its check for a test carrying this mark, and requires the check to raise -- a waiver that stops biting fails loudly instead of going stale.",
+    "claim_invariant_waiver(reason): this test builds an OfferClaim/Listing pair no current write path can produce, to exercise a reader function against it (see reason=). The suite-wide claim invariant in tests/conftest.py still runs its check for a test carrying this mark, and requires the check to raise -- a waiver that stops biting fails loudly instead of going stale. Scoped to the claim invariant only: the lot-membership and disposition invariants (also in tests/conftest.py) run unconditionally ahead of this waiver and are never absorbed by it.",
 ]
 # Surface deprecations in our own code as failures, but do not fail on
 # deprecations raised inside third-party libraries we do not control.

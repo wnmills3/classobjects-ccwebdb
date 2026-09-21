@@ -930,5 +930,24 @@ def end_offer(db: Session, listing: Listing, *, sold: bool = False) -> None:
         # `delivered` and `returned_by_buyer` are no more this function's to
         # undo.
         if item is not None and item.disposition_id == listed:
+            # `_still_offered` returning False means every `HELD_BY` claim on
+            # this item, if any remain, is on a listing it did not count --
+            # one an older write ended without releasing its claim (the
+            # retired catalogue `PATCH .../is_active` is the one still-live
+            # example; see `_holding_claims` and
+            # `test_a_withdrawn_store_listing_is_not_resurrected`). Nothing
+            # legitimately holds the item once this decides it is `held`
+            # again, so a stray claim does not either -- leaving it
+            # `active`/`paused` forever is exactly the shape
+            # `check_disposition_invariant` (`tests/conftest.py`) exists to
+            # catch, not a state this module should go on producing.
+            stray_claims = db.scalars(
+                select(OfferClaim).where(
+                    OfferClaim.inventory_item_id == item_id,
+                    OfferClaim.state.in_(HELD_BY),
+                )
+            ).all()
+            for stray in stray_claims:
+                stray.state = ClaimState.released
             item.disposition_id = held
     db.flush()
