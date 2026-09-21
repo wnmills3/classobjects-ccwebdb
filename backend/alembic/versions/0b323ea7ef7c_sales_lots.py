@@ -67,6 +67,8 @@ def upgrade() -> None:
         sa.Column("sales_lot_id", sa.Integer(), nullable=False),
         sa.Column("inventory_item_id", sa.Integer(), nullable=False),
         sa.Column("released_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["inventory_item_id"],
             ["inventory_item.id"],
@@ -130,10 +132,13 @@ def downgrade() -> None:
     op.drop_constraint("ck_listing_lot_quantity_one", "listing", type_="check")
     op.drop_constraint("ck_listing_item_xor_lot", "listing", type_="check")
     # A lot listing has no item, so it cannot survive `inventory_item_id`
-    # becoming NOT NULL again. None exist on live -- lots did not exist
-    # before this migration -- but the round-trip test runs this downgrade
-    # right after this same upgrade in one session and must not depend on
-    # that; the delete makes the restore correct regardless.
+    # becoming NOT NULL again. This is enough for `test_migrations_round_trip`,
+    # which runs this downgrade immediately after this same upgrade with no
+    # lot listings yet in existence -- it is not a general-purpose cleanup.
+    # `offer_claim.listing_id` and `sales_order_item.listing_id` are both
+    # ON DELETE RESTRICT, so on a database where a lot listing was ever
+    # claimed or sold, this DELETE raises instead of clearing the way, and a
+    # real downgrade there needs a human decision, not a silent delete.
     op.execute("DELETE FROM listing WHERE sales_lot_id IS NOT NULL")
     op.alter_column(
         "listing", "inventory_item_id", existing_type=sa.Integer(), nullable=False

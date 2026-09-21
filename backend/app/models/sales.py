@@ -439,14 +439,17 @@ class SalesLot(TimestampMixin, Base):
         return {"version_id_col": cls.version}
 
 
-class SalesLotItem(Base):
+class SalesLotItem(TimestampMixin, Base):
     """One item's membership of one lot.
 
     `released_at` rather than deletion: which coins were in a lot that sold is
     part of the sale's record, and a dissolved lot is evidence of what was
     tried. The partial unique index is what stops an item being in two open
     lots at once -- the same shape, and the same reason, as
-    `uq_offer_claim_active`.
+    `uq_offer_claim_active`. `TimestampMixin` -- as `OfferClaim`, the sibling
+    this is modelled on, already has -- so "which coins were in the lot that
+    sold, and when did each join" is answerable from `created_at`, not just
+    "when did each leave" from `released_at`.
     """
 
     __tablename__ = "sales_lot_item"
