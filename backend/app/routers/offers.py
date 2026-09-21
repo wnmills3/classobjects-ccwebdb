@@ -472,8 +472,9 @@ def record_listing_sale(
     malformed input is the narrower `SaleInputInvalid`, 422 (today that
     branch is unreachable from here -- the request schema's own `ge=0` and
     `decimal_places=2` already refuse a negative or sub-cent price or fee
-    before this body ever runs -- but `record_sale` has two other callers
-    this schema does not guard). Both are decided, and both are caught,
+    before this body ever runs -- but the guard stays in `record_sale` for
+    phase-4 auction settlement, a future caller that will not pass through
+    this schema at all). Both are decided, and both are caught,
     before anything is written, so either status means nothing was written;
     an unknown fee kind fails the same way, as the 422 `require_code`
     already raises. `SaleInputInvalid` is checked first because it is a

@@ -11,10 +11,14 @@ the buyer from `buyers.venue_buyer`, and the listing is ended by
 here, and this module never constructs a `SalesOrderItemShare` itself -- only
 fills in the `fee_amount` on rows `place_order` already made.
 
-**One entry point on purpose.** `record_sale` has three callers -- the
-Listings page's Record sale, shop checkout, and auction settlement -- and an
-auction settling four lots to two buyers is two calls, not a second
-implementation of fees and shares that can drift from this one.
+**One entry point on purpose, even though today it has only one caller.**
+`record_sale`'s only caller right now is the Listings page's Record sale
+(`app.routers.offers`); shop checkout writes its orders through
+`order_writes.place_order` directly, without fees, and never calls this
+function. The design is for a caller that does not exist yet: phase-4
+auction settlement, where an auction settling four lots to two buyers will
+be two calls to `record_sale`, not a second implementation of fees and
+shares that can drift from this one.
 """
 
 from __future__ import annotations
@@ -76,11 +80,17 @@ class SaleInputInvalid(SaleRefused):
     `SaleRefused` -- 409 -- because both are true conflicts the caller could
     not have known about from the request alone.
 
-    A subclass, not a field on `SaleRefused`, on purpose: an HTTP layer
-    dispatches on it by `except` clause order, which mypy checks, rather than
-    an `if` on a message string that can default silently to the wrong
-    status. Every existing `except SaleRefused` and `pytest.raises(SaleRefused)`
-    keeps catching this too.
+    A subclass, not a field on `SaleRefused`, on purpose: every existing
+    `except SaleRefused` and `pytest.raises(SaleRefused)` keeps catching this
+    too, unchanged, and an HTTP layer dispatches on it by `except` clause
+    order rather than an `if` on a message string that can default silently
+    to the wrong status. **mypy does not check that ordering** -- a reversed
+    `except SaleRefused` before `except SaleInputInvalid` still type-checks
+    cleanly, since the narrower type is still assignable to the wider one.
+    The only thing standing between that reversal and every 422 silently
+    becoming a 409 is `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409`
+    in `test_record_sale_api.py`. A reader reordering those clauses will not
+    be stopped by anything else.
     """
 
 

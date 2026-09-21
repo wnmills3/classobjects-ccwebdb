@@ -210,6 +210,28 @@ def test_a_negative_fee_is_refused(
         )
 
 
+def test_a_negative_price_is_refused(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """The API's schema refuses this first, but `record_sale` guards it too.
+
+    The library-level guard exists for phase-4 auction settlement, a future
+    caller of `record_sale` that will not pass through the API's schema at
+    all -- so this check has to hold on its own, not merely agree with a
+    guard that happens to sit in front of it today.
+    """
+    with pytest.raises(SaleRefused, match="negative"):
+        record_sale(
+            db,
+            ebay_listing,
+            price=Decimal("-1.00"),
+            buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
+
+
 def test_a_sub_cent_fee_is_refused(
     db: Session, ebay_listing: Listing, admin_user: User
 ) -> None:

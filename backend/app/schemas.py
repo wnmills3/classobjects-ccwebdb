@@ -1320,9 +1320,9 @@ class FeeLineIn(BaseModel):
     #: as a `DataError` PostgreSQL raises, not pydantic -- `decimal_places`
     #: must be given alongside `max_digits` for the ten-whole-digit limit to
     #: apply at all. `ge=0` closes the same gap for sign: `record_sale`
-    #: checks a fee's sign itself too, for its other two callers, but this
-    #: schema is what keeps a negative fee from ever reaching that check by
-    #: way of an `IntegrityError` on `ck_sales_order_fee_non_negative`.
+    #: checks a fee's sign itself too, for phase-4 auction settlement, but
+    #: this schema is what keeps a negative fee from ever reaching that
+    #: check by way of an `IntegrityError` on `ck_sales_order_fee_non_negative`.
     amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
     note: str | None = Field(default=None, max_length=255)
 
