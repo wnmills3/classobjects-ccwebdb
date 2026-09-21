@@ -197,11 +197,90 @@ def test_limit_is_bounded(client: TestClient) -> None:
     assert client.get("/api/catalog?limit=500").status_code == 422
 
 
-#: Staff-only names that must never reach a customer, whether the entry is a
-#: single coin or a lot. One set, used by both boundary tests: the member
-#: half of the boundary was the weaker of the two while it had a list of its
-#: own, so `numismatic_value` or `purchase_order_id` added to
-#: `CatalogMemberOut` would have shipped green past both.
+#: Every key a catalogue entry may carry. An **allow-list**, written out by
+#: hand, and the boundary's first assertion: a deny-list only catches the
+#: private names somebody thought of, so a newly named one ships green for
+#: ever and nobody finds out. This fails closed instead -- any new key, public
+#: or private, reddens these tests until a person has written it down here.
+#:
+#: That edit is the point, not an inconvenience. Adding a field to
+#: `CatalogItemOut` means editing this set in the same commit, which is a
+#: review checkpoint on "should a buyer see this?" -- the checkpoint a
+#: deny-list never offers. The evidence is in this file's own history: the
+#: deny list had drifted into two unequal halves, and the weaker half was
+#: silently wrong.
+#:
+#: Written out rather than derived from `CatalogItemOut.model_fields`,
+#: deliberately. A derived set agrees with the model by construction, so it
+#: fails **open** on exactly the case that matters: someone adding
+#: `total_cost` to the model would add it to the expectation at the same
+#: moment and the test would stay green.
+EXPECTED_PUBLIC_FIELDS = {
+    "id",
+    "inventory_item_id",
+    "version",
+    "item_code",
+    "title",
+    "description",
+    "item_kind",
+    "country",
+    "denomination",
+    "bullion_form",
+    "grade",
+    "strike_type",
+    "grade_display",
+    "grading_service",
+    "metal",
+    "year_start",
+    "year_end",
+    "fineness",
+    "gross_weight_ozt",
+    "fine_weight_ozt",
+    "piece_count",
+    "price",
+    "currency",
+    "quantity_available",
+    "is_active",
+    "thumbnail_url",
+    "image_url",
+    "members",
+    "created_at",
+    "updated_at",
+}
+
+#: Every key one member of a lot may carry: `EXPECTED_PUBLIC_FIELDS` less the
+#: listing's own fields, because a member has no price, no stock and no
+#: listing of its own. Hand-written for the reason above -- this is the half
+#: that was silently the weaker one.
+EXPECTED_MEMBER_FIELDS = {
+    "inventory_item_id",
+    "item_code",
+    "title",
+    "description",
+    "item_kind",
+    "country",
+    "denomination",
+    "bullion_form",
+    "grade",
+    "strike_type",
+    "grade_display",
+    "grading_service",
+    "metal",
+    "year_start",
+    "year_end",
+    "fineness",
+    "gross_weight_ozt",
+    "fine_weight_ozt",
+    "piece_count",
+    "thumbnail_url",
+    "image_url",
+}
+
+#: Staff-only names, kept **as well as** the allow-lists above and used over
+#: the serialised payload rather than over its keys. The allow-lists cover
+#: every key the two models declare; only this catches a private name nested
+#: inside a structure neither of them declares today. Inexhaustive by nature,
+#: which is why it is the second assertion and not the first.
 PRIVATE_FIELD_NAMES = (
     "total_cost",
     "item_cost",
@@ -209,12 +288,27 @@ PRIVATE_FIELD_NAMES = (
     "shipping",
     "shipping_cost",
     "tax_rate",
+    "tax_includes_shipping",
     "numismatic_value",
+    "valuation_basis",
     "storage_location",
     "storage_location_id",
     "local_catalog_number",
+    "purchase_order",
     "purchase_order_id",
+    "order_number",
+    "vendor",
     "notes_raw",
+    "denom_raw",
+    "year_raw",
+    "grade_raw",
+    "weight_raw",
+    "listing_url",
+    "source_url",
+    "attributes",
+    "deleted_at",
+    "split_at",
+    "parent_item_id",
 )
 
 
@@ -228,10 +322,19 @@ def test_catalogue_never_exposes_cost_basis_or_location(
     it; what actually shapes this response is `catalog.to_catalog_item`
     building it field by field. So a field added for staff is kept out by
     that function plus this assertion, and by nothing else.
+
+    The allow-list first, because it fails closed: a private field nobody
+    thought to forbid still reddens it. The deny-list over the serialised
+    payload second, for a name nested somewhere the key check cannot see.
     """
     body = client.get(f"/api/catalog/{listing.id}").json()
-    forbidden = set(PRIVATE_FIELD_NAMES)
-    assert not (set(body) & forbidden), f"leaked: {sorted(set(body) & forbidden)}"
+    assert set(body) == EXPECTED_PUBLIC_FIELDS, (
+        f"unexpected: {sorted(set(body) - EXPECTED_PUBLIC_FIELDS)}, "
+        f"missing: {sorted(EXPECTED_PUBLIC_FIELDS - set(body))}"
+    )
+    payload = json.dumps(body)
+    leaked = [name for name in PRIVATE_FIELD_NAMES if name in payload]
+    assert not leaked, f"leaked somewhere in the payload: {leaked}"
 
 
 def _ebay(db: Session) -> int:
@@ -450,29 +553,33 @@ def test_a_lot_entry_never_carries_cost_or_location(
 
     A lot widens what that function must build; this asserts the widening did
     not reach for the whole row. Three assertions, and they are not
-    redundant: the whole-entry key check catches a field added to
-    `CatalogItemOut`, the per-member key check catches one added to
-    `CatalogMemberOut` -- which is what actually bites, since a lot's private
-    data arrives nested -- and `json.dumps` over the whole payload catches a
-    name appearing anywhere at all, including inside a structure neither
-    model declares today.
+    redundant: the entry's keys must be exactly `EXPECTED_PUBLIC_FIELDS`, so
+    a field added to `CatalogItemOut` reddens whether or not anyone thought
+    to forbid it; each member's keys must be exactly
+    `EXPECTED_MEMBER_FIELDS`, which is what actually bites here, since a
+    lot's private data would arrive nested; and `PRIVATE_FIELD_NAMES` over
+    the serialised payload catches a private name appearing anywhere at all,
+    including inside a structure neither model declares today.
 
-    The deny list is `PRIVATE_FIELD_NAMES`, the same one the single-item
-    boundary test uses. Two lists drift, and the member half is the one a
-    reader is most likely to widen.
+    Both allow-lists are the same ones the single-item boundary test uses.
+    Two lists drift, and the member half is the one a reader is most likely
+    to widen.
     """
     db.commit()
     entry = _entry(client, store_lot_listing.id)
-    forbidden = set(PRIVATE_FIELD_NAMES)
-    assert not (set(entry) & forbidden), f"leaked: {sorted(set(entry) & forbidden)}"
-    for member in entry["members"]:
-        leaked = set(member) & forbidden
-        assert not leaked, f"leaked on a member: {sorted(leaked)}"
-    payload = json.dumps(entry)
-    assert not [name for name in PRIVATE_FIELD_NAMES if name in payload], (
-        f"leaked somewhere in the payload: "
-        f"{[name for name in PRIVATE_FIELD_NAMES if name in payload]}"
+    assert set(entry) == EXPECTED_PUBLIC_FIELDS, (
+        f"unexpected: {sorted(set(entry) - EXPECTED_PUBLIC_FIELDS)}, "
+        f"missing: {sorted(EXPECTED_PUBLIC_FIELDS - set(entry))}"
     )
+    for member in entry["members"]:
+        assert set(member) == EXPECTED_MEMBER_FIELDS, (
+            f"unexpected on a member: "
+            f"{sorted(set(member) - EXPECTED_MEMBER_FIELDS)}, "
+            f"missing: {sorted(EXPECTED_MEMBER_FIELDS - set(member))}"
+        )
+    payload = json.dumps(entry)
+    leaked = [name for name in PRIVATE_FIELD_NAMES if name in payload]
+    assert not leaked, f"leaked somewhere in the payload: {leaked}"
 
 
 def test_a_non_store_lot_listing_stays_out_of_the_catalogue(

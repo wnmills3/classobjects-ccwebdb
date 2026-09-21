@@ -315,6 +315,9 @@ def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
     Venue first, so an outside order keeps the message naming its platform:
     its listing is ended too, and the platform is the more useful news.
 
+    Asked only of a cancellation that would really return stock: see the call
+    site, which shares `return_stock`'s own `SHIPPED_STATUSES` condition.
+
     `paused` is deliberately not asked about. A listing whose stock an order
     holds cannot become paused afterwards -- pausing happens when the item is
     offered elsewhere, and `offering_writes._refuse_sold` refuses to offer a
@@ -352,9 +355,11 @@ def update_order_status(
 ) -> OrderOut:
     """Advance an order. Cancelling an unshipped store one returns its stock.
 
-    An order whose listing has already ended cannot be cancelled at all --
-    a sale recorded from an outside platform, or a lot bought in the shop --
-    because there is nothing to return the stock to (`_no_stock_to_return`).
+    An **unshipped** order whose listing has already ended cannot be
+    cancelled -- a sale recorded from an outside platform, or a lot bought in
+    the shop -- because there is nothing to return the stock to
+    (`_no_stock_to_return`). Once it has shipped, cancelling returns no stock
+    and so strands nothing, and is how a refund is recorded.
 
     Locks and re-reads the `sales_order` row -- order first, listings second
     (inside `return_stock`), the same sequence `revise_order` uses -- so the
@@ -379,9 +384,17 @@ def update_order_status(
     # leaves nothing stranded; undoing such a sale needs a path that re-offers
     # what it sold, which nothing has yet.
     #
-    # Only the transition *to* cancelled is refused, so re-sending `cancelled`
-    # on an already-cancelled order stays the harmless no-op it is below.
-    if payload.status == "cancelled" and previous != "cancelled":
+    # Asked only when this cancellation would actually return stock, which is
+    # the same condition `return_stock` is called under below -- and the
+    # reason has to match the danger or the refusal is just an obstruction.
+    # A **shipped** order returns no stock when it is cancelled: the goods
+    # have left, and cancelling is how a refund is recorded. Nothing can be
+    # stranded by a call that moves no stock, so a shipped order is
+    # cancellable whatever state its listing is in. Re-sending `cancelled` on
+    # an already-cancelled order stays the harmless no-op it is below.
+    if payload.status == "cancelled" and previous not in SHIPPED_STATUSES | {
+        "cancelled"
+    }:
         blocked = _no_stock_to_return(db, order)
         if blocked is not None:
             raise HTTPException(
