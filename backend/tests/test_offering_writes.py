@@ -66,6 +66,9 @@ def test_a_paused_claim_does_not_block_an_active_one(
 ) -> None:
     item_id = listing.inventory_item_id
     second = make_listing(inventory_item_id=item_id)
+    # Paused, to match the claim below: the suite-wide claim invariant
+    # (conftest.py) expects a listing's own claim to agree with its status.
+    listing.status = ListingStatus.paused
     db.add(
         OfferClaim(
             inventory_item_id=item_id, listing_id=listing.id, state=ClaimState.paused
@@ -87,6 +90,9 @@ def test_a_released_claim_does_not_block_an_active_one(
 ) -> None:
     item_id = listing.inventory_item_id
     second = make_listing(inventory_item_id=item_id)
+    # Ended, to match the claim below: the suite-wide claim invariant
+    # (conftest.py) expects a listing's own claim to agree with its status.
+    listing.status = ListingStatus.ended
     db.add(
         OfferClaim(
             inventory_item_id=item_id, listing_id=listing.id, state=ClaimState.released
@@ -663,6 +669,21 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     assert listing.status is ListingStatus.ended
     assert listing.paused_by_listing_id == elsewhere.id  # untouched, not resumed
     assert item.disposition.code == "held"
+
+    # The retired write path this simulates never touched the claim -- that
+    # is the point being tested -- so `listing`'s claim still reads `paused`
+    # on a listing that is now `ended`. That shape is real (the module's own
+    # docstring on `_holding_claims` names this exact bug), but it is not
+    # something the *current* single writer produces, and the suite-wide
+    # claim invariant is a promise about that writer, not about rows a
+    # retired one left behind. Clean it up so this test's deliberate replay
+    # of an old bug does not read as a new one to that check.
+    stale_claim = db.scalar(
+        select(OfferClaim).where(OfferClaim.listing_id == listing.id)
+    )
+    assert stale_claim is not None
+    stale_claim.state = ClaimState.released
+    db.flush()
 
 
 def test_a_sold_item_is_not_put_back_to_held(

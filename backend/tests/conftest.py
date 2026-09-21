@@ -22,6 +22,7 @@ from app.grades import GRADE_DISPLAY_SQL, split_fields
 from app.main import app
 from app.models import (
     Authenticity,
+    ClaimState,
     Country,
     Currency,
     Disposition,
@@ -32,6 +33,7 @@ from app.models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    OfferClaim,
     ReferenceMixin,
     SalesFeeKind,
     SalesVenue,
@@ -195,6 +197,77 @@ def db(engine: Engine) -> Iterator[Session]:
     session.close()
     transaction.rollback()
     connection.close()
+
+
+#: Every listing status paired with the claim state `offering_writes` gives
+#: it. `docs/specs/selling-design.md` (*Testing*) requires this to hold after
+#: every write in the suite -- `offering_writes` is the only writer of either
+#: column, in one transaction, so a disagreement means something wrote around
+#: it.
+_EXPECTED_CLAIM_STATE = {
+    ListingStatus.active: ClaimState.active,
+    ListingStatus.paused: ClaimState.paused,
+    ListingStatus.ended: ClaimState.released,
+}
+
+
+def check_claim_invariant(db: Session) -> None:
+    """Assert every claim's state equals its listing's status, right now.
+
+    The join matches a claim to its listing by *both* `listing_id` and
+    `inventory_item_id`, not `listing_id` alone. In phase 2 every real claim
+    a listing has is for that listing's own item -- `offer` never writes any
+    other kind -- so for real data the extra condition changes nothing. It
+    matters only for `test_offering_writes.py`'s handful of tests that build
+    a claim for a *different* item on an existing `listing_id` on purpose, to
+    exercise the reader functions (`offers_holding`, `_move_claims`) against
+    the lot-member shape phase 3 will introduce -- the design doc's own words
+    defer "lot membership against lot status" to that phase, and this join is
+    what keeps the phase-2 invariant from grading phase-3 scaffolding.
+
+    One query, no per-row loads, because the autouse fixture below calls this
+    roughly 1,300 times. Pulled out as its own function -- rather than written
+    inline in the fixture -- so `test_claim_invariant.py` can call the exact
+    check the fixture runs and prove it actually raises on a broken claim,
+    without needing a second, hand-rolled copy of the query that could drift
+    from the real one or pass for a different reason than the fixture would.
+    """
+    rows = db.execute(
+        select(Listing.id, Listing.status, OfferClaim.state).join(
+            OfferClaim,
+            (OfferClaim.listing_id == Listing.id)
+            & (OfferClaim.inventory_item_id == Listing.inventory_item_id),
+        )
+    ).all()
+    wrong = [
+        (listing_id, status, state)
+        for listing_id, status, state in rows
+        if state is not _EXPECTED_CLAIM_STATE[status]
+    ]
+    assert not wrong, f"claim state disagrees with listing status: {wrong}"
+
+
+@pytest.fixture(autouse=True)
+def _claim_invariant(db: Session) -> Iterator[None]:
+    """After every test, each claim's state must equal its listing's status.
+
+    Depending on ``db`` -- rather than reaching for a session of its own --
+    is what makes this run for every test in the suite, including ones that
+    never request ``db`` by name: an autouse fixture still pulls in whatever
+    its own dependencies need. It also means this runs *before* ``db``'s own
+    teardown (rollback, close), while the test's writes are still visible on
+    the same connection.
+
+    A test that already rolled back or closed its session (a caught
+    `IntegrityError`, for instance) leaves `db.is_active` false; querying it
+    then would raise on a dead transaction and turn "invariant broken" into a
+    misleading fixture crash, so that case is skipped rather than checked --
+    there is nothing left to check.
+    """
+    yield
+    if not db.is_active:
+        return
+    check_claim_invariant(db)
 
 
 @pytest.fixture
