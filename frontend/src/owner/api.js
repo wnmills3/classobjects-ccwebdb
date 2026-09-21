@@ -181,6 +181,28 @@ export const api = {
   recordSale: (listingId, body) =>
     send(`/api/listings/${listingId}/sale`, { method: 'POST', body }),
 
+  // sales lots -- a group of coins sold as one thing. Admin-only: a lot row
+  // carries what its coins cost and what they are thought to be worth.
+  //
+  // There is no "offer this lot" call here: offering a lot is `createOffers`
+  // above with `lot_id` instead of `items`, because offering is
+  // `offering_writes`' decision and a lot is just another thing to offer.
+  //
+  // `createLot` takes a title and a description and nothing else --
+  // `SalesLotIn` is `extra="forbid"` and a lot "begins assembling and empty;
+  // members are a PATCH". A caller that wants a lot with coins in it makes
+  // both calls; sending `add_item_ids` here is a 422.
+  listLots: (params = {}) => {
+    const qs = query(params)
+    return send(`/api/sales-lots${qs ? `?${qs}` : ''}`)
+  },
+  createLot: (body) => send('/api/sales-lots', { method: 'POST', body }),
+  // The whole change -- wording and every membership move -- in one body,
+  // because the API applies it in one transaction: a screenful of edits
+  // either lands or does not. `version` is the version the form loaded.
+  updateLot: (id, body) => send(`/api/sales-lots/${id}`, { method: 'PATCH', body }),
+  deleteLot: (id) => send(`/api/sales-lots/${id}`, { method: 'DELETE' }),
+
   createPurchaseOrder: (payload) =>
     send('/api/purchase-orders', { method: 'POST', body: payload }),
   createInventoryItem: (payload) =>

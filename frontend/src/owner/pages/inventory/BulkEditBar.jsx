@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../../api'
 import ForSaleNotice from '../ForSaleNotice'
+import ModalDialog from '../../ModalDialog'
 import OfferDialog from './OfferDialog'
 
 /**
@@ -22,6 +23,13 @@ import OfferDialog from './OfferDialog'
  * the page of results on screen. A selection survives paging, so an id with
  * no row on this page cannot be priced -- the dialog says how many of those
  * there are rather than quietly offering fewer items than were selected.
+ *
+ * "Group into lot..." needs **only the ids**, so it takes the whole selection
+ * including the off-page part of it. `POST`/`PATCH /api/sales-lots` name
+ * items by id and ask for nothing else about them, so there is nothing here
+ * that an id with no row on this page would be missing -- and dropping those
+ * ids to match the offer path would silently build a smaller lot than the one
+ * that was selected.
  */
 
 //: The refusal the server gives a change to items that are for sale.
@@ -36,6 +44,131 @@ const BULK_FIELDS = [
   //: filter in `inventory_search` -- it does not exist on the currency view.
   ['Metal', 'metal', 'text', 'coins'],
 ]
+
+/**
+ * "Group into lot...": the selection becomes a new lot, or joins one.
+ *
+ * **Two calls for a new lot, not one.** `SalesLotIn` is `extra="forbid"` and
+ * holds a title and a description: a lot "begins assembling and empty;
+ * members are a PATCH" (`create_sales_lot`), so a POST carrying
+ * `add_item_ids` is a 422, not a shortcut. The membership PATCH that follows
+ * is itself all-or-nothing, so a refused one leaves the new lot standing and
+ * empty -- which is what the message then says, rather than leaving the
+ * operator to discover it on the Lots page.
+ *
+ * Adding to a lot that is already assembling is the same PATCH against an
+ * existing id, and is here rather than on the Lots page for the reason that
+ * page gives: this is where the coins are, with the filters and the paging
+ * that found them.
+ *
+ * A failed load of the assembling lots leaves the dialog usable -- starting a
+ * new lot needs none of them -- rather than replacing it with an error.
+ */
+function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
+  const [lots, setLots] = useState(null)
+  // 'new', or the id of an assembling lot as the select's string value.
+  const [target, setTarget] = useState('new')
+  const [title, setTitle] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Guards group()'s continuation once the request settles: Cancel (and
+  // Escape, which ModalDialog routes to onClose) can unmount this dialog
+  // while a write is still in flight.
+  //
+  // The setup ARMS it; only the cleanup disarms it. The console runs in
+  // StrictMode (`owner/main.jsx`), where React runs every effect setup,
+  // cleanup, setup on mount: a ref only initialised at `useRef(true)` would
+  // be left false by that first cleanup for the rest of the dialog's life,
+  // and a lot the API accepted would never close the dialog.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .listLots({ status: 'assembling' })
+      .then((page) => !cancelled && setLots(page?.lots ?? []))
+      .catch((err) => !cancelled && setError(err.message))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function group() {
+    const wanted = title.trim()
+    if (target === 'new' && wanted === '') {
+      // Said here rather than left to the API, whose refusal for a blank
+      // title is a schema complaint about `min_length`.
+      setError('A lot needs a title: it is what the offer and the shop call it.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    let lot = lots?.find((row) => String(row.id) === target) ?? null
+    try {
+      if (target === 'new') {
+        lot = await api.createLot({ title: wanted, description: '' })
+      }
+      await api.updateLot(lot.id, { add_item_ids: ids, version: lot.version })
+      if (!mounted.current) return
+      onGrouped(lot.title)
+    } catch (err) {
+      if (!mounted.current) return
+      setError(
+        target === 'new' && lot !== null
+          ? `${lot.title} was started but is empty: ${err.message}`
+          : err.message,
+      )
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  const label = `Group ${ids.length} item(s) into a lot`
+  const open = lots ?? []
+  const action = target === 'new' ? 'Create lot' : 'Add to lot'
+
+  return (
+    <ModalDialog label={label} onClose={onClose}>
+      <h2>{label}</h2>
+      {error && <p className="error">{error}</p>}
+      {codes.length > 0 && <p className="muted">{codes.join(', ')}</p>}
+      <div className="filter-grid">
+        <label>
+          Lot
+          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="new">A new lot</option>
+            {open.map((lot) => (
+              <option key={lot.id} value={String(lot.id)}>
+                {lot.title} ({lot.members.length} so far)
+              </option>
+            ))}
+          </select>
+        </label>
+        {target === 'new' && (
+          <label>
+            Title
+            <input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </label>
+        )}
+      </div>
+      <div className="row">
+        <button disabled={busy} onClick={group}>
+          {busy ? 'Grouping...' : action}
+        </button>
+        <button className="link" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </ModalDialog>
+  )
+}
 
 export default function BulkEditBar({
   ids,
@@ -53,6 +186,9 @@ export default function BulkEditBar({
   const [forSale, setForSale] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
   const [offering, setOffering] = useState(false)
+  const [grouping, setGrouping] = useState(false)
+  // What the last grouping did, so the bar says so where the selection is.
+  const [grouped, setGrouped] = useState('')
 
   if (ids.length === 0) return null
 
@@ -109,6 +245,14 @@ export default function BulkEditBar({
       <button disabled={chosen.length === 0} onClick={() => setOffering(true)}>
         Offer for sale...
       </button>
+      <button
+        onClick={() => {
+          setGrouped('')
+          setGrouping(true)
+        }}
+      >
+        Group into lot...
+      </button>
       <button className="link" onClick={onClear}>
         Clear selection
       </button>
@@ -121,6 +265,23 @@ export default function BulkEditBar({
         action="Change the items for sale too"
       />
       {error && <span className="error">{error}</span>}
+      {grouped && <span className="notice">{grouped}</span>}
+
+      {grouping && (
+        <GroupIntoLot
+          ids={ids}
+          codes={chosen.map((row) => row.item_code)}
+          onGrouped={(title) => {
+            setGrouping(false)
+            // The selection is deliberately NOT cleared. Grouping changes no
+            // item's disposition -- a coin in an assembling lot is still in
+            // stock and still editable -- so the rows the operator was
+            // working through are still the rows they were working through.
+            setGrouped(`${ids.length} item(s) are in ${title}.`)
+          }}
+          onClose={() => setGrouping(false)}
+        />
+      )}
 
       {offering && (
         <OfferDialog
