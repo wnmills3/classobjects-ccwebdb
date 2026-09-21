@@ -40,7 +40,7 @@ from .models import (
     User,
 )
 from .models.base import utcnow
-from .offering_writes import offered_items, sellable_in_shop
+from .offering_writes import end_offer, offered_items, sellable_in_shop
 from .references import require_code
 from .sale_snapshot import take as take_snapshot
 from .sales_venues import store_venue_id
@@ -138,6 +138,57 @@ def _after_stock_change(db: Session, listing: Listing, before: int) -> None:
     disposition_id = require_code(db, Disposition, code, "disposition")
     for item in offered_items(db, listing):
         item.disposition_id = disposition_id
+
+
+def _lot_sold_out(listing: Listing, before: int) -> bool:
+    """Whether this stock change is a lot listing's only unit being bought.
+
+    `ck_listing_lot_quantity_one` caps a lot listing at one unit, so a lot is
+    either wholly sold or not sold at all -- there is no partly-sold lot to
+    reason about, and this is a question with a yes/no answer rather than a
+    proportion.
+    """
+    return (
+        listing.sales_lot_id is not None
+        and before > 0
+        and listing.quantity_available == 0
+    )
+
+
+def _settle_sold_lots(db: Session, listings: Sequence[Listing]) -> None:
+    """End each lot listing this order has just bought outright, as sold.
+
+    **Why the sale path ends a lot listing when it leaves an item listing
+    alone.** A sold-out item listing is left `active` at zero stock, which is
+    odd but harmless: the item is `sold`, and nothing else in the database
+    claims otherwise. A lot cannot be left that way. Its lifecycle is
+    `assembling -> offered -> sold | dissolved` and `sales_lot_item.
+    released_at` is set when the lot is sold or dissolved (spec, *`sales_lot`
+    and `sales_lot_item`*), so a lot left `offered` after its coins have been
+    bought is a false statement about the lot *and* leaves every membership
+    row open -- each one blocking an already-sold coin under
+    `uq_sales_lot_item_open`, so those coins could never join another lot.
+
+    Ended through `offering_writes.end_offer(sold=True)` rather than by
+    writing the lot here: that module is the only writer of
+    `sales_lot.status`, `sales_lot_item.released_at` and `listing.status`,
+    and it is what also ends the members' own store listings this lot's offer
+    paused -- which must end, not resume, now that the coins are sold. Ending
+    the listing is also what keeps the lot's `sold` from being overwritten:
+    `_end` decides `sold` or `dissolved` from how the listing ends, so a lot
+    marked sold under a listing still standing would be rewritten to
+    `dissolved` the day anyone withdrew it.
+
+    Called **after** the line's shares exist, never before: `_sync_shares`
+    divides the money among `offered_items`, and `end_offer` releases exactly
+    those memberships, so a lot ended first would leave the sale with no
+    shares at all. The lock order is the one `sales_writes.record_sale`
+    already takes for an outside sale of a lot -- the listing first
+    (`_lock_listings`), then the items and the lot inside `end_offer` -- so
+    this adds no new deadlock shape.
+    """
+    for listing in listings:
+        end_offer(db, listing, sold=True)
 
 
 def _line(
@@ -276,6 +327,12 @@ def place_order(
     yet. An outside platform has already collected the money (`paid`), and an
     auction house may already have shipped (`delivered`).
 
+    A line that buys a **lot** listing outright ends that listing as sold and
+    ends the lot with it, which a sold-out item listing does not get
+    (`_settle_sold_lots` has the whole of why). Only for a shop order: a sale
+    recorded from elsewhere passes a `venue`, and `sales_writes.record_sale`
+    ends its own listing.
+
     `external_order_id` is the platform's own order number, for a sale
     recorded from elsewhere; None for a shop checkout. It is a constructor
     argument, not a later assignment, for the same reason `total_amount` is
@@ -358,6 +415,11 @@ def place_order(
     # exist until the line has been flushed, so the sync is collected here and
     # run after one flush rather than a flush per line inside the loop.
     to_sync: list[tuple[SalesOrderItem, Listing, Decimal]] = []
+    # Lot listings this order buys outright, to be ended as sold once the
+    # shares below exist -- see `_settle_sold_lots` for both halves of why.
+    # Only for a shop order: a sale recorded from somewhere else passes a
+    # `venue`, and `sales_writes.record_sale` ends that listing itself.
+    sold_lots: list[Listing] = []
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]
         before = listing.quantity_available
@@ -368,6 +430,8 @@ def place_order(
         order.items.append(new_item)
         to_sync.append((new_item, listing, price * line.quantity))
         _after_stock_change(db, listing, before)
+        if venue is None and _lot_sold_out(listing, before):
+            sold_lots.append(listing)
     # Explicit -- production runs with autoflush disabled, so nothing here can
     # rely on an implicit one -- and after every `_after_stock_change` above,
     # which reads `InventoryItem` rows this flush would otherwise touch first.
@@ -382,6 +446,10 @@ def place_order(
     for synced_line, synced_listing, amount in to_sync:
         _sync_shares(db, synced_line, synced_listing, amount, new_line=True)
     db.flush()
+    # After that flush, not before: `end_offer` re-reads the listing with
+    # `populate_existing`, which would otherwise discard the stock change
+    # made above rather than read it back.
+    _settle_sold_lots(db, sold_lots)
     db.add(
         SalesOrderChange(
             sales_order_id=order.id,
@@ -425,6 +493,9 @@ def revise_order(
 
     Every check runs before anything changes, so a refused save changes no
     line and no stock. Returns whether anything changed.
+
+    A line added here that buys a lot listing outright ends it as sold, the
+    same as a checkout does (`_settle_sold_lots`).
     """
     order = db.execute(
         select(SalesOrder)
@@ -526,6 +597,11 @@ def revise_order(
         # this save created, which provably has no share yet, false for one
         # whose existing share has to be found and moved.
         to_sync: list[tuple[SalesOrderItem, Listing, Decimal, bool]] = []
+        # As in `place_order`: a revision that adds a lot line buys that lot
+        # outright, and the lot has to end sold rather than stay offered
+        # (`_settle_sold_lots`). No venue test here, because the checks above
+        # already refuse to add stock from a listing that is not the shop's.
+        sold_lots: list[Listing] = []
         for listing_id in sorted(ids):
             listing = listings[listing_id]
             delta = deltas[listing_id]
@@ -533,6 +609,8 @@ def revise_order(
                 before = listing.quantity_available
                 listing.quantity_available -= delta
                 _after_stock_change(db, listing, before)
+                if _lot_sold_out(listing, before):
+                    sold_lots.append(listing)
             existing = current.get(listing_id)
             line = desired.get(listing_id)
             if existing is None and line is not None:
@@ -616,6 +694,10 @@ def revise_order(
             db.flush()
             for synced_line, synced_listing, amount, is_new in to_sync:
                 _sync_shares(db, synced_line, synced_listing, amount, new_line=is_new)
+            # After the shares, and after a flush, for the two reasons
+            # `place_order` gives at the same point.
+            db.flush()
+            _settle_sold_lots(db, sold_lots)
     except StaleDataError:
         # The order lock makes a stale write to the `sales_order` row itself
         # hard to hit here -- it was locked and re-read above, and

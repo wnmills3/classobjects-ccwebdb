@@ -21,9 +21,24 @@ panels were built to stop.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from decimal import Decimal
+from typing import Any
 
-from app.models import Listing, ListingFormat, SalesVenue, SalesVenueKind
+from app import offering_writes
+from app.models import (
+    InventoryItem,
+    Listing,
+    ListingFormat,
+    SalesLot,
+    SalesLotItem,
+    SalesLotStatus,
+    SalesOrderItemShare,
+    SalesVenue,
+    SalesVenueKind,
+)
+from app.sales_venues import store_venue_id
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -44,7 +59,9 @@ def test_list_is_public(client: TestClient, listing: Listing) -> None:
 def test_detail_is_public(client: TestClient, listing: Listing) -> None:
     response = client.get(f"/api/catalog/{listing.id}")
     assert response.status_code == 200
-    assert response.json()["title"] == listing.inventory_item.source_title
+    item = listing.inventory_item
+    assert item is not None
+    assert response.json()["title"] == item.source_title
 
 
 def test_detail_404_for_unknown_id(client: TestClient) -> None:
@@ -245,3 +262,196 @@ def test_an_auction_listing_is_not_found_in_the_shop(
     auction_listing = make_listing(format=ListingFormat.auction)
 
     assert client.get(f"/api/catalog/{auction_listing.id}").status_code == 404
+
+
+# --------------------------------------------------------------------------
+# Lots in the shop
+#
+# A lot listing has no `inventory_item` at all, so every assertion below is
+# about the shape `to_catalog_item` builds for a group rather than for a coin
+# -- and about the boundary staying exactly where it was.
+# --------------------------------------------------------------------------
+
+
+def _entry(client: TestClient, listing_id: int) -> dict[str, Any]:
+    """The catalogue's list entry for one listing, or fail saying it is absent."""
+    body = client.get("/api/catalog").json()
+    for row in body["items"]:
+        if row["id"] == listing_id:
+            return dict(row)
+    raise AssertionError(f"listing {listing_id} is not in the catalogue: {body}")
+
+
+def _buy(
+    client: TestClient, headers: dict[str, str], listing_id: int
+) -> dict[str, Any]:
+    """Check out one unit of a listing, the way the shop does it."""
+    placed = client.post(
+        "/api/orders",
+        headers=headers,
+        json={"items": [{"listing_id": listing_id, "quantity": 1}]},
+    )
+    assert placed.status_code == 201, placed.text
+    return dict(placed.json())
+
+
+def test_a_store_lot_appears_as_one_catalogue_entry(
+    client: TestClient, db: Session, store_lot_listing: Listing
+) -> None:
+    """One thing for sale, with its members' public descriptions."""
+    db.commit()
+    entry = _entry(client, store_lot_listing.id)
+    lot = store_lot_listing.sales_lot
+    assert lot is not None
+    assert entry["title"] == lot.title
+    assert entry["inventory_item_id"] is None
+    assert entry["item_code"] is None
+    assert len(entry["members"]) == 3
+
+
+def test_a_store_lot_has_a_detail_page_too(
+    client: TestClient, db: Session, store_lot_listing: Listing
+) -> None:
+    """The detail endpoint projects through the same function the list does.
+
+    Separate from the list test because the two reach `to_catalog_item` by
+    different queries -- `_get_listing` does not go through the outer join --
+    so a lot that the list serves could still 500 here.
+    """
+    db.commit()
+    response = client.get(f"/api/catalog/{store_lot_listing.id}")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["quantity_available"] == 1
+    assert body["price"] == "1200.00"
+    assert len(body["members"]) == 3
+
+
+def test_a_lot_entry_shows_the_offer_wording_not_the_lots(
+    client: TestClient,
+    db: Session,
+    make_item: Callable[..., InventoryItem],
+    make_lot: Callable[..., SalesLot],
+) -> None:
+    """The buyer reads what the offer says, not the lot's working name.
+
+    Written with the two strings deliberately different. The fixture's lot is
+    titled the same as its listing, so an assertion against it would pass
+    whichever of the two the catalogue actually showed.
+    """
+    lot = make_lot(
+        [make_item(title="First coin"), make_item(title="Second coin")],
+        title="Working name nobody should see",
+        description="Internal note.",
+    )
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    listing = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=store,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("75.00"),
+        title="Two Morgan Dollars",
+        description="Both together.",
+        external_id=None,
+    )
+    db.commit()
+
+    entry = _entry(client, listing.id)
+    assert entry["title"] == "Two Morgan Dollars"
+    assert entry["description"] == "Both together."
+
+
+def test_a_lot_entry_never_carries_cost_or_location(
+    client: TestClient, db: Session, store_lot_listing: Listing
+) -> None:
+    """The authorisation boundary is `to_catalog_item` building fields by name.
+
+    A lot widens what that function must build; this asserts the widening did
+    not reach for the whole row. `json.dumps` rather than a key check for
+    storage location, because it could arrive nested inside a member.
+    """
+    db.commit()
+    entry = _entry(client, store_lot_listing.id)
+    assert "total_cost" not in entry
+    assert "storage_location" not in json.dumps(entry)
+    assert "item_cost" not in json.dumps(entry)
+    for member in entry["members"]:
+        assert "total_cost" not in member
+
+
+def test_a_non_store_lot_listing_stays_out_of_the_catalogue(
+    client: TestClient, db: Session, offered_lot_listing: Listing
+) -> None:
+    """`shop_listing_filters` is the rule, and a lot does not get an exemption.
+
+    The mutation that proves it: drop `shop_listing_filters` from the widened
+    query and confirm this goes red while the test above stays green.
+    """
+    db.commit()
+    body = client.get("/api/catalog").json()
+    assert all(row["id"] != offered_lot_listing.id for row in body["items"])
+    assert client.get(f"/api/catalog/{offered_lot_listing.id}").status_code == 404
+
+
+def test_buying_a_lot_sells_every_member(
+    client: TestClient,
+    db: Session,
+    customer_headers: dict[str, str],
+    store_lot_listing: Listing,
+) -> None:
+    """Checkout of a lot is one line, with a share per member."""
+    db.commit()
+    lot = store_lot_listing.sales_lot
+    assert lot is not None
+    member_ids = [member.inventory_item_id for member in lot.members]
+
+    placed = _buy(client, customer_headers, store_lot_listing.id)
+
+    line_id = placed["items"][0]["id"]
+    shares = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == line_id
+        )
+    ).all()
+    assert sorted(share.inventory_item_id for share in shares) == sorted(member_ids)
+    for item_id in member_ids:
+        item = db.get(InventoryItem, item_id)
+        assert item is not None
+        assert item.disposition.code == "sold"
+
+
+def test_buying_a_lot_ends_it_sold_and_releases_its_members(
+    client: TestClient,
+    db: Session,
+    customer_headers: dict[str, str],
+    store_lot_listing: Listing,
+) -> None:
+    """A lot bought in the shop ends `sold`, with nothing still open.
+
+    The lifecycle is `assembling -> offered -> sold | dissolved`
+    (`docs/specs/selling-design.md`), and `released_at` is set when the lot is
+    sold or dissolved. Without this, a shop checkout left the lot `offered`
+    for ever: its members sold, their membership rows still open -- blocking
+    the already-sold coins under `uq_sales_lot_item_open` -- and the listing
+    active at quantity zero. `ck_listing_lot_quantity_one` caps a lot listing
+    at one unit, so there is no partly-sold lot to reason about.
+    """
+    db.commit()
+    lot = store_lot_listing.sales_lot
+    assert lot is not None
+    lot_id = lot.id
+
+    _buy(client, customer_headers, store_lot_listing.id)
+
+    sold_lot = db.get(SalesLot, lot_id)
+    assert sold_lot is not None
+    assert sold_lot.status is SalesLotStatus.sold
+    still_open = db.scalars(
+        select(SalesLotItem).where(
+            SalesLotItem.sales_lot_id == lot_id,
+            SalesLotItem.released_at.is_(None),
+        )
+    ).all()
+    assert not still_open, f"still open: {[row.id for row in still_open]}"

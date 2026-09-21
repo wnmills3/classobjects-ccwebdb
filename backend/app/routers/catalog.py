@@ -7,6 +7,12 @@ the public catalogue show a listing while the item's cost basis and storage
 location stay private. The API presents the pair as one resource, because that
 is how a shop is actually operated.
 
+A **lot** listing has no `inventory_item` at all: it offers a group of coins
+reached through `sales_lot_item`, and the shop shows it as one thing for sale
+whose `members` describe what is in it. The join to `inventory_item` is an
+outer one for that reason -- it was an inner join, which dropped every lot
+listing out of the shop -- and `to_catalog_item` has a branch for each shape.
+
 Writing a listing -- offering an item, changing its price or wording, ending
 it -- is `app.routers.offers`. This module used to also create, update and
 delete catalogue entries; that path let "Manage" create an item and a listing
@@ -33,12 +39,39 @@ from ..models import (
     ItemKind,
     Listing,
     Metal,
+    SalesLot,
+    SalesLotItem,
 )
 from ..references import code_to_id
-from ..schemas import CatalogItemOut, CatalogPage
+from ..schemas import CatalogItemOut, CatalogMemberOut, CatalogPage
 from .images import image_urls
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+
+def _item_loads() -> tuple[Any, ...]:
+    """The classifier chain one inventory item's public shape reads.
+
+    A function rather than a constant because the same chain hangs off two
+    different paths -- the listing's own item, and a lot's members -- and
+    each call wants its own loader objects rather than a shared one attached
+    twice.
+    """
+    return (
+        selectinload(InventoryItem.item_kind),
+        selectinload(InventoryItem.country),
+        selectinload(InventoryItem.denomination),
+        selectinload(InventoryItem.bullion_form),
+        selectinload(InventoryItem.strike_type),
+        selectinload(InventoryItem.grade).selectinload(Grade.grade_scale),
+        selectinload(InventoryItem.grading_service),
+        selectinload(InventoryItem.metal),
+        # `.image` as well as the link: the public URL is keyed by the
+        # image's content hash, so projecting a row now reads through to
+        # the image itself. Without this the catalogue would issue one
+        # extra query per photographed item.
+        selectinload(InventoryItem.images).selectinload(ItemImage.image),
+    )
 
 
 def _eager(stmt: Select[Any]) -> Select[Any]:
@@ -46,52 +79,146 @@ def _eager(stmt: Select[Any]) -> Select[Any]:
 
     Without this, rendering a page of 24 results costs a query per classifier
     per row -- roughly 170 extra queries for one page.
+
+    A lot listing has no item of its own and reaches its coins through
+    `sales_lot_item`, so the same chain hangs off that path too: without it a
+    page holding lots costs a query per member per classifier, which is the
+    same arithmetic one row further down.
     """
     return stmt.options(
-        selectinload(Listing.inventory_item).options(
-            selectinload(InventoryItem.item_kind),
-            selectinload(InventoryItem.country),
-            selectinload(InventoryItem.denomination),
-            selectinload(InventoryItem.bullion_form),
-            selectinload(InventoryItem.strike_type),
-            selectinload(InventoryItem.grade).selectinload(Grade.grade_scale),
-            selectinload(InventoryItem.grading_service),
-            selectinload(InventoryItem.metal),
-            # `.image` as well as the link: the public URL is keyed by the
-            # image's content hash, so projecting a row now reads through to
-            # the image itself. Without this the catalogue would issue one
-            # extra query per photographed item.
-            selectinload(InventoryItem.images).selectinload(ItemImage.image),
-        ),
+        selectinload(Listing.inventory_item).options(*_item_loads()),
+        selectinload(Listing.sales_lot)
+        .selectinload(SalesLot.members)
+        .selectinload(SalesLotItem.item)
+        .options(*_item_loads()),
         selectinload(Listing.currency),
     )
 
 
-def version_token(listing: Listing, item: InventoryItem) -> str:
+def _code(row: object) -> str | None:
+    """A classifier row's code, or None when there is no row."""
+    return getattr(row, "code", None)
+
+
+def version_token(listing: Listing, item: InventoryItem | None) -> str:
     """One token for a resource that is two rows.
 
     A catalogue entry is a listing plus its inventory item, each with its own
     version counter. The client should not have to know that, and checking
     only one of them lets an edit to the other through unnoticed.
+
+    A **lot** listing has no item, and the token is `"<listing.version>.0"`.
+    The lot's own version is deliberately not in it: what a buyer is looking
+    at is the listing plus its members, and the members cannot change while
+    the lot is offered -- `lot_writes` refuses every membership change once a
+    lot leaves `assembling`. A second counter that can never move would only
+    suggest it might.
     """
-    return f"{listing.version}.{item.version}"
+    return f"{listing.version}.{item.version if item is not None else 0}"
 
 
-def to_catalog_item(listing: Listing) -> CatalogItemOut:
-    """Project a listing and its item into the public shape.
+def _photograph(item: InventoryItem) -> dict[str, str]:
+    """The renditions of an item's primary photograph, if one has been chosen.
+
+    Most of a real collection is unphotographed, so this is routinely empty
+    and the response says so with nulls rather than a placeholder URL that
+    404s.
+    """
+    primary = next((link for link in item.images if link.is_primary), None)
+    return image_urls(primary.image.sha256) if primary else {}
+
+
+def to_catalog_member(item: InventoryItem) -> CatalogMemberOut:
+    """Project one coin of a lot into the public shape.
+
+    Field by field, for the reason `to_catalog_item` is: this function is the
+    authorisation boundary for everything a lot's members put in front of a
+    buyer, and the fields it does not name are the ones that stay private.
+    """
+    urls = _photograph(item)
+    return CatalogMemberOut(
+        inventory_item_id=item.id,
+        item_code=item.item_code,
+        title=item.source_title,
+        description=item.description,
+        item_kind=_code(item.item_kind),
+        country=_code(item.country),
+        denomination=_code(item.denomination),
+        bullion_form=_code(item.bullion_form),
+        grade=_code(item.grade),
+        strike_type=_code(item.strike_type),
+        grade_display=grades.display_item(item),
+        grading_service=_code(item.grading_service),
+        metal=_code(item.metal),
+        year_start=item.year_start,
+        year_end=item.year_end,
+        fineness=item.fineness,
+        gross_weight_ozt=item.gross_weight_ozt,
+        fine_weight_ozt=item.fine_weight_ozt,
+        piece_count=item.piece_count,
+        thumbnail_url=urls.get("thumbnail_url"),
+        image_url=urls.get("image_url"),
+    )
+
+
+def _lot_entry(db: Session, listing: Listing) -> CatalogItemOut:
+    """Project a lot listing into the public shape: one thing, many coins.
+
+    The item-describing fields keep their defaults, because no single kind,
+    grade, metal or year describes a group -- the same reason the list
+    query's item filters cannot match a lot. What a buyer gets instead is
+    `members`.
+
+    The members come from `offering_writes.offered_items`, the one answer in
+    the codebase to "which items does this listing offer", rather than from a
+    filter written again here. It costs one query per lot listing on a page;
+    the eager chain in `_eager` has already loaded those rows and their
+    classifiers, so it is one query, not one per member. A lot whose
+    memberships have been released -- a sold lot, still served by the detail
+    endpoint so a bookmarked page can say it has ended -- answers with no
+    members, which is the truth about what is still on offer.
+    """
+    lot = listing.sales_lot
+    members = [
+        to_catalog_member(item) for item in offering_writes.offered_items(db, listing)
+    ]
+    return CatalogItemOut(
+        id=listing.id,
+        inventory_item_id=None,
+        version=version_token(listing, None),
+        item_code=None,
+        # The offer's own wording first, exactly as for an item, with the
+        # lot's own title behind it. `lot` is never None in practice --
+        # `ck_listing_item_xor_lot` means a listing with no item has one --
+        # but the column is nullable, so this reads it defensively rather
+        # than crashing the shop if that ever stops being true.
+        title=listing.title or (lot.title if lot is not None else ""),
+        description=listing.description or (lot.description if lot is not None else ""),
+        price=listing.price,
+        currency=_code(listing.currency) or "USD",
+        quantity_available=listing.quantity_available,
+        is_active=listing.is_active,
+        created_at=listing.created_at,
+        updated_at=listing.updated_at,
+        members=members,
+    )
+
+
+def to_catalog_item(db: Session, listing: Listing) -> CatalogItemOut:
+    """Project a listing and what it offers into the public shape.
 
     Built field by field on purpose. A `select *` here is how cost basis and
-    storage location eventually leak into a customer-facing response.
+    storage location eventually leak into a customer-facing response -- the
+    `public_catalog` view describes the same boundary, but nothing reads it,
+    so this function and the tests over it are the boundary.
+
+    A lot listing has no `inventory_item` at all and goes to `_lot_entry`.
     """
     item = listing.inventory_item
-    code = lambda row: getattr(row, "code", None)  # noqa: E731
+    if item is None:
+        return _lot_entry(db, listing)
 
-    # The primary photograph, if one has been chosen. Most of a real
-    # collection is unphotographed, so this is routinely absent and the
-    # response says so with nulls rather than a placeholder URL that 404s.
-    primary = next((link for link in item.images if link.is_primary), None)
-    urls = image_urls(primary.image.sha256) if primary else {}
-
+    urls = _photograph(item)
     return CatalogItemOut(
         id=listing.id,
         inventory_item_id=item.id,
@@ -101,15 +228,15 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         image_url=urls.get("image_url"),
         title=listing.title or item.source_title,
         description=listing.description or item.description,
-        item_kind=code(item.item_kind),
-        country=code(item.country),
-        denomination=code(item.denomination),
-        bullion_form=code(item.bullion_form),
-        grade=code(item.grade),
-        strike_type=code(item.strike_type),
+        item_kind=_code(item.item_kind),
+        country=_code(item.country),
+        denomination=_code(item.denomination),
+        bullion_form=_code(item.bullion_form),
+        grade=_code(item.grade),
+        strike_type=_code(item.strike_type),
         grade_display=grades.display_item(item),
-        grading_service=code(item.grading_service),
-        metal=code(item.metal),
+        grading_service=_code(item.grading_service),
+        metal=_code(item.metal),
         year_start=item.year_start,
         year_end=item.year_end,
         fineness=item.fineness,
@@ -117,7 +244,7 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         fine_weight_ozt=item.fine_weight_ozt,
         piece_count=item.piece_count,
         price=listing.price,
-        currency=code(listing.currency) or "USD",
+        currency=_code(listing.currency) or "USD",
         quantity_available=listing.quantity_available,
         is_active=listing.is_active,
         created_at=listing.created_at,
@@ -192,7 +319,16 @@ def list_catalog(
     if in_stock:
         filters.append(Listing.quantity_available > 0)
 
-    base = select(Listing).join(
+    # An **outer** join, because a lot listing's `inventory_item_id` is NULL
+    # and an inner join dropped every one of them from the shop outright.
+    # The consequence is deliberate rather than tolerated: each of the item
+    # filters above (`q`, `kind`, `country`, `metal`, `year_min`, `year_max`)
+    # compares a column of the missing row, so a lot listing matches none of
+    # them and a filtered page holds no lots. That is the right answer -- a
+    # filter on grade or year cannot describe a group of coins that may have
+    # several of each -- and it is why `q` still matches a lot through
+    # `Listing.title`, which is the lot's own wording.
+    base = select(Listing).outerjoin(
         InventoryItem, Listing.inventory_item_id == InventoryItem.id
     )
 
@@ -200,7 +336,7 @@ def list_catalog(
         db.scalar(
             select(func.count())
             .select_from(Listing)
-            .join(InventoryItem, Listing.inventory_item_id == InventoryItem.id)
+            .outerjoin(InventoryItem, Listing.inventory_item_id == InventoryItem.id)
             .where(*filters)
         )
         or 0
@@ -212,7 +348,7 @@ def list_catalog(
     ).all()
 
     return CatalogPage(
-        items=[to_catalog_item(row) for row in rows],
+        items=[to_catalog_item(db, row) for row in rows],
         total=total,
         limit=limit,
         offset=offset,
@@ -245,4 +381,4 @@ def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Catalogue item not found"
         )
-    return to_catalog_item(listing)
+    return to_catalog_item(db, listing)
