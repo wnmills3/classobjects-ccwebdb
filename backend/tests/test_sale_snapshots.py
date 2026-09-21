@@ -275,6 +275,11 @@ def test_a_coin_sold_inside_a_lot_shows_that_sale(
     )
     db.commit()
 
+    # The fixture's members cost 500, 300 and 200 in item-id order and the lot
+    # sold for 1,000.00, so a cost-weighted division is exactly those figures.
+    expected_shares = dict(
+        zip(sorted(member_ids), ["500.00", "300.00", "200.00"], strict=True)
+    )
     for member_id in member_ids:
         response = client.get(
             f"/api/inventory/{member_id}/sales", headers=admin_headers
@@ -284,6 +289,13 @@ def test_a_coin_sold_inside_a_lot_shows_that_sale(
         assert [row["order_id"] for row in body] == [order.id], member_id
         # The snapshot is the lot's, so it names every coin rather than one.
         assert len(body[0]["snapshot"]["items"]) == 3
+        # The row must say it was a group sale and credit this coin with its
+        # own share. `unit_price` is the *lot's* 1,000.00 and is left alone;
+        # showing that against one coin is the defect this pins.
+        assert body[0]["sales_lot_id"] == lot.id
+        assert body[0]["unit_price"] == "1000.00"
+        assert body[0]["share_amount"] == expected_shares[member_id], member_id
+        assert isinstance(body[0]["share_amount"], str)
 
 
 def test_a_coin_sold_on_its_own_still_shows_one_row(
@@ -305,6 +317,13 @@ def test_a_coin_sold_on_its_own_still_shows_one_row(
         f"/api/inventory/{listing.inventory_item_id}/sales", headers=admin_headers
     ).json()
     assert [row["order_id"] for row in body] == [order["id"]]
+    # The shape an item sale already had, unchanged: the line's own figures,
+    # and nothing claiming it was part of a group. `share_amount` equals the
+    # line total here, because the line covers exactly this one coin.
+    assert body[0]["sales_lot_id"] is None
+    assert body[0]["quantity"] == 1
+    assert body[0]["unit_price"] == "189.00"
+    assert body[0]["share_amount"] == "189.00"
 
 
 # --- for sale ----------------------------------------------------------------------
