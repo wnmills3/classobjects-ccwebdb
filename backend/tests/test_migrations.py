@@ -863,6 +863,56 @@ def test_the_fee_kind_migration_seeds_the_vocabulary(migrated_url: str) -> None:
     }
 
 
+#: Every CHECK constraint the models declare on a table the migrations build,
+#: with the table it belongs to. `compare_metadata` (the diff
+#: `test_migrations_match_models` runs) does not compare CHECK constraints at
+#: all, so without this list a migration could omit one and both of this
+#: file's other tests would stay green.
+_EXPECTED_CHECKS = {
+    ("listing", "ck_listing_item_xor_lot"),
+    ("listing", "ck_listing_lot_quantity_one"),
+    ("listing", "ck_listing_price_non_negative"),
+    ("listing", "ck_listing_quantity_non_negative"),
+    ("sales_order_fee", "ck_sales_order_fee_non_negative"),
+    ("sales_order_item_share", "ck_sales_order_item_share_non_negative"),
+}
+
+
+def test_the_migration_carries_every_check_constraint(migrated_url: str) -> None:
+    """A CHECK in the models but not in a migration is invisible to the diff.
+
+    `compare_metadata` does not compare CHECK constraints, and the tests that
+    do query them run against the `create_all`-built `db` fixture -- which is
+    built from the models, so it would find a model's constraint whether the
+    migration wrote one or not. Only a purely migrated database can tell.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", migrated_url)
+    upgrade(config, "head")
+
+    engine = create_engine(migrated_url)
+    try:
+        with engine.connect() as connection:
+            found = set(
+                connection.execute(
+                    text(
+                        "SELECT rel.relname, con.conname FROM pg_constraint con "
+                        "JOIN pg_class rel ON rel.oid = con.conrelid "
+                        "WHERE con.contype = 'c'"
+                    )
+                ).all()
+            )
+    finally:
+        engine.dispose()
+
+    missing = sorted(_EXPECTED_CHECKS - found)
+    assert missing == [], (
+        f"constraint(s) {missing} are declared on the models but no migration "
+        "creates them, and compare_metadata cannot see the difference"
+    )
+
+
 def _create_views_kwargs(file_stem: str, function_name: str) -> dict[str, bool]:
     """The literal keyword arguments a migration's `create_views(...)` call passes.
 
