@@ -183,16 +183,20 @@ def test_every_reference_table_is_registered() -> None:
 
 
 def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
-    """The six seeded fee kinds come back through the reference endpoint.
+    """The six seeded fee kinds come back in the migration's curated order.
 
     `RecordSaleDialog` builds one fee row per value this returns. A 404 here
     is a dialog whose fees are all zero and whose net always equals its
     gross, with nothing on screen saying so.
 
-    The order asserted is alphabetical by label, not the migration's
-    `sort_order`: fees are a descriptive list, so they are not in
-    `_SEQUENCED_TABLES` and get the same scanned-by-name order every other
-    descriptive vocabulary gets.
+    The order asserted is the migration's `sort_order`, not alphabetical:
+    `sales_fee_kind` is in `_SEQUENCED_TABLES` because the sequence is the
+    order a platform's statement reads in and it puts the catch-all "other"
+    last -- alphabetical puts "Other" third, and
+    `docs/system-administration.md` prints the curated order in writing.
+    This assertion would have passed under either sort before that change,
+    because by code and by label the six happen to agree; the curated order
+    differs from both, so it now pins something.
     """
     response = client.get("/api/reference/sales_fee_kind")
     assert response.status_code == 200
@@ -200,12 +204,24 @@ def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
     assert body["table"] == "sales_fee_kind"
     assert [value["code"] for value in body["values"]] == [
         "commission",
-        "listing",
-        "other",
         "processing",
-        "promotion",
+        "listing",
         "shipping_label",
+        "promotion",
+        "other",
     ]
+
+
+def test_the_catch_all_fee_kind_comes_last(client: TestClient) -> None:
+    """ "Other" last is the point of the curated order, so assert it alone.
+
+    The list above would also pass if the whole sequence were reversed by
+    accident; this one names the property the ruling actually rests on, and
+    fails on its own if `sales_fee_kind` ever drops out of
+    `_SEQUENCED_TABLES` (alphabetical puts "Other" third).
+    """
+    values = client.get("/api/reference/sales_fee_kind").json()["values"]
+    assert values[-1]["code"] == "other"
 
 
 def test_a_fee_kind_cannot_be_retired(client: TestClient) -> None:
