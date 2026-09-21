@@ -290,24 +290,37 @@ def check_claim_invariant(db: Session) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _claim_invariant(request: pytest.FixtureRequest, db: Session) -> Iterator[None]:
+def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     """After every test, each claim's state must equal its listing's status.
 
-    Depending on ``db`` -- rather than reaching for a session of its own --
-    is what makes this run for every test in the suite, including ones that
-    never request ``db`` by name: an autouse fixture still pulls in whatever
-    its own dependencies need. It also means this runs *before* ``db``'s own
-    teardown (rollback, close), while the test's writes are still visible on
-    the same connection.
+    ``db`` is fetched with ``request.getfixturevalue("db")`` -- and only when
+    ``"db" in request.fixturenames``, i.e. only for a test that already has a
+    session in its own fixture closure -- rather than taken as a normal
+    parameter. A test with no `db` anywhere never pays for a session or a
+    live PostgreSQL connection it would otherwise not have needed; a dozen
+    test files (`test_config.py`, `test_logpipe.py`, `test_photo_names.py`
+    and others) have no `db` parameter anywhere and stay exactly as
+    database-free as before this fixture existed.
 
-    Two consequences of that, worth naming rather than discovering later:
+    The fetch happens *before* ``yield``, not after, and that placement is
+    load-bearing, confirmed with a throwaway probe before relying on it: a
+    fixture that calls ``getfixturevalue("db")`` during its own setup is
+    registered as one of `db`'s dependents in the same way a static `db`
+    parameter would be, so pytest still defers `db`'s rollback-and-close
+    until after this fixture's teardown runs. Calling it *after* `yield`
+    instead does not get that ordering for free -- the probe reproduced
+    exactly that failure: `db` was already torn down by the time this
+    fixture's teardown tried to fetch it, because nothing had told pytest
+    this fixture needed `db` kept alive that long. (`request.getfixturevalue`
+    during teardown is also documented as deprecated for a fixture not
+    already requested, which is the same trap from a different angle.)
+    ``client`` depends on `db`, so any test using `client` still has `db` in
+    its closure and stays graded; only a test with no `db` anywhere, directly
+    or transitively, is skipped.
 
-    - Roughly a dozen test files that never touched the database before this
-      fixture existed (`test_config.py`, `test_logpipe.py`,
-      `test_photo_names.py`, and others with no `db` parameter anywhere) now
-      instantiate a session on every test, which means they now require a
-      live PostgreSQL server that they never needed before. That is the
-      accepted cost of "after every test in the suite," not a bug.
+    Two further consequences of running for every test in the suite, worth
+    naming rather than discovering later:
+
     - `test_offer_races.py`, `test_concurrency.py` and
       `test_concurrent_writes.py` each race real, independently committing
       sessions against a shared ``committed`` fixture (not ``db``) and delete
@@ -322,13 +335,27 @@ def _claim_invariant(request: pytest.FixtureRequest, db: Session) -> Iterator[No
       `offering_writes` would be most worth catching. `test_offer_races.py`
       is the one of the three that actually writes `OfferClaim` rows, and its
       own `committed` fixture now calls `check_claim_invariant` on the
-      `cleanup` session immediately before deleting anything, closing that
-      gap for real committed claim data. `test_concurrency.py` and
-      `test_concurrent_writes.py` never create an `OfferClaim` at all -- their
-      races are over stock and optimistic-lock versions -- so the same
-      ordering pitfall exists there in principle but has nothing to grade in
-      practice; if either one ever starts writing claims, its `committed`
-      fixture will need the same fix.
+      `cleanup` session immediately before deleting anything (inside a
+      `try`/`finally` so a real violation still leaves the database clean --
+      see that fixture's own docstring), closing the gap for real committed
+      claim data. `test_concurrency.py` and `test_concurrent_writes.py` never
+      create an `OfferClaim` at all -- their races are over stock and
+      optimistic-lock versions -- so the same ordering pitfall exists there
+      in principle but has nothing to grade in practice; if either one ever
+      starts writing claims, its `committed` fixture will need the same fix.
+    - A test that caught an `IntegrityError` from an ORM flush and never
+      called `db.rollback()` afterward is the one real case this skips:
+      SQLAlchemy deactivates the session's transaction on that specific
+      failure (measured directly against this project's own Postgres setup,
+      not assumed -- `rollback()` and `close()` both leave `db.is_active`
+      `True` again, so neither is what this guards against). Querying a
+      session in that state raises a `PendingRollbackError` unrelated to the
+      invariant, which would turn "invariant broken" into a misleading
+      fixture crash, so this returns early instead. The handful of tests
+      that end this way (a handful of `pytest.raises(IntegrityError)`
+      constraint tests in `test_sales_fees_schema.py`, `test_sales_venues.py`
+      and one in `test_offering_writes.py`) go **unchecked** by this fixture
+      -- not verified, skipped. That is an honest gap, not a guarantee.
 
     A test whose ``claim_invariant_waiver`` marker names a scenario this
     check must still be seen to catch (see `check_claim_invariant`'s
@@ -336,26 +363,36 @@ def _claim_invariant(request: pytest.FixtureRequest, db: Session) -> Iterator[No
     a waiver that has stopped biting -- because the scenario it names no
     longer disagrees with the invariant -- is a stale exemption quietly
     hiding that the thing it was written to prove is no longer true, and
-    fails loudly instead.
+    fails loudly instead. The marker's `reason=` is mandatory, not merely
+    documented as expected: a waiver with no `reason` (or an empty one) fails
+    the test outright, so the one artefact a human actually has to read and
+    agree with cannot be silently omitted. `--strict-markers` only enforces
+    that the *marker name* is registered; it has no idea the marker's own
+    convention calls for a `reason`, so this fixture is what enforces that
+    half.
 
-    A test that caught an `IntegrityError` from an ORM flush and never called
-    `db.rollback()` afterward is the one real case this skips: SQLAlchemy
-    deactivates the session's transaction on that specific failure (measured
-    directly against this project's own Postgres setup, not assumed --
-    `rollback()` and `close()` both leave `db.is_active` `True` again, so
-    neither is what this guards against). Querying a session in that state
-    raises a `PendingRollbackError` unrelated to the invariant, which would
-    turn "invariant broken" into a misleading fixture crash, so this returns
-    early instead. The handful of tests that end this way (a handful of
-    `pytest.raises(IntegrityError)` constraint tests in
-    `test_sales_fees_schema.py`, `test_sales_venues.py` and one in
-    `test_offering_writes.py`) go **unchecked** by this fixture -- not
-    verified, skipped. That is an honest gap, not a guarantee.
+    Known limit of this whole waiver design, left as-is rather than closed:
+    a marked test currently absorbs *any* `ClaimInvariantViolation`, not
+    specifically the one its `reason` describes. A `shape=` refinement -- the
+    waiver declaring which disagreement it expects, so a second, unrelated,
+    coincident bug inside an already-waived test could not hide behind it --
+    would close that, at the cost of roughly ten lines of mechanism for a
+    hole that needs two simultaneous bugs to matter. Not built. Whether a
+    waiver's `reason` is *true* is a code-review question in either case;
+    nothing mechanical here or with `shape=` can check that.
     """
+    db: Session | None = None
+    if "db" in request.fixturenames:
+        db = request.getfixturevalue("db")
     yield
-    if not db.is_active:
-        return
     waiver = request.node.get_closest_marker("claim_invariant_waiver")
+    if waiver is not None and not waiver.kwargs.get("reason"):
+        pytest.fail(
+            f"{request.node.name} is marked claim_invariant_waiver with no "
+            "reason= naming the scenario it waives; add one"
+        )
+    if db is None or not db.is_active:
+        return
     if waiver is None:
         check_claim_invariant(db)
         return
@@ -363,7 +400,7 @@ def _claim_invariant(request: pytest.FixtureRequest, db: Session) -> Iterator[No
         check_claim_invariant(db)
     except ClaimInvariantViolation:
         return
-    reason = waiver.kwargs.get("reason", "(no reason given)")
+    reason = waiver.kwargs["reason"]
     pytest.fail(
         f"{request.node.name} is marked claim_invariant_waiver "
         f"({reason!r}) but the claim invariant no longer disagrees -- "
