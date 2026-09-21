@@ -874,6 +874,23 @@ price. Ending is not reversible from the console -- offering the item again
 makes a new listing, and the old one's listing number and history stay as
 they were.
 
+**Recording a sale.** **Record sale...**, on the Listings page's active rows
+only, is for an offer that sold somewhere other than the web store -- eBay,
+Whatnot, an auction house -- and is being entered by hand after the fact. The
+dialog asks for the sale price, the buyer's username on that platform (left
+blank for an auction house's undisclosed buyer, or for any platform that does
+not name buyers), the platform's own order or transaction number, and the
+actual fee amounts it charged, one row per fee kind (`sales_fee_kind` --
+commission, processing, listing, shipping label, promotion, other); gross,
+fees, net and margin are shown as they are typed. **Record sale** submits to
+`POST /api/listings/{id}/sale`, which both records the order (buyer matched
+or created, price, fees, per-item shares) and ends the listing as sold in one
+transaction -- the sale is already over by the time it is entered, so there
+is no separate End step. A paused store listing the sold offer had set aside
+ends too, rather than resuming, since the item is now gone. The new order
+appears on the Orders page like any other, already `paid` (or `delivered` for
+an auction house, which has already shipped for the owner).
+
 **The Manage page is gone.** The console's old **Manage** page created an item
 and a shop listing together; it could never offer an item the business already
 owned, which is every item in the collection, so it was retired. Enter a

@@ -152,9 +152,15 @@ def _sync_shares(
 
     Today a listing names exactly one item, so there is exactly one share
     and it always carries the whole `amount` -- the loop below still keys
-    by `inventory_item_id` rather than assuming a single row, so widening
-    it to a lot listing's several members (phase 3) is a matter of dividing
-    `amount` among them, not restructuring this function.
+    by `inventory_item_id` rather than assuming a single row. That is enough
+    to widen the insert branch to a lot listing's several members (phase 3):
+    one row per member, dividing `amount` among them. It is **not** enough
+    for the update branch: this function returns before either branch runs
+    when `listing.inventory_item_id is None`, which is exactly a lot
+    listing's shape, so phase 3 must remove that guard, and a revised lot
+    line's `amount` then needs to be redistributed across every existing
+    share for that line, not just moved into one row the way the update
+    branch does today.
 
     Fees are not known at checkout or a plain revision -- neither prices
     them -- so a new share's `fee_amount` keeps its zero default, and an
@@ -211,10 +217,14 @@ def place_order(
     `version` to 2 on a brand-new order.
 
     Raises `HTTPException`: 404 for a listing that does not exist, and 409
-    for one no longer sellable in the shop, one without the stock asked for,
-    and a version that has moved. Every one goes through `_refuse`, which
+    for one no longer sellable in the shop, one currently paused or ended, or
+    one without the stock asked for. Every one goes through `_refuse`, which
     rolls the transaction back before raising -- so a caller that catches
-    one holds a rolled-back session.
+    one holds a rolled-back session. There is no version check here: `place_order`
+    takes no version from its caller, and the `FOR UPDATE` lock this function
+    takes before any of the above makes a stale read impossible rather than
+    merely detecting one after the fact -- that is `revise_order`'s job, on an
+    order a caller already holds and may have read stale.
     """
     listings = _lock_listings(db, {line.listing_id for line in lines})
     for line in sorted(lines, key=lambda line: line.listing_id):

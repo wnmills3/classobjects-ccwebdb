@@ -45,6 +45,25 @@ echo === python lint ===
 "%PY%" -m ruff check .
 if errorlevel 1 set "FAILED=!FAILED! lint"
 
+echo === mutation scaffolding guard ===
+rem  An ordered mutation test disables a guard on purpose -- an `if False:`
+rem  in place of a shop-guard predicate, an `AdminUser` dependency deleted
+rem  from an endpoint -- to prove the test would fail without it, then
+rem  restores it. That window is opened deliberately and repeatedly on this
+rem  branch, so a stub that survived to a commit would be a real
+rem  authorisation bypass, not a style nit. `backend\app` currently
+rem  contains none of `if False:`, `if True:` or the text MUTATION, so any
+rem  match here is new and real -- there is no backlog to grandfather.
+set "MUTATION_HIT="
+for /f "delims=" %%L in ('findstr /S /N /C:"if False:" /C:"if True:" /C:"MUTATION" "%REPO%\backend\app\*.py" 2^>nul') do (
+    echo   left in place: %%L
+    set "MUTATION_HIT=1"
+)
+if defined MUTATION_HIT (
+    echo   FAILED: mutation-test scaffolding was left in backend\app -- see the line^(s^) above
+    set "FAILED=!FAILED! mutation-scaffold"
+)
+
 echo === python types ===
 rem A gate since the backlog reached zero. It was reported-only while a
 rem standing count of findings made a new one invisible; with none left, a

@@ -22,6 +22,7 @@ It exits non-zero if anything fails, so CI can call it directly.
 | Frontend linting | `eslint` | yes (errors) |
 | Frontend formatting | `prettier` | yes |
 | Frontend bundle isolation | custom | yes |
+| Mutation-scaffolding guard | custom | yes |
 
 **One tool owns layout, another owns correctness.** `ruff format` decides line
 breaks and `ruff check` is told not to have opinions about them; on the
@@ -189,6 +190,24 @@ Both channels have been mutation-tested: a static `import` of an owner page
 from shop code, and a dynamic `import()` of the same page, each made both
 `eslint` and the bundle-isolation check fail, and both checks pass again once
 reverted.
+
+## Mutation-scaffolding guard
+
+`scripts\ccweb_check.cmd` fails the build if `backend/app` contains `if False:`,
+`if True:`, or the text `MUTATION`. A `findstr /S /N` over `backend\app\*.py`
+is the whole check -- no PowerShell, no separate script.
+
+Ordered mutation testing on the selling branches disables a guard on purpose
+-- once `if False:` in place of a shop-guard predicate in `order_writes.py`,
+once the `AdminUser` dependency deleted from an endpoint -- runs the test to
+confirm it goes red without the guard, then restores it. Both were reverted
+before commit and neither reached `main`; each was verified the same way,
+by grepping the committed tree, which is a practice rather than a control.
+Because this style of testing opens that window deliberately and repeatedly,
+a stub that did survive to a commit would be a live authorisation bypass, not
+a style nit, and remembering to check for it does not scale the way a gate
+does. `backend/app` contained none of the three at the time this stage was
+added, so there is no backlog to grandfather -- any match is new and real.
 
 ## Fast Refresh
 

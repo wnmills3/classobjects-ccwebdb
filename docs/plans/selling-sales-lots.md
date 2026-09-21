@@ -45,6 +45,65 @@ Every task's requirements implicitly include this section.
 
 ---
 
+## Carried from phase 2R
+
+Four findings from the record-a-sale branch. Each is real code today but
+**latent** -- unreachable while a listing can only ever name one item -- and
+becomes live the moment a lot listing exists. They were recorded in that
+branch's scratch directory, which is deleted at the end of its work, so this
+plan is their only durable home. (a) and (c) are folded into Task 4, below,
+since that is the task that already touches the same functions; (b) is
+already satisfied by Task 4's own test list, noted there; (d) has no task
+that touches its files, so it is recorded here and should be fixed early in
+this phase, before Task 7 adds new races that commit `OfferClaim` rows to the
+same test database.
+
+a. **`order_writes._sync_shares` returns early when
+   `listing.inventory_item_id is None`.** That early return sits *before* the
+   share sync, so once lot listings exist, a **revised** lot line's shares
+   will silently stop matching the line's money. This phase must remove the
+   guard and make the update branch (a share already exists) divide the
+   revised amount among the lot's members, not just move one row's `amount`.
+   The function's own docstring currently understates this: it says widening
+   is "a matter of dividing `amount` among them," which is true only of the
+   insert branch (`place_order`, no share yet) -- the update branch
+   (`revise_order`) needs new logic to redistribute across several existing
+   rows, not just move one.
+
+b. **No multi-item division can be driven through `record_sale` on the
+   record-a-sale branch**, because a listing there maps to exactly one item
+   until lots exist. The division test in that branch therefore points at
+   `allocation.allocate` directly and says so in its own docstring. This
+   phase's Task 4 already adds a real multi-item test through `record_sale`
+   (`test_selling_a_lot_divides_the_price_among_its_members`) -- that test is
+   what closes this finding; nothing further to add for it.
+
+c. **`sales_writes.record_sale`'s `shares_by_item[item.id]` is a bare
+   `KeyError`** (an unhandled 500) if a share is ever absent for one of the
+   listing's items. Unreachable on the record-a-sale branch, where
+   `_sync_shares` always makes exactly one share for the listing's one item;
+   reachable here, because (a)'s early-return guard is exactly the lot shape
+   that can leave a member without a share. When removing that guard, also
+   make this lookup fail with a clear `SaleRefused` (or similar) naming the
+   item and listing, rather than letting a missing row surface as a bare
+   `KeyError`.
+
+d. **`test_concurrency.py:66` and `test_order_revision_race.py:103` both do
+   an unfiltered `cleanup.query(Listing).delete()`**, with no handling of
+   `offer_claim.listing_id`'s `ondelete="RESTRICT"`. Neither fixture creates
+   claims itself, so this has never fired -- but the day either file's races
+   run in a suite where a committed `OfferClaim` row references one of the
+   listings still in the table (this phase's Task 7 is the first thing in
+   this codebase to commit `OfferClaim` rows from real, non-transactional
+   threads), that unfiltered delete fails on the foreign key with an
+   `IntegrityError`, not a test assertion. Fix both fixtures to delete the
+   `offer_claim` rows they are responsible for (or the ones referencing their
+   own listings) before deleting the listings, the same way they already
+   scope `InventoryItem` and `User` deletes by `RACE_TITLE` / email pattern
+   rather than deleting every row of those tables too.
+
+---
+
 ### Task 1: Schema — lots, membership, and a listing that names one or the other
 
 **Files:**
@@ -475,8 +534,8 @@ existed.
 
 **Files:**
 - Modify: `backend/app/sale_snapshot.py:36-70` (`take`)
-- Modify: `backend/app/order_writes.py` (`_after_stock_change`, `_add_shares`)
-- Modify: `backend/app/sales_writes.py` (`_shared_items`)
+- Modify: `backend/app/order_writes.py` (`_after_stock_change`, `_sync_shares`)
+- Modify: `backend/app/sales_writes.py` (`_shared_items`, `record_sale`)
 - Test: `backend/tests/test_sale_snapshots.py`, `backend/tests/test_sales_writes.py`
 
 - [ ] **Step 1: Write the failing test**
@@ -535,18 +594,43 @@ disposition of **every** item the listing offered, through the same
 `_affected_items` helper `offering_writes` uses, so there is one answer to
 "which items" in the codebase rather than three.
 
-- [ ] **Step 5: Widen `sales_writes._shared_items`**
+- [ ] **Step 5: Remove `_sync_shares`'s early return, and widen both branches**
+
+Carried from phase 2R (*Carried from phase 2R*, above, finding a).
+`_sync_shares` currently returns immediately when `listing.inventory_item_id
+is None`, before either branch runs. Remove that guard, then widen both
+branches for a lot listing's several members rather than its one item:
+
+- **Insert branch** (`place_order`, no share yet for this line): one row per
+  open lot member, dividing `amount` among them the same way
+  `sales_writes._weights`/`allocate` do -- this is the branch the old
+  docstring's "a matter of dividing `amount` among them" correctly describes.
+- **Update branch** (`revise_order`, a share already exists): a revised
+  line's new `amount` must be **redistributed across every existing share**
+  for that line's members, not just moved into one row -- this is the branch
+  the old docstring did not cover, because until lots exist there is only
+  ever one row to move.
+
+Update the docstring to say both, not just the insert case.
+
+- [ ] **Step 6: Widen `sales_writes._shared_items`**
 
 Replace the `pragma: no cover` branch written in phase 2R with the real one:
 the lot's open members, in item id order so shares are deterministic.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+Carried from phase 2R (finding c): once Step 5 lets a member end up without a
+share in some edge case, `record_sale`'s `shares_by_item[item.id]` lookup
+becomes reachable and would raise a bare `KeyError` (an unhandled 500) instead
+of a meaningful refusal. Make that lookup fail with a clear `SaleRefused`
+naming the item and listing when a share is unexpectedly missing.
+
+- [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `python -m pytest backend/tests -v`
 Expected: PASS — run the whole suite here, not just the new files: this task
 changes three functions that checkout, snapshots and receiving all use.
 
-- [ ] **Step 7: Run the gate and commit**
+- [ ] **Step 8: Run the gate and commit**
 
 ```
 scripts\ccweb_check.cmd
