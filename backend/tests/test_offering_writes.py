@@ -6,7 +6,7 @@ from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
-from app import offering_writes, order_writes, sale_state
+from app import lot_writes, offering_writes, order_writes, sale_state
 from app.models import (
     ClaimState,
     Disposition,
@@ -16,12 +16,16 @@ from app.models import (
     ListingFormat,
     ListingStatus,
     OfferClaim,
+    SalesLot,
+    SalesLotStatus,
     SalesOrder,
     SalesVenue,
     SalesVenueKind,
     User,
     utcnow,
 )
+from app.offering_writes import OfferRefused
+from app.sales_venues import store_venue_id
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -739,10 +743,11 @@ def test_ending_a_listing_releases_the_items_it_claimed(
 @pytest.mark.claim_invariant_waiver(
     reason=(
         "attaches gone's claim to listing.id for an item other than "
-        "listing's own -- the lot-member shape phase 3 introduces, which "
-        "offering_writes cannot write yet -- specifically to prove a "
-        "released claim from a different member is not revived by pausing "
-        "the listing for a current one"
+        "listing's own -- the lot-member shape which offering_writes.offer "
+        "now writes for a real lot, though not with this test's "
+        "deliberately mismatched state -- specifically to prove a released "
+        "claim from a different member is not revived by pausing the "
+        "listing for a current one"
     )
 )
 def test_a_released_claim_is_not_revived_by_pausing_a_listing(
@@ -844,7 +849,7 @@ def test_offers_holding_finds_a_listing_that_only_claims_the_item(
 @pytest.mark.claim_invariant_waiver(
     reason=(
         "attaches piece's claim to listing.id for an item other than "
-        "listing's own -- the lot-member shape phase 3 introduces -- "
+        "listing's own -- the lot-member shape phase 3 introduced -- "
         "specifically to isolate offers_holding's HELD_BY filter from its "
         "ON_OFFER filter (test_offers_holding_ignores_an_ended_listing is "
         "the other half); listing.status is left at its real active value "
@@ -869,7 +874,7 @@ def test_offers_holding_ignores_a_released_claim(
 @pytest.mark.claim_invariant_waiver(
     reason=(
         "attaches piece's claim to ended.id for an item other than "
-        "ended's own -- the lot-member shape phase 3 introduces -- "
+        "ended's own -- the lot-member shape phase 3 introduced -- "
         "specifically to isolate offers_holding's ON_OFFER filter from its "
         "HELD_BY filter (test_offers_holding_ignores_a_released_claim is "
         "the other half); the claim is left active on purpose, so it "
@@ -886,3 +891,371 @@ def test_offers_holding_ignores_an_ended_listing(
     db.flush()
 
     assert offering_writes.offers_holding(db, [piece.id]) == []
+
+
+# --- lots ------------------------------------------------------------------
+
+
+def test_offering_a_lot_claims_every_member(
+    db: Session, lot_of_three: SalesLot, ebay_venue: SalesVenue
+) -> None:
+    """One claim per member: the one-offer guarantee is per item, not per listing."""
+    listing = offering_writes.offer(
+        db,
+        lot=lot_of_three,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("900.00"),
+        title="Three Morgan Dollars",
+        description="",
+        external_id=None,
+    )
+    claims = db.scalars(
+        select(OfferClaim).where(OfferClaim.listing_id == listing.id)
+    ).all()
+    member_ids = {
+        row.inventory_item_id for row in lot_writes.open_members(db, lot_of_three)
+    }
+    assert {claim.inventory_item_id for claim in claims} == member_ids
+    assert all(claim.state is ClaimState.active for claim in claims)
+    assert listing.inventory_item_id is None
+    assert listing.quantity_available == 1
+    assert lot_of_three.status is SalesLotStatus.offered
+
+
+def test_offering_a_lot_pauses_each_member_s_store_listing(
+    db: Session, make_item: ItemFactory, ebay_venue: SalesVenue
+) -> None:
+    """Shop to eBay is one step, for every coin in the group."""
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    items = [make_item(title=f"Stored {n}") for n in range(2)]
+    store_listings = [_offer_on(db, item, store) for item in items]
+    lot = lot_writes.create_lot(db, title="Two stored coins", description="")
+    for item in items:
+        lot_writes.add_member(db, lot, item)
+
+    offering_writes.offer(
+        db,
+        lot=lot,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("200.00"),
+        title="Two stored coins",
+        description="",
+        external_id=None,
+    )
+
+    for store_listing in store_listings:
+        db.refresh(store_listing)
+        assert store_listing.status is ListingStatus.paused
+        assert store_listing.paused_by_listing_id is not None
+    for item in items:
+        assert _claim_states(db, item)[store_listings[items.index(item)].id] is (
+            ClaimState.paused
+        )
+
+
+def test_offering_a_lot_in_the_shop_pauses_a_member_s_shop_listing(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """The one-line refusal is for a duplicate *item* listing, not for a lot.
+
+    The spec's exception -- "offering an *item* on the store while it is
+    already active on the store is simply refused" -- is about a second
+    listing of the same thing. A lot is not a duplicate of its member's
+    listing: it is the coin moving from being sold on its own to being sold
+    as part of a group, which is the same one-step transition shop -> eBay
+    already is. Without this case the `lot is None` half of that refusal is
+    never exercised: `test_offering_a_lot_pauses_each_member_s_store_listing`
+    offers on eBay, where `venue.is_own_store` is false and the refusal
+    cannot fire whatever the lot half says.
+    """
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    item = make_item(title="Already in the shop")
+    alone = _offer_on(db, item, store)
+    lot = lot_writes.create_lot(db, title="Grouped instead", description="")
+    lot_writes.add_member(db, lot, item)
+
+    grouped = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=store,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("150.00"),
+        title="Grouped instead",
+        description="",
+        external_id=None,
+    )
+
+    db.refresh(alone)
+    assert alone.status is ListingStatus.paused
+    assert alone.paused_by_listing_id == grouped.id
+    assert _claim_states(db, item) == {
+        alone.id: ClaimState.paused,
+        grouped.id: ClaimState.active,
+    }
+    assert lot.status is SalesLotStatus.offered
+
+
+def test_dissolving_a_lot_resumes_a_member_s_shop_listing(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """The other exit from the pause above, and the reason it is a pause.
+
+    An unsold grouping leaves the coin back where the owner had it -- on its
+    own listing, at the price it had -- rather than withdrawn. A refusal at
+    offer time would have made that transition two manual steps.
+    """
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    item = make_item(title="Back on its own")
+    alone = _offer_on(db, item, store)
+    lot = lot_writes.create_lot(db, title="Grouped briefly", description="")
+    lot_writes.add_member(db, lot, item)
+    grouped = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=store,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("150.00"),
+        title="Grouped briefly",
+        description="",
+        external_id=None,
+    )
+
+    offering_writes.end_offer(db, grouped)
+
+    db.refresh(alone)
+    db.refresh(item)
+    assert alone.status is ListingStatus.active
+    assert alone.paused_by_listing_id is None
+    assert _claim_states(db, item) == {
+        alone.id: ClaimState.active,
+        grouped.id: ClaimState.released,
+    }
+    assert item.disposition.code == "listed"
+    assert lot.status is SalesLotStatus.dissolved
+
+
+def test_a_member_offered_elsewhere_refuses_the_whole_lot(
+    db: Session,
+    make_item: ItemFactory,
+    ebay_venue: SalesVenue,
+    whatnot_venue: SalesVenue,
+) -> None:
+    """Named refusal, and nothing written: all or nothing, as for a batch."""
+    free, busy = make_item(title="Free"), make_item(title="Busy")
+    elsewhere = _offer_on(db, busy, whatnot_venue)
+    lot = lot_writes.create_lot(db, title="One busy member", description="")
+    lot_writes.add_member(db, lot, free)
+    lot_writes.add_member(db, lot, busy)
+
+    with pytest.raises(OfferRefused) as excinfo:
+        offering_writes.offer(
+            db,
+            lot=lot,
+            venue=ebay_venue,
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("50.00"),
+            title="One busy member",
+            description="",
+            external_id=None,
+        )
+    assert excinfo.value.item_code == busy.item_code
+    assert f"listing #{elsewhere.id}" in excinfo.value.reason
+    assert "Whatnot" in excinfo.value.reason
+    # Nothing written for the member that could have been offered.
+    assert _claim_states(db, free) == {}
+    assert lot.status is SalesLotStatus.assembling
+
+
+def test_offering_an_empty_lot_is_bad_input(
+    db: Session, ebay_venue: SalesVenue
+) -> None:
+    """The spec's *Errors* list says 422 for an empty lot, not 409."""
+    empty = lot_writes.create_lot(db, title="Nothing in it", description="")
+    with pytest.raises(lot_writes.EmptyLot):
+        offering_writes.offer(
+            db,
+            lot=empty,
+            venue=ebay_venue,
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("10.00"),
+            title="Nothing in it",
+            description="",
+            external_id=None,
+        )
+
+
+def test_offering_neither_an_item_nor_a_lot_is_a_programming_error(
+    db: Session, ebay_venue: SalesVenue
+) -> None:
+    """`ValueError`, not `OfferRefused`: there is no item code to name.
+
+    `OfferRefused.__init__` requires an `item_code` and `routers/offers.py`
+    reads it to build `OfferRefusalOut`, so the shape is load-bearing at the
+    HTTP boundary. A caller that passed neither has a bug; the request
+    schema (`OfferIn`) makes it unreachable from outside.
+    """
+    with pytest.raises(ValueError, match="exactly one"):
+        offering_writes.offer(
+            db,
+            venue=ebay_venue,
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("10.00"),
+            title="",
+            description="",
+            external_id=None,
+        )
+
+
+def test_offering_both_an_item_and_a_lot_is_a_programming_error(
+    db: Session,
+    received_item: InventoryItem,
+    lot_of_three: SalesLot,
+    ebay_venue: SalesVenue,
+) -> None:
+    """Same reason, the other way round."""
+    with pytest.raises(ValueError, match="exactly one"):
+        offering_writes.offer(
+            db,
+            item=received_item,
+            lot=lot_of_three,
+            venue=ebay_venue,
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("10.00"),
+            title="",
+            description="",
+            external_id=None,
+        )
+
+
+def test_offered_items_of_an_item_listing_is_that_one_item(
+    db: Session, ebay_listing: Listing
+) -> None:
+    """The narrow question, answered in one place for both shapes of listing."""
+    assert [item.id for item in offering_writes.offered_items(db, ebay_listing)] == [
+        ebay_listing.inventory_item_id
+    ]
+
+
+def test_offered_items_of_a_lot_listing_is_its_members_in_id_order(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """Every member, in `open_members`' order -- the one order downstream shares.
+
+    Narrower than `_affected_items` on purpose: this is what a *sale* divides
+    between, and it must never reach the items of listings this one paused.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    expected = sorted(member.inventory_item_id for member in lot.members)
+    assert [
+        item.id for item in offering_writes.offered_items(db, offered_lot_listing)
+    ] == expected
+
+
+def test_offered_items_of_a_lot_listing_excludes_a_paused_member_s_own_listing(
+    db: Session, make_item: ItemFactory, ebay_venue: SalesVenue
+) -> None:
+    """`_affected_items` carries the paused listing's item; this must not.
+
+    They coincide for a lot member -- the paused store listing offers the
+    same coin -- so the two are told apart with a *second*, unrelated item
+    whose store listing this offer also pauses. `_affected_items` reaches it
+    through `paused_by_listing_id` and `offered_items` must not, because
+    moving a paused listing's item is an ending's job and never a sale's.
+    """
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    member, bystander = make_item(title="Member"), make_item(title="Bystander")
+    bystander_listing = _offer_on(db, bystander, store)
+    lot = lot_writes.create_lot(db, title="One member", description="")
+    lot_writes.add_member(db, lot, member)
+    lot_listing = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("75.00"),
+        title="One member",
+        description="",
+        external_id=None,
+    )
+    # Not something `offer` would do -- it pauses only listings holding a
+    # member -- so the pointer is set directly, which is the whole point:
+    # `_affected_items` follows it and `offered_items` must not.
+    bystander_listing.status = ListingStatus.paused
+    bystander_listing.paused_by_listing_id = lot_listing.id
+    offering_writes._move_claims(db, bystander_listing, ClaimState.paused)
+    db.flush()
+
+    assert [item.id for item in offering_writes.offered_items(db, lot_listing)] == [
+        member.id
+    ]
+    assert offering_writes._affected_items(db, lot_listing) == sorted(
+        [member.id, bystander.id]
+    )
+
+
+def test_ending_a_lot_listing_dissolves_the_lot(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """Unsold means the group is not a thing any more; the coins are free."""
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    offering_writes.end_offer(db, offered_lot_listing)
+    db.refresh(lot)
+    assert lot.status is SalesLotStatus.dissolved
+    assert all(member.released_at is not None for member in lot.members)
+
+
+def test_ending_a_lot_listing_does_not_trip_over_its_null_item(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """`_affected_items` used to put NULL in a set it then sorted.
+
+    A lot listing's `inventory_item_id` is NULL, so the first of
+    `_affected_items`' two queries yields `None`, and `sorted({None, 12, 13})`
+    raises `TypeError: '<' not supported between instances of 'int' and
+    'NoneType'` -- a crash, not a silent skip. `_lock_items` has the same
+    shape. This test is the regression: it fails with that `TypeError`, not
+    with an assertion, if the NULL filter is removed.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    expected = sorted(member.inventory_item_id for member in lot.members)
+    assert offering_writes._affected_items(db, offered_lot_listing) == expected
+
+
+def test_a_sold_lot_is_sold_not_dissolved(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """`sold` and `dissolved` are different histories and must stay apart."""
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    offering_writes.end_offer(db, offered_lot_listing, sold=True)
+    db.refresh(lot)
+    assert lot.status is SalesLotStatus.sold
+    assert all(member.released_at is not None for member in lot.members)
+
+
+def test_members_with_no_remaining_claim_go_held(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """Back in the drawer, not still marked as listed.
+
+    Only `listed` moves back to `held` -- `end_offer`'s own rule, unchanged
+    here: a member a sale had already moved past `listed` is not this
+    function's to undo.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member_ids = [member.inventory_item_id for member in lot.members]
+    offering_writes.end_offer(db, offered_lot_listing)
+    for item_id in member_ids:
+        item = db.get(InventoryItem, item_id)
+        assert item is not None
+        assert item.disposition.code == "held"

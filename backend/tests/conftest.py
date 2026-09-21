@@ -826,3 +826,28 @@ def lot_of_three(db: Session, make_item: Callable[..., InventoryItem]) -> SalesL
         for index, cost in enumerate(costs, start=1)
     ]
     return build_lot(db, items)
+
+
+@pytest.fixture
+def offered_lot_listing(
+    db: Session, lot_of_three: SalesLot, ebay_venue: SalesVenue
+) -> Listing:
+    """A lot of three offered on eBay, with the three claims `offer` creates.
+
+    Built through `offering_writes.offer` for the reason `ebay_listing` is:
+    it carries the real claims a real offer produces, not a listing that
+    merely looks like one. Price 1,000.00 against member costs of 500, 300
+    and 200 -- so a cost-weighted division is 500.00 / 300.00 / 200.00 and an
+    equal one is not, which is what makes the weighting assertions in Task 4
+    able to fail.
+    """
+    return offering_writes.offer(
+        db,
+        lot=lot_of_three,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("1000.00"),
+        title="Three Morgan Dollars",
+        description="",
+        external_id="987654",
+    )
