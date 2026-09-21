@@ -75,6 +75,7 @@ __all__ = [
     "claims_for",
     "end_offer",
     "ever_claimed",
+    "ever_named_any",
     "offer",
     "offered_items",
     "offers_holding",
@@ -304,26 +305,67 @@ def _lock_items(db: Session, item_ids: Collection[int]) -> None:
     ).all()
 
 
-def _holds_any(item_ids: Collection[int]) -> ColumnElement[bool]:
-    """The one definition of "this listing holds one of these items".
+def _names_any(
+    item_ids: Collection[int], claim_states: Collection[ClaimState] | None
+) -> ColumnElement[bool]:
+    """The one definition of "this listing names one of these items".
 
     Both halves, always: the listings written *against* an item, and any
     listing written against something else whose claim names it -- a lot's,
     since phase 3. Asking only the first half silently ignores exactly the
-    case the claim table exists for. Written once here because the three
-    callers below (`offers_holding`, `_lock_offers`, `_locked_offers`) must
-    agree: a listing one of them can see and another cannot is an item this
-    module would offer twice, or never let back to `held`.
+    case the claim table exists for.
+
+    `claim_states` is the only difference between the two tenses built on
+    this, and it is a parameter rather than a second copy of the `or_`
+    because a copy is what would drift. `HELD_BY` asks the present tense
+    (`_holds_any`); `None` asks every state, the past tense
+    (`ever_named_any`), the same released-inclusive reach `ever_claimed`
+    gives -- a claim is released, never deleted, so a lot listing that has
+    ended is still reachable from its members this way and no other.
 
     The listing's own status is not asked here -- each caller adds its own
-    `Listing.status.in_(ON_OFFER)`, which is the outer half of
-    `_holding_claims`.
+    filter, which is the outer half of `_holding_claims`.
     """
     claimed = select(OfferClaim.listing_id).where(
-        OfferClaim.inventory_item_id.in_(item_ids),
-        OfferClaim.state.in_(HELD_BY),
+        OfferClaim.inventory_item_id.in_(item_ids)
     )
+    if claim_states is not None:
+        claimed = claimed.where(OfferClaim.state.in_(claim_states))
     return or_(Listing.inventory_item_id.in_(item_ids), Listing.id.in_(claimed))
+
+
+def _holds_any(item_ids: Collection[int]) -> ColumnElement[bool]:
+    """Listings that hold one of these items **now**: claims that still hold.
+
+    The three callers below (`offers_holding`, `_lock_offers`,
+    `_locked_offers`) must agree: a listing one of them can see and another
+    cannot is an item this module would offer twice, or never let back to
+    `held`.
+    """
+    return _names_any(item_ids, HELD_BY)
+
+
+def ever_named_any(item_ids: Collection[int]) -> ColumnElement[bool]:
+    """Listings that name one of these items **now or ever**, for a history read.
+
+    The past-tense twin of `_holds_any`, and the same relation to it that
+    `ever_claimed` has to `claims_for`: released claims count, because an
+    offer that has ended is still where this coin has been offered.
+
+    `routers.offers.list_listings` is the caller, for one item's offer
+    history in the console's offers panel. It filtered on
+    `Listing.inventory_item_id == item_id` alone until Task 14, which is
+    NULL on a lot listing: a coin sold inside a lot got an empty list and
+    the panel said "Not offered anywhere yet" about a coin that was on sale.
+
+    Public, and here rather than in the router, for the reason `ever_claimed`
+    gives: "is this item spoken for", present or past, is this module's
+    question, and a fourth hand-rolled read of `offer_claim` outside it is
+    the drift these functions exist to close. A `ColumnElement` rather than
+    a list of listings so the router can keep composing its own venue,
+    format and status filters onto one statement.
+    """
+    return _names_any(item_ids, None)
 
 
 def offers_holding(db: Session, item_ids: Collection[int]) -> Sequence[Listing]:

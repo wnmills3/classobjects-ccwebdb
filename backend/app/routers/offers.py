@@ -479,7 +479,20 @@ def list_listings(
     if listing_format is not None:
         stmt = stmt.where(Listing.format == _listing_format(listing_format))
     if item_id is not None:
-        stmt = stmt.where(Listing.inventory_item_id == item_id)
+        # Not `Listing.inventory_item_id == item_id`: that column is NULL on
+        # a **lot** listing, so a coin offered inside a lot matched nothing
+        # and the offers panel said "Not offered anywhere yet" about a coin
+        # that was on sale -- and then offered an "Offer for sale..." button
+        # the writer would refuse (`offering_writes._refuse_grouped`). A
+        # lookup miss must not default silently.
+        #
+        # Through `offering_writes` rather than a claim query written here:
+        # that module owns "is this item spoken for", and the released
+        # claims this needs are exactly what a fourth local copy would
+        # forget. Past-tense, because this endpoint serves offer *history*
+        # -- the panel asks with `status=all`, and a lot listing that has
+        # ended holds only released claims.
+        stmt = stmt.where(offering_writes.ever_named_any([item_id]))
     if wanted_status is None:
         # The two statuses that mean the item is spoken for -- the same pair
         # `offering_writes.ON_OFFER` names, so the list and the writer agree
