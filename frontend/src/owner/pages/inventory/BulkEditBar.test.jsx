@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -311,6 +311,40 @@ describe('BulkEditBar', () => {
       5,
       expect.objectContaining({ add_item_ids: [1, 2, 5, 6] }),
     )
+  })
+
+  it('accounts for the selected rows it cannot name', async () => {
+    // The heading counts the whole selection; the line under it can only
+    // name the rows this page has loaded. "Group 4 item(s) into a lot" over
+    // two codes reads as two, and the two it does not name are the ones the
+    // operator cannot check.
+    const user = userEvent.setup()
+    renderWithProviders(<BulkEditBar ids={[1, 2, 5, 6]} rows={ROWS} view="coins" />, {
+      strict: true,
+    })
+    await user.click(screen.getByRole('button', { name: /group into lot/i }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Group 4 item(s) into a lot',
+    })
+
+    expect(
+      within(dialog).getByText(
+        /CC-000001, CC-000002 and 2 more not on this page, which are grouped too\./,
+      ),
+    ).toBeVisible()
+  })
+
+  it('names every selected row when they are all on this page', async () => {
+    // The other side of it: no dangling "and 0 more".
+    const user = userEvent.setup()
+    renderWithProviders(<BulkEditBar ids={[1, 2]} rows={ROWS} view="coins" />, {
+      strict: true,
+    })
+    await user.click(screen.getByRole('button', { name: /group into lot/i }))
+    const dialog = await screen.findByRole('dialog')
+
+    expect(within(dialog).getByText('CC-000001, CC-000002')).toBeVisible()
+    expect(within(dialog).queryByText(/not on this page/)).toBeNull()
   })
 
   it('says the lot was started when only its coins were refused', async () => {

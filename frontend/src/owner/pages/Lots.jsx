@@ -367,7 +367,11 @@ export default function Lots() {
         <article key={lot.id} className="lot">
           <h3>{lot.title}</h3>
           {lot.description && <p>{lot.description}</p>}
-          <table className="specs">
+          {/* `table`, the console's own class. `specs` is the SHOP's
+              stylesheet (`store/styles.css`), which the console entry never
+              loads -- the bundle split is the point of that file -- so this
+              summary rendered unstyled. */}
+          <table className="table">
             <tbody>
               <tr>
                 <th>Coins</th>
@@ -392,7 +396,7 @@ export default function Lots() {
             </tbody>
           </table>
           {lot.members.length > 0 && (
-            <table>
+            <table className="table">
               <thead>
                 <tr>
                   <th>Item</th>
@@ -469,7 +473,7 @@ export default function Lots() {
         <p className="muted">No lot has been offered yet.</p>
       )}
       {history.length > 0 && (
-        <table>
+        <table className="table">
           <thead>
             <tr>
               <th>Lot</th>
