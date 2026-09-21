@@ -572,30 +572,39 @@ def test_the_share_migration_backfills_existing_lines(
     An empty database proves only that the `INSERT ... SELECT` runs. Every
     order line that existed before this migration must come out the other
     side with exactly one share, naming its listing's item and carrying
-    that line's own money -- `app.sale_state`'s order half now reaches an
-    item only through this table, so a line the backfill missed, or gave
-    the wrong item, the wrong amount, or a *plausible wrong column* --
-    `listing.id` where the backfill means `listing.inventory_item_id`, the
-    two sit one line apart in the SQL -- would silently lose the for-sale
-    warning for that item on whatever database this migration runs against
-    (never this project's own: live has zero `sales_order`/
-    `sales_order_item` rows at `e7c3a5b19d84`).
+    that line's own transacted money -- `app.sale_state`'s order half now
+    reaches an item only through this table, so a line the backfill
+    missed, or gave the wrong item, the wrong amount, the wrong column
+    (`listing.id`, two lines below `listing.inventory_item_id` in the SQL
+    -- the `FROM` line sits between them, not nothing), or the wrong
+    *source* for its money (`listing.price`, the asking price, instead of
+    `sales_order_item.unit_price`, what the line actually transacted at)
+    would silently lose the for-sale warning for that item on whatever
+    database this migration runs against (never this project's own: live
+    has zero `sales_order`/`sales_order_item` rows at `e7c3a5b19d84`).
 
-    Three id coincidences would each hide a real bug if left alone, so all
-    three are broken on purpose: two lines with different quantities and
-    prices, not one, so a transposed column fails at least one of them; an
-    unordered decoy listing inserted before the real ones, so
-    `listing.id` and `sales_order_item.id` do not start from the same
-    number (a join on the wrong column would otherwise match every row by
-    coincidence, since both sequences begin at 1 in a fresh database); and
-    the listings created in an order that never lets a listing's own `id`
-    equal the `inventory_item_id` it points to (an item-then-listing
-    lockstep -- insert an item, then its listing, repeated -- would give
-    every listing the same id as its own item, which would make `l.id` and
-    `l.inventory_item_id` byte-identical in every result row and hide
-    exactly the copy-paste bug named above). Checked per line rather than
-    by count or sum, the same reason the sales-venue migration test above
-    checks each listing's row rather than an aggregate.
+    Four coincidences would each hide a real bug if left in place, so all
+    four are broken on purpose. Two lines with different quantities *and*
+    different prices, not one, so a transposed column fails at least one
+    of them. Each line's `unit_price` set apart from its own listing's
+    `price` -- and from the other line's `unit_price` too -- so a backfill
+    that read the listing's asking price instead of the line's transacted
+    one cannot produce the same number by coincidence; this is the
+    divergence the migration's own docstring argues `revise_order` can
+    create, and a test that priced every line at its listing's price would
+    never exercise it. An unordered decoy listing inserted before the real
+    ones, so `listing.id` and `sales_order_item.id` do not start from the
+    same number (a join on the wrong column would otherwise match every
+    row by coincidence, since both sequences begin at 1 in a fresh
+    database). And the listings created in an order that never lets a
+    listing's own `id` equal the `inventory_item_id` it points to (an
+    item-then-listing lockstep -- insert an item, then its listing,
+    repeated -- would give every listing the same id as its own item,
+    which would make `l.id` and `l.inventory_item_id` byte-identical in
+    every result row and hide the `l.id`-for-`l.inventory_item_id` copy-
+    paste bug entirely). Checked per line rather than by count or sum, the
+    same reason the sales-venue migration test above checks each listing's
+    row rather than an aggregate.
     """
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
@@ -717,12 +726,20 @@ def test_the_share_migration_backfills_existing_lines(
                 "s": add("sales_order_status", "placed"),
             },
         ).scalar_one()
-        # Different quantity *and* different price on each line, so a
-        # transposition fails one of them even if it happens to agree on
-        # the other.
+        # Each line's unit_price differs from its own listing's asking
+        # price (100.00, 45.00, set on the listings above) and from the
+        # other line's unit_price, not just from its own quantity's
+        # partner -- so a backfill that priced a share from `listing.price`
+        # instead of `sales_order_item.unit_price` cannot land on the same
+        # number as the correct one, or on the same wrong number a missing
+        # `* quantity` would produce, by coincidence:
+        #   correct:        120.00 * 2 = 240.00,  30.00 * 3 =  90.00
+        #   wrong source:   100.00 * 2 = 200.00,  45.00 * 3 = 135.00
+        #   missing * qty:  120.00      = 120.00, 30.00      =  30.00
+        # All six numbers are distinct.
         lines = {
-            "first": (listing_ids["first"], 2, "100.00"),  # 200.00
-            "second": (listing_ids["second"], 3, "45.00"),  # 135.00
+            "first": (listing_ids["first"], 2, "120.00"),  # 240.00
+            "second": (listing_ids["second"], 3, "30.00"),  # 90.00
         }
         line_ids = {
             name: conn.execute(
@@ -752,8 +769,8 @@ def test_the_share_migration_backfills_existing_lines(
         }
     engine.dispose()
     assert shares == {
-        line_ids["first"]: (item_ids["first"], Decimal("200.00"), Decimal("0.00")),
-        line_ids["second"]: (item_ids["second"], Decimal("135.00"), Decimal("0.00")),
+        line_ids["first"]: (item_ids["first"], Decimal("240.00"), Decimal("0.00")),
+        line_ids["second"]: (item_ids["second"], Decimal("90.00"), Decimal("0.00")),
     }
 
 
