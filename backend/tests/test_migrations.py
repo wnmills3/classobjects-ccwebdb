@@ -574,16 +574,27 @@ def test_the_share_migration_backfills_existing_lines(
     side with exactly one share, naming its listing's item and carrying
     that line's own money -- `app.sale_state`'s order half now reaches an
     item only through this table, so a line the backfill missed, or gave
-    the wrong item or amount, would silently lose the for-sale warning for
-    that item on whatever database this migration runs against (never this
-    project's own: live has zero `sales_order`/`sales_order_item` rows at
-    `e7c3a5b19d84`).
+    the wrong item, the wrong amount, or a *plausible wrong column* --
+    `listing.id` where the backfill means `listing.inventory_item_id`, the
+    two sit one line apart in the SQL -- would silently lose the for-sale
+    warning for that item on whatever database this migration runs against
+    (never this project's own: live has zero `sales_order`/
+    `sales_order_item` rows at `e7c3a5b19d84`).
 
-    Two lines with different quantities and prices, not one: a transposed
-    column (`quantity` for `unit_price`, or vice versa) or a join reading
-    the wrong line would still pass against a single line whose numbers
-    happen to agree by coincidence, and checked per line rather than by
-    count or sum, the same reason the sales-venue migration test above
+    Three id coincidences would each hide a real bug if left alone, so all
+    three are broken on purpose: two lines with different quantities and
+    prices, not one, so a transposed column fails at least one of them; an
+    unordered decoy listing inserted before the real ones, so
+    `listing.id` and `sales_order_item.id` do not start from the same
+    number (a join on the wrong column would otherwise match every row by
+    coincidence, since both sequences begin at 1 in a fresh database); and
+    the listings created in an order that never lets a listing's own `id`
+    equal the `inventory_item_id` it points to (an item-then-listing
+    lockstep -- insert an item, then its listing, repeated -- would give
+    every listing the same id as its own item, which would make `l.id` and
+    `l.inventory_item_id` byte-identical in every result row and hide
+    exactly the copy-paste bug named above). Checked per line rather than
+    by count or sum, the same reason the sales-venue migration test above
     checks each listing's row rather than an aggregate.
     """
     config = Config(str(BACKEND_DIR / "alembic.ini"))
@@ -659,22 +670,35 @@ def test_the_share_migration_backfills_existing_lines(
                 {"i": item_id, "p": price, "c": currency_id, "s": store_id},
             ).scalar_one()
 
-        # An unordered decoy listing first, so `listing.id` and
-        # `sales_order_item.id` start from different numbers below --
-        # otherwise both id sequences begin at 1 in a fresh database and a
-        # join on the wrong column (`listing.id = sales_order_item.id`
-        # instead of `listing.id = sales_order_item.listing_id`) would
-        # still match every row by coincidence and this test would not
-        # catch it. Never ordered, so the backfill must not give it a
-        # share either.
-        decoy_item_id = add_item()
-        add_listing(decoy_item_id, "1.00")
-
-        item_ids = {"first": add_item(), "second": add_item()}
+        # Every item is inserted before any listing, and the listings are
+        # then created in a shuffled order (second's, then the decoy's,
+        # then first's) rather than each item's listing following it
+        # immediately. Interleaving item-then-listing-then-item-then-listing
+        # would give every listing the same id as its own item (both
+        # sequences advancing together, 1/1, 2/2, 3/3), which would make
+        # `l.id` and `l.inventory_item_id` equal in every row this test
+        # reads and hide the `l.id`-for-`l.inventory_item_id` bug entirely.
+        # Derived ids, so a future edit here can be checked against this
+        # comment rather than re-derived from scratch:
+        #   item:    decoy=1, first=2, second=3
+        #   listing: (for second)=1, (decoy's)=2, (for first)=3
+        # No listing id equals its own item's id: 1's item is 3, 2's item
+        # is 1, 3's item is 2.
+        decoy_item_id = add_item()  # item id 1
+        item_ids = {"first": add_item(), "second": add_item()}  # item ids 2, 3
         listing_ids = {
-            "first": add_listing(item_ids["first"], "100.00"),
-            "second": add_listing(item_ids["second"], "45.00"),
+            "second": add_listing(item_ids["second"], "45.00"),  # listing id 1
         }
+        # An unordered decoy listing, inserted between the two real ones so
+        # `listing.id` and `sales_order_item.id` do not start from the same
+        # number below either -- both sequences begin at 1 in a fresh
+        # database, and a join on the wrong column (`listing.id =
+        # sales_order_item.id` instead of `listing.id =
+        # sales_order_item.listing_id`) would otherwise match every row by
+        # coincidence. Never ordered, so the backfill must not give it a
+        # share either.
+        add_listing(decoy_item_id, "1.00")  # listing id 2
+        listing_ids["first"] = add_listing(item_ids["first"], "100.00")  # listing id 3
         customer_id = conn.execute(
             text(
                 "INSERT INTO customer (display_name, created_at, updated_at) "
