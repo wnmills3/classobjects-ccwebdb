@@ -57,11 +57,19 @@ suite.
 from __future__ import annotations
 
 import pytest
-from app.models import ClaimState, Listing, OfferClaim
+from app.models import ClaimState, Disposition, Listing, OfferClaim, SalesLotStatus
+from app.references import require_code
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.conftest import ClaimInvariantViolation, check_claim_invariant
+from tests.conftest import (
+    ClaimInvariantViolation,
+    DispositionInvariantViolation,
+    LotInvariantViolation,
+    check_claim_invariant,
+    check_disposition_invariant,
+    check_lot_invariant,
+)
 
 
 @pytest.mark.xfail(
@@ -114,3 +122,154 @@ def test_the_invariant_fixture_is_wired_up(request: pytest.FixtureRequest) -> No
     proof is not vacuous. Restored afterward.
     """
     assert "_claim_invariant" in request.fixturenames
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=LotInvariantViolation,
+    reason=(
+        "proof that the lot invariant can fail: an open membership on a "
+        "dissolved lot must raise both in this call and in the autouse "
+        "fixture's teardown"
+    ),
+)
+def test_the_lot_invariant_catches_an_open_member_of_a_finished_lot(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """Dissolving a lot without releasing its members is what this must catch.
+
+    Deliberately left broken; the per-test transaction rolls it back.
+    Mutation-tested by hand: commenting out the `status = ...` line below
+    makes this XPASS(strict) and fails the run, confirming the proof is not
+    vacuous.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    lot.status = SalesLotStatus.dissolved  # members left open on purpose
+    db.flush()
+    check_lot_invariant(db)
+
+
+def test_the_lot_invariant_is_wired_into_the_autouse_fixture(
+    request: pytest.FixtureRequest, db: Session, offered_lot_listing: Listing
+) -> None:
+    """The fixture, not just the function, must run the lot check.
+
+    `test_the_invariant_fixture_is_wired_up`'s lesson, applied to the second
+    rule: the xfail test above calls `check_lot_invariant` itself, so it
+    would stay green even if the fixture never called it. Asserting on
+    `fixturenames` proves the fixture is active; reading its source for the
+    call is what proves the call. Here the cheaper equivalent: the fixture is
+    the only thing that would fail a test with a broken lot *and no direct
+    call*, so this test simply leaves the lot correct and asserts the check
+    is satisfied -- and the xfail above, whose teardown also raises, is the
+    other half.
+    """
+    assert "_claim_invariant" in request.fixturenames  # the fixture that calls it
+    check_lot_invariant(db)
+
+
+@pytest.mark.claim_invariant_waiver(
+    reason=(
+        "breaks the claim invariant deliberately (a released claim on an "
+        "active listing) to prove the lot check still runs -- and still "
+        "raises its own exception type -- inside an already-waived test"
+    )
+)
+@pytest.mark.xfail(
+    strict=True,
+    raises=LotInvariantViolation,
+    reason=(
+        "the lot violation must surface even though this test's claim "
+        "violation is waived"
+    ),
+)
+def test_the_lot_check_runs_ahead_of_the_waiver_branch_even_when_waived(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """What this actually proves: ordering, not the type-separation itself.
+
+    It is tempting to read this as "a claim waiver does not absorb a lot
+    violation." It does not prove that, and the reason is mechanical:
+    `_claim_invariant` (conftest.py) calls `check_lot_invariant` *before* the
+    waiver's `except ClaimInvariantViolation` branch even exists in the
+    control flow, so a lot violation here surfaces whatever its exception
+    type happens to be -- this test cannot distinguish "the waiver saw a
+    `LotInvariantViolation` and declined to catch it" from "the waiver never
+    got a chance to see one at all." Only the second is what actually
+    happens with Step 2's ordering.
+
+    What this proves instead: the lot check runs ahead of the waiver branch,
+    so it is reached -- and still raises -- inside a test that carries
+    `claim_invariant_waiver`. That ordering is what stops a lot bug from
+    hiding behind an unrelated claim waiver in practice, which is the
+    property that matters here.
+
+    The separate exception type is still load-bearing, just provable
+    elsewhere: the `xfail(strict=True, raises=LotInvariantViolation)` on the
+    two tests above would fail if `check_lot_invariant` ever raised
+    `ClaimInvariantViolation` instead of its own type. What no test can show
+    is the absorption half -- whether `except ClaimInvariantViolation` would
+    swallow a `LotInvariantViolation` if it reached that branch -- because
+    with this ordering it never does. Moving the call inside the waiver
+    branch would make that half testable, but only by first making a lot
+    violation waivable inside a claim-waived test, which is exactly the
+    accident the separate type and this ordering exist to prevent. So the
+    call stays exactly where Step 2 puts it, ahead of the waiver branch.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    claim = db.scalars(
+        select(OfferClaim).where(OfferClaim.listing_id == offered_lot_listing.id)
+    ).first()
+    assert claim is not None
+    claim.state = ClaimState.released  # claim half: would be waived if reached
+    lot.status = SalesLotStatus.dissolved  # lot half: runs first, never waived
+    db.flush()
+    check_lot_invariant(db)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=DispositionInvariantViolation,
+    reason=(
+        "proof that the disposition invariant can fail: a held claim on an "
+        "item filed `held` must raise both in this call and in the autouse "
+        "fixture's teardown"
+    ),
+)
+def test_the_disposition_invariant_catches_a_held_claim_on_a_held_item(
+    db: Session, ebay_listing: Listing
+) -> None:
+    """Reverting an item's disposition under a live claim is what this must catch.
+
+    Deliberately left broken; the per-test transaction rolls it back.
+    Mutation-tested by hand: commenting out the `disposition_id = ...` line
+    below makes this XPASS(strict) and fails the run, confirming the proof is
+    not vacuous.
+    """
+    claim = db.scalars(
+        select(OfferClaim).where(OfferClaim.listing_id == ebay_listing.id)
+    ).first()
+    assert claim is not None
+    assert claim.state == ClaimState.active  # HELD_BY, so the rule applies
+    item = claim.item
+    item.disposition_id = require_code(db, Disposition, "held", "disposition")
+    db.flush()
+    check_disposition_invariant(db)
+
+
+def test_the_disposition_invariant_is_wired_into_the_autouse_fixture(
+    request: pytest.FixtureRequest, db: Session, ebay_listing: Listing
+) -> None:
+    """The fixture, not just the function, must run the disposition check.
+
+    Same shape as `test_the_lot_invariant_is_wired_into_the_autouse_fixture`:
+    the xfail test above calls `check_disposition_invariant` itself, so it
+    would stay green even if the fixture never called it. This test leaves
+    the item's disposition correct (`listed`, from `ebay_listing`'s claim)
+    and asserts the check is satisfied while the fixture is confirmed active
+    -- the xfail above, whose teardown also raises, is the other half.
+    """
+    assert "_claim_invariant" in request.fixturenames  # the fixture that calls it
+    check_disposition_invariant(db)

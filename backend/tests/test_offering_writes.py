@@ -38,6 +38,20 @@ ListingFactory = Callable[..., Listing]
 def _claim(
     db: Session, item: InventoryItem, listing: Listing, state: ClaimState
 ) -> OfferClaim:
+    """Build a claim directly, for a shape no current write path produces.
+
+    A real `offer()` call also moves the claimed item's disposition to
+    `listed` (`offering_writes.py:669-678`). `make_item` (`conftest.py`)
+    defaults a fresh item's disposition to `held`, so a `HELD_BY` claim
+    built here without the same side effect would disagree with
+    `check_disposition_invariant` (`tests/conftest.py`) the moment the
+    autouse fixture checks it -- not because of a bug in `offering_writes`,
+    but because this helper skipped a step the real writer always takes.
+    Mirroring that one side effect keeps the constructed state plausible
+    without touching the invariant itself.
+    """
+    if state in offering_writes.HELD_BY:
+        _set_disposition(db, item, "listed")
     claim = OfferClaim(inventory_item_id=item.id, listing_id=listing.id, state=state)
     db.add(claim)
     db.flush()
@@ -678,14 +692,6 @@ def test_a_paused_store_listing_is_the_shops_but_not_sellable(
 # --- what must not happen --------------------------------------------------
 
 
-@pytest.mark.claim_invariant_waiver(
-    reason=(
-        "recreates the retired PATCH .../is_active shape on purpose: "
-        "listing.status is set to `ended` directly, bypassing "
-        "offering_writes, so the claim it left behind still reads `paused` "
-        "-- the whole point of the test is that end_offer must not fix that"
-    )
-)
 def test_a_withdrawn_store_listing_is_not_resurrected(
     db: Session, listing: Listing
 ) -> None:
@@ -696,6 +702,15 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     pause -- and old rows can still carry that shape. Resuming on the pointer
     alone would put a listing someone deliberately took down back in the
     public shop, claiming the item again with it.
+
+    No `claim_invariant_waiver` here even though `listing.status` is set to
+    `ended` directly below, bypassing `offering_writes`, mid-test: the claim
+    it leaves behind reads `paused` against an `ended` listing for exactly
+    the middle of this test, but `end_offer` (below) now releases that stray
+    claim itself once it decides nothing holds the item any more -- see the
+    comment beside `stray_claims` in `offering_writes.end_offer`. So by the
+    time the autouse invariant checks run, at teardown, nothing disagrees;
+    a waiver would be stale the moment it was written.
     """
     item = listing.inventory_item
     ebay = _venue(db, "ebay-withdrawn")
@@ -714,6 +729,13 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     assert listing.status is ListingStatus.ended
     assert listing.paused_by_listing_id == elsewhere.id  # untouched, not resumed
     assert item.disposition.code == "held"
+    stale_claim = db.scalars(
+        select(OfferClaim).where(OfferClaim.listing_id == listing.id)
+    ).one()
+    # The stray claim `listing.status = ended` (above) left disagreeing with
+    # its own listing is released, not left `paused` forever -- the fix this
+    # test's docstring names.
+    assert stale_claim.state is ClaimState.released
 
 
 def test_a_sold_item_is_not_put_back_to_held(

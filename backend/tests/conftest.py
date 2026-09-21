@@ -37,6 +37,8 @@ from app.models import (
     ReferenceMixin,
     SalesFeeKind,
     SalesLot,
+    SalesLotItem,
+    SalesLotStatus,
     SalesVenue,
     SalesVenueKind,
     StorageForm,
@@ -290,9 +292,116 @@ def check_claim_invariant(db: Session) -> None:
         )
 
 
+class LotInvariantViolation(AssertionError):
+    """An open lot membership disagrees with its lot's status.
+
+    A distinct type from `ClaimInvariantViolation`, for two reasons. The
+    `xfail(raises=...)` proof in `test_claim_invariant.py` narrows on the
+    exact type, so sharing one would let either proof pass on the other's
+    failure. And `claim_invariant_waiver` absorbs *any*
+    `ClaimInvariantViolation` (the documented limit at this fixture's
+    docstring): reusing that type would silently exempt the four waived
+    tests from this rule as well, which is exactly the accident this check
+    exists to prevent.
+    """
+
+
+def check_lot_invariant(db: Session) -> None:
+    """Assert every open lot membership agrees with its lot's status, right now.
+
+    One direction only: an open membership (`released_at IS NULL`) implies
+    its lot is `assembling` or `offered`. The converse -- that an
+    `assembling` lot has members -- is false by design: a lot is created
+    empty and is assembled a coin at a time.
+
+    One query, no per-row loads: the autouse fixture below calls this
+    roughly 1,300 times.
+    """
+    open_in_closed = db.execute(
+        select(SalesLotItem.sales_lot_id, SalesLot.status)
+        .join(SalesLot, SalesLot.id == SalesLotItem.sales_lot_id)
+        .where(
+            SalesLotItem.released_at.is_(None),
+            SalesLot.status.in_((SalesLotStatus.sold, SalesLotStatus.dissolved)),
+        )
+    ).all()
+    if open_in_closed:
+        raise LotInvariantViolation(
+            f"lot membership is still open on a finished lot: {open_in_closed}"
+        )
+
+
+class DispositionInvariantViolation(AssertionError):
+    """A held claim disagrees with its item's disposition.
+
+    A distinct type from `ClaimInvariantViolation` and `LotInvariantViolation`,
+    for the same two reasons `LotInvariantViolation`'s docstring gives: the
+    `xfail(raises=...)` proofs in `test_claim_invariant.py` narrow on the
+    exact type, and `claim_invariant_waiver` absorbs only
+    `ClaimInvariantViolation` by design -- reusing either other type would
+    let a waived test's claim scenario silently exempt this rule too.
+    """
+
+
+#: What a `HELD_BY` claim's item may legitimately be filed as, one direction
+#: only. `listed` is the ordinary case. `offering_writes.SOLD_AWAY` is the
+#: allowance `check_disposition_invariant` documents: not the biconditional,
+#: and not slack -- see that function's docstring for why each is true of the
+#: code as it actually is.
+_DISPOSITION_ALLOWED_UNDER_CLAIM = frozenset({"listed"}) | offering_writes.SOLD_AWAY
+
+
+def check_disposition_invariant(db: Session) -> None:
+    """Assert a held claim's item is filed `listed` or already sold away.
+
+    One direction only: a claim in `offering_writes.HELD_BY` (`active` or
+    `paused`) implies its item's disposition is `listed` -- or in
+    `offering_writes.SOLD_AWAY`, which a sale wrote. Two allowances make this
+    true of the code as it actually is, rather than of a stricter rule that
+    would be nicer to have:
+
+    - **Not the biconditional.** `build_listing` (this file) creates a
+      `listed` item with **no claim**, and `listing` / `make_listing` are
+      used by dozens of tests. "A `listed` item has a held claim" fails all
+      of them on the first run.
+    - **The `SOLD_AWAY` allowance is not slack.** A shop checkout that takes
+      the last unit sets the item to `sold`
+      (`order_writes._after_stock_change`) while its store listing stays
+      `active` with an `active` claim -- `end_offer`'s own comment
+      (`offering_writes.py:596-600`) names that shape as intended. Without
+      the allowance the rule is false the first time a test buys out a
+      listing.
+
+    What is left after both allowances is worth having: it catches a held
+    claim on an item filed as `held`, the shape "a lot's members were never
+    moved to `listed`" and "an ending moved an item back while something
+    still holds it" both produce.
+
+    One query, no per-row loads, for the same reason `check_claim_invariant`
+    is one.
+    """
+    rows = db.execute(
+        select(OfferClaim.id, InventoryItem.id, Disposition.code)
+        .join(InventoryItem, InventoryItem.id == OfferClaim.inventory_item_id)
+        .join(Disposition, Disposition.id == InventoryItem.disposition_id)
+        .where(OfferClaim.state.in_(offering_writes.HELD_BY))
+    ).all()
+    wrong = [row for row in rows if row[2] not in _DISPOSITION_ALLOWED_UNDER_CLAIM]
+    if wrong:
+        raise DispositionInvariantViolation(
+            f"a held claim disagrees with its item's disposition: {wrong}"
+        )
+
+
 @pytest.fixture(autouse=True)
 def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     """After every test, each claim's state must equal its listing's status.
+
+    Also runs `check_lot_invariant` and `check_disposition_invariant`, the
+    two checks Task 8 adds, unconditionally and ahead of the waiver handling
+    below. `claim_invariant_waiver` absorbs a `ClaimInvariantViolation`
+    only -- it is a waiver of the claim half of this fixture, never of the
+    lot or disposition rule, and neither of those two ever consults it.
 
     ``db`` is fetched with ``request.getfixturevalue("db")`` -- and only when
     ``"db" in request.fixturenames``, i.e. only for a test that already has a
@@ -420,6 +529,12 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
         return
     if not db.is_active:
         return
+    # Before the waiver branch below, and never waived: the
+    # `claim_invariant_waiver` marker absorbs any `ClaimInvariantViolation`,
+    # and a lot or disposition violation inside an already-waived test must
+    # still fail. That is why each raises its own type.
+    check_lot_invariant(db)
+    check_disposition_invariant(db)
     if waiver is None:
         check_claim_invariant(db)
         return
