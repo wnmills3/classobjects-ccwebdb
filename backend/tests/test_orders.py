@@ -20,6 +20,7 @@ from app.models import (
     User,
 )
 from app.sales_venues import store_venue_id
+from app.sales_writes import record_sale
 from app.security import hash_password
 from fastapi.testclient import TestClient
 from httpx import Response
@@ -390,6 +391,35 @@ def test_other_customers_order_returns_404_not_403(
     foreign = foreign_order(db, "other2@example.com")
     response = client.get(f"/api/orders/{foreign.id}", headers=customer_headers)
     assert response.status_code == 404
+
+
+def test_an_order_says_which_platform_it_was_sold_on(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    ebay_listing: Listing,
+    admin_user: User,
+) -> None:
+    """The Orders page cannot tell a shop sale from an outside one without it.
+
+    Its status dropdown offers `cancelled` behind a confirmation promising
+    the stock goes back on sale -- which `routers/orders.py` then refuses
+    with a 409. A confusing prompt, not a broken action, and the platform is
+    what lets the page grey the option out instead.
+    """
+    order = record_sale(
+        db,
+        ebay_listing,
+        price=Decimal("120.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-2",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    db.commit()
+    body = client.get(f"/api/orders/{order.id}", headers=admin_headers).json()
+    assert body["sales_venue_code"] == "ebay"
+    assert body["sales_venue_name"] == "eBay"
 
 
 # --------------------------------------------------------------------------

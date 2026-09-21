@@ -129,6 +129,8 @@ def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> Order
         customer_id=order.customer_id,
         customer_name=order.customer.display_name,
         customer_email=order.customer.email,
+        sales_venue_code=order.sales_venue.code,
+        sales_venue_name=order.sales_venue.name,
         status=status_code,
         total_amount=order.total_amount,
         placed_at=order.placed_at,
@@ -156,6 +158,7 @@ def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> Order
 #: cost a query per order for its customer and two per line for its title.
 _ORDER_DETAIL = (
     selectinload(SalesOrder.customer),
+    selectinload(SalesOrder.sales_venue),
     selectinload(SalesOrder.items)
     .selectinload(SalesOrderItem.listing)
     .selectinload(Listing.inventory_item),

@@ -27,6 +27,8 @@ const ORDERS = [
     customer_id: 5,
     customer_name: 'Ada Lovelace',
     customer_email: 'ada@example.com',
+    sales_venue_code: 'store',
+    sales_venue_name: 'Web store',
     status: 'paid',
     total_amount: '378.00',
     placed_at: '2026-09-14T15:00:00Z',
@@ -49,6 +51,8 @@ const ORDERS = [
     customer_id: 6,
     customer_name: 'Grace Hopper',
     customer_email: 'grace@example.com',
+    sales_venue_code: 'store',
+    sales_venue_name: 'Web store',
     status: 'cancelled',
     total_amount: '42.00',
     placed_at: '2026-09-13T15:00:00Z',
@@ -146,6 +150,23 @@ describe('owner Orders', () => {
   it('locks the status of a cancelled order', async () => {
     await renderPage()
     expect(within(rowFor(11)).getByRole('combobox')).toBeDisabled()
+  })
+
+  it('does not offer cancel for a sale made on another platform', async () => {
+    // The server refuses the transition with a 409 (routers/orders.py); the
+    // page offering it and then reporting a refusal is the confusing half.
+    api.listOrders.mockResolvedValue([
+      { ...ORDERS[0], sales_venue_code: 'ebay', sales_venue_name: 'eBay' },
+    ])
+    renderWithProviders(<Orders />, {
+      auth: adminAuth(),
+      route: '/orders',
+      strict: true,
+    })
+    await screen.findByText('Ada Lovelace')
+    const select = within(rowFor(12)).getByRole('combobox')
+    const cancelled = within(select).getByRole('option', { name: /cancelled/i })
+    expect(cancelled).toBeDisabled()
   })
 
   it('shows a refusal without losing the list', async () => {

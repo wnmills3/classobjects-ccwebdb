@@ -159,11 +159,29 @@ export default function Orders() {
                     }
                     onChange={(e) => changeStatus(order, e.target.value)}
                   >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
+                    {STATUSES.map((s) => {
+                      // A sale recorded from another platform ended its
+                      // listing already; the server refuses "cancelled" for
+                      // it with a 409, so the option is greyed out here
+                      // instead of offered and then refused.
+                      const outsideSale =
+                        s === 'cancelled' && order.sales_venue_code !== 'store'
+                      return (
+                        <option
+                          key={s}
+                          value={s}
+                          disabled={outsideSale}
+                          title={
+                            outsideSale
+                              ? `Sold on ${order.sales_venue_name}, whose listing ` +
+                                'ended with the sale -- there is no stock to return'
+                              : undefined
+                          }
+                        >
+                          {s}
+                        </option>
+                      )
+                    })}
                   </select>
                 </td>
                 <td>
