@@ -74,6 +74,7 @@ __all__ = [
     "OfferRefused",
     "claims_for",
     "end_offer",
+    "ever_claimed",
     "offer",
     "offered_items",
     "offers_holding",
@@ -156,9 +157,12 @@ def _holding_claims() -> Select[tuple[OfferClaim]]:
     not always the only writer of that status -- the catalogue API's retired
     `PATCH .../is_active` withdrew a listing without touching its claims -- so
     a claim left reading `paused` on a listing an older write ended holds
-    nothing. Everything that asks "is this item spoken for" asks through here,
-    or the answers disagree and an item is either offered twice or never
-    allowed back to `held`.
+    nothing. Everything that asks whether a claim holds its item *now* asks
+    through here, or the answers disagree and an item is either offered
+    twice or never allowed back to `held`. The past-tense question -- has a
+    claim ever named this item, released ones included -- is a different
+    read and deliberately does not go through here; `ever_claimed` below is
+    its one home, the same way `_claims_of` is for one listing.
     """
     return (
         select(OfferClaim)
@@ -186,6 +190,37 @@ def claims_for(db: Session, item_ids: Collection[int]) -> dict[int, list[OfferCl
     for claim in claims:
         found.setdefault(claim.inventory_item_id, []).append(claim)
     return found
+
+
+def ever_claimed(db: Session, item_ids: Collection[int]) -> set[int]:
+    """Which of `item_ids` a claim has ever named, released ones included.
+
+    `claims_for` above answers "is this item spoken for now"; this is its
+    released-inclusive twin, the same reach `_claims_of` gives for one
+    listing but across items and states rather than one listing. `offer`
+    writes one claim per member and a claim is released, never deleted, so
+    this is also the lot-aware way to ask "has this item ever been
+    offered" -- a lot listing itself names no item, but its members' claims
+    do and outlive the lot's dissolution.
+
+    `app.sale_state.ever_offered` is the one caller today, for a delete's
+    permanent refusal: once a coin has been offered the offer is sales
+    history, so that refusal must not clear just because the offer ended or
+    the lot dissolved. Kept here, not there, because "is this item spoken
+    for" -- present or past -- is this module's question to answer; a second
+    hand-rolled read of `offer_claim` outside it is exactly the drift this
+    function closes.
+    """
+    ids = list(item_ids)
+    if not ids:
+        return set()
+    return set(
+        db.scalars(
+            select(OfferClaim.inventory_item_id).where(
+                OfferClaim.inventory_item_id.in_(ids)
+            )
+        ).all()
+    )
 
 
 def _claims_of(db: Session, listing: Listing) -> list[OfferClaim]:

@@ -36,7 +36,6 @@ from .models import (
     InventoryItem,
     Listing,
     ListingStatus,
-    OfferClaim,
     SalesOrder,
     SalesOrderItem,
     SalesOrderItemShare,
@@ -194,12 +193,19 @@ def ever_offered(db: Session, item_ids: Collection[int]) -> set[int]:
     since ended.
 
     The same two halves as `_offering`, with the status and state filters
-    dropped. The claim half is what makes this lot-aware: `offering_writes.
-    offer` writes one claim per member and a lot's listing names the lot, so
-    an item that has only ever been offered inside a lot is reachable this
-    way and no other. Here rather than in `routers.inventory` because "is
-    this item spoken for" already has one home, and a second hand-written
-    answer is what `lot_writes._refuse_partial` had to stop being.
+    dropped, and the claim half read through `offering_writes.ever_claimed`
+    rather than a second query against `offer_claim` here -- that table has
+    exactly one writer and, until this function, exactly one other reader
+    (`claims_for`), both in `offering_writes`. Asking it directly from this
+    module would leave "is this item spoken for" with two homes that could
+    drift the moment the claim's shape changes.
+
+    The claim half is what makes this lot-aware: `offering_writes.offer`
+    writes one claim per member and a lot's listing names the lot, so an item
+    that has only ever been offered inside a lot is reachable this way and no
+    other. Here rather than in `routers.inventory` because "is this item
+    spoken for" already has one home, and a second hand-written answer is
+    what `lot_writes._refuse_partial` had to stop being.
 
     An item merely *assembling* into a lot is deliberately not here: it has
     not been offered, `remove_member` deletes its membership outright, and so
@@ -209,13 +215,7 @@ def ever_offered(db: Session, item_ids: Collection[int]) -> set[int]:
     ids = list(item_ids)
     if not ids:
         return set()
-    named: set[int] = set(
-        db.scalars(
-            select(OfferClaim.inventory_item_id).where(
-                OfferClaim.inventory_item_id.in_(ids)
-            )
-        ).all()
-    )
+    named = offering_writes.ever_claimed(db, ids)
     # `inventory_item_id` is nullable on `listing` -- a lot listing leaves it
     # null -- so the null is skipped rather than annotated away. The `in_`
     # already excludes it; this keeps the set honestly `set[int]`.

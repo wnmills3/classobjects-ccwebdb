@@ -182,6 +182,47 @@ def test_an_item_in_an_assembling_lot_cannot_be_deleted(
     assert db.get_one(InventoryItem, member_id).deleted_at is None
 
 
+def test_an_offered_lot_s_member_cannot_be_deleted(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+) -> None:
+    """An open membership in an *offered* lot must not earn the clearable message.
+
+    `lot_writes.lot_holding` matches any lot with an open membership --
+    `offered` included, not only `assembling` -- so this member matches both
+    of `delete_item`'s guards. The permanent one has to win: `remove_member`
+    refuses every lot state but `assembling`
+    (`lot_writes._refuse_unless_assembling`), so "Take it out of the lot
+    first" would name a step this coin's lot cannot take. This is the
+    discriminating half of the pair with
+    `test_an_item_in_an_assembling_lot_cannot_be_deleted`: swap
+    `delete_item`'s two guard blocks and this test goes red while that one,
+    whose lot never matches the permanent guard, stays green.
+    """
+    sales_lot = offered_lot_listing.sales_lot
+    assert sales_lot is not None
+    member_id = lot_writes.open_members(db, sales_lot)[0].inventory_item_id
+
+    # The state that makes this the discriminating case: an open membership
+    # (so `lot_holding` matches) in a lot that is currently `offered` (so
+    # `ever_offered` also matches) -- unlike the assembling case above, where
+    # only `lot_holding` matches, and the dissolved case below, where only
+    # `ever_offered` does.
+    assert sales_lot.status is SalesLotStatus.offered
+    assert lot_writes.open_members(db, sales_lot) != []
+
+    response = client.delete(f"/api/inventory/{member_id}", headers=admin_headers)
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "permanently" in detail
+    assert "Take it out of the lot first" not in detail
+    db.expire_all()
+    assert db.get_one(InventoryItem, member_id).deleted_at is None
+
+
 def test_a_dissolved_lot_s_member_cannot_be_deleted(
     client: TestClient,
     admin_headers: dict[str, str],

@@ -1680,10 +1680,23 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
     is what stops that happening again for the next shape of offer: the claim
     half it reads is written one row per member.
 
-    The lot guard is the clearable one, and deliberately separate. An
-    assembling lot has been shown to nobody and `lot_writes.remove_member`
-    really does take a coin back out of it, so this refusal names that remedy
-    instead of saying the record is permanent.
+    The lot guard is the clearable one, and deliberately separate -- but
+    `lot_holding` matches *any* lot with an open membership, `offered`
+    included, not only `assembling`. A member of a lot that is currently
+    offered therefore matches both guards, and the order below is
+    load-bearing: the permanent guard has to run first, or that coin would be
+    told "take it out of the lot first" -- a remedy `remove_member` refuses
+    for exactly that lot state (`lot_writes._refuse_unless_assembling`),
+    naming a step that cannot clear it. `tests/test_inventory_delete.py`'s
+    `test_an_offered_lot_s_member_cannot_be_deleted` pins this order; swap
+    the two blocks and it goes red while its
+    `test_an_item_in_an_assembling_lot_cannot_be_deleted` -- whose lot never
+    matches the permanent guard -- stays green.
+
+    Only an `assembling` lot reaches the clearable message in practice: a
+    coin whose lot has been offered, sold or dissolved is caught by the
+    permanent guard above first, and `remove_member` itself refuses every
+    lot state but `assembling`.
 
     **Reachable from the lot panel, not only from search.** After its last
     child is detached a parent still has `split_at` set, so it is invisible in
@@ -1709,6 +1722,12 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
             ),
         )
 
+    # Order is load-bearing: `lot_holding` below also matches an `offered`
+    # lot's member, and its message names a remedy (`remove_member`) that
+    # refuses every lot state but `assembling`. Asking the permanent guard
+    # first is what keeps that member from being told a step that cannot
+    # clear it. See the docstring above and
+    # `test_an_offered_lot_s_member_cannot_be_deleted`.
     if item.id in sale_state.ever_offered(db, [item.id]):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
