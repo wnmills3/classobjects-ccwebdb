@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -147,6 +148,32 @@ def offer_claim_migration_url() -> Iterator[str]:
     """A throwaway database for migrating real listings, not an empty table."""
     url = TEST_URL
     name = f"{url.database}_migrations_claims"
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    target = url.set(database=name).render_as_string(hide_password=False)
+    try:
+        yield target
+    finally:
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :name AND pid <> pg_backend_pid() "
+                    "AND backend_type = 'client backend'"
+                ),
+                {"name": name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()
+
+
+@pytest.fixture
+def share_migration_url() -> Iterator[str]:
+    """A throwaway database for backfilling real order lines, not an empty table."""
+    url = TEST_URL
+    name = f"{url.database}_migrations_shares"
     admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
         conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
@@ -535,6 +562,175 @@ def test_the_offer_claim_migration_claims_existing_listings(
         listing_ids["ended"]: "ended",
     }
     assert claim_table is None
+
+
+def test_the_share_migration_backfills_existing_lines(
+    share_migration_url: str,
+) -> None:
+    """Upgrade with order lines already in place, then check their shares.
+
+    An empty database proves only that the `INSERT ... SELECT` runs. Every
+    order line that existed before this migration must come out the other
+    side with exactly one share, naming its listing's item and carrying
+    that line's own money -- `app.sale_state`'s order half now reaches an
+    item only through this table, so a line the backfill missed, or gave
+    the wrong item or amount, would silently lose the for-sale warning for
+    that item on whatever database this migration runs against (never this
+    project's own: live has zero `sales_order`/`sales_order_item` rows at
+    `e7c3a5b19d84`).
+
+    Two lines with different quantities and prices, not one: a transposed
+    column (`quantity` for `unit_price`, or vice versa) or a join reading
+    the wrong line would still pass against a single line whose numbers
+    happen to agree by coincidence, and checked per line rather than by
+    count or sum, the same reason the sales-venue migration test above
+    checks each listing's row rather than an aggregate.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", share_migration_url)
+    upgrade(config, "e7c3a5b19d84")
+
+    engine = create_engine(share_migration_url)
+    reference = (
+        "INSERT INTO {table} (code, label, sort_order, is_active, source) "
+        "VALUES (:code, :code, 0, true, 'seeded') RETURNING id"
+    )
+    with engine.begin() as conn:
+
+        def add(table: str, code: str) -> int:
+            return conn.execute(
+                text(reference.format(table=table)), {"code": code}
+            ).scalar_one()
+
+        item_columns = {
+            "item_kind_id": "item_kind",
+            "storage_form_id": "storage_form",
+            "authenticity_id": "authenticity",
+            "status_id": "item_status",
+            "disposition_id": "disposition",
+            "valuation_basis_id": "valuation_basis",
+        }
+        required = {column: add(table, "x") for column, table in item_columns.items()}
+        currency_id = conn.execute(
+            text(
+                "INSERT INTO currency (code, label, sort_order, is_active, source, "
+                "symbol, minor_units) VALUES ('USD', 'US dollar', 0, true, 'seeded', "
+                "'$', 2) RETURNING id"
+            )
+        ).scalar_one()
+        store_id = conn.scalar(text("SELECT id FROM sales_venue WHERE code = 'store'"))
+
+        # There is no row shape at this revision the backfill would need to
+        # skip: `listing.inventory_item_id` is already `NOT NULL` here, so
+        # every line's listing already names an item -- confirmed against
+        # the schema itself, not assumed the way the migration's own
+        # docstring states it.
+        nullable = conn.scalar(
+            text(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'listing' AND column_name = 'inventory_item_id'"
+            )
+        )
+        assert nullable == "NO"
+
+        def add_item() -> int:
+            return conn.execute(
+                text(
+                    "INSERT INTO inventory_item (item_kind_id, storage_form_id, "
+                    "authenticity_id, status_id, disposition_id, valuation_basis_id, "
+                    "item_cost, shipping_cost, tax_rate, tax_includes_shipping, "
+                    "source, created_at, updated_at) VALUES (:item_kind_id, "
+                    ":storage_form_id, :authenticity_id, :status_id, "
+                    ":disposition_id, :valuation_basis_id, 0, 0, 0, false, "
+                    "'manual', now(), now()) RETURNING id"
+                ),
+                required,
+            ).scalar_one()
+
+        def add_listing(item_id: int, price: str) -> int:
+            return conn.execute(
+                text(
+                    "INSERT INTO listing (inventory_item_id, price, currency_id, "
+                    "sales_venue_id, format, status, listed_at, created_at, "
+                    "updated_at) VALUES (:i, :p, :c, :s, 'fixed_price', 'ended', "
+                    "now(), now(), now()) RETURNING id"
+                ),
+                {"i": item_id, "p": price, "c": currency_id, "s": store_id},
+            ).scalar_one()
+
+        # An unordered decoy listing first, so `listing.id` and
+        # `sales_order_item.id` start from different numbers below --
+        # otherwise both id sequences begin at 1 in a fresh database and a
+        # join on the wrong column (`listing.id = sales_order_item.id`
+        # instead of `listing.id = sales_order_item.listing_id`) would
+        # still match every row by coincidence and this test would not
+        # catch it. Never ordered, so the backfill must not give it a
+        # share either.
+        decoy_item_id = add_item()
+        add_listing(decoy_item_id, "1.00")
+
+        item_ids = {"first": add_item(), "second": add_item()}
+        listing_ids = {
+            "first": add_listing(item_ids["first"], "100.00"),
+            "second": add_listing(item_ids["second"], "45.00"),
+        }
+        customer_id = conn.execute(
+            text(
+                "INSERT INTO customer (display_name, created_at, updated_at) "
+                "VALUES ('A buyer', now(), now()) RETURNING id"
+            )
+        ).scalar_one()
+        order_id = conn.execute(
+            text(
+                "INSERT INTO sales_order (customer_id, sales_venue_id, "
+                "sales_order_status_id, placed_at, created_at, updated_at) "
+                "VALUES (:c, :v, :s, now(), now(), now()) RETURNING id"
+            ),
+            {
+                "c": customer_id,
+                "v": store_id,
+                "s": add("sales_order_status", "placed"),
+            },
+        ).scalar_one()
+        # Different quantity *and* different price on each line, so a
+        # transposition fails one of them even if it happens to agree on
+        # the other.
+        lines = {
+            "first": (listing_ids["first"], 2, "100.00"),  # 200.00
+            "second": (listing_ids["second"], 3, "45.00"),  # 135.00
+        }
+        line_ids = {
+            name: conn.execute(
+                text(
+                    "INSERT INTO sales_order_item (sales_order_id, listing_id, "
+                    "quantity, unit_price) VALUES (:o, :l, :q, :p) RETURNING id"
+                ),
+                {"o": order_id, "l": listing_id, "q": qty, "p": price},
+            ).scalar_one()
+            for name, (listing_id, qty, price) in lines.items()
+        }
+
+    upgrade(config, "head")
+    with engine.connect() as conn:
+        shares = {
+            row.sales_order_item_id: (
+                row.inventory_item_id,
+                row.amount,
+                row.fee_amount,
+            )
+            for row in conn.execute(
+                text(
+                    "SELECT sales_order_item_id, inventory_item_id, amount, "
+                    "fee_amount FROM sales_order_item_share"
+                )
+            )
+        }
+    engine.dispose()
+    assert shares == {
+        line_ids["first"]: (item_ids["first"], Decimal("200.00"), Decimal("0.00")),
+        line_ids["second"]: (item_ids["second"], Decimal("135.00"), Decimal("0.00")),
+    }
 
 
 def test_migrations_round_trip(round_trip_url: str) -> None:
