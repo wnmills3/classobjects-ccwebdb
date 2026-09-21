@@ -21,6 +21,7 @@ from ..models import (
     SalesOrderChange,
     SalesOrderItem,
     SalesOrderStatus,
+    SalesVenue,
     User,
     UserRole,
 )
@@ -34,6 +35,7 @@ from ..order_writes import (
     revise_order,
 )
 from ..references import require_code
+from ..sales_venues import store_venue_id
 from ..schemas import (
     OrderChangeOut,
     OrderCreate,
@@ -240,7 +242,11 @@ def list_order_changes(
 def update_order_status(
     order_id: int, payload: OrderStatusUpdate, db: DbSession, admin: AdminUser
 ) -> OrderOut:
-    """Advance an order. Cancelling an unshipped one returns its stock.
+    """Advance an order. Cancelling an unshipped store one returns its stock.
+
+    An order recorded from an outside platform cannot be cancelled at all:
+    its listing was ended by the sale, so there is nothing to return the
+    stock to (see the refusal below).
 
     Locks and re-reads the `sales_order` row -- order first, listings second
     (inside `return_stock`), the same sequence `revise_order` uses -- so the
@@ -259,6 +265,31 @@ def update_order_status(
         )
 
     previous = _status_code(db, order)
+    # An order recorded from an outside platform cannot be cancelled here.
+    # `sales_writes.record_sale` **ended** the listing when it recorded the
+    # sale, and `return_stock` below would add the quantity back to that ended
+    # listing: `_after_stock_change` then cannot move the item off `sold`,
+    # because an ended listing's generated `is_active` is false. The result is
+    # an ended listing carrying phantom stock and an item stuck at `sold`,
+    # which `offering_writes._refuse_sold` will never let anyone offer again --
+    # and the console has no remedy for either. Refusing the transition is the
+    # only option here that leaves nothing stranded; undoing an outside sale
+    # needs a path that re-offers the item, which nothing has yet.
+    #
+    # Only the transition *to* cancelled is refused, so re-sending `cancelled`
+    # on an already-cancelled order stays the harmless no-op it is below.
+    if (
+        payload.status == "cancelled"
+        and previous != "cancelled"
+        and order.sales_venue_id != store_venue_id(db)
+    ):
+        venue = db.get(SalesVenue, order.sales_venue_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Order #{order_id} records a sale on "
+            f"{venue.name if venue else 'another platform'}, whose listing was "
+            "ended by the sale. It cannot be cancelled here.",
+        )
     # Cancelling an unshipped order put its stock back on sale. Moving it on
     # again would leave an order standing on stock already offered to the next
     # buyer -- the same coins sold twice. Re-sending "cancelled" stays harmless.

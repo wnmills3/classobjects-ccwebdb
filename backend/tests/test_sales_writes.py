@@ -23,9 +23,10 @@ from app.models import (
     SalesVenueKind,
     User,
 )
+from app.models.base import utcnow
 from app.sales_writes import FeeLine, SaleRefused, record_sale
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 
@@ -372,6 +373,92 @@ def test_an_already_ended_listing_cannot_be_sold(
             ebay_listing,
             price=Decimal("120.00"),
             buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
+
+
+def test_a_second_sale_of_the_same_listing_is_refused_as_not_on_offer(
+    db: Session, ebay_listing: Listing, admin_user: User, ebay_venue: SalesVenue
+) -> None:
+    """The loser of a race is told the offer is over, not that stock ran out.
+
+    The winner's transaction is simulated rather than threaded, and the shape
+    is the one that matters: the row says `ended` while the caller's instance
+    still says `active`. `synchronize_session=False` is what keeps the
+    instance stale -- with the default, the UPDATE would refresh the identity
+    map and there would be no stale read left to catch. That is exactly the
+    caller `routers.offers` hands `record_sale`: a plain `db.get` taken before
+    any lock was held.
+
+    `quantity_available` is raised to 3 on purpose. At 1, `place_order`'s
+    stock check refuses the second sale anyway -- for the wrong reason, with a
+    message about how many remain -- so a test at 1 would pass with or without
+    the locked re-read. Above 1 nothing else stands in the way, which is the
+    state `app/seed.py`'s demo listings (5 and 20 against one item) are
+    actually in.
+
+    The claim is released alongside the listing because that is what the
+    winner's `end_offer` would have done, and the suite's claim invariant
+    checks the pair after every test -- an ended listing still holding an
+    active claim would fail here for a reason this test is not about.
+    """
+    listing_id = ebay_listing.id
+    ebay_listing.quantity_available = 3
+    db.flush()
+    db.execute(
+        update(Listing)
+        .where(Listing.id == listing_id)
+        .values(status=ListingStatus.ended, ended_at=utcnow())
+        .execution_options(synchronize_session=False)
+    )
+    db.execute(
+        update(OfferClaim)
+        .where(OfferClaim.listing_id == listing_id)
+        .values(state=ClaimState.released)
+        .execution_options(synchronize_session=False)
+    )
+    # The stale read the old code decided on: still `active` in Python.
+    assert ebay_listing.status is ListingStatus.active
+
+    with pytest.raises(SaleRefused, match="not on offer"):
+        record_sale(
+            db,
+            ebay_listing,
+            price=Decimal("131.50"),
+            buyer_username="secondbidder",
+            external_order_id="04-99999-11111",
+            fees=[FeeLine("commission", Decimal("17.40"))],
+            recorded_by=admin_user,
+        )
+    # Refused before the first write, so the race's loser left nothing behind.
+    assert _customer_count(db, ebay_venue.id) == 0
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(SalesOrder)
+            .where(SalesOrder.sales_venue_id == ebay_venue.id)
+        )
+        == 0
+    )
+
+
+def test_a_refusal_names_the_platform_as_well_as_the_listing(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """The spec's *Errors* section asks for the listing **and** its platform.
+
+    An owner with the same coin offered in two places cannot act on "Listing
+    41 is not on offer" alone.
+    """
+    offering_writes.end_offer(db, ebay_listing)
+    with pytest.raises(SaleRefused, match=r"Listing \d+ on eBay is not on offer"):
+        record_sale(
+            db,
+            ebay_listing,
+            price=Decimal("142.25"),
+            buyer_username="latecomer",
             external_order_id=None,
             fees=[],
             recorded_by=admin_user,

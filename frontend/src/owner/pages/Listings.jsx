@@ -283,6 +283,17 @@ export default function Listings() {
 
   const byId = new Map(listings.map((l) => [l.id, l]))
 
+  /** Whether a row's platform is the web store itself.
+   *
+   * `is_own_store` from the platform list, not the code `store`: the store
+   * platform is a row like any other and an installation may have named it
+   * something else. A platform this page could not match reads as false --
+   * see the Record sale guard below for why that direction.
+   */
+  function isStore(listing) {
+    return venues.find((v) => v.code === listing.venue)?.is_own_store === true
+  }
+
   /** Why a row is paused, naming the platform when that listing is on screen. */
   function pausedFor(listing) {
     const id = listing.paused_by_listing_id
@@ -418,8 +429,24 @@ export default function Listings() {
                   {/* Only an active row: `record_sale` itself refuses a
                       paused or ended listing with "not on offer", and a
                       paused row is a store listing set aside for an offer
-                      elsewhere, not something that just sold there. */}
-                  {l.status === 'active' && (
+                      elsewhere, not something that just sold there.
+
+                      And never on a store row. Recording a sale of a store
+                      listing is a second way to sell a shop item -- past the
+                      cart, past checkout, minting an "Undisclosed buyer
+                      (store)" when the buyer is left blank -- which is an
+                      accident of `_STATUS_BY_VENUE_KIND` having an
+                      `own_store` key, not a decision anyone made. An
+                      in-person or show sale may well want it; that is the
+                      owner's call, recorded as an open decision in
+                      `docs/specs/selling-design.md`, and until it is made the
+                      button is not offered. An unmatched platform (the venue
+                      list failed to load, and the table still shows) reads as
+                      "not the store", the same way `isAuctionHouse` below
+                      reads an unmatched one as "not an auction house":
+                      guessing the other way would hide the button on every
+                      row that legitimately has one. */}
+                  {l.status === 'active' && !isStore(l) && (
                     <button
                       className="link"
                       onClick={() => {

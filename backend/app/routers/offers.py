@@ -415,12 +415,19 @@ def end_listing(listing_id: int, db: DbSession, _admin: AdminUser) -> ListingOut
 def _sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
     """Shape a recorded sale for the console: gross, fees, net, buyer, items.
 
-    Read with fresh `select()`s, not `order.fees` or a line's `.shares` --
-    both are relationships this same session could have already cached empty
-    before the rows existed, the same shape of staleness `record_sale`'s own
-    docstring warns about. `net_amount` is computed here and only here:
-    `record_sale`'s module docstring says net payout is never stored, so
-    this is the one place the subtraction happens.
+    Both figures are read with their own `select()` rather than through
+    `order.fees` and each line's `.shares`: the fee total is a `sum()` the
+    database can do without loading a row per fee, and the item codes need a
+    join to `inventory_item` anyway, because they come back ordered by
+    `item_code` rather than by share id. (Until `place_order` stopped
+    consulting a new line's shares, these queries were also working around a
+    collection left cached empty from before the row existed -- see
+    `order_writes._sync_shares`. That hazard is gone; the queries stay for the
+    two reasons above.)
+
+    `net_amount` is computed here and only here: `record_sale`'s module
+    docstring says net payout is never stored, so this is the one place the
+    subtraction happens.
     """
     fee_total = db.scalar(
         select(func.sum(SalesOrderFee.amount)).where(

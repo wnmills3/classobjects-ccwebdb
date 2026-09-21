@@ -663,6 +663,13 @@ class SalesOrderItemShare(Base):
             "inventory_item_id",
             name="uq_share_line_item",
         ),
+        # The same floor `sales_order_fee.amount` has. A share is a division of
+        # a line's money, and `allocation.allocate` cannot produce a negative
+        # part of a non-negative whole -- so this is a guard against a future
+        # writer, not against today's arithmetic, and it belongs in the
+        # database for the same reason the fee's does: a rule that lives only
+        # in application code is one new caller away from being untrue.
+        CheckConstraint("amount >= 0", name="ck_sales_order_item_share_non_negative"),
     )
 
 

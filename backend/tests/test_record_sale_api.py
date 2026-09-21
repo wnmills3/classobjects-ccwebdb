@@ -312,3 +312,46 @@ def test_recording_a_sale_ends_the_listing(
     reloaded = db.get(Listing, ebay_listing_id)
     assert reloaded is not None
     assert reloaded.status.value == "ended"
+
+
+def test_a_recorded_outside_sale_cannot_be_cancelled(
+    client: TestClient,
+    db: Session,
+    ebay_listing: Listing,
+    admin_headers: dict[str, str],
+) -> None:
+    """Cancelling one would strand the item on `sold` with no way back.
+
+    `record_sale` ended the listing, so `order_writes.return_stock` would add
+    the quantity back to an **ended** listing -- whose generated `is_active`
+    is false, which is exactly the condition `_after_stock_change` needs to be
+    true before it moves the item off `sold`. The order would read cancelled
+    while the listing carried phantom stock and the item stayed `sold`
+    forever, refused by `offering_writes._refuse_sold` on every later attempt
+    to offer it. The refusal is the remedy: nothing is written at all.
+    """
+    ebay_listing_id = ebay_listing.id
+    recorded = _post(client, ebay_listing_id, admin_headers)
+    assert recorded.status_code == 201, recorded.text
+    order_id = recorded.json()["id"]
+
+    response = client.patch(
+        f"/api/orders/{order_id}",
+        json={"status": "cancelled"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 409, response.text
+    assert "eBay" in response.json()["detail"]
+    assert "cannot be cancelled" in response.json()["detail"]
+
+    # Nothing moved: the sale still stands, and the item is still sold rather
+    # than holding stock on a listing no one can see.
+    db.expire_all()
+    listing = db.get(Listing, ebay_listing_id)
+    assert listing is not None
+    assert listing.status.value == "ended"
+    assert listing.quantity_available == 0
+    assert listing.inventory_item.disposition.code == "sold"
+    still_paid = client.get(f"/api/orders/{order_id}", headers=admin_headers)
+    assert still_paid.status_code == 200
+    assert still_paid.json()["status"] == "paid"

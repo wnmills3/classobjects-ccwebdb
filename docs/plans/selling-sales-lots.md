@@ -47,16 +47,17 @@ Every task's requirements implicitly include this section.
 
 ## Carried from phase 2R
 
-Four findings from the record-a-sale branch. Each is real code today but
+Five findings from the record-a-sale branch. (a) to (d) are real code today but
 **latent** -- unreachable while a listing can only ever name one item -- and
-becomes live the moment a lot listing exists. They were recorded in that
+become live the moment a lot listing exists. They were recorded in that
 branch's scratch directory, which is deleted at the end of its work, so this
 plan is their only durable home. (a) and (c) are folded into Task 4, below,
 since that is the task that already touches the same functions; (b) is
 already satisfied by Task 4's own test list, noted there; (d) has no task
 that touches its files, so it is recorded here and should be fixed early in
 this phase, before Task 7 adds new races that commit `OfferClaim` rows to the
-same test database.
+same test database. (e) is a missing test, not a latent bug, and was added
+2026-09-21 by the branch's final review.
 
 a. **`order_writes._sync_shares` returns early when
    `listing.inventory_item_id is None`.** That early return sits *before* the
@@ -101,6 +102,27 @@ d. **`test_concurrency.py:66` and `test_order_revision_race.py:103` both do
    own listings) before deleting the listings, the same way they already
    scope `InventoryItem` and `User` deletes by `RACE_TITLE` / email pattern
    rather than deleting every row of those tables too.
+
+e. **The suite-wide invariant "an item's disposition agrees with its claims"
+   is unscheduled anywhere.** `docs/specs/selling-design.md`'s *Testing*
+   section lists three invariants to check after every write in the suite.
+   Claim-state-vs-listing-status is built (phase 2R, `_claim_invariant` in
+   `backend/tests/conftest.py`). Lot-membership-vs-lot-status is deferred to
+   this phase by that document's *Revision, 2026-09-20* note. The
+   disposition one is named in neither place -- it was simply never picked
+   up, which is how a `sold` item left holding an active claim, or a `listed`
+   item holding none, would go unnoticed for a whole branch.
+
+   The mechanism already exists and costs one more query: `_claim_invariant`
+   is autouse, already fetches `db` when a test has one, and already grades a
+   join of `listing` against `offer_claim`. The addition is a second query
+   joining `inventory_item` to `offer_claim` (plus `disposition`) and the same
+   `ClaimInvariantViolation` on a disagreement -- and the waiver marker it
+   already honours covers the tests that deliberately build a disagreeing
+   pair. Write the rule down before writing the query: `listed` requires a
+   held claim, `sold` requires none held, and `held` requires none held --
+   the shapes `offering_writes` and `order_writes._after_stock_change`
+   actually produce, checked against the real collection rather than assumed.
 
 ---
 

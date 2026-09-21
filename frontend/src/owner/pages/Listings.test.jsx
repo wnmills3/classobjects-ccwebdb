@@ -58,6 +58,35 @@ const STORE = {
   version: 1,
 }
 
+// The same coin consigned to an auction house. Its platform kind is what
+// `Listings.jsx` looks up to tell `RecordSaleDialog` a blank buyer means this
+// house's undisclosed buyer -- the only row shape that exercises that lookup.
+const HERITAGE = {
+  ...EBAY,
+  id: 22,
+  item_id: 9,
+  item_code: 'C-0009',
+  item_title: '1893-S Morgan Dollar',
+  venue: 'heritage',
+  venue_name: 'Heritage',
+  price: '2450.00',
+  title: '1893-S Morgan Dollar VF20',
+  external_id: '7654321',
+  external_url: null,
+  version: 2,
+}
+
+// A store listing that is genuinely on offer rather than set aside. This is
+// the row that used to carry a Record sale button, which would have sold a
+// shop item past the cart and past checkout.
+const ACTIVE_STORE = {
+  ...STORE,
+  id: 31,
+  status: 'active',
+  paused_by_listing_id: null,
+  version: 4,
+}
+
 const VENUES = [
   {
     code: 'store',
@@ -396,6 +425,56 @@ describe('Listings', () => {
       within(active).getByRole('button', { name: 'Record sale…' }),
     ).toBeInTheDocument()
     expect(within(paused).queryByRole('button', { name: 'Record sale…' })).toBeNull()
+  })
+
+  // Not on the store's own rows, however active they are. `record_sale` maps
+  // `own_store` to `paid` and would happily take one -- selling a shop item
+  // past the cart, past checkout, and minting an "Undisclosed buyer (store)"
+  // if the username were left blank. Whether that is wanted for an in-person
+  // or show sale is the owner's decision, open in
+  // `docs/specs/selling-design.md`; the button is not offered until it is made.
+  it('does not offer Record sale on the store platform', async () => {
+    api.listListings.mockResolvedValue([EBAY, ACTIVE_STORE])
+    renderPage()
+    const store = await screen.findByRole('row', { name: /^Web store/ })
+    expect(within(store).queryByRole('button', { name: 'Record sale…' })).toBeNull()
+    // The eBay row beside it, equally active, still has one -- so this is
+    // about the platform and not about the button vanishing everywhere.
+    expect(
+      within(rowFor('eBay')).getByRole('button', { name: 'Record sale…' }),
+    ).toBeInTheDocument()
+  })
+
+  // The `venues.find(...)?.kind === 'auction_house'` lookup this page does for
+  // `RecordSaleDialog` had no test opening the dialog on such a row, so the
+  // lookup could have returned anything.
+  it('tells an auction house row that a blank buyer is the undisclosed one', async () => {
+    const user = userEvent.setup()
+    api.listListings.mockResolvedValue([HERITAGE])
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^Heritage/ })
+    await user.click(within(row).getByRole('button', { name: 'Record sale…' }))
+    const dialog = screen.getByRole('dialog', {
+      name: 'Record sale of C-0009 on Heritage',
+    })
+    expect(within(dialog).getByText(/Heritage's undisclosed buyer/)).toBeVisible()
+  })
+
+  // The other side of the same lookup: a marketplace row must not be told
+  // anything about an undisclosed buyer, or the wording above would be what
+  // every platform says and the lookup would be doing nothing.
+  it('tells a marketplace row only that the platform may not name a buyer', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    await user.click(within(row).getByRole('button', { name: 'Record sale…' }))
+    const dialog = screen.getByRole('dialog', { name: 'Record sale of C-0007 on eBay' })
+    expect(
+      within(dialog).getByText(
+        'Leave the buyer blank if the platform does not name who bought it.',
+      ),
+    ).toBeVisible()
+    expect(within(dialog).queryByText(/undisclosed buyer/)).toBeNull()
   })
 
   it('records a sale, then reloads and announces what was recorded', async () => {

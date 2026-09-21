@@ -6,7 +6,7 @@ import json
 from decimal import Decimal
 
 import pytest
-from app.models import Grade, ProvenanceSource
+from app.models import REFERENCE_MODELS, Grade, ProvenanceSource, ReferenceMixin
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -138,6 +138,86 @@ def test_every_listed_vocabulary_can_actually_be_fetched(
         response = client.get(f"/api/reference/{table}")
         assert response.status_code == 200, f"{table} listed but not fetchable"
         assert response.json()["table"] == table
+
+
+def _classifier_tables() -> dict[str, type[ReferenceMixin]]:
+    """Every concrete `ReferenceMixin` subclass, by table name.
+
+    Walked from the mixin rather than from a list, because a list is exactly
+    what the test below is checking. Subclasses without a `__tablename__` are
+    abstract intermediates, not tables.
+    """
+    found: dict[str, type[ReferenceMixin]] = {}
+    pending = list(ReferenceMixin.__subclasses__())
+    while pending:
+        model = pending.pop()
+        pending.extend(model.__subclasses__())
+        table = getattr(model, "__tablename__", None)
+        if isinstance(table, str):
+            found[table] = model
+    return found
+
+
+def test_every_reference_table_is_registered() -> None:
+    """A classifier table missing from `REFERENCE_MODELS` has no endpoint.
+
+    `routers.reference.TABLES` is built from that tuple alone, so a
+    `ReferenceMixin` subclass left out of it answers 404 at
+    `/api/reference/<table>` -- and the console's `useReference` swallows the
+    failure and caches an empty vocabulary, so the form renders with the
+    picker silently missing rather than with an error anyone would notice.
+    That is exactly what happened to `sales_fee_kind`: the model, the
+    migration, the seeded codes and the dialog all shipped, and the tuple was
+    never touched, so **Record sale...** offered no fee rows at all.
+
+    Nothing else in the suite compares the two, which is why the omission
+    survived a whole branch.
+    """
+    registered = {model.__tablename__ for model in REFERENCE_MODELS}
+    missing = sorted(set(_classifier_tables()) - registered)
+    assert missing == [], (
+        f"classifier table(s) {missing} are ReferenceMixin subclasses with no "
+        "entry in models.REFERENCE_MODELS, so /api/reference/<table> answers "
+        "404 for them"
+    )
+
+
+def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
+    """The six seeded fee kinds come back through the reference endpoint.
+
+    `RecordSaleDialog` builds one fee row per value this returns. A 404 here
+    is a dialog whose fees are all zero and whose net always equals its
+    gross, with nothing on screen saying so.
+
+    The order asserted is alphabetical by label, not the migration's
+    `sort_order`: fees are a descriptive list, so they are not in
+    `_SEQUENCED_TABLES` and get the same scanned-by-name order every other
+    descriptive vocabulary gets.
+    """
+    response = client.get("/api/reference/sales_fee_kind")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["table"] == "sales_fee_kind"
+    assert [value["code"] for value in body["values"]] == [
+        "commission",
+        "listing",
+        "other",
+        "processing",
+        "promotion",
+        "shipping_label",
+    ]
+
+
+def test_a_fee_kind_cannot_be_retired(client: TestClient) -> None:
+    """Retiring one would 422 every sale that charges it.
+
+    `record_sale` resolves a fee line's kind through `require_code`, which
+    filters on `is_active` -- so a retired `commission` makes every sale
+    charging a commission fail, naming a code the dialog had just offered.
+    """
+    values = client.get("/api/reference/sales_fee_kind").json()["values"]
+    commission = next(value for value in values if value["code"] == "commission")
+    assert commission["retirable"] is False
 
 
 # ---------------------------------------------------------------------------
