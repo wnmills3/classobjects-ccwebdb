@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.sql.selectable import ScalarSelect
 
-from .. import grades, item_attributes, offering_writes, sale_state
+from .. import grades, item_attributes, lot_writes, offering_writes, sale_state
 from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
@@ -1657,19 +1657,33 @@ def set_item_errors(
 def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
     """Soft delete: this row should never have existed.
 
-    Guarded twice, because both failures are silent. A lot with pieces holds
-    the cost basis they were allocated from, and deleting it would leave four
-    coins descended from nothing. An item that has ever been listed is
-    referenced by the offer -- and through it by any order -- which would then
-    point at a row the reports exclude.
+    Guarded three times, because every failure is silent. A lot with pieces
+    holds the cost basis they were allocated from, and deleting it would
+    leave four coins descended from nothing. An item that has ever been
+    offered is referenced by the offer -- and through it by any order --
+    which would then point at a row the reports exclude. An item in a sales
+    lot is a coin the group still names, and deleting it would leave the lot
+    offering something no view can find.
 
-    The listing guard is permanent, not a "do this first": any listing row
-    refuses, ended ones included, and nothing removes a listing row (the
-    catalogue's `DELETE /api/catalog/{listing_id}` was retired in phase 2, and
+    The offer guard is permanent, not a "do this first": any offer refuses,
+    ended ones included, and nothing removes a listing row (the catalogue's
+    `DELETE /api/catalog/{listing_id}` was retired in phase 2, and
     `offer_claim` references the row `ON DELETE RESTRICT` anyway). That is the
     intended rule -- once a coin has been offered, the offer is part of the
     sales history -- so the message says so rather than naming a step that
     cannot clear it.
+
+    It asks `sale_state.ever_offered`, not a query of its own. The old query
+    was `Listing.inventory_item_id == item.id`, which a lot listing -- whose
+    `inventory_item_id` is null -- can never match, so a coin offered only
+    inside a lot was deleted silently. Routing through the shared predicate
+    is what stops that happening again for the next shape of offer: the claim
+    half it reads is written one row per member.
+
+    The lot guard is the clearable one, and deliberately separate. An
+    assembling lot has been shown to nobody and `lot_writes.remove_member`
+    really does take a coin back out of it, so this refusal names that remedy
+    instead of saying the record is permanent.
 
     **Reachable from the lot panel, not only from search.** After its last
     child is detached a parent still has `split_at` set, so it is invisible in
@@ -1695,18 +1709,26 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
             ),
         )
 
-    listed = db.scalar(
-        select(Listing.id).where(Listing.inventory_item_id == item.id).limit(1)
-    )
-    if listed is not None:
+    if item.id in sale_state.ever_offered(db, [item.id]):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"{item.item_code} has a listing and cannot be deleted. "
-                f"An item that has ever been offered stays in the record "
-                f"permanently -- ending the listing takes it off sale but "
-                f"does not remove it, because the offer is part of the "
-                f"business's sales history."
+                f"An item that has ever been offered -- on its own or inside "
+                f"a sales lot -- stays in the record permanently: ending the "
+                f"listing takes it off sale but does not remove it, because "
+                f"the offer is part of the business's sales history."
+            ),
+        )
+
+    in_lot = lot_writes.lot_holding(db, item.id)
+    if in_lot is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{item.item_code} is in sales lot #{in_lot.id} "
+                f"({in_lot.title}) and cannot be deleted. Take it out of the "
+                f"lot first."
             ),
         )
 

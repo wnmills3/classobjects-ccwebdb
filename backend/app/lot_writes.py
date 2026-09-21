@@ -39,6 +39,7 @@ __all__ = [
     "create_lot",
     "delete_lot",
     "edit_lot",
+    "lot_holding",
     "members_held",
     "open_members",
     "remove_member",
@@ -317,7 +318,7 @@ def _refuse_partial(db: Session, item: InventoryItem) -> None:
         )
 
 
-def _lot_holding(db: Session, item_id: int) -> SalesLot | None:
+def lot_holding(db: Session, item_id: int) -> SalesLot | None:
     """The lot with an open membership on this item, if one holds it now.
 
     At most one row can match -- `uq_sales_lot_item_open` guarantees it --
@@ -343,7 +344,7 @@ def add_member(db: Session, lot: SalesLot, item: InventoryItem) -> SalesLotItem:
     _refuse_unless_assembling(db, lot)
     _refuse_unofferable(item)
     _refuse_partial(db, item)
-    other = _lot_holding(db, item.id)
+    other = lot_holding(db, item.id)
     if other is not None:
         raise LotRefused(f"{item.item_code} is already in lot #{other.id}")
 
@@ -372,7 +373,7 @@ def add_member(db: Session, lot: SalesLot, item: InventoryItem) -> SalesLotItem:
         constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
         if constraint != "uq_sales_lot_item_open":
             raise
-        other = _lot_holding(db, item.id)
+        other = lot_holding(db, item.id)
         if other is None:
             raise LotRefused(f"{item.item_code} is already in another lot") from exc
         raise LotRefused(f"{item.item_code} is already in lot #{other.id}") from exc

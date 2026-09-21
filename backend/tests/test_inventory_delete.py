@@ -7,6 +7,8 @@ already bought.
 
 from __future__ import annotations
 
+from app import lot_writes, offering_writes
+from app.models import InventoryItem, Listing, SalesLot, SalesLotStatus
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -140,6 +142,82 @@ def test_an_ended_listing_still_refuses_and_the_message_says_so(
     detail = response.json()["detail"]
     assert "permanently" in detail
     assert "withdraw" not in detail.lower()
+
+
+def test_an_item_in_an_assembling_lot_cannot_be_deleted(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    lot_of_three: SalesLot,
+) -> None:
+    """A lot listing names no item, so the listing guard never saw a member.
+
+    `delete_item` asked two questions -- pieces split from the item, and
+    `Listing.inventory_item_id == item.id` -- and a lot's listing carries a
+    null `inventory_item_id`, so a coin in a lot passed both and was soft
+    deleted out from under the group it belongs to. Nothing else in
+    `delete_item` looked at memberships or claims.
+
+    The assertions below pin *why* this 409 happens: neither of the two old
+    guards matches, so a refusal can only come from the lot-aware one.
+    """
+    db.commit()
+    members = lot_writes.open_members(db, lot_of_three)
+    member_id = members[0].inventory_item_id
+    assert lot_of_three.status is SalesLotStatus.assembling
+    item = db.get_one(InventoryItem, member_id)
+    assert item.parent_item_id is None
+    assert db.query(Listing).filter_by(inventory_item_id=member_id).count() == 0
+
+    response = client.delete(f"/api/inventory/{member_id}", headers=admin_headers)
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert f"lot #{lot_of_three.id}" in detail
+    # A remedy that works: an assembling lot's membership really can be
+    # removed, unlike an offer, which is why this message is not the
+    # permanent one below.
+    assert "permanently" not in detail
+    db.expire_all()
+    assert db.get_one(InventoryItem, member_id).deleted_at is None
+
+
+def test_a_dissolved_lot_s_member_cannot_be_deleted(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+) -> None:
+    """Having been offered inside a lot is offer history, and it is permanent.
+
+    The harder half of the same hole: once the lot is dissolved its
+    memberships are released and its claims released too, so "is it in a lot
+    now" answers no. The coin was still offered to buyers, and the record of
+    that offer stays -- the same rule
+    `test_an_ended_listing_still_refuses_and_the_message_says_so` pins for a
+    direct listing.
+    """
+    sales_lot = offered_lot_listing.sales_lot
+    assert sales_lot is not None
+    member_id = lot_writes.open_members(db, sales_lot)[0].inventory_item_id
+    offering_writes.end_offer(db, offered_lot_listing)
+    db.commit()
+
+    # The state that makes this the discriminating case: no open membership
+    # left, and the listing names the lot rather than the coin -- so both the
+    # old listing guard and a "in a lot right now" guard answer no.
+    assert sales_lot.status is SalesLotStatus.dissolved
+    assert lot_writes.open_members(db, sales_lot) == []
+    assert offered_lot_listing.inventory_item_id is None
+
+    response = client.delete(f"/api/inventory/{member_id}", headers=admin_headers)
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "permanently" in detail
+    assert "withdraw" not in detail.lower()
+    db.expire_all()
+    assert db.get_one(InventoryItem, member_id).deleted_at is None
 
 
 def test_detaching_leaves_a_standalone_item(

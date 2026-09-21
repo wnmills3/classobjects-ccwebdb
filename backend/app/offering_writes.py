@@ -466,16 +466,16 @@ def _refuse_grouped(db: Session, item: InventoryItem) -> None:
     and `routers/offers.py` reads `item_code` off it to build what a person
     sees. Only `offered` refuses -- an `assembling` lot has been shown to
     nobody, and a `sold` or `dissolved` lot has released its members, so
-    `_lot_holding` cannot return one.
+    `lot_holding` cannot return one.
 
-    `lot_writes._lot_holding` rather than a query of this module's own, so
+    `lot_writes.lot_holding` rather than a query of this module's own, so
     "already in a lot" has one definition; `uq_sales_lot_item_open` is what
-    makes it a single row. Private by name and reached module-qualified: it
-    should be made public the day a third caller wants it.
+    makes it a single row. Public since `routers.inventory.delete_item`
+    became its third caller, as the note here previously said it should be.
     """
     from . import lot_writes
 
-    lot = lot_writes._lot_holding(db, item.id)
+    lot = lot_writes.lot_holding(db, item.id)
     if lot is not None and lot.status is SalesLotStatus.offered:
         raise OfferRefused(
             item.item_code,

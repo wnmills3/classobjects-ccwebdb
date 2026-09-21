@@ -624,3 +624,81 @@ def test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot(
 
     uses = sale_state.for_sale(db, [piece.id])
     assert any(use.kind == "order" for use in uses[piece.id])
+
+
+def test_an_offered_lot_s_member_warns_like_a_listed_item(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+) -> None:
+    """Spec: an item in an offered lot warns like a listed one.
+
+    Reached through the API, because the warning is a 409 an operator meets
+    on save, not a function's return value. The mutation that proves it:
+    delete the `claims_for` half of `sale_state._offering` and confirm this
+    goes red -- the direct half never matches a lot listing, whose
+    `inventory_item_id` is NULL.
+
+    The route is `PATCH /api/inventory/{id}`: `routers.inventory` declares
+    `@router.patch("/{item_id}")` on a router whose prefix is already
+    `/inventory`, so `/api/inventory/items/{id}` is not a route at all and
+    would answer 404 -- a status-only assertion there would say nothing
+    about the guard.
+    """
+    db.commit()
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member_id = lot.members[0].inventory_item_id
+
+    response = client.patch(
+        f"/api/inventory/{member_id}",
+        headers=admin_headers,
+        json={"source_title": "Renamed while offered"},
+    )
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail.startswith("For sale")
+    assert f"listing #{offered_lot_listing.id}" in detail
+
+
+def test_a_sold_lot_s_member_still_warns_while_the_order_is_open(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+    admin_user: User,
+) -> None:
+    """After the sale the claim is released, so only the share can find it.
+
+    This is the rule 2R decided and `sale_state`'s order half implements
+    (`SalesOrderItemShare.inventory_item_id`). A lot is the case that half
+    exists for, and nothing tested it with a real lot until now. The mutation
+    that proves it: join the order half through `listing.inventory_item_id`
+    instead of through the share, and confirm this goes red.
+
+    The status matters: `record_sale` on a `marketplace` venue creates the
+    order `paid`, which is in `OPEN_ORDER_STATUSES`. A `heritage_venue` sale
+    would be `delivered` and would deliberately not warn.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member_id = lot.members[0].inventory_item_id
+    record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-1",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    db.commit()
+
+    response = client.patch(
+        f"/api/inventory/{member_id}",
+        headers=admin_headers,
+        json={"source_title": "Renamed after the sale"},
+    )
+    assert response.status_code == 409
+    assert "order #" in response.json()["detail"]

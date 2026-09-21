@@ -13,8 +13,13 @@ again.
 
 An order reaches its items through `sales_order_item_share`, not through
 `listing.inventory_item_id`: a claim is released the moment its listing
-sells and a lot listing (phase 3) names no item at all, so the share is the
-only link that still finds a sold item's pieces.
+sells and a lot listing names no item at all, so the share is the only link
+that still finds a sold item's pieces.
+
+`for_sale` answers the present tense -- is this item being offered or held
+now. `ever_offered` below answers the past tense, which is a different
+question with a different reader: a delete is refused by offer history that
+`for_sale` has long since stopped reporting.
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ from .models import (
     InventoryItem,
     Listing,
     ListingStatus,
+    OfferClaim,
     SalesOrder,
     SalesOrderItem,
     SalesOrderItemShare,
@@ -38,7 +44,14 @@ from .models import (
     SalesVenue,
 )
 
-__all__ = ["OPEN_ORDER_STATUSES", "SaleUse", "for_sale", "guard", "refusal"]
+__all__ = [
+    "OPEN_ORDER_STATUSES",
+    "SaleUse",
+    "ever_offered",
+    "for_sale",
+    "guard",
+    "refusal",
+]
 
 #: Orders that hold an item but have not shipped it.
 #:
@@ -70,11 +83,16 @@ def _offering(db: Session, item_ids: Collection[int]) -> dict[int, set[int]]:
     """Which listings offer each item: the claims, and the listings themselves.
 
     Two sources because there are two ways an item is on a listing. A claim
-    (`app.offering_writes`) is the general one, and the only one that will
-    work for a lot, whose listing names the lot rather than its members. A
-    listing written directly against the item is the other: a listing made
-    before claims existed has none. Reading only claims would quietly stop
-    warning about those.
+    (`app.offering_writes`) is the general one, and the only one that works
+    for a lot, whose listing names the lot rather than its members -- proved
+    by `test_an_offered_lot_s_member_warns_like_a_listed_item` and
+    `test_a_sold_lot_s_member_still_warns_while_the_order_is_open`
+    (`tests/test_for_sale_guards.py`), which go red when this half is
+    removed and when the order half below is joined through
+    `listing.inventory_item_id` instead of through the share. A listing
+    written directly against the item is the other: a listing made before
+    claims existed has none. Reading only claims would quietly stop warning
+    about those.
     """
     wanted: dict[int, set[int]] = {}
     for item_id, claims in offering_writes.claims_for(db, item_ids).items():
@@ -161,6 +179,54 @@ def for_sale(db: Session, item_ids: Collection[int]) -> dict[int, list[SaleUse]]
     for uses in found.values():
         uses.sort(key=lambda use: (use.kind, use.id))
     return found
+
+
+def ever_offered(db: Session, item_ids: Collection[int]) -> set[int]:
+    """Which of these items an offer has ever named -- the past-tense question.
+
+    `for_sale` above asks the present tense, which is what an *edit* needs:
+    it stops warning once the offer ends, because an ended offer is no longer
+    what a buyer is looking at. A *delete* is the other case entirely. Once a
+    coin has been offered, the offer is part of the sales history and the row
+    it points at has to stay, so that refusal never clears -- it cannot be
+    asked through a query filtered to `ON_OFFER` or `OPEN_ORDER_STATUSES`,
+    and asking `for_sale` for it would answer no for every offer that has
+    since ended.
+
+    The same two halves as `_offering`, with the status and state filters
+    dropped. The claim half is what makes this lot-aware: `offering_writes.
+    offer` writes one claim per member and a lot's listing names the lot, so
+    an item that has only ever been offered inside a lot is reachable this
+    way and no other. Here rather than in `routers.inventory` because "is
+    this item spoken for" already has one home, and a second hand-written
+    answer is what `lot_writes._refuse_partial` had to stop being.
+
+    An item merely *assembling* into a lot is deliberately not here: it has
+    not been offered, `remove_member` deletes its membership outright, and so
+    the refusal it earns is a clearable one. `lot_writes.lot_holding` is the
+    question for that.
+    """
+    ids = list(item_ids)
+    if not ids:
+        return set()
+    named: set[int] = set(
+        db.scalars(
+            select(OfferClaim.inventory_item_id).where(
+                OfferClaim.inventory_item_id.in_(ids)
+            )
+        ).all()
+    )
+    # `inventory_item_id` is nullable on `listing` -- a lot listing leaves it
+    # null -- so the null is skipped rather than annotated away. The `in_`
+    # already excludes it; this keeps the set honestly `set[int]`.
+    named.update(
+        item_id
+        for item_id in db.scalars(
+            select(Listing.inventory_item_id).where(Listing.inventory_item_id.in_(ids))
+        )
+        if item_id is not None
+    )
+    return named
 
 
 def refusal(codes_and_uses: dict[str, list[SaleUse]]) -> str:
