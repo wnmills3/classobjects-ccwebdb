@@ -42,27 +42,27 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
-from tests.conftest import check_claim_invariant
+from tests.conftest import ClaimInvariantViolation, check_claim_invariant
 
 RACE_TITLE = "RACE Offer Contested Item"
 
 Outcome = str
 
 
-@pytest.fixture
-def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
-    """Real, committing sessions; removes every row the race creates.
+def _cleanup_race_rows(cleanup: Session) -> None:
+    """Check the claim invariant against these rows, then delete them regardless.
 
-    Checks the suite-wide claim invariant against these rows *before*
-    deleting them, not after. `_claim_invariant` (conftest.py) is autouse
-    and depends on `db`, but this fixture is requested explicitly by name,
-    and pytest tears an explicitly-requested fixture down before an autouse
-    one the test never named -- confirmed with a standalone probe, not
-    assumed. Left unchecked, this fixture's own cleanup below would delete
-    every row the race committed before `_claim_invariant` ever got to look
-    at them, so the suite-wide check would silently grade nothing for
-    exactly the file where a second writer racing `offering_writes` is most
-    likely to leave a claim and its listing disagreeing.
+    The check runs in a `try` and the deletes in its `finally` on purpose: a
+    real violation must still fail the suite (the `raise` propagates once the
+    `finally` block finishes), but the rows it found are committed by real,
+    independent sessions -- `conftest.py`'s `engine` fixture only
+    `create_all`s once per test *session*, with no per-test truncate, so
+    without this a genuine finding here would leave permanently poisoned rows
+    in `ccwebdb_test`, failing every later `_claim_invariant` check in the
+    same run and every run after that until someone cleans the database by
+    hand. `test_a_forced_violation_still_leaves_the_database_clean`, below,
+    proves both halves: that a real violation still raises, and that the
+    rows are gone afterward regardless.
 
     Deletion order respects the FKs a claim and a listing carry:
     ``offer_claim`` first (it points at both ``listing`` and
@@ -71,13 +71,10 @@ def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     DELETE removing both a paused listing and what it points to never
     violates that -- then the item and the venues this file made.
     """
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
-    yield factory
-    with factory() as cleanup:
+    item_ids = select(InventoryItem.id).where(InventoryItem.source_title == RACE_TITLE)
+    try:
         check_claim_invariant(cleanup)
-        item_ids = select(InventoryItem.id).where(
-            InventoryItem.source_title == RACE_TITLE
-        )
+    finally:
         cleanup.query(OfferClaim).filter(
             OfferClaim.inventory_item_id.in_(item_ids)
         ).delete(synchronize_session=False)
@@ -91,6 +88,27 @@ def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
             synchronize_session=False
         )
         cleanup.commit()
+
+
+@pytest.fixture
+def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """Real, committing sessions; removes every row the race creates.
+
+    Checks the suite-wide claim invariant against these rows *before*
+    deleting them, not after (see `_cleanup_race_rows`). `_claim_invariant`
+    (conftest.py) is autouse, but this fixture is requested explicitly by
+    name, and pytest tears an explicitly-requested fixture down before an
+    autouse one the test never named -- confirmed with a standalone probe,
+    not assumed. Left unchecked, this fixture's own cleanup would delete
+    every row the race committed before `_claim_invariant` ever got to look
+    at them, so the suite-wide check would silently grade nothing for
+    exactly the file where a second writer racing `offering_writes` is most
+    likely to leave a claim and its listing disagreeing.
+    """
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    yield factory
+    with factory() as cleanup:
+        _cleanup_race_rows(cleanup)
 
 
 def _code_id(session: Session, model: type[ReferenceMixin], code: str) -> int:
@@ -133,6 +151,63 @@ def _active_claims(factory: sessionmaker[Session], item_id: int) -> list[OfferCl
                     OfferClaim.state == ClaimState.active,
                 )
             ).all()
+        )
+
+
+def test_a_forced_violation_still_leaves_the_database_clean(
+    committed: sessionmaker[Session],
+) -> None:
+    """`_cleanup_race_rows` must delete even when its own check raises.
+
+    Poisons a real, committed claim/listing pair directly -- offered through
+    `offering_writes.offer` first, so the row shape is exactly what a real
+    race would leave, then flipped by hand the way `test_offering_writes.py`'s
+    `_claim()` helper does for the rolled-back suite, bypassing
+    `offering_writes` on purpose. Calls `_cleanup_race_rows` on a separate
+    session directly, rather than relying on this test's own `committed`
+    fixture teardown, so this proves the point without depending on
+    cross-test ordering: without the `try`/`finally` split inside it, this
+    would leave the poisoned rows behind forever (see that function's
+    docstring), and every later test in this run -- and every future run,
+    until someone cleans `ccwebdb_test` by hand -- would fail against them.
+    """
+    item_id = _seed_item(committed)
+    venue_id = _venue(committed, "race-poison")
+    with committed() as session:
+        item = session.get_one(InventoryItem, item_id)
+        venue = session.get_one(SalesVenue, venue_id)
+        listing = offering_writes.offer(
+            session,
+            item=item,
+            venue=venue,
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("10.00"),
+            title="",
+            description="",
+            external_id=None,
+            quantity=1,
+        )
+        session.commit()
+        claim = session.scalar(
+            select(OfferClaim).where(OfferClaim.listing_id == listing.id)
+        )
+        assert claim is not None
+        claim.state = ClaimState.released  # the listing is still active
+        session.commit()
+
+    with committed() as cleanup, pytest.raises(ClaimInvariantViolation):
+        _cleanup_race_rows(cleanup)
+
+    with committed() as verify:
+        assert (
+            verify.scalar(
+                select(InventoryItem.id).where(InventoryItem.source_title == RACE_TITLE)
+            )
+            is None
+        )
+        assert (
+            verify.scalar(select(SalesVenue.id).where(SalesVenue.code == "race-poison"))
+            is None
         )
 
 
