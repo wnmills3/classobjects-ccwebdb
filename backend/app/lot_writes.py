@@ -8,7 +8,8 @@ needing the claim rules.
 The two modules import each other, so the cycle is broken the way this
 codebase already breaks the `offering_writes`/`sale_state` one: this module
 imports `offering_writes` at the top, and `offering_writes` imports this one
-*inside* the two functions that need it. `tests/conftest.py` imports
+*inside* each of the four functions that need it (`_refuse_grouped`,
+`_lot_members`, `offered_items` and `_end`). `tests/conftest.py` imports
 `app.lot_writes` first, and a module-level import back from `offering_writes`
 raises `ImportError` in exactly that order.
 

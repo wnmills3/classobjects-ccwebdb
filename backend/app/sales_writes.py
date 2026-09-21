@@ -78,8 +78,10 @@ class SaleRefused(Exception):
 class SaleInputInvalid(SaleRefused):
     """The request itself is malformed, not merely in conflict with the state.
 
-    A negative or sub-cent price or fee, and (phase 3) a listing with no item
-    to divide money among, are bad input -- 422 at the HTTP boundary, per the
+    A negative or sub-cent price or fee, and a listing with nothing left to
+    divide money among (`_shared_items`, which answers empty for a lot whose
+    members have already been released), are bad input -- 422 at the HTTP
+    boundary, per the
     spec's own split between "bad input" and "conflicts with other work ... or
     a stale version". "Not on offer" and an unmapped venue kind stay the base
     `SaleRefused` -- 409 -- because both are true conflicts the caller could

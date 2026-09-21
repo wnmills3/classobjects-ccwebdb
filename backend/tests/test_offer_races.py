@@ -763,7 +763,7 @@ def test_offering_a_lot_races_offering_one_of_its_members(
     """A lot and one of its own members cannot both be offered.
 
     Survives: removing `.with_for_update()` from
-    `offering_writes._lock_items` (`app/offering_writes.py:302`) makes this
+    `offering_writes._lock_items` (`app/offering_writes.py`) makes this
     fail -- neither writer holds the coin's row, both decide on what they
     read before the other committed, and the loser's disposition write dies
     on `InventoryItem.version` instead of being refused with a reason.

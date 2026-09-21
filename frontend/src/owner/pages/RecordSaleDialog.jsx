@@ -131,9 +131,16 @@ export default function RecordSaleDialog({
         buyer_username: buyer.trim() === '' ? null : buyer.trim(),
         external_order_id: orderId.trim() === '' ? null : orderId.trim(),
         fees: entered.map(({ kind, text }) => ({ kind: kind.code, amount: text })),
-        // No lot has more than one item yet (phase 3), so there is nothing
-        // for equal_shares to decide today; `record_sale` still requires the
-        // field, and false is what a single-item sale means by it.
+        // `false` is the spec's default: a line's money is divided among the
+        // items it carried by each one's cost basis, and **equal** is only
+        // ever chosen explicitly. For a single-item sale the two are the
+        // same thing, which is what this said when no lot could be sold.
+        // A lot listing can now be sold here, so the choice is real -- and
+        // this dialog deliberately offers no control for it. Cost-weighted
+        // is the right default, an equal division is the rarer case, and
+        // adding a control nobody has asked for would put a question in
+        // front of every outside sale. The gap is recorded in
+        // `docs/specs/selling-design.md` under *Known limits*.
         equal_shares: false,
       })
       if (!mounted.current) return
