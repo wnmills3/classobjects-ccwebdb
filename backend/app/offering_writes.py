@@ -23,11 +23,17 @@ because those are exactly the writes this module is the single writer of.
 
 The writes here take the affected `inventory_item` rows `FOR UPDATE`, in id
 order, and re-read them under the lock -- the lock alone would leave the
-decision resting on values read before the wait. `offer` knows its item up
-front and locks it first. `end_offer` cannot: which items an ending touches is
-itself a query, so it reads the set, locks it, and reads again to confirm none
-joined in between (`_lock_affected_items`). That second read is what makes the
-"locked before the claims are read" rule true rather than nearly true.
+decision resting on values read before the wait. `offer` knows its items up
+front and locks them first. `end_offer` cannot: which items an ending touches
+is itself a query, so it reads the set, locks it, and reads again to confirm
+none joined in between (`_lock_affected_items`). That second read is what makes
+the "locked before the claims are read" rule true rather than nearly true.
+
+There are three kinds of row to lock, and `offer` takes them in this order:
+**lot row, then items (ascending id), then listings (ascending id)**. Each
+kind is taken in *one* statement, which is the part that matters: N sorted
+statements are not a sorted acquisition, and the listing half is where a lot
+makes that a real hazard (`_lock_offers`).
 
 **It owns the rule for what the shop may sell** -- our own store, fixed price,
 active -- in both the Python form (`sellable_in_shop`) and the SQL form
@@ -263,6 +269,28 @@ def _lock_items(db: Session, item_ids: Collection[int]) -> None:
     ).all()
 
 
+def _holds_any(item_ids: Collection[int]) -> ColumnElement[bool]:
+    """The one definition of "this listing holds one of these items".
+
+    Both halves, always: the listings written *against* an item, and any
+    listing written against something else whose claim names it -- a lot's,
+    since phase 3. Asking only the first half silently ignores exactly the
+    case the claim table exists for. Written once here because the three
+    callers below (`offers_holding`, `_lock_offers`, `_locked_offers`) must
+    agree: a listing one of them can see and another cannot is an item this
+    module would offer twice, or never let back to `held`.
+
+    The listing's own status is not asked here -- each caller adds its own
+    `Listing.status.in_(ON_OFFER)`, which is the outer half of
+    `_holding_claims`.
+    """
+    claimed = select(OfferClaim.listing_id).where(
+        OfferClaim.inventory_item_id.in_(item_ids),
+        OfferClaim.state.in_(HELD_BY),
+    )
+    return or_(Listing.inventory_item_id.in_(item_ids), Listing.id.in_(claimed))
+
+
 def offers_holding(db: Session, item_ids: Collection[int]) -> Sequence[Listing]:
     """Every live offer that holds any of these items, without locking.
 
@@ -281,17 +309,43 @@ def offers_holding(db: Session, item_ids: Collection[int]) -> Sequence[Listing]:
     ids = set(item_ids)
     if not ids:
         return []
-    claimed = select(OfferClaim.listing_id).where(
-        OfferClaim.inventory_item_id.in_(ids),
-        OfferClaim.state.in_(HELD_BY),
-    )
     return db.scalars(
         select(Listing)
-        .where(
-            Listing.status.in_(ON_OFFER),
-            or_(Listing.inventory_item_id.in_(ids), Listing.id.in_(claimed)),
-        )
+        .where(Listing.status.in_(ON_OFFER), _holds_any(ids))
         .order_by(Listing.id)
+    ).all()
+
+
+def _lock_offers(db: Session, item_ids: Collection[int]) -> None:
+    """Take every listing holding any of these items FOR UPDATE, in id order.
+
+    One statement for the whole batch, taken before any per-member work.
+    `_locked_offers` below is called once per member, and N sorted statements
+    are **not** a sorted acquisition: a lot of two whose shop listings are #9
+    and #4 would take #9 then #4, while a two-line `place_order`
+    (`order_writes._lock_listings`) takes #4 then #9 -- each transaction then
+    holds what the other waits for and Postgres aborts one. Ascending id is
+    this module's rule (`_lock_items`), and for listings one statement is what
+    keeps it now that a lot makes multi-row the ordinary case.
+
+    Nothing can join the set between this pass and the per-member calls: a
+    listing comes to hold an item only through a claim, this module is the
+    only writer of claims, and `_lock_items` holds these items' rows FOR
+    UPDATE already. So the per-member `_locked_offers` calls re-lock rows this
+    transaction already holds, which neither blocks nor reorders anything --
+    which is why they can stay exactly as they are, asking their own question
+    per member.
+    """
+    ids = set(item_ids)
+    if not ids:
+        return
+    db.scalars(
+        select(Listing)
+        .where(Listing.status.in_(ON_OFFER), _holds_any(ids))
+        .order_by(Listing.id)
+        .with_for_update(of=Listing)
+        .options(selectinload(Listing.sales_venue))
+        .execution_options(populate_existing=True)
     ).all()
 
 
@@ -308,17 +362,14 @@ def _locked_offers(db: Session, item_id: int) -> Sequence[Listing]:
     a paused claim invisible here but visible there would be an item this
     module would happily offer again and would never let go back to `held`.
     The listing-status half of `_holding_claims` is the outer `where` below.
+
+    Called once per member by `offer`, *after* `_lock_offers` has taken the
+    whole batch in one ascending statement -- see there for why that order
+    matters and why re-locking here is free.
     """
-    claimed = select(OfferClaim.listing_id).where(
-        OfferClaim.inventory_item_id == item_id,
-        OfferClaim.state.in_(HELD_BY),
-    )
     return db.scalars(
         select(Listing)
-        .where(
-            Listing.status.in_(ON_OFFER),
-            or_(Listing.inventory_item_id == item_id, Listing.id.in_(claimed)),
-        )
+        .where(Listing.status.in_(ON_OFFER), _holds_any([item_id]))
         .order_by(Listing.id)
         .with_for_update(of=Listing)
         .options(selectinload(Listing.sales_venue))
@@ -387,6 +438,50 @@ def _refuse_unofferable(db: Session, item: InventoryItem, venue: SalesVenue) -> 
     if not venue.is_active:
         raise OfferRefused(item.item_code, f"{venue.name} is retired")
     _refuse_sold(db, item)
+    _refuse_grouped(db, item)
+
+
+def _refuse_grouped(db: Session, item: InventoryItem) -> None:
+    """Refuse an item that is an open member of a lot already offered.
+
+    "Once offered it is frozen: the buyer is looking at that exact group"
+    (spec, *`sales_lot` and `sales_lot_item`*). A coin leaving the group
+    changes what the group *is*, so this is not the shop-to-eBay case where a
+    coin moves in one step -- that rule is about an item's own store listing,
+    not about a group someone is being shown. The owner ends or dissolves the
+    lot and then offers the coin: one deliberate act rather than a silent
+    cascade.
+
+    The cascade this prevents is concrete. A lot offered **in the shop** has
+    an own-store listing whose claims hold its members, so offering a member
+    on eBay would find that listing under `ours` and *pause* it -- pausing
+    every other member's claim with it. Settling the eBay sale then reaches
+    the paused lot listing through `_end`, dissolving the lot, while
+    `end_offer` returns before the disposition loop because the sale was
+    `sold=True`: every other member is left at `listed` with nothing offering
+    it. That is also why `_end` can still say a paused listing is an item
+    listing -- this refusal is what makes it true.
+
+    `OfferRefused`, not `LotRefused`: this is `offer` turning down one item,
+    and `routers/offers.py` reads `item_code` off it to build what a person
+    sees. Only `offered` refuses -- an `assembling` lot has been shown to
+    nobody, and a `sold` or `dissolved` lot has released its members, so
+    `_lot_holding` cannot return one.
+
+    `lot_writes._lot_holding` rather than a query of this module's own, so
+    "already in a lot" has one definition; `uq_sales_lot_item_open` is what
+    makes it a single row. Private by name and reached module-qualified: it
+    should be made public the day a third caller wants it.
+    """
+    from . import lot_writes
+
+    lot = lot_writes._lot_holding(db, item.id)
+    if lot is not None and lot.status is SalesLotStatus.offered:
+        raise OfferRefused(
+            item.item_code,
+            f"is in lot #{lot.id}, which is offered: "
+            "end or dissolve the lot before offering it on its own",
+        )
 
 
 def _lot_members(db: Session, lot: SalesLot) -> list[InventoryItem]:
@@ -412,6 +507,11 @@ def _lot_members(db: Session, lot: SalesLot) -> list[InventoryItem]:
     """
     from . import lot_writes
 
+    # Flushed first, because `Session.refresh` expires the instance *before*
+    # it autoflushes: a pending change to this lot would be discarded rather
+    # than written. No caller can do that today, and this is the line that
+    # keeps it that way once Task 5 gives lots a router.
+    db.flush()
     db.refresh(lot, with_for_update=True)
     if lot.status is not SalesLotStatus.assembling:
         raise lot_writes.LotRefused(
@@ -463,7 +563,11 @@ def offer(
     else:
         raise ValueError("offer() takes exactly one of item= and lot=, not neither")
 
-    _lock_items(db, [member.id for member in members])
+    member_ids = [member.id for member in members]
+    _lock_items(db, member_ids)
+    # Lot, then items, then listings -- each in one ascending statement. The
+    # per-member `_locked_offers` calls below re-lock what this already holds.
+    _lock_offers(db, member_ids)
 
     # Every condition for every member, before the first write below.
     to_pause: dict[int, Listing] = {}
@@ -666,8 +770,15 @@ def _end(db: Session, listing: Listing, *, sold: bool = False) -> None:
     and then sold or dissolved.
 
     `sold` is keyword-only with a `False` default so the resume path below,
-    which ends the *store* listings a sold offer paused, reads unchanged --
-    those are item listings, so the lot branch simply does not fire for them.
+    which ends the store listings a sold offer paused, reads unchanged. Those
+    listings are item listings -- but only because `_refuse_grouped` makes it
+    so, not because a lot listing could not otherwise be paused. A lot offered
+    in the shop *would* be paused by an offer of one of its members, and
+    ending that offer sold would dissolve the lot here while `end_offer`
+    skipped the disposition loop, stranding every other member at `listed`.
+    That refusal is the reason this branch does not fire for a paused
+    listing; if it is ever relaxed, this function is where the damage lands.
+
     A dissolved lot never comes back: re-offering the same coins starts a new
     lot, which is why nothing here moves a lot back to `assembling`.
     """
@@ -686,11 +797,18 @@ def _end(db: Session, listing: Listing, *, sold: bool = False) -> None:
     released = utcnow()
     for member in lot_writes.open_members(db, lot):
         member.released_at = released
-    # No row lock taken here, unlike `_lot_members`: `sales_lot.version` does
-    # protect a status write against another status writer, this module is the
-    # only one, and the listing above is already locked FOR UPDATE -- so the
-    # two ways into this line (ending an offer, settling a sale) are already
-    # serialised on the listing they both end.
+    # No explicit `FOR UPDATE` here, but that does *not* avoid an inversion:
+    # the UPDATE below takes the lot's row-level exclusive lock anyway, so
+    # this path's real order is items -> listing -> lot, the inverse of
+    # `offer`'s lot -> items -> listings. It is safe for a different reason,
+    # and the difference matters because the inversion argument would license
+    # a genuinely unsafe change later. Every path that *waits* on a lot row
+    # takes it first and holds nothing else (`offer`, `add_member`,
+    # `remove_member`), and the lot reached here always has a listing, so it
+    # is never a lot a concurrent `offer` could be holding -- that lot is
+    # still `assembling` and has no listing. No membership window is left
+    # either: `add_member` re-reads `offered` under the lock and refuses.
+    # `version_id_col` then covers this write against a stale in-session lot.
     lot.status = SalesLotStatus.sold if sold else SalesLotStatus.dissolved
 
 
