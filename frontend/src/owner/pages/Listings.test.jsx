@@ -8,6 +8,7 @@ vi.mock('../api', () => ({
     updateListing: vi.fn(),
     endListing: vi.fn(),
     listSalesVenues: vi.fn(),
+    recordSale: vi.fn(),
   },
 }))
 
@@ -15,7 +16,7 @@ import { api } from '../api'
 import Listings from './Listings'
 import { marginPercent } from './platform-rates'
 import { date } from '../../shared/format'
-import { adminAuth, renderWithProviders } from '../../test/helpers'
+import { adminAuth, emptyReference, renderWithProviders } from '../../test/helpers'
 
 // The offer that holds the item: on eBay, active, with a listing number.
 const EBAY = {
@@ -58,9 +59,30 @@ const STORE = {
 }
 
 const VENUES = [
-  { code: 'store', name: 'Web store', is_own_store: true, is_active: true },
-  { code: 'ebay', name: 'eBay', is_own_store: false, is_active: true },
+  {
+    code: 'store',
+    name: 'Web store',
+    kind: 'own_store',
+    is_own_store: true,
+    is_active: true,
+  },
+  {
+    code: 'ebay',
+    name: 'eBay',
+    kind: 'marketplace',
+    is_own_store: false,
+    is_active: true,
+  },
+  {
+    code: 'heritage',
+    name: 'Heritage',
+    kind: 'auction_house',
+    is_own_store: false,
+    is_active: true,
+  },
 ]
+
+const FEE_KINDS = [{ code: 'commission', label: 'Commission', is_active: true }]
 
 const STALE = 'This offer was changed by someone else. Reload and reapply your changes.'
 
@@ -70,8 +92,16 @@ const STALE = 'This offer was changed by someone else. Reload and reapply your c
 const rowFor = (platform) =>
   screen.getByRole('row', { name: new RegExp(`^${platform}`) })
 
+const feeKindsReference = emptyReference({
+  tables: { sales_fee_kind: FEE_KINDS },
+})
+
 function renderPage(options = {}) {
-  return renderWithProviders(<Listings />, { auth: adminAuth(), ...options })
+  return renderWithProviders(<Listings />, {
+    auth: adminAuth(),
+    reference: feeKindsReference,
+    ...options,
+  })
 }
 
 async function openEditor(user) {
@@ -350,6 +380,64 @@ describe('Listings', () => {
       expect(within(rowFor('Web store')).getByText('Active')).toBeVisible(),
     )
     expect(screen.queryByRole('row', { name: /^eBay/ })).toBeNull()
+  })
+
+  // Record sale both creates the order and ends the listing
+  // (`sales_writes.record_sale`), so it is offered only where End is safe to
+  // offer in the sense that matters here: a row still actually on offer.
+  // `record_sale` itself refuses anything but `active` with "not on offer",
+  // so a paused row -- a store listing set aside, not a thing that just sold
+  // there -- gets no button either.
+  it('offers Record sale only on an active row', async () => {
+    renderPage()
+    const active = await screen.findByRole('row', { name: /^eBay/ })
+    const paused = await screen.findByRole('row', { name: /^Web store/ })
+    expect(
+      within(active).getByRole('button', { name: 'Record sale…' }),
+    ).toBeInTheDocument()
+    expect(within(paused).queryByRole('button', { name: 'Record sale…' })).toBeNull()
+  })
+
+  it('records a sale, then reloads and announces what was recorded', async () => {
+    const user = userEvent.setup()
+    api.recordSale.mockResolvedValue({
+      id: 5,
+      external_order_id: null,
+      total_amount: '115.00',
+      fee_total: '20.35',
+      net_amount: '94.65',
+      buyer: 'coinfan88',
+      item_codes: ['C-0007'],
+    })
+    // The last arm is not `...Once`, for the same reason `end`'s test
+    // avoids it: a queued value a failed test never consumed would outlive
+    // it and answer the next test's first load.
+    api.listListings
+      .mockResolvedValueOnce([EBAY, STORE])
+      .mockResolvedValue([{ ...EBAY, status: 'ended' }, STORE])
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    await user.click(within(row).getByRole('button', { name: 'Record sale…' }))
+    const dialog = screen.getByRole('dialog', { name: 'Record sale of C-0007 on eBay' })
+    await user.type(within(dialog).getByLabelText('Sale price'), '115.00')
+    await user.type(within(dialog).getByLabelText('Commission'), '20.35')
+    await user.click(within(dialog).getByRole('button', { name: 'Record sale' }))
+
+    expect(api.recordSale).toHaveBeenCalledWith(14, {
+      price: '115.00',
+      buyer_username: null,
+      external_order_id: null,
+      fees: [{ kind: 'commission', amount: '20.35' }],
+      equal_shares: false,
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // The reload is the point, exactly as it is for End: `record_sale` also
+    // ends the listing on the server, and no patch to the one row could show
+    // that on its own.
+    await waitFor(() => expect(api.listListings).toHaveBeenCalledTimes(2))
+    expect(
+      await screen.findByText('Recorded C-0007 sold to coinfan88 for 94.65 net.'),
+    ).toBeVisible()
   })
 
   it('shows a refusal to end without losing the table', async () => {

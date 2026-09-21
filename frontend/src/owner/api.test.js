@@ -83,3 +83,62 @@ describe('updateImageLink', () => {
     expect(sentBody(fetchMock).acknowledge_for_sale).toBe(true)
   })
 })
+
+describe('recordSale', () => {
+  // RecordSaleIn validates price and every fee amount as a Decimal string --
+  // `ge=0, max_digits=12, decimal_places=2`. A `Number` round-trip anywhere
+  // between the dialog and this call is how a cent goes missing or a value
+  // the schema refuses gets sent, so this reads the literal JSON body rather
+  // than trusting that what went in comes out unchanged.
+  it('posts the money fields as the exact strings given, to the sale endpoint', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    // Three different numbers throughout, on purpose: a fixture where gross,
+    // one fee and price coincide could pass a body assertion for the wrong
+    // reason -- one value standing in for another.
+    await api.recordSale(14, {
+      price: '115.00',
+      buyer_username: 'coinfan88',
+      external_order_id: '04-12345-67890',
+      fees: [{ kind: 'commission', amount: '20.35' }],
+      equal_shares: false,
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/listings/14/sale',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    const body = sentBody(fetchMock)
+    expect(body).toEqual({
+      price: '115.00',
+      buyer_username: 'coinfan88',
+      external_order_id: '04-12345-67890',
+      fees: [{ kind: 'commission', amount: '20.35' }],
+      equal_shares: false,
+    })
+    // Strings, not numbers: `JSON.parse` would turn "115.00" into 115 if the
+    // client had converted it, silently dropping the trailing zero the
+    // schema's `decimal_places=2` requires on the wire.
+    expect(typeof body.price).toBe('string')
+    expect(typeof body.fees[0].amount).toBe('string')
+  })
+
+  it('sends a blank buyer and order id as null, not as an empty string', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.recordSale(14, {
+      price: '115.00',
+      buyer_username: null,
+      external_order_id: null,
+      fees: [],
+      equal_shares: false,
+    })
+
+    const body = sentBody(fetchMock)
+    expect(body.buyer_username).toBeNull()
+    expect(body.external_order_id).toBeNull()
+    expect(body.fees).toEqual([])
+  })
+})
