@@ -1094,6 +1094,38 @@ def test_the_history_of_a_lot_line_is_titled_by_the_lot(
     assert priced["listing_title"] == "Three Morgan Dollars"
 
 
+def test_a_revision_that_removes_a_lot_line_is_refused(
+    db: Session,
+    store_lot_listing: Listing,
+    customer_user: User,
+    admin_user: User,
+) -> None:
+    """The other way to hand a line's stock back, refused for the same reason.
+
+    Cancelling such an order is refused in `routers.orders`; removing the
+    line is the same act one screen along. The stock would go back to a
+    listing this module ended when the lot was bought, where
+    `_after_stock_change` cannot move the coins off `sold` -- so they would
+    be stranded exactly as a cancellation would strand them.
+    """
+    customer = customer_for_user(db, customer_user)
+    order = place_order(db, customer, [Line(store_lot_listing.id, 1)], admin_user)
+
+    with pytest.raises(HTTPException) as refused:
+        revise_order(
+            db,
+            order,
+            customer=customer,
+            lines=[],
+            notes=None,
+            version=order.version,
+            by=admin_user,
+        )
+
+    assert refused.value.status_code == 409
+    assert "has ended" in str(refused.value.detail)
+
+
 def test_a_revision_that_adds_a_lot_line_ends_the_lot_sold(
     db: Session,
     make_listing: Callable[..., Listing],

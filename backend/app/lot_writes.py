@@ -39,6 +39,7 @@ __all__ = [
     "create_lot",
     "delete_lot",
     "edit_lot",
+    "members_held",
     "open_members",
     "remove_member",
     "touch",
@@ -150,6 +151,38 @@ def open_members(db: Session, lot: SalesLot) -> list[SalesLotItem]:
             .order_by(SalesLotItem.inventory_item_id)
         ).all()
     )
+
+
+def members_held(lot: SalesLot) -> list[SalesLotItem]:
+    """Every coin this lot has held, released ones included, in item id order.
+
+    The **past-tense** question, and deliberately a second function rather
+    than a wider `open_members`. That one answers "which items does this
+    listing offer *now*", and four writers depend on it staying narrow --
+    `order_writes._after_stock_change`, `_sync_shares`' insert branch,
+    `sale_snapshot.take` and `sales_writes._shared_items`. This one answers
+    "which coins was this group made of", which is what the public page for a
+    lot that has already **sold** must show: `offering_writes._end` releases
+    every membership the moment a lot ends, so `open_members` answers "none"
+    for exactly the lot a buyer is most likely to be looking at. The same
+    split already exists one module over: `order_writes._sync_shares`' update
+    branch had to stop asking `offered_items` for this reason.
+
+    No history is invented by including released rows. A membership dropped
+    during assembly is **deleted** by `remove_member`, never released, so
+    every row here is a coin that really was in the group when it was
+    offered. A *dissolved* lot's rows are coins the group held and no longer
+    does -- true, and the reason a reader of this list should say "held"
+    rather than "holds".
+
+    Takes no `Session`: it reads the loaded `SalesLot.members` collection, so
+    a caller that eager-loaded it (`routers.catalog._eager`) pays no query at
+    all, and one that did not pays the lazy load it would have paid anyway.
+    The sort is explicit because `SalesLot.members` carries no `order_by` of
+    its own, and ascending `inventory_item_id` -- decided in `open_members`
+    above -- is the one sequence every lot reader in this codebase uses.
+    """
+    return sorted(lot.members, key=lambda row: row.inventory_item_id)
 
 
 def _refuse_unless_assembling(db: Session, lot: SalesLot) -> None:

@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from .. import grades, offering_writes
 from ..deps import DbSession, OptionalUser, is_admin
+from ..lot_writes import members_held
 from ..models import (
     Country,
     Grade,
@@ -161,32 +162,43 @@ def to_catalog_member(item: InventoryItem) -> CatalogMemberOut:
     )
 
 
-def _lot_entry(db: Session, listing: Listing) -> CatalogItemOut:
+def _lot_entry(listing: Listing) -> CatalogItemOut:
     """Project a lot listing into the public shape: one thing, many coins.
 
-    The item-describing fields keep their defaults, because no single kind,
+    Most item-describing fields keep their defaults, because no single kind,
     grade, metal or year describes a group -- the same reason the list
     query's item filters cannot match a lot. What a buyer gets instead is
     `members`.
 
-    The members come from `offering_writes.offered_items`, the one answer in
-    the codebase to "which items does this listing offer", rather than from a
-    filter written again here. It costs one query per lot listing on a page;
-    the eager chain in `_eager` has already loaded those rows and their
-    classifiers, so it is one query, not one per member. A lot whose
-    memberships have been released -- a sold lot, still served by the detail
-    endpoint so a bookmarked page can say it has ended -- answers with no
-    members, which is the truth about what is still on offer.
+    `piece_count` is the **exception**, and is summed rather than left at 1.
+    The column means how many objects the row represents (`models/core.py`),
+    so 1 on a three-coin lot is a wrong fact rather than a missing one, and
+    is indistinguishable from a genuine single-piece entry. It is summed, not
+    counted: a member may itself be a multi-piece row -- a roll, a mint set
+    -- so `len(members)` would be a second wrong number.
+
+    The members come from `lot_writes.members_held`, which answers "which
+    coins was this group made of" -- the past tense on purpose. The live
+    question, `offering_writes.offered_items`, answers "none" for a lot that
+    has **sold**, because ending a lot releases every membership; a page a
+    buyer bookmarked would then show a group with nothing in it. The two
+    answers are identical while a lot is on offer, since a membership is
+    released only when the lot ends. It also costs nothing: `_eager` has
+    already loaded these rows and their classifiers, and `members_held` reads
+    that collection rather than querying again.
     """
     lot = listing.sales_lot
-    members = [
-        to_catalog_member(item) for item in offering_writes.offered_items(db, listing)
-    ]
+    members = (
+        []
+        if lot is None
+        else [to_catalog_member(row.item) for row in members_held(lot)]
+    )
     return CatalogItemOut(
         id=listing.id,
         inventory_item_id=None,
         version=version_token(listing, None),
         item_code=None,
+        piece_count=sum(member.piece_count for member in members),
         # The offer's own wording first, exactly as for an item, with the
         # lot's own title behind it. `lot` is never None in practice --
         # `ck_listing_item_xor_lot` means a listing with no item has one --
@@ -204,7 +216,7 @@ def _lot_entry(db: Session, listing: Listing) -> CatalogItemOut:
     )
 
 
-def to_catalog_item(db: Session, listing: Listing) -> CatalogItemOut:
+def to_catalog_item(listing: Listing) -> CatalogItemOut:
     """Project a listing and what it offers into the public shape.
 
     Built field by field on purpose. A `select *` here is how cost basis and
@@ -216,7 +228,7 @@ def to_catalog_item(db: Session, listing: Listing) -> CatalogItemOut:
     """
     item = listing.inventory_item
     if item is None:
-        return _lot_entry(db, listing)
+        return _lot_entry(listing)
 
     urls = _photograph(item)
     return CatalogItemOut(
@@ -348,7 +360,7 @@ def list_catalog(
     ).all()
 
     return CatalogPage(
-        items=[to_catalog_item(db, row) for row in rows],
+        items=[to_catalog_item(row) for row in rows],
         total=total,
         limit=limit,
         offset=offset,
@@ -381,4 +393,4 @@ def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Catalogue item not found"
         )
-    return to_catalog_item(db, listing)
+    return to_catalog_item(listing)

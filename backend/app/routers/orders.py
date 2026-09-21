@@ -17,6 +17,7 @@ from ..deps import AdminUser, CurrentUser, DbSession
 from ..models import (
     Customer,
     Listing,
+    ListingStatus,
     SalesOrder,
     SalesOrderChange,
     SalesOrderItem,
@@ -58,14 +59,34 @@ _ORDER_NOT_FOUND = "Order not found"
 def _sold_as(line: SalesOrderItem) -> str:
     """What the line sold, as it was called then; today's name for older lines.
 
-    A lot line's snapshot has no `item` at all (`sale_snapshot`, version 2),
-    so the lot's own title answers for it. Without that, the fallback below
-    reached `listing.inventory_item.source_title`, which is `None` for a lot
-    listing -- an `AttributeError`, and a 500 on every page listing the order.
+    **The offer's own wording first**, which is what the buyer was reading
+    when they bought it. `routers.catalog.to_catalog_item` shows
+    `listing.title or <the subject's own title>` in the shop, and this line
+    is the same purchase seen afterwards: the two disagreeing means a buyer
+    is shown one name on the page and another on their order.
+
+    For a lot the difference is not cosmetic. `sales_lot.title` is the
+    group's working name, chosen for the office -- the catalogue deliberately
+    keeps it out of the shop, which
+    `test_a_lot_entry_shows_the_offer_wording_not_the_lots` pins -- and this
+    function used to prefer it over the listing wording sitting beside it in
+    the same snapshot.
+
+    Falling back rather than choosing: an offer made with no wording of its
+    own (`listing.title` is `""` by default) is named by what it sold, which
+    for a lot line is the lot's title, because a lot snapshot has no `item`
+    at all (`sale_snapshot`, version 2). Without that branch the last resort
+    below reached `listing.inventory_item.source_title`, which is `None` for
+    a lot listing -- an `AttributeError`, and a 500 on every page listing the
+    order.
     """
     snapshot = line.item_snapshot or {}
     if not isinstance(snapshot, dict):
         snapshot = {}
+    offered = snapshot.get("listing")
+    offered_as = offered.get("title") if isinstance(offered, dict) else None
+    if offered_as:
+        return str(offered_as)
     item = snapshot.get("item")
     title = item.get("source_title") if isinstance(item, dict) else None
     if title:
@@ -269,15 +290,71 @@ def list_order_changes(
     ]
 
 
+def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
+    """Why this order's stock could not be put back, or None when it can.
+
+    Two shapes, one consequence, and the consequence is what the rule is
+    about. `return_stock` adds each line's quantity back to its listing, and
+    `order_writes._after_stock_change` moves the items off `sold` only when
+    that listing is still active. Add stock back to a listing that has
+    **ended** and neither happens: the listing carries phantom stock, the
+    items stay `sold`, and `offering_writes._refuse_sold` then refuses to
+    offer them ever again. The console has no remedy for either, which is why
+    the transition is refused rather than half-performed.
+
+    The first shape is a sale recorded from an outside platform:
+    `sales_writes.record_sale` ended its listing when it recorded the sale.
+    The second is a **lot** bought in the shop: `order_writes.place_order`
+    ends that listing too, because a lot must end `sold` with its members
+    released rather than stay `offered` for ever. The second shape did not
+    exist until lots were sold in the shop, and it is reached by the most
+    ordinary path there is -- buy a lot, cancel the order -- so it is asked
+    about by listing status rather than left to the venue test, which a store
+    order passes.
+
+    Venue first, so an outside order keeps the message naming its platform:
+    its listing is ended too, and the platform is the more useful news.
+
+    `paused` is deliberately not asked about. A listing whose stock an order
+    holds cannot become paused afterwards -- pausing happens when the item is
+    offered elsewhere, and `offering_writes._refuse_sold` refuses to offer a
+    sold item -- so the only unactive status reachable here is `ended`.
+    """
+    if order.sales_venue_id != store_venue_id(db):
+        venue = db.get(SalesVenue, order.sales_venue_id)
+        return (
+            f"records a sale on {venue.name if venue else 'another platform'}, "
+            "whose listing was ended by the sale"
+        )
+    ended = list(
+        db.scalars(
+            select(Listing.id)
+            .where(
+                Listing.id.in_([item.listing_id for item in order.items]),
+                Listing.status == ListingStatus.ended,
+            )
+            .order_by(Listing.id)
+        ).all()
+    )
+    if ended:
+        listings = ", ".join(f"#{listing_id}" for listing_id in ended)
+        return (
+            f"holds listing {listings}, which has ended -- a lot is sold as one "
+            "group and its listing ends with the sale, so its stock cannot be "
+            "put back on sale"
+        )
+    return None
+
+
 @router.patch("/{order_id}")
 def update_order_status(
     order_id: int, payload: OrderStatusUpdate, db: DbSession, admin: AdminUser
 ) -> OrderOut:
     """Advance an order. Cancelling an unshipped store one returns its stock.
 
-    An order recorded from an outside platform cannot be cancelled at all:
-    its listing was ended by the sale, so there is nothing to return the
-    stock to (see the refusal below).
+    An order whose listing has already ended cannot be cancelled at all --
+    a sale recorded from an outside platform, or a lot bought in the shop --
+    because there is nothing to return the stock to (`_no_stock_to_return`).
 
     Locks and re-reads the `sales_order` row -- order first, listings second
     (inside `return_stock`), the same sequence `revise_order` uses -- so the
@@ -296,31 +373,21 @@ def update_order_status(
         )
 
     previous = _status_code(db, order)
-    # An order recorded from an outside platform cannot be cancelled here.
-    # `sales_writes.record_sale` **ended** the listing when it recorded the
-    # sale, and `return_stock` below would add the quantity back to that ended
-    # listing: `_after_stock_change` then cannot move the item off `sold`,
-    # because an ended listing's generated `is_active` is false. The result is
-    # an ended listing carrying phantom stock and an item stuck at `sold`,
-    # which `offering_writes._refuse_sold` will never let anyone offer again --
-    # and the console has no remedy for either. Refusing the transition is the
-    # only option here that leaves nothing stranded; undoing an outside sale
-    # needs a path that re-offers the item, which nothing has yet.
+    # An order whose stock cannot be put back cannot be cancelled here --
+    # `_no_stock_to_return` says which shape it is and why, and is where the
+    # whole argument lives. Refusing the transition is the only option that
+    # leaves nothing stranded; undoing such a sale needs a path that re-offers
+    # what it sold, which nothing has yet.
     #
     # Only the transition *to* cancelled is refused, so re-sending `cancelled`
     # on an already-cancelled order stays the harmless no-op it is below.
-    if (
-        payload.status == "cancelled"
-        and previous != "cancelled"
-        and order.sales_venue_id != store_venue_id(db)
-    ):
-        venue = db.get(SalesVenue, order.sales_venue_id)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Order #{order_id} records a sale on "
-            f"{venue.name if venue else 'another platform'}, whose listing was "
-            "ended by the sale. It cannot be cancelled here.",
-        )
+    if payload.status == "cancelled" and previous != "cancelled":
+        blocked = _no_stock_to_return(db, order)
+        if blocked is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Order #{order_id} {blocked}. It cannot be cancelled here.",
+            )
     # Cancelling an unshipped order put its stock back on sale. Moving it on
     # again would leave an order standing on stock already offered to the next
     # buyer -- the same coins sold twice. Re-sending "cancelled" stays harmless.
