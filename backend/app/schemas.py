@@ -1210,12 +1210,25 @@ class OfferItemIn(BaseModel):
     external_id: str | None = Field(default=None, max_length=128)
 
 
+#: The lot half of `OfferIn`: what a lot listing is priced and worded as.
+#: Meaningless on a batch of items, which carries a row per item instead, so
+#: `OfferIn._one_subject` refuses them together rather than ignoring these.
+_LOT_ONLY_FIELDS = ("price", "title", "description", "external_id")
+
+
 class OfferIn(BaseModel):
-    """Offer one or more items on one platform, all or nothing.
+    """Offer one or more items, **or** one assembled lot, on one platform.
 
     One platform and one format for the whole batch: offering the same five
     items half on eBay and half in the shop is two requests, and a batch that
     could span platforms would have to decide what a partial refusal means.
+
+    A lot is one thing however many coins are in it, so a lot body carries
+    one price, title, description and external id at the top level rather
+    than a row per item. Exactly one of `items` and `lot_id`: passing both or
+    neither is what keeps `offering_writes.offer`'s two `ValueError`s
+    unreachable from outside this API, which `test_offering_writes.py`
+    asserts is the case.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1230,7 +1243,55 @@ class OfferIn(BaseModel):
     #: every item in the table. 200 is well past any real screenful -- the
     #: console offers what an administrator has selected -- and far short of
     #: a lock set that would matter.
-    items: list[OfferItemIn] = Field(min_length=1, max_length=200)
+    #:
+    #: No `min_length=1`: an empty list is one half of "neither", which
+    #: `_one_subject` refuses by name. A `min_length` here would answer an
+    #: empty *body* and an empty *lot* with the same 422, and a test that
+    #: meant to prove the second would pass on the first.
+    items: list[OfferItemIn] = Field(default_factory=list, max_length=200)
+    #: The assembled lot to offer as one thing, instead of `items`.
+    lot_id: int | None = None
+    #: The lot's price. The precision limits of `OfferItemIn.price`, for the
+    #: same two reasons. Required with `lot_id`, refused without it.
+    price: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+    #: The lot's wording, as `OfferItemIn` carries an item's.
+    title: str = Field(default="", max_length=500)
+    description: str = ""
+    external_id: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def _one_subject(self) -> OfferIn:
+        """Exactly one subject, with only the fields that subject can use.
+
+        A lot-only field sent alongside `items` is refused rather than
+        ignored: silently dropping a price someone typed is the same data
+        loss `ItemCreate._refuse_cross_kind_details` refuses above.
+
+        `quantity` is refused rather than overridden for a lot.
+        `ck_listing_lot_quantity_one` caps a lot listing at one unit and
+        `offering_writes.offer` already forces it, so an explicit `2` would
+        be accepted and quietly ignored -- the caller would believe two lots
+        were on offer. Nothing could reach that override before this schema
+        gained `lot_id`; now that a caller can, it is a 422 instead.
+        """
+        if self.lot_id is not None and self.items:
+            raise ValueError("Offer items or a lot, not both")
+        if self.lot_id is None and not self.items:
+            raise ValueError("Offer at least one item, or a lot")
+        if self.lot_id is not None:
+            if self.price is None:
+                raise ValueError("price is required when offering a lot")
+            if self.quantity != 1:
+                raise ValueError("a lot is one thing: quantity must be 1")
+            return self
+        sent = sorted(f for f in _LOT_ONLY_FIELDS if f in self.model_fields_set)
+        if sent:
+            raise ValueError(
+                f"{', '.join(sent)}: belongs on each item of a batch, not on the batch"
+            )
+        return self
 
 
 class OfferRefusalOut(BaseModel):
@@ -1248,11 +1309,21 @@ class ListingOut(BaseModel):
     its own; it is never written back to the row. Phase 1's design says the
     column holds what a person typed, and a derived value stored there would
     go stale the day a platform changes its URLs.
+
+    **A listing offers an item or a lot, never both** (`ck_listing_subject`),
+    so the two pairs below are mutually exclusive and both are optional. They
+    were required until lots existed, and `routers/offers._out` read
+    `listing.inventory_item.item_code` unconditionally: the moment a lot
+    listing was written, `GET /api/listings` raised `AttributeError` for
+    every administrator -- a 500 on the page that lists every offer.
     """
 
     id: int
-    item_id: int
-    item_code: str
+    #: Null on a lot listing; `sales_lot_id` is filled instead.
+    item_id: int | None = None
+    item_code: str | None = None
+    #: The item's `source_title`, or the **lot's** title for a lot listing:
+    #: one field the console can always show, whichever kind this is.
     item_title: str
     #: A `sales_venue` code.
     venue: str
@@ -1269,8 +1340,14 @@ class ListingOut(BaseModel):
     listed_at: datetime
     ended_at: datetime | None = None
     paused_by_listing_id: int | None = None
-    #: `inventory_item.total_cost`. Staff-only, and never added to
-    #: `CatalogItemOut`, which a customer reads.
+    #: Null on an item listing; the lot being offered, for a lot listing.
+    sales_lot_id: int | None = None
+    #: How many coins that lot holds, so the Listings page can say "3 items"
+    #: without a request per row. Null on an item listing, which is one.
+    member_count: int | None = None
+    #: `inventory_item.total_cost`, or the sum of the members' for a lot.
+    #: Staff-only, and never added to `CatalogItemOut`, which a customer
+    #: reads.
     cost_basis: Decimal | None = None
     #: Send this back on a PATCH to be told about a conflicting edit. An
     #: `int`, like `SalesVenueOut.version` and unlike `CatalogItemOut.version`
@@ -1306,6 +1383,84 @@ class ListingUpdate(BaseModel):
     external_id: str | None = Field(default=None, max_length=128)
     #: The version the form loaded; a mismatch is a 409.
     version: int | None = None
+
+
+# --------------------------------------------------------------------------
+# Sales lots
+# --------------------------------------------------------------------------
+
+
+class SalesLotIn(BaseModel):
+    """Start a lot. It begins `assembling` and empty; members are a PATCH."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=255)
+    description: str = ""
+
+
+class SalesLotUpdate(BaseModel):
+    """A change to an assembling lot: its wording, its membership, or both.
+
+    One endpoint rather than three, because the three are one edit as far as
+    the person assembling a lot is concerned, and splitting them would give
+    a screenful of changes three chances to lose a race instead of one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    #: Capped for the reason `OfferIn.items` is: one request is one
+    #: transaction holding one row lock per item named here.
+    add_item_ids: list[int] = Field(default_factory=list, max_length=200)
+    remove_item_ids: list[int] = Field(default_factory=list, max_length=200)
+    #: The version the form loaded; a mismatch is a 409.
+    version: int | None = None
+
+
+class SalesLotMemberOut(BaseModel):
+    """One coin in a lot, with the two staff-only figures a lot is judged on."""
+
+    inventory_item_id: int
+    item_code: str
+    title: str
+    #: `inventory_item.total_cost`. A `Decimal` field, so it crosses the wire
+    #: as a string; the same figure in a plain `dict` would be a float.
+    cost_basis: Decimal
+    #: `inventory_item.numismatic_value`, the hand-entered collector premium.
+    #: Null when nobody has valued this coin yet.
+    value: Decimal | None = None
+
+
+class SalesLotOut(BaseModel):
+    """One lot for the console. Admin-only: the figures below are staff-only.
+
+    `cost_basis` and `value` are running totals over the members, which is
+    what an owner assembling a lot is watching -- what the group cost against
+    what it is thought to be worth, as coins go in and out.
+    """
+
+    id: int
+    title: str
+    description: str
+    #: `assembling`, `offered`, `sold` or `dissolved`.
+    status: str
+    version: int
+    members: list[SalesLotMemberOut]
+    #: The members' `total_cost`, summed.
+    cost_basis: Decimal
+    #: The members' `numismatic_value`, summed. An unvalued member
+    #: contributes nothing, so this is a floor rather than an estimate --
+    #: `unvalued_count` says how many coins are missing from it.
+    value: Decimal
+    unvalued_count: int
+
+
+class SalesLotListOut(BaseModel):
+    """Every lot the filter matched. An object, so a page count can be added."""
+
+    lots: list[SalesLotOut]
 
 
 class FeeLineIn(BaseModel):

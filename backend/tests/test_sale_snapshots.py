@@ -244,6 +244,69 @@ def test_an_order_line_for_a_lot_is_titled_by_the_lot(
     assert body["items"][0]["title"] == "Three Morgan Dollars"
 
 
+def test_a_coin_sold_inside_a_lot_shows_that_sale(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+    admin_user: User,
+) -> None:
+    """`GET /api/inventory/{id}/sales` filtered on `listing.inventory_item_id`.
+
+    That column is NULL on a lot listing, so a coin sold inside a group had
+    no sale history at all -- an empty list where the endpoint's own
+    docstring promises every sale of the item, on the one screen an owner
+    uses to answer "what happened to this coin". The lot's line is reached
+    through the `sales_order_item_share` rows the sale writes, one per
+    member.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member_ids = [row.inventory_item_id for row in lot.members]
+    assert len(member_ids) == 3
+    order = record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-LOT-1",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    db.commit()
+
+    for member_id in member_ids:
+        response = client.get(
+            f"/api/inventory/{member_id}/sales", headers=admin_headers
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert [row["order_id"] for row in body] == [order.id], member_id
+        # The snapshot is the lot's, so it names every coin rather than one.
+        assert len(body[0]["snapshot"]["items"]) == 3
+
+
+def test_a_coin_sold_on_its_own_still_shows_one_row(
+    client: TestClient,
+    db: Session,
+    make_listing: ListingFactory,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """The widening must not duplicate an ordinary sale.
+
+    An item listing has both a share row and its own `inventory_item_id`, so
+    a join to `sales_order_item_share` instead of a subquery would match the
+    same line twice and report one sale as two.
+    """
+    listing = make_listing(quantity_available=1)
+    order = _order(client, customer_headers, listing)
+    body = client.get(
+        f"/api/inventory/{listing.inventory_item_id}/sales", headers=admin_headers
+    ).json()
+    assert [row["order_id"] for row in body] == [order["id"]]
+
+
 # --- for sale ----------------------------------------------------------------------
 
 

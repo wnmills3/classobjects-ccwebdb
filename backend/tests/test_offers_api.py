@@ -560,3 +560,46 @@ def test_ending_an_unknown_listing_is_not_found(
     assert response.status_code == 404
     # The router's own 404, not the one a missing route would give.
     assert response.json()["detail"] == "No such offer"
+
+
+def test_the_listings_page_shows_a_lot_listing(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+) -> None:
+    """`_out` reads `listing.inventory_item.item_code`, which a lot has not.
+
+    Without the widening this is an `AttributeError` inside the endpoint --
+    a 500 on the page that lists every offer, not a missing row.
+
+    `GET /api/listings` answers a bare array, not an object with a
+    `listings` key: `frontend/src/owner/pages/Listings.jsx` reads it as an
+    array and `api.listListings` hands it straight over.
+    """
+    db.commit()
+    rows = client.get("/api/listings", headers=admin_headers).json()
+    row = next(entry for entry in rows if entry["id"] == offered_lot_listing.id)
+    assert row["item_id"] is None
+    assert row["item_code"] is None
+    assert row["sales_lot_id"] == offered_lot_listing.sales_lot_id
+    assert row["member_count"] == 3
+    assert row["item_title"] == "Three Morgan Dollars"
+    # The members cost 500, 300 and 200, and money crosses as a string.
+    assert row["cost_basis"] == "1000.00"
+
+
+def test_an_item_listing_keeps_its_own_fields(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    ebay_listing: Listing,
+) -> None:
+    """Widening `item_id` and `item_code` to null must not null them here."""
+    db.commit()
+    rows = client.get("/api/listings", headers=admin_headers).json()
+    row = next(entry for entry in rows if entry["id"] == ebay_listing.id)
+    assert row["item_id"] == ebay_listing.inventory_item_id
+    assert row["item_code"]
+    assert row["sales_lot_id"] is None
+    assert row["member_count"] is None
