@@ -47,7 +47,7 @@ Every task's requirements implicitly include this section.
 
 ## Carried from phase 2R
 
-Five findings from the record-a-sale branch. (a) to (d) are real code today but
+Ten findings from the record-a-sale branch. (a) to (d) are real code today but
 **latent** -- unreachable while a listing can only ever name one item -- and
 become live the moment a lot listing exists. They were recorded in that
 branch's scratch directory, which is deleted at the end of its work, so this
@@ -57,7 +57,10 @@ already satisfied by Task 4's own test list, noted there; (d) has no task
 that touches its files, so it is recorded here and should be fixed early in
 this phase, before Task 7 adds new races that commit `OfferClaim` rows to the
 same test database. (e) is a missing test, not a latent bug, and was added
-2026-09-21 by the branch's final review.
+2026-09-21 by the branch's final review. (f) to (j) are five further
+follow-ups the same whole-branch review recorded as explicitly **not** merge
+conditions, added here for the same reason (e) was: the review's scratch
+directory is being deleted.
 
 a. **`order_writes._sync_shares` returns early when
    `listing.inventory_item_id is None`.** That early return sits *before* the
@@ -123,6 +126,75 @@ e. **The suite-wide invariant "an item's disposition agrees with its claims"
    held claim, `sold` requires none held, and `held` requires none held --
    the shapes `offering_writes` and `order_writes._after_stock_change`
    actually produce, checked against the real collection rather than assumed.
+
+f. **`sales_fee_kind` is missing from `_SEQUENCED_TABLES`
+   (`backend/app/routers/reference.py`)**, so `GET /api/reference/sales_fee_kind`
+   sorts by label instead of the migration's curated `sort_order` (commission,
+   processing, listing, shipping label, promotion, other), and
+   `docs/system-administration.md` prints that curated order in writing. The
+   product disagrees with its own manual, and alphabetical order puts the
+   catch-all **"Other" third** -- the one position a catch-all should never
+   occupy. Fix is one line, adding `"sales_fee_kind"` to the frozenset, plus
+   updating the expected order in
+   `test_the_fee_vocabulary_reaches_a_picker` (`backend/tests/test_reference.py`),
+   which pins it. That test's current expected list is worth a second look
+   too: sorted by code or by label it comes out identical, so it does not
+   actually pin "alphabetical by label" the way its own docstring claims --
+   the fix should pick an assertion that would fail if the ordering flipped
+   back to `sort_order`.
+
+g. **`frontend/src/owner/pages/RecordSaleDialog.test.jsx` fabricates a stale
+   refusal message.** It mocks a 409 carrying `'Listing 14 is not on offer
+   (ended)'`, a sentence `sales_writes.record_sale` no longer sends -- it now
+   names the platform too, after re-locking and re-reading the listing:
+   `f"Listing {listing.id} on {listing.sales_venue.name} is not on offer
+   ({listing.status.value})"`. The test still proves what its name claims,
+   that the dialog renders a 409 `detail` as plain text, so this is fidelity
+   drift rather than a wrong-reason pass. Update the mocked string (and the
+   text the test looks for) to match what the server actually returns.
+
+h. **A third suite-wide invariant the spec requires has no fuller treatment
+   than being named.** *Testing* lists three checks after every write; (e)
+   above carries the disposition-vs-claims one into this phase as a test to
+   write, but the review that found it also found the reason it is worth
+   building *first*: `disposition` is the one lifecycle-ish fact on an item
+   with no single writer. Production sets `disposition_id` at four sanctioned
+   transition sites (`offering_writes` x2, `order_writes` x2) and four row
+   constructors (`importers/loader.py`, `seed.py`, `splitting.py`,
+   `routers/inventory.py`'s split write) -- and also as a freely settable
+   classifier on `PATCH /api/inventory/items/{id}` and the bulk edit, because
+   `disposition` sits in `ITEM_CLASSIFIERS` (`backend/app/routers/inventory.py`)
+   with no special case, while `status` is pulled out of that same loop one
+   line above to route through `lifecycle_writes.set_status` instead of a
+   plain `setattr`. So an admin can set an item to `sold` with no order, after
+   which `offering_writes._refuse_sold`'s `SOLD_AWAY` check refuses to offer
+   it ever again -- a dead end with no remedy. Building the invariant from (e)
+   first is the cheap way to learn whether anything already disagrees;
+   deciding whether `disposition` should leave `ITEM_CLASSIFIERS` is a
+   separate decision that comes after that, not part of this finding.
+
+i. **`OrderOut` (`backend/app/schemas.py`) exposes no platform field**, so the
+   Orders page cannot tell a shop sale from an outside sale, and its status
+   dropdown still offers `cancelled` for an outside order behind a
+   confirmation that promises "Unshipped stock goes back on sale" -- no longer
+   true for those orders, whose listing `sales_writes.record_sale` already
+   ended. `routers/orders.py`'s `update_order_status` refuses the transition
+   safely with a 409 naming the platform and explaining why, so this is a
+   confusing prompt rather than a broken action. Exposing the platform on
+   `OrderOut` would let the page grey the option out instead of offering it
+   and then refusing it.
+
+j. **Nothing tests that a migration carries a `CHECK` constraint.**
+   `ck_sales_order_item_share_non_negative` is in both
+   `models/sales.py`'s `SalesOrderItemShare` and migration `c6908f789bf8`, and
+   they agree today -- but `test_migrations_match_models`
+   (`backend/tests/test_migrations.py`) diffs with `compare_metadata`, which
+   does not compare `CHECK` constraints, and the test that does query them
+   (`test_both_money_tables_refuse_a_negative_amount`,
+   `backend/tests/test_sales_fees_schema.py`) runs against the `db` fixture,
+   which `conftest.py` builds with `Base.metadata.create_all` from the models
+   rather than by migrating. So the migration's own copy of this constraint
+   -- and of any future `CHECK` constraint -- is unverified.
 
 ---
 
