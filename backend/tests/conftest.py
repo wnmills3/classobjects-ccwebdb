@@ -851,3 +851,25 @@ def offered_lot_listing(
         description="",
         external_id="987654",
     )
+
+
+@pytest.fixture
+def store_lot_listing(db: Session, lot_of_three: SalesLot) -> Listing:
+    """A lot of three offered in the web store, so the catalogue can serve it.
+
+    `quantity=1` is the default and is also what `ck_listing_lot_quantity_one`
+    requires -- note that `make_listing` would default it to 5, which is why
+    this fixture goes through `offering_writes.offer` instead.
+    """
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    return offering_writes.offer(
+        db,
+        lot=lot_of_three,
+        venue=store,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("1200.00"),
+        title="Three Morgan Dollars",
+        description="Three coins, one price.",
+        external_id=None,
+    )

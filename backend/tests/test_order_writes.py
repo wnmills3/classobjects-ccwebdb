@@ -17,6 +17,9 @@ from app.models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    SalesLot,
+    SalesLotItem,
+    SalesLotStatus,
     SalesOrder,
     SalesOrderChange,
     SalesOrderChangeKind,
@@ -26,7 +29,7 @@ from app.models import (
     SalesVenueKind,
     User,
 )
-from app.order_writes import Line, place_order, revise_order
+from app.order_writes import Line, customer_for_user, place_order, revise_order
 from app.sales_venues import store_venue_id
 from app.sales_writes import record_sale
 from fastapi import HTTPException
@@ -1089,3 +1092,45 @@ def test_the_history_of_a_lot_line_is_titled_by_the_lot(
     assert response.status_code == 200, response.text
     priced = next(row for row in response.json() if row["change"] == "unit_price")
     assert priced["listing_title"] == "Three Morgan Dollars"
+
+
+def test_a_revision_that_adds_a_lot_line_ends_the_lot_sold(
+    db: Session,
+    make_listing: Callable[..., Listing],
+    store_lot_listing: Listing,
+    customer_user: User,
+    admin_user: User,
+) -> None:
+    """The same ending a checkout gets, on the other path that takes the stock.
+
+    An administrator adding a lot to an existing order buys it exactly as a
+    shopper does -- one unit, the only one there is -- so leaving the lot
+    `offered` here would be the same false statement, and would leave the
+    same membership rows open against coins that are already sold.
+    """
+    lot = store_lot_listing.sales_lot
+    assert lot is not None
+    lot_id = lot.id
+    item_listing = make_listing()
+    customer = customer_for_user(db, customer_user)
+    order = place_order(db, customer, [Line(item_listing.id, 1)], admin_user)
+
+    revise_order(
+        db,
+        order,
+        customer=customer,
+        lines=[Line(item_listing.id, 1), Line(store_lot_listing.id, 1)],
+        notes=None,
+        version=order.version,
+        by=admin_user,
+    )
+
+    sold_lot = db.get(SalesLot, lot_id)
+    assert sold_lot is not None
+    assert sold_lot.status is SalesLotStatus.sold
+    open_rows = db.scalars(
+        select(SalesLotItem).where(
+            SalesLotItem.sales_lot_id == lot_id, SalesLotItem.released_at.is_(None)
+        )
+    ).all()
+    assert not open_rows

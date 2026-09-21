@@ -145,25 +145,78 @@ class ImageLinkIn(BaseModel):
     acknowledge_for_sale: bool = False
 
 
+class CatalogMemberOut(BaseModel):
+    """One coin inside a lot, as a buyer sees it.
+
+    The descriptive half of `CatalogItemOut` and nothing else: a member has
+    no price, no stock and no listing of its own, because the lot is the one
+    thing for sale. Every field here is one a single-item catalogue entry
+    already shows a customer, so nothing becomes public by being a member --
+    and cost basis and storage location are absent for the same reason they
+    are absent there.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    inventory_item_id: int
+    #: The item's permanent code, as `CatalogItemOut.item_code` is for a coin
+    #: sold on its own.
+    item_code: str
+    title: str
+    description: str
+
+    item_kind: str | None = None
+    country: str | None = None
+    denomination: str | None = None
+    bullion_form: str | None = None
+    grade: str | None = None
+    strike_type: str | None = None
+    #: As collectors write it: MS65, PR69+. `grade` is the code alone.
+    grade_display: str | None = None
+    grading_service: str | None = None
+    metal: str | None = None
+
+    year_start: int | None = None
+    year_end: int | None = None
+    fineness: Decimal | None = None
+    gross_weight_ozt: Decimal | None = None
+    fine_weight_ozt: Decimal | None = None
+    piece_count: int = 1
+
+    #: Renditions of this member's primary photograph, null when it has none
+    #: -- the same shape, and the same caveat, as `CatalogItemOut`'s.
+    thumbnail_url: str | None = None
+    image_url: str | None = None
+
+
 class CatalogItemOut(BaseModel):
-    """What a buyer sees.
+    """What a buyer sees: one coin, or one lot of them.
 
     Deliberately carries no cost basis, storage location or internal catalogue
     number -- see `public_catalog` in the database design. The admin views read
     the same shape, so a field cannot be added here for staff and leak to
     customers.
+
+    **A listing offers an item or a lot, never both** (`ck_listing_subject`),
+    which is why the two item-only fields below are optional: a lot listing's
+    `inventory_item_id` is NULL and it has no item code of its own. Its coins
+    are in `members`, and the item-describing fields -- kind, grade, metal,
+    year -- stay null, because no single value of any of them describes a
+    group.
     """
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    inventory_item_id: int
+    #: Null on a lot listing; `members` carries the coins instead.
+    inventory_item_id: int | None = None
     #: Opaque -- it covers both the listing and the item behind it, so a
     #: caller cannot use it to detect a change to only one of them.
     version: str
     #: The item's permanent code -- stable across sale, return and relisting,
-    #: which is what makes it usable on a packing slip and in an audit.
-    item_code: str
+    #: which is what makes it usable on a packing slip and in an audit. Null
+    #: on a lot listing: a lot is not an item and has no code.
+    item_code: str | None = None
     title: str
     description: str
 
@@ -192,8 +245,15 @@ class CatalogItemOut(BaseModel):
 
     #: Renditions of the item's primary photograph. Null when it has none --
     #: most of a real collection is unphotographed, and the UI has to cope.
+    #: Null on a lot listing too: a lot has no photograph of its own, and its
+    #: members carry theirs.
     thumbnail_url: str | None = None
     image_url: str | None = None
+
+    #: The coins in a lot, in item id order -- the one order every lot reader
+    #: uses. Empty for a listing that offers a single item, so a client can
+    #: read this field without first asking which kind of entry it holds.
+    members: list[CatalogMemberOut] = Field(default_factory=list)
 
     created_at: datetime
     updated_at: datetime
