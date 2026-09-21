@@ -641,6 +641,14 @@ def test_a_paused_store_listing_is_the_shops_but_not_sellable(
 # --- what must not happen --------------------------------------------------
 
 
+@pytest.mark.claim_invariant_waiver(
+    reason=(
+        "recreates the retired PATCH .../is_active shape on purpose: "
+        "listing.status is set to `ended` directly, bypassing "
+        "offering_writes, so the claim it left behind still reads `paused` "
+        "-- the whole point of the test is that end_offer must not fix that"
+    )
+)
 def test_a_withdrawn_store_listing_is_not_resurrected(
     db: Session, listing: Listing
 ) -> None:
@@ -669,21 +677,6 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     assert listing.status is ListingStatus.ended
     assert listing.paused_by_listing_id == elsewhere.id  # untouched, not resumed
     assert item.disposition.code == "held"
-
-    # The retired write path this simulates never touched the claim -- that
-    # is the point being tested -- so `listing`'s claim still reads `paused`
-    # on a listing that is now `ended`. That shape is real (the module's own
-    # docstring on `_holding_claims` names this exact bug), but it is not
-    # something the *current* single writer produces, and the suite-wide
-    # claim invariant is a promise about that writer, not about rows a
-    # retired one left behind. Clean it up so this test's deliberate replay
-    # of an old bug does not read as a new one to that check.
-    stale_claim = db.scalar(
-        select(OfferClaim).where(OfferClaim.listing_id == listing.id)
-    )
-    assert stale_claim is not None
-    stale_claim.state = ClaimState.released
-    db.flush()
 
 
 def test_a_sold_item_is_not_put_back_to_held(
@@ -743,6 +736,15 @@ def test_ending_a_listing_releases_the_items_it_claimed(
     assert member.disposition.code == "held"
 
 
+@pytest.mark.claim_invariant_waiver(
+    reason=(
+        "attaches gone's claim to listing.id for an item other than "
+        "listing's own -- the lot-member shape phase 3 introduces, which "
+        "offering_writes cannot write yet -- specifically to prove a "
+        "released claim from a different member is not revived by pausing "
+        "the listing for a current one"
+    )
+)
 def test_a_released_claim_is_not_revived_by_pausing_a_listing(
     db: Session, listing: Listing, make_item: ItemFactory
 ) -> None:
@@ -839,6 +841,16 @@ def test_offers_holding_finds_a_listing_that_only_claims_the_item(
     assert [held.id for held in found] == [listing.id]
 
 
+@pytest.mark.claim_invariant_waiver(
+    reason=(
+        "attaches piece's claim to listing.id for an item other than "
+        "listing's own -- the lot-member shape phase 3 introduces -- "
+        "specifically to isolate offers_holding's HELD_BY filter from its "
+        "ON_OFFER filter (test_offers_holding_ignores_an_ended_listing is "
+        "the other half); listing.status is left at its real active value "
+        "on purpose, so this claim's released state disagrees with it"
+    )
+)
 def test_offers_holding_ignores_a_released_claim(
     db: Session, listing: Listing, make_item: ItemFactory
 ) -> None:
@@ -854,6 +866,16 @@ def test_offers_holding_ignores_a_released_claim(
     assert offering_writes.offers_holding(db, [piece.id]) == []
 
 
+@pytest.mark.claim_invariant_waiver(
+    reason=(
+        "attaches piece's claim to ended.id for an item other than "
+        "ended's own -- the lot-member shape phase 3 introduces -- "
+        "specifically to isolate offers_holding's ON_OFFER filter from its "
+        "HELD_BY filter (test_offers_holding_ignores_a_released_claim is "
+        "the other half); the claim is left active on purpose, so it "
+        "disagrees with the listing's real ended status"
+    )
+)
 def test_offers_holding_ignores_an_ended_listing(
     db: Session, make_listing: ListingFactory, make_item: ItemFactory
 ) -> None:

@@ -211,19 +211,60 @@ _EXPECTED_CLAIM_STATE = {
 }
 
 
+class ClaimInvariantViolation(AssertionError):
+    """A claim's state disagrees with its listing's status.
+
+    A distinct subclass of `AssertionError`, not a bare one, so
+    `test_claim_invariant.py`'s `xfail(raises=...)` can narrow to exactly
+    this failure rather than any assertion failure in the suite. The
+    original plan was to narrow with `xfail(match=...)` instead, on the
+    message text -- but `match` is `pytest.raises`'s parameter, not
+    `xfail`'s; mypy caught this (`xfail` has no such overload) before it
+    ever ran. `raises=<type>` is the only narrowing lever `xfail` actually
+    exposes, so a dedicated type is how this gets the same protection: an
+    unrelated crash elsewhere in either phase still fails the suite instead
+    of being absorbed as "expected."
+    """
+
+
 def check_claim_invariant(db: Session) -> None:
     """Assert every claim's state equals its listing's status, right now.
 
-    The join matches a claim to its listing by *both* `listing_id` and
-    `inventory_item_id`, not `listing_id` alone. In phase 2 every real claim
-    a listing has is for that listing's own item -- `offer` never writes any
-    other kind -- so for real data the extra condition changes nothing. It
-    matters only for `test_offering_writes.py`'s handful of tests that build
-    a claim for a *different* item on an existing `listing_id` on purpose, to
-    exercise the reader functions (`offers_holding`, `_move_claims`) against
-    the lot-member shape phase 3 will introduce -- the design doc's own words
-    defer "lot membership against lot status" to that phase, and this join is
-    what keeps the phase-2 invariant from grading phase-3 scaffolding.
+    The join matches a claim to its listing on `listing_id` alone -- nothing
+    more. A tempting refinement is to also require
+    `OfferClaim.inventory_item_id == Listing.inventory_item_id`, matching only
+    a listing's "own" claim; an earlier version of this function did exactly
+    that, to wave off some `test_offering_writes.py` scaffolding that builds a
+    claim for a different item on an existing `listing_id`. That refinement is
+    wrong, not merely narrower, for two reasons `docs/plans/selling-sales-lots.md`
+    makes concrete:
+
+    - Phase 3 makes `Listing.inventory_item_id` **nullable** (a lot listing
+      carries `sales_lot_id` instead, enforced by a check constraint) and a
+      lot's claims carry *member* item ids, never the (absent) listing item
+      id. Under the item-id join, `NULL = <member id>` is unknown in SQL, so
+      the inner join drops every member claim -- the invariant would grade
+      **zero** rows for a lot listing, and the day lots ship, this check's
+      docstring's promise silently inverts into "nothing here is ever
+      wrong," with nothing failing to announce it.
+    - Even in phase 2, `uq_offer_claim_pair` is already a unique constraint
+      on `(listing_id, inventory_item_id)`, so the item-id join reduces any
+      listing to *at most one* matching claim row by construction -- the
+      wrong cardinality for the very shape phase 3 introduces (one claim per
+      lot member, several rows sharing a `listing_id`).
+    - `offer` and `_move_claims` (`app/offering_writes.py`) are the only two
+      places in `backend/app/` that construct an `OfferClaim`, and both set
+      `inventory_item_id` from the listing's own item. A row where the claim's
+      item differs from the listing's item is, by definition, one the
+      sanctioned writer cannot produce -- exactly the anomaly this check
+      exists to surface. A join whose exclusion rule is "drop everything the
+      writer could not have written" is inverted with respect to "a
+      disagreement means something wrote around it": it hides the very rows
+      that would prove that.
+
+    The right fix for that scaffolding is the `claim_invariant_waiver` marker
+    (registered in `pyproject.toml`), applied per test with a `reason=`, not a
+    join condition that quietly matches less everywhere.
 
     One query, no per-row loads, because the autouse fixture below calls this
     roughly 1,300 times. Pulled out as its own function -- rather than written
@@ -234,9 +275,7 @@ def check_claim_invariant(db: Session) -> None:
     """
     rows = db.execute(
         select(Listing.id, Listing.status, OfferClaim.state).join(
-            OfferClaim,
-            (OfferClaim.listing_id == Listing.id)
-            & (OfferClaim.inventory_item_id == Listing.inventory_item_id),
+            OfferClaim, OfferClaim.listing_id == Listing.id
         )
     ).all()
     wrong = [
@@ -244,11 +283,14 @@ def check_claim_invariant(db: Session) -> None:
         for listing_id, status, state in rows
         if state is not _EXPECTED_CLAIM_STATE[status]
     ]
-    assert not wrong, f"claim state disagrees with listing status: {wrong}"
+    if wrong:
+        raise ClaimInvariantViolation(
+            f"claim state disagrees with listing status: {wrong}"
+        )
 
 
 @pytest.fixture(autouse=True)
-def _claim_invariant(db: Session) -> Iterator[None]:
+def _claim_invariant(request: pytest.FixtureRequest, db: Session) -> Iterator[None]:
     """After every test, each claim's state must equal its listing's status.
 
     Depending on ``db`` -- rather than reaching for a session of its own --
@@ -258,16 +300,75 @@ def _claim_invariant(db: Session) -> Iterator[None]:
     teardown (rollback, close), while the test's writes are still visible on
     the same connection.
 
-    A test that already rolled back or closed its session (a caught
-    `IntegrityError`, for instance) leaves `db.is_active` false; querying it
-    then would raise on a dead transaction and turn "invariant broken" into a
-    misleading fixture crash, so that case is skipped rather than checked --
-    there is nothing left to check.
+    Two consequences of that, worth naming rather than discovering later:
+
+    - Roughly a dozen test files that never touched the database before this
+      fixture existed (`test_config.py`, `test_logpipe.py`,
+      `test_photo_names.py`, and others with no `db` parameter anywhere) now
+      instantiate a session on every test, which means they now require a
+      live PostgreSQL server that they never needed before. That is the
+      accepted cost of "after every test in the suite," not a bug.
+    - `test_offer_races.py`, `test_concurrency.py` and
+      `test_concurrent_writes.py` each race real, independently committing
+      sessions against a shared ``committed`` fixture (not ``db``) and delete
+      the rows the race made in that fixture's own teardown. Measured
+      directly: a fixture requested explicitly by a test (``committed``) is
+      torn down *before* an autouse fixture the test never named
+      (confirmed with a throwaway probe: `committed teardown` then
+      `auto teardown` then a fixture `committed` itself depends on). So by
+      the time this fixture's own check below runs, ``committed``'s cleanup
+      has already deleted whatever the race wrote, and this fixture grades
+      an already-emptied set of rows -- exactly where a second writer racing
+      `offering_writes` would be most worth catching. `test_offer_races.py`
+      is the one of the three that actually writes `OfferClaim` rows, and its
+      own `committed` fixture now calls `check_claim_invariant` on the
+      `cleanup` session immediately before deleting anything, closing that
+      gap for real committed claim data. `test_concurrency.py` and
+      `test_concurrent_writes.py` never create an `OfferClaim` at all -- their
+      races are over stock and optimistic-lock versions -- so the same
+      ordering pitfall exists there in principle but has nothing to grade in
+      practice; if either one ever starts writing claims, its `committed`
+      fixture will need the same fix.
+
+    A test whose ``claim_invariant_waiver`` marker names a scenario this
+    check must still be seen to catch (see `check_claim_invariant`'s
+    docstring) makes this fixture run the check *and* require it to raise:
+    a waiver that has stopped biting -- because the scenario it names no
+    longer disagrees with the invariant -- is a stale exemption quietly
+    hiding that the thing it was written to prove is no longer true, and
+    fails loudly instead.
+
+    A test that caught an `IntegrityError` from an ORM flush and never called
+    `db.rollback()` afterward is the one real case this skips: SQLAlchemy
+    deactivates the session's transaction on that specific failure (measured
+    directly against this project's own Postgres setup, not assumed --
+    `rollback()` and `close()` both leave `db.is_active` `True` again, so
+    neither is what this guards against). Querying a session in that state
+    raises a `PendingRollbackError` unrelated to the invariant, which would
+    turn "invariant broken" into a misleading fixture crash, so this returns
+    early instead. The handful of tests that end this way (a handful of
+    `pytest.raises(IntegrityError)` constraint tests in
+    `test_sales_fees_schema.py`, `test_sales_venues.py` and one in
+    `test_offering_writes.py`) go **unchecked** by this fixture -- not
+    verified, skipped. That is an honest gap, not a guarantee.
     """
     yield
     if not db.is_active:
         return
-    check_claim_invariant(db)
+    waiver = request.node.get_closest_marker("claim_invariant_waiver")
+    if waiver is None:
+        check_claim_invariant(db)
+        return
+    try:
+        check_claim_invariant(db)
+    except ClaimInvariantViolation:
+        return
+    reason = waiver.kwargs.get("reason", "(no reason given)")
+    pytest.fail(
+        f"{request.node.name} is marked claim_invariant_waiver "
+        f"({reason!r}) but the claim invariant no longer disagrees -- "
+        "the waiver is stale; fix or remove it"
+    )
 
 
 @pytest.fixture
