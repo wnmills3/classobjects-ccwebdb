@@ -1308,6 +1308,51 @@ class ListingUpdate(BaseModel):
     version: int | None = None
 
 
+class FeeLineIn(BaseModel):
+    """One actual fee from the platform's statement."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    #: Bounded to twelve significant digits -- `sales_order_fee.amount`'s own
+    #: `Numeric(12, 2)` -- but deliberately not to two decimal places too.
+    #: `record_sale` already refuses a sub-cent fee itself, as a `SaleRefused`
+    #: mapped to a 409; this bound exists only to stop an absurd magnitude
+    #: (or a non-finite value, though pydantic's `Decimal` already refuses
+    #: `NaN`/`Infinity` with no extra constraint) from ever reaching that
+    #: check's `Decimal.quantize`, which raises a bare `InvalidOperation` --
+    #: a 500 -- instead of refusing.
+    amount: Decimal = Field(max_digits=12)
+    note: str | None = Field(default=None, max_length=255)
+
+
+class RecordSaleIn(BaseModel):
+    """A sale that happened on an outside platform, entered after the fact."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Same magnitude bound as `FeeLineIn.amount`, for the same reason: this
+    #: guards `record_sale`'s own sub-cent check, not the sub-cent case
+    #: itself, which stays a 409.
+    price: Decimal = Field(max_digits=12)
+    buyer_username: str | None = Field(default=None, max_length=128)
+    external_order_id: str | None = Field(default=None, max_length=128)
+    fees: list[FeeLineIn] = Field(default_factory=list)
+    equal_shares: bool = False
+
+
+class SaleRecordedOut(BaseModel):
+    """What was recorded, with the arithmetic the console shows back."""
+
+    id: int
+    external_order_id: str | None
+    total_amount: Decimal
+    fee_total: Decimal
+    net_amount: Decimal
+    buyer: str
+    item_codes: list[str]
+
+
 class PurchaseOrderCreate(BaseModel):
     """A new purchase: a vendor, and everything else optional.
 
