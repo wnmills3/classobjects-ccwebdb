@@ -10,12 +10,12 @@ keeps tests independent without paying to rebuild the schema every time.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from decimal import Decimal
 from typing import cast
 
 import pytest
-from app import offering_writes
+from app import lot_writes, offering_writes
 from app.config import settings
 from app.database import Base, get_db
 from app.grades import GRADE_DISPLAY_SQL, split_fields
@@ -36,6 +36,7 @@ from app.models import (
     OfferClaim,
     ReferenceMixin,
     SalesFeeKind,
+    SalesLot,
     SalesVenue,
     SalesVenueKind,
     StorageForm,
@@ -772,3 +773,56 @@ def make_listing(db: Session) -> Callable[..., Listing]:
         return build_listing(db, **overrides)
 
     return _make
+
+
+def build_lot(
+    db: Session,
+    items: Sequence[InventoryItem],
+    *,
+    title: str = "Three Morgan Dollars",
+    description: str = "",
+) -> SalesLot:
+    """An assembling lot holding these items, built through `lot_writes`.
+
+    Through the writer rather than by hand, for the reason `ebay_listing`
+    goes through `offering_writes.offer`: a lot assembled around the rules is
+    a lot the rules have accepted, and a fixture that inserted the rows
+    directly would state the membership rules a second time.
+    """
+    lot = lot_writes.create_lot(db, title=title, description=description)
+    for item in items:
+        lot_writes.add_member(db, lot, item)
+    db.flush()
+    return lot
+
+
+@pytest.fixture
+def make_lot(db: Session) -> Callable[..., SalesLot]:
+    """Factory for sales lots within one test."""
+
+    def _make(items: Sequence[InventoryItem], **overrides: str) -> SalesLot:
+        return build_lot(db, items, **overrides)
+
+    return _make
+
+
+@pytest.fixture
+def lot_of_three(db: Session, make_item: Callable[..., InventoryItem]) -> SalesLot:
+    """An assembling lot of three items with deliberately uneven cost bases.
+
+    `item_cost`, never `total_cost`: `total_cost` is a generated column
+    (`item_cost + shipping_cost + sales_tax`) and cannot be assigned.
+    `tax_rate=0` makes the two equal, which is what lets a share assertion be
+    exact rather than approximate -- every other item in the suite carries
+    the configured 0.0635.
+    """
+    costs = (Decimal("500.00"), Decimal("300.00"), Decimal("200.00"))
+    items = [
+        make_item(
+            title=f"Lot member {index}",
+            item_cost=cost,
+            tax_rate=Decimal("0"),
+        )
+        for index, cost in enumerate(costs, start=1)
+    ]
+    return build_lot(db, items)
