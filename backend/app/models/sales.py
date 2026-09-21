@@ -56,6 +56,9 @@ __all__ = [
     "ListingStatus",
     "OfferClaim",
     "SalesFeeKind",
+    "SalesLot",
+    "SalesLotItem",
+    "SalesLotStatus",
     "SalesOrder",
     "SalesOrderChange",
     "SalesOrderChangeKind",
@@ -241,10 +244,16 @@ class Listing(TimestampMixin, Base):
         return {"version_id_col": cls.version}
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    inventory_item_id: Mapped[int] = mapped_column(
+    inventory_item_id: Mapped[int | None] = mapped_column(
         ForeignKey("inventory_item.id", ondelete="RESTRICT"),
         index=True,
-        nullable=False,
+        nullable=True,
+    )
+    #: Exactly one of this and `inventory_item_id` is set -- see
+    #: `ck_listing_item_xor_lot`. A lot listing offers the group, and its
+    #: members are reached through `sales_lot_item`.
+    sales_lot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sales_lot.id", ondelete="RESTRICT"), index=True, nullable=True
     )
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     currency_id: Mapped[int] = mapped_column(
@@ -299,7 +308,10 @@ class Listing(TimestampMixin, Base):
         DateTime(timezone=True), nullable=True
     )
 
-    inventory_item: Mapped[InventoryItem] = relationship(back_populates="listings")
+    inventory_item: Mapped[InventoryItem | None] = relationship(
+        back_populates="listings"
+    )
+    sales_lot: Mapped[SalesLot | None] = relationship()
     currency: Mapped[Currency] = relationship()
     sales_venue: Mapped[SalesVenue] = relationship()
     order_items: Mapped[list[SalesOrderItem]] = relationship(back_populates="listing")
@@ -312,6 +324,14 @@ class Listing(TimestampMixin, Base):
         CheckConstraint("price >= 0", name="ck_listing_price_non_negative"),
         CheckConstraint(
             "quantity_available >= 0", name="ck_listing_quantity_non_negative"
+        ),
+        CheckConstraint(
+            "(inventory_item_id IS NULL) <> (sales_lot_id IS NULL)",
+            name="ck_listing_item_xor_lot",
+        ),
+        CheckConstraint(
+            "sales_lot_id IS NULL OR quantity_available <= 1",
+            name="ck_listing_lot_quantity_one",
         ),
         # The public catalogue reads only active listings, so the index that
         # serves it excludes everything else.
@@ -359,6 +379,107 @@ class OfferClaim(TimestampMixin, Base):
             "inventory_item_id",
             unique=True,
             postgresql_where=text("state = 'active'"),
+        ),
+    )
+
+
+class SalesLotStatus(enum.StrEnum):
+    """Where a sales lot is in its short life."""
+
+    assembling = "assembling"
+    offered = "offered"
+    sold = "sold"
+    dissolved = "dissolved"
+
+
+class SalesLot(TimestampMixin, Base):
+    """A temporary grouping of items, offered and sold as one thing.
+
+    Not an inventory item, deliberately: a lot that were an item would be
+    counted in inventory and cost basis beside its own members, which is the
+    problem split purchase lots already had to be excluded from every view to
+    avoid.
+
+    A lot is editable only while `assembling`. Once offered it is frozen --
+    the buyer is looking at that exact group -- and when it sells or is
+    withdrawn it ends, releasing its members. It never comes back:
+    re-offering a dissolved lot starts a new one, so each lot is a faithful
+    record of one group that was offered once.
+    """
+
+    __tablename__ = "sales_lot"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Public: what a buyer sees.
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+    status: Mapped[SalesLotStatus] = mapped_column(
+        enum_column(SalesLotStatus, "sales_lot_status"),
+        nullable=False,
+        default=SalesLotStatus.assembling,
+        server_default=SalesLotStatus.assembling.value,
+    )
+    #: Optimistic concurrency, as on Listing and InventoryItem.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("1")
+    )
+
+    members: Mapped[list[SalesLotItem]] = relationship(
+        back_populates="lot", cascade=_CASCADE_ALL_DELETE_ORPHAN
+    )
+
+    # A directive rather than a dict literal, for the reason `Listing` gives
+    # above: a literal trips RUF012 and every annotation that would silence
+    # it fails mypy instead.
+    @declared_attr.directive
+    def __mapper_args__(cls) -> dict[str, Any]:
+        """Optimistic concurrency: every UPDATE checks the version it read."""
+        return {"version_id_col": cls.version}
+
+
+class SalesLotItem(Base):
+    """One item's membership of one lot.
+
+    `released_at` rather than deletion: which coins were in a lot that sold is
+    part of the sale's record, and a dissolved lot is evidence of what was
+    tried. The partial unique index is what stops an item being in two open
+    lots at once -- the same shape, and the same reason, as
+    `uq_offer_claim_active`.
+    """
+
+    __tablename__ = "sales_lot_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sales_lot_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_lot.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_item.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    released_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    lot: Mapped[SalesLot] = relationship(back_populates="members")
+    #: The item itself. Named here because every reader of a lot needs it --
+    #: shares, snapshots and the catalogue all ask "which coins" -- and a
+    #: membership row with no way to reach its item makes each of them write
+    #: its own join.
+    item: Mapped[InventoryItem] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint(
+            "sales_lot_id", "inventory_item_id", name="uq_sales_lot_item_pair"
+        ),
+        Index(
+            "uq_sales_lot_item_open",
+            "inventory_item_id",
+            unique=True,
+            postgresql_where=text("released_at IS NULL"),
         ),
     )
 
