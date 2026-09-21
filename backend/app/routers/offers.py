@@ -27,13 +27,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
-from .. import offering_writes, sales_writes
+from .. import lot_writes, offering_writes, sales_writes
 from ..deps import AdminUser, DbSession
 from ..models import (
     InventoryItem,
     Listing,
     ListingFormat,
     ListingStatus,
+    SalesLot,
+    SalesLotItem,
     SalesOrder,
     SalesOrderFee,
     SalesOrderItem,
@@ -118,11 +120,19 @@ def _item_by_id(db: Session, item_id: int) -> InventoryItem:
 
 
 def _eager(stmt: Select[tuple[Listing]]) -> Select[tuple[Listing]]:
-    """Load what `_out` reads, so a list of offers is not a query per row."""
+    """Load what `_out` reads, so a list of offers is not a query per row.
+
+    The lot chain is loaded for every listing, item listings included: a
+    `selectinload` of a null foreign key costs nothing, and branching the
+    options on a per-row value is not something one statement can do.
+    """
     return stmt.options(
         selectinload(Listing.inventory_item),
         selectinload(Listing.sales_venue),
         selectinload(Listing.currency),
+        selectinload(Listing.sales_lot)
+        .selectinload(SalesLot.members)
+        .selectinload(SalesLotItem.item),
     )
 
 
@@ -142,14 +152,45 @@ def external_url(listing: Listing, venue: SalesVenue) -> str | None:
 
 
 def _out(listing: Listing) -> ListingOut:
-    """Shape one offer for the console, with its platform and item resolved."""
+    """Shape one offer for the console, item listing or lot listing.
+
+    `ck_listing_item_xor_lot` makes the two mutually exclusive, so exactly one of
+    the two branches below fills its half of `ListingOut` and the other half
+    stays null. This function read `listing.inventory_item.item_code`
+    unconditionally until lots existed, which made the whole Listings page
+    an `AttributeError` the moment the first lot was offered.
+
+    A lot's `cost_basis` is the sum of its members', and `item_title` is the
+    lot's own title, so the console has one title field to show whichever
+    kind of listing a row is. Every membership row counts, not only the open
+    ones: a lot's memberships are released when it sells, and a sold lot's
+    row saying "0 items" would be wrong about what was sold.
+
+    The three values are given subject-less defaults and then overridden,
+    rather than branched three ways: `ck_listing_item_xor_lot` guarantees one of
+    the two is set, so the defaults are unreachable, and a listing that
+    somehow had neither should still render as a row an administrator can
+    see and end -- not as a 500. `routers/orders._listing_title` handles the
+    same impossible case the same way.
+    """
     item = listing.inventory_item
+    lot = listing.sales_lot
     venue = listing.sales_venue
+    title = f"Listing #{listing.id}"
+    cost_basis: Decimal | None = None
+    member_count: int | None = None
+    if item is not None:
+        title = item.source_title
+        cost_basis = item.total_cost
+    elif lot is not None:
+        title = lot.title
+        cost_basis = sum((row.item.total_cost for row in lot.members), Decimal("0.00"))
+        member_count = len(lot.members)
     return ListingOut(
         id=listing.id,
         item_id=listing.inventory_item_id,
-        item_code=item.item_code,
-        item_title=item.source_title,
+        item_code=item.item_code if item is not None else None,
+        item_title=title,
         venue=venue.code,
         venue_name=venue.name,
         format=listing.format.value,
@@ -164,7 +205,9 @@ def _out(listing: Listing) -> ListingOut:
         listed_at=listing.listed_at,
         ended_at=listing.ended_at,
         paused_by_listing_id=listing.paused_by_listing_id,
-        cost_basis=item.total_cost,
+        sales_lot_id=listing.sales_lot_id,
+        member_count=member_count,
+        cost_basis=cost_basis,
         version=listing.version,
     )
 
@@ -217,6 +260,58 @@ def _refused(detail: str, refused: list[OfferRefusalOut]) -> JSONResponse:
     )
 
 
+def _lot_by_id(db: Session, lot_id: int) -> SalesLot:
+    """The lot to offer. An id no lot wears is a 422, like an unknown code."""
+    lot = db.get(SalesLot, lot_id)
+    if lot is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown lot_id: {lot_id}",
+        )
+    return lot
+
+
+def _offer_lot(
+    db: Session,
+    payload: OfferIn,
+    *,
+    lot_id: int,
+    venue: SalesVenue,
+    listing_format: ListingFormat,
+) -> Listing:
+    """Offer one assembled lot as one thing. Raises; `create_offers` catches.
+
+    Every refusal is left to rise: `EmptyLot`, `LotRefused` and
+    `OfferRefused` are each mapped to a status by the caller, in one place,
+    so this function only has to get the arguments right.
+
+    `quantity` is not passed at all: `OfferIn._one_subject` refuses anything
+    but 1 on a lot body, and `offer` caps a lot listing at one unit
+    regardless, as `ck_listing_lot_quantity_one` requires.
+    """
+    lot = _lot_by_id(db, lot_id)
+    price = payload.price
+    if price is None:
+        # A backstop, not a branch a request can reach: `_one_subject`
+        # refuses a lot body with no price. It stays so that a future caller
+        # building an `OfferIn` in code is told, rather than writing a lot
+        # listing priced at nothing.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="price is required when offering a lot",
+        )
+    return offering_writes.offer(
+        db,
+        lot=lot,
+        venue=venue,
+        listing_format=listing_format,
+        price=price,
+        title=payload.title,
+        description=payload.description,
+        external_id=payload.external_id,
+    )
+
+
 @router.post(
     "/offers",
     status_code=status.HTTP_201_CREATED,
@@ -226,13 +321,23 @@ def _refused(detail: str, refused: list[OfferRefusalOut]) -> JSONResponse:
 def create_offers(
     payload: OfferIn, db: DbSession, _admin: AdminUser
 ) -> OfferBatchOut | JSONResponse:
-    """Offer items on one platform. All of them or none of them.
+    """Offer items, or one lot, on one platform. All of them or none of them.
 
     The refusals are collected rather than stopping at the first, so a person
     offering twenty items is told about all four problems at once instead of
     discovering them one request at a time. Nothing is written either way:
     `offering_writes.offer` decides every refusal before it writes, so the
     rollback below has only the successful rows of a doomed batch to discard.
+
+    **The `except` order below is load-bearing and mypy cannot check it.**
+    `lot_writes.EmptyLot` is a subclass of `lot_writes.LotRefused`, so its
+    clause must come first: reversing the two would route every 422 into the
+    409 branch, silently, and the only sign would be an empty lot reported as
+    a conflict. It is the same trap `record_listing_sale` carries with
+    `SaleInputInvalid` and `SaleRefused`. Nothing in the type system, the
+    linter or the test names would catch a later reordering, so the test that
+    proves it asserts on the **body** -- an empty lot's 422 must name the lot
+    -- rather than on the status alone, which pydantic would produce anyway.
     """
     venue = _venue_by_code(db, payload.venue)
     listing_format = _listing_format(payload.format)
@@ -241,6 +346,29 @@ def create_offers(
     refusals: list[OfferRefusalOut] = []
     already: set[int] = set()
     try:
+        if payload.lot_id is not None:
+            try:
+                listing = _offer_lot(
+                    db,
+                    payload,
+                    lot_id=payload.lot_id,
+                    venue=venue,
+                    listing_format=listing_format,
+                )
+            except OfferRefused as refused:
+                # One member cannot be offered, so the lot cannot: a lot is
+                # all or nothing by construction, and the member's own code
+                # is what a person has to act on.
+                db.rollback()
+                return _refused(
+                    f"lot #{payload.lot_id} cannot be offered",
+                    [
+                        OfferRefusalOut(
+                            item_code=refused.item_code, reason=refused.reason
+                        )
+                    ],
+                )
+            listing_ids.append(listing.id)
         for line in payload.items:
             item = _item_by_id(db, line.item_id)
             # Read before the write that may fail: after a failed flush the
@@ -293,6 +421,31 @@ def create_offers(
     except HTTPException:
         db.rollback()
         raise
+    # ------------------------------------------------------------------
+    # ORDER-SENSITIVE. `EmptyLot` is a subclass of `LotRefused`, so it must
+    # be caught FIRST. Swap these two clauses and every empty-lot 422 turns
+    # into a 409 with no error anywhere: mypy does not check `except` order,
+    # ruff does not either, and both clauses would still be "reachable".
+    # `record_listing_sale` below carries the identical trap with
+    # `SaleInputInvalid` and `SaleRefused`.
+    # ------------------------------------------------------------------
+    except lot_writes.EmptyLot as empty:
+        # Bad input, not a conflict: a lot with nothing in it is a request
+        # that could never make sense, not one that lost a race (spec,
+        # *Errors*). The message names the lot, which is what the test
+        # asserts on -- a status-only assertion would pass on pydantic's own
+        # 422 and prove nothing about this clause existing.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(empty)
+        ) from empty
+    except lot_writes.LotRefused as refused_lot:
+        # The lot itself cannot be offered -- already offered, sold,
+        # dissolved. A conflict: it could have been offered a moment ago.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(refused_lot)
+        ) from refused_lot
     except IntegrityError:
         # The same race, refused at commit rather than at a flush. Nothing
         # here knows which item lost -- the loop's own handler is what names

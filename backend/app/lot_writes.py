@@ -21,6 +21,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from . import offering_writes, sale_state
 from .models import (
@@ -36,8 +37,11 @@ __all__ = [
     "LotRefused",
     "add_member",
     "create_lot",
+    "delete_lot",
+    "edit_lot",
     "open_members",
     "remove_member",
+    "touch",
 ]
 
 
@@ -64,6 +68,69 @@ def create_lot(db: Session, *, title: str, description: str = "") -> SalesLot:
     db.add(lot)
     db.flush()
     return lot
+
+
+def edit_lot(
+    db: Session,
+    lot: SalesLot,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+) -> None:
+    """Change an assembling lot's wording. An omitted field is left alone.
+
+    The wording is refused once the lot is frozen for the same reason its
+    membership is: the title and description are what a buyer is looking at,
+    and renaming the group under them changes what was offered as surely as
+    taking a coin out of it would.
+    """
+    _refuse_unless_assembling(db, lot)
+    if title is not None:
+        lot.title = title
+    if description is not None:
+        lot.description = description
+    db.flush()
+
+
+def delete_lot(db: Session, lot: SalesLot) -> None:
+    """Discard an assembling lot outright, memberships and all.
+
+    Deleted rather than given a status, and only while `assembling`, for the
+    reason `remove_member` deletes: a lot that was never offered is a draft
+    someone abandoned, not history. Once it has been offered it is a record
+    of what was tried and it stays -- `SalesLot`'s own docstring says a lot
+    never comes back, and a deleted one could not be looked up afterwards to
+    show what a sold coin was sold inside.
+
+    `sales_lot_item` cascades from the parent row; `sales_lot_id` on
+    `listing` is `ondelete="RESTRICT"`, so a lot that somehow reached this
+    line with a listing would be refused by the database rather than taking
+    the listing's subject away with it.
+    """
+    _refuse_unless_assembling(db, lot)
+    db.delete(lot)
+    db.flush()
+
+
+def touch(db: Session, lot: SalesLot) -> None:
+    """Move the lot's `version`, so a concurrent edit is caught.
+
+    A membership change writes `sales_lot_item` and never `sales_lot`, so
+    the optimistic lock `version_id_col` gives this table does not move on
+    its own -- two people could each add a coin to the same lot from the
+    same loaded form and neither would be told. `_refuse_unless_assembling`'s
+    row lock makes those two adds *serial* and keeps them off a frozen lot,
+    which is a different guarantee: it does not tell the second person that
+    what they are looking at is no longer what is there.
+
+    `flag_modified` rather than an assignment, because SQLAlchemy compares a
+    set value against the loaded one and emits no UPDATE when they match --
+    `lot.title = lot.title` would move nothing. The attribute is read first
+    so it is loaded: flagging an expired attribute raises.
+    """
+    _ = lot.title
+    flag_modified(lot, "title")
+    db.flush()
 
 
 def open_members(db: Session, lot: SalesLot) -> list[SalesLotItem]:
@@ -113,9 +180,32 @@ def _refuse_unless_assembling(db: Session, lot: SalesLot) -> None:
     db.flush()
     db.refresh(lot, with_for_update=True)
     if lot.status is not SalesLotStatus.assembling:
-        raise LotRefused(
-            f"lot #{lot.id} is {lot.status.value}, so its membership is frozen"
-        )
+        raise LotRefused(_frozen_reason(db, lot))
+
+
+def _frozen_reason(db: Session, lot: SalesLot) -> str:
+    """Why this lot can no longer be changed, naming the listing that froze it.
+
+    The status alone says *that* it is frozen; the listing is what a person
+    can act on -- ending or dissolving that offer is the one thing that
+    unfreezes the coins, and an administrator reading "lot #7 is offered"
+    still has to go and find which offer. A lot listing is never deleted, so
+    the id stays resolvable for as long as the refusal can be read.
+
+    The query runs only on the refusal path, and takes the newest listing:
+    a dissolved lot can never be offered again (`_lot_members` refuses
+    anything but `assembling`), so there is at most one today, and ordering
+    by id keeps the message pointing at the most recent one if that ever
+    stops being true.
+    """
+    listing_id = db.scalar(
+        select(Listing.id)
+        .where(Listing.sales_lot_id == lot.id)
+        .order_by(Listing.id.desc())
+        .limit(1)
+    )
+    offer = "" if listing_id is None else f" on listing #{listing_id}"
+    return f"lot #{lot.id} is {lot.status.value}{offer}, so it is frozen"
 
 
 def _refuse_unofferable(item: InventoryItem) -> None:
