@@ -213,7 +213,7 @@ def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
 
 
 def test_the_catch_all_fee_kind_comes_last(client: TestClient) -> None:
-    """ "Other" last is the point of the curated order, so assert it alone.
+    """The catch-all "other" last is the point of the curated order.
 
     The list above would also pass if the whole sequence were reversed by
     accident; this one names the property the ruling actually rests on, and
