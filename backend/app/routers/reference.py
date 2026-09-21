@@ -96,8 +96,13 @@ _CODE_KEYED_VALUES = frozenset(
 #: curated sequence (item_kind is ranked by how often a kind occurs -- coin
 #: and currency cover the whole collection, so they lead; signature_combination
 #: is chronological, and its picker is narrowed to a stretch of that timeline
-#: by a note's series year). Everything else is a descriptive list that is
-#: scanned by name, and alphabetical is the only order a reader can predict.
+#: by a note's series year; `sales_fee_kind` is curated too: the migration
+#: orders it commission, processing, listing, shipping label, promotion,
+#: other, which is the order a person reads a platform's statement in and
+#: puts the catch-all last. Alphabetical by label puts "Other" third, and
+#: `docs/system-administration.md` already prints the curated order in
+#: writing). Everything else is a descriptive list that is scanned by name,
+#: and alphabetical is the only order a reader can predict.
 _SEQUENCED_TABLES = frozenset(
     {
         "grade",
@@ -108,6 +113,7 @@ _SEQUENCED_TABLES = frozenset(
         "shipment_status",
         "item_kind",
         "signature_combination",
+        "sales_fee_kind",
     }
 )
 
