@@ -34,6 +34,13 @@ dev = [
 testpaths = ["backend/tests"]
 pythonpath = ["backend"]
 addopts = "-q --strict-markers"
+# --strict-markers means any custom mark below must be registered here, so
+# an opt-out from the suite-wide claim invariant (tests/conftest.py) cannot
+# arrive quietly -- it needs this greppable line plus a `reason=` at each
+# use site.
+markers = [
+    "claim_invariant_waiver(reason): this test builds an OfferClaim/Listing pair no current write path can produce, to exercise a reader function against it (see reason=). The suite-wide claim invariant in tests/conftest.py still runs its check for a test carrying this mark, and requires the check to raise -- a waiver that stops biting fails loudly instead of going stale.",
+]
 # Surface deprecations in our own code as failures, but do not fail on
 # deprecations raised inside third-party libraries we do not control.
 filterwarnings = [

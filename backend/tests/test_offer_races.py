@@ -42,6 +42,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
+from tests.conftest import check_claim_invariant
+
 RACE_TITLE = "RACE Offer Contested Item"
 
 Outcome = str
@@ -50,6 +52,17 @@ Outcome = str
 @pytest.fixture
 def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     """Real, committing sessions; removes every row the race creates.
+
+    Checks the suite-wide claim invariant against these rows *before*
+    deleting them, not after. `_claim_invariant` (conftest.py) is autouse
+    and depends on `db`, but this fixture is requested explicitly by name,
+    and pytest tears an explicitly-requested fixture down before an autouse
+    one the test never named -- confirmed with a standalone probe, not
+    assumed. Left unchecked, this fixture's own cleanup below would delete
+    every row the race committed before `_claim_invariant` ever got to look
+    at them, so the suite-wide check would silently grade nothing for
+    exactly the file where a second writer racing `offering_writes` is most
+    likely to leave a claim and its listing disagreeing.
 
     Deletion order respects the FKs a claim and a listing carry:
     ``offer_claim`` first (it points at both ``listing`` and
@@ -61,6 +74,7 @@ def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     yield factory
     with factory() as cleanup:
+        check_claim_invariant(cleanup)
         item_ids = select(InventoryItem.id).where(
             InventoryItem.source_title == RACE_TITLE
         )
