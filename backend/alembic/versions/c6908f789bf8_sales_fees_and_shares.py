@@ -4,7 +4,8 @@ Adds the fee vocabulary (`sales_fee_kind`) and `sales_order_fee`, one row per
 fee line a platform charged on an order -- the actual amount taken, not the
 estimate `sales_venue`'s default rates would produce. Adds
 `sales_order_item_share`, one row per item's share of an order line's money,
-which is the single permanent answer to "which items did this order carry".
+which is the single permanent answer to "which items did this order carry";
+its `amount` carries the same `>= 0` floor `sales_order_fee.amount` does.
 Widens `customer` with `sales_venue_id` and `venue_username`, so a buyer met
 on a marketplace is identified by their account there rather than by name
 alone -- with a partial unique index on the *lowered* username, because a
@@ -126,6 +127,9 @@ def upgrade() -> None:
             sa.Numeric(precision=12, scale=2),
             server_default=sa.text("0"),
             nullable=False,
+        ),
+        sa.CheckConstraint(
+            "amount >= 0", name="ck_sales_order_item_share_non_negative"
         ),
         sa.ForeignKeyConstraint(
             ["sales_order_item_id"],

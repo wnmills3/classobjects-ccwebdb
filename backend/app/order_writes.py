@@ -139,16 +139,32 @@ def _line(
 
 
 def _sync_shares(
-    db: Session, line: SalesOrderItem, listing: Listing, amount: Decimal
+    db: Session,
+    line: SalesOrderItem,
+    listing: Listing,
+    amount: Decimal,
+    *,
+    new_line: bool = False,
 ) -> None:
     """Make a line's shares match its money, whether they are new or old.
 
-    `place_order` calls this once for a line that has never had a share:
-    `existing` is empty, so this always inserts. `revise_order` calls it for
-    that same case, and also for a line whose quantity or price just
+    `place_order` calls this for a line it created in this same call, and
+    `revise_order` for both that case and a line whose quantity or price just
     changed, where a share already exists and only `amount` need move --
     two writers, one place the rule "a share's amount equals its line's
     money" is enforced, so it cannot drift between them.
+
+    `new_line=True` says the caller created this line in this call, so it
+    provably has no shares yet and the lookup below must be skipped. Reading
+    `line.shares` for such a line would emit a SELECT that can only come back
+    empty -- one per line, inside the `FOR UPDATE` window `_lock_listings`'
+    own docstring asks callers not to widen -- and, worse, would leave the
+    collection **cached empty** for the rest of the session: adding the share
+    with `db.add` does not invalidate a relationship collection an earlier
+    read already populated. That stale empty collection is what made
+    `sales_writes` and `routers.offers` read shares with their own `select()`
+    instead of the relationship. With the flag, a checkout line's shares are
+    never consulted and never poisoned.
 
     Today a listing names exactly one item, so there is exactly one share
     and it always carries the whole `amount` -- the loop below still keys
@@ -169,7 +185,9 @@ def _sync_shares(
     """
     if listing.inventory_item_id is None:  # pragma: no cover - phase 3 lots
         return
-    existing = {share.inventory_item_id: share for share in line.shares}
+    existing: dict[int, SalesOrderItemShare] = {}
+    if not new_line:
+        existing = {share.inventory_item_id: share for share in line.shares}
     share = existing.get(listing.inventory_item_id)
     if share is None:
         db.add(
@@ -286,26 +304,34 @@ def place_order(
     # cascade the new line into the session, so the per-line flush actually
     # assigns it one.
     db.add(order)
+    # Lines to give shares once this loop's inserts are flushed, exactly as
+    # `revise_order` does it: a share needs its line's id, which does not
+    # exist until the line has been flushed, so the sync is collected here and
+    # run after one flush rather than a flush per line inside the loop.
+    to_sync: list[tuple[SalesOrderItem, Listing, Decimal]] = []
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]
         before = listing.quantity_available
         listing.quantity_available -= line.quantity
         price = prices[line.listing_id]
-        line_amount = price * line.quantity
         # The snapshot before the stock change: the item as it was offered.
-        order.items.append(_line(db, listing, line.quantity, price))
+        new_item = _line(db, listing, line.quantity, price)
+        order.items.append(new_item)
+        to_sync.append((new_item, listing, price * line.quantity))
         _after_stock_change(db, listing, before)
-        # Every line gets shares, a single item included: `sale_state` and
-        # realised gain both ask this table "which items did this order
-        # carry", and a line with no shares would silently answer "none".
-        # A lot listing's line is divided among its members (phase 3); an
-        # item listing's line is one share carrying the whole amount. The
-        # flush is explicit -- production runs with autoflush disabled, so
-        # nothing here can rely on an implicit one -- and it must not move
-        # earlier than `_after_stock_change`, which reads `InventoryItem`
-        # rows this same flush would otherwise touch first.
-        db.flush()
-        _sync_shares(db, order.items[-1], listing, line_amount)
+    # Explicit -- production runs with autoflush disabled, so nothing here can
+    # rely on an implicit one -- and after every `_after_stock_change` above,
+    # which reads `InventoryItem` rows this flush would otherwise touch first.
+    db.flush()
+    # Every line gets shares, a single item included: `sale_state` and
+    # realised gain both ask that table "which items did this order carry",
+    # and a line with no shares would silently answer "none". A lot listing's
+    # line is divided among its members (phase 3); an item listing's line is
+    # one share carrying the whole amount. `new_line=True` because every line
+    # here was created just above: `_sync_shares` must not read a collection
+    # it would only find empty and then leave cached that way.
+    for synced_line, synced_listing, amount in to_sync:
+        _sync_shares(db, synced_line, synced_listing, amount, new_line=True)
     db.flush()
     db.add(
         SalesOrderChange(
@@ -447,7 +473,10 @@ def revise_order(
         # new line's id -- which its share needs -- does not exist until it
         # is flushed, and this loop still has row locks to take for the
         # other listings first.
-        to_sync: list[tuple[SalesOrderItem, Listing, Decimal]] = []
+        # The fourth element is `_sync_shares`' `new_line`: true for a line
+        # this save created, which provably has no share yet, false for one
+        # whose existing share has to be found and moved.
+        to_sync: list[tuple[SalesOrderItem, Listing, Decimal, bool]] = []
         for listing_id in sorted(ids):
             listing = listings[listing_id]
             delta = deltas[listing_id]
@@ -461,7 +490,7 @@ def revise_order(
                 price = listing.price if line.unit_price is None else line.unit_price
                 new_item = _line(db, listing, line.quantity, price)
                 order.items.append(new_item)
-                to_sync.append((new_item, listing, price * line.quantity))
+                to_sync.append((new_item, listing, price * line.quantity, True))
                 record(
                     SalesOrderChangeKind.line_added,
                     listing_id,
@@ -499,7 +528,12 @@ def revise_order(
                     money_changed = True
                 if money_changed:
                     to_sync.append(
-                        (existing, listing, existing.unit_price * existing.quantity)
+                        (
+                            existing,
+                            listing,
+                            existing.unit_price * existing.quantity,
+                            False,
+                        )
                     )
 
         if customer.id != order.customer_id:
@@ -531,8 +565,8 @@ def revise_order(
             # sales_order_item_id` is NOT NULL. Explicit, matching
             # `place_order` -- production runs with autoflush disabled.
             db.flush()
-            for synced_line, synced_listing, amount in to_sync:
-                _sync_shares(db, synced_line, synced_listing, amount)
+            for synced_line, synced_listing, amount, is_new in to_sync:
+                _sync_shares(db, synced_line, synced_listing, amount, new_line=is_new)
     except StaleDataError:
         # The order lock makes a stale write to the `sales_order` row itself
         # hard to hit here -- it was locked and re-read above, and

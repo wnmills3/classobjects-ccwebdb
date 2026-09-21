@@ -31,7 +31,7 @@ from app.sales_venues import store_venue_id
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from httpx import Response
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from tests.test_orders import place
@@ -320,6 +320,42 @@ def test_an_outside_sale_gets_a_share_at_version_one(
     ]
     assert shares[0].amount == Decimal("120.00")
     assert shares[0].fee_amount == Decimal("0.00")
+
+
+def test_placing_an_order_never_consults_a_new_line_s_shares(
+    db: Session, ebay_listing: Listing, admin_user: User, ebay_venue: SalesVenue
+) -> None:
+    """A line created in this call has no shares, so nothing may look.
+
+    Looking costs a SELECT that can only come back empty -- one per line,
+    inside the `FOR UPDATE` window `_lock_listings`' docstring asks callers not
+    to widen -- and leaves the collection **cached empty** for the rest of the
+    session, because `db.add` does not invalidate a collection an earlier read
+    populated. That stale cache is what forced `sales_writes` and
+    `routers.offers` to read shares through their own `select()`.
+
+    Asserted on the ORM's own bookkeeping rather than by counting statements:
+    `unloaded` naming `shares` is the same fact as "no SELECT was issued and
+    nothing was cached", and it cannot be satisfied by a query that merely
+    looks different.
+    """
+    buyer = venue_buyer(db, ebay_venue, "sharespeeker")
+    order = place_order(
+        db,
+        buyer,
+        [Line(listing_id=ebay_listing.id, quantity=1, unit_price=Decimal("133.75"))],
+        admin_user,
+        venue=ebay_venue,
+        status_code="paid",
+    )
+    assert "shares" in inspect(order.items[0]).unloaded
+    # The share still exists -- this is about how it was written, not whether.
+    written = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == order.items[0].id
+        )
+    ).all()
+    assert [share.amount for share in written] == [Decimal("133.75")]
 
 
 def test_an_outside_listing_is_not_refused_for_being_outside_the_shop(

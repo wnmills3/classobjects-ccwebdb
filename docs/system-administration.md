@@ -891,6 +891,24 @@ ends too, rather than resuming, since the item is now gone. The new order
 appears on the Orders page like any other, already `paid` (or `delivered` for
 an auction house, which has already shipped for the owner).
 
+**Record sale... is not offered on web-store rows.** A shop item sells through
+the cart and checkout; entering an in-person sale of one is a matter of placing
+an order on the customer's behalf from the Orders page. Whether the console
+should also allow **Record sale...** for a store listing -- for a show or
+over-the-counter sale of something that was also listed in the shop -- is an
+open decision recorded in `docs/specs/selling-design.md`.
+
+**An order recorded this way cannot be cancelled.** Because recording the sale
+also ended the listing, there is nothing for a cancellation to put the stock
+back on: the console refuses the change with a 409 naming the platform, rather
+than leaving an ended listing holding stock nobody can see and an item stuck at
+`sold` that could never be offered again. A store order is unaffected --
+cancelling an unshipped one still returns its stock as it always did. If an
+outside sale falls through, the remedy today is to enter the return by hand
+(the item's status and disposition on its own page) rather than through the
+order; a proper "undo an outside sale" path, which has to re-offer the item,
+does not exist yet.
+
 **The Manage page is gone.** The console's old **Manage** page created an item
 and a shop listing together; it could never offer an item the business already
 owned, which is every item in the collection, so it was retired. Enter a

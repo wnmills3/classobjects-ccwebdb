@@ -40,7 +40,6 @@ from .models import (
     SalesFeeKind,
     SalesOrder,
     SalesOrderFee,
-    SalesOrderItemShare,
     SalesOrderStatus,
     User,
 )
@@ -143,6 +142,11 @@ def record_sale(
 ) -> SalesOrder:
     """Record that `listing` sold, and end it. Caller commits.
 
+    Takes `listing`'s row lock and re-reads it before deciding anything, so
+    the "is it still on offer?" question is answered from the current row
+    rather than from whatever the caller loaded. A second operator racing the
+    same listing is refused with "not on offer".
+
     Raises before writing anything, as one of two kinds -- the split matters
     to a caller mapping this to HTTP, so it is a subclass, not just a
     message. `SaleInputInvalid` (itself a `SaleRefused`): `price` or a fee is
@@ -160,9 +164,39 @@ def record_sale(
     lookup in this codebase does, rather than reaching `place_order` after a
     write has already happened.
     """
+    # Locked and re-read *before* the status check, not after it. `listing` is
+    # whatever the caller had in hand -- `routers.offers` fetches it with a
+    # plain `db.get` -- and the check below is the one that decides whether
+    # this sale may happen at all, so deciding it on an unlocked read is
+    # deciding it on a value another operator may already have changed. The
+    # spec's *Concurrency* paragraph requires the lock before the read for
+    # exactly this reason.
+    #
+    # Nothing downstream re-reads `status`: `place_order` takes the same lock
+    # a moment later, but `order_writes` skips both `sellable_in_shop` and
+    # `is_active` when a venue is given, because an outside listing is
+    # neither. Its stock check is all that remains -- an accidental backstop
+    # at quantity 1, with a message about stock rather than about the sale,
+    # and no backstop at all above 1 (`app/seed.py`'s demo listings are 5 and
+    # 20). Without this re-read two operators can both record a sale against
+    # an already-ended listing and call `end_offer(sold=True)` twice.
+    #
+    # `offering_writes.end_offer` re-reads the same way, for the same reason;
+    # this follows it. The lock order is unchanged -- listing first, then the
+    # items `end_offer` locks -- so this adds no new deadlock shape.
+    listing = db.execute(
+        select(Listing)
+        .where(Listing.id == listing.id)
+        .with_for_update(of=Listing)
+        .execution_options(populate_existing=True)
+    ).scalar_one()
     if listing.status is not ListingStatus.active:
+        # Names the platform as well as the listing: the spec's *Errors*
+        # section asks for both, and an owner with the same item offered in
+        # two places needs to know which offer this was about.
         raise SaleRefused(
-            f"Listing {listing.id} is not on offer ({listing.status.value})"
+            f"Listing {listing.id} on {listing.sales_venue.name} is not on offer "
+            f"({listing.status.value})"
         )
     if price < 0:
         raise SaleInputInvalid(f"Price cannot be negative, not {price}")
@@ -231,23 +265,14 @@ def record_sale(
     # line's `amount` and a zero `fee_amount` (`order_writes._sync_shares`).
     # Only the fee half is this module's to fill in.
     #
-    # Fetched with a fresh `select()`, not `line.shares`: `_sync_shares`
-    # reads that same collection *before* the share exists, while deciding
-    # whether to insert one, which leaves it cached empty on `line` for the
-    # rest of this session -- inserting the row does not invalidate a
-    # relationship collection some earlier read already populated. A plain
-    # query has no such cache to be stale.
+    # `line.shares` is safe to read here: `place_order` passes `new_line=True`,
+    # so `_sync_shares` never consults that collection and so never leaves it
+    # cached empty from before the row existed. This was a `select()` while it
+    # did.
     line = order.items[0]
     weights = _weights(items, equal=equal_shares)
     fee_amounts = allocate(total_fees, weights)
-    shares_by_item = {
-        share.inventory_item_id: share
-        for share in db.scalars(
-            select(SalesOrderItemShare).where(
-                SalesOrderItemShare.sales_order_item_id == line.id
-            )
-        )
-    }
+    shares_by_item = {share.inventory_item_id: share for share in line.shares}
     for item, fee_amount in zip(items, fee_amounts, strict=True):
         shares_by_item[item.id].fee_amount = fee_amount
 

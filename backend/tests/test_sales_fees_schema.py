@@ -117,3 +117,46 @@ def test_fee_and_share_amounts_are_exact(db: Session) -> None:
     assert scale("sales_order_fee", "amount") == 2
     assert scale("sales_order_item_share", "amount") == 2
     assert scale("sales_order_item_share", "fee_amount") == 2
+
+
+def test_both_money_tables_refuse_a_negative_amount(db: Session) -> None:
+    """A share's `amount` has the same floor a fee's does.
+
+    Asserted against the database rather than the model: a share is written by
+    `order_writes._sync_shares` today, and the point of the constraint is the
+    writer that does not exist yet. The two named constraints are checked
+    together because the fee's floor was there from the start and the share's
+    was not -- a test naming only one could pass while the other was missing.
+    """
+    names = set(
+        db.scalars(
+            text(
+                "SELECT conname FROM pg_constraint WHERE contype = 'c' "
+                "AND conrelid::regclass::text IN "
+                "('sales_order_fee', 'sales_order_item_share')"
+            )
+        ).all()
+    )
+    assert "ck_sales_order_fee_non_negative" in names
+    assert "ck_sales_order_item_share_non_negative" in names
+
+    # `match` names the constraint: both foreign keys on this table are
+    # RESTRICT, so an unmatched `IntegrityError` would also be raised by the
+    # invented ids below and this test would pass without the check existing.
+    # Inside a savepoint (`begin_nested`), not bare: the INSERT is raw SQL, so
+    # the failure aborts the transaction without deactivating the *session* the
+    # way a failed ORM flush would -- and the autouse claim-invariant fixture
+    # would then try to query an aborted transaction in teardown and report an
+    # error on this test that has nothing to do with it. The savepoint rolls
+    # back just the failed statement.
+    with (
+        pytest.raises(IntegrityError, match="ck_sales_order_item_share_non_negative"),
+        db.begin_nested(),
+    ):
+        db.execute(
+            text(
+                "INSERT INTO sales_order_item_share "
+                "(sales_order_item_id, inventory_item_id, amount, fee_amount) "
+                "VALUES (1, 1, -0.01, 0)"
+            )
+        )

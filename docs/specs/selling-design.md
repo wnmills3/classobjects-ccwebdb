@@ -361,8 +361,12 @@ is otherwise unchanged.
   separately the `FOR UPDATE` in offer and settle, and confirm the race tests
   fail; restore and confirm they pass.
 - **Invariants after every write in the suite**: claim state equals listing
-  status; an item's disposition agrees with its claims; open lot membership
-  agrees with lot status.
+  status (**built** in phase 2R, `tests/conftest.py`'s `_claim_invariant`); an
+  item's disposition agrees with its claims (**not built, and not scheduled by
+  the Revision note below** -- carried into
+  `docs/plans/selling-sales-lots.md` as item (e) on 2026-09-21); open lot
+  membership agrees with lot status (deferred to phase 3 by the Revision
+  note).
 - **Settlement**: shares sum to the line to the cent (a lot of three at
   $100.00); resumed store listings keep their price; consignment moves appear
   in location history in both directions; a sold lot's paused store listings
@@ -443,14 +447,47 @@ reconciled as part of phases 2R-4 rather than left to disagree.
 **Where record-a-sale lives.** *How things move*, above, says a sale is
 recorded "via `order_writes`". That stays true and is made exact here:
 `app/sales_writes.py` is a new module that **orchestrates** a sale and owns the
-two facts nothing else writes, `sales_order_fee` and `sales_order_item_share`.
+one fact nothing else writes, `sales_order_fee`, plus the **fee half** of
+`sales_order_item_share`. The share row itself, and its `amount`, belong to
+`order_writes._sync_shares`, which writes one for every line `place_order`
+creates -- which is what gives a plain store checkout line a share too, and is
+why `sale_state` can reach an order's items the same way whatever the order
+came from. `sales_writes` fills in `fee_amount` on rows that already exist and
+never constructs one. (Corrected 2026-09-21: this section previously gave the
+whole share table to `sales_writes`. The code's split is the better one and is
+what the document now describes.)
+
 It creates the order and its snapshot through `order_writes.place_order`, and
 ends the listing through `offering_writes.end_offer(sold=True)`.
 `order_writes` remains the only writer of orders and `offering_writes` the only
 writer of listings and claims; `sales_writes` adds no second path to either.
-It has one entry point, `record_sale`, with three callers: the Listings page's
-Record sale, store checkout, and auction settlement -- which is what keeps
-settlement from growing its own copy of fees and shares.
+It has one entry point, `record_sale`, with **one production caller today**:
+the Listings page's Record sale (`POST /api/listings/{id}/sale`). Store
+checkout does **not** go through it -- it calls `order_writes.place_order`
+directly, because a shop order has no fees to record and no listing to end.
+The second caller the single entry point exists for is phase-4 auction
+settlement, which is what keeps settlement from growing its own copy of fees
+and shares. (Corrected 2026-09-21: this section previously named three
+callers, including store checkout.)
+
+**Open decision: record-a-sale on a store listing.** `_STATUS_BY_VENUE_KIND`
+maps `own_store -> paid`, so `record_sale` will accept a store listing, and
+until 2026-09-21 the Listings page offered **Record sale...** on store rows.
+That is a second way to sell a shop item -- past the cart and past checkout --
+and it mints an "Undisclosed buyer (store)" when the username is left blank.
+It was never decided; it is what the dictionary key happens to allow. The
+button is hidden on store rows for now, and the two options are:
+
+- **Allow it**, as the way to enter an in-person or bourse-table sale of
+  something that was also listed in the shop: the sale really did happen off
+  the web store, and the alternative is an administrator placing an order for
+  a walk-in customer through the Orders page.
+- **Refuse it**, by dropping the `own_store` key so `record_sale` raises "no
+  default order status for sales venue kind 'own_store'": a store item sells
+  through checkout, and an in-person sale is entered as an order on behalf of
+  a customer, which already exists.
+
+The owner decides. Nothing in phases 3 or 4 depends on the answer.
 
 **Delivery.** Three branches, merged in order: the phase-2 remainder, sales
 lots, auctions. One migration each, so `test_migrations_round_trip` exercises

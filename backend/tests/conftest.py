@@ -399,7 +399,25 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
             f"{request.node.name} is marked claim_invariant_waiver with no "
             "reason= naming the scenario it waives; add one"
         )
-    if db is None or not db.is_active:
+    if db is None:
+        # Graded *before* the early return, the same way the missing-`reason`
+        # check above is: this fixture never checks the invariant for a test
+        # with no `db` in its closure, so a waiver on such a test cannot be
+        # waiving anything -- it is stale the moment it is written, and
+        # returning first would let it sit there reading like a live
+        # exemption. `not db.is_active` below is a different case and keeps
+        # its plain return: there the check is genuinely unable to run (see
+        # this docstring's second consequence, the deactivated-transaction
+        # gap), so a waiver is undecidable rather than provably stale.
+        if waiver is not None:
+            pytest.fail(
+                f"{request.node.name} is marked claim_invariant_waiver "
+                f"({waiver.kwargs['reason']!r}) but has no `db` fixture in "
+                "its closure, so the claim invariant is never checked for it "
+                "and the waiver waives nothing; remove it"
+            )
+        return
+    if not db.is_active:
         return
     if waiver is None:
         check_claim_invariant(db)
