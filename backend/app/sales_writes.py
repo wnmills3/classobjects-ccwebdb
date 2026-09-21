@@ -42,7 +42,7 @@ from .models import (
 )
 from .references import require_code
 
-__all__ = ["FeeLine", "SaleRefused", "record_sale"]
+__all__ = ["FeeLine", "SaleInputInvalid", "SaleRefused", "record_sale"]
 
 #: What a sale's order status is, by the kind of platform it happened on.
 #: A marketplace or live auction has collected the money and the owner still
@@ -66,6 +66,24 @@ class SaleRefused(Exception):
     """The sale cannot be recorded as asked, with the reason for a person."""
 
 
+class SaleInputInvalid(SaleRefused):
+    """The request itself is malformed, not merely in conflict with the state.
+
+    A negative or sub-cent price or fee, and (phase 3) a listing with no item
+    to divide money among, are bad input -- 422 at the HTTP boundary, per the
+    spec's own split between "bad input" and "conflicts with other work ... or
+    a stale version". "Not on offer" and an unmapped venue kind stay the base
+    `SaleRefused` -- 409 -- because both are true conflicts the caller could
+    not have known about from the request alone.
+
+    A subclass, not a field on `SaleRefused`, on purpose: an HTTP layer
+    dispatches on it by `except` clause order, which mypy checks, rather than
+    an `if` on a message string that can default silently to the wrong
+    status. Every existing `except SaleRefused` and `pytest.raises(SaleRefused)`
+    keeps catching this too.
+    """
+
+
 @dataclass(frozen=True)
 class FeeLine:
     """One actual fee from the platform's statement."""
@@ -83,7 +101,7 @@ def _shared_items(listing: Listing) -> list[InventoryItem]:
     """
     item = listing.inventory_item
     if item is None:  # pragma: no cover - phase 3 widens this
-        raise SaleRefused(f"Listing {listing.id} offers no item")
+        raise SaleInputInvalid(f"Listing {listing.id} offers no item")
     return [item]
 
 
@@ -115,31 +133,36 @@ def record_sale(
 ) -> SalesOrder:
     """Record that `listing` sold, and end it. Caller commits.
 
-    Raises `SaleRefused` before writing anything if: the listing is not on
-    offer; `price` or a fee is given to less than the cent, or a fee is
-    negative (this branch's money reconciles exactly, and a sub-cent amount
-    cannot -- PostgreSQL's rounding of `Numeric(12, 2)` and `allocate`'s
-    `ROUND_HALF_EVEN` do not agree on one, so a row and the shares split
-    from it would disagree by a cent -- true of `price` the moment a lot
-    listing divides it through `allocate` too, not only of a fee today); or
-    `venue`'s kind has no default order status and no `status_code` was
-    given explicitly. An unknown fee kind code, or an explicit `status_code`
-    that is not itself a real status, is resolved before the order is
-    created too, for the same reason -- each fails as `HTTPException`, the
-    way every other classifier lookup in this codebase does, rather than
-    reaching `place_order` after a write has already happened.
+    Raises before writing anything, as one of two kinds -- the split matters
+    to a caller mapping this to HTTP, so it is a subclass, not just a
+    message. `SaleInputInvalid` (itself a `SaleRefused`): `price` or a fee is
+    negative, or either is given to less than the cent (this branch's money
+    reconciles exactly, and a sub-cent amount cannot -- PostgreSQL's rounding
+    of `Numeric(12, 2)` and `allocate`'s `ROUND_HALF_EVEN` do not agree on
+    one, so a row and the shares split from it would disagree by a cent --
+    true of `price` the moment a lot listing divides it through `allocate`
+    too, not only of a fee today). Plain `SaleRefused`, a genuine conflict
+    rather than bad input: the listing is not on offer, or `venue`'s kind has
+    no default order status and no `status_code` was given explicitly. An
+    unknown fee kind code, or an explicit `status_code` that is not itself a
+    real status, is resolved before the order is created too, for the same
+    reason -- each fails as `HTTPException`, the way every other classifier
+    lookup in this codebase does, rather than reaching `place_order` after a
+    write has already happened.
     """
     if listing.status is not ListingStatus.active:
         raise SaleRefused(
             f"Listing {listing.id} is not on offer ({listing.status.value})"
         )
+    if price < 0:
+        raise SaleInputInvalid(f"Price cannot be negative, not {price}")
     if price != price.quantize(_CENT):
-        raise SaleRefused(f"Price must be given to the cent, not {price}")
+        raise SaleInputInvalid(f"Price must be given to the cent, not {price}")
     for fee in fees:
         if fee.amount < 0:
-            raise SaleRefused("A fee cannot be negative")
+            raise SaleInputInvalid("A fee cannot be negative")
         if fee.amount != fee.amount.quantize(_CENT):
-            raise SaleRefused(f"A fee must be given to the cent, not {fee.amount}")
+            raise SaleInputInvalid(f"A fee must be given to the cent, not {fee.amount}")
 
     venue = listing.sales_venue
     items = _shared_items(listing)

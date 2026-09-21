@@ -466,16 +466,24 @@ def record_listing_sale(
     The sale is over by the time it is entered, so this both creates the
     order and ends the listing, in one transaction: a sale recorded with the
     listing left on offer would be an item for sale that is already gone.
-    All of `record_sale`'s own refusals -- the listing not on offer, a
-    negative or sub-cent fee, a sub-cent price, an unmapped venue kind -- are
-    decided before it writes anything, so a 409 here means nothing was
-    written; an unknown fee kind fails the same way, as the 422
-    `require_code` already raises.
+
+    `record_sale`'s own refusals split by cause: a genuine conflict -- the
+    listing not on offer, an unmapped venue kind -- is a `SaleRefused`, 409;
+    malformed input is the narrower `SaleInputInvalid`, 422 (today that
+    branch is unreachable from here -- the request schema's own `ge=0` and
+    `decimal_places=2` already refuse a negative or sub-cent price or fee
+    before this body ever runs -- but `record_sale` has two other callers
+    this schema does not guard). Both are decided, and both are caught,
+    before anything is written, so either status means nothing was written;
+    an unknown fee kind fails the same way, as the 422 `require_code`
+    already raises. `SaleInputInvalid` is checked first because it is a
+    `SaleRefused` subclass: reversing the two `except` clauses would route
+    every 422 into the 409 branch instead, silently.
     """
-    listing = db.get(Listing, listing_id)
-    if listing is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No listing {listing_id}")
     try:
+        listing = db.get(Listing, listing_id)
+        if listing is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No listing {listing_id}")
         order = sales_writes.record_sale(
             db,
             listing,
@@ -489,6 +497,14 @@ def record_listing_sale(
             recorded_by=user,
             equal_shares=body.equal_shares,
         )
+    except HTTPException:
+        db.rollback()
+        raise
+    except sales_writes.SaleInputInvalid as invalid:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, str(invalid)
+        ) from invalid
     except sales_writes.SaleRefused as refused:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from refused

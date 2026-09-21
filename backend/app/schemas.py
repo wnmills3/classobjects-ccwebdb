@@ -1314,15 +1314,16 @@ class FeeLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str
-    #: Bounded to twelve significant digits -- `sales_order_fee.amount`'s own
-    #: `Numeric(12, 2)` -- but deliberately not to two decimal places too.
-    #: `record_sale` already refuses a sub-cent fee itself, as a `SaleRefused`
-    #: mapped to a 409; this bound exists only to stop an absurd magnitude
-    #: (or a non-finite value, though pydantic's `Decimal` already refuses
-    #: `NaN`/`Infinity` with no extra constraint) from ever reaching that
-    #: check's `Decimal.quantize`, which raises a bare `InvalidOperation` --
-    #: a 500 -- instead of refusing.
-    amount: Decimal = Field(max_digits=12)
+    #: The precision limits of `OfferItemIn.price`, for the same two reasons:
+    #: `max_digits` alone admits `1E+11`, which passes `record_sale`'s own
+    #: check and then overflows `sales_order_fee.amount`'s `Numeric(12, 2)`
+    #: as a `DataError` PostgreSQL raises, not pydantic -- `decimal_places`
+    #: must be given alongside `max_digits` for the ten-whole-digit limit to
+    #: apply at all. `ge=0` closes the same gap for sign: `record_sale`
+    #: checks a fee's sign itself too, for its other two callers, but this
+    #: schema is what keeps a negative fee from ever reaching that check by
+    #: way of an `IntegrityError` on `ck_sales_order_fee_non_negative`.
+    amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
     note: str | None = Field(default=None, max_length=255)
 
 
@@ -1331,10 +1332,8 @@ class RecordSaleIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    #: Same magnitude bound as `FeeLineIn.amount`, for the same reason: this
-    #: guards `record_sale`'s own sub-cent check, not the sub-cent case
-    #: itself, which stays a 409.
-    price: Decimal = Field(max_digits=12)
+    #: Same bound as `FeeLineIn.amount`, for the same reason.
+    price: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
     buyer_username: str | None = Field(default=None, max_length=128)
     external_order_id: str | None = Field(default=None, max_length=128)
     fees: list[FeeLineIn] = Field(default_factory=list)
