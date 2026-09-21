@@ -15,14 +15,13 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import grades
+from . import grades, offering_writes
 from .config import settings
 from .database import SessionLocal
 from .lifecycle_writes import record_initial_status
 from .models import (
     Authenticity,
     Country,
-    Currency,
     Denomination,
     Disposition,
     Grade,
@@ -30,18 +29,17 @@ from .models import (
     InventoryItem,
     ItemKind,
     ItemStatus,
-    Listing,
-    ListingStatus,
+    ListingFormat,
     Metal,
     ProvenanceSource,
     ReferenceMixin,
+    SalesVenue,
     StorageForm,
     StrikeType,
     User,
     UserRole,
     ValuationBasis,
 )
-from .sales_venues import store_venue_id
 from .security import hash_password
 
 #: A demo catalogue. Classifiers are given as codes, matching how they cross
@@ -122,6 +120,16 @@ def _code_id(db: Session, model: type[ReferenceMixin], code: str | None) -> int 
     return found
 
 
+def _store_venue(db: Session) -> SalesVenue:
+    """The web store platform every demo listing is offered into."""
+    venue = db.scalar(select(SalesVenue).where(SalesVenue.is_own_store.is_(True)))
+    if venue is None:
+        raise SystemExit(
+            "No web store platform: run `alembic upgrade head` on this database"
+        )
+    return venue
+
+
 def _build(db: Session, row: dict) -> None:
     # Demo rows name grades as collectors write them: MS64 is 64, business.
     grade, strike = grades.split_fields(row.get("grade"), None)
@@ -146,7 +154,9 @@ def _build(db: Session, row: dict) -> None:
         storage_form_id=_code_id(db, StorageForm, "single"),
         authenticity_id=_code_id(db, Authenticity, "genuine"),
         status_id=_code_id(db, ItemStatus, "received"),
-        disposition_id=_code_id(db, Disposition, "listed"),
+        # `held`, not `listed`: `offering_writes.offer` below is the one
+        # writer of the `listed` transition, the same as every other offer.
+        disposition_id=_code_id(db, Disposition, "held"),
         valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
         source=ProvenanceSource.seeded,
     )
@@ -157,15 +167,20 @@ def _build(db: Session, row: dict) -> None:
     # see `lifecycle_writes.record_initial_status`.
     record_initial_status(db, item, note="set at seed")
 
-    db.add(
-        Listing(
-            inventory_item_id=item.id,
-            price=row["price"],
-            currency_id=_code_id(db, Currency, "USD"),
-            quantity_available=row["quantity_available"],
-            status=ListingStatus.active,
-            sales_venue_id=store_venue_id(db),
-        )
+    # Offered through the one writer of listings and claims -- see
+    # `app.offering_writes`. Demo data is not an exception to "every
+    # listing has a claim": `offer` writes both in one transaction, the
+    # same as a real listing made through the API.
+    offering_writes.offer(
+        db,
+        item=item,
+        venue=_store_venue(db),
+        listing_format=ListingFormat.fixed_price,
+        price=row["price"],
+        title=row["title"],
+        description=row.get("description", ""),
+        external_id=None,
+        quantity=row["quantity_available"],
     )
 
 
