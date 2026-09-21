@@ -17,22 +17,27 @@ prevent.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
-from .. import offering_writes
+from .. import offering_writes, sales_writes
 from ..deps import AdminUser, DbSession
 from ..models import (
     InventoryItem,
     Listing,
     ListingFormat,
     ListingStatus,
+    SalesOrder,
+    SalesOrderFee,
+    SalesOrderItem,
+    SalesOrderItemShare,
     SalesVenue,
 )
 from ..offering_writes import OfferRefused
@@ -43,6 +48,8 @@ from ..schemas import (
     OfferIn,
     OfferRefusalOut,
     OfferRefusedOut,
+    RecordSaleIn,
+    SaleRecordedOut,
 )
 
 router = APIRouter(tags=["selling"])
@@ -398,3 +405,95 @@ def end_listing(listing_id: int, db: DbSession, _admin: AdminUser) -> ListingOut
             status_code=status.HTTP_409_CONFLICT, detail=_STALE
         ) from exc
     return _out(_get_listing(db, listing_id))
+
+
+# --------------------------------------------------------------------------
+# Recording a sale
+# --------------------------------------------------------------------------
+
+
+def _sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
+    """Shape a recorded sale for the console: gross, fees, net, buyer, items.
+
+    Read with fresh `select()`s, not `order.fees` or a line's `.shares` --
+    both are relationships this same session could have already cached empty
+    before the rows existed, the same shape of staleness `record_sale`'s own
+    docstring warns about. `net_amount` is computed here and only here:
+    `record_sale`'s module docstring says net payout is never stored, so
+    this is the one place the subtraction happens.
+    """
+    fee_total = db.scalar(
+        select(func.sum(SalesOrderFee.amount)).where(
+            SalesOrderFee.sales_order_id == order.id
+        )
+    ) or Decimal("0.00")
+    item_codes = list(
+        db.scalars(
+            select(InventoryItem.item_code)
+            .join(
+                SalesOrderItemShare,
+                SalesOrderItemShare.inventory_item_id == InventoryItem.id,
+            )
+            .join(
+                SalesOrderItem,
+                SalesOrderItemShare.sales_order_item_id == SalesOrderItem.id,
+            )
+            .where(SalesOrderItem.sales_order_id == order.id)
+            .order_by(InventoryItem.item_code)
+        )
+    )
+    return SaleRecordedOut(
+        id=order.id,
+        external_order_id=order.external_order_id,
+        total_amount=order.total_amount,
+        fee_total=fee_total,
+        net_amount=order.total_amount - fee_total,
+        buyer=order.customer.display_name,
+        item_codes=item_codes,
+    )
+
+
+@router.post(
+    "/listings/{listing_id}/sale",
+    response_model=SaleRecordedOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_listing_sale(
+    listing_id: int, body: RecordSaleIn, db: DbSession, user: AdminUser
+) -> SaleRecordedOut:
+    """Record that a listing sold on its platform, with the platform's fees.
+
+    The sale is over by the time it is entered, so this both creates the
+    order and ends the listing, in one transaction: a sale recorded with the
+    listing left on offer would be an item for sale that is already gone.
+    All of `record_sale`'s own refusals -- the listing not on offer, a
+    negative or sub-cent fee, a sub-cent price, an unmapped venue kind -- are
+    decided before it writes anything, so a 409 here means nothing was
+    written; an unknown fee kind fails the same way, as the 422
+    `require_code` already raises.
+    """
+    listing = db.get(Listing, listing_id)
+    if listing is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No listing {listing_id}")
+    try:
+        order = sales_writes.record_sale(
+            db,
+            listing,
+            price=body.price,
+            buyer_username=body.buyer_username,
+            external_order_id=body.external_order_id,
+            fees=[
+                sales_writes.FeeLine(fee.kind, fee.amount, fee.note)
+                for fee in body.fees
+            ],
+            recorded_by=user,
+            equal_shares=body.equal_shares,
+        )
+    except sales_writes.SaleRefused as refused:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from refused
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, _STALE) from stale
+    db.commit()
+    return _sale_recorded(db, order)
