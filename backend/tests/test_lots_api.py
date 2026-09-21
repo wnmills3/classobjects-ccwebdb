@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import httpx
 from app.models import InventoryItem, Listing, SalesLot, SalesVenue
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -33,8 +34,8 @@ def test_membership_changes_need_the_current_version(
     client: TestClient,
     admin_headers: dict[str, str],
     db: Session,
-    lot_of_three: SalesLot,
     make_item: ItemFactory,
+    make_lot: Callable[..., SalesLot],
 ) -> None:
     """Optimistic locking, as everywhere else in the console: 409 on a stale token.
 
@@ -46,27 +47,35 @@ def test_membership_changes_need_the_current_version(
     and two people editing the same lot from the same loaded form are never
     told -- which is the failure this test exists to catch, not the 409
     itself.
+
+    **The joiner is made first, so it carries the lowest `inventory_item_id`
+    of the four.** `lot_of_three` would have given it the highest, and the
+    coin added last would then come back last whether or not `lots._out`
+    sorted at all -- the ordering assertion below would have been comparing a
+    list to a sorted copy of itself and could not fail. Built here instead:
+    membership-row order and item-id order disagree, and the expected
+    sequence is named rather than derived from the answer.
     """
+    joiner = make_item(title="The oldest coin, added last")
+    members = [make_item(title=f"Member {index}") for index in range(3)]
+    lot = make_lot(members)
     db.commit()
-    stale = lot_of_three.version
-    joiner = make_item(title="A fourth coin")
-    db.commit()
+    stale = lot.version
+    expected = sorted([joiner.id, *(item.id for item in members)])
+    assert expected[0] == joiner.id
 
     first = client.patch(
-        f"/api/sales-lots/{lot_of_three.id}",
+        f"/api/sales-lots/{lot.id}",
         headers=admin_headers,
         json={"version": stale, "add_item_ids": [joiner.id]},
     )
     assert first.status_code == 200, first.text
-    members = first.json()["members"]
-    assert len(members) == 4
-    # `open_members`' order, the one sequence the whole system agrees on.
-    assert [row["inventory_item_id"] for row in members] == sorted(
-        row["inventory_item_id"] for row in members
-    )
+    # `open_members`' order, the one sequence the whole system agrees on --
+    # and not the order the rows were written in, which puts `joiner` last.
+    assert [row["inventory_item_id"] for row in first.json()["members"]] == expected
 
     second = client.patch(
-        f"/api/sales-lots/{lot_of_three.id}",
+        f"/api/sales-lots/{lot.id}",
         headers=admin_headers,
         json={"version": stale, "remove_item_ids": [joiner.id]},
     )
@@ -168,10 +177,38 @@ def test_offering_a_frozen_lot_is_a_conflict_not_bad_input(
     assert f"lot #{lot.id}" in response.json()["detail"]
 
 
+def _pydantic_messages(response: httpx.Response) -> list[str]:
+    """Every `msg` in a pydantic 422 body, so an assertion can name the fault.
+
+    A request-validation 422 carries `detail` as a **list of error dicts**,
+    not the string a router's own `HTTPException` produces. An assertion that
+    does not go through this cannot tell the two apart -- which is exactly how
+    two tests below passed on "Unknown venue: 'ebay'" while claiming to prove
+    a schema rule.
+    """
+    detail = response.json()["detail"]
+    assert isinstance(detail, list), detail
+    return [str(error["msg"]) for error in detail]
+
+
 def test_a_lot_body_cannot_also_carry_items(
-    client: TestClient, admin_headers: dict[str, str], lot_of_three: SalesLot
+    client: TestClient,
+    admin_headers: dict[str, str],
+    ebay_venue: SalesVenue,
+    lot_of_three: SalesLot,
+    make_item: ItemFactory,
 ) -> None:
-    """Both subjects at once is what makes `offer`'s `ValueError` unreachable."""
+    """Both subjects at once is what makes `offer`'s `ValueError` unreachable.
+
+    `ebay_venue` and a real item, so **nothing else about this request is
+    wrong**. Without the fixture `_venue_by_code` answers 422 for an unknown
+    venue before `_one_subject` is ever consulted, and a status-only
+    assertion passes with the rule deleted -- which is what this test did
+    until the review caught it. The body is asserted for the same reason: a
+    422 from pydantic and a 422 from the router are different answers and
+    only one of them is this rule.
+    """
+    spare = make_item(title="Not in the lot")
     response = client.post(
         "/api/offers",
         headers=admin_headers,
@@ -179,14 +216,19 @@ def test_a_lot_body_cannot_also_carry_items(
             "venue": "ebay",
             "lot_id": lot_of_three.id,
             "price": "10.00",
-            "items": [{"item_id": 1, "price": "10.00"}],
+            "items": [{"item_id": spare.id, "price": "10.00"}],
         },
     )
     assert response.status_code == 422, response.text
+    assert "Unknown venue" not in response.text
+    assert any("not both" in message for message in _pydantic_messages(response))
 
 
 def test_a_lot_cannot_be_offered_as_more_than_one_unit(
-    client: TestClient, admin_headers: dict[str, str], lot_of_three: SalesLot
+    client: TestClient,
+    admin_headers: dict[str, str],
+    ebay_venue: SalesVenue,
+    lot_of_three: SalesLot,
 ) -> None:
     """`ck_listing_lot_quantity_one` caps a lot listing at one unit.
 
@@ -194,6 +236,11 @@ def test_a_lot_cannot_be_offered_as_more_than_one_unit(
     explicit `2` would be accepted and quietly ignored -- the caller would
     believe two lots were on offer. Refused instead, now that a caller can
     reach the override at all.
+
+    `ebay_venue` and a body correct in every other way, so the only thing
+    wrong with this request is the quantity; and the refusal is read out of
+    the body, because an unknown venue answers 422 too and a status-only
+    assertion cannot tell which one spoke.
     """
     response = client.post(
         "/api/offers",
@@ -206,6 +253,10 @@ def test_a_lot_cannot_be_offered_as_more_than_one_unit(
         },
     )
     assert response.status_code == 422, response.text
+    assert "Unknown venue" not in response.text
+    assert any(
+        "quantity must be 1" in message for message in _pydantic_messages(response)
+    )
 
 
 def test_the_lot_list_is_admin_only(

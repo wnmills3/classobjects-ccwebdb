@@ -965,6 +965,32 @@ describe('An item for sale', () => {
     expect(screen.getByText(/sold as 1881-S Morgan, MS64/)).toBeVisible()
   })
 
+  // A lot line's `quantity` and `unit_price` describe the whole group, so
+  // showing them here would credit each coin with the lot's whole price.
+  it('shows a sale made inside a lot as this coin’s own share', async () => {
+    api.getInventoryItem.mockResolvedValue(item)
+    api.getItemSales.mockResolvedValue([
+      {
+        order_id: 9,
+        status: 'shipped',
+        placed_at: '2026-09-17T10:00:00Z',
+        customer_name: 'Ada',
+        quantity: 1,
+        unit_price: '1000.00',
+        sales_lot_id: 7,
+        share_amount: '200.00',
+        snapshot: { lot: { title: 'Three Morgans' } },
+      },
+    ])
+    render(<ItemEditForm itemId={12} />)
+    expect(await screen.findByRole('heading', { name: 'Sales' })).toBeVisible()
+    expect(
+      screen.getByText(/Order #9, 2026-09-17, shipped: 200.00 of lot #7 to Ada/),
+    ).toBeVisible()
+    // The lot's own price must not appear against one coin.
+    expect(screen.queryByText(/1000\.00/)).toBeNull()
+  })
+
   // Beside the sale history: where the item has been offered, and the place
   // an offer is started from without leaving the editor.
   it('shows the item its offers, ended ones included', async () => {

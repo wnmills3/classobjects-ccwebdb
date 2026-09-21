@@ -19,6 +19,7 @@ from sqlalchemy import ColumnElement, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.sql.selectable import ScalarSelect
 
 from .. import grades, item_attributes, offering_writes, sale_state
 from ..classifier_defaults import refresh_items
@@ -782,6 +783,29 @@ def _sold_this_item(item_id: int) -> ColumnElement[bool]:
     )
 
 
+def _share_of(item_id: int) -> ScalarSelect[Decimal]:
+    """What this one item was credited with on a line, as a scalar subquery.
+
+    A correlated subquery rather than a join, for the reason `_sold_this_item`
+    uses one: joining `sales_order_item_share` would repeat a lot line once
+    per member and report a single sale three times. At most one share row
+    can match -- one per (line, item) pair -- so this cannot multiply rows.
+
+    Typed `ScalarSelect[Decimal]` after the column, not `Decimal | None`: a
+    scalar subquery that matches nothing still yields SQL NULL, which is why
+    `ItemSaleOut.share_amount` is optional. The annotation describes the
+    column being selected, as SQLAlchemy's own stubs do.
+    """
+    return (
+        select(SalesOrderItemShare.amount)
+        .where(
+            SalesOrderItemShare.sales_order_item_id == SalesOrderItem.id,
+            SalesOrderItemShare.inventory_item_id == item_id,
+        )
+        .scalar_subquery()
+    )
+
+
 @router.get("/{item_id}/sales")
 def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemSaleOut]:
     """Every sale of this item, newest first, each with the item as sold.
@@ -795,11 +819,28 @@ def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemS
     A subquery rather than a join to `sales_order_item_share`, so a line
     stays one row however many members its lot had: joining would repeat the
     line once per share and the response would list the same sale three
-    times. The ordering and the response shape are unchanged.
+    times. The ordering is unchanged.
+
+    **`quantity` and `unit_price` belong to the line, not to the coin**, and
+    for a lot line they are the whole group's -- one lot at 1,000.00 against
+    a member that cost 200. Reaching a lot's sale without saying so would put
+    the group's price beside one coin on the screen an owner uses to ask what
+    happened to that coin, which is a worse answer than the empty list it
+    replaced. So every row also carries `sales_lot_id`, which says the sale
+    was a group sale, and `share_amount`, this coin's own cost-weighted share
+    of it. The fields that were already here keep their meanings exactly, so
+    an item sale reads as it always did.
     """
     item = _get_item(db, item_id)
     rows = db.execute(
-        select(SalesOrderItem, SalesOrder, SalesOrderStatus.code, Customer.display_name)
+        select(
+            SalesOrderItem,
+            SalesOrder,
+            SalesOrderStatus.code,
+            Customer.display_name,
+            Listing.sales_lot_id,
+            _share_of(item.id),
+        )
         .join(Listing, Listing.id == SalesOrderItem.listing_id)
         .join(SalesOrder, SalesOrder.id == SalesOrderItem.sales_order_id)
         .join(SalesOrderStatus, SalesOrderStatus.id == SalesOrder.sales_order_status_id)
@@ -815,10 +856,12 @@ def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemS
             customer_name=customer_name,
             quantity=line.quantity,
             unit_price=line.unit_price,
+            sales_lot_id=sales_lot_id,
+            share_amount=share_amount,
             snapshot=line.item_snapshot,
             snapshot_at=line.snapshot_at,
         )
-        for line, order, status_code, customer_name in rows
+        for line, order, status_code, customer_name, sales_lot_id, share_amount in rows
     ]
 
 

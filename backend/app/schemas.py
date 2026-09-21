@@ -197,7 +197,7 @@ class CatalogItemOut(BaseModel):
     the same shape, so a field cannot be added here for staff and leak to
     customers.
 
-    **A listing offers an item or a lot, never both** (`ck_listing_subject`),
+    **A listing offers an item or a lot, never both** (`ck_listing_item_xor_lot`),
     which is why the two item-only fields below are optional: a lot listing's
     `inventory_item_id` is NULL and it has no item code of its own. Its coins
     are in `members`, and the item-describing fields -- kind, grade, metal,
@@ -562,14 +562,32 @@ class SaleUseOut(BaseModel):
 
 
 class ItemSaleOut(BaseModel):
-    """One sale of an item: the order line, and the item as it was sold."""
+    """One sale of an item: the order line, and the item as it was sold.
+
+    **`quantity` and `unit_price` are the *line*'s, not the coin's.** For a
+    lot line they describe the whole group -- one lot at 1,000.00 -- so every
+    member of a three-coin lot would otherwise report the whole price as its
+    own. `sales_lot_id` says the line was a group sale, and `share_amount`
+    is what this coin was actually credited with inside it. A reader showing
+    money against one coin wants `share_amount` whenever it is there.
+    """
 
     order_id: int
     status: str
     placed_at: datetime
     customer_name: str
+    #: The line's quantity and unit price -- the lot's, for a lot line.
     quantity: int
     unit_price: Decimal
+    #: The lot this line sold, or null for an ordinary item sale. The one
+    #: field that says "this coin went out inside a group".
+    sales_lot_id: int | None = None
+    #: This coin's share of the line, cost-weighted by `total_cost`
+    #: (`order_writes._sync_shares`). It equals the line total for an item
+    #: sale and is a fraction of it for a lot member. Null only for a line
+    #: written before shares existed, which `_sync_shares` still allows for.
+    #: A `Decimal` on a Pydantic model, so it crosses the wire as a string.
+    share_amount: Decimal | None = None
     #: The item and listing when the line was made; None for older lines.
     snapshot: dict[str, object] | None = None
     snapshot_at: datetime | None = None
@@ -1370,7 +1388,7 @@ class ListingOut(BaseModel):
     column holds what a person typed, and a derived value stored there would
     go stale the day a platform changes its URLs.
 
-    **A listing offers an item or a lot, never both** (`ck_listing_subject`),
+    **A listing offers an item or a lot, never both** (`ck_listing_item_xor_lot`),
     so the two pairs below are mutually exclusive and both are optional. They
     were required until lots existed, and `routers/offers._out` read
     `listing.inventory_item.item_code` unconditionally: the moment a lot
