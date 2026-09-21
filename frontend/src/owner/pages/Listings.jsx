@@ -7,7 +7,7 @@ import ModalDialog from '../ModalDialog'
 import RecordSaleDialog from './RecordSaleDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { isMoney } from './orders/cents'
-import { FORMATS, STATUSES, UNKNOWN, labelFor } from './listing-labels'
+import { FORMATS, STATUSES, UNKNOWN, labelFor, subjectOf } from './listing-labels'
 import { marginPercent } from './platform-rates'
 import { date } from '../../shared/format'
 
@@ -121,7 +121,9 @@ function ListingForm({ listing, onSaved, onClose }) {
     }
   }
 
-  const label = `Edit ${listing.item_code} on ${listing.venue_name}`
+  // `subjectOf`, not `item_code`: a lot listing has none, and this read as
+  // "Edit null on eBay" for every one of them.
+  const label = `Edit ${subjectOf(listing)} on ${listing.venue_name}`
 
   return (
     <ModalDialog label={label} onClose={onClose}>
@@ -263,6 +265,13 @@ export default function Listings() {
   // one row, for the same reason `end` does: recording a sale also ends the
   // listing (`record_sale`), which can resume a store listing this page
   // never touched.
+  //
+  // `sale.item_codes` is right for a LOT sale too, and is not a null: it
+  // comes from the order's item shares, and `order_writes._sync_shares`
+  // writes one share per **offered item** -- one for an item listing, one per
+  // member for a lot -- so a lot sale names every coin that went out, ordered
+  // by code. The lot's own title is not in `SaleRecordedOut` at all; the
+  // coins are what the notice can say, and are what a packing slip needs.
   function recorded(sale) {
     setSelling(null)
     setNotice(
@@ -358,7 +367,7 @@ export default function Listings() {
         <thead>
           <tr>
             <th>Platform</th>
-            <th>Item</th>
+            <th>Item or lot</th>
             <th>Title</th>
             <th>Price</th>
             <th>Cost</th>
@@ -375,7 +384,10 @@ export default function Listings() {
             return (
               <tr key={l.id} className={l.status === 'active' ? '' : 'muted'}>
                 <td>{l.venue_name}</td>
-                <td>{l.item_code}</td>
+                {/* The item's code, or the lot by name and size: a lot
+                    listing has no code of its own and this cell was empty
+                    for every one of them. */}
+                <td>{subjectOf(l)}</td>
                 <td>{l.title}</td>
                 <td>
                   {l.price} {l.currency}
