@@ -6,8 +6,11 @@ app.sale_snapshot and app.sale_state.
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 
-from app.models import InventoryItem, Listing, SalesOrderItem
+from app import sale_snapshot
+from app.models import InventoryItem, Listing, SalesOrderItem, User
+from app.sales_writes import record_sale
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import select
@@ -84,7 +87,7 @@ def test_a_sale_keeps_the_item_as_it_was_sold(
     line = _admin_order(client, admin_headers, order["id"])["items"][0]
     snapshot = line["snapshot"]
     assert line["title"] == "1881-S Morgan"
-    assert snapshot["snapshot_version"] == 1
+    assert snapshot["snapshot_version"] == 2
     assert snapshot["item"]["source_title"] == "1881-S Morgan"
     assert snapshot["item"]["description"] == "Blast white"
     assert snapshot["item"]["grade_display"] == "MS64"
@@ -174,6 +177,71 @@ def test_a_revision_snapshots_a_new_line_and_keeps_an_old_one(
     added_snapshot = lines[added.id].item_snapshot
     assert added_snapshot is not None
     assert added_snapshot["item"]["source_title"] == "Added"
+
+
+def test_a_lot_listing_snapshots_every_member(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """`take` read `listing.inventory_item` and would crash on None.
+
+    The snapshot is what the order keeps forever, so a lot's must name every
+    coin that was in it -- the membership rows are released at sale, and the
+    group can be reconstructed from nothing but this.
+    """
+    snapshot = sale_snapshot.take(db, offered_lot_listing)
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    assert snapshot["snapshot_version"] == 2
+    assert "item" not in snapshot
+    assert snapshot["lot"]["title"] == lot.title
+    assert len(snapshot["items"]) == 3
+    assert [entry["item_code"] for entry in snapshot["items"]] == sorted(
+        entry["item_code"] for entry in snapshot["items"]
+    )
+
+
+def test_an_item_listing_s_snapshot_keeps_its_shape(
+    db: Session, ebay_listing: Listing
+) -> None:
+    """Widening must not move the single-item keys every reader already uses.
+
+    `snapshot_version` rises to 2 because the shape *set* changed -- a
+    snapshot may now lack `item` entirely -- and a reader has to be able to
+    tell which shapes it may meet. The keys themselves do not move.
+    """
+    snapshot = sale_snapshot.take(db, ebay_listing)
+    assert snapshot["snapshot_version"] == 2
+    assert "lot" not in snapshot
+    assert snapshot["item"]["item_code"]
+    assert snapshot["listing"]["price"] == "120.00"
+
+
+def test_an_order_line_for_a_lot_is_titled_by_the_lot(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+    admin_user: User,
+) -> None:
+    """`_sold_as` fell back to `listing.inventory_item.source_title`.
+
+    That is `None` for a lot listing, so the Orders page would raise
+    `AttributeError` -- a 500 on every page that includes the order -- rather
+    than showing the lot's title. Reached through the API, not by calling
+    `_sold_as`, because the 500 is what an operator actually meets.
+    """
+    order = record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-1",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    db.commit()
+    body = client.get(f"/api/orders/{order.id}", headers=admin_headers).json()
+    assert body["items"][0]["title"] == "Three Morgan Dollars"
 
 
 # --- for sale ----------------------------------------------------------------------

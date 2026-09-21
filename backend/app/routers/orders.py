@@ -56,11 +56,43 @@ _ORDER_NOT_FOUND = "Order not found"
 
 
 def _sold_as(line: SalesOrderItem) -> str:
-    """What the line sold, as it was called then; today's name for older lines."""
+    """What the line sold, as it was called then; today's name for older lines.
+
+    A lot line's snapshot has no `item` at all (`sale_snapshot`, version 2),
+    so the lot's own title answers for it. Without that, the fallback below
+    reached `listing.inventory_item.source_title`, which is `None` for a lot
+    listing -- an `AttributeError`, and a 500 on every page listing the order.
+    """
     snapshot = line.item_snapshot or {}
-    item = snapshot.get("item") if isinstance(snapshot, dict) else None
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    item = snapshot.get("item")
     title = item.get("source_title") if isinstance(item, dict) else None
-    return str(title) if title else line.listing.inventory_item.source_title
+    if title:
+        return str(title)
+    lot = snapshot.get("lot")
+    lot_title = lot.get("title") if isinstance(lot, dict) else None
+    if lot_title:
+        return str(lot_title)
+    # A line whose snapshot predates lots and carries no title: fall back to
+    # the listing, whose own title covers both shapes.
+    return _listing_title(line.listing) or f"Listing #{line.listing_id}"
+
+
+def _listing_title(listing: Listing | None) -> str | None:
+    """A listing's name for a person: its item's title, or its lot's.
+
+    The third reader of `listing.inventory_item.source_title` that a lot
+    listing's NULL item would crash -- `order_changes` below builds its
+    history rows from it.
+    """
+    if listing is None:
+        return None
+    item = listing.inventory_item
+    if item is not None:
+        return item.source_title
+    lot = listing.sales_lot
+    return lot.title if lot is not None else None
 
 
 def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> OrderOut:
@@ -218,6 +250,7 @@ def list_order_changes(
         .options(
             selectinload(SalesOrderChange.changed_by),
             selectinload(SalesOrderChange.listing).selectinload(Listing.inventory_item),
+            selectinload(SalesOrderChange.listing).selectinload(Listing.sales_lot),
         )
         .order_by(SalesOrderChange.id.desc())
     ).all()
@@ -228,9 +261,7 @@ def list_order_changes(
             changed_by_email=row.changed_by.email if row.changed_by else None,
             change=row.change.value,
             listing_id=row.listing_id,
-            listing_title=row.listing.inventory_item.source_title
-            if row.listing
-            else None,
+            listing_title=_listing_title(row.listing),
             from_value=row.from_value,
             to_value=row.to_value,
         )

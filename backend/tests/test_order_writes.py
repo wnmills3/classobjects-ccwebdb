@@ -26,8 +26,9 @@ from app.models import (
     SalesVenueKind,
     User,
 )
-from app.order_writes import Line, place_order
+from app.order_writes import Line, place_order, revise_order
 from app.sales_venues import store_venue_id
+from app.sales_writes import record_sale
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from httpx import Response
@@ -985,3 +986,106 @@ def test_cancelling_relists_an_item_that_had_sold_out(
     assert response.status_code == 200, response.text
     db.expire_all()
     assert listing.inventory_item.disposition.code == "listed"
+
+
+# --- a lot listing's line ----------------------------------------------------------
+
+
+def _sell_the_lot(db: Session, listing: Listing, admin_user: User) -> SalesOrder:
+    """Record the lot listing as sold for 1,000.00, the way an operator would."""
+    return record_sale(
+        db,
+        listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-1",
+        fees=[],
+        recorded_by=admin_user,
+    )
+
+
+def test_revising_a_lot_line_redistributes_every_share(
+    db: Session, offered_lot_listing: Listing, admin_user: User
+) -> None:
+    """The update branch had no lot case at all, because the guard returned first.
+
+    `_sync_shares` returned immediately when `listing.inventory_item_id is
+    None`, so a revised lot line's money would move while its shares stayed
+    where they were -- silently, since nothing sums them back. The mutation
+    that proves this test: restore the early return and confirm it goes red.
+
+    The redistribution is read off the shares that exist, not off the lot's
+    current members: `record_sale` ends the offer, which releases every
+    membership, so by the time a revision arrives the lot has no open
+    members left to ask.
+    """
+    order = _sell_the_lot(db, offered_lot_listing, admin_user)
+    line = order.items[0]
+
+    revise_order(
+        db,
+        order,
+        customer=order.customer,
+        lines=[
+            Line(
+                listing_id=line.listing_id,
+                quantity=1,
+                unit_price=Decimal("700.00"),
+            )
+        ],
+        notes=None,
+        version=order.version,
+        by=admin_user,
+    )
+
+    shares = db.scalars(
+        select(SalesOrderItemShare).where(
+            SalesOrderItemShare.sales_order_item_id == line.id
+        )
+    ).all()
+    assert len(shares) == 3
+    assert sum(share.amount for share in shares) == Decimal("700.00")
+    # Still weighted 500 / 300 / 200, not moved into one row.
+    assert sorted(share.amount for share in shares) == [
+        Decimal("140.00"),
+        Decimal("210.00"),
+        Decimal("350.00"),
+    ]
+
+
+def test_the_history_of_a_lot_line_is_titled_by_the_lot(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+    admin_user: User,
+) -> None:
+    """`order_changes` read `row.listing.inventory_item.source_title` too.
+
+    A third crash site of the same shape as `_sold_as`, on a page an
+    operator reaches from the order itself: a lot listing has no
+    `inventory_item`, so the history 500ed rather than naming the lot.
+    """
+    order = _sell_the_lot(db, offered_lot_listing, admin_user)
+    revise_order(
+        db,
+        order,
+        customer=order.customer,
+        lines=[
+            Line(
+                listing_id=order.items[0].listing_id,
+                quantity=1,
+                unit_price=Decimal("700.00"),
+            )
+        ],
+        notes=None,
+        version=order.version,
+        by=admin_user,
+    )
+    db.commit()
+
+    response = client.get(f"/api/orders/{order.id}/changes", headers=admin_headers)
+
+    assert response.status_code == 200, response.text
+    priced = next(row for row in response.json() if row["change"] == "unit_price")
+    assert priced["listing_title"] == "Three Morgan Dollars"
