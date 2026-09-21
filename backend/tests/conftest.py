@@ -322,7 +322,12 @@ def check_lot_invariant(db: Session) -> None:
         .join(SalesLot, SalesLot.id == SalesLotItem.sales_lot_id)
         .where(
             SalesLotItem.released_at.is_(None),
-            SalesLot.status.in_((SalesLotStatus.sold, SalesLotStatus.dissolved)),
+            # Named by the good statuses, matching the docstring above, and
+            # failing closed: a fifth `SalesLotStatus` this does not yet know
+            # about is caught here (an open membership disagrees with it)
+            # rather than silently passed as an inferred "closed" status
+            # would be under `.in_((sold, dissolved))`.
+            SalesLot.status.not_in((SalesLotStatus.assembling, SalesLotStatus.offered)),
         )
     ).all()
     if open_in_closed:
@@ -367,8 +372,9 @@ def check_disposition_invariant(db: Session) -> None:
     - **The `SOLD_AWAY` allowance is not slack.** A shop checkout that takes
       the last unit sets the item to `sold`
       (`order_writes._after_stock_change`) while its store listing stays
-      `active` with an `active` claim -- `end_offer`'s own comment
-      (`offering_writes.py:596-600`) names that shape as intended. Without
+      `active` with an `active` claim -- `end_offer`'s own comment, beside
+      `if item is not None and item.disposition_id == listed:`
+      (`offering_writes.py:925-931`), names that shape as intended. Without
       the allowance the rule is false the first time a test buys out a
       listing.
 

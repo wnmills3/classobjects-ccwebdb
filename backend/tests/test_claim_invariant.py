@@ -56,12 +56,15 @@ suite.
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 from app.models import ClaimState, Disposition, Listing, OfferClaim, SalesLotStatus
 from app.references import require_code
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tests import conftest
 from tests.conftest import (
     ClaimInvariantViolation,
     DispositionInvariantViolation,
@@ -151,82 +154,66 @@ def test_the_lot_invariant_catches_an_open_member_of_a_finished_lot(
 
 
 def test_the_lot_invariant_is_wired_into_the_autouse_fixture(
-    request: pytest.FixtureRequest, db: Session, offered_lot_listing: Listing
+    request: pytest.FixtureRequest,
 ) -> None:
     """The fixture, not just the function, must run the lot check.
 
     `test_the_invariant_fixture_is_wired_up`'s lesson, applied to the second
-    rule: the xfail test above calls `check_lot_invariant` itself, so it
-    would stay green even if the fixture never called it. Asserting on
-    `fixturenames` proves the fixture is active; reading its source for the
-    call is what proves the call. Here the cheaper equivalent: the fixture is
-    the only thing that would fail a test with a broken lot *and no direct
-    call*, so this test simply leaves the lot correct and asserts the check
-    is satisfied -- and the xfail above, whose teardown also raises, is the
-    other half.
+    rule -- except the first cut of this test called `check_lot_invariant`
+    directly in its own body, the way that lesson's test could not (there is
+    no function to call there), and that call phase decides the outcome
+    regardless of what the fixture does: mutation-tested by hand, commenting
+    out the fixture's own `check_lot_invariant(db)` line in `_claim_invariant`
+    (conftest.py) left an equivalent test green (`3 passed, 6 xfailed`, no
+    failures), because a clean lot never raises whether or not the fixture
+    also checks it. `fixturenames` proves the fixture is in the closure, but
+    that was already true with the call deleted too.
+
+    The actual fix, doing literally what `test_the_invariant_fixture_is_wired_up`
+    only says: read the fixture's source and assert the call is in it.
+
+    Mutation-tested by hand: commenting out `check_lot_invariant(db)` inside
+    `_claim_invariant` now makes this fail with a genuine `AssertionError`,
+    not merely lose a redundant `xfail` phase.
     """
-    assert "_claim_invariant" in request.fixturenames  # the fixture that calls it
-    check_lot_invariant(db)
+    assert "_claim_invariant" in request.fixturenames  # the fixture is in the closure
+    src = inspect.getsource(conftest._claim_invariant)
+    assert "check_lot_invariant(db)" in src
 
 
-@pytest.mark.claim_invariant_waiver(
-    reason=(
-        "breaks the claim invariant deliberately (a released claim on an "
-        "active listing) to prove the lot check still runs -- and still "
-        "raises its own exception type -- inside an already-waived test"
-    )
-)
-@pytest.mark.xfail(
-    strict=True,
-    raises=LotInvariantViolation,
-    reason=(
-        "the lot violation must surface even though this test's claim "
-        "violation is waived"
-    ),
-)
-def test_the_lot_check_runs_ahead_of_the_waiver_branch_even_when_waived(
-    db: Session, offered_lot_listing: Listing
-) -> None:
-    """What this actually proves: ordering, not the type-separation itself.
+def test_the_lot_check_runs_ahead_of_the_waiver_branch() -> None:
+    """The lot check must run before the waiver branch could ever see it.
 
-    It is tempting to read this as "a claim waiver does not absorb a lot
-    violation." It does not prove that, and the reason is mechanical:
-    `_claim_invariant` (conftest.py) calls `check_lot_invariant` *before* the
-    waiver's `except ClaimInvariantViolation` branch even exists in the
-    control flow, so a lot violation here surfaces whatever its exception
-    type happens to be -- this test cannot distinguish "the waiver saw a
-    `LotInvariantViolation` and declined to catch it" from "the waiver never
-    got a chance to see one at all." Only the second is what actually
-    happens with Step 2's ordering.
+    Renamed from `..._even_when_waived`, and no longer a
+    `claim_invariant_waiver` test: the first cut set up a claim-and-lot
+    scenario under a waiver marker and asserted `check_lot_invariant` still
+    raised. That could not prove what its name claimed. `_claim_invariant`
+    (conftest.py) calls `check_lot_invariant` *before* its `if waiver is
+    None` branch even exists in the control flow, so the scenario's
+    `check_lot_invariant(db)` call raised regardless of the marker, the
+    same way it raises in the two tests above with no marker at all -- the
+    call phase cannot distinguish "the waiver saw a `LotInvariantViolation`
+    and declined to catch it" from "the waiver never got a chance to see one
+    at all." Worse, because the fixture's own teardown never reaches the
+    waiver-handling block either (the same early raise gets there first),
+    the marker was never graded: `claim.state = ClaimState.released` was
+    dead setup, and a stale waiver on this test could never be caught the
+    way the "a waiver that stops biting fails loudly" guarantee promises
+    everywhere else. Both are simply removed rather than reworked, per that
+    finding.
 
-    What this proves instead: the lot check runs ahead of the waiver branch,
-    so it is reached -- and still raises -- inside a test that carries
-    `claim_invariant_waiver`. That ordering is what stops a lot bug from
-    hiding behind an unrelated claim waiver in practice, which is the
-    property that matters here.
+    Ordering is a property of the fixture's source, not of any one test's
+    runtime data, so this reads the source directly: `check_lot_invariant`
+    must both appear in `_claim_invariant` and appear before `if waiver is
+    None`.
 
-    The separate exception type is still load-bearing, just provable
-    elsewhere: the `xfail(strict=True, raises=LotInvariantViolation)` on the
-    two tests above would fail if `check_lot_invariant` ever raised
-    `ClaimInvariantViolation` instead of its own type. What no test can show
-    is the absorption half -- whether `except ClaimInvariantViolation` would
-    swallow a `LotInvariantViolation` if it reached that branch -- because
-    with this ordering it never does. Moving the call inside the waiver
-    branch would make that half testable, but only by first making a lot
-    violation waivable inside a claim-waived test, which is exactly the
-    accident the separate type and this ordering exist to prevent. So the
-    call stays exactly where Step 2 puts it, ahead of the waiver branch.
+    Mutation-tested by hand: commenting out `check_lot_invariant(db)` inside
+    `_claim_invariant`, or moving it to after the `if waiver is None:` line,
+    each make this fail with a genuine `AssertionError`.
     """
-    lot = offered_lot_listing.sales_lot
-    assert lot is not None
-    claim = db.scalars(
-        select(OfferClaim).where(OfferClaim.listing_id == offered_lot_listing.id)
-    ).first()
-    assert claim is not None
-    claim.state = ClaimState.released  # claim half: would be waived if reached
-    lot.status = SalesLotStatus.dissolved  # lot half: runs first, never waived
-    db.flush()
-    check_lot_invariant(db)
+    src = inspect.getsource(conftest._claim_invariant)
+    assert "check_lot_invariant(db)" in src
+    assert src.index("check_lot_invariant(db)") < src.index("if waiver is None")
 
 
 @pytest.mark.xfail(
@@ -260,16 +247,21 @@ def test_the_disposition_invariant_catches_a_held_claim_on_a_held_item(
 
 
 def test_the_disposition_invariant_is_wired_into_the_autouse_fixture(
-    request: pytest.FixtureRequest, db: Session, ebay_listing: Listing
+    request: pytest.FixtureRequest,
 ) -> None:
     """The fixture, not just the function, must run the disposition check.
 
-    Same shape as `test_the_lot_invariant_is_wired_into_the_autouse_fixture`:
-    the xfail test above calls `check_disposition_invariant` itself, so it
-    would stay green even if the fixture never called it. This test leaves
-    the item's disposition correct (`listed`, from `ebay_listing`'s claim)
-    and asserts the check is satisfied while the fixture is confirmed active
-    -- the xfail above, whose teardown also raises, is the other half.
+    Same gap `test_the_lot_invariant_is_wired_into_the_autouse_fixture`'s
+    docstring names, and the same fix: calling `check_disposition_invariant`
+    directly in this test's own body cannot tell "the fixture also calls it"
+    from "the fixture does not," because the call phase's own result already
+    decides the outcome. Read the fixture's source and assert the call is
+    actually in it, instead.
+
+    Mutation-tested by hand: commenting out `check_disposition_invariant(db)`
+    inside `_claim_invariant` (conftest.py) now makes this fail with a
+    genuine `AssertionError`.
     """
-    assert "_claim_invariant" in request.fixturenames  # the fixture that calls it
-    check_disposition_invariant(db)
+    assert "_claim_invariant" in request.fixturenames  # the fixture is in the closure
+    src = inspect.getsource(conftest._claim_invariant)
+    assert "check_disposition_invariant(db)" in src
