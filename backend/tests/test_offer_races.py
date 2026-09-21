@@ -68,15 +68,15 @@ def _cleanup_race_rows(cleanup: Session) -> None:
     The claim delete matches on `listing_id` as well as `inventory_item_id`,
     not `inventory_item_id` alone -- a claim can name a *different* item than
     the listing it holds (the lot-member shape `test_offering_writes.py`'s
-    `claim_invariant_waiver`-marked tests already exercise, and phase 3 will
-    write for real). Without the `listing_id` half, such a claim would survive
-    this delete, and the `listing` delete just below it would then fail on
-    `offer_claim.listing_id`'s `ondelete="RESTRICT"` -- inside this same
-    `finally`, replacing whatever `ClaimInvariantViolation` the `try` raised
-    with a foreign-key error instead. Latent today (`offer` and `_move_claims`
-    both set a claim's item from its own listing), but this is the one file in
-    the suite that commits claims for real, so it is the one place that
-    latency would actually surface.
+    `claim_invariant_waiver`-marked tests already exercise, and which phase 3
+    writes for real: `offer` on a lot writes one claim per member, and a lot
+    listing has no item of its own at all). Without the `listing_id` half,
+    such a claim would survive this delete, and the `listing` delete just
+    below it would then fail on `offer_claim.listing_id`'s
+    `ondelete="RESTRICT"` -- inside this same `finally`, replacing whatever
+    `ClaimInvariantViolation` the `try` raised with a foreign-key error
+    instead. No longer latent, and this is the one file in the suite that
+    commits claims for real, so it is the one place it would surface.
 
     Deletion order respects the FKs a claim and a listing carry:
     ``offer_claim`` first (it points at both ``listing`` and
@@ -255,7 +255,10 @@ def test_a_lot_shaped_claim_does_not_survive_cleanup_or_block_it(
     RACE-tagged items, but whose `listing_id` *is* one of its listings --
     the lot-member shape `test_offering_writes.py`'s `claim_invariant_waiver`
     tests already exercise, constructed directly the same way they are,
-    bypassing `offering_writes` on purpose (no write path creates it yet).
+    bypassing `offering_writes` on purpose. `offer` writes that shape for a
+    real lot now; what no write path produces is the *mismatched state*
+    below -- a `released` claim on a still-active listing -- which is the
+    part this test rests on.
     Before the extra `OfferClaim.listing_id.in_(...)` predicate, this claim
     would survive the delete keyed only on `inventory_item_id`, and the
     `listing` delete right after it would then fail on

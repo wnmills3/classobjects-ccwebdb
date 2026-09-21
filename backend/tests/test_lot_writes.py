@@ -21,7 +21,7 @@ from app.models import (
 )
 from app.order_writes import Line, place_order, return_stock
 from app.references import require_code
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -250,3 +250,43 @@ def test_removing_a_member_is_frozen_once_offered(
     db.flush()
     with pytest.raises(LotRefused, match="frozen"):
         remove_member(db, lot, received_item)
+
+
+def test_the_lot_lock_re_reads_the_row_it_locked(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A membership change reads `status` from the row, not from the session.
+
+    The twin of `test_offering_writes.py`'s
+    `test_the_item_lock_re_reads_the_row_it_locked`, and the reason
+    `_refuse_unless_assembling` takes the lot FOR UPDATE: under READ
+    COMMITTED a request that waited on that lock resumes holding the values
+    it read *before* the wait, so a lock without a re-read would let an add
+    that saw `assembling` put a member into a lot `offering_writes.offer`
+    has since frozen -- a coin inside a group a buyer is looking at, with no
+    claim on it.
+
+    `synchronize_session=False` is what makes the session's copy stale on
+    purpose: without it SQLAlchemy would helpfully update the identity map,
+    and the test would pass whether or not anything re-read the row. There is
+    no second connection here, so this measures the re-read, not the wait;
+    the wait is Postgres's to keep, and nothing in this suite may open a
+    second session against the shared test database.
+
+    The item is built *before* the UPDATE, and that ordering is the test.
+    `make_item` commits, and this session expires on commit, so building it
+    afterwards would reload `lot.status` by itself -- the first version of
+    this test did exactly that and passed with the lock deleted.
+    """
+    lot = _lot(db)
+    joiner = make_item()
+    db.execute(
+        update(SalesLot)
+        .where(SalesLot.id == lot.id)
+        .values(status=SalesLotStatus.offered, version=SalesLot.version + 1)
+        .execution_options(synchronize_session=False)
+    )
+    assert lot.status is SalesLotStatus.assembling  # stale, on purpose
+
+    with pytest.raises(LotRefused, match="frozen"):
+        add_member(db, lot, joiner)

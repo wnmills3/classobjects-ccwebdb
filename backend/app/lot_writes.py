@@ -2,9 +2,15 @@
 
 Membership changes only while a lot is `assembling`; everything about a
 lot's *offer* -- freezing it, selling it, dissolving it -- belongs to
-`offering_writes`, which a later task widens to cover lots. Keeping assembly
-separate here is what stops this module needing the claim rules, and it is
-why `offering_writes` can import from here without a cycle.
+`offering_writes`. Keeping assembly separate here is what stops this module
+needing the claim rules.
+
+The two modules import each other, so the cycle is broken the way this
+codebase already breaks the `offering_writes`/`sale_state` one: this module
+imports `offering_writes` at the top, and `offering_writes` imports this one
+*inside* the two functions that need it. `tests/conftest.py` imports
+`app.lot_writes` first, and a module-level import back from `offering_writes`
+raises `ImportError` in exactly that order.
 
 Functions flush and never commit; the caller's request owns the transaction,
 as everywhere else in this codebase.
@@ -47,8 +53,8 @@ class EmptyLot(LotRefused):
     maps to 422, by `except`-clause order, while a bare `LotRefused` is a
     conflict mapped to 409 -- and every existing `except LotRefused` keeps
     catching this too. Nothing in this module raises it: assembling a lot
-    never requires it to be non-empty, only offering one does, which is
-    `offering_writes`'s decision to make in a later task.
+    never requires it to be non-empty, only offering one does, and that is
+    `offering_writes._lot_members`' decision, which raises this.
     """
 
 
@@ -79,13 +85,27 @@ def open_members(db: Session, lot: SalesLot) -> list[SalesLotItem]:
     )
 
 
-def _refuse_unless_assembling(lot: SalesLot) -> None:
+def _refuse_unless_assembling(db: Session, lot: SalesLot) -> None:
     """Refuse any membership change once a lot is no longer assembling.
 
     Once offered, the buyer is looking at that exact group -- both `offer`
     and a removal or addition after that point would silently change what
     was already shown, so both are refused here rather than just one.
+
+    The row is taken FOR UPDATE and re-read before `status` is asked, not
+    asked as the caller loaded it. `SalesLot.version` gives this table an
+    optimistic lock, but a membership change writes `sales_lot_item` and
+    never updates `sales_lot`, so the version never moves and cannot see
+    this race at all: without the lock, an add that read `assembling` before
+    `offering_writes.offer` froze the lot would insert a member into a lot
+    already on sale -- a coin in a group a buyer is looking at, with no
+    claim on it and nothing to stop it being offered again elsewhere.
+    `offering_writes._lot_members` takes the same lock before it reads the
+    membership, so whichever of the two arrives second waits, re-reads, and
+    finds what the first one wrote. It is the lot's row throughout, so the
+    pair can never each hold what the other needs.
     """
+    db.refresh(lot, with_for_update=True)
     if lot.status is not SalesLotStatus.assembling:
         raise LotRefused(
             f"lot #{lot.id} is {lot.status.value}, so its membership is frozen"
@@ -177,7 +197,7 @@ def add_member(db: Session, lot: SalesLot, item: InventoryItem) -> SalesLotItem:
     leaves the lot exactly as it was and a batch of adds can be all or
     nothing -- the same discipline `offering_writes.offer` follows.
     """
-    _refuse_unless_assembling(lot)
+    _refuse_unless_assembling(db, lot)
     _refuse_unofferable(item)
     _refuse_partial(db, item)
     other = _lot_holding(db, item.id)
@@ -223,15 +243,15 @@ def remove_member(db: Session, lot: SalesLot, item: InventoryItem) -> None:
     never a mutation of `lot.members` -- rather than releasing it. While a
     lot is `assembling`, nothing has been offered or sold, so a removal here
     is an edit to the group, not history worth keeping: `released_at` is the
-    record of a lot that sold or was dissolved, and `offering_writes` (a
-    later task) is its only writer. This module never assigns it.
+    record of a lot that sold or was dissolved, and `offering_writes._end` is
+    its only writer. This module never assigns it.
 
     Because removal deletes rather than releasing, `uq_sales_lot_item_pair`
     -- the non-partial unique constraint on `(sales_lot_id,
     inventory_item_id)` -- never stops the same item rejoining the same lot
     later: a fresh row is a fresh pair.
     """
-    _refuse_unless_assembling(lot)
+    _refuse_unless_assembling(db, lot)
     row = db.scalars(
         select(SalesLotItem).where(
             SalesLotItem.sales_lot_id == lot.id,
