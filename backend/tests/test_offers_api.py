@@ -603,3 +603,89 @@ def test_an_item_listing_keeps_its_own_fields(
     assert row["item_code"]
     assert row["sales_lot_id"] is None
     assert row["member_count"] is None
+
+
+def _members_of(listing: Listing) -> list[int]:
+    """The item ids a lot listing offers, in `open_members` order."""
+    lot = listing.sales_lot
+    assert lot is not None, "this fixture is a lot listing"
+    return sorted(row.inventory_item_id for row in lot.members)
+
+
+def test_one_coin_s_offers_include_the_lot_that_offers_it(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+) -> None:
+    """`item_id=` filtered on a column a lot listing leaves NULL.
+
+    `Listing.inventory_item_id` is null on a lot listing -- the lot's coins
+    are reached through `offer_claim` -- so filtering on it alone answered
+    `[]` for a coin that is on sale inside a lot. The console's offers panel
+    (`OffersPanel.jsx`) is the reader: it asked this endpoint per item, got
+    nothing, and printed "Not offered anywhere yet" about a coin a buyer was
+    looking at, while also offering an "Offer for sale..." button the writer
+    refuses (`offering_writes._refuse_grouped`).
+
+    Asserting the row's identity and its lot fields, not that the list is
+    non-empty: this coin has exactly one offer, and naming it is what tells
+    "found the lot listing" apart from "found something".
+    """
+    member_id = _members_of(offered_lot_listing)[0]
+    db.commit()
+
+    rows = client.get(
+        "/api/listings",
+        headers=admin_headers,
+        params={"item_id": member_id, "status": "all"},
+    ).json()
+
+    assert [row["id"] for row in rows] == [offered_lot_listing.id]
+    row = rows[0]
+    # It must read as the lot it is, not as this coin: `item_code` is what
+    # the panel would otherwise print, and a lot has none.
+    assert row["item_code"] is None
+    assert row["item_id"] is None
+    assert row["sales_lot_id"] == offered_lot_listing.sales_lot_id
+    assert row["member_count"] == 3
+    assert row["item_title"] == "Three Morgan Dollars"
+
+
+def test_one_coin_s_offers_keep_a_lot_listing_that_has_ended(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+) -> None:
+    """Offer history outlives the offer, for a lot the same as for an item.
+
+    The panel asks with `status=all` because "where this coin has been
+    offered before, and for how much" is half of what it shows. Ending a lot
+    listing releases every member's claim (`offering_writes.end_offer`), so
+    a present-tense predicate -- `offers_holding`, or anything built on
+    `_holds_any`, which filters claims to `HELD_BY` -- would answer this
+    correctly while the lot was live and then lose the row the moment it
+    ended. That is why the filter asks `ever_named_any`, whose claim half
+    has no state filter at all.
+
+    A single-item listing has never had this problem, because
+    `Listing.inventory_item_id` survives the end of the offer. Only the lot
+    half depends on released claims, so only the lot half can regress here.
+    """
+    member_id = _members_of(offered_lot_listing)[0]
+    lot_listing_id = offered_lot_listing.id
+    db.commit()
+
+    ended = client.post(f"/api/listings/{lot_listing_id}/end", headers=admin_headers)
+    assert ended.status_code == 200, ended.text
+    assert ended.json()["status"] == "ended"
+
+    rows = client.get(
+        "/api/listings",
+        headers=admin_headers,
+        params={"item_id": member_id, "status": "all"},
+    ).json()
+
+    assert [row["id"] for row in rows] == [lot_listing_id]
+    assert rows[0]["status"] == "ended"

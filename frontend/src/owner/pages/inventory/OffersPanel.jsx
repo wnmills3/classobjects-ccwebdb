@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
 import EndOfferConfirm from '../EndOfferConfirm'
-import { FORMATS, ON_OFFER, STATUSES, UNKNOWN, labelFor } from '../listing-labels'
+import {
+  FORMATS,
+  ON_OFFER,
+  STATUSES,
+  UNKNOWN,
+  isLot,
+  labelFor,
+  subjectOf,
+} from '../listing-labels'
 import OfferDialog from './OfferDialog'
 import { date } from '../../../shared/format'
 
@@ -119,6 +127,25 @@ export default function OffersPanel({ item, onChanged }) {
     ownStore !== null &&
     listings.some((l) => ON_OFFER.includes(l.status) && !ownStore.has(l.venue))
 
+  // A coin inside an offered lot is the other case the writer refuses
+  // outright -- "is in lot #3, which is offered: end or dissolve the lot
+  // before offering it on its own" (`offering_writes._refuse_grouped`).
+  //
+  // Unlike the rule above this one does not depend on the platform, and the
+  // shop is NOT an exception to it. The shop exception exists because
+  // offering an item that is active in the web store pauses that store
+  // listing and ending the offer brings it back. A lot listing cannot take
+  // part in that: pausing it would pause every member's claim, and settling
+  // the new sale would dissolve the lot and leave every other coin listed
+  // with nothing offering it. So the lot is refused on every platform, the
+  // shop included, and the button must not appear for any of them.
+  //
+  // Read off the listing rather than off the item: the panel already has the
+  // rows, and `sales_lot_id` is the same field `ck_listing_item_xor_lot`
+  // makes exclusive with `inventory_item_id`. It also needs no `ownStore`,
+  // so it is right from the first render rather than once platforms arrive.
+  const heldInLot = listings.some((l) => ON_OFFER.includes(l.status) && isLot(l))
+
   return (
     <div className="offers-panel">
       <h3>Offers</h3>
@@ -129,6 +156,7 @@ export default function OffersPanel({ item, onChanged }) {
           <thead>
             <tr>
               <th>Platform</th>
+              <th>Item or lot</th>
               <th>Price</th>
               <th>Format</th>
               <th>Status</th>
@@ -142,6 +170,14 @@ export default function OffersPanel({ item, onChanged }) {
             {listings.map((l) => (
               <tr key={l.id} className={l.status === 'active' ? '' : 'muted'}>
                 <td>{l.venue_name}</td>
+                {/* What this offer is *of*. Every row on this panel used to
+                    be this one coin, so there was nothing to say; a lot
+                    listing offers a group, and without this the group's
+                    price reads as the coin's -- "1000.00" against a coin
+                    the owner paid 500 for. `subjectOf` names a lot by its
+                    title and size, the same way the Listings page, the end
+                    confirmation and the record-sale dialog all name one. */}
+                <td>{subjectOf(l)}</td>
                 <td>
                   {l.price} {l.currency}
                 </td>
@@ -172,7 +208,7 @@ export default function OffersPanel({ item, onChanged }) {
           </tbody>
         </table>
       )}
-      {!heldElsewhere && (
+      {!heldElsewhere && !heldInLot && (
         <button onClick={() => setOffering(true)}>Offer for sale...</button>
       )}
       {ending !== null && (

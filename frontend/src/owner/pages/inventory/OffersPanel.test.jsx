@@ -330,4 +330,79 @@ describe('OffersPanel', () => {
     renderPanel()
     expect(await screen.findByText('No such item')).toBeVisible()
   })
+
+  // A lot this coin is inside, offered in the WEB STORE -- the shop on
+  // purpose. A lot on an outside platform is already hidden by the
+  // `heldElsewhere` rule, so only a shop lot can tell "a lot holds this
+  // coin" apart from "another platform holds it"; a fixture on eBay would
+  // pass against a panel that never learned about lots at all.
+  //
+  // `item_code` null and `sales_lot_id` set is the real shape of the row:
+  // `ck_listing_item_xor_lot` makes a listing name an item or a lot, never
+  // both, and `member_count` is what the API sends so this needs no second
+  // request.
+  const SHOP_LOT = {
+    id: 21,
+    item_id: null,
+    item_code: null,
+    item_title: 'Three Morgan Dollars',
+    venue: 'store',
+    venue_name: 'Web store',
+    format: 'fixed_price',
+    status: 'active',
+    price: '1000.00',
+    currency: 'USD',
+    quantity_available: 1,
+    title: 'Three Morgan Dollars',
+    description: '',
+    external_id: null,
+    external_url: null,
+    listed_at: '2026-09-18T12:00:00Z',
+    ended_at: null,
+    paused_by_listing_id: null,
+    sales_lot_id: 3,
+    member_count: 3,
+    cost_basis: '650.00',
+    version: 1,
+  }
+
+  // The row says what is being sold for 1000.00, and it is not this coin.
+  // Without the subject cell every row on this panel was silently "the item
+  // you are looking at", which is how a lot's price reads as a coin's.
+  it('names the lot a coin is offered inside, rather than the coin', async () => {
+    api.listListings.mockResolvedValue([SHOP_LOT])
+    renderPanel({ strict: true })
+
+    const row = await screen.findByRole('row', { name: /^Web store/ })
+    expect(within(row).getByText('Three Morgan Dollars (3 items)')).toBeInTheDocument()
+    // The coin's own code must not appear on a row that is not about it.
+    expect(within(row).queryByText('CC-000007')).toBeNull()
+    expect(within(row).getByText('1000.00 USD')).toBeInTheDocument()
+  })
+
+  // `offering_writes._refuse_grouped` turns this offer down -- "is in lot
+  // #3, which is offered" -- so a button here only teaches the owner to
+  // click through a refusal. The shop is not an exception to that rule the
+  // way it is to the platform rule above.
+  it('does not offer to start an offer for a coin inside an offered lot', async () => {
+    api.listListings.mockResolvedValue([SHOP_LOT])
+    renderPanel({ strict: true })
+
+    await screen.findByRole('row', { name: /^Web store/ })
+    expect(offerButton()).toBeNull()
+  })
+
+  // The other half of the same rule, and the reason it asks about status
+  // rather than only about `sales_lot_id`: a dissolved lot is history, it
+  // holds nothing, and the coin is offerable again. A rule written without
+  // the status check would lock this coin out of being sold forever.
+  it('offers a coin whose lot has ended, which holds it no longer', async () => {
+    api.listListings.mockResolvedValue([
+      { ...SHOP_LOT, status: 'ended', ended_at: '2026-09-19T12:00:00Z' },
+    ])
+    renderPanel({ strict: true })
+
+    await screen.findByRole('row', { name: /^Web store/ })
+    expect(offerButton()).toBeInTheDocument()
+  })
 })
