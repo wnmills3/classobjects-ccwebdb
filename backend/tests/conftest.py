@@ -880,6 +880,45 @@ def build_listing(db: Session, **overrides: object) -> Listing:
     return listing
 
 
+def item_of(listing: Listing) -> InventoryItem:
+    """The one item a listing names, for a test that depends on there being one.
+
+    `Listing.inventory_item` became optional when a listing was allowed to
+    name a sales lot instead of a single coin (selling design, phase 3): a
+    lot listing leaves `inventory_item_id` NULL and reaches its coins through
+    `sales_lot_item`. Every listing `build_listing` makes is a single-item
+    one, so a test built on it genuinely depends on the item being there.
+
+    Stating that dependence once, here, is the point. Without it each use
+    site would fail on `None` having no `item_code` -- a message about the
+    attribute, naming neither the listing nor the assumption that broke. With
+    it the assumption is checked where it is made and fails by name, and the
+    type narrows because the check is real rather than because a `cast` said
+    so. A test that means to exercise a *lot* listing must not call this; it
+    reads `sales_lot_item` the way the application does.
+    """
+    item = listing.inventory_item
+    assert item is not None, (
+        f"listing #{listing.id} names no single item -- it is a lot listing, "
+        "whose members are reached through `sales_lot_item`"
+    )
+    return item
+
+
+def item_id_of(listing: Listing) -> int:
+    """The id of the one item a listing names. The precondition is `item_of`'s.
+
+    Separate from `item_of` only to avoid loading the item for a caller that
+    wants the id it already has on the row.
+    """
+    item_id = listing.inventory_item_id
+    assert item_id is not None, (
+        f"listing #{listing.id} names no single item -- it is a lot listing, "
+        "whose members are reached through `sales_lot_item`"
+    )
+    return item_id
+
+
 @pytest.fixture
 def listing(db: Session) -> Listing:
     return build_listing(db)

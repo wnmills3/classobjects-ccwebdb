@@ -32,7 +32,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.conftest import build_item
+from tests.conftest import build_item, item_id_of
 from tests.test_images import make_jpeg
 
 
@@ -502,7 +502,7 @@ def test_an_item_sold_through_a_finished_sale_still_warns(
     can never name, tells the two queries apart
     (`test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot`).
     """
-    item_id = ebay_listing.inventory_item_id
+    item_id = item_id_of(ebay_listing)
     record_sale(
         db,
         ebay_listing,

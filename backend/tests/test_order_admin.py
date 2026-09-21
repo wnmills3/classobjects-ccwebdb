@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_of
 from tests.test_orders import foreign_order, place
 
 
@@ -110,7 +111,7 @@ def test_an_order_names_its_customer_and_what_was_bought(
 
     assert order["customer_name"] == "Test Customer"
     assert order["customer_email"] == "customer@example.com"
-    assert order["items"][0]["title"] == listing.inventory_item.source_title
+    assert order["items"][0]["title"] == item_of(listing).source_title
 
 
 def test_a_customer_still_sees_only_their_own_orders_with_the_new_fields(

@@ -30,6 +30,8 @@ from fastapi import HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_of
+
 
 def _status_code(db: Session, order: SalesOrder) -> str:
     """An order's status code, read the way `order_writes` itself reads it.
@@ -73,7 +75,7 @@ def test_the_sale_ends_the_listing_and_releases_its_claim(
         recorded_by=admin_user,
     )
     assert ebay_listing.status is ListingStatus.ended
-    assert ebay_listing.inventory_item.disposition.code == "sold"
+    assert item_of(ebay_listing).disposition.code == "sold"
 
     claim = db.scalar(
         select(OfferClaim).where(OfferClaim.listing_id == ebay_listing_id)

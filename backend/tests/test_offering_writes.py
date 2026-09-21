@@ -31,6 +31,8 @@ from sqlalchemy import event, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_of
+
 ItemFactory = Callable[..., InventoryItem]
 ListingFactory = Callable[..., Listing]
 
@@ -284,7 +286,7 @@ def test_offering_an_item_creates_an_active_listing_and_claim(
 def test_offering_elsewhere_pauses_the_store_listing(
     db: Session, listing: Listing
 ) -> None:
-    item = listing.inventory_item
+    item = item_of(listing)
     ebay = _venue(db, "ebay-pause")
 
     elsewhere = offering_writes.offer(
@@ -429,7 +431,7 @@ def test_a_sold_item_cannot_be_offered(db: Session, listing: Listing) -> None:
     Nothing may be written either: every refusal is decided before the first
     write, which is what makes a batch of offers all or nothing.
     """
-    item = listing.inventory_item
+    item = item_of(listing)
     listing.quantity_available = 0
     _set_disposition(db, item, "sold")
     db.commit()
@@ -457,7 +459,7 @@ def test_an_item_an_unshipped_order_holds_cannot_be_offered(
     asking `sale_state` keeps one definition of "spoken for" rather than two
     that can drift.
     """
-    item = listing.inventory_item
+    item = item_of(listing)
     order = _order_holding(db, listing, customer_user, admin_user)
     db.commit()
     ebay = _venue(db, "ebay-on-order")
@@ -481,7 +483,7 @@ def test_an_item_whose_order_has_shipped_can_be_offered_again(
     exactly what happens next. Refusing either would be a dead end, since
     nothing moves a disposition backwards.
     """
-    item = listing.inventory_item
+    item = item_of(listing)
     _order_holding(db, listing, customer_user, admin_user, status_code="shipped")
     _set_disposition(db, item, "returned_by_buyer")
     db.commit()
@@ -497,7 +499,7 @@ def test_an_item_whose_order_has_shipped_can_be_offered_again(
 def test_ending_an_offer_resumes_the_paused_store_listing(
     db: Session, listing: Listing
 ) -> None:
-    item = listing.inventory_item
+    item = item_of(listing)
     ebay = _venue(db, "ebay-resume")
     elsewhere = offering_writes.offer(
         db,
@@ -537,7 +539,7 @@ def test_ending_a_sold_offer_ends_the_paused_store_listing(
     db: Session, listing: Listing
 ) -> None:
     """A sold item must not come back into the shop."""
-    item = listing.inventory_item
+    item = item_of(listing)
     ebay = _venue(db, "ebay-sold")
     elsewhere = offering_writes.offer(
         db,
@@ -600,7 +602,7 @@ def test_an_item_offered_elsewhere_counts_as_for_sale(
     db: Session, listing: Listing
 ) -> None:
     """The edit warning must fire for a paused store listing too."""
-    item = listing.inventory_item
+    item = item_of(listing)
     ebay = _venue(db, "ebay-warning")
     elsewhere = _offer_on(db, item, ebay)
     db.commit()
@@ -668,7 +670,7 @@ def test_a_paused_store_listing_is_the_shops_but_not_sellable(
 ) -> None:
     """`active_only=False` is "is this the shop's at all", and a paused one is."""
     ebay = _venue(db, "ebay-half-rule")
-    _offer_on(db, listing.inventory_item, ebay)
+    _offer_on(db, item_of(listing), ebay)
     db.commit()
     db.refresh(listing)
 
@@ -712,7 +714,7 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     time the autouse invariant checks run, at teardown, nothing disagrees;
     a waiver would be stale the moment it was written.
     """
-    item = listing.inventory_item
+    item = item_of(listing)
     ebay = _venue(db, "ebay-withdrawn")
     elsewhere = _offer_on(db, item, ebay)
     db.commit()
@@ -814,7 +816,7 @@ def test_a_released_claim_is_not_revived_by_pausing_a_listing(
     db.commit()
 
     ebay = _venue(db, "ebay-released")
-    _offer_on(db, listing.inventory_item, ebay)
+    _offer_on(db, item_of(listing), ebay)
     db.commit()
     db.refresh(listing)
 
@@ -831,7 +833,7 @@ def test_a_paused_store_listing_is_still_seen_when_offering_again(
     say -- is invisible to a refusal path that only looks at active rows, and
     its claim would then block the item from ever going back to `held`.
     """
-    item = listing.inventory_item
+    item = item_of(listing)
     listing.status = ListingStatus.paused
     _claim(db, item, listing, ClaimState.paused)
     db.commit()

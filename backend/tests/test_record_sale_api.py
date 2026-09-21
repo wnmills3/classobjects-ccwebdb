@@ -17,6 +17,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_of
+
 #: The listing's own asking price (see `conftest.ebay_listing`) is 120.00.
 #: The price recorded here is a different number on purpose: a test that
 #: merely echoes the listing's asking price back cannot tell "the price the
@@ -76,7 +78,7 @@ def test_recording_a_sale_returns_the_order_and_net(
     assert body["net_amount"] == _NET
     assert body["buyer"] == "coinfan88"
     assert body["external_order_id"] == "04-12345-67890"
-    assert body["item_codes"] == [ebay_listing.inventory_item.item_code]
+    assert body["item_codes"] == [item_of(ebay_listing).item_code]
     # Who actually recorded it, not merely that someone did: an admin-shaped
     # `user` that was never wired through would leave this null or wrong
     # while every assertion above still passed.
@@ -351,7 +353,7 @@ def test_a_recorded_outside_sale_cannot_be_cancelled(
     assert listing is not None
     assert listing.status.value == "ended"
     assert listing.quantity_available == 0
-    assert listing.inventory_item.disposition.code == "sold"
+    assert item_of(listing).disposition.code == "sold"
     still_paid = client.get(f"/api/orders/{order_id}", headers=admin_headers)
     assert still_paid.status_code == 200
     assert still_paid.json()["status"] == "paid"

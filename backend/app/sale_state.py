@@ -102,8 +102,20 @@ def _offering(db: Session, item_ids: Collection[int]) -> dict[int, set[int]]:
             Listing.status.in_(offering_writes.ON_OFFER),
         )
     ).tuples()
-    for item_id, listing_id in direct:
-        wanted.setdefault(item_id, set()).add(listing_id)
+    # `inventory_item_id` is nullable -- a lot listing leaves it null -- so
+    # the null is skipped rather than annotated away, the same way
+    # `ever_offered` below does it. The `in_` already excludes the null rows
+    # (SQL `IN` never matches NULL), so this drops nothing a correct query
+    # would have kept; it keeps `wanted` honestly keyed by `int` instead of
+    # letting a `None` key in beside the real ones, where the caller's
+    # `found[item_id]` lookup would never find it again.
+    #
+    # A name of its own rather than reusing the claims loop's `item_id`: the
+    # two loops carry different types now (a claim's item id cannot be null,
+    # a listing's can), and one name for both hid that difference.
+    for listed_item_id, listing_id in direct:
+        if listed_item_id is not None:
+            wanted.setdefault(listed_item_id, set()).add(listing_id)
     return wanted
 
 

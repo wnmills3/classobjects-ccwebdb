@@ -27,6 +27,8 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_of
+
 
 def place(
     client: TestClient, headers: dict[str, str], listing_id: int, quantity: int
@@ -196,9 +198,9 @@ def test_selling_the_last_unit_marks_the_item_sold(
     # in place, so a None here is itself a failure worth naming.
     assert refreshed is not None
     assert refreshed.quantity_available == 0
-    assert refreshed.inventory_item.disposition.code == "sold"
+    assert item_of(refreshed).disposition.code == "sold"
     # How it was acquired is untouched by selling it.
-    assert refreshed.inventory_item.status.code == "received"
+    assert item_of(refreshed).status.code == "received"
 
 
 def test_cannot_order_more_than_available(
