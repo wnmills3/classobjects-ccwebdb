@@ -21,6 +21,7 @@ from app.models import (
     Listing,
     SalesLot,
     SalesLotItem,
+    SalesLotStatus,
     SalesVenue,
     utcnow,
 )
@@ -66,6 +67,42 @@ def test_a_released_membership_frees_the_item(
     db.flush()
     db.add(SalesLotItem(sales_lot_id=second.id, inventory_item_id=received_item.id))
     db.flush()  # must not raise: the partial index counts only open rows
+
+
+def test_a_released_item_cannot_rejoin_the_same_lot(
+    db: Session, received_item: InventoryItem
+) -> None:
+    """`uq_sales_lot_item_pair` is not partial: a pair exists at most once, ever.
+
+    The previous test proves the *partial* index only counts open rows, using
+    two different lots so it never touches `uq_sales_lot_item_pair`. This is
+    the case that constraint alone is responsible for: the same item rejoining
+    the very same lot it already (now released) belonged to.
+    """
+    lot = SalesLot(title="A")
+    db.add(lot)
+    db.flush()
+    db.add(
+        SalesLotItem(
+            sales_lot_id=lot.id,
+            inventory_item_id=received_item.id,
+            released_at=utcnow(),
+        )
+    )
+    db.flush()
+    db.add(SalesLotItem(sales_lot_id=lot.id, inventory_item_id=received_item.id))
+    with pytest.raises(IntegrityError) as excinfo:
+        db.flush()
+    assert "uq_sales_lot_item_pair" in str(excinfo.value)
+
+
+def test_a_new_lot_defaults_to_assembling_and_version_one(db: Session) -> None:
+    """Pins the status enum's first member and the optimistic-concurrency start."""
+    lot = SalesLot(title="A")
+    db.add(lot)
+    db.flush()
+    assert lot.status == SalesLotStatus.assembling
+    assert lot.version == 1
 
 
 def test_a_listing_names_an_item_or_a_lot_but_not_both(

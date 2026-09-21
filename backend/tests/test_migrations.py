@@ -863,28 +863,68 @@ def test_the_fee_kind_migration_seeds_the_vocabulary(migrated_url: str) -> None:
     }
 
 
-#: Every CHECK constraint the models declare on a table the migrations build,
-#: with the table it belongs to. `compare_metadata` (the diff
-#: `test_migrations_match_models` runs) does not compare CHECK constraints at
-#: all, so without this list a migration could omit one and both of this
-#: file's other tests would stay green.
-_EXPECTED_CHECKS = {
-    ("listing", "ck_listing_item_xor_lot"),
-    ("listing", "ck_listing_lot_quantity_one"),
-    ("listing", "ck_listing_price_non_negative"),
-    ("listing", "ck_listing_quantity_non_negative"),
-    ("sales_order_fee", "ck_sales_order_fee_non_negative"),
-    ("sales_order_item_share", "ck_sales_order_item_share_non_negative"),
+#: A hand-written restatement of a *subset* of the models' CHECK constraints
+#: -- not generated from the models, and not a claim of completeness. (The
+#: models declare 32 constraints named `ck_*`; this list has 6.) Two things
+#: this independence buys, verified directly against this repo's installed
+#: Alembic (1.19.1), not assumed:
+#:
+#: - `compare_metadata` (the diff `test_migrations_match_models` runs) *does*
+#:   detect an added or removed named CHECK -- `_compare_check_constraints`
+#:   is a registered comparator -- so if this list only restated "does the
+#:   model have one", it would add nothing over that existing test.
+#: - But `compare_metadata` never compares a CHECK's *expression*:
+#:   `DefaultImpl.compare_check_constraint` (`alembic/ddl/impl.py`) returns
+#:   `ComparisonResult.Equal()` unconditionally, no dialect overrides it, and
+#:   `_ck_constraint_sig._sig` is just `(name,)`. A migration that creates
+#:   `ck_listing_lot_quantity_one` with the wrong predicate is invisible to
+#:   the drift test. `test_the_migration_carries_every_check_constraint`
+#:   below asserts `pg_get_constraintdef` against the exact text expected,
+#:   which closes that gap.
+#: - And because this list is written independently of both the model and the
+#:   migration, deleting a CHECK from *both* leaves `compare_metadata` looking
+#:   at two sides that still agree (neither has it) -- silent -- while this
+#:   test still fails, because its expectation lives in neither place.
+_CHECKS_THE_SELLING_WORK_ADDED: dict[tuple[str, str], str] = {
+    ("listing", "ck_listing_item_xor_lot"): (
+        "CHECK (((inventory_item_id IS NULL) <> (sales_lot_id IS NULL)))"
+    ),
+    ("listing", "ck_listing_lot_quantity_one"): (
+        "CHECK (((sales_lot_id IS NULL) OR (quantity_available <= 1)))"
+    ),
+    ("listing", "ck_listing_price_non_negative"): ("CHECK ((price >= (0)::numeric))"),
+    ("listing", "ck_listing_quantity_non_negative"): (
+        "CHECK ((quantity_available >= 0))"
+    ),
+    ("sales_order_fee", "ck_sales_order_fee_non_negative"): (
+        "CHECK ((amount >= (0)::numeric))"
+    ),
+    ("sales_order_item_share", "ck_sales_order_item_share_non_negative"): (
+        "CHECK ((amount >= (0)::numeric))"
+    ),
 }
+
+#: `pg_indexes.indexdef` for `uq_sales_lot_item_open`, as PostgreSQL actually
+#: stores and renders it. `compare_metadata` has no handling at all for
+#: `postgresql_where` (`alembic/ddl/postgresql.py`), and `_ix_constraint_sig`
+#: only ever hashes `(is_unique,) + column_names` -- a migration whose partial
+#: index predicate drifted from the model (`released_at IS NULL` becoming,
+#: say, `released_at IS NOT NULL`) would be invisible to every other test in
+#: this file, `create_all`-built `db` included.
+_SALES_LOT_ITEM_OPEN_INDEXDEF = (
+    "CREATE UNIQUE INDEX uq_sales_lot_item_open ON public.sales_lot_item "
+    "USING btree (inventory_item_id) WHERE (released_at IS NULL)"
+)
 
 
 def test_the_migration_carries_every_check_constraint(migrated_url: str) -> None:
-    """A CHECK in the models but not in a migration is invisible to the diff.
+    """Each hand-picked CHECK exists in the migration, with the right predicate.
 
-    `compare_metadata` does not compare CHECK constraints, and the tests that
-    do query them run against the `create_all`-built `db` fixture -- which is
-    built from the models, so it would find a model's constraint whether the
-    migration wrote one or not. Only a purely migrated database can tell.
+    Presence alone is not enough -- see `_CHECKS_THE_SELLING_WORK_ADDED`'s own
+    docstring for why `compare_metadata` cannot be trusted for either the
+    expression or the "deleted from both sides" case. While built against the
+    same `migrated_url` database, this also asserts `uq_sales_lot_item_open`'s
+    partial-index predicate, which no comparator here checks at all.
     """
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
@@ -894,22 +934,51 @@ def test_the_migration_carries_every_check_constraint(migrated_url: str) -> None
     engine = create_engine(migrated_url)
     try:
         with engine.connect() as connection:
-            found = set(
-                connection.execute(
+            found = {
+                (table, name): definition
+                for table, name, definition in connection.execute(
                     text(
-                        "SELECT rel.relname, con.conname FROM pg_constraint con "
+                        "SELECT rel.relname, con.conname, "
+                        "pg_get_constraintdef(con.oid) FROM pg_constraint con "
                         "JOIN pg_class rel ON rel.oid = con.conrelid "
                         "WHERE con.contype = 'c'"
                     )
                 ).all()
-            )
+            }
+            # One index, looked up by its exact name, so a scalar rather than
+            # a mapping: `dict(rows)` cannot be typed (a `Row` is iterable but
+            # not declared as a pair, so mypy infers `Never`) and the dict
+            # comprehension that can be typed is a ruff `C416`. `None` here
+            # means the migration created no such index at all, which the
+            # assertion below reports as the drift it is.
+            index_def = connection.execute(
+                text(
+                    "SELECT indexdef FROM pg_indexes "
+                    "WHERE indexname = 'uq_sales_lot_item_open'"
+                )
+            ).scalar_one_or_none()
     finally:
         engine.dispose()
 
-    missing = sorted(_EXPECTED_CHECKS - found)
+    missing = sorted(key for key in _CHECKS_THE_SELLING_WORK_ADDED if key not in found)
     assert missing == [], (
-        f"constraint(s) {missing} are declared on the models but no migration "
-        "creates them, and compare_metadata cannot see the difference"
+        f"constraint(s) {missing} are declared here but no migration creates "
+        "them, and compare_metadata cannot see the difference"
+    )
+
+    wrong_predicate = {
+        key: found[key]
+        for key, expected in _CHECKS_THE_SELLING_WORK_ADDED.items()
+        if found[key] != expected
+    }
+    assert wrong_predicate == {}, (
+        f"constraint(s) exist with the wrong expression: {wrong_predicate} -- "
+        "compare_metadata never compares a CHECK's predicate, only its name"
+    )
+
+    assert index_def == _SALES_LOT_ITEM_OPEN_INDEXDEF, (
+        "uq_sales_lot_item_open's partial-index predicate has drifted from "
+        "what the model declares -- compare_metadata does not check this"
     )
 
 
