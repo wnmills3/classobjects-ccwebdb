@@ -10,6 +10,7 @@ from httpx import Response
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_id_of
 from tests.test_schema import code_id, make_item
 
 TUBE = {
@@ -334,7 +335,7 @@ def test_a_lot_that_has_been_ordered_cannot_be_split(
     response = do_split(
         client,
         admin_headers,
-        listing.inventory_item_id,
+        item_id_of(listing),
         {**TUBE, "acknowledge_for_sale": True},
     )
     assert response.status_code == 409
@@ -362,7 +363,7 @@ def test_splitting_withdraws_the_lots_listing(
     do_split(
         client,
         admin_headers,
-        listing.inventory_item_id,
+        item_id_of(listing),
         {**TUBE, "acknowledge_for_sale": True},
     )
 
@@ -391,7 +392,7 @@ def test_a_listed_lot_is_marked_split_without_autoflush(
     Only a *listed* lot reaches `end_offer` at all, which is why the plain
     split tests never saw it.
     """
-    item_id = listing.inventory_item_id
+    item_id = item_id_of(listing)
 
     db.autoflush = False
     try:

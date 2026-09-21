@@ -27,6 +27,8 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_id_of, item_of
+
 ItemFactory = Callable[..., InventoryItem]
 
 
@@ -381,3 +383,31 @@ def test_the_lot_lock_re_reads_the_row_it_locked(
 
     with pytest.raises(LotRefused, match="frozen"):
         add_member(db, lot, joiner)
+
+
+def test_the_single_item_test_helpers_refuse_a_lot_listing(
+    store_lot_listing: Listing,
+) -> None:
+    """Proof that `item_of`/`item_id_of` are checks, not ways to quiet mypy.
+
+    Twenty-odd tests across eight files stopped reading
+    `listing.inventory_item` directly and now go through these two helpers,
+    because that column became nullable when a listing was allowed to name a
+    lot. A helper that narrowed by asserting something always true would be a
+    `cast` wearing an assert's clothes: the type would go quiet and every one
+    of those callers would lose the check it appears to have. So the
+    precondition is exercised here against the one listing shape that
+    violates it -- a real lot listing, built by `offering_writes.offer`, not
+    a `Listing` with the field blanked by hand.
+
+    Matching on the message rather than on `AssertionError` alone: pytest
+    rewrites assertions, so any failed assert anywhere inside the call would
+    raise the same class and satisfy a bare `raises`.
+    """
+    assert store_lot_listing.inventory_item_id is None  # the shape under test
+
+    with pytest.raises(AssertionError, match="names no single item"):
+        item_of(store_lot_listing)
+
+    with pytest.raises(AssertionError, match="names no single item"):
+        item_id_of(store_lot_listing)

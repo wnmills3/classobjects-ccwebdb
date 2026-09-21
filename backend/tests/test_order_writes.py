@@ -38,6 +38,7 @@ from httpx import Response
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_of
 from tests.test_orders import place
 
 
@@ -601,8 +602,8 @@ def test_an_edit_that_frees_the_last_unit_relists_the_item(
     only = make_listing(title="Only one", quantity_available=1)
     other = make_listing(title="Other", quantity_available=5)
     order = _place(client, customer_headers, only.id, 1)
-    db.refresh(only.inventory_item)
-    assert only.inventory_item.disposition.code == "sold"
+    db.refresh(item_of(only))
+    assert item_of(only).disposition.code == "sold"
 
     response = _revise(
         client,
@@ -613,7 +614,7 @@ def test_an_edit_that_frees_the_last_unit_relists_the_item(
 
     assert response.status_code == 200, response.text
     db.expire_all()
-    assert only.inventory_item.disposition.code == "listed"
+    assert item_of(only).disposition.code == "listed"
 
 
 def test_a_no_change_save_writes_nothing(
@@ -978,7 +979,7 @@ def test_cancelling_relists_an_item_that_had_sold_out(
     db.refresh(listing)
     assert listing.quantity_available == 0
     db.expire_all()
-    assert listing.inventory_item.disposition.code == "sold"
+    assert item_of(listing).disposition.code == "sold"
 
     response = client.patch(
         f"/api/orders/{order['id']}",
@@ -988,7 +989,7 @@ def test_cancelling_relists_an_item_that_had_sold_out(
 
     assert response.status_code == 200, response.text
     db.expire_all()
-    assert listing.inventory_item.disposition.code == "listed"
+    assert item_of(listing).disposition.code == "listed"
 
 
 # --- a lot listing's line ----------------------------------------------------------

@@ -16,6 +16,8 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tests.conftest import item_id_of
+
 ItemFactory = Callable[..., InventoryItem]
 ListingFactory = Callable[..., Listing]
 
@@ -67,7 +69,7 @@ def test_a_sale_keeps_the_item_as_it_was_sold(
         price="189.00",
         quantity_available=1,
     )
-    item_id = listing.inventory_item_id
+    item_id = item_id_of(listing)
     order = _order(client, customer_headers, listing)
 
     # Shipped: no longer for sale, so an ordinary edit.
@@ -118,7 +120,7 @@ def test_a_returned_item_sold_again_keeps_both_sales(
     admin_headers: dict[str, str],
 ) -> None:
     listing = make_listing(grade="MS64", quantity_available=1)
-    item_id = listing.inventory_item_id
+    item_id = item_id_of(listing)
     first = _order(client, customer_headers, listing)
     _status(client, admin_headers, first["id"], "shipped")
 
@@ -332,7 +334,7 @@ def test_a_coin_sold_on_its_own_still_shows_one_row(
 def test_a_listed_item_is_not_changed_without_saying_so(
     client: TestClient, listing: Listing, admin_headers: dict[str, str]
 ) -> None:
-    item_id = listing.inventory_item_id
+    item_id = item_id_of(listing)
     detail = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()
     assert detail["sale_state"] == [
         {
@@ -360,7 +362,7 @@ def test_a_listed_item_is_not_changed_without_saying_so(
 def test_an_empty_save_of_a_listed_item_needs_nothing(
     client: TestClient, listing: Listing, admin_headers: dict[str, str]
 ) -> None:
-    item_id = listing.inventory_item_id
+    item_id = item_id_of(listing)
     version = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()[
         "version"
     ]
@@ -374,7 +376,7 @@ def test_an_item_in_an_unshipped_order_is_for_sale_until_it_ships(
     admin_headers: dict[str, str],
 ) -> None:
     listing = make_listing(quantity_available=1)
-    item_id = listing.inventory_item_id
+    item_id = item_id_of(listing)
     order = _order(client, customer_headers, listing)
 
     detail = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()
@@ -396,7 +398,7 @@ def test_an_ended_listing_is_not_for_sale(
     client: TestClient, make_listing: ListingFactory, admin_headers: dict[str, str]
 ) -> None:
     listing = make_listing(is_active=False)
-    item_id = listing.inventory_item_id
+    item_id = item_id_of(listing)
     assert _edit(client, admin_headers, item_id, description="x").status_code == 200
 
 
