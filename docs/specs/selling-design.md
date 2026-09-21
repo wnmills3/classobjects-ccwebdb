@@ -1,6 +1,7 @@
 # Selling: platforms, offers, sales lots and auctions
 
-Design. Status: **agreed with the owner 2026-09-17**; phases 0-2 (offering) built.
+Design. Status: **agreed with the owner 2026-09-17**; phases 0-2 (offering)
+built, phase 2R (record a sale) **built 2026-09-21**.
 **Revised 2026-09-20** with the owner: the phase-2 remainder, phase 3 and phase
 4 were scoped together and four points where this document and the built code
 had drifted apart were reconciled. See *Revision, 2026-09-20* below.
@@ -393,7 +394,8 @@ Each phase is merged and applied on its own.
    `sales_order_fee`, `sales_order_item_share` and platform buyers. Manage and
    the catalogue write endpoints are retired.
    **Delivered without record-a-sale** -- see phase 2R.
-2R. **Record a sale** (the phase-2 remainder, scoped 2026-09-20):
+2R. **Record a sale** (the phase-2 remainder, scoped 2026-09-20): **built
+   2026-09-21.**
    `sales_fee_kind`, `sales_order_fee`, `sales_order_item_share`,
    `customer.sales_venue_id`/`venue_username` and the undisclosed buyer,
    `app/sales_writes.py`, `POST /api/listings/{id}/sale`, **Record sale...**
