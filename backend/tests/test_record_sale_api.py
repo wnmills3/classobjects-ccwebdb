@@ -2,16 +2,19 @@
 
 `record_sale` itself is tested in `test_sales_writes.py`; what is checked
 here is the API contract on top of it -- who may call it, how its refusals
-map to HTTP, and that the response shape (money as strings, a computed net)
-is what the console needs.
+(`SaleRefused` a 409, the narrower `SaleInputInvalid` a 422) map to HTTP, and
+that the response shape (money as strings, a computed net) is what the
+console needs.
 """
 
 from __future__ import annotations
 
 import httpx
-from app import offering_writes
-from app.models import Listing
+import pytest
+from app import offering_writes, sales_writes
+from app.models import Listing, SalesOrder, User
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 #: The listing's own asking price (see `conftest.ebay_listing`) is 120.00.
@@ -52,8 +55,17 @@ def _post(
     )
 
 
+def _order_count(db: Session) -> int:
+    """How many orders exist, to prove a refusal wrote none."""
+    return db.scalar(select(func.count()).select_from(SalesOrder)) or 0
+
+
 def test_recording_a_sale_returns_the_order_and_net(
-    client: TestClient, ebay_listing: Listing, admin_headers: dict[str, str]
+    client: TestClient,
+    db: Session,
+    ebay_listing: Listing,
+    admin_user: User,
+    admin_headers: dict[str, str],
 ) -> None:
     """Gross, fee total and net: three different figures, none swappable."""
     response = _post(client, ebay_listing.id, admin_headers)
@@ -65,6 +77,12 @@ def test_recording_a_sale_returns_the_order_and_net(
     assert body["buyer"] == "coinfan88"
     assert body["external_order_id"] == "04-12345-67890"
     assert body["item_codes"] == [ebay_listing.inventory_item.item_code]
+    # Who actually recorded it, not merely that someone did: an admin-shaped
+    # `user` that was never wired through would leave this null or wrong
+    # while every assertion above still passed.
+    order = db.get(SalesOrder, body["id"])
+    assert order is not None
+    assert order.placed_by_id == admin_user.id
 
 
 def test_an_anonymous_request_is_refused(
@@ -89,12 +107,14 @@ def test_selling_an_ended_listing_is_a_409(
     ebay_listing: Listing,
     admin_headers: dict[str, str],
 ) -> None:
-    """The refusal names what is in the way: the listing is not on offer."""
+    """The refusal names what is in the way, and nothing gets written."""
     offering_writes.end_offer(db, ebay_listing)
     db.commit()
+    before = _order_count(db)
     response = _post(client, ebay_listing.id, admin_headers)
     assert response.status_code == 409
     assert "not on offer" in response.json()["detail"]
+    assert _order_count(db) == before
 
 
 def test_selling_an_unknown_listing_is_a_404(
@@ -108,7 +128,13 @@ def test_selling_an_unknown_listing_is_a_404(
 def test_an_unknown_fee_kind_is_a_422(
     client: TestClient, ebay_listing: Listing, admin_headers: dict[str, str]
 ) -> None:
-    """A code in the wrong vocabulary must not vanish into a default."""
+    """A code in the wrong vocabulary must not vanish into a default.
+
+    `code_to_id` returns `detail` as the plain string `"Unknown fee:
+    'gratuity'"`; a schema-level 422 returns a list of error objects instead.
+    Asserting the status code alone cannot tell those two apart -- a renamed
+    field or a schema slip that produced its own 422 would still pass.
+    """
     response = _post(
         client,
         ebay_listing.id,
@@ -116,12 +142,13 @@ def test_an_unknown_fee_kind_is_a_422(
         fees=[{"kind": "gratuity", "amount": "1.00"}],
     )
     assert response.status_code == 422
+    assert "Unknown fee" in response.json()["detail"]
 
 
 def test_money_is_returned_as_strings(
     client: TestClient, ebay_listing: Listing, admin_headers: dict[str, str]
 ) -> None:
-    """FastAPI's encoder turns a `Decimal` in a plain dict into a float."""
+    """Every money field is a string on the wire, not a `float`."""
     response = _post(client, ebay_listing.id, admin_headers)
     body = response.json()
     for field in ("total_amount", "fee_total", "net_amount"):
@@ -131,13 +158,17 @@ def test_money_is_returned_as_strings(
 def test_a_price_too_large_to_store_is_a_422_naming_the_field(
     client: TestClient, ebay_listing: Listing, admin_headers: dict[str, str]
 ) -> None:
-    """`Numeric(12, 2)` cannot hold this; `record_sale` must never see it.
+    """`Numeric(12, 2)` cannot hold eleven whole digits.
 
-    Unguarded, this magnitude reaches `record_sale`'s sub-cent check, which
-    calls `Decimal.quantize` and raises a bare `decimal.InvalidOperation` --
-    a 500, not a refusal. The request schema must reject it first.
+    `1E+11` is the value that actually discriminates a correct bound
+    (`max_digits` *and* `decimal_places`, matching the column) from a broken
+    one (`max_digits` alone, which admits any number of whole digits as long
+    as the total including any fraction stays under twelve -- `1E+11` and
+    `999999999999` both pass it, then overflow `Numeric(12, 2)` in Postgres
+    as an uncaught `DataError`, a 500). An absurdity like `1E+30` would pass
+    against either bound and prove nothing about which one is in place.
     """
-    response = _post(client, ebay_listing.id, admin_headers, price="1E+30")
+    response = _post(client, ebay_listing.id, admin_headers, price="1E+11")
     assert response.status_code == 422
     detail = response.json()["detail"]
     assert any(err["loc"][-1] == "price" for err in detail), detail
@@ -158,15 +189,46 @@ def test_a_nan_fee_amount_is_a_422_naming_the_field(
     assert any(err["loc"][-1] == "amount" for err in detail), detail
 
 
-def test_a_sub_cent_fee_still_reaches_record_sale_as_a_409(
+def test_a_negative_price_is_a_422_naming_the_field(
     client: TestClient, ebay_listing: Listing, admin_headers: dict[str, str]
 ) -> None:
-    """The magnitude bound must not also swallow the sub-cent refusal.
+    """A negative price is bad input, not a conflict -- refused at the door.
 
-    `record_sale` refuses a sub-cent fee itself, as `SaleRefused` -- a 409
-    naming the problem, not a 422 from the schema. If the request schema
-    ever added `decimal_places=2` on top of its magnitude bound, this case
-    would wrongly become a 422 and the assertion below would catch it.
+    Unguarded, this reaches `place_order`'s flush and violates
+    `ck_sales_order_total_non_negative` as an uncaught `IntegrityError` -- a
+    500, after `record_sale` has already written the order row.
+    """
+    response = _post(client, ebay_listing.id, admin_headers, price="-115.00")
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any(err["loc"][-1] == "price" for err in detail), detail
+
+
+def test_a_negative_fee_amount_is_a_422_naming_the_field(
+    client: TestClient, ebay_listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    """The schema's own sign bound, not `record_sale`'s, is what fires here."""
+    response = _post(
+        client,
+        ebay_listing.id,
+        admin_headers,
+        fees=[{"kind": "commission", "amount": "-1.00"}],
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any(err["loc"][-1] == "amount" for err in detail), detail
+
+
+def test_a_sub_cent_fee_amount_is_a_422_naming_the_field(
+    client: TestClient, ebay_listing: Listing, admin_headers: dict[str, str]
+) -> None:
+    """`decimal_places=2` on the schema, not `record_sale`'s own check, fires.
+
+    `record_sale` still refuses a sub-cent fee itself -- as `SaleInputInvalid`
+    -- for its other two callers, which this schema does not stand between.
+    From this endpoint, though, a third decimal place never reaches it: the
+    schema is stricter and rejects the request first, as a 422 naming the
+    field, not the 409 an earlier version of this test wrongly expected.
     """
     response = _post(
         client,
@@ -174,8 +236,58 @@ def test_a_sub_cent_fee_still_reaches_record_sale_as_a_409(
         admin_headers,
         fees=[{"kind": "commission", "amount": "20.355"}],
     )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any(err["loc"][-1] == "amount" for err in detail), detail
+
+
+def test_sale_input_invalid_from_record_sale_is_a_422_not_a_409(
+    client: TestClient,
+    ebay_listing: Listing,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The router's `except` order, not the schema, is what this pins.
+
+    `SaleInputInvalid` **is** a `SaleRefused` -- that is the whole point of
+    the subclass -- so the router's `except SaleRefused` clause would also
+    match it if it came first, and a real request can no longer reach
+    `record_sale`'s own `SaleInputInvalid` checks at all (the schema tests
+    above already refuse a negative or sub-cent amount before this body
+    runs). Patching `record_sale` to raise it directly is what isolates the
+    router's ordering from the schema: with the two `except` clauses
+    swapped, this test fails with a 409, silently reporting the wrong status
+    for every caller `record_sale` has that the schema does not guard.
+    """
+
+    def _raise_invalid(*args: object, **kwargs: object) -> SalesOrder:
+        raise sales_writes.SaleInputInvalid("deliberately malformed, for the test")
+
+    monkeypatch.setattr(sales_writes, "record_sale", _raise_invalid)
+    response = _post(client, ebay_listing.id, admin_headers)
+    assert response.status_code == 422
+    assert response.json()["detail"] == "deliberately malformed, for the test"
+
+
+def test_a_plain_sale_refused_from_record_sale_is_still_a_409(
+    client: TestClient,
+    ebay_listing: Listing,
+    admin_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The base `SaleRefused` -- a genuine conflict -- still maps to 409.
+
+    The counterpart to the test above: proves the router did not simply
+    route everything to 422 to pass it.
+    """
+
+    def _raise_refused(*args: object, **kwargs: object) -> SalesOrder:
+        raise sales_writes.SaleRefused("deliberately conflicting, for the test")
+
+    monkeypatch.setattr(sales_writes, "record_sale", _raise_refused)
+    response = _post(client, ebay_listing.id, admin_headers)
     assert response.status_code == 409
-    assert "cent" in response.json()["detail"]
+    assert response.json()["detail"] == "deliberately conflicting, for the test"
 
 
 def test_recording_a_sale_ends_the_listing(
