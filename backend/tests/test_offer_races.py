@@ -36,7 +36,7 @@ from app.models import (
 )
 from app.offering_writes import OfferRefused
 from app.sales_venues import store_venue_id
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -55,14 +55,28 @@ def _cleanup_race_rows(cleanup: Session) -> None:
     The check runs in a `try` and the deletes in its `finally` on purpose: a
     real violation must still fail the suite (the `raise` propagates once the
     `finally` block finishes), but the rows it found are committed by real,
-    independent sessions -- `conftest.py`'s `engine` fixture only
-    `create_all`s once per test *session*, with no per-test truncate, so
-    without this a genuine finding here would leave permanently poisoned rows
-    in `ccwebdb_test`, failing every later `_claim_invariant` check in the
-    same run and every run after that until someone cleans the database by
-    hand. `test_a_forced_violation_still_leaves_the_database_clean`, below,
-    proves both halves: that a real violation still raises, and that the
-    rows are gone afterward regardless.
+    independent sessions, and `conftest.py`'s `engine` fixture builds
+    `ccwebdb_test` fresh at the start of the test *session* and drops it again
+    at the end -- so a poisoned row can never outlive one `pytest` run, but it
+    can absolutely poison the rest of *this* one: without the `finally`, every
+    later `db`-using test in the same run would fail `_claim_invariant`'s
+    check against rows this fixture never got the chance to delete.
+    `test_a_forced_violation_still_leaves_the_database_clean`, below, proves
+    both halves: that a real violation still raises, and that the rows are
+    gone afterward regardless.
+
+    The claim delete matches on `listing_id` as well as `inventory_item_id`,
+    not `inventory_item_id` alone -- a claim can name a *different* item than
+    the listing it holds (the lot-member shape `test_offering_writes.py`'s
+    `claim_invariant_waiver`-marked tests already exercise, and phase 3 will
+    write for real). Without the `listing_id` half, such a claim would survive
+    this delete, and the `listing` delete just below it would then fail on
+    `offer_claim.listing_id`'s `ondelete="RESTRICT"` -- inside this same
+    `finally`, replacing whatever `ClaimInvariantViolation` the `try` raised
+    with a foreign-key error instead. Latent today (`offer` and `_move_claims`
+    both set a claim's item from its own listing), but this is the one file in
+    the suite that commits claims for real, so it is the one place that
+    latency would actually surface.
 
     Deletion order respects the FKs a claim and a listing carry:
     ``offer_claim`` first (it points at both ``listing`` and
@@ -72,11 +86,15 @@ def _cleanup_race_rows(cleanup: Session) -> None:
     violates that -- then the item and the venues this file made.
     """
     item_ids = select(InventoryItem.id).where(InventoryItem.source_title == RACE_TITLE)
+    race_listing_ids = select(Listing.id).where(Listing.inventory_item_id.in_(item_ids))
     try:
         check_claim_invariant(cleanup)
     finally:
         cleanup.query(OfferClaim).filter(
-            OfferClaim.inventory_item_id.in_(item_ids)
+            or_(
+                OfferClaim.inventory_item_id.in_(item_ids),
+                OfferClaim.listing_id.in_(race_listing_ids),
+            )
         ).delete(synchronize_session=False)
         cleanup.query(Listing).filter(Listing.inventory_item_id.in_(item_ids)).delete(
             synchronize_session=False
@@ -115,11 +133,17 @@ def _code_id(session: Session, model: type[ReferenceMixin], code: str) -> int:
     return session.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
-def _seed_item(factory: sessionmaker[Session]) -> int:
-    """One received, unheld item, real and committed."""
+def _seed_item(factory: sessionmaker[Session], *, title: str = RACE_TITLE) -> int:
+    """One received, unheld item, real and committed.
+
+    `title` defaults to `RACE_TITLE` -- what every existing caller wants --
+    but `test_a_lot_shaped_claim_does_not_survive_cleanup_or_block_it` passes
+    a different one on purpose, for an item `_cleanup_race_rows`'s own
+    `item_ids` must *not* match.
+    """
     with factory() as session:
         item = InventoryItem(
-            source_title=RACE_TITLE,
+            source_title=title,
             item_kind_id=_code_id(session, ItemKind, "coin"),
             storage_form_id=_code_id(session, StorageForm, "single"),
             authenticity_id=_code_id(session, Authenticity, "unverified"),
@@ -167,9 +191,19 @@ def test_a_forced_violation_still_leaves_the_database_clean(
     session directly, rather than relying on this test's own `committed`
     fixture teardown, so this proves the point without depending on
     cross-test ordering: without the `try`/`finally` split inside it, this
-    would leave the poisoned rows behind forever (see that function's
-    docstring), and every later test in this run -- and every future run,
-    until someone cleans `ccwebdb_test` by hand -- would fail against them.
+    would leave the poisoned rows behind for the rest of *this* `pytest` run
+    (see that function's docstring) -- every later `db`-using test would fail
+    `_claim_invariant`'s check against them. They cannot outlive the run
+    itself: `conftest.py`'s `engine` fixture drops and rebuilds `ccwebdb_test`
+    fresh every session.
+
+    Known limit: the `pytest.raises(ClaimInvariantViolation)` below does not
+    assert that the violation names *this* listing specifically, only that
+    one was raised -- an unrelated pre-existing violation elsewhere would
+    also satisfy it. The cleanliness assertions after it are unaffected by
+    that, and per-test transactions mean only seed data and this file's own
+    rows are ever committed to begin with, so there is nothing else here for
+    an unrelated violation to come from in practice.
     """
     item_id = _seed_item(committed)
     venue_id = _venue(committed, "race-poison")
@@ -209,6 +243,82 @@ def test_a_forced_violation_still_leaves_the_database_clean(
             verify.scalar(select(SalesVenue.id).where(SalesVenue.code == "race-poison"))
             is None
         )
+
+
+def test_a_lot_shaped_claim_does_not_survive_cleanup_or_block_it(
+    committed: sessionmaker[Session],
+) -> None:
+    """A claim naming a different item than its listing must not wreck cleanup.
+
+    Builds the exact shape `_cleanup_race_rows`'s docstring warns about: a
+    claim whose `inventory_item_id` is *not* one of this file's own
+    RACE-tagged items, but whose `listing_id` *is* one of its listings --
+    the lot-member shape `test_offering_writes.py`'s `claim_invariant_waiver`
+    tests already exercise, constructed directly the same way they are,
+    bypassing `offering_writes` on purpose (no write path creates it yet).
+    Before the extra `OfferClaim.listing_id.in_(...)` predicate, this claim
+    would survive the delete keyed only on `inventory_item_id`, and the
+    `listing` delete right after it would then fail on
+    `offer_claim.listing_id`'s `ondelete="RESTRICT"` -- inside the same
+    `finally` that was supposed to guarantee cleanup -- masking the genuine
+    `ClaimInvariantViolation` the claim's mismatched state should raise
+    with a foreign-key error instead.
+
+    The "member" item is deliberately *not* tagged `RACE_TITLE`, so it falls
+    outside every filter in `_cleanup_race_rows` on purpose; the outer
+    `try`/`finally` here removes it and its claim regardless of whether the
+    assertions below pass, so this test cannot itself leak a row into
+    `ccwebdb_test`.
+    """
+    member_id = _seed_item(committed, title="RACE Lot Member (not RACE-tagged)")
+    try:
+        item_id = _seed_item(committed)
+        venue_id = _venue(committed, "race-lot")
+        with committed() as session:
+            item = session.get_one(InventoryItem, item_id)
+            venue = session.get_one(SalesVenue, venue_id)
+            listing = offering_writes.offer(
+                session,
+                item=item,
+                venue=venue,
+                listing_format=ListingFormat.fixed_price,
+                price=Decimal("10.00"),
+                title="",
+                description="",
+                external_id=None,
+                quantity=1,
+            )
+            session.commit()
+            listing_id = listing.id
+            session.add(
+                OfferClaim(
+                    inventory_item_id=member_id,
+                    listing_id=listing_id,
+                    state=ClaimState.released,  # the listing is still active
+                )
+            )
+            session.commit()
+
+        with committed() as cleanup, pytest.raises(ClaimInvariantViolation):
+            _cleanup_race_rows(cleanup)
+
+        with committed() as verify:
+            assert verify.get(Listing, listing_id) is None
+            assert (
+                verify.scalar(
+                    select(OfferClaim.id).where(OfferClaim.listing_id == listing_id)
+                )
+                is None
+            )
+    finally:
+        with committed() as cleanup:
+            cleanup.query(OfferClaim).filter(
+                OfferClaim.inventory_item_id == member_id
+            ).delete(synchronize_session=False)
+            cleanup.query(InventoryItem).filter(InventoryItem.id == member_id).delete(
+                synchronize_session=False
+            )
+            cleanup.commit()
 
 
 def test_two_platforms_racing_the_same_item_leave_exactly_one_winner(
