@@ -107,7 +107,13 @@ def test_selling_an_ended_listing_is_a_409(
     ebay_listing: Listing,
     admin_headers: dict[str, str],
 ) -> None:
-    """The refusal names what is in the way, and nothing gets written."""
+    """The refusal names what is in the way, and a 409 persists no order.
+
+    Not "nothing gets written" -- the router rolls back before the 409
+    leaves, so a future reordering that wrote an order and only then refused
+    would still leave this count unchanged. What this actually proves is
+    narrower: after a 409, no order exists.
+    """
     offering_writes.end_offer(db, ebay_listing)
     db.commit()
     before = _order_count(db)
@@ -225,10 +231,11 @@ def test_a_sub_cent_fee_amount_is_a_422_naming_the_field(
     """`decimal_places=2` on the schema, not `record_sale`'s own check, fires.
 
     `record_sale` still refuses a sub-cent fee itself -- as `SaleInputInvalid`
-    -- for its other two callers, which this schema does not stand between.
-    From this endpoint, though, a third decimal place never reaches it: the
-    schema is stricter and rejects the request first, as a 422 naming the
-    field, not the 409 an earlier version of this test wrongly expected.
+    -- for phase-4 auction settlement, a future caller this schema will not
+    stand in front of. From this endpoint, though, a third decimal place
+    never reaches it: the schema is stricter and rejects the request first,
+    as a 422 naming the field, not the 409 an earlier version of this test
+    wrongly expected.
     """
     response = _post(
         client,
@@ -257,7 +264,8 @@ def test_sale_input_invalid_from_record_sale_is_a_422_not_a_409(
     runs). Patching `record_sale` to raise it directly is what isolates the
     router's ordering from the schema: with the two `except` clauses
     swapped, this test fails with a 409, silently reporting the wrong status
-    for every caller `record_sale` has that the schema does not guard.
+    the day phase-4 auction settlement calls `record_sale` directly, without
+    this schema in front of it.
     """
 
     def _raise_invalid(*args: object, **kwargs: object) -> SalesOrder:
