@@ -606,10 +606,24 @@ def test_an_item_listing_keeps_its_own_fields(
 
 
 def _members_of(listing: Listing) -> list[int]:
-    """The item ids a lot listing offers, in `open_members` order."""
+    """The item ids a lot listing offers, in `open_members` order.
+
+    The **open** memberships, filtered here rather than taken from
+    `lot.members` whole: a released row is a coin the lot no longer offers,
+    and this helper's callers pick `[0]` and then assert the endpoint finds
+    that coin's live offer. Today every fixture member is open and the two
+    lists are identical, so the filter changes nothing; the code was written
+    without it and the docstring said "offers", which would have quietly
+    started naming a released coin the first time a fixture had one.
+
+    `sorted` matches `open_members`' own `order_by(inventory_item_id)` --
+    `SalesLot.members` carries no ordering of its own.
+    """
     lot = listing.sales_lot
     assert lot is not None, "this fixture is a lot listing"
-    return sorted(row.inventory_item_id for row in lot.members)
+    return sorted(
+        row.inventory_item_id for row in lot.members if row.released_at is None
+    )
 
 
 def test_one_coin_s_offers_include_the_lot_that_offers_it(

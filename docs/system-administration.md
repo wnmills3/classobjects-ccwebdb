@@ -701,6 +701,22 @@ offered to the next buyer, the same coins sold twice. Place a new order
 instead. Cancelling after packing or shipping returns no stock, and re-sending
 `cancelled` is harmless.
 
+Two kinds of unshipped order **cannot** be cancelled at all, for the same
+reason: the listing they sold has already ended, so there is nothing to put
+the stock back on. One is a sale recorded from an outside platform, where
+recording it ended the listing; the other is an order that bought a **sales
+lot**, which ends its listing and dissolves the lot as part of the sale. The
+console refuses both with a 409 naming what is in the way. Once such an order
+has shipped it can be cancelled normally -- cancelling then returns no stock
+and so strands nothing, and is how a refund is recorded.
+
+Every order now **names the platform it sold on**, since an order can come
+from any of them. The Orders page uses it to grey out **cancelled** on an
+order recorded from an outside platform, with the reason on the option, rather
+than offering a choice the server would refuse. An order that bought a lot in
+the web store is still offered the choice and refused by the server, which
+shows the refusal as an error on the page.
+
 **Placing an order for a customer.** The console's **New order** button opens
 an editor that searches customers (and accounts that have no customer row
 yet) and the catalogue, and saves with `POST /api/customers/{id}/orders`.
@@ -743,6 +759,17 @@ an existing line keeps its copy, since it is the same sale. The order's line
 title is the one it sold under. The copy holds costs, so the console sees it
 and a shopper does not. The item editor lists an item's **Sales** under the
 form, each "sold as" what it was then (`GET /api/inventory/{id}/sales`).
+
+**The copy has two shapes, and it says which one it is.** A line that sold a
+single coin keeps an `item`; a line that sold a **sales lot** keeps a `lot`
+(its number, title and description) and an `items` list -- the same per-coin
+detail, one entry per member -- in place of `item`. `snapshot_version` on the
+copy tells them apart: **version 1** always has `item`, **version 2** has
+`item` *or* `lot` and `items`, never both. Older copies are never rewritten,
+so a version-1 copy stays exactly as it was taken and stays readable; anything
+reading a copy asks for `lot` first and branches on whether it is there. The
+lot half is the only lasting record of which coins the group held, because
+selling a lot releases its memberships.
 
 **Changing an item that is for sale.** An item is *for sale* while an active
 listing with stock offers it, or an order that has not shipped (pending, paid
@@ -913,6 +940,104 @@ does not exist yet.
 and a shop listing together; it could never offer an item the business already
 owned, which is every item in the collection, so it was retired. Enter a
 purchase (above) to create an item, then offer it here.
+
+## Selling coins together: sales lots
+
+A **sales lot** is a group of coins offered and sold as one thing -- three
+Morgan dollars in one eBay listing, a type set in the web store. It is a
+temporary grouping, not an inventory item: the coins stay individually owned,
+individually costed and individually reportable the whole time, and the lot
+exists only for as long as the offer does.
+
+A lot is not a **purchase lot**. A purchase lot is how something came in and
+is permanent (see "Receiving" above); a sales lot is how something goes out
+and ends when the offer does. A coin can be in one of each at the same time
+and they say nothing about each other.
+
+**Putting a lot together.** Coins go in from the **Coins** or **Currency**
+screen, not from the Lots page: select them and choose **Group into lot...**
+in the bulk bar, then either start a new lot -- give it a title, which is what
+the offer and the shop will call it -- or add the selection to a lot that is
+still assembling. The whole selection goes in, including the part of it that
+is off the current page. **Sales lots** (`/owner/lots`) is where the group is
+then read and finished: each assembling lot shows its coins with their cost
+and value, a running cost basis and value for the group, **Remove** per coin,
+**Edit wording...**, **Discard...**, and **Offer for sale...**.
+
+The group's **Value is a floor, not an estimate**. A coin nobody has valued
+contributes nothing to it, so the page says how many of the coins are **Not
+yet valued** whenever there are any. Reading $1,400 as the worth of a group
+when two of its five coins have never been valued is the mistake that figure
+invites.
+
+**What cannot go into a lot.** A coin that has been deleted or split, one that
+is not received, one already sold or shipped, one already in another open lot,
+and one that is not a *whole* item to claim -- a listing offering more than one
+unit of it, or an unshipped order already holding units of it. Each refusal
+names the coin and the reason.
+
+**Offering a lot.** **Offer for sale...** on an assembling lot opens the same
+dialog as offering a single item: one platform, one format, one price for the
+whole group, with the lot's title and description pre-filled. Any coin in the
+group that cannot be offered refuses the whole lot, naming that coin -- a lot
+is all or nothing. Offering it **freezes** the lot: its title, description and
+membership can no longer be changed, because the buyer is now looking at that
+exact group. An empty lot cannot be offered at all, and the button says so by
+staying disabled rather than waiting for a refusal.
+
+A member's own **web store listing is paused** when the lot is offered, exactly
+as it would be if the coin were offered on eBay on its own, and comes back if
+the lot is dissolved.
+
+**A coin in an offered lot cannot be offered on its own, anywhere** -- not even
+in the web store. The item editor's Offers panel hides its **Offer for sale...**
+button for such a coin, and the API refuses with the lot's number. The way to
+sell one coin of a group separately is to end the lot's offer first.
+
+**Ending a lot's offer dissolves the lot.** End is a withdrawal: the listing
+ends, the lot is marked **dissolved**, every coin is released back to being
+sold on its own, and any store listings the lot's offer paused come back at
+their old price. **Nothing brings a dissolved lot back.** The confirmation
+dialog says all of this before anything happens. Grouping the same coins again
+starts a **new** lot with a new number; the Lots page's **Re-offer as a lot**
+on a dissolved row does exactly that, copying the title, description and coins
+into a fresh assembling lot -- and tells you if a coin has since been offered
+on its own and so could not be taken back.
+
+**What a sold lot leaves behind.** Recording a sale of a lot -- through
+**Record sale...** on the Listings page for an outside platform, or through an
+ordinary shop checkout for a store lot -- marks the lot **sold**, releases
+every membership, ends rather than resumes each member's paused store listing,
+and files every coin as sold. The order carries **one line** for the lot at the
+price it sold for, and behind that line **one share per coin**, each holding
+that coin's part of the money and of the fees, divided by cost basis. That is
+what keeps per-coin gain answerable after a group sale. The item editor's
+**Sales** list shows a group sale on each member's own page, saying which lot
+it was and that coin's share of it -- the line's quantity and price belong to
+the whole group, so the share is the number that is about the coin.
+
+The lot itself is never deleted once it has been offered. The Lots page's
+**Offered, sold and dissolved** table keeps it for good: it is how anyone later
+finds out which coins went out together. Only a lot that was never offered can
+be discarded.
+
+**An order that bought a lot cannot be cancelled.** Selling the lot ended its
+listing, so there is nothing for a cancellation to put the stock back on --
+the console refuses with a 409 naming the listing. This is the same rule that
+already applies to a sale recorded from an outside platform, reached by a much
+more ordinary path. If a lot sale falls through, the coins are brought back
+individually, by hand, and grouped again as a new lot.
+
+**In the shop**, a store lot appears as one card and one detail page with one
+price and an **Add to cart** of one. It carries no grade, year, country or
+metal of its own -- no single value of any of them describes a group -- so the
+catalogue's filters on those fields never match a lot, though a text search
+still finds one through the offer's own title. Its picture is one of its coins,
+and the caption says so. Below the (empty) specifications table the page lists
+**the coins in the lot**, each with its own picture and details, and it keeps
+listing them after the lot has sold, so a bookmarked page still says what the
+group held. A lot's **piece count** is the **sum** of its members' -- a lot of
+three rolls counts the coins, not the rolls.
 
 ## Reference vocabularies
 

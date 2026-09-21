@@ -346,8 +346,8 @@ class Listing(TimestampMixin, Base):
 class OfferClaim(TimestampMixin, Base):
     """One item's hold on one listing, and the "offered once" guarantee.
 
-    An item listing has one claim; a lot listing (phase 3) will have one per
-    member, which is why the rule lives here rather than on `listing`.
+    An item listing has one claim; a lot listing has one per member, which is
+    why the rule lives here rather than on `listing`.
     Written only by `app.offering_writes`, in the same transaction as the
     listing it mirrors: a claim's state always follows its listing's status.
     """

@@ -18,6 +18,18 @@ same per-item detail, one entry per member, in item id order -- and `lot`
 which coins the group held: `offering_writes._end` releases every membership
 the moment the lot sells, so a reader that went back to `sales_lot_item`
 would find nothing.
+
+**Reading an older copy.** `snapshot_version` says which shape is in hand,
+and both shapes stay readable for ever -- a snapshot is never rewritten.
+
+- **Version 1** always has `item`, and never `lot` or `items`. Every
+  snapshot taken before sales lots existed is one of these.
+- **Version 2** has *either* `item` (an item listing, byte for byte the
+  version-1 shape) *or* `lot` **and** `items` (a lot listing). Never both.
+
+So a reader asks for `lot` and branches on whether it is there; it must not
+assume `item` is present, which is what every version-1 reader did and what
+the bump exists to announce. `listing` is in every version.
 """
 
 from __future__ import annotations

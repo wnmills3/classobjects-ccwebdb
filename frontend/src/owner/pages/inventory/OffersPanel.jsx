@@ -144,6 +144,18 @@ export default function OffersPanel({ item, onChanged }) {
   // rows, and `sales_lot_id` is the same field `ck_listing_item_xor_lot`
   // makes exclusive with `inventory_item_id`. It also needs no `ownStore`,
   // so it is right from the first render rather than once platforms arrive.
+  //
+  // **It rests on one invariant, and the invariant is worth naming.** The
+  // real question is present tense -- does a claim still hold this coin --
+  // and the rows are a past-tense list of every offer this coin has ever
+  // been part of. `ON_OFFER.includes(l.status)` stands in for the claim
+  // because a lot member's claim is released only when the whole lot
+  // listing ends: `offering_writes._end` releases every membership and every
+  // claim together, and `lot_writes` refuses any membership change once a
+  // lot leaves `assembling`, so there is no path that frees one coin while
+  // its lot listing stays live. Add such a path and this hides the Offer
+  // button on a coin that is free. The fix then is to ask the coin's own
+  // claim rather than its lot listing's status.
   const heldInLot = listings.some((l) => ON_OFFER.includes(l.status) && isLot(l))
 
   return (

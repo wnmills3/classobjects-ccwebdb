@@ -334,12 +334,13 @@ def list_catalog(
     # An **outer** join, because a lot listing's `inventory_item_id` is NULL
     # and an inner join dropped every one of them from the shop outright.
     # The consequence is deliberate rather than tolerated: each of the item
-    # filters above (`q`, `kind`, `country`, `metal`, `year_min`, `year_max`)
+    # filters above (`kind`, `country`, `metal`, `year_min`, `year_max`)
     # compares a column of the missing row, so a lot listing matches none of
-    # them and a filtered page holds no lots. That is the right answer -- a
-    # filter on grade or year cannot describe a group of coins that may have
-    # several of each -- and it is why `q` still matches a lot through
-    # `Listing.title`, which is the lot's own wording.
+    # them and a page filtered by any of them holds no lots. That is the
+    # right answer -- a filter on grade or year cannot describe a group of
+    # coins that may have several of each. `q` is the exception: it is an
+    # `or_` that also matches `Listing.title`, the lot's own wording, so a
+    # search still finds one.
     base = select(Listing).outerjoin(
         InventoryItem, Listing.inventory_item_id == InventoryItem.id
     )

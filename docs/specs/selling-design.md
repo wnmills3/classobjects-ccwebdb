@@ -1,7 +1,9 @@
 # Selling: platforms, offers, sales lots and auctions
 
 Design. Status: **agreed with the owner 2026-09-17**; phases 0-2 (offering)
-built, phase 2R (record a sale) **built 2026-09-21**.
+built, phase 2R (record a sale) **built 2026-09-21**, phase 3 (sales lots)
+**built 2026-09-21**. Phase 4 (auctions) follows, and **live is not migrated
+until it is merged too**.
 **Revised 2026-09-20** with the owner: the phase-2 remainder, phase 3 and phase
 4 were scoped together and four points where this document and the built code
 had drifted apart were reconciled. See *Revision, 2026-09-20* below.
@@ -225,6 +227,24 @@ an auction with one lot.
   "which items did this order carry", with one query shape rather than two and
   an `IS NULL` branch between them. `app.sale_state` depends on that (below),
   and so will realised-gain reporting. Decided with the owner 2026-09-20.
+- **The sale snapshot gains a second shape** (`app/sale_snapshot.py`).
+  `sales_order_item.item_snapshot` keeps the item and the listing as they
+  were when the line was made, and a lot line has no single item to keep. So
+  `snapshot_version` moves from 1 to 2, and a reader must branch on the
+  shape it finds rather than assume:
+
+  | Version | Keys it may carry |
+  |---|---|
+  | **1** | always `item` and `listing`; never `lot` or `items` |
+  | **2** | `listing`, plus **either** `item` (an item listing -- byte for byte the version-1 shape) **or** `lot` and `items` (a lot listing) |
+
+  Never both, in either version. `lot` is id, title and description;
+  `items` is the same per-item detail as `item`, one entry per member, in
+  item id order. A snapshot is never rewritten, so version 1 copies stay in
+  the database for ever and stay readable: ask for `lot` and branch on
+  whether it is there. The lot half is the whole record of which coins the
+  group held -- selling a lot releases every membership, so a reader that
+  went back to `sales_lot_item` would find nothing.
 - **Order status on an outside sale.** `marketplace` and `live_auction` sales
   are created `paid` -- the platform collected payment and the owner ships,
   through the existing Orders page. `auction_house` sales are created
@@ -360,13 +380,43 @@ is otherwise unchanged.
 - **Mutation checks**: drop the `offer_claim` partial unique index, and
   separately the `FOR UPDATE` in offer and settle, and confirm the race tests
   fail; restore and confirm they pass.
-- **Invariants after every write in the suite**: claim state equals listing
-  status (**built** in phase 2R, `tests/conftest.py`'s `_claim_invariant`); an
-  item's disposition agrees with its claims (**not built, and not scheduled by
-  the Revision note below** -- carried into
-  `docs/plans/selling-sales-lots.md` as item (e) on 2026-09-21); open lot
-  membership agrees with lot status (deferred to phase 3 by the Revision
-  note).
+- **Invariants after every write in the suite**, all three **built**, all
+  three run by `tests/conftest.py`'s autouse `_claim_invariant` fixture:
+
+  | Rule | Check | Exception it raises | Built |
+  |---|---|---|---|
+  | A claim's state equals its listing's status | `check_claim_invariant` | `ClaimInvariantViolation` | phase 2R |
+  | An open lot membership implies its lot is `assembling` or `offered` | `check_lot_invariant` | `LotInvariantViolation` | **phase 3** |
+  | A `HELD_BY` claim implies its item is `listed` or already sold away | `check_disposition_invariant` | `DispositionInvariantViolation` | **phase 3** |
+
+  **Three separate checks with three separate exception types, and the
+  separation is load-bearing.** Four tests carry the
+  `claim_invariant_waiver` marker, which absorbs *any*
+  `ClaimInvariantViolation`. Had the two new rules raised that same type --
+  or had they been folded into `check_claim_invariant`, as the Revision note
+  below originally said phase 3 would do -- those four tests would have been
+  silently exempted from the new rules as well, which is the exact accident
+  the checks exist to catch. So the waiver is consulted only by the claim
+  half, the two new checks run before it and are never waived, and each
+  `xfail(strict=True, raises=...)` proof in `tests/test_claim_invariant.py`
+  narrows on its own type so no proof can pass on another's failure.
+
+  Each rule is **one direction only**, deliberately. `check_lot_invariant`
+  does not require an `assembling` lot to have members -- a lot is created
+  empty and assembled a coin at a time. `check_disposition_invariant` does
+  not require a `listed` item to have a claim (`build_listing` makes dozens
+  of claimless listed items), and it allows `offering_writes.SOLD_AWAY`,
+  because a shop checkout that takes the last unit sets the item to `sold`
+  while its store listing stays active with an active claim.
+
+  **What they found on their first run across the whole suite.** A real bug
+  in `offering_writes.end_offer`: when an ending decided that nothing
+  offered an item any more, it moved the item back to `held` but left behind
+  a stray claim still reading `active` or `paused` -- for ever, on an item it
+  had just decided nothing offers. Worth recording twice over, because that
+  shape already violated the *pre-existing* claim invariant's own rule that
+  an ended listing carries released claims. The new checks found something
+  that was wrong under a rule that predated them.
 - **Settlement**: shares sum to the line to the cent (a lot of three at
   $100.00); resumed store listings keep their price; consignment moves appear
   in location history in both directions; a sold lot's paused store listings
@@ -405,8 +455,13 @@ Each phase is merged and applied on its own.
    `app/sales_writes.py`, `POST /api/listings/{id}/sale`, **Record sale...**
    on the Listings page. Phase 2 merged without any of it: `end_offer`'s
    `sold=True` branch has no caller on `main`.
-3. **Sales lots**: `sales_lot`, `sales_lot_item`, nullable
-   `listing.inventory_item_id`, lot listings in the shop, the Lots page.
+3. **Sales lots**: **built 2026-09-21.** `sales_lot`, `sales_lot_item`,
+   nullable `listing.inventory_item_id` with `ck_listing_item_xor_lot` and
+   `ck_listing_lot_quantity_one`, `app/lot_writes.py`, lot listings offered
+   and ended through `offering_writes`, `sale_snapshot` version 2, lot
+   listings in the shop and at checkout, `/api/sales-lots`, and the Lots page
+   (`/owner/lots`). Carries one **known defect** and one **known coverage
+   hole**, both recorded below; neither is fixed on this phase's branch.
 4. **Auctions**: `auction`, `auction_lot`, the `consigned` location kind, the
    Auctions page and settlement.
 
@@ -434,8 +489,17 @@ reconciled as part of phases 2R-4 rather than left to disagree.
    bug, so `seed.py` is fixed in phase 2R to go through `offering_writes.offer`.
 3. **The suite-wide invariant test does not exist.** *Testing*, above, requires
    claim state to equal listing status after every write in the suite; it was
-   never built, and it would have caught (2) by itself. Built in phase 2R, and
-   extended in phase 3 to cover lot membership against lot status.
+   never built, and it would have caught (2) by itself. Built in phase 2R.
+
+   (Corrected 2026-09-21. This item said the claim invariant would be
+   "extended in phase 3 to cover lot membership against lot status". It was
+   not, and could not have been. Phase 3 built **two separate checks, each
+   with its own exception type** -- `check_lot_invariant` raising
+   `LotInvariantViolation` and `check_disposition_invariant` raising
+   `DispositionInvariantViolation` -- because `claim_invariant_waiver`
+   absorbs any `ClaimInvariantViolation`, so extending the claim check, or
+   reusing its type, would have exempted the four waived tests from the new
+   rules too. *Testing*, above, is the record of what was built.)
 4. **`app.sale_state`'s order half.** It reaches an item only through
    `listing.inventory_item_id`, so a lot's members are invisible to it, and
    a sold lot's members are invisible through the claim too -- the claim is
@@ -500,6 +564,102 @@ listing history table, so a re-offer loses the previous ending's timestamp. A
 settlement is the first thing that makes a listing's ending part of the
 financial record, so phase 4 documents the limit where it starts to matter
 rather than quietly inheriting it. Building the table is a separate decision.
+
+## Known defect: the lock order between `order_writes` and `offering_writes`
+
+Found by phase 3's race tests, 2026-09-21, and **deliberately not fixed on
+that branch**. Recorded here so it reads as a parked decision rather than an
+oversight.
+
+**The two money-path modules take their two kinds of row in opposite
+orders.**
+
+| Module | Order it takes |
+|---|---|
+| `app/offering_writes.py` (`offer`, `end_offer`) | lot row, then **items** (ascending id), then **listings** (ascending id) -- its module docstring says so |
+| `app/order_writes.py` (`place_order`, `revise_order`, `return_stock`) | **listings** first (`_lock_listings`), then the **items**, through `_after_stock_change` and, for a lot, through `end_offer` inside `_settle_sold_lots` |
+
+So a shopper checking out a lot while an administrator offers one of its
+coins somewhere else can end up with each transaction holding what the other
+waits for. Postgres breaks the tie by aborting one of them: the victim gets
+an **HTTP 500** rather than the clean `OfferRefused` the refusal paths were
+built to give, either party may be the victim, and the aborted transaction
+is rolled back whole, so nothing is left half-written. The damage is a bad
+error message and a lost request, not corrupt data.
+
+**It is pre-existing on `main`.** Read both modules at `main`: buying the
+last unit of an ordinary item listing already takes the listing's lock in
+`_lock_listings` and then the item's row-level lock when
+`_after_stock_change` writes its disposition, while `offer` at `main`
+already takes the item first and the listing second. Sales lots **widen the
+exposure** -- a lot sale always crosses zero, and it touches N member rows
+instead of one -- but did not create it.
+
+**Why it was parked.** A fix has to move `place_order`, `revise_order`, the
+`_lock_listings` call in `return_stock` and `sales_writes.record_sale`: four
+call sites across two modules that both handle money, and **which side
+moves is the owner's decision**. Moving `order_writes` to items-first means
+checkout takes an inventory lock it does not otherwise need; moving
+`offering_writes` to listings-first means reordering the module that owns
+every claim. Doing either inside the sales-lots branch would have put an
+unreviewed change to store checkout in a branch about grouping coins.
+
+`backend/app/order_writes.py`'s `_settle_sold_lots` and
+`offering_writes._lock_offers` both point here. Until it is fixed, a comment
+in either module that asserts the orders agree is wrong; one did, and was
+corrected on 2026-09-21.
+
+### Known coverage hole
+
+**Nothing races `order_writes` against `offering_writes` on a lot.** Phase
+3's third race test was specified as a checkout racing a *pause* of the same
+lot, and that shape turned out to be impossible: `lot_writes._refuse_grouped`
+refuses offering a member of an `offered` lot at all, a lot cannot be
+re-offered, and a member cannot join a second open lot, so nothing can pause
+a lot listing. It was replaced by two checkouts racing for one lot, which is
+reachable and is mutation-proven.
+
+The one cross-writer shape still reachable is the deadlock above, so a test
+of it would be permanently red. **This is a hole to be filled by whoever
+fixes the lock order**, in the same change: with the orders agreed, a
+checkout of a lot racing an `offer` or `end_offer` on one of its coins
+becomes a refusal a test can assert on, and it is exactly the test that
+would stop the inversion coming back.
+
+## Known limits
+
+Small, deliberate, and recorded so they read as choices.
+
+- **Cancelling an order that bought a lot does not restore the lot.** The
+  lot was sold, so `offering_writes._end` marked it `sold` and released
+  every membership; a dissolved or sold lot never comes back. Cancelling
+  such an order is refused outright (`routers/orders._no_stock_to_return`),
+  because the lot's listing has ended and there is nothing to return its
+  stock to. The coins come back individually, by the owner's own correction,
+  and are grouped again as a **new** lot.
+- **Ending a lot's offer dissolves the lot.** There is no "withdraw the
+  offer but keep the group". The confirmation dialog says so outright, and
+  it is the **only** route to selling one of a lot's coins on its own, since
+  `offering_writes._refuse_grouped` refuses offering a member on every
+  venue, the web store included.
+- **A lot listing's `piece_count` is the sum of its members', not the count
+  of them.** The column means how many objects the entry represents, and a
+  member may itself be a multi-piece row -- a roll, a mint set -- so
+  `len(members)` would be a second wrong number, and 1 would be
+  indistinguishable from a genuine single piece.
+- **No equal-shares control in the console.** `record_sale` takes
+  `equal_shares`, and the Record sale dialog always sends `false`, the
+  spec's cost-weighted default. Choosing an equal division of a lot's money
+  is not reachable from the console today; it has not been asked for, and
+  adding the control would put a question in front of every outside sale.
+- **The Orders page's greyed-out cancel does not match the server's rule
+  exactly.** `routers/orders._no_stock_to_return` refuses a cancel when the
+  order is unshipped *and* either its platform is not the store or one of its
+  listings has ended. `Orders.jsx` greys the option out on the narrower test
+  "not the store", so a **shipped** outside order is greyed out though the
+  server would allow it, and a **store order that bought a lot** is offered
+  the choice and then refused, showing the 409 as an error on the page. The
+  server is right in both directions; only the hint is approximate.
 
 ## Not in this design
 

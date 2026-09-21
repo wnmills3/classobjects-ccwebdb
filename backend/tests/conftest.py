@@ -374,7 +374,8 @@ def check_disposition_invariant(db: Session) -> None:
       (`order_writes._after_stock_change`) while its store listing stays
       `active` with an `active` claim -- `end_offer`'s own comment, beside
       `if item is not None and item.disposition_id == listed:`
-      (`offering_writes.py:925-931`), names that shape as intended. Without
+      (`offering_writes.py`, in `end_offer`'s disposition loop), names that
+      shape as intended. Without
       the allowance the rule is false the first time a test buys out a
       listing.
 

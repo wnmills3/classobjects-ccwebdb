@@ -268,8 +268,8 @@ def _move_claims(db: Session, listing: Listing, state: ClaimState) -> None:
     for claim in claims:
         # Only a claim that still holds something moves. A released claim is
         # finished with: resuming a listing must not re-claim a member let go
-        # earlier, which for a lot (phase 3) would be a second active claim on
-        # an item the index has already given to someone else.
+        # earlier, which for a lot would be a second active claim on an item
+        # the index has already given to someone else.
         if claim.state in HELD_BY:
             claim.state = state
 
@@ -404,6 +404,13 @@ def _lock_offers(db: Session, item_ids: Collection[int]) -> None:
     holds what the other waits for and Postgres aborts one. Ascending id is
     this module's rule (`_lock_items`), and for listings one statement is what
     keeps it now that a lot makes multi-row the ordinary case.
+
+    This settles the ordering *within* the listing set only. Between the two
+    **kinds** of row the modules still disagree -- this one takes items then
+    listings, `order_writes.place_order` takes listings then items -- and
+    that inversion is a real, unfixed deadlock, recorded in
+    `docs/specs/selling-design.md` under *Known defect: the lock order
+    between `order_writes` and `offering_writes`*. Nothing here closes it.
 
     Nothing can join the set between this pass and the per-member calls: a
     listing comes to hold an item only through a claim, this module is the

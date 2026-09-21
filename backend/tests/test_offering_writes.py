@@ -43,7 +43,8 @@ def _claim(
     """Build a claim directly, for a shape no current write path produces.
 
     A real `offer()` call also moves the claimed item's disposition to
-    `listed` (`offering_writes.py:669-678`). `make_item` (`conftest.py`)
+    `listed` (`offering_writes.offer`, in the loop that writes the claims).
+    `make_item` (`conftest.py`)
     defaults a fresh item's disposition to `held`, so a `HELD_BY` claim
     built here without the same side effect would disagree with
     `check_disposition_invariant` (`tests/conftest.py`) the moment the

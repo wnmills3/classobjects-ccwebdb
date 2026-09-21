@@ -183,10 +183,28 @@ def _settle_sold_lots(db: Session, listings: Sequence[Listing]) -> None:
     Called **after** the line's shares exist, never before: `_sync_shares`
     divides the money among `offered_items`, and `end_offer` releases exactly
     those memberships, so a lot ended first would leave the sale with no
-    shares at all. The lock order is the one `sales_writes.record_sale`
-    already takes for an outside sale of a lot -- the listing first
-    (`_lock_listings`), then the items and the lot inside `end_offer` -- so
-    this adds no new deadlock shape.
+    shares at all.
+
+    **The lock order here is the known deadlock, and this comment used to
+    deny it.** It said the order is the one `sales_writes.record_sale`
+    already takes -- the listing first (`_lock_listings`), then the items and
+    the lot inside `end_offer` -- and concluded that this adds no new
+    deadlock shape. True against `record_sale`, and **false** against
+    `app.offering_writes`, which takes the two the other way round: lot, then
+    items, then listings (its module docstring says so, and `offer` does
+    exactly that). A checkout of a lot and a concurrent `offer` or `end_offer`
+    touching one of its coins can each hold what the other waits for, and
+    Postgres aborts one with a 500 rather than the clean `OfferRefused`.
+
+    The inversion is **pre-existing on `main`**, where `_after_stock_change`
+    already writes an `InventoryItem` row -- taking its exclusive lock --
+    after `_lock_listings` has taken the listing. Selling a lot widens the
+    exposure rather than creating it: a lot sale always crosses zero and
+    touches N member rows. It is deliberately **not fixed on this branch**;
+    the fix moves four call sites across two money-path modules and which
+    side moves is the owner's decision. `docs/specs/selling-design.md`,
+    *Known defect: the lock order between `order_writes` and
+    `offering_writes`*, is the record.
     """
     for listing in listings:
         end_offer(db, listing, sold=True)
@@ -440,7 +458,7 @@ def place_order(
     # Every line gets shares, a single item included: `sale_state` and
     # realised gain both ask that table "which items did this order carry",
     # and a line with no shares would silently answer "none". A lot listing's
-    # line is divided among its members (phase 3); an item listing's line is
+    # line is divided among its members; an item listing's line is
     # one share carrying the whole amount. `new_line=True` because every line
     # here was created just above: `_sync_shares` must not read a collection
     # it would only find empty and then leave cached that way.
