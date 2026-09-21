@@ -104,7 +104,13 @@ def _refuse_unless_assembling(db: Session, lot: SalesLot) -> None:
     membership, so whichever of the two arrives second waits, re-reads, and
     finds what the first one wrote. It is the lot's row throughout, so the
     pair can never each hold what the other needs.
+
+    Flushed first, because `Session.refresh` expires the instance *before* it
+    autoflushes: a pending change to this lot would be discarded rather than
+    written. No caller can do that today, and this is the line that keeps it
+    that way once Task 5 gives lots a router.
     """
+    db.flush()
     db.refresh(lot, with_for_update=True)
     if lot.status is not SalesLotStatus.assembling:
         raise LotRefused(
@@ -115,10 +121,19 @@ def _refuse_unless_assembling(db: Session, lot: SalesLot) -> None:
 def _refuse_unofferable(item: InventoryItem) -> None:
     """Refuse an item that is not, right now, an item this module can claim.
 
-    The same three asks `offering_writes._refuse_unofferable` makes, in the
-    same order and the same words -- minus its venue and already-sold-away
-    checks, which do not apply here: a lot has no venue, and `_refuse_partial`
-    below is this module's own version of "already spoken for".
+    The same asks `offering_writes._refuse_unofferable` makes, in the same
+    order and the same words, minus its venue check -- a lot has no venue.
+
+    The already-sold check is **not** among the things left out, and an
+    earlier version of this docstring was wrong to say `_refuse_partial` was
+    "this module's own version of 'already spoken for'". It is not: its order
+    half asks `sale_state.for_sale`, which filters to `OPEN_ORDER_STATUSES`
+    and stops seeing the item the moment its order ships. Without the
+    disposition check below, a coin sold and shipped could be grouped into a
+    fresh lot and offered again. A lot must never be *stricter* than an
+    offer, so the list is `offering_writes.SOLD_AWAY` exactly, which
+    deliberately excludes `returned_by_buyer`: that coin came back and
+    offering it again -- alone or in a group -- is what happens next.
     """
     if item.deleted_at is not None:
         raise LotRefused(f"{item.item_code}: has been deleted")
@@ -129,6 +144,11 @@ def _refuse_unofferable(item: InventoryItem) -> None:
     status = item.status.code
     if status != "received":
         raise LotRefused(f"{item.item_code}: is not received (it is {status})")
+    disposition = item.disposition.code
+    if disposition in offering_writes.SOLD_AWAY:
+        raise LotRefused(
+            f"{item.item_code}: has already been sold (it is {disposition})"
+        )
 
 
 def _refuse_partial(db: Session, item: InventoryItem) -> None:

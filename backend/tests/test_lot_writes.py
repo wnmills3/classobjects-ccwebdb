@@ -10,6 +10,7 @@ from app import lot_writes
 from app.buyers import venue_buyer
 from app.lot_writes import LotRefused, add_member, create_lot, remove_member
 from app.models import (
+    Disposition,
     InventoryItem,
     Listing,
     SalesLot,
@@ -31,6 +32,12 @@ ItemFactory = Callable[..., InventoryItem]
 def _lot(db: Session, title: str = "Three Morgan Dollars") -> SalesLot:
     """An empty assembling lot, through the writer rather than by hand."""
     return create_lot(db, title=title, description="")
+
+
+def _set_disposition(db: Session, item: InventoryItem, code: str) -> None:
+    """Move an item's disposition the way another write path would."""
+    item.disposition_id = require_code(db, Disposition, code, "disposition")
+    db.flush()
 
 
 def test_a_new_lot_is_assembling_and_empty(db: Session) -> None:
@@ -250,6 +257,50 @@ def test_removing_a_member_is_frozen_once_offered(
     db.flush()
     with pytest.raises(LotRefused, match="frozen"):
         remove_member(db, lot, received_item)
+
+
+@pytest.mark.parametrize("disposition", ["sold", "shipped", "delivered"])
+def test_a_sold_item_cannot_be_grouped(
+    db: Session, received_item: InventoryItem, disposition: str
+) -> None:
+    """A coin a buyer has bought is not the business's to group and sell again.
+
+    `_refuse_partial` does not cover this and an earlier docstring claimed it
+    did: its order half asks `sale_state.for_sale`, which filters to
+    `OPEN_ORDER_STATUSES` and stops seeing the item once the order ships --
+    so after shipping, nothing refused it. All three `SOLD_AWAY`
+    dispositions, because the shipped and delivered ones are exactly the two
+    an open-order check cannot reach.
+
+    The disposition is set directly rather than by selling a lot. A member
+    sold inside a lot is never moved off `listed` today
+    (`order_writes._after_stock_change` returns silently on a lot listing's
+    NULL item id), so a lot-sale version of this test would go red for that
+    reason instead of this one, and would keep passing if this guard were
+    deleted. That route closes in Task 4 and the test for it belongs there.
+    """
+    lot = _lot(db)
+    _set_disposition(db, received_item, disposition)
+
+    with pytest.raises(LotRefused, match="has already been sold"):
+        add_member(db, lot, received_item)
+
+
+def test_a_returned_item_can_still_be_grouped(
+    db: Session, received_item: InventoryItem
+) -> None:
+    """`returned_by_buyer` is deliberately not in `SOLD_AWAY`.
+
+    That coin came back, and offering it again -- alone or in a group -- is
+    exactly what happens next. A lot must never be stricter than an offer,
+    and `offering_writes._refuse_sold` lets this one through.
+    """
+    lot = _lot(db)
+    _set_disposition(db, received_item, "returned_by_buyer")
+
+    row = add_member(db, lot, received_item)
+
+    assert row.inventory_item_id == received_item.id
 
 
 def test_the_lot_lock_re_reads_the_row_it_locked(

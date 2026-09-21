@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from decimal import Decimal
 
 import pytest
@@ -26,7 +27,7 @@ from app.models import (
 )
 from app.offering_writes import OfferRefused
 from app.sales_venues import store_venue_id
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -152,6 +153,38 @@ def _offer_on(db: Session, item: InventoryItem, venue: SalesVenue) -> Listing:
         external_id=None,
         quantity=1,
     )
+
+
+@contextmanager
+def _captured_locks(db: Session, table: str) -> Iterator[list[dict[str, object]]]:
+    """Record the bound parameters of each `FOR UPDATE` on one table.
+
+    The only way, without a second connection, to measure *which rows a call
+    asks to lock and in what order*. A real deadlock needs two transactions
+    racing, and nothing in this suite may open a second session against the
+    shared test database, so this measures the acquisition rather than the
+    collision it would cause.
+    """
+    seen: list[dict[str, object]] = []
+
+    def _record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        """Keep the parameters of each locking select against `table`."""
+        if f"FROM {table}" in statement and "FOR UPDATE" in statement:
+            seen.append(dict(parameters) if isinstance(parameters, dict) else {})
+
+    bind = db.get_bind()
+    event.listen(bind, "before_cursor_execute", _record)
+    try:
+        yield seen
+    finally:
+        event.remove(bind, "before_cursor_execute", _record)
 
 
 def _claim_states(db: Session, item: InventoryItem) -> dict[int, ClaimState]:
@@ -956,6 +989,136 @@ def test_offering_a_lot_pauses_each_member_s_store_listing(
         )
 
 
+def test_every_listing_a_lot_offer_locks_is_taken_in_one_pass(
+    db: Session, make_item: ItemFactory, ebay_venue: SalesVenue
+) -> None:
+    """N sorted statements are not a sorted acquisition, and that deadlocks.
+
+    `_locked_offers` runs once per member, so before `_lock_offers` the
+    listing locks were ordered *within* each call and unordered across the
+    loop. A lot of two whose shop listings are #9 and #4 took #9 then #4,
+    while a two-line `place_order` (`order_writes._lock_listings`) takes #4
+    then #9: each transaction holds what the other waits for. The item lock
+    does not save the pair, because `place_order` takes no item lock at all.
+
+    The assertion is that the **first** listing lock covers every member, not
+    just the first one -- which is exactly what one ascending statement means
+    and what a per-member first lock cannot satisfy. It measures the
+    acquisition, not the collision: a real deadlock needs two connections and
+    this suite may not open one.
+
+    The members' shop listings are built in reverse item order on purpose, so
+    listing ids descend as item ids ascend. That is the arrangement in which
+    an unsorted union actually inverts; built in order, a broken
+    implementation would take them ascending by luck and the test would pass.
+    """
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    items = [make_item(title=f"Locked {n}") for n in range(2)]
+    for item in reversed(items):
+        _offer_on(db, item, store)
+    lot = lot_writes.create_lot(db, title="Two locked coins", description="")
+    for item in items:
+        lot_writes.add_member(db, lot, item)
+
+    with _captured_locks(db, "listing") as locks:
+        offering_writes.offer(
+            db,
+            lot=lot,
+            venue=ebay_venue,
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("300.00"),
+            title="Two locked coins",
+            description="",
+            external_id=None,
+        )
+
+    assert locks, "no listing was locked at all"
+    first = set(locks[0].values())
+    assert {item.id for item in items} <= first
+
+
+def test_offering_a_lot_twice_is_refused_by_name(
+    db: Session,
+    lot_of_three: SalesLot,
+    ebay_venue: SalesVenue,
+    whatnot_venue: SalesVenue,
+) -> None:
+    """The frozen-lot guard, which nothing else in the suite reaches.
+
+    Without it the second offer does not sail through -- the members' own
+    claims make `_locked_offers` fire `elsewhere` -- but it fails naming an
+    *item* with an `OfferRefused`, losing both the lot in the message and the
+    409-vs-422 mapping the `LotRefused`/`EmptyLot` split exists for. So the
+    exception type and the message are what is asserted, not merely that
+    something was refused.
+    """
+    offering_writes.offer(
+        db,
+        lot=lot_of_three,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("900.00"),
+        title="Three Morgan Dollars",
+        description="",
+        external_id=None,
+    )
+
+    with pytest.raises(lot_writes.LotRefused, match="cannot be offered") as excinfo:
+        offering_writes.offer(
+            db,
+            lot=lot_of_three,
+            venue=whatnot_venue,
+            listing_format=ListingFormat.fixed_price,
+            price=Decimal("900.00"),
+            title="Three Morgan Dollars",
+            description="",
+            external_id=None,
+        )
+    assert f"lot #{lot_of_three.id}" in str(excinfo.value)
+    assert not isinstance(excinfo.value, OfferRefused)
+
+
+def test_a_member_of_an_offered_lot_cannot_be_offered_on_its_own(
+    db: Session, offered_lot_listing: Listing, whatnot_venue: SalesVenue
+) -> None:
+    """Once offered the group is frozen, and a coin leaving it changes what it is.
+
+    Not the shop-to-eBay one-step case: that rule is about an item's own
+    store listing, not about a group a buyer is being shown. The owner ends
+    or dissolves the lot first.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member = db.get(InventoryItem, lot.members[0].inventory_item_id)
+    assert member is not None
+
+    with pytest.raises(OfferRefused) as excinfo:
+        _offer_on(db, member, whatnot_venue)
+    assert excinfo.value.item_code == member.item_code
+    assert f"lot #{lot.id}" in excinfo.value.reason
+
+
+def test_dissolving_the_lot_frees_a_member_to_be_offered_on_its_own(
+    db: Session, offered_lot_listing: Listing, whatnot_venue: SalesVenue
+) -> None:
+    """The remedy the refusal above names has to actually work.
+
+    Otherwise the message sends the owner somewhere that does not help, and
+    the refusal is a dead end rather than one deliberate extra step.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member = db.get(InventoryItem, lot.members[0].inventory_item_id)
+    assert member is not None
+    offering_writes.end_offer(db, offered_lot_listing)
+
+    listing = _offer_on(db, member, whatnot_venue)
+
+    assert listing.status is ListingStatus.active
+    assert _claim_states(db, member)[listing.id] is ClaimState.active
+
+
 def test_offering_a_lot_in_the_shop_pauses_a_member_s_shop_listing(
     db: Session, make_item: ItemFactory
 ) -> None:
@@ -1069,6 +1232,10 @@ def test_a_member_offered_elsewhere_refuses_the_whole_lot(
     # Nothing written for the member that could have been offered.
     assert _claim_states(db, free) == {}
     assert lot.status is SalesLotStatus.assembling
+    # And no listing either: a claim assertion alone would not notice a
+    # `Listing` row flushed before the refusal, which is the shape an
+    # all-or-nothing test exists to catch.
+    assert db.scalars(select(Listing).where(Listing.sales_lot_id == lot.id)).all() == []
 
 
 def test_offering_an_empty_lot_is_bad_input(
