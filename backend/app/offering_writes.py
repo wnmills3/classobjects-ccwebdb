@@ -185,13 +185,11 @@ def _claims_of(db: Session, listing: Listing) -> list[OfferClaim]:
 def _move_claims(db: Session, listing: Listing, state: ClaimState) -> None:
     """Move every claim a listing holds to `state`, writing a missing one.
 
-    A listing made before claims existed, or by `app.seed` -- which creates a
-    `Listing` row directly for its demo catalogue rather than calling
-    `offer()` -- has none. When such a listing is paused or resumed here, the
-    claim this module would have written is written now rather than leaving
-    the hold recorded nowhere. Nothing is invented for a release: an ended
-    listing holds nothing, and a released claim on a listing that never had
-    one records no history worth keeping.
+    A listing made before claims existed has none. When such a listing is
+    paused or resumed here, the claim this module would have written is
+    written now rather than leaving the hold recorded nowhere. Nothing is
+    invented for a release: an ended listing holds nothing, and a released
+    claim on a listing that never had one records no history worth keeping.
     """
     claims = _claims_of(db, listing)
     if not claims:
