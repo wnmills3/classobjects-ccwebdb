@@ -600,6 +600,128 @@ def test_cancelling_a_consigned_auction_returns_items_and_clears_consigned_on(
 
 
 # --------------------------------------------------------------------------
+# Ruling R13, fix round 2: custody is tracked by consigned_on, not status
+# --------------------------------------------------------------------------
+
+
+def test_cancelling_a_closed_consigned_auction_requires_a_return_location(
+    db: Session, house_auction: Auction
+) -> None:
+    """The defect fix round 2 exists to close.
+
+    `close` accepts a `consigned` auction and does not clear `consigned_on`,
+    so `consign -> close -> cancel` used to read `status == closed`, not
+    `consigned`, and skip the return-location requirement entirely --
+    leaving every coin filed at the house with nothing linking it back to
+    the cancelled auction. Keying the requirement on `auction.consigned_on
+    is not None` instead closes it.
+    """
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    close(db, house_auction)
+    assert house_auction.status is AuctionStatus.closed
+    assert house_auction.consigned_on is not None
+
+    with pytest.raises(AuctionRefused, match="returned_to_location_id"):
+        cancel(db, house_auction)
+
+
+def test_cancelling_a_closed_consigned_auction_returns_items_and_clears_consigned_on(
+    db: Session, house_auction: Auction
+) -> None:
+    """Given a return location, the closed-but-consigned auction cancels cleanly."""
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    close(db, house_auction)
+    items = list(items_of(house_auction))
+    home = _home_location(db)
+
+    cancel(db, house_auction, returned_to_location_id=home.id)
+
+    assert house_auction.status is AuctionStatus.cancelled
+    assert house_auction.consigned_on is None
+    remaining = db.scalars(
+        select(AuctionLot).where(AuctionLot.auction_id == house_auction.id)
+    ).all()
+    assert remaining == []
+    for item in items:
+        db.refresh(item)
+        assert item.storage_location_id == home.id
+
+
+def test_removing_one_lot_from_a_closed_consigned_auction_leaves_consigned_on_set(
+    db: Session, heritage_venue: SalesVenue, make_item: ItemFactory
+) -> None:
+    """Partial return: the house still holds what was not brought home.
+
+    `consigned_on` names an auction-level fact -- something of this
+    auction's is still at the house -- so returning one lot out of two must
+    not clear it, even though that lot's own items really did come home.
+    Also proves `remove_lot` itself now accepts a `closed` auction when
+    `consigned_on is not None`, the one place ruling R13 was extended beyond
+    its literal text (see `remove_lot`'s own docstring).
+    """
+    auction = Auction(sales_venue_id=heritage_venue.id, title="Two-lot house sale")
+    db.add(auction)
+    db.flush()
+    first = add_lot(
+        db,
+        auction,
+        make_item(title="Lot one"),
+        lot_number="1",
+        reserve=None,
+        price=Decimal("10.00"),
+    )
+    add_lot(
+        db,
+        auction,
+        make_item(title="Lot two"),
+        lot_number="2",
+        reserve=None,
+        price=Decimal("10.00"),
+    )
+    schedule(db, auction)
+    consign(db, auction, on_date=date(2026, 10, 1))
+    close(db, auction)
+    assert auction.status is AuctionStatus.closed
+    consigned_on = auction.consigned_on
+    assert consigned_on is not None
+
+    first_lot = first.listing.sales_lot
+    assert first_lot is not None
+    first_items = [
+        member.item for member in first_lot.members if member.released_at is None
+    ]
+    home = _home_location(db)
+
+    remove_lot(db, first, returned_to_location_id=home.id)
+
+    for item in first_items:
+        db.refresh(item)
+        assert item.storage_location_id == home.id
+    # The house still holds the second lot -- custody has not fully returned.
+    assert auction.consigned_on == consigned_on
+    remaining = db.scalars(
+        select(AuctionLot).where(AuctionLot.auction_id == auction.id)
+    ).all()
+    assert len(remaining) == 1
+
+
+def test_cancelling_a_never_consigned_auction_still_needs_no_return_location(
+    db: Session, auction_with_three_lots: Auction
+) -> None:
+    """The predicate must not over-fire: no custody means no requirement.
+
+    Same scenario `test_cancelling_removes_every_lot` already exercises,
+    named explicitly here as the fix round 2 confirmation the coordinator
+    asked for: `auction_with_three_lots` was never consigned, so
+    `auction.consigned_on is None` throughout, and `cancel` must still ask
+    for nothing.
+    """
+    assert auction_with_three_lots.consigned_on is None
+    cancel(db, auction_with_three_lots)  # must not raise
+    assert auction_with_three_lots.status is AuctionStatus.cancelled
+
+
+# --------------------------------------------------------------------------
 # consign
 # --------------------------------------------------------------------------
 
