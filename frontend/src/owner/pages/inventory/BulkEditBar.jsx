@@ -133,6 +133,8 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
   const label = `Group ${ids.length} item(s) into a lot`
   const open = lots ?? []
   const action = target === 'new' ? 'Create lot' : 'Add to lot'
+  //: Selected ids this page has not loaded a row for, and so cannot name.
+  const offPage = ids.length - codes.length
 
   return (
     <ModalDialog label={label} onClose={onClose}>
@@ -147,8 +149,8 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
               as two. The off-page ids DO go into the lot -- grouping needs
               only ids -- which is the opposite of what the offer dialog says
               about its own skipped rows, so this says which it is. */}
-          {codes.length < ids.length &&
-            ` and ${ids.length - codes.length} more not on this page, which are grouped too.`}
+          {offPage > 0 &&
+            ` and ${offPage} more not on this page, which ${offPage === 1 ? 'is' : 'are'} grouped too.`}
         </p>
       )}
       <div className="filter-grid">

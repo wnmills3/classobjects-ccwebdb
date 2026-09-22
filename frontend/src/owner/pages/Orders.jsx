@@ -25,6 +25,13 @@ const STATUSES = [
   'refunded',
 ]
 
+//: The statuses past which cancelling returns no stock, mirroring
+//: `routers.orders.SHIPPED_STATUSES`. The goods have left, so there is
+//: nothing to put back and nothing to strand -- cancelling is how a refund
+//: is recorded. Kept in the same order as STATUSES above for reading, not
+//: because anything here depends on it.
+const SHIPPED_STATUSES = ['packed', 'shipped', 'delivered']
+
 export default function Orders() {
   const [orders, setOrders] = useState(null)
   const [error, setError] = useState('')
@@ -164,8 +171,28 @@ export default function Orders() {
                       // listing already; the server refuses "cancelled" for
                       // it with a 409, so the option is greyed out here
                       // instead of offered and then refused.
+                      //
+                      // **Unless it has shipped**, which is the half this
+                      // missed. The server only refuses a cancellation that
+                      // would really return stock, and a shipped order
+                      // returns none -- cancelling one is how a refund is
+                      // recorded. An `auction_house` sale is created
+                      // `delivered`, so every one of them arrives here
+                      // already past that line. Greying it out anyway made
+                      // the refund workflow the server deliberately opened
+                      // unreachable from the console.
+                      //
+                      // The other disagreement is left alone on purpose: a
+                      // *store* order that bought a lot is offered cancel
+                      // and then refused with a 409, because telling that
+                      // case apart needs `OrderOut` to carry whether a
+                      // line's listing has ended. It is written up in the
+                      // spec's *Known limits*, and the 409 is clear and
+                      // lands on this page.
                       const outsideSale =
-                        s === 'cancelled' && order.sales_venue_code !== 'store'
+                        s === 'cancelled' &&
+                        order.sales_venue_code !== 'store' &&
+                        !SHIPPED_STATUSES.includes(order.status)
                       return (
                         <option
                           key={s}

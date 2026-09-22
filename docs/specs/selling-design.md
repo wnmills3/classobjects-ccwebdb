@@ -655,11 +655,34 @@ Small, deliberate, and recorded so they read as choices.
 - **The Orders page's greyed-out cancel does not match the server's rule
   exactly.** `routers/orders._no_stock_to_return` refuses a cancel when the
   order is unshipped *and* either its platform is not the store or one of its
-  listings has ended. `Orders.jsx` greys the option out on the narrower test
-  "not the store", so a **shipped** outside order is greyed out though the
-  server would allow it, and a **store order that bought a lot** is offered
-  the choice and then refused, showing the 409 as an error on the page. The
-  server is right in both directions; only the hint is approximate.
+  listings has ended. `Orders.jsx` greys the option out on "not the store and
+  not shipped", which is now right for every outside order -- but a **store
+  order that bought a lot** is still offered the choice and then refused,
+  showing the 409 as an error on the page. Closing that half honestly needs
+  `OrderOut` to carry whether a line's listing has ended, which is a schema
+  change; the 409 is clear and lands on the page, so it waits. The server is
+  right in both directions; only the hint is approximate.
+- **`revise_order` cannot correct an outside sale's quantity downward.**
+  Shrinking or removing a line whose listing has **ended** is refused
+  (`order_writes.revise_order`), and `record_sale` ends the listing when it
+  records the sale -- so a recorded sale's quantity can be raised but never
+  lowered. The refusal is right: the old behaviour "worked" by handing stock
+  back to a listing nobody can see, stranding the coins `sold` and
+  un-offerable. But it removes a workflow and nothing replaces it; the
+  remedy today is to cancel and re-record.
+- **A lot's snapshot costs one `item_detail` per member, inside the
+  checkout's lock window.** `sale_snapshot.take` calls `_detail` once per
+  member, and `_detail` calls `routers.inventory.item_detail`
+  (`order_writes._line`, reached from `place_order` after `_lock_listings`
+  has taken the listing locks). Harmless for the two- or three-coin lots this
+  is built for; a very large lot would hold those locks for hundreds of round
+  trips while it builds the snapshot.
+- **`GET /api/sales-lots` has no pagination and eager-loads every member of
+  every lot.** `routers/lots.list_sales_lots` defaults to `status=all` and
+  returns the whole table, each lot with its items. Fine at today's numbers
+  and for the console's Lots page, whose useful default is "everything" --
+  but the history list only ever grows, and `SalesLotListOut` is an object
+  rather than a bare list precisely "so a page count can be added".
 
 ## Not in this design
 

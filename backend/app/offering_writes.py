@@ -554,8 +554,12 @@ def _refuse_grouped(db: Session, item: InventoryItem) -> None:
 
     `lot_writes.lot_holding` rather than a query of this module's own, so
     "already in a lot" has one definition; `uq_sales_lot_item_open` is what
-    makes it a single row. Public since `routers.inventory.delete_item`
-    became its third caller, as the note here previously said it should be.
+    makes it a single row. Private, and with the one caller above:
+    `routers.inventory.delete_item` needs the same fact but not this
+    refusal -- a delete has its own message and its own pair of questions
+    (`sale_state.ever_offered`, then `lot_writes.lot_holding`), and it asks
+    `lot_holding` directly, which is the shared definition. Nothing outside
+    this module calls this one.
     """
     from . import lot_writes
 

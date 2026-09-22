@@ -334,6 +334,22 @@ describe('BulkEditBar', () => {
     ).toBeVisible()
   })
 
+  it('says "which is" when exactly one selected row is off this page', async () => {
+    // One off-page id read "and 1 more ... which are grouped too".
+    const user = userEvent.setup()
+    renderWithProviders(<BulkEditBar ids={[1, 2, 5]} rows={ROWS} view="coins" />, {
+      strict: true,
+    })
+    await user.click(screen.getByRole('button', { name: /group into lot/i }))
+    const dialog = await screen.findByRole('dialog')
+
+    expect(
+      within(dialog).getByText(
+        /CC-000001, CC-000002 and 1 more not on this page, which is grouped too\./,
+      ),
+    ).toBeVisible()
+  })
+
   it('names every selected row when they are all on this page', async () => {
     // The other side of it: no dangling "and 0 more".
     const user = userEvent.setup()
