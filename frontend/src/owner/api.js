@@ -203,6 +203,57 @@ export const api = {
   updateLot: (id, body) => send(`/api/sales-lots/${id}`, { method: 'PATCH', body }),
   deleteLot: (id) => send(`/api/sales-lots/${id}`, { method: 'DELETE' }),
 
+  // auctions -- a sale event at a platform, its lots and its settlement.
+  // Admin-only, and the shapes below match `backend/app/routers/auctions.py`
+  // and `backend/app/schemas.py` field for field: every money figure here
+  // (reserve, price, hammer_price, a fee amount) is a decimal string on the
+  // way in and out, sent exactly as the owner typed it -- never rounded
+  // through a JavaScript number.
+  //
+  // A settlement refusal is a 409 or 422 whose body is
+  // `{detail, refused: [{reason, lot_number}]}` (ruling R21), the same shape
+  // `createOffers` above documents for `refused`. `send` throws an `ApiError`
+  // carrying the whole parsed body, so `SettlementGrid.jsx` reads
+  // `err.body?.refused` to mark every offending lot, not just the first.
+  listAuctions: (params = {}) => {
+    const qs = query(params)
+    return send(`/api/auctions${qs ? `?${qs}` : ''}`)
+  },
+  createAuction: (payload) => send('/api/auctions', { method: 'POST', body: payload }),
+  updateAuction: (id, payload) =>
+    send(`/api/auctions/${id}`, { method: 'PATCH', body: payload }),
+  scheduleAuction: (id) => send(`/api/auctions/${id}/schedule`, { method: 'POST' }),
+  consignAuction: (id, payload) =>
+    send(`/api/auctions/${id}/consign`, { method: 'POST', body: payload }),
+  closeAuction: (id) => send(`/api/auctions/${id}/close`, { method: 'POST' }),
+  // `AuctionCancelIn` takes one optional field, so an auction that was never
+  // consigned is cancelled with an empty body.
+  cancelAuction: (id, payload = {}) =>
+    send(`/api/auctions/${id}/cancel`, { method: 'POST', body: payload }),
+  addAuctionLot: (auctionId, payload) =>
+    send(`/api/auctions/${auctionId}/lots`, { method: 'POST', body: payload }),
+  // `returnedToLocationId` becomes a query parameter, as the endpoint takes
+  // it -- required only when the auction is consigned, which the caller
+  // decides from `auction.consigned_on`.
+  removeAuctionLot: (auctionId, lotId, returnedToLocationId) => {
+    const qs = query({ returned_to_location_id: returnedToLocationId ?? null })
+    return send(`/api/auctions/${auctionId}/lots/${lotId}${qs ? `?${qs}` : ''}`, {
+      method: 'DELETE',
+    })
+  },
+  // Renumbering a lot or changing its reserve. `app.auctions.refuse_unless_lot_editable`
+  // refuses this once the auction is closed, settled or cancelled; the page
+  // disables the inputs to match, but the refusal is still the real gate.
+  updateAuctionLot: (auctionId, lotId, payload) =>
+    send(`/api/auctions/${auctionId}/lots/${lotId}`, {
+      method: 'PATCH',
+      body: payload,
+    }),
+  // The whole settlement grid, in one call: every lot's result and every
+  // buyer's fees, applied or refused together.
+  settleAuction: (auctionId, payload) =>
+    send(`/api/auctions/${auctionId}/settle`, { method: 'POST', body: payload }),
+
   createPurchaseOrder: (payload) =>
     send('/api/purchase-orders', { method: 'POST', body: payload }),
   createInventoryItem: (payload) =>
