@@ -3,10 +3,13 @@
 **Status:** **built**, 2026-09-21, on `fix/lock-order`. The owner chose the
 recommendation below: **`order_writes` moves**, and the canonical order is
 **lot rows → items → listings**. It has one owner,
-`offering_writes.lock_for_sale` over the private `_acquire`, and all six
-writers across the three modules reach it through that. See *What was
-actually built* at the end, which also records the one claim in this note
-that turned out to be wrong.
+`offering_writes.lock_for_sale` over the private `_acquire`, and every
+writer that takes more than one kind of row reaches it through that -- seven
+of them across four modules, enumerated rather than asserted below. See *What was actually
+built* at the end, which also records the **two** claims in this note that
+turned out to be wrong: that an offered lot's membership is frozen outright,
+and that inverting the shared helper would be the mutation that proves the
+fix.
 **Written:** 2026-09-21, after phase 3 (sales lots) merged at `2c864d9`.
 **Defect it addresses:** *Known defect: the lock order between
 `order_writes` and `offering_writes`* in `selling-design.md` — now removed
@@ -149,8 +152,7 @@ was built on `fix/lock-order` on 2026-09-21.
 
 - **`offering_writes._acquire`** is the one place the order is written down:
   `_lock_lots`, then `_lock_items`, then `_lock_listing_rows`, each one
-  statement, each ascending id. Nothing else in the codebase takes more than
-  one kind of row.
+  statement, each ascending id.
 - **`offering_writes.lock_for_sale`** is the public door onto it, and takes
   either entry point. `offer` passes `item_ids` (its members, already frozen
   under the lot's row lock, which `_lot_members` must hold in order to *read*
@@ -160,10 +162,74 @@ was built on `fix/lock-order` on 2026-09-21.
   the derived set from `offered_items` to `_affected_items`.
 - `_lock_offers` is gone, folded into `_lock_listing_rows`, which takes the
   named listings (any status — a checkout must hold an ended listing to
-  refuse it) and the derived ones (`ON_OFFER` only) in a single `or_`.
+  refuse it) and the derived ones (`ON_OFFER` only) in a single `or_`. That
+  fold also removed a second unsorted listing acquisition inside
+  `end_offer`, which used to take its listings in two statements.
 - **No schema change and no migration**, as this note predicted.
 
-### One claim in this note was wrong
+### Which writers come through it
+
+Enumerated rather than asserted, because "every writer" was stated here
+absolutely in the first draft and there was an exception at the time:
+
+| Writer | Reaches `_acquire` via |
+|---|---|
+| `offering_writes.offer` | `lock_for_sale(item_ids=...)`, after `_lot_members` has taken the lot row |
+| `offering_writes.end_offer` | `lock_for_sale(listing_ids=..., including_paused=True)` |
+| `order_writes.place_order` | `_lock_listings` → `lock_for_sale(listing_ids=...)` |
+| `order_writes.revise_order` | `_lock_listings`, after its own `sales_order` row lock |
+| `order_writes.return_stock` | `_lock_listings` |
+| `sales_writes.record_sale` | `lock_for_sale(listing_ids=...)` |
+| `routers.inventory.receive_items` | `lock_for_sale(listing_ids=..., item_ids=..., including_paused=True)`, **added in fix round 1** — see below |
+
+Every other `with_for_update` in `backend/app` takes one kind of row, or
+re-locks rows the transaction already holds (`_locked_offers` per member,
+`end_offer`'s `paused_by_it` pass, `lot_writes._refuse_unless_assembling`'s
+lot row, `splitting.split_item`'s item row).
+
+### `receive_items` was the one remaining inversion, and is now closed
+
+Found in review after the first commit, and **not** a regression — the same
+pair deadlocked before the fix, on the listing instead of the lot.
+`routers.inventory.receive_items` wrote its `inventory_item` status rows and
+flushed them (taking their exclusive row locks) and only *then* called
+`end_offer`, whose pass waits on the lot row. So receiving acquired items
+before lots. The reachable pair: an administrator marking a lot's member
+`missing` while a shopper checks that lot out — `order_writes._lock_listings`
+takes the lot row as its first statement and then waits on the member row
+receiving holds.
+
+Closed rather than documented, because closing was contained: one
+`lock_for_sale` call added before the first write, with an `offers_holding`
+read above it to choose what to lock. No flush reordering and no
+restructuring of receiving.
+
+The read above the locks **only chooses what to lock**; the authoritative
+read stays where it was, after the writes and under the locks. Acting on the
+earlier one was the first version of this fix and it was wrong: a checkout
+that committed in between left receiving ending a listing already ended, and
+`_end` with `sold=False` rewrote `sales_lot.status` from `sold` to
+`dissolved` -- two histories this design says never collapse into one, on a
+lot somebody had just bought. Caught by
+`test_buying_a_lot_races_marking_one_of_its_coins_missing`
+(`AssertionError: dissolved`, eight runs of eight), which is the read-lock-
+re-read discipline `lock_for_sale` applies to a member set, applied here to
+a listing set.
+
+**Measured, and the observed loss was not the deadlock.** With the pass
+removed -- either moved back below the flush or absent entirely, which is the
+exact pre-fix arrangement -- that race test fails `['bought', 'stale']`,
+eight runs of eight each way. The checkout reaches the member row first, the
+receipt's unlocked UPDATE queues behind it and then writes through a version
+that has moved, so the loss lands as `StaleDataError`. The Postgres abort is
+the other possible loss of the same inversion -- the receipt holding the
+member row while waiting on the lot -- and it was **not observed** in
+sixteen mutated runs. Both are a 500 for an operator and the pass removes
+both: it locks and re-reads the member row before writing it.
+
+### Two claims in this note were wrong
+
+#### 1. An offered lot's membership is not frozen outright
 
 > for a listing that is on offer — the only kind a checkout can reach — the
 > member set cannot change underneath a reader.
@@ -185,7 +251,7 @@ ended, so the stock this order holds cannot be put back on sale",
 unmapped in the routers, on the reasoning `sales_writes.ShareMissing`
 already carries.
 
-### The mutation that reproduces the defect is *not* inverting the helper
+#### 2. Inverting the shared helper is not the mutation that proves the fix
 
 This note assumed inverting `_acquire` would bring the deadlock back. It
 does not, and the reason is the property the fix is for: inverting the one

@@ -602,10 +602,19 @@ is handed `Line(listing_id=...)`.
   rows, then items, then listings, each kind in one ascending statement.
 - **`offering_writes.lock_for_sale`** is its public door and accepts either
   entry point -- items (what `offer` has) or listings (what checkout, a
-  revision, a stock return and `record_sale` have), resolving listing → lot
-  → member itself. `_lock_listings` keeps its own `populate_existing` and
-  `selectinload(Listing.sales_venue)` behaviour, which `lock_for_sale`
-  provides, and keeps its 404 for an unknown listing id.
+  revision, a stock return, `record_sale` and receiving have), resolving
+  listing → lot → member itself. `_lock_listings` keeps its own
+  `populate_existing` and `selectinload(Listing.sales_venue)` behaviour,
+  which `lock_for_sale` provides, and keeps its 404 for an unknown listing
+  id.
+- **Seven writers come through it**, enumerated in
+  `docs/specs/lock-order-design.md` rather than asserted as "every writer" --
+  that phrasing was used first and had an exception.
+  `routers.inventory.receive_items` wrote its `inventory_item` status rows
+  and flushed them before calling `end_offer`, so it took items before lots;
+  an administrator marking a lot member `missing` while a shopper checked
+  that lot out was the pair. Closed in fix round 1 by taking the pass before
+  the first write.
 - **A confirming re-read**, because the member set has to be *read* before
   it can be locked. It holds the set frozen only while the listing is still
   on offer: an offered lot's membership cannot otherwise change

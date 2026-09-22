@@ -37,10 +37,16 @@ kind is taken in *one* statement, which is the part that matters: N sorted
 statements are not a sorted acquisition, and the listing half is where a lot
 makes that a real hazard (`_lock_listing_rows`).
 
-**That order lives in exactly one function, `_acquire`, and every writer of
-either module reaches it through `lock_for_sale`** -- `offer` and `end_offer`
-here, and `order_writes.place_order`, `revise_order` and `return_stock` plus
-`sales_writes.record_sale` from the money path. `order_writes` used to take
+**That order lives in exactly one function, `_acquire`, and every writer that
+takes more than one kind of row reaches it through `lock_for_sale`** --
+`offer` and `end_offer` here, `order_writes.place_order`, `revise_order` and
+`return_stock`, `sales_writes.record_sale`, and
+`routers.inventory.receive_items`. That is seven, listed rather than asserted
+because the list has already had an exception: `receive_items` wrote its item
+rows before calling `end_offer`, and so took items before lots, until fix
+round 1 gave it the pass too (`docs/specs/lock-order-design.md` has the
+concurrent pair it deadlocked with). `_acquire`'s own docstring carries the
+rest. `order_writes` used to take
 listings first, because `place_order` is handed listing ids, and the two
 orders together were a real deadlock. The order that carries a guarantee is
 this one -- the listing set here is *derived* from claims this module alone
@@ -540,10 +546,11 @@ def _acquire(
     """**The** acquisition order, and the only place it is written down.
 
     Lot rows, then items, then listings -- each kind in one statement, each
-    ascending id. Every writer in this codebase that takes more than one kind
-    of row comes through here: `offer` and `end_offer` in this module, and,
-    through `lock_for_sale`, `order_writes.place_order`, `revise_order` and
-    `return_stock` and `sales_writes.record_sale`.
+    ascending id. Every writer that takes more than one kind of row comes
+    through here: `offer` and `end_offer` in this module, and, through
+    `lock_for_sale`, `order_writes.place_order`, `revise_order` and
+    `return_stock`, `sales_writes.record_sale`, and
+    `routers.inventory.receive_items`.
 
     They used to agree by hand and two of them disagreed --
     `order_writes` took listings first because `place_order` is handed
@@ -552,8 +559,24 @@ def _acquire(
     guarantee rests on that second order, nothing rested on the first, so the
     first moved. `docs/specs/lock-order-design.md` is the record.
 
-    Swapping two of the three lines below is all it takes to bring the
-    deadlock back, which is the whole reason there is only one copy of them.
+    **Two different mutations, and it is worth being exact about which does
+    what, because the obvious guess is wrong.** Swapping two of the three
+    lines below breaks the canonical order this module documents, and
+    `test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`
+    (`tests/test_offering_writes.py`) is what fails -- it measures the
+    sequence of kinds on one connection. It does **not** bring the deadlock
+    back: measured, the cross-writer race test passes eight of eight with
+    these lines inverted, because there is only one copy of them and
+    inverting it moves every writer at once. A deadlock needs *disagreement*,
+    not a particular direction.
+
+    What re-creates the deadlock is a caller that **bypasses this function**
+    and takes a kind of row on its own -- which is what `order_writes.
+    _lock_listings` did before the fix, and what
+    `test_buying_a_lot_races_offering_one_of_its_coins`
+    (`tests/test_offer_races.py`) fails on, also eight of eight. That is the
+    non-obvious half, and the reason the rule this function enforces is
+    "come through here", not "prefer this direction".
     """
     _lock_lots(db, lot_ids)
     _lock_items(db, item_ids)
@@ -1151,17 +1174,22 @@ def _end(db: Session, listing: Listing, *, sold: bool = False) -> None:
     released = utcnow()
     for member in lot_writes.open_members(db, lot):
         member.released_at = released
-    # No explicit `FOR UPDATE` here because this transaction already holds
-    # the row: every caller reaches `_end` through `end_offer`, whose
+    # No explicit `FOR UPDATE` here, and two separate reasons why that is
+    # safe. The first: every caller reaches `_end` through `end_offer`, whose
     # `lock_for_sale` pass takes the lot of the listing being ended as its
-    # first statement. So this path's order is lot -> items -> listings, the
-    # canonical one, and the UPDATE below takes an exclusive lock on a row it
-    # is already holding. That was not always true -- the order here used to
-    # be items -> listing -> lot, safe for a narrower reason: every path that
-    # *waits* on a lot row takes it first and holds nothing else (`offer`,
-    # `add_member`, `remove_member`), and the lot reached here always has a
-    # listing, so it is never a lot a concurrent `offer` could be holding.
-    # Both arguments hold; the first is the one that generalises.
+    # first statement, so by the time the UPDATE below runs this transaction
+    # is holding that row already and the path's order is the canonical
+    # lot -> items -> listings. That reason is new, and it is the one that
+    # generalises -- but it rests on the caller's pass having named *this*
+    # lot, which is true of `end_offer` and is worth checking rather than
+    # assuming if `_end` ever gains a second entry point.
+    #
+    # The second, which held before that and still does independently: every
+    # path that *waits* on a lot row takes it first and holds nothing else
+    # (`offer`, `add_member`, `remove_member`, `edit_lot`), and the lot
+    # reached here always has a listing, so it is never a lot a concurrent
+    # `offer` could be holding -- that lot is still `assembling` and has no
+    # listing.
     # `version_id_col` then covers this write against a stale in-session lot,
     # and `_lock_lots` re-read the row so that version is the current one.
     lot.status = SalesLotStatus.sold if sold else SalesLotStatus.dissolved
@@ -1209,10 +1237,17 @@ def end_offer(db: Session, listing: Listing, *, sold: bool = False) -> None:
     # into the public shop, re-claiming the item with it.
     #
     # This re-locks rows the pass above already holds and so reorders
-    # nothing: a listing paused by this one holds one of the items
-    # `_affected_items` reached, and `_lock_listing_rows` takes every live
-    # offer holding those. It is here to *identify* them, not to acquire
-    # them, the same way `_locked_offers` asks its own question per member.
+    # nothing -- **while each paused listing still has a `HELD_BY` claim**,
+    # which is the condition and not an aside. `_affected_items` reaches a
+    # paused listing's items through its claims, and `_lock_listing_rows`
+    # takes every live offer holding those items, so a paused listing whose
+    # claim were already `released` would fall outside `_holds_any` and be
+    # acquired for the first time *here*, after the listings above -- out of
+    # order. Nothing produces that state: `_move_claims` releases a listing's
+    # claims only in `_end`, which sets its status to `ended` in the same
+    # breath, and the `status == paused` filter below then excludes it. So
+    # this statement is here to *identify* rows, not to acquire them, the
+    # same way `_locked_offers` asks its own question per member.
     paused_by_it = db.scalars(
         select(Listing)
         .where(

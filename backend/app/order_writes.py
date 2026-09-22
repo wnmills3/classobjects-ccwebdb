@@ -765,6 +765,10 @@ def revise_order(
         # `test_a_concurrently_edited_item_no_longer_refuses_a_revision`
         # (`tests/test_order_revision_race.py`) is that change, and says why
         # this clause is kept rather than removed.
+        # `test_a_stale_data_error_inside_revise_order_is_a_409_not_a_500`,
+        # in the same file, covers the clause itself by forcing the failure
+        # from a patched flush -- so "defence in depth" does not mean
+        # "unexercised": make this clause re-raise and that test goes red.
         #
         # If it is ever reached, it must surface the way the version check
         # above does rather than as an unhandled 500 -- using `order_id`, not

@@ -424,6 +424,10 @@ def update_order_status(
     # `offering_writes.lock_for_sale`, which locks and re-reads every item it
     # will write, so this is defence in depth
     # (`test_a_concurrently_edited_item_no_longer_refuses_a_cancellation`).
+    # The clause itself is still covered, by
+    # `test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500`,
+    # which forces the failure from a patched flush at exactly the autoflush
+    # this comment names: make this clause re-raise and that test goes red.
     # `order_id` (the path parameter), not `order.id`, appears in every
     # message below: once a flush has failed, every instance in the session
     # is expired, and reading an attribute off one issues a SELECT that

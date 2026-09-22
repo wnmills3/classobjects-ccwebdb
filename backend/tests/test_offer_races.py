@@ -45,7 +45,9 @@ from app.models import (
     ValuationBasis,
 )
 from app.offering_writes import OfferRefused
+from app.routers.inventory import receive_items
 from app.sales_venues import store_venue_id
+from app.schemas import ReceiveRequest
 from app.security import hash_password
 from fastapi import HTTPException
 from sqlalchemy import or_, select
@@ -1155,3 +1157,175 @@ def test_buying_a_lot_races_offering_one_of_its_coins(
         assert sum((share.amount for share in shares), Decimal("0.00")) == Decimal(
             "250.00"
         )
+
+
+def test_buying_a_lot_races_marking_one_of_its_coins_missing(
+    committed: sessionmaker[Session],
+) -> None:
+    """A checkout of a lot and a receipt against one of its coins never deadlock.
+
+    The second cross-writer pair, found in review after the first commit.
+    `routers.inventory.receive_items` wrote its `inventory_item` status rows
+    and flushed them -- taking their exclusive row locks -- and only then
+    called `end_offer`, whose pass waits on the **lot** row. So receiving
+    acquired items before lots, the inverse of every other writer, and an
+    administrator marking a lot's member `missing` while a shopper checked
+    that lot out could each hold what the other waited for:
+    `order_writes._lock_listings` takes the lot row as its first statement
+    and then waits on the member row receiving holds.
+
+    Not a regression of the lock-order fix -- the same pair deadlocked before
+    it, on the listing instead of the lot -- and closed by giving receiving
+    the same `lock_for_sale` pass before its first write.
+
+    **Both may succeed here, and that is correct** -- unlike the offer race
+    above, where one side is always refused. `acknowledge_for_sale=True` is
+    the operator saying "I know a buyer is looking at this coin; record it
+    missing anyway", so `sale_state.guard` does not refuse and the receipt
+    always goes through. What the interleaving decides is whether the
+    *checkout* gets in first. `"deadlock"` is asserted against separately for
+    the reason this file already asserts `"stale"` separately.
+
+    **This test found a hole in the first version of its own fix**, which is
+    why the state assertions below are as specific as they are. Receiving read
+    `offers_holding` once, before the locks, and ended those listings
+    afterwards. A checkout that committed in between left the receipt ending
+    a listing already ended -- and `_end` with `sold=False` rewrote
+    `sales_lot.status` from `sold` to `dissolved`, two histories the spec says
+    never collapse into one, on a lot somebody had just bought. The read
+    before the locks now only *chooses what to lock*; the authoritative read
+    is the second one, under them.
+
+    Survives, two separate mutations, each measured eight runs of eight:
+
+    - Removing the `lock_for_sale` pass from
+      `routers.inventory.receive_items` -- either back below the `db.flush()`
+      that follows `set_status`, where the inversion was, or altogether,
+      which is the exact pre-fix arrangement -- makes this fail
+      `['bought', 'stale']`. **Not** `'deadlock'`, on this interleaving:
+      the checkout reaches the member row first, the receipt's unlocked
+      UPDATE queues behind it and then writes through a version that has
+      moved, so the loss lands as `StaleDataError` rather than as a Postgres
+      abort. The abort is the other possible loss of the same inversion --
+      the receipt holding the member row while waiting on the lot -- and it
+      was not observed in sixteen mutated runs. Both are a 500 for an
+      operator, and the pass removes both: it locks and re-reads the member
+      row before writing it, which is the same false conflict
+      `offering_writes._lock_items`' docstring describes.
+    - Ending the listings from the *first* `offers_holding` read instead of
+      the second makes it fail on `lot.status`: `AssertionError: dissolved`,
+      after a completed sale.
+    """
+    members = [_seed_item(committed) for _ in range(2)]
+    store_id = _store_venue_id(committed)
+    listing_id, customer_id, admin_id = _seed_lot_listing_and_buyer(
+        committed, members, store_id
+    )
+    barrier = threading.Barrier(2)
+
+    def buy_the_lot() -> Outcome:
+        with committed() as session:
+            try:
+                buyer = session.get_one(Customer, customer_id)
+                operator = session.get_one(User, admin_id)
+                barrier.wait(timeout=10)
+                order_writes.place_order(
+                    session,
+                    buyer,
+                    [order_writes.Line(listing_id=listing_id, quantity=1)],
+                    operator,
+                )
+                session.commit()
+                return "bought"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except (HTTPException, IntegrityError):
+                session.rollback()
+                return "refused"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    def mark_it_missing() -> Outcome:
+        with committed() as session:
+            try:
+                operator = session.get_one(User, admin_id)
+                payload = ReceiveRequest(
+                    item_ids=[members[0]],
+                    outcome="missing",
+                    acknowledge_for_sale=True,
+                )
+                barrier.wait(timeout=10)
+                # The router handler itself, not a re-implementation of it:
+                # the sequence under test is the one `receive_items` runs,
+                # including the flush that used to come before the lot lock.
+                # It commits internally, as `update_order_status` does in
+                # `test_order_revision_race.py`.
+                receive_items(payload, session, operator)
+                return "marked"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except (HTTPException, IntegrityError):
+                session.rollback()
+                return "refused"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(buy_the_lot)
+        second = pool.submit(mark_it_missing)
+        outcomes = sorted([first.result(), second.result()])
+
+    assert "deadlock" not in outcomes, outcomes
+    assert "stale" not in outcomes, outcomes
+    # The receipt is never refused: it acknowledged the for-sale warning.
+    assert "marked" in outcomes, outcomes
+    assert outcomes in (["bought", "marked"], ["marked", "refused"]), outcomes
+
+    with committed() as verify:
+        listing = verify.get_one(Listing, listing_id)
+        assert listing.sales_lot_id is not None
+        lot = verify.get_one(SalesLot, listing.sales_lot_id)
+        # Either way the offer is over and the named coin is missing.
+        assert listing.status is ListingStatus.ended
+        assert verify.get_one(InventoryItem, members[0]).status.code == "missing"
+        if "bought" in outcomes:
+            # The sale stands whole. `sold`, **not** `dissolved`: the receipt
+            # arrived after the sale had already ended this listing, so it has
+            # no offer left to end and must not rewrite the lot's history.
+            # This is the assertion the first version of the fix failed.
+            assert lot.status is SalesLotStatus.sold, lot.status
+            assert verify.get_one(Listing, listing_id).quantity_available == 0
+            for member_id in members:
+                assert (
+                    verify.get_one(InventoryItem, member_id).disposition.code == "sold"
+                )
+            shares = list(
+                verify.scalars(
+                    select(SalesOrderItemShare).where(
+                        SalesOrderItemShare.inventory_item_id.in_(members)
+                    )
+                ).all()
+            )
+            assert sorted(share.inventory_item_id for share in shares) == sorted(
+                members
+            )
+            assert sum((share.amount for share in shares), Decimal("0.00")) == Decimal(
+                "250.00"
+            )
+        else:
+            # The receipt stands whole: the offer ended, the lot dissolved --
+            # `dissolved`, not `sold`, because nothing was bought -- and no
+            # order line exists against the listing at all.
+            assert lot.status is SalesLotStatus.dissolved, lot.status
+            assert (
+                verify.scalar(
+                    select(SalesOrderItem.id).where(
+                        SalesOrderItem.listing_id == listing_id
+                    )
+                )
+                is None
+            )
