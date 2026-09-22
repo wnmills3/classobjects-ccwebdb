@@ -4,9 +4,9 @@
 auction flow (`docs/specs/selling-design.md`, the `auction` and `auction_lot`
 section). An auction-format listing always belongs to an auction, and a timed
 eBay auction is modelled the same way -- an auction with one lot. Nothing in
-this module writes these tables yet; a later task's writer is the intended
-sole writer, the same pattern `offering_writes.py` and `lifecycle_writes.py`
-already follow for their own tables.
+this module writes these tables: `app/auctions.py` is their sole writer, the
+same pattern `offering_writes.py` and `lifecycle_writes.py` follow for their
+own tables.
 """
 
 from __future__ import annotations
@@ -75,7 +75,9 @@ class Auction(TimestampMixin, Base):
     `auction_house` platforms, which take physical custody of the items
     before the sale; nothing enforces that restriction at the schema level,
     since it is a rule about *when* a status may be set, not about the shape
-    of a row -- see `app.sale_state` and the writer that will own it.
+    of a row -- see `app.auctions.consign`, its sole writer, which is also
+    where custody is tracked by `consigned_on is not None` rather than by the
+    status column (ruling R13).
     """
 
     __tablename__ = "auction"

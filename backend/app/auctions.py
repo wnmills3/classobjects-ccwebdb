@@ -445,9 +445,9 @@ def _remove_lot(
     if auction.consigned_on is not None:
         if returned_to_location_id is None:
             raise AuctionRefused(
-                f"auction #{auction.id} is consigned: returned_to_location_id "
-                "is required to bring its items back before the lot can be "
-                "removed"
+                f"auction #{auction.id}: custody has not returned from the "
+                "auction house, so returned_to_location_id is required to "
+                "bring its items back before the lot can be removed"
             )
         _return_from_consignment(db, auction_lot, returned_to_location_id)
     offering_writes.end_offer(db, auction_lot.listing)
@@ -465,10 +465,9 @@ def _return_from_consignment(
     """Move one auction lot's items back from the house, through `lifecycle_writes`.
 
     The one implementation of "move these items back" (ruling R9, fix round
-    1): `remove_lot` and `cancel` both call it today, through `_remove_lot`,
-    and Task 3's `settle` is meant to call it too rather than growing a
-    second copy for the "unsold at an auction house" case the spec's
-    *Settle* row describes.
+    1): `remove_lot` and `cancel` both call it, through `_remove_lot`, and so
+    does `settle`, for the "unsold at an auction house" case the spec's
+    *Settle* row describes -- rather than growing a second copy of it.
 
     Reads the lot's currently open members through
     `offering_writes.offered_items` -- the one answer in the codebase to
@@ -650,7 +649,7 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
 
 
 def close(db: Session, auction: Auction) -> None:
-    """Close the auction: lot results may now be entered (a later task's job).
+    """Close the auction: lot results may now be entered, through `settle`.
 
     Raises `AuctionRefused` unless the auction is `scheduled` or `consigned`.
 
@@ -659,9 +658,8 @@ def close(db: Session, auction: Auction) -> None:
     one-way door: `cancel` refused `closed` outright (before this same
     ruling widened it), so one mis-click on an unscheduled auction produced
     one that could never be cancelled, un-closed, or have its lots touched
-    again, with `settle` -- a later task -- as the only exit for a sale that
-    never ran. A `draft` auction that should not proceed is `cancel`led, not
-    closed.
+    again, with `settle` as the only exit for a sale that never ran. A
+    `draft` auction that should not proceed is `cancel`led, not closed.
     """
     if auction.status not in (AuctionStatus.scheduled, AuctionStatus.consigned):
         raise AuctionRefused(
@@ -741,8 +739,9 @@ def cancel(
         raise AuctionRefused(f"auction #{auction.id} is already {auction.status.value}")
     if auction.consigned_on is not None and returned_to_location_id is None:
         raise AuctionRefused(
-            f"auction #{auction.id} is consigned: returned_to_location_id is "
-            "required to bring its items back before it can be cancelled"
+            f"auction #{auction.id}: custody has not returned from the "
+            "auction house, so returned_to_location_id is required to bring "
+            "its items back before it can be cancelled"
         )
     still_consigned = auction.consigned_on is not None
     for auction_lot in sorted(auction.lots, key=lambda row: row.id):
@@ -1040,8 +1039,9 @@ def _grid_problems(
         if coming_home:
             problems.append(
                 _Problem(
-                    f"auction #{auction.id} is consigned: returned_to_location_id "
-                    f"is required to bring back lot(s) {', '.join(coming_home)}"
+                    f"auction #{auction.id}: custody has not returned from the "
+                    "auction house, so returned_to_location_id is required to "
+                    f"bring back lot(s) {', '.join(coming_home)}"
                 )
             )
     return problems
@@ -1237,6 +1237,20 @@ def settle(
     # acquisition order. Read before anything is ended, because
     # `offered_items` answers from the *open* memberships that `end_offer`
     # releases -- asking again after step 5 would find a lot's coins gone.
+    #
+    # `item_ids` only, no `listing_ids` -- so `_refuse_if_changed`'s own
+    # confirming re-read is structurally vacuous here: `named` comes back
+    # empty, `before` has nothing keyed in it, and the loop that would compare
+    # a listing's item set before and after locking never has an entry to
+    # compare. That is safe, not accidental. `add_lot` refuses everything but
+    # a `draft` or `scheduled` auction, so by the time `settle` requires
+    # `closed` (above) no lot can be added to or reshuffled under the `lots`
+    # this function already read; `offering_writes._end` is the only writer
+    # that ever moves a lot listing's item set, and it does so by ending the
+    # listing in the same statement, which is exactly the "ordinary, not a
+    # violation" case `_refuse_if_changed`'s own docstring carves out; and
+    # `record_sale_lines`, called below, trusts the rows this call already
+    # holds locked rather than re-deriving membership of its own.
     offering_writes.lock_for_sale(
         db,
         item_ids=sorted(
@@ -1288,8 +1302,9 @@ def settle(
         if coming_home and auction.consigned_on is not None:
             if returned_to_location_id is None:  # pragma: no cover - refused above
                 raise AuctionRefused(
-                    f"auction #{auction.id} is consigned: "
-                    "returned_to_location_id is required"
+                    f"auction #{auction.id}: custody has not returned from "
+                    "the auction house, so returned_to_location_id is "
+                    "required"
                 )
             # Every return before any ending, never interleaved:
             # `_return_from_consignment` reads a lot's coins through
