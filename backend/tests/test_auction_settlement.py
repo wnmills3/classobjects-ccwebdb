@@ -83,10 +83,21 @@ _UNEVEN_COSTS = (Decimal("500.00"), Decimal("300.00"), Decimal("200.00"))
 # --------------------------------------------------------------------------
 
 
+#: The house's own number for the sale, carried by the `auction` fixture so
+#: `external_order_id` is never `None` in this file. A fixture that left it
+#: unset made ruling R18 unwritable by any test: `settle` could have stopped
+#: copying it and every assertion would still have compared `None` to `None`.
+_SALE_NUMBER = "SIG-2026-09"
+
+
 @pytest.fixture
 def auction(db: Session, heritage_venue: SalesVenue) -> Auction:
     """A draft auction at an auction house, with no lots yet."""
-    row = Auction(sales_venue_id=heritage_venue.id, title="September Signature Sale")
+    row = Auction(
+        sales_venue_id=heritage_venue.id,
+        title="September Signature Sale",
+        external_id=_SALE_NUMBER,
+    )
     db.add(row)
     db.flush()
     return row
@@ -95,7 +106,11 @@ def auction(db: Session, heritage_venue: SalesVenue) -> Auction:
 @pytest.fixture
 def ebay_auction(db: Session, ebay_venue: SalesVenue) -> Auction:
     """A draft auction on a marketplace, which always names its buyer."""
-    row = Auction(sales_venue_id=ebay_venue.id, title="Weekly eBay auction")
+    row = Auction(
+        sales_venue_id=ebay_venue.id,
+        title="Weekly eBay auction",
+        external_id="EB-2026-09",
+    )
     db.add(row)
     db.flush()
     return row
@@ -387,6 +402,43 @@ def test_settling_creates_one_order_per_buyer(
         Decimal("700.00"),
     ]
     assert {order.customer.venue_username for order in orders} == {"amy", "bo"}
+
+
+def test_every_buyer_s_order_carries_the_auction_s_sale_number(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """Ruling R18: `external_order_id` is the **sale** number, on every order.
+
+    It is what the owner reconciles an auction house's statement against, and
+    the statement names the sale rather than one order per buyer inside it --
+    so the same value deliberately appears on both orders here. Nothing
+    constrains the column to be unique, so that is the reconciliation key
+    rather than a collision.
+
+    Written by a test because it was written by none: every fixture in this
+    file left `Auction.external_id` at `None` until now, so `settle` could
+    have stopped copying it altogether and every assertion in the suite would
+    still have compared `None` to `None`. Nothing would have noticed until a
+    statement did not match.
+    """
+    lots = lots_of(db, closed_auction)
+    orders = settle(
+        db,
+        closed_auction,
+        lines=[
+            SettlementLine(lots[0].id, AuctionLotResult.sold, Decimal("100.00"), "amy"),
+            SettlementLine(lots[1].id, AuctionLotResult.sold, Decimal("200.00"), "bo"),
+            SettlementLine(lots[2].id, AuctionLotResult.unsold),
+            SettlementLine(lots[3].id, AuctionLotResult.unsold),
+        ],
+        fees={"amy": [], "bo": []},
+        settled_by=admin_user,
+    )
+    assert len(orders) == 2
+    assert [order.external_order_id for order in orders] == [
+        _SALE_NUMBER,
+        _SALE_NUMBER,
+    ]
 
 
 def test_an_auction_house_order_is_already_delivered(
@@ -795,12 +847,60 @@ def test_settlement_is_refused_while_any_lot_lacks_a_result(
 def test_settlement_is_refused_when_a_sold_lot_has_no_price(
     db: Session, closed_auction: Auction, admin_user: User
 ) -> None:
-    """A sale with no money is not a sale; it is a half-filled grid."""
+    """A sale with no money is not a sale; it is a half-filled grid.
+
+    `match` requires the grid refusal's own prefix, not just the words
+    "hammer price". `_sold_by_buyer` carries a second, identical guard whose
+    message is the same sentence *without* `cannot be settled:` -- the same
+    deliberate duplication `cancel` has -- so matching on the words alone
+    passes off whichever guard fired, and mutating the grid check away leaves
+    this green. Tightened the same way the return-location test was.
+    """
     lots = lots_of(db, closed_auction)
     lines = [SettlementLine(row.id, AuctionLotResult.unsold) for row in lots]
     lines[1] = SettlementLine(lots[1].id, AuctionLotResult.sold, None, "amy")
-    with pytest.raises(AuctionRefused, match="hammer price"):
+    with pytest.raises(
+        AuctionRefused, match=r"cannot be settled: .*lot 2 sold but has no hammer price"
+    ):
         settle(db, closed_auction, lines=lines, fees={"amy": []}, settled_by=admin_user)
+
+
+def test_one_lot_given_two_results_is_refused(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """Two rows for one lot is a grid nobody can act on.
+
+    Whichever row won would be arbitrary, and the loser would be a result the
+    owner entered and the system silently discarded. Advertised in `settle`'s
+    docstring and, until now, written by no test.
+    """
+    lots = lots_of(db, closed_auction)
+    lines = [SettlementLine(row.id, AuctionLotResult.unsold) for row in lots]
+    lines.append(
+        SettlementLine(lots[0].id, AuctionLotResult.sold, Decimal("100.00"), "amy")
+    )
+    with pytest.raises(AuctionRefused, match="lot 1 was given two results"):
+        settle(db, closed_auction, lines=lines, fees={}, settled_by=admin_user)
+
+
+def test_a_lot_that_did_not_sell_cannot_carry_a_hammer_price(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """Money against an unsold lot is a mis-filled row, not a fact.
+
+    Silently ignoring it would be worse than refusing: the owner typed a
+    number, and `auction_lot.hammer_price` would then read `NULL` beside a
+    figure they believe they entered. Advertised in `settle`'s docstring and,
+    until now, written by no test -- and the message names the result so the
+    grid can point at the right cell.
+    """
+    lots = lots_of(db, closed_auction)
+    lines = [SettlementLine(row.id, AuctionLotResult.unsold) for row in lots]
+    lines[2] = SettlementLine(lots[2].id, AuctionLotResult.withdrawn, Decimal("250.00"))
+    with pytest.raises(
+        AuctionRefused, match="lot 3 is withdrawn, so it cannot have a hammer price"
+    ):
+        settle(db, closed_auction, lines=lines, fees={}, settled_by=admin_user)
 
 
 def test_a_marketplace_lot_must_name_its_buyer(
@@ -947,16 +1047,23 @@ def test_a_line_naming_a_lot_from_another_auction_is_refused(
 def test_fees_for_a_buyer_who_bought_nothing_are_refused(
     db: Session, closed_auction: Auction, admin_user: User
 ) -> None:
-    """A fee with no order to sit on would be money silently dropped."""
+    """A fee with no order to sit on would be money silently dropped.
+
+    The buyer who *did* buy is named in two cases here, `CoinFan88` on the
+    lots and `coinfan88` in the fees, so this also proves ruling R17's
+    folding did not widen the comparison into matching everything: `ghost`
+    casefolds to itself and still bought nothing. One test rather than two
+    near-identical ones, which is what the first attempt at this left behind.
+    """
     with pytest.raises(AuctionRefused, match="bought nothing"):
         settle(
             db,
             closed_auction,
             lines=sold_everything(
-                db, closed_auction, price=Decimal("100.00"), buyer="amy"
+                db, closed_auction, price=Decimal("100.00"), buyer="CoinFan88"
             ),
             fees={
-                "amy": [],
+                "coinfan88": [],
                 "ghost": [FeeLine("commission", Decimal("10.00"))],
             },
             settled_by=admin_user,
@@ -1316,30 +1423,6 @@ def test_the_customer_keeps_the_spelling_the_owner_typed(
     # order, and a group that stored the fold would still be one order.
     assert len(orders) == 1
     assert orders[0].customer.venue_username == "CoinFan88"
-
-
-def test_fees_keyed_to_a_buyer_nobody_bought_as_still_refuse(
-    db: Session, closed_auction: Auction, admin_user: User
-) -> None:
-    """Folding the fee keys must not fold *every* key into a match.
-
-    `ghost` casefolds to itself and still bought nothing, so the orphan-fee
-    refusal survives ruling R17 rather than being swallowed by the wider
-    comparison.
-    """
-    with pytest.raises(AuctionRefused, match="bought nothing"):
-        settle(
-            db,
-            closed_auction,
-            lines=sold_everything(
-                db, closed_auction, price=Decimal("100.00"), buyer="CoinFan88"
-            ),
-            fees={
-                "coinfan88": [],
-                "ghost": [FeeLine("commission", Decimal("10.00"))],
-            },
-            settled_by=admin_user,
-        )
 
 
 def test_one_buyer_given_two_fee_keys_that_fold_together_is_refused(

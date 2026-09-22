@@ -722,21 +722,65 @@ def test_two_listings_make_one_order_with_two_lines(
 
 def test_the_fee_is_divided_across_every_line_not_within_one(
     db: Session,
-    ebay_listing: Listing,
     offered_lot_listing: Listing,
+    ebay_venue: SalesVenue,
+    make_item: Callable[..., InventoryItem],
     admin_user: User,
 ) -> None:
     """The order's fee spans the lines; each line's own price does not.
 
-    One coin costing 120 against a lot costing 500/300/200: a fee of 10.00
-    over all four cost bases is 1.07 / 4.46 / 2.68 / 1.79, which no
-    per-line division produces.
+    **This test asserts the distribution, not the conservation**, and the
+    distinction is the whole of it. Its first version checked only
+    `sum(fees) == 10.00` and `len(fees) == 4`, both of which `allocate`
+    guarantees unconditionally: restricting the allocation to the first
+    line's items leaves the other three shares at `0.00`, which still sums
+    and still counts the same. It could not fail under the one mutation it
+    existed to catch.
+
+    A lot of three costing 500/300/200 and a single coin costing 1,000, with
+    the prices deliberately the wrong way round -- the cheap lot hammered at
+    1,000 and the dear coin at 120 -- so a fee divided per line, by line
+    amount, lands on different cents than one divided once across all four
+    cost bases. Cost-weighted over 2,000 of basis, a 10.00 fee is
+    2.50 / 1.50 / 1.00 / 5.00.
+
+    The **price** shares are asserted beside them, because the contrast is
+    the point: a price is a line's own money and divides among that line's
+    coins; a fee is the order's and divides across every coin on it.
+
+    Read into a dict keyed by item, not a list in query order, so the
+    assertion does not quietly depend on which fixture happened to insert
+    first.
     """
+    single_item = make_item(
+        title="1893-S Morgan Dollar",
+        item_cost=Decimal("1000.00"),
+        tax_rate=Decimal("0"),
+    )
+    single = offering_writes.offer(
+        db,
+        item=single_item,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("120.00"),
+        title="1893-S Morgan Dollar",
+        description="",
+        external_id=None,
+    )
+    # Before the sale: `end_offer(sold=True)` releases the lot's memberships,
+    # so asking afterwards answers "none" for exactly the line under test.
+    members = offering_writes.offered_items(db, offered_lot_listing)
+    assert [item.total_cost for item in members] == [
+        Decimal("500.00"),
+        Decimal("300.00"),
+        Decimal("200.00"),
+    ]
+
     order = record_sale_lines(
         db,
         [
-            SaleLine(listing_id=ebay_listing.id, price=Decimal("120.00")),
             SaleLine(listing_id=offered_lot_listing.id, price=Decimal("1000.00")),
+            SaleLine(listing_id=single.id, price=Decimal("120.00")),
         ],
         buyer_username="coinfan88",
         external_order_id=None,
@@ -744,20 +788,31 @@ def test_the_fee_is_divided_across_every_line_not_within_one(
         recorded_by=admin_user,
     )
     db.flush()
-    fees = db.scalars(
-        select(SalesOrderItemShare.fee_amount)
+    shares = db.scalars(
+        select(SalesOrderItemShare)
         .join(
             SalesOrderItem,
             SalesOrderItem.id == SalesOrderItemShare.sales_order_item_id,
         )
         .where(SalesOrderItem.sales_order_id == order.id)
-        .order_by(
-            SalesOrderItemShare.sales_order_item_id,
-            SalesOrderItemShare.inventory_item_id,
-        )
     ).all()
-    assert sum(fees, Decimal("0.00")) == Decimal("10.00")
-    assert len(fees) == 4
+
+    fees_by_item = {share.inventory_item_id: share.fee_amount for share in shares}
+    assert fees_by_item == {
+        members[0].id: Decimal("2.50"),
+        members[1].id: Decimal("1.50"),
+        members[2].id: Decimal("1.00"),
+        single_item.id: Decimal("5.00"),
+    }
+    assert sum(fees_by_item.values()) == Decimal("10.00")
+
+    amounts_by_item = {share.inventory_item_id: share.amount for share in shares}
+    assert amounts_by_item == {
+        members[0].id: Decimal("500.00"),
+        members[1].id: Decimal("300.00"),
+        members[2].id: Decimal("200.00"),
+        single_item.id: Decimal("120.00"),
+    }
 
 
 def test_one_order_cannot_span_two_platforms(
