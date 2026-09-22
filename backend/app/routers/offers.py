@@ -45,6 +45,7 @@ from ..models import (
 )
 from ..offering_writes import OfferRefused
 from ..schemas import (
+    AuctionRefusedOut,
     ListingOut,
     ListingUpdate,
     OfferBatchOut,
@@ -121,7 +122,7 @@ def _item_by_id(db: Session, item_id: int) -> InventoryItem:
 
 
 def _eager(stmt: Select[tuple[Listing]]) -> Select[tuple[Listing]]:
-    """Load what `_out` reads, so a list of offers is not a query per row.
+    """Load what `listing_out` reads, so a list of offers is not a query per row.
 
     The lot chain is loaded for every listing, item listings included: a
     `selectinload` of a null foreign key costs nothing, and branching the
@@ -152,7 +153,7 @@ def external_url(listing: Listing, venue: SalesVenue) -> str | None:
     return None
 
 
-def _out(listing: Listing) -> ListingOut:
+def listing_out(listing: Listing) -> ListingOut:
     """Shape one offer for the console, item listing or lot listing.
 
     `ck_listing_item_xor_lot` makes the two mutually exclusive, so exactly one of
@@ -173,6 +174,12 @@ def _out(listing: Listing) -> ListingOut:
     somehow had neither should still render as a row an administrator can
     see and end -- not as a 500. `routers/orders._listing_title` handles the
     same impossible case the same way.
+
+    **Public, not private** (ruling R26, Task 5 fix round 1):
+    `routers.auctions` shapes an auction lot's own listing through this same
+    function, since an auction lot's listing is a listing like any other and
+    a second, copied implementation would have had to be told by hand every
+    time this one changed. Import this rather than reimplementing it.
     """
     item = listing.inventory_item
     lot = listing.sales_lot
@@ -217,7 +224,7 @@ def _reload(db: Session, listing_ids: list[int]) -> list[ListingOut]:
     """Read the written offers back, in the order they were asked for."""
     rows = db.scalars(_eager(select(Listing).where(Listing.id.in_(listing_ids)))).all()
     by_id = {row.id: row for row in rows}
-    return [_out(by_id[listing_id]) for listing_id in listing_ids]
+    return [listing_out(by_id[listing_id]) for listing_id in listing_ids]
 
 
 def _get_listing(db: Session, listing_id: int) -> Listing:
@@ -334,11 +341,14 @@ def create_offers(
     `lot_writes.EmptyLot` is a subclass of `lot_writes.LotRefused`, so its
     clause must come first: reversing the two would route every 422 into the
     409 branch, silently, and the only sign would be an empty lot reported as
-    a conflict. It is the same trap `record_listing_sale` carries with
-    `SaleInputInvalid` and `SaleRefused`. Nothing in the type system, the
-    linter or the test names would catch a later reordering, so the test that
-    proves it asserts on the **body** -- an empty lot's 422 must name the lot
-    -- rather than on the status alone, which pydantic would produce anyway.
+    a conflict. `record_listing_sale` used to carry the identical trap with
+    `SaleInputInvalid` and `SaleRefused`; ruling R23 (Task 5 fix round 1)
+    moved that pair to handlers `app.main` registers by class instead, which
+    is what this `EmptyLot`/`LotRefused` pair would be the next candidate
+    for, not yet done. Nothing in the type system, the linter or the test
+    names would catch a later reordering here, so the test that proves it
+    asserts on the **body** -- an empty lot's 422 must name the lot -- rather
+    than on the status alone, which pydantic would produce anyway.
     """
     venue = _venue_by_code(db, payload.venue)
     listing_format = _listing_format(payload.format)
@@ -427,8 +437,11 @@ def create_offers(
     # be caught FIRST. Swap these two clauses and every empty-lot 422 turns
     # into a 409 with no error anywhere: mypy does not check `except` order,
     # ruff does not either, and both clauses would still be "reachable".
-    # `record_listing_sale` below carries the identical trap with
-    # `SaleInputInvalid` and `SaleRefused`.
+    # `record_listing_sale` below no longer carries this shape of trap --
+    # ruling R23 (Task 5 fix round 1) moved its `SaleInputInvalid`/
+    # `SaleRefused` pair to handlers `app.main` registers by class, which is
+    # what makes that particular reversal unwritable there. This pair has
+    # not been migrated the same way.
     # ------------------------------------------------------------------
     except lot_writes.EmptyLot as empty:
         # Bad input, not a conflict: a lot with nothing in it is a request
@@ -503,7 +516,7 @@ def list_listings(
         stmt = stmt.where(Listing.status == _listing_status(wanted_status))
 
     rows = db.scalars(_eager(stmt).order_by(Listing.id)).all()
-    return [_out(row) for row in rows]
+    return [listing_out(row) for row in rows]
 
 
 #: Columns that are `NOT NULL` on `Listing` but optional on `ListingUpdate` --
@@ -552,7 +565,7 @@ def update_listing(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_STALE
         ) from exc
-    return _out(_get_listing(db, listing_id))
+    return listing_out(_get_listing(db, listing_id))
 
 
 def _refuse_auction_lot(db: Session, listing: Listing) -> None:
@@ -613,7 +626,7 @@ def end_listing(listing_id: int, db: DbSession, _admin: AdminUser) -> ListingOut
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_STALE
         ) from exc
-    return _out(_get_listing(db, listing_id))
+    return listing_out(_get_listing(db, listing_id))
 
 
 # --------------------------------------------------------------------------
@@ -621,7 +634,7 @@ def end_listing(listing_id: int, db: DbSession, _admin: AdminUser) -> ListingOut
 # --------------------------------------------------------------------------
 
 
-def _sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
+def sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
     """Shape a recorded sale for the console: gross, fees, net, buyer, items.
 
     Both figures are read with their own `select()` rather than through
@@ -636,7 +649,14 @@ def _sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
 
     `net_amount` is computed here and only here: `record_sale`'s module
     docstring says net payout is never stored, so this is the one place the
-    subtraction happens.
+    subtraction happens. **Public, not private** (ruling R26, Task 5 fix
+    round 1): `routers.auctions.settle_auction` shapes every order a
+    settlement writes through this same function -- one buyer's purchase
+    looks identical whether it came from Record sale or from a settled
+    auction lot, and a second, copied implementation is exactly how that
+    claim would have quietly stopped being true. Import this rather than
+    reimplementing it; a caller with a different shape needs a different
+    function, not a fork of this one.
     """
     fee_total = db.scalar(
         select(func.sum(SalesOrderFee.amount)).where(
@@ -673,6 +693,19 @@ def _sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
     "/listings/{listing_id}/sale",
     response_model=SaleRecordedOut,
     status_code=status.HTTP_201_CREATED,
+    # Ruling R23 (Task 5 fix round 1) moved `SaleInputInvalid`/`SaleRefused`
+    # to the handlers `app.main` registers by class, which answer
+    # `{detail, refused: [...]}` (`main._refusal_body`'s single-entry
+    # fallback for a `sales_writes` exception, which carries no `refusals`
+    # attribute of its own) -- the same shape `AuctionRefusedOut` already
+    # names for `routers.auctions`. Declared here (Minor #4) so this
+    # endpoint's OpenAPI contract matches what it has answered since R23,
+    # not the plain `{detail}` `HTTPException` shape it lost when the local
+    # `except` clauses for that pair were removed.
+    responses={
+        status.HTTP_409_CONFLICT: {"model": AuctionRefusedOut},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": AuctionRefusedOut},
+    },
 )
 def record_listing_sale(
     listing_id: int, body: RecordSaleIn, db: DbSession, user: AdminUser
@@ -741,4 +774,4 @@ def record_listing_sale(
         db.rollback()
         raise
     db.commit()
-    return _sale_recorded(db, order)
+    return sale_recorded(db, order)

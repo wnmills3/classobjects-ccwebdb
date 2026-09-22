@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from . import auctions, sales_writes
 from .config import settings
+from .errors import ReferenceDataMissing
 from .routers import (
     acquisitions,
     auth,
@@ -161,16 +162,31 @@ def _server_misconfigured(_request: Request, exc: Exception) -> JSONResponse:
     """A precondition the operator must fix, not a bug in one request: 500.
 
     `auctions.consign` and `sales_venues.ensure_store_venue`/`store_venue_id`
-    each raise a bare `RuntimeError` naming exactly what is missing and the
-    command that fixes it -- a migrated-but-unseeded database, the real state
-    this project's own live database is in today. With no handler registered
-    for it, that message reached only the server log: Starlette's default
-    handler for an exception nothing catches answers a bare, bodyless 500,
-    and an operator staring at the console learned nothing actionable from
-    "Internal Server Error". This handler is what makes the message reach
-    them instead -- still a 500, because this is a server-side precondition
-    and not something the request itself got wrong, but with the same
-    `{"detail": ...}` shape every other refusal in this API answers with.
+    each raise `errors.ReferenceDataMissing`, naming exactly what is missing
+    and the command that fixes it -- a migrated-but-unseeded database, the
+    real state this project's own live database is in today. With no handler
+    registered for it, that message reached only the server log: Starlette's
+    default handler for an exception nothing catches answers a bare, bodyless
+    500, and an operator staring at the console learned nothing actionable
+    from "Internal Server Error". This handler is what makes the message
+    reach them instead -- still a 500, because this is a server-side
+    precondition and not something the request itself got wrong, but with the
+    same `{"detail": ...}` shape every other refusal in this API answers
+    with.
+
+    **Registered on `errors.ReferenceDataMissing`, never on `RuntimeError`
+    itself** (ruling R24, Task 5 fix round 1, reverting an earlier version of
+    this handler that was). `RuntimeError` is also the base of
+    `NotImplementedError` and `RecursionError`, and of every incidental
+    `RuntimeError` anywhere in the app, shop routes included -- handling the
+    base class handed a stranger's internal message to an anonymous caller,
+    and because `ExceptionMiddleware` had already handled the exception, it
+    never reached `ServerErrorMiddleware`: no logged traceback, and
+    `TestClient` stopped re-raising it, so a genuine bug that happened to be
+    a `RuntimeError` became a tidy, misleadingly-labelled 500 instead of the
+    crash it was. `test_an_unrelated_runtime_error_is_not_swallowed`
+    (`test_auctions_api.py`) is the regression test: a plain `RuntimeError`
+    from a monkeypatched writer must still escape `TestClient` unhandled.
     """
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -182,7 +198,7 @@ app.add_exception_handler(sales_writes.SaleInputInvalid, _bad_input)
 app.add_exception_handler(sales_writes.SaleRefused, _refused)
 app.add_exception_handler(auctions.SettlementInputInvalid, _bad_input)
 app.add_exception_handler(auctions.AuctionRefused, _refused)
-app.add_exception_handler(RuntimeError, _server_misconfigured)
+app.add_exception_handler(ReferenceDataMissing, _server_misconfigured)
 
 
 @app.get("/health", tags=["meta"])

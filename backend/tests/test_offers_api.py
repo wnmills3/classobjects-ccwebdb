@@ -616,7 +616,7 @@ def test_the_listings_page_shows_a_lot_listing(
     db: Session,
     offered_lot_listing: Listing,
 ) -> None:
-    """`_out` reads `listing.inventory_item.item_code`, which a lot has not.
+    """`listing_out` reads `listing.inventory_item.item_code`, which a lot has not.
 
     Without the widening this is an `AttributeError` inside the endpoint --
     a 500 on the page that lists every offer, not a missing row.

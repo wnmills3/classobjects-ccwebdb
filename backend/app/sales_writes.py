@@ -35,14 +35,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import offering_writes, order_writes
 from .allocation import allocate
 from .buyers import venue_buyer
 from .models import (
+    AuctionLot,
     InventoryItem,
     Listing,
+    ListingFormat,
     ListingStatus,
     SalesFeeKind,
     SalesOrder,
@@ -216,6 +219,44 @@ def _weights(items: Sequence[InventoryItem], *, equal: bool) -> list[Decimal]:
     return [item.total_cost for item in items]
 
 
+def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
+    """Refuse to record a manual sale against an auction-format listing.
+
+    Ruling R25 (Task 5 fix round 1): an auction lot sells through
+    **settlement** (`app.auctions.settle`), never through Record sale --
+    settlement is the only thing that produces the fees, the shares and the
+    lot's dissolution or `sold` result together, in one transaction, and
+    ends every member's store listing the way a sale should. Record sale
+    calling `offering_writes.end_offer(sold=True)` on an auction listing
+    would end it and write an order outside settlement entirely, leaving the
+    `auction_lot` row live and pointing at a listing no longer offered --
+    the same failure `routers.offers._refuse_auction_lot` closes for
+    `POST /api/listings/{id}/end` (defect 1) -- and additionally strands the
+    auction for good: `settle`'s own call to `record_sale_lines` would then
+    refuse that lot's listing as "not on offer", so the auction could never
+    be settled after.
+
+    **Placed in `record_sale`, not in `record_sale_lines`.** The single-sale
+    convenience wrapper is what `routers.offers.record_listing_sale` --
+    "Record sale", the button beside "End" on the Listings page -- calls;
+    `app.auctions.settle` calls `record_sale_lines` directly, several
+    listings at a time, for exactly the auction-format listings this guard
+    exists to protect. Moving the check into `record_sale_lines` would
+    refuse settlement's own legitimate calls; every test in
+    `test_auction_settlement.py` that settles a sold lot exercises that path
+    unchanged, which is the proof the guard does not reach it.
+    """
+    if listing.format is ListingFormat.auction:
+        auction_id = db.scalar(
+            select(AuctionLot.auction_id).where(AuctionLot.listing_id == listing.id)
+        )
+        where = f" of auction #{auction_id}" if auction_id is not None else ""
+        raise SaleRefused(
+            f"listing #{listing.id} is an auction lot{where}; it sells "
+            "through settlement, not Record sale"
+        )
+
+
 def record_sale(
     db: Session,
     listing: Listing,
@@ -243,7 +284,13 @@ def record_sale(
     listings on one order -- an auction house bills per buyer, not per lot --
     and a second order creator beside this one is exactly the drift the
     spec's "one entry point on purpose" was written to prevent.
+
+    Refuses first, before `record_sale_lines` ever runs, if `listing` is an
+    auction-format listing -- see `_refuse_manual_auction_sale`. That check
+    lives here rather than in `record_sale_lines` precisely so
+    `app.auctions.settle`'s own calls into the wider function are untouched.
     """
+    _refuse_manual_auction_sale(db, listing)
     return record_sale_lines(
         db,
         [SaleLine(listing_id=listing.id, price=price)],

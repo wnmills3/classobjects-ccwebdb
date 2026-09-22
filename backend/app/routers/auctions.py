@@ -45,11 +45,10 @@ documents: after a failed flush, reading any ORM attribute raises
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
@@ -65,10 +64,6 @@ from ..models import (
     Listing,
     SalesLot,
     SalesLotItem,
-    SalesOrder,
-    SalesOrderFee,
-    SalesOrderItem,
-    SalesOrderItemShare,
     SalesVenue,
     StorageLocation,
 )
@@ -83,12 +78,10 @@ from ..schemas import (
     AuctionOut,
     AuctionRefusedOut,
     AuctionUpdate,
-    ListingOut,
-    SaleRecordedOut,
     SettleIn,
     SettleOut,
 )
-from .offers import external_url
+from .offers import listing_out, sale_recorded
 
 router = APIRouter(prefix="/auctions", tags=["selling"])
 
@@ -225,57 +218,16 @@ def _auction_lot_by_id(db: Session, auction: Auction, lot_id: int) -> AuctionLot
     return row
 
 
-def _listing_out(listing: Listing) -> ListingOut:
-    """Shape a lot's listing exactly the way `routers.offers._out` does.
-
-    Duplicated rather than imported -- that function is private to its own
-    module -- but must agree with it field for field: the Listings page and
-    the Auctions page show the very same listing through two different
-    endpoints, and a drift between them would show two different costs for
-    one coin. `routers.offers.external_url` is imported rather than
-    duplicated, since that one is already public.
-    """
-    item = listing.inventory_item
-    lot = listing.sales_lot
-    venue = listing.sales_venue
-    title = f"Listing #{listing.id}"
-    cost_basis: Decimal | None = None
-    member_count: int | None = None
-    if item is not None:
-        title = item.source_title
-        cost_basis = item.total_cost
-    elif lot is not None:
-        title = lot.title
-        cost_basis = sum((row.item.total_cost for row in lot.members), Decimal("0.00"))
-        member_count = len(lot.members)
-    return ListingOut(
-        id=listing.id,
-        item_id=listing.inventory_item_id,
-        item_code=item.item_code if item is not None else None,
-        item_title=title,
-        venue=venue.code,
-        venue_name=venue.name,
-        format=listing.format.value,
-        status=listing.status.value,
-        price=listing.price,
-        currency=listing.currency.code,
-        quantity_available=listing.quantity_available,
-        title=listing.title,
-        description=listing.description,
-        external_id=listing.external_id,
-        external_url=external_url(listing, venue),
-        listed_at=listing.listed_at,
-        ended_at=listing.ended_at,
-        paused_by_listing_id=listing.paused_by_listing_id,
-        sales_lot_id=listing.sales_lot_id,
-        member_count=member_count,
-        cost_basis=cost_basis,
-        version=listing.version,
-    )
-
-
 def _lot_out(auction_lot: AuctionLot) -> AuctionLotOut:
-    """Shape one auction lot: its slot in the sale, and the listing behind it."""
+    """Shape one auction lot: its slot in the sale, and the listing behind it.
+
+    The listing itself is shaped by `routers.offers.listing_out` (ruling
+    R26, Task 5 fix round 1) -- imported, not copied, so the Listings page
+    and the Auctions page show the very same listing through one
+    implementation rather than two that can drift apart. It was private
+    (`_out`) until this ruling made it public expressly so this could import
+    it instead of duplicating it.
+    """
     return AuctionLotOut(
         id=auction_lot.id,
         lot_number=auction_lot.lot_number,
@@ -283,7 +235,7 @@ def _lot_out(auction_lot: AuctionLot) -> AuctionLotOut:
         result=auction_lot.result.value if auction_lot.result is not None else None,
         hammer_price=auction_lot.hammer_price,
         buyer=auction_lot.buyer.display_name if auction_lot.buyer is not None else None,
-        listing=_listing_out(auction_lot.listing),
+        listing=listing_out(auction_lot.listing),
     )
 
 
@@ -308,46 +260,6 @@ def _out(auction: Auction) -> AuctionOut:
         notes=auction.notes,
         version=auction.version,
         lots=[_lot_out(row) for row in sorted(auction.lots, key=lambda row: row.id)],
-    )
-
-
-def _order_out(db: Session, order: SalesOrder) -> SaleRecordedOut:
-    """Shape one settlement order the way `routers.offers._sale_recorded` does.
-
-    A near-duplicate, not a shared import, for the same reason `_listing_out`
-    is: that function is private to its own module. `settle` can return
-    several orders from one call, one per buyer, and each needs the same
-    shape the Listings page's Record sale already returns -- gross, fees, net
-    and the coins that went out.
-    """
-    fee_total = db.scalar(
-        select(func.sum(SalesOrderFee.amount)).where(
-            SalesOrderFee.sales_order_id == order.id
-        )
-    ) or Decimal("0.00")
-    item_codes = list(
-        db.scalars(
-            select(InventoryItem.item_code)
-            .join(
-                SalesOrderItemShare,
-                SalesOrderItemShare.inventory_item_id == InventoryItem.id,
-            )
-            .join(
-                SalesOrderItem,
-                SalesOrderItemShare.sales_order_item_id == SalesOrderItem.id,
-            )
-            .where(SalesOrderItem.sales_order_id == order.id)
-            .order_by(InventoryItem.item_code)
-        )
-    )
-    return SaleRecordedOut(
-        id=order.id,
-        external_order_id=order.external_order_id,
-        total_amount=order.total_amount,
-        fee_total=fee_total,
-        net_amount=order.total_amount - fee_total,
-        buyer=order.customer.display_name,
-        item_codes=item_codes,
     )
 
 
@@ -438,15 +350,27 @@ def update_auction(
 # --------------------------------------------------------------------------
 
 
-def _duplicate_lot_number(lot_number: str) -> HTTPException:
-    """The 409 a repeated `lot_number` within one auction produces."""
+def _duplicate_lot_number(lot_number: str | None) -> HTTPException:
+    """The 409 a repeated `lot_number` within one auction produces.
+
+    `lot_number` is `str | None` only so `update_auction_lot`'s captured
+    `payload.lot_number` (Minor #7, Task 5 fix round 1) can be passed
+    straight through without an assertion: a reserve-only PATCH cannot
+    trigger this in practice, since `uq_auction_lot_auction_lot_number`
+    has nothing to do with `reserve`, but the type says so honestly rather
+    than asserting a fact this function has no way to check.
+    """
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail=f"lot_number {lot_number!r} is already used in this auction",
     )
 
 
-@router.post("/{auction_id}/lots", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{auction_id}/lots",
+    status_code=status.HTTP_201_CREATED,
+    responses=_REFUSAL_RESPONSES,
+)
 def add_auction_lot(
     auction_id: int, payload: AuctionLotIn, db: DbSession, _admin: AdminUser
 ) -> AuctionOut:
@@ -518,7 +442,7 @@ def add_auction_lot(
     return _out(_get_auction(db, auction_id))
 
 
-@router.delete("/{auction_id}/lots/{lot_id}")
+@router.delete("/{auction_id}/lots/{lot_id}", responses=_REFUSAL_RESPONSES)
 def remove_auction_lot(
     auction_id: int,
     lot_id: int,
@@ -556,7 +480,7 @@ def remove_auction_lot(
     return _out(_get_auction(db, auction_id))
 
 
-@router.patch("/{auction_id}/lots/{lot_id}")
+@router.patch("/{auction_id}/lots/{lot_id}", responses=_REFUSAL_RESPONSES)
 def update_auction_lot(
     auction_id: int,
     lot_id: int,
@@ -578,10 +502,21 @@ def update_auction_lot(
     `description` on a `Listing` row directly. `AuctionRefused` from the gate
     is left to propagate to the handler `app.main` registers for it, the
     same as every other transition in this router.
+
+    `payload.lot_number` is captured into a local before the `try` (Minor
+    #7, Task 5 fix round 1): the `IntegrityError` clause used to read
+    `auction_lot.lot_number` as `dict.get`'s default, which Python evaluates
+    unconditionally -- a live ORM attribute read on the common path, after a
+    failed flush on the error path, which is exactly what this module's own
+    docstring says every other endpoint avoids. A repeated `lot_number` can
+    only be the one this request just tried to set -- a reserve-only change
+    cannot violate `uq_auction_lot_auction_lot_number` -- so the captured
+    value is always the right one to name.
     """
     auction = _get_auction(db, auction_id)
     auction_lot = _auction_lot_by_id(db, auction, lot_id)
-    auctions.refuse_unless_lot_editable(auction_lot)
+    auctions.refuse_unless_lot_editable(db, auction_lot)
+    lot_number = payload.lot_number
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
     if "lot_number" in data and data["lot_number"] is None:
         raise HTTPException(
@@ -596,9 +531,7 @@ def update_auction_lot(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise _duplicate_lot_number(
-            data.get("lot_number", auction_lot.lot_number)
-        ) from exc
+        raise _duplicate_lot_number(lot_number) from exc
     except StaleDataError as stale:
         db.rollback()
         raise HTTPException(
@@ -753,5 +686,5 @@ def settle_auction(
         raise
     return SettleOut(
         auction=_out(_get_auction(db, auction_id)),
-        orders=[_order_out(db, order) for order in orders],
+        orders=[sale_recorded(db, order) for order in orders],
     )
