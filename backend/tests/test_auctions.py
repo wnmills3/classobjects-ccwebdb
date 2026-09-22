@@ -5,13 +5,17 @@ removing a lot **is** an offer or an ending, so most of what these tests
 prove is that `app.auctions` hands off to `offering_writes` correctly rather
 than reimplementing its rules -- the same reason `test_lot_writes.py` builds
 its fixtures through `offering_writes.offer` rather than a bare `Listing(...)`.
+
+Fix round 1 (rulings R8, R9, R10) added: the status-boundary tests Important
+#2/#3 named as missing, the `add_lot`/`consign` staleness regression
+Important #1 named, and the `returned_to_location_id` coverage Important #4
+required.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -143,7 +147,13 @@ def ebay_auction(db: Session, ebay_venue: SalesVenue) -> Auction:
 
 @pytest.fixture
 def closed_auction(db: Session, auction: Auction) -> Auction:
-    """An auction already closed, so no more lots may be added."""
+    """An auction already closed, so no more lots may be added.
+
+    `close` no longer accepts `draft` (ruling R8), so this fixture must
+    schedule first -- closing straight from `draft` is now itself a refusal,
+    covered by `test_closing_a_draft_auction_is_refused`.
+    """
+    schedule(db, auction)
     close(db, auction)
     return auction
 
@@ -154,62 +164,67 @@ def closed_auction(db: Session, auction: Auction) -> Auction:
 
 
 def items_of(auction_row: Auction) -> list[InventoryItem]:
-    """Every item held by this auction's lots, singly or in a group.
+    """Every item held by this auction's lots.
 
     Takes no `Session`: every relationship it walks (`Auction.lots`,
     `Listing.sales_lot`, `SalesLot.members`) is reachable through the object
     graph on the session `auction_row` is already attached to, the same way
     `lot_writes.members_held` reads a loaded collection rather than asking
     for one.
+
+    Every listing `add_lot` creates is a **lot** listing -- even a single
+    item is wrapped into a lot of one (`_lot_of_one`) -- so this only ever
+    walks `Listing.sales_lot`, never `Listing.inventory_item`. An earlier
+    version branched on both and the item-listing branch was dead code
+    (fix round 1, Minor #10); removed rather than kept unreachable.
     """
     items: list[InventoryItem] = []
     for row in auction_row.lots:
-        listing = row.listing
-        if listing.sales_lot_id is None:
-            assert listing.inventory_item is not None
-            items.append(listing.inventory_item)
-        else:
-            assert listing.sales_lot is not None
-            items.extend(
-                member.item
-                for member in listing.sales_lot.members
-                if member.released_at is None
-            )
+        lot = row.listing.sales_lot
+        assert lot is not None
+        items.extend(
+            member.item for member in lot.members if member.released_at is None
+        )
     return items
 
 
-@dataclass(frozen=True)
-class _LocationMove:
-    """One recorded move, with its `StorageLocation` resolved for a test's convenience.
+def location_history(db: Session, item: InventoryItem) -> list[StorageLocation]:
+    """The item's location moves in order, oldest first, each location resolved.
 
     `LocationHistory` itself carries only `storage_location_id`, no
-    relationship -- nothing else in the codebase needed one -- so this
-    wraps the row and its resolved location rather than adding a
-    relationship to the model for one test file.
+    relationship -- nothing else in the codebase needed one. Every row this
+    module writes carries a real, non-`NULL` location: `consign` and the
+    return-from-consignment path both call `lifecycle_writes.set_location`
+    with a concrete id, never `None`. An earlier version of this helper
+    handled a `None` location for that reason and the branch was dead code
+    (fix round 1, Minor #10); removed rather than kept unreachable -- a
+    `NULL` move, if this file ever needs one, asserts loudly here instead of
+    silently returning `None`.
     """
-
-    moved_at: datetime
-    location: StorageLocation | None
-
-
-def location_history(db: Session, item: InventoryItem) -> list[_LocationMove]:
-    """The item's location moves in order, oldest first, each location resolved."""
     rows = db.scalars(
         select(LocationHistory)
         .where(LocationHistory.inventory_item_id == item.id)
         .order_by(LocationHistory.id)
     ).all()
-    return [
-        _LocationMove(
-            moved_at=row.moved_at,
-            location=(
-                db.get(StorageLocation, row.storage_location_id)
-                if row.storage_location_id is not None
-                else None
-            ),
-        )
-        for row in rows
-    ]
+    locations: list[StorageLocation] = []
+    for row in rows:
+        assert row.storage_location_id is not None
+        location = db.get(StorageLocation, row.storage_location_id)
+        assert location is not None
+        locations.append(location)
+    return locations
+
+
+def _home_location(db: Session) -> StorageLocation:
+    """A plain, non-consigned location, for a test to return items to."""
+    kind_id = db.scalar(
+        select(StorageLocationKind.id).where(StorageLocationKind.code == "home")
+    )
+    assert kind_id is not None
+    location = StorageLocation(storage_location_kind_id=kind_id)
+    db.add(location)
+    db.flush()
+    return location
 
 
 # --------------------------------------------------------------------------
@@ -251,6 +266,27 @@ def test_a_single_item_becomes_a_lot_of_one(
     assert listing.description == received_item.description
 
 
+def test_add_lot_accepts_explicit_title_description_and_external_id(
+    db: Session, auction: Auction, received_item: InventoryItem
+) -> None:
+    """Ruling 1's overrides, not just its defaults (fix round 1, Minor #9)."""
+    auction_lot = add_lot(
+        db,
+        auction,
+        received_item,
+        lot_number="1",
+        reserve=None,
+        price=Decimal("10.00"),
+        title="Custom lot title",
+        description="Custom lot description",
+        external_id="LOT-42",
+    )
+    listing = auction_lot.listing
+    assert listing.title == "Custom lot title"
+    assert listing.description == "Custom lot description"
+    assert listing.external_id == "LOT-42"
+
+
 def test_lots_cannot_be_added_after_closing(
     db: Session, closed_auction: Auction, assembled_lot: SalesLot
 ) -> None:
@@ -274,6 +310,43 @@ def test_a_zero_starting_bid_is_the_default(
         db, auction, received_item, lot_number="1", reserve=None, price=None
     )
     assert auction_lot.listing.price == Decimal("0")
+
+
+def test_add_lot_is_visible_to_consign_even_if_lots_was_loaded_first(
+    db: Session, auction: Auction, make_item: ItemFactory
+) -> None:
+    """Regression for Important #1, fix round 1.
+
+    `AuctionLot(auction_id=auction.id, ...)` fired no backref event, so a
+    session that had already loaded `auction.lots` kept seeing a stale,
+    short collection -- and `consign` and `cancel` both iterate it. Loading
+    `auction.lots` *before* the add is exactly the shape every other fixture
+    in this file avoided by loading it only afterward, which is why 15
+    passing tests missed this the first time. `AuctionLot(auction=auction,
+    listing=listing, ...)` -- relationship assignment -- is the fix.
+
+    `item` is built *before* `auction.lots` is loaded, not after: `make_item`
+    commits internally (`tests/conftest.py`'s `build_item`), and a commit
+    expires every loaded attribute in the session by default -- including
+    `auction.lots` -- which would silently reload it fresh on next access and
+    mask the very bug this test exists to catch. This ordering mistake is
+    exactly why the first version of this test passed against the
+    FK-only construction it was meant to red; caught by mutation-testing this
+    test itself, not assumed.
+    """
+    item = make_item(title="Late addition")
+    assert auction.lots == []  # loads and caches the (empty) collection last
+    add_lot(db, auction, item, lot_number="1", reserve=None, price=Decimal("10.00"))
+    # The stale-collection bug would show 0 lots here, before consign even runs.
+    assert len(auction.lots) == 1
+
+    schedule(db, auction)
+    consign(db, auction, on_date=date(2026, 10, 1))
+
+    for item in items_of(auction):
+        location = db.get(StorageLocation, item.storage_location_id)
+        assert location is not None
+        assert location.kind.code == "consigned"
 
 
 # --------------------------------------------------------------------------
@@ -345,6 +418,49 @@ def test_a_removed_lot_number_can_be_reused(
     assert second.lot_number == "1"
 
 
+def test_removing_a_lot_from_a_closed_auction_is_refused(
+    db: Session, auction_with_three_lots: Auction
+) -> None:
+    """`remove_lot`'s own status gate (Important #2, fix round 1).
+
+    Distinct from `cancel`'s: `remove_lot` refuses `closed` even though
+    `cancel` (ruling R8) now accepts it -- pulling a single lot out of a
+    closed auction makes no sense; abandoning the whole auction does.
+    """
+    schedule(db, auction_with_three_lots)
+    close(db, auction_with_three_lots)
+    (one_lot,) = auction_with_three_lots.lots[:1]
+    with pytest.raises(AuctionRefused, match="closed"):
+        remove_lot(db, one_lot)
+
+
+def test_removing_a_lot_from_a_consigned_auction_requires_a_return_location(
+    db: Session, house_auction: Auction
+) -> None:
+    """Ruling R9: items physically left the premises; withdrawal must say where."""
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    (auction_lot,) = house_auction.lots
+    with pytest.raises(AuctionRefused, match="returned_to_location_id"):
+        remove_lot(db, auction_lot)
+
+
+def test_removing_a_lot_from_a_consigned_auction_moves_its_items_back(
+    db: Session, house_auction: Auction
+) -> None:
+    """Ruling R9: the items physically come home before the lot is withdrawn."""
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    (auction_lot,) = house_auction.lots
+    items = list(items_of(house_auction))
+    home = _home_location(db)
+
+    remove_lot(db, auction_lot, returned_to_location_id=home.id)
+
+    for item in items:
+        db.refresh(item)
+        assert item.storage_location_id == home.id
+        assert location_history(db, item)[-1].id == home.id
+
+
 # --------------------------------------------------------------------------
 # schedule / close / cancel
 # --------------------------------------------------------------------------
@@ -367,6 +483,20 @@ def test_scheduling_a_scheduled_auction_is_refused(
         schedule(db, auction)
 
 
+def test_closing_a_draft_auction_is_refused(db: Session, auction: Auction) -> None:
+    """Ruling R8: a `draft` auction never happened -- there is nothing to close."""
+    with pytest.raises(AuctionRefused, match="draft"):
+        close(db, auction)
+
+
+def test_closing_a_closed_auction_is_refused(
+    db: Session, closed_auction: Auction
+) -> None:
+    """Important #2, fix round 1: `close`'s own guard, exercised for real."""
+    with pytest.raises(AuctionRefused, match="closed"):
+        close(db, closed_auction)
+
+
 def test_cancelling_removes_every_lot(
     db: Session, auction_with_three_lots: Auction
 ) -> None:
@@ -386,12 +516,87 @@ def test_cancelling_removes_every_lot(
         assert row.status is ListingStatus.ended
 
 
+def test_cancelling_a_closed_auction_is_allowed(
+    db: Session, auction_with_three_lots: Auction
+) -> None:
+    """Ruling R8, Important #3: a closed sale can still be abandoned.
+
+    `close` accepts `scheduled`/`consigned` only, so this schedules first;
+    the point under test is that `cancel`, unlike `remove_lot`, does not
+    refuse `closed`.
+    """
+    schedule(db, auction_with_three_lots)
+    close(db, auction_with_three_lots)
+    listings = [row.listing for row in auction_with_three_lots.lots]
+
+    cancel(db, auction_with_three_lots)
+
+    assert auction_with_three_lots.status is AuctionStatus.cancelled
+    for row in listings:
+        db.refresh(row)
+        assert row.status is ListingStatus.ended
+
+
 def test_cancelling_a_settled_auction_is_refused(db: Session, auction: Auction) -> None:
     """A settled sale is a fact, not a draft to discard."""
     auction.status = AuctionStatus.settled
     db.flush()
     with pytest.raises(AuctionRefused, match="settled"):
         cancel(db, auction)
+
+
+def test_cancelling_a_cancelled_auction_is_refused(
+    db: Session, auction: Auction
+) -> None:
+    """Important #2, fix round 1: the other half of `cancel`'s refusal tuple."""
+    cancel(db, auction)
+    with pytest.raises(AuctionRefused, match="cancelled"):
+        cancel(db, auction)
+
+
+def test_cancelling_a_consigned_auction_requires_a_return_location(
+    db: Session, house_auction: Auction
+) -> None:
+    """Ruling R9: every lot needs somewhere to return its items to."""
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    with pytest.raises(AuctionRefused, match="returned_to_location_id"):
+        cancel(db, house_auction)
+
+
+def test_cancelling_a_consigned_auction_with_no_lots_requires_a_return_location(
+    db: Session, heritage_venue: SalesVenue
+) -> None:
+    """`cancel`'s own guard, not `_remove_lot`'s borrowed one.
+
+    A consigned auction can have zero lots -- `consign` never requires at
+    least one -- so `_remove_lot`'s identical check, which only runs inside
+    the per-lot removal loop, never fires here. This is the one test that can
+    red `cancel`'s own top-level check on its own.
+    """
+    row = Auction(sales_venue_id=heritage_venue.id, title="Empty consigned sale")
+    db.add(row)
+    db.flush()
+    schedule(db, row)
+    consign(db, row, on_date=date(2026, 10, 1))
+    with pytest.raises(AuctionRefused, match="returned_to_location_id"):
+        cancel(db, row)
+
+
+def test_cancelling_a_consigned_auction_returns_items_and_clears_consigned_on(
+    db: Session, house_auction: Auction
+) -> None:
+    """Ruling R9: nothing is left claiming a house that no longer holds the coins."""
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    items = list(items_of(house_auction))
+    home = _home_location(db)
+
+    cancel(db, house_auction, returned_to_location_id=home.id)
+
+    assert house_auction.status is AuctionStatus.cancelled
+    assert house_auction.consigned_on is None
+    for item in items:
+        db.refresh(item)
+        assert item.storage_location_id == home.id
 
 
 # --------------------------------------------------------------------------
@@ -408,9 +613,7 @@ def test_consigning_moves_every_item_to_the_house(
         location = db.get(StorageLocation, item.storage_location_id)
         assert location is not None
         assert location.kind.code == "consigned"
-        last_move = location_history(db, item)[-1]
-        assert last_move.location is not None
-        assert last_move.location.institution == "Heritage"
+        assert location_history(db, item)[-1].institution == "Heritage"
     assert house_auction.status is AuctionStatus.consigned
     assert house_auction.consigned_on == date(2026, 10, 1)
 
@@ -486,3 +689,47 @@ def test_consigning_twice_reuses_the_same_location(
         select(StorageLocation).where(StorageLocation.institution == "Heritage")
     ).all()
     assert len(locations) == 1
+
+
+def test_consigned_location_lookup_ignores_a_row_with_an_identifier(
+    db: Session, house_auction: Auction
+) -> None:
+    """Minor #5, fix round 1: the lookup matches the table's real uniqueness key.
+
+    `uq_storage_location_identity` is `(kind_id, institution, identifier)`,
+    not just the first two. A "Consigned: Heritage" row that also carries an
+    `identifier` -- a crate or shelf the owner recorded by hand -- must not
+    be reused: `consign` only ever creates rows with `identifier IS NULL`.
+    """
+    kind_id = db.scalar(
+        select(StorageLocationKind.id).where(StorageLocationKind.code == "consigned")
+    )
+    assert kind_id is not None
+    decoy = StorageLocation(
+        storage_location_kind_id=kind_id, institution="Heritage", identifier="Shelf 3"
+    )
+    db.add(decoy)
+    db.flush()
+
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+
+    for item in items_of(house_auction):
+        location = db.get(StorageLocation, item.storage_location_id)
+        assert location is not None
+        assert location.id != decoy.id
+        assert location.identifier is None
+
+
+def test_consigning_notes_the_move_with_the_auction(
+    db: Session, house_auction: Auction
+) -> None:
+    """Minor #8, fix round 1: history says *why* the item moved, not just where."""
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    for item in items_of(house_auction):
+        rows = db.scalars(
+            select(LocationHistory)
+            .where(LocationHistory.inventory_item_id == item.id)
+            .order_by(LocationHistory.id.desc())
+        ).first()
+        assert rows is not None
+        assert rows.note == f"Consigned to auction #{house_auction.id}"
