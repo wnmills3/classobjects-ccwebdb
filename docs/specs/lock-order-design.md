@@ -1,10 +1,16 @@
 # Lock order between `order_writes` and `offering_writes`
 
-**Status:** analysis and recommendation. Not built. One decision is the
-owner's, and it is named at the end.
+**Status:** **built**, 2026-09-21, on `fix/lock-order`. The owner chose the
+recommendation below: **`order_writes` moves**, and the canonical order is
+**lot rows → items → listings**. It has one owner,
+`offering_writes.lock_for_sale` over the private `_acquire`, and all six
+writers across the three modules reach it through that. See *What was
+actually built* at the end, which also records the one claim in this note
+that turned out to be wrong.
 **Written:** 2026-09-21, after phase 3 (sales lots) merged at `2c864d9`.
 **Defect it addresses:** *Known defect: the lock order between
-`order_writes` and `offering_writes`* in `selling-design.md`.
+`order_writes` and `offering_writes`* in `selling-design.md` — now removed
+from that document, which records the fix in its place.
 
 ## The defect
 
@@ -136,5 +142,61 @@ It costs more: the module that owns claims would have to derive its listing
 set from an unlocked claim read, and the invariant quoted above would need
 replacing rather than preserving.
 
-Until one is chosen, the defect stays recorded and unfixed, and the deadlock
-remains a rare 500 on a clean abort.
+## What was actually built
+
+**The owner chose *items before listings*** — `order_writes` moves — and it
+was built on `fix/lock-order` on 2026-09-21.
+
+- **`offering_writes._acquire`** is the one place the order is written down:
+  `_lock_lots`, then `_lock_items`, then `_lock_listing_rows`, each one
+  statement, each ascending id. Nothing else in the codebase takes more than
+  one kind of row.
+- **`offering_writes.lock_for_sale`** is the public door onto it, and takes
+  either entry point. `offer` passes `item_ids` (its members, already frozen
+  under the lot's row lock, which `_lot_members` must hold in order to *read*
+  them at all); `order_writes._lock_listings` and `sales_writes.record_sale`
+  pass `listing_ids` and it resolves listing → lot → members itself.
+  `end_offer` passes `listing_ids` with `including_paused=True`, which widens
+  the derived set from `offered_items` to `_affected_items`.
+- `_lock_offers` is gone, folded into `_lock_listing_rows`, which takes the
+  named listings (any status — a checkout must hold an ended listing to
+  refuse it) and the derived ones (`ON_OFFER` only) in a single `or_`.
+- **No schema change and no migration**, as this note predicted.
+
+### One claim in this note was wrong
+
+> for a listing that is on offer — the only kind a checkout can reach — the
+> member set cannot change underneath a reader.
+
+**It can, and the very first run of the new test proved it.**
+`_refuse_unless_assembling` guards `lot_writes`, but `offering_writes._end`
+is a *second* writer of `sales_lot_item.released_at` and releases every open
+membership the moment the lot is sold or dissolved. The losing side of
+`test_two_checkouts_race_for_one_lot` reads two members, waits on the
+winner's locks, and finds none — which a flat "refuse on any change" rule
+turned into a 500 for the ordinary case of arriving second.
+
+So the confirming re-read holds the set frozen **only while the listing is
+still `ON_OFFER`**. A listing the lock found `ended` is one whose members
+were released by that ending, and every caller already has its own refusal
+for it: `place_order` "is not currently for sale", `revise_order` "has
+ended, so the stock this order holds cannot be put back on sale",
+`record_sale` "is not on offer". Anything else is `LockSetChanged` — a 500,
+unmapped in the routers, on the reasoning `sales_writes.ShareMissing`
+already carries.
+
+### The mutation that reproduces the defect is *not* inverting the helper
+
+This note assumed inverting `_acquire` would bring the deadlock back. It
+does not, and the reason is the property the fix is for: inverting the one
+shared function moves **both** sides at once, so the two writers still
+agree and there is still no cycle. Measured — the race test passes eight of
+eight with `_acquire` inverted.
+
+What reproduces it is **breaking the single ownership**: restoring
+`_lock_listings`' own `select(...).with_for_update()` so `order_writes`
+takes listings first while `offering_writes` still takes items first. That
+fails eight of eight with `['bought', 'deadlock']`. The inversion is still
+caught, by
+`test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`, which
+measures the sequence of kinds on one connection.

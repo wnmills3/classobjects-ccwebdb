@@ -24,16 +24,29 @@ because those are exactly the writes this module is the single writer of.
 The writes here take the affected `inventory_item` rows `FOR UPDATE`, in id
 order, and re-read them under the lock -- the lock alone would leave the
 decision resting on values read before the wait. `offer` knows its items up
-front and locks them first. `end_offer` cannot: which items an ending touches
-is itself a query, so it reads the set, locks it, and reads again to confirm
-none joined in between (`_lock_affected_items`). That second read is what makes
-the "locked before the claims are read" rule true rather than nearly true.
+front and locks them first. `end_offer` cannot, and neither can a checkout:
+which items an ending or a sale touches is itself a query, so `lock_for_sale`
+reads the set, locks it, and reads again to confirm it has not moved. That
+second read is what makes the "locked before the claims are read" rule true
+rather than nearly true, and a set that did move is refused rather than
+retried (`LockSetChanged`).
 
-There are three kinds of row to lock, and `offer` takes them in this order:
+There are three kinds of row to lock, and they are taken in this order:
 **lot row, then items (ascending id), then listings (ascending id)**. Each
 kind is taken in *one* statement, which is the part that matters: N sorted
 statements are not a sorted acquisition, and the listing half is where a lot
-makes that a real hazard (`_lock_offers`).
+makes that a real hazard (`_lock_listing_rows`).
+
+**That order lives in exactly one function, `_acquire`, and every writer of
+either module reaches it through `lock_for_sale`** -- `offer` and `end_offer`
+here, and `order_writes.place_order`, `revise_order` and `return_stock` plus
+`sales_writes.record_sale` from the money path. `order_writes` used to take
+listings first, because `place_order` is handed listing ids, and the two
+orders together were a real deadlock. The order that carries a guarantee is
+this one -- the listing set here is *derived* from claims this module alone
+writes, and `_lock_listing_rows` says why that needs the items held first --
+so the incidental order moved. `docs/specs/lock-order-design.md` is the
+record of the decision.
 
 **It owns the rule for what the shop may sell** -- our own store, fixed price,
 active -- in both the Python form (`sellable_in_shop`) and the SQL form
@@ -47,9 +60,10 @@ Functions flush and never commit; the caller's request owns the transaction.
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import ColumnElement, Select, or_, select
+from sqlalchemy import ColumnElement, Select, and_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .models import (
@@ -71,11 +85,14 @@ from .references import require_code
 __all__ = [
     "HELD_BY",
     "ON_OFFER",
+    "LockSetChanged",
+    "LockedForSale",
     "OfferRefused",
     "claims_for",
     "end_offer",
     "ever_claimed",
     "ever_named_any",
+    "lock_for_sale",
     "offer",
     "offered_items",
     "offers_holding",
@@ -104,6 +121,34 @@ class OfferRefused(Exception):
         self.item_code = item_code
         self.reason = reason
         super().__init__(f"{item_code}: {reason}")
+
+
+class LockSetChanged(Exception):
+    """A lock pass chose its rows from a read, and that read went stale.
+
+    `lock_for_sale` reads which items a listing offers *before* it can lock
+    them -- there is no other order available, because the item ids are what
+    it needs in order to lock anything. It re-reads under the locks and
+    raises this if the two answers differ.
+
+    Deliberately **not** an `OfferRefused` and deliberately unmapped in the
+    routers, which is the reasoning `sales_writes.ShareMissing` already
+    carries: an `OfferRefused` is 409, which tells a caller "something is in
+    the way, try again", and that is false here. While the offer stands its
+    membership is frozen -- `lot_writes._refuse_unless_assembling` refuses a
+    membership change on a lot that is not `assembling`, and
+    `_refuse_grouped` refuses offering a member of an offered lot on every
+    venue -- so a set that moved under this lock is an invariant violation
+    inside this codebase that no retry can fix. It surfaces as a 500 naming
+    both readings rather than as a silent proceed on a stale set.
+
+    The one change that is *not* this, and is not raised: the offer's own
+    ending, which releases every membership. `_refuse_if_changed` has that
+    distinction and why it exists.
+
+    Nothing is half-written when it is raised: it comes out of the lock pass,
+    before the first write of whichever caller asked.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -290,8 +335,16 @@ def _lock_items(db: Session, item_ids: Collection[int]) -> None:
     it resumes holding the values it read *before* the wait, and would then
     refuse or allow an offer on the losing side of the race it just lost.
     Re-reading here overwrites what the session cached -- the same reason
-    `order_writes._lock_listings` passes `populate_existing` and
+    `_lock_listing_rows` passes `populate_existing` and
     `splitting.split_item` locks with `db.refresh(..., with_for_update=True)`.
+
+    The re-read is also what stopped a *false* conflict on the money path.
+    `order_writes._after_stock_change` writes `inventory_item.disposition`,
+    which carries a version column and was not locked at all until these
+    rows came to be taken here for a checkout too: an unrelated concurrent
+    edit to a coin made a revision or a cancellation fail with
+    `StaleDataError` and a person was told to reload
+    (`tests/test_order_revision_race.py`).
     """
     ids = sorted(set(item_ids))
     if not ids:
@@ -337,7 +390,7 @@ def _names_any(
 def _holds_any(item_ids: Collection[int]) -> ColumnElement[bool]:
     """Listings that hold one of these items **now**: claims that still hold.
 
-    The three callers below (`offers_holding`, `_lock_offers`,
+    The three callers below (`offers_holding`, `_lock_listing_rows`,
     `_locked_offers`) must agree: a listing one of them can see and another
     cannot is an item this module would offer twice, or never let back to
     `held`.
@@ -393,39 +446,83 @@ def offers_holding(db: Session, item_ids: Collection[int]) -> Sequence[Listing]:
     ).all()
 
 
-def _lock_offers(db: Session, item_ids: Collection[int]) -> None:
-    """Take every listing holding any of these items FOR UPDATE, in id order.
+def _lock_lots(db: Session, lot_ids: Collection[int]) -> None:
+    """Take these lots' rows FOR UPDATE, in id order, and re-read them.
 
-    One statement for the whole batch, taken before any per-member work.
-    `_locked_offers` below is called once per member, and N sorted statements
-    are **not** a sorted acquisition: a lot of two whose shop listings are #9
-    and #4 would take #9 then #4, while a two-line `place_order`
-    (`order_writes._lock_listings`) takes #4 then #9 -- each transaction then
-    holds what the other waits for and Postgres aborts one. Ascending id is
-    this module's rule (`_lock_items`), and for listings one statement is what
-    keeps it now that a lot makes multi-row the ordinary case.
+    The first of the three kinds, in one statement for the reason the other
+    two are: N sorted statements are not a sorted acquisition.
 
-    This settles the ordering *within* the listing set only. Between the two
-    **kinds** of row the modules still disagree -- this one takes items then
-    listings, `order_writes.place_order` takes listings then items -- and
-    that inversion is a real, unfixed deadlock, recorded in
-    `docs/specs/selling-design.md` under *Known defect: the lock order
-    between `order_writes` and `offering_writes`*. Nothing here closes it.
+    `offer` reaches this step through `_lot_members` rather than through
+    here, and has to: it must hold the lot's row *before* it reads the
+    membership, because that read is what gives it the item ids everything
+    after depends on, so the lock cannot wait until those ids are known.
+    Either way the lot row is taken first, which is the whole of the rule.
 
-    Nothing can join the set between this pass and the per-member calls: a
-    listing comes to hold an item only through a claim, this module is the
-    only writer of claims, and `_lock_items` holds these items' rows FOR
-    UPDATE already. So the per-member `_locked_offers` calls re-lock rows this
-    transaction already holds, which neither blocks nor reorders anything --
-    which is why they can stay exactly as they are, asking their own question
-    per member.
+    `populate_existing` for the reason `_lock_items` gives, and one more
+    here: `SalesLot` carries a `version_id_col`, and `_end` writes
+    `sales_lot.status` through it at the end of a sale. Re-reading the row
+    under its own lock is what keeps that write working from the version the
+    lock just granted rather than from one a caller read earlier.
     """
-    ids = set(item_ids)
+    ids = sorted(set(lot_ids))
     if not ids:
         return
     db.scalars(
+        select(SalesLot)
+        .where(SalesLot.id.in_(ids))
+        .order_by(SalesLot.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).all()
+
+
+def _lock_listing_rows(
+    db: Session, listing_ids: Collection[int], item_ids: Collection[int]
+) -> Sequence[Listing]:
+    """Take the listings FOR UPDATE, in id order, in one statement.
+
+    Two ways in, and they are **one** statement because two would not be a
+    sorted acquisition however each was sorted on its own. Named by id: what
+    `order_writes` was handed, at any status, because a checkout has to hold
+    a paused or ended listing in order to refuse it. Derived from the items:
+    every live offer holding one of them, which is `_holds_any` -- the rule
+    `offer` has always followed, since a piece of a lot is offered by the
+    lot's listing and has no listing of its own.
+
+    One statement matters for the derived half on its own terms too:
+    `_locked_offers` below is called once per member, and a lot of two whose
+    shop listings are #9 and #4 would take #9 then #4 that way, while a
+    two-line `place_order` takes #4 then #9. Ascending id in one pass is what
+    keeps that from being a deadlock of its own.
+
+    Nothing can join the derived set between this pass and the per-member
+    calls: a listing comes to hold an item only through a claim, this module
+    is the only writer of claims, and `_acquire` has already taken these
+    items' rows FOR UPDATE. So the per-member `_locked_offers` calls re-lock
+    rows this transaction already holds, which neither blocks nor reorders
+    anything -- which is why they can stay exactly as they are, asking their
+    own question per member.
+
+    `selectinload(Listing.sales_venue)` because every caller reads the venue
+    off the rows it gets back -- `offer` to name where an item is already
+    active, `order_writes` for `sellable_in_shop`, `sales_writes` to name the
+    platform in a refusal. A lazy load would emit that SELECT while these
+    rows are held FOR UPDATE, lengthening the lock for no reason, and a
+    separate SELECT is what `selectinload` issues anyway, so it cannot widen
+    the `FOR UPDATE` to `sales_venue` the way a join would.
+    """
+    named = sorted(set(listing_ids))
+    items = set(item_ids)
+    reachable: list[ColumnElement[bool]] = []
+    if named:
+        reachable.append(Listing.id.in_(named))
+    if items:
+        reachable.append(and_(Listing.status.in_(ON_OFFER), _holds_any(items)))
+    if not reachable:
+        return []
+    return db.scalars(
         select(Listing)
-        .where(Listing.status.in_(ON_OFFER), _holds_any(ids))
+        .where(or_(*reachable))
         .order_by(Listing.id)
         .with_for_update(of=Listing)
         .options(selectinload(Listing.sales_venue))
@@ -433,12 +530,196 @@ def _lock_offers(db: Session, item_ids: Collection[int]) -> None:
     ).all()
 
 
+def _acquire(
+    db: Session,
+    *,
+    lot_ids: Collection[int],
+    item_ids: Collection[int],
+    listing_ids: Collection[int],
+) -> Sequence[Listing]:
+    """**The** acquisition order, and the only place it is written down.
+
+    Lot rows, then items, then listings -- each kind in one statement, each
+    ascending id. Every writer in this codebase that takes more than one kind
+    of row comes through here: `offer` and `end_offer` in this module, and,
+    through `lock_for_sale`, `order_writes.place_order`, `revise_order` and
+    `return_stock` and `sales_writes.record_sale`.
+
+    They used to agree by hand and two of them disagreed --
+    `order_writes` took listings first because `place_order` is handed
+    listing ids, this module took items first because its listing set is
+    *derived* from claims it is the only writer of. The claim-uniqueness
+    guarantee rests on that second order, nothing rested on the first, so the
+    first moved. `docs/specs/lock-order-design.md` is the record.
+
+    Swapping two of the three lines below is all it takes to bring the
+    deadlock back, which is the whole reason there is only one copy of them.
+    """
+    _lock_lots(db, lot_ids)
+    _lock_items(db, item_ids)
+    return _lock_listing_rows(db, listing_ids, item_ids)
+
+
+@dataclass(frozen=True)
+class LockedForSale:
+    """Everything one `lock_for_sale` pass took, for the caller that asked.
+
+    `listings` is every listing row the pass holds, keyed by id: the ones the
+    caller named and the ones derived from the items. A caller that named ids
+    narrows it to those and reports the rest missing; `order_writes.
+    _lock_listings` is the one that does.
+
+    `item_ids` is the confirmed item set, ascending -- what `end_offer` walks
+    when it decides which dispositions go back to `held`.
+    """
+
+    listings: dict[int, Listing]
+    item_ids: tuple[int, ...]
+
+
+def _listings_by_id(db: Session, listing_ids: Collection[int]) -> list[Listing]:
+    """The named listings, unlocked, for the read that chooses what to lock."""
+    ids = sorted(set(listing_ids))
+    if not ids:
+        return []
+    return list(
+        db.scalars(
+            select(Listing).where(Listing.id.in_(ids)).order_by(Listing.id)
+        ).all()
+    )
+
+
+def _items_of(
+    db: Session, listings: Sequence[Listing], *, including_paused: bool
+) -> dict[int, tuple[int, ...]]:
+    """Which items each listing brings into a lock pass, keyed by listing id.
+
+    `offered_items` is the narrow, present-tense answer a *sale* needs: one
+    item for an item listing, the lot's open members for a lot listing.
+    `including_paused` asks `_affected_items` instead, which also reaches the
+    items of the listings this one paused -- the wider set an *ending* has to
+    move and a sale must not. The pair are not interchangeable, and the
+    difference is one argument rather than two copies of this function
+    because a copy is what would drift.
+    """
+    if including_paused:
+        return {row.id: tuple(_affected_items(db, row)) for row in listings}
+    return {
+        row.id: tuple(item.id for item in offered_items(db, row)) for row in listings
+    }
+
+
+def _refuse_if_changed(
+    listings: dict[int, Listing],
+    before: dict[int, tuple[int, ...]],
+    after: dict[int, tuple[int, ...]],
+) -> None:
+    """Refuse if a still-live listing's item set moved while it was being locked.
+
+    Refuse, never loop: a retry would re-read a set that is not supposed to
+    be able to move while the offer stands, so looping would hide the
+    violation rather than resolve it. See `LockSetChanged` for why a 500 and
+    not a 409.
+
+    **One change is ordinary and is not refused: the offer ending.** The
+    design note this work came from said an offered lot's membership is
+    frozen outright, and it is not -- `_refuse_unless_assembling` guards
+    `lot_writes`, but `_end` in this module is a second writer of
+    `sales_lot_item.released_at` and releases every open membership the
+    moment the lot is sold or dissolved. The losing side of two checkouts
+    racing one lot sees exactly that: it reads two members, waits, and finds
+    none. So the set is only held to have been frozen while the listing is
+    still `ON_OFFER`; a listing the lock found ended is one whose members
+    were released by the ending itself, and each caller already has its own
+    refusal for it -- `place_order` "is not currently for sale",
+    `revise_order` "has ended, so the stock this order holds cannot be put
+    back on sale", `record_sale` "is not on offer".
+
+    The items locked from the stale read are still held, which is never
+    unsafe: a lock pass that took *more* rows than it needed reorders
+    nothing, and the caller writes nothing to them once it refuses.
+    """
+    for listing_id, chosen in before.items():
+        if after.get(listing_id, ()) == chosen:
+            continue
+        row = listings.get(listing_id)
+        if row is not None and row.status not in ON_OFFER:
+            continue
+        raise LockSetChanged(
+            f"the items listing {listing_id} offers changed while its rows "
+            f"were being locked: read {chosen}, locked {after.get(listing_id, ())}"
+        )
+
+
+def lock_for_sale(
+    db: Session,
+    *,
+    listing_ids: Collection[int] = (),
+    item_ids: Collection[int] = (),
+    including_paused: bool = False,
+) -> LockedForSale:
+    """Take every row a sale or an offer touches, in the canonical order.
+
+    The public door onto `_acquire`, and the reason the order has one owner
+    rather than four call sites that agree by hand.
+
+    **Two entry points, one closure.** `offer` enters from *items* -- one
+    item, or a lot's members, already frozen under the lot's own row lock by
+    `_lot_members` -- and passes them as `item_ids`; the listings are then
+    derived, which is what this module has always done. `order_writes` and
+    `sales_writes` enter from *listings*, because `place_order` is handed
+    `Line(listing_id=...)`; they pass `listing_ids` and this function resolves
+    the closure the other way, listing to lot to member.
+
+    **Why reading the members before locking anything is safe.** While the
+    offer stands, its membership is frozen: `lot_writes.
+    _refuse_unless_assembling` refuses a membership change on a lot that is
+    not `assembling`, and `_refuse_grouped` refuses offering a member of an
+    offered lot on every venue. A listing a checkout can reach is on offer,
+    so its member set cannot move underneath this read -- until the offer
+    itself ends, which `_end` does by releasing every membership, and which
+    `_refuse_if_changed` treats as the ordinary outcome it is rather than a
+    violation.
+
+    The re-read below confirms that rather than trusting it -- exactly what
+    `end_offer`'s item pass has always done, and for the reason this module's
+    docstring gives: it is what makes "locked before the claims are read"
+    true rather than nearly true.
+
+    `including_paused` widens the derived item set from `offered_items` to
+    `_affected_items`; `end_offer` is its one caller (see `_items_of`).
+
+    Raises `LockSetChanged` if a still-live listing's set disagrees. Writes
+    nothing, on any path.
+    """
+    named = sorted(set(listing_ids))
+    chosen = _listings_by_id(db, named)
+    before = _items_of(db, chosen, including_paused=including_paused)
+
+    items = set(item_ids)
+    for reachable in before.values():
+        items.update(reachable)
+    lot_ids = {row.sales_lot_id for row in chosen if row.sales_lot_id is not None}
+
+    locked = {
+        row.id: row
+        for row in _acquire(db, lot_ids=lot_ids, item_ids=items, listing_ids=named)
+    }
+    after = _items_of(
+        db,
+        [locked[listing_id] for listing_id in named if listing_id in locked],
+        including_paused=including_paused,
+    )
+    _refuse_if_changed(locked, before, after)
+    return LockedForSale(listings=locked, item_ids=tuple(sorted(items)))
+
+
 def _locked_offers(db: Session, item_id: int) -> Sequence[Listing]:
     """The listings that already hold this item, locked and re-read.
 
     Both the listings written against the item and any written against
     something else that claims it (a lot, in phase 3). `populate_existing`
-    for the reason `order_writes._lock_listings` gives: a row already in the
+    for the reason `_lock_listing_rows` gives: a row already in the
     session's identity map would otherwise come back locked but stale.
 
     Paused counts, exactly as it does in `_still_offered` and `claims_for`.
@@ -447,9 +728,9 @@ def _locked_offers(db: Session, item_id: int) -> Sequence[Listing]:
     module would happily offer again and would never let go back to `held`.
     The listing-status half of `_holding_claims` is the outer `where` below.
 
-    Called once per member by `offer`, *after* `_lock_offers` has taken the
-    whole batch in one ascending statement -- see there for why that order
-    matters and why re-locking here is free.
+    Called once per member by `offer`, *after* `_lock_listing_rows` has
+    taken the whole batch in one ascending statement -- see there for why
+    that order matters and why re-locking here is free.
     """
     return db.scalars(
         select(Listing)
@@ -652,10 +933,13 @@ def offer(
         raise ValueError("offer() takes exactly one of item= and lot=, not neither")
 
     member_ids = [member.id for member in members]
-    _lock_items(db, member_ids)
-    # Lot, then items, then listings -- each in one ascending statement. The
-    # per-member `_locked_offers` calls below re-lock what this already holds.
-    _lock_offers(db, member_ids)
+    # Lot, then items, then listings -- each in one ascending statement, and
+    # through the one function that owns that order (`lock_for_sale`), not a
+    # sequence written out again here. The lot row is already held: for a lot,
+    # `_lot_members` above took it before it read the membership, because that
+    # read is what produced `member_ids` at all. The per-member
+    # `_locked_offers` calls below re-lock what this already holds.
+    lock_for_sale(db, item_ids=member_ids)
 
     # Every condition for every member, before the first write below.
     to_pause: dict[int, Listing] = {}
@@ -804,24 +1088,6 @@ def _affected_items(db: Session, listing: Listing) -> list[int]:
     return sorted(ids)
 
 
-def _lock_affected_items(db: Session, listing: Listing) -> list[int]:
-    """Lock every item the ending touches, then confirm none joined the set.
-
-    The set has to be read before it can be locked, which leaves a window: a
-    claim written in it names an item this call would never lock and never
-    reconsider. So it is read again afterwards, and the second read decides.
-    That second read is enough rather than a loop, because every writer of a
-    claim -- this module is the only one -- holds the item's row before it
-    writes: once these rows are held, no new claim naming them can appear.
-    """
-    ids = _affected_items(db, listing)
-    _lock_items(db, ids)
-    joined = _affected_items(db, listing)
-    if joined != ids:
-        _lock_items(db, joined)
-    return joined
-
-
 def _still_offered(db: Session, item_id: int) -> bool:
     """Whether anything still offers this item, so its disposition stands.
 
@@ -885,18 +1151,19 @@ def _end(db: Session, listing: Listing, *, sold: bool = False) -> None:
     released = utcnow()
     for member in lot_writes.open_members(db, lot):
         member.released_at = released
-    # No explicit `FOR UPDATE` here, but that does *not* avoid an inversion:
-    # the UPDATE below takes the lot's row-level exclusive lock anyway, so
-    # this path's real order is items -> listing -> lot, the inverse of
-    # `offer`'s lot -> items -> listings. It is safe for a different reason,
-    # and the difference matters because the inversion argument would license
-    # a genuinely unsafe change later. Every path that *waits* on a lot row
-    # takes it first and holds nothing else (`offer`, `add_member`,
-    # `remove_member`), and the lot reached here always has a listing, so it
-    # is never a lot a concurrent `offer` could be holding -- that lot is
-    # still `assembling` and has no listing. No membership window is left
-    # either: `add_member` re-reads `offered` under the lock and refuses.
-    # `version_id_col` then covers this write against a stale in-session lot.
+    # No explicit `FOR UPDATE` here because this transaction already holds
+    # the row: every caller reaches `_end` through `end_offer`, whose
+    # `lock_for_sale` pass takes the lot of the listing being ended as its
+    # first statement. So this path's order is lot -> items -> listings, the
+    # canonical one, and the UPDATE below takes an exclusive lock on a row it
+    # is already holding. That was not always true -- the order here used to
+    # be items -> listing -> lot, safe for a narrower reason: every path that
+    # *waits* on a lot row takes it first and holds nothing else (`offer`,
+    # `add_member`, `remove_member`), and the lot reached here always has a
+    # listing, so it is never a lot a concurrent `offer` could be holding.
+    # Both arguments hold; the first is the one that generalises.
+    # `version_id_col` then covers this write against a stale in-session lot,
+    # and `_lock_lots` re-read the row so that version is the current one.
     lot.status = SalesLotStatus.sold if sold else SalesLotStatus.dissolved
 
 
@@ -917,29 +1184,35 @@ def end_offer(db: Session, listing: Listing, *, sold: bool = False) -> None:
     withdrawn, `sold` when settled, and its members released either way. The
     two are different histories and never collapse into one.
     """
-    item_ids = _lock_affected_items(db, listing)
-
-    # Locked and re-read for the same reason `_locked_offers` re-reads a
-    # listing before `offer` touches it: `listing` is whatever the caller
-    # already had in hand, and a concurrent `offer` elsewhere may have paused
-    # it -- bumping its optimistic-lock version -- between when the caller
-    # loaded it and when the item lock above was granted. Without this,
-    # `_end` below writes through the caller's stale version and raises
-    # `StaleDataError` even though nothing is actually wrong: the item lock
-    # already serialised the two writers, and this listing's *current* row is
-    # exactly what this function is entitled to act on.
-    listing = db.execute(
-        select(Listing)
-        .where(Listing.id == listing.id)
-        .with_for_update(of=Listing)
-        .execution_options(populate_existing=True)
-    ).scalar_one()
+    # Lot row, then items, then listings, through the one owner of that order
+    # (`lock_for_sale`). `including_paused=True` because an ending's item set
+    # is the wider `_affected_items`: the items of the listings this one
+    # paused have to move too, and a sale's must not (`_items_of`).
+    #
+    # The listing comes back locked and re-read for the same reason
+    # `_locked_offers` re-reads one before `offer` touches it: `listing` is
+    # whatever the caller already had in hand, and a concurrent `offer`
+    # elsewhere may have paused it -- bumping its optimistic-lock version --
+    # between when the caller loaded it and when the item locks were granted.
+    # Without that, `_end` below writes through the caller's stale version and
+    # raises `StaleDataError` even though nothing is actually wrong: the item
+    # lock already serialised the two writers, and this listing's *current*
+    # row is exactly what this function is entitled to act on.
+    locked = lock_for_sale(db, listing_ids=[listing.id], including_paused=True)
+    item_ids = list(locked.item_ids)
+    listing = locked.listings[listing.id]
 
     # Still paused, not merely pointing here. A listing ended while it was
     # paused keeps the pointer -- the catalogue API's retired
     # `PATCH .../is_active` ended one without clearing it -- and resuming
     # that would put a listing an administrator deliberately withdrew back
     # into the public shop, re-claiming the item with it.
+    #
+    # This re-locks rows the pass above already holds and so reorders
+    # nothing: a listing paused by this one holds one of the items
+    # `_affected_items` reached, and `_lock_listing_rows` takes every live
+    # offer holding those. It is here to *identify* them, not to acquire
+    # them, the same way `_locked_offers` asks its own question per member.
     paused_by_it = db.scalars(
         select(Listing)
         .where(

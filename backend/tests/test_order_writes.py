@@ -333,8 +333,9 @@ def test_placing_an_order_never_consults_a_new_line_s_shares(
     """A line created in this call has no shares, so nothing may look.
 
     Looking costs a SELECT that can only come back empty -- one per line,
-    inside the `FOR UPDATE` window `_lock_listings`' docstring asks callers not
-    to widen -- and leaves the collection **cached empty** for the rest of the
+    inside the `FOR UPDATE` window `offering_writes._lock_listing_rows`'
+    docstring asks callers not to widen -- and leaves the collection
+    **cached empty** for the rest of the
     session, because `db.add` does not invalidate a collection an earlier read
     populated. That stale cache is what forced `sales_writes` and
     `routers.offers` to read shares through their own `select()`.

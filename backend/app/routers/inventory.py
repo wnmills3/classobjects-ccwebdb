@@ -427,7 +427,7 @@ def receive_items(
             )
 
     # Load-bearing, not tidiness. `end_offer` below re-reads exactly these
-    # rows -- `_lock_affected_items` locks them with
+    # rows -- `offering_writes.lock_for_sale` locks them with
     # `populate_existing=True`, which overwrites whatever the session holds
     # and clears the attribute's dirty flag. Production's `SessionLocal` sets
     # `autoflush=False`, so without this the status assigned just above is

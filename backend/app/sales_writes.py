@@ -27,7 +27,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import offering_writes, order_writes
@@ -213,14 +212,17 @@ def record_sale(
     # an already-ended listing and call `end_offer(sold=True)` twice.
     #
     # `offering_writes.end_offer` re-reads the same way, for the same reason;
-    # this follows it. The lock order is unchanged -- listing first, then the
-    # items `end_offer` locks -- so this adds no new deadlock shape.
-    listing = db.execute(
-        select(Listing)
-        .where(Listing.id == listing.id)
-        .with_for_update(of=Listing)
-        .execution_options(populate_existing=True)
-    ).scalar_one()
+    # this follows it. Taken through `offering_writes.lock_for_sale`, which is
+    # the single owner of the acquisition order -- the listing's lot, then its
+    # items, then the listings -- rather than a `FOR UPDATE OF listing` of its
+    # own. This used to lock the listing alone and call the order unchanged,
+    # which was true of `place_order` as it then was and false of `offer`:
+    # that pair of orders was the deadlock
+    # `docs/specs/lock-order-design.md` records. `place_order` and
+    # `end_offer` below both take the same rows again, and find them held.
+    listing = offering_writes.lock_for_sale(db, listing_ids=[listing.id]).listings[
+        listing.id
+    ]
     if listing.status is not ListingStatus.active:
         # Names the platform as well as the listing: the spec's *Errors*
         # section asks for both, and an owner with the same item offered in

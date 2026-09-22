@@ -415,14 +415,19 @@ def update_order_status(
         )
 
     # The status write, its history row and (on a cancellation) returning
-    # stock all sit inside this try: `return_stock` can autoflush a write to
-    # `InventoryItem.disposition`, which carries its own version column and
-    # is never locked -- a concurrent edit to that item raises
-    # `StaleDataError` here, not only at `db.commit()`. `order_id` (the
-    # path parameter), not `order.id`, appears in every message below: once
-    # a flush has failed, every instance in the session is expired, and
-    # reading an attribute off one issues a SELECT that raises
-    # `PendingRollbackError` instead of the value.
+    # stock all sit inside this try. `return_stock` can autoflush a write to
+    # `InventoryItem.disposition`, which carries its own version column, so a
+    # concurrent edit to that item raised `StaleDataError` here and not only
+    # at `db.commit()` -- and that item used to go unlocked, which made this
+    # clause a live path and a false conflict. `return_stock` now takes its
+    # rows through `order_writes._lock_listings` and so through
+    # `offering_writes.lock_for_sale`, which locks and re-reads every item it
+    # will write, so this is defence in depth
+    # (`test_a_concurrently_edited_item_no_longer_refuses_a_cancellation`).
+    # `order_id` (the path parameter), not `order.id`, appears in every
+    # message below: once a flush has failed, every instance in the session
+    # is expired, and reading an attribute off one issues a SELECT that
+    # raises `PendingRollbackError` instead of the value.
     try:
         order.sales_order_status_id = require_code(
             db, SalesOrderStatus, payload.status, "status"
