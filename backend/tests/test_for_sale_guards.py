@@ -702,3 +702,80 @@ def test_a_sold_lot_s_member_still_warns_while_the_order_is_open(
     )
     assert response.status_code == 409
     assert "order #" in response.json()["detail"]
+
+
+def test_a_lot_sale_refuses_a_split_of_the_member_it_sold(
+    client: TestClient,
+    db: Session,
+    offered_lot_listing: Listing,
+    admin_headers: dict[str, str],
+    admin_user: User,
+) -> None:
+    """The lot twin of the "appears in an order" refusal above.
+
+    `split_item`'s order check asked `listing.inventory_item_id`, which is
+    NULL on a lot listing -- so a coin sold inside a lot passed it and was
+    split, silently. That is the one shape of this branch's nullable-column
+    fallout that costs money: the line's `sales_order_item_share` still
+    credits the parent, whose `item_cost` has just been re-allocated to two
+    children, so realised gain and cost basis double-count with no error
+    anywhere. The plausible route is a returned tube or mint set that went
+    out inside a lot and is now being broken up.
+
+    Neither guard catches it without the fix. `sale_state.guard` passes
+    `kinds={"listing"}`, and the sale released the claims and ended the
+    listing, so its listing half finds nothing and its order half is
+    filtered out -- which is why "For sale" is asserted *absent* here: the
+    refusal has to come from `split_item` itself, as it does for a coin sold
+    on its own.
+
+    Acknowledging is asserted to be no way past it either, for the reason
+    the single-item twin asserts the same: the refusal is not negotiable.
+
+    The mutation that proves it: restore the old
+    `where(Listing.inventory_item_id == parent.id)` in `app.splitting` and
+    confirm this goes red on the status, the message and the split state.
+    """
+    lot = offered_lot_listing.sales_lot
+    assert lot is not None
+    member_id = lot.members[0].inventory_item_id
+    record_sale(
+        db,
+        offered_lot_listing,
+        price=Decimal("1000.00"),
+        buyer_username="coinfan88",
+        external_order_id="EB-2",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    db.commit()
+    body = {"mode": "equal", "pieces": _two_pieces()}
+
+    refused = client.post(
+        f"/api/inventory/{member_id}/split", json=body, headers=admin_headers
+    )
+
+    assert refused.status_code == 409, refused.text
+    detail = refused.json()["detail"]
+    assert "appears in an order" in detail
+    assert "For sale" not in detail
+
+    acknowledged = client.post(
+        f"/api/inventory/{member_id}/split",
+        json={**body, "acknowledge_for_sale": True},
+        headers=admin_headers,
+    )
+    assert acknowledged.status_code == 409, acknowledged.text
+    assert "appears in an order" in acknowledged.json()["detail"]
+
+    # And nothing was written: the member is unsplit and still carries the
+    # whole cost basis the sold line's share credits it with.
+    db.expire_all()
+    member = db.get(InventoryItem, member_id)
+    assert member is not None
+    assert member.split_at is None
+    assert member.item_cost == Decimal("500.00")
+    pieces = db.scalars(
+        select(InventoryItem.id).where(InventoryItem.parent_item_id == member_id)
+    ).all()
+    assert list(pieces) == []

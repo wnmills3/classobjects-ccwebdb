@@ -39,7 +39,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import offering_writes
+from . import offering_writes, sale_state
 from .allocation import allocate
 from .lifecycle_writes import record_initial_status
 from .models import (
@@ -150,7 +150,8 @@ def split_item(
 
     Raises `SplitError` for an unknown mode, fewer than two pieces, a lot
     already split, a lot that is itself a piece, a piece holding less than
-    one item, or a lot that appears in an order -- and `AllocationError`
+    one item, or a lot that appears in an order -- sold on its own or
+    inside a sales lot -- and `AllocationError`
     from `allocate` if the cost cannot be divided. `routers.inventory`
     catches only the first, so an `AllocationError` here is a 500.
 
@@ -194,12 +195,24 @@ def split_item(
     sold = db.scalar(
         select(SalesOrderItem.id)
         .join(Listing, Listing.id == SalesOrderItem.listing_id)
-        .where(Listing.inventory_item_id == parent.id)
+        .where(sale_state.sold_this_item(parent.id))
         .limit(1)
     )
     if sold is not None:
         # Order history points at the lot. Splitting it now would leave a sold
         # line referring to something that no longer exists as sold.
+        #
+        # `sale_state.sold_this_item`, not `listing.inventory_item_id` on its
+        # own, which is what this asked until 2026-09-21. That column is NULL
+        # on a lot listing, so a lot sale never matched and a coin sold inside
+        # a lot was split without a word: the line's share still credits the
+        # whole cost to this parent while `allocate` below hands that same
+        # cost to the children, and the realised gain and the cost basis both
+        # double-count. Neither guard covered it -- `routers.inventory.split`
+        # narrows `sale_state.guard` to `kinds={"listing"}` precisely because
+        # this check is the unconditional one, and after a lot sale the claims
+        # are released and the listing ended, so the listing half finds
+        # nothing either.
         raise SplitError(f"{parent.item_code} appears in an order and cannot be split")
 
     weights = _weights(pieces, mode)

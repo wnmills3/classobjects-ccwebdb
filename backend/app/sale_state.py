@@ -28,7 +28,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.orm import Session
 
 from . import offering_writes
@@ -50,6 +50,7 @@ __all__ = [
     "for_sale",
     "guard",
     "refusal",
+    "sold_this_item",
 ]
 
 #: Orders that hold an item but have not shipped it.
@@ -239,6 +240,46 @@ def ever_offered(db: Session, item_ids: Collection[int]) -> set[int]:
         if item_id is not None
     )
     return named
+
+
+def sold_this_item(item_id: int) -> ColumnElement[bool]:
+    """Every order line that covers this item, as itself or inside a lot.
+
+    `order_writes._sync_shares` writes one `sales_order_item_share` per item
+    a line covers -- one for an item listing, one per member for a lot -- so
+    the share table is the one place both shapes are visible.
+
+    The listing's own `inventory_item_id` is kept **alongside** the shares
+    rather than replaced by them. It is NULL on a lot listing, so it cannot
+    answer for a lot; but it is the only thing that finds a line written
+    before shares existed, a case `_sync_shares` itself still allows for.
+    Dropping it would quietly lose those sales from an item's history.
+
+    A predicate rather than a query, because its two callers need it inside
+    selects that differ in everything else: `routers.inventory` lists an
+    item's sales, `splitting.split_item` refuses to break up a lot that one
+    of them covers. Both join `listing` to `sales_order_item`, which is the
+    only shape this assumes of them (`sales_order_item.listing_id` is NOT
+    NULL, so that join drops nothing).
+
+    Here rather than in `routers.inventory`, where it was written, for the
+    reason `ever_offered` above gives for living here: "was this item sold"
+    is one question and a second hand-written answer drifts from the first.
+    `splitting` asked it for itself through `listing.inventory_item_id`
+    alone and so never saw a lot sale -- it split a coin that had been sold
+    inside a lot and re-allocated the cost basis the sale's share still
+    credits to it. A domain module importing a router's private helper was
+    the alternative, and it is also a circular import: `routers.inventory`
+    imports `splitting`.
+    """
+    return or_(
+        Listing.inventory_item_id == item_id,
+        SalesOrderItem.id.in_(
+            select(SalesOrderItemShare.sales_order_item_id).where(
+                SalesOrderItemShare.inventory_item_id == item_id
+            )
+        ),
+    )
 
 
 def refusal(codes_and_uses: dict[str, list[SaleUse]]) -> str:
