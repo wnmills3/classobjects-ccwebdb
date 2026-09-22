@@ -1340,7 +1340,7 @@ not before, and not instead of merging. Said in so many words because the
 rest of this section only implies it: the schema being current in `ccwebdb`
 says nothing about which code is checked out or running, and restarting the
 servers off an unmerged branch would put the wrong thing in front of the
-shop.
+shop. The two steps:
 
 1. **Load reference data.** From `backend\`, with the conda environment
    active:

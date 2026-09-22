@@ -593,27 +593,20 @@ def _refuse_auction_lot(db: Session, listing: Listing) -> None:
     result) -- never directly, the same way `routers.auctions` has no
     endpoint that writes `listing.status` for an auction lot itself.
 
-    **Two messages, because there are two true things to say** (whole-branch
-    review, Minor #7). Ruling R11 has `remove_lot` *delete* the `auction_lot`
-    row while the listing keeps `format = auction`, so this guard also fires
-    against a listing that is in no auction at all -- and the old single
-    message, "is an auction lot" with the auction silently omitted, read as
-    "the auction is unknown" rather than "there is no auction". The refusal
-    stays correct in both cases; only one of them can name an auction.
+    **Keyed on the `auction_lot` row, not on `format` alone.** An
+    auction-format listing need not belong to an auction: the Offer dialog
+    offers a coin directly on eBay by auction, and ruling R11's `remove_lot`
+    deletes the row while the listing keeps `format = auction`. Neither has
+    an auction to end it through, so both take the ordinary path -- keying on
+    format left a directly offered auction listing with no way to be ended
+    at all (review of the final fix wave, Important #1).
     """
     if listing.format is ListingFormat.auction:
         auction_id = db.scalar(
             select(AuctionLot.auction_id).where(AuctionLot.listing_id == listing.id)
         )
         if auction_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"listing #{listing.id} was offered as an auction lot and is "
-                    "no longer in any auction; its lot was removed, which already "
-                    "ended the offer. There is nothing left to end"
-                ),
-            )
+            return
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -631,7 +624,7 @@ def end_listing(listing_id: int, db: DbSession, _admin: AdminUser) -> ListingOut
     Withdrawal, not a sale: `sold=True` belongs to the record-a-sale path,
     which has a buyer and a price to record alongside the ending.
 
-    Refuses an auction-format listing outright -- see `_refuse_auction_lot`.
+    Refuses a listing that is a lot of an auction -- see `_refuse_auction_lot`.
     """
     listing = _get_listing(db, listing_id)
     _refuse_auction_lot(db, listing)
