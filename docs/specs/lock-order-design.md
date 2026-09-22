@@ -272,11 +272,16 @@ Fixed with an early return in `offering_writes._end` when the listing is
 already `ended` — in `_end`, not `end_offer` or the router, because this
 module is the single writer of `sales_lot.status` and because `end_offer`'s
 own `paused_by_it` loop calls `_end` directly. An early return rather than a
-refusal: it makes the endpoint idempotent, the recursion ends a *batch* where
-a refusal would abort the whole ending over one member, and the harm being
-prevented is a rewrite (of `lot.status`, and of `ended_at`) rather than an
-action anyone needs to be told about. Covered by
+refusal: it makes the endpoint idempotent, and the harm being prevented is a
+rewrite (of `lot.status`, and of `ended_at`) rather than an action anyone
+needs to be told about. Covered by
 `test_ending_a_sold_lot_s_listing_again_leaves_it_sold`.
+
+A third reason was offered in round 2 and withdrawn in round 3: that a
+refusal would abort the `paused_by_it` batch over one member. It would not --
+that loop filters `Listing.status == ListingStatus.paused`, so its `_end`
+calls can never reach the guard at all. The placement in `_end` rests on the
+single-writer argument alone, which is enough.
 
 `receive_items`' second `offers_holding` read is now defence rather than the
 only defence.
@@ -313,6 +318,40 @@ split member by name.
 It also makes `split_item`'s place in the lock table safe by construction
 rather than by accident: with the refusal, a parent in an offered lot never
 reaches `end_offer`, so no lot row is ever taken after its item row.
+
+### The one rule a caller has to remember
+
+Everything else in this design is enforced by the single owner. This is not,
+and it is written down in three places -- `lock_for_sale`'s docstring, which
+is the door everyone reads; `refuse_if_lot_unheld`, which implements it; and
+here.
+
+`lock_for_sale` hands back listing rows it was not named: `_lock_listing_rows`
+also takes every live offer holding one of the items, and one of those can be
+a **lot** listing. Their lot rows are taken as of that function's own
+`offers_holding` read, which is unlocked, so a lot offered between the read
+and the item lock is reached by the derived half with no lot row held.
+`LockedForSale.lot_ids` reports which lot rows really are held.
+
+**A caller that may call `end_offer` on a listing it did not name must first
+pass that set through `refuse_if_lot_unheld`.** Today exactly one does:
+`routers.inventory.receive_items`, which ends whatever `offers_holding`
+returns rather than a list of ids. Every other caller ends only listings it
+named, whose lot rows are always held.
+
+It is not enforced inside `lock_for_sale`, and that is measured rather than
+lazy. Every narrower key was tried:
+
+| Refuse when… | What it catches that it should not |
+|---|---|
+| any locked lot listing's row is unheld | `offer` losing an ordinary race to a lot offer -- reds `test_offering_a_lot_races_offering_one_of_its_members` |
+| keyed on `listing_ids` | `place_order`, on a real path |
+| keyed on `including_paused` | `end_offer`, on a real path |
+
+Each turns a clean refusal into a 500. So the obligation stays with the
+caller, stated at the door -- because if a second caller ever forgets it, the
+failure is a Postgres deadlock under concurrency: a 500 on a money path,
+not reproducible from a single request.
 
 ### Two claims in this note were wrong
 

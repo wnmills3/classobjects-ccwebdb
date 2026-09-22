@@ -1615,9 +1615,20 @@ def test_ending_a_lot_listing_whose_lot_row_is_unheld_is_refused(
     the difference between them is the point: an *item* listing needs no lot
     row, and refusing on one would refuse every ordinary receipt.
 
-    Survives: dropping the `sales_lot_id is not None` half of the condition
-    makes the first call below raise on a plain item listing; dropping the
-    `not in held` half makes the second call pass.
+    Survives, and the two were recorded the wrong way round until they were
+    re-measured -- which is why they are quoted rather than described:
+
+    - Dropping the `sales_lot_id is not None` half reds the **second** call,
+      the plain item listing:
+      `LockSetChanged: listing 2 belongs to lot None, whose row this pass did
+      not take`. Every ordinary receipt would refuse.
+    - Dropping the `not in held` half reds the **first** call, the lot
+      listing whose lot *is* held:
+      `LockSetChanged: listing 1 belongs to lot 1, whose row this pass did
+      not take`. The check would refuse every lot listing it was handed.
+
+    The third call is what fails if the raise goes altogether. Three calls,
+    three independent ways to be wrong.
     """
     lot_id = offered_lot_listing.sales_lot_id
     assert lot_id is not None

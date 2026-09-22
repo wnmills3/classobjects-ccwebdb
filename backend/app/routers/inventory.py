@@ -529,7 +529,16 @@ def receive_items(
     # nothing like the rest of the receipt, and a refusal must not leave half
     # the offers ended. Nothing is written when it fires -- the router commits
     # once, at the end.
-    if ends_offer and locked is not None:
+    if ends_offer:
+        # Asserted, not tolerated. `locked` is set by the pass above under
+        # exactly this condition, so `is not None` is true today -- and an
+        # `if` here instead would mean that the day it stopped being true,
+        # this endpoint would **silently skip ending the offers of a coin it
+        # had just marked `missing`**, leaving it on sale with no error
+        # anywhere. That is the worst outcome this endpoint has, and it is
+        # not one to guard against by doing nothing. The assert is also what
+        # gives `locked.lot_ids` below a non-optional type.
+        assert locked is not None
         live_offers = list(
             offering_writes.offers_holding(db, [item.id for item in items])
         )
