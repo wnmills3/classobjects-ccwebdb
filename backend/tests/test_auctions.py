@@ -19,7 +19,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from app import lot_writes
+from app import lot_writes, offering_writes
 from app.auctions import (
     AuctionRefused,
     add_lot,
@@ -956,7 +956,8 @@ def test_marking_one_member_of_an_auction_lot_missing_is_refused(
     assert f"listing #{listing.id} of auction #{auction_lot.auction_id}" in detail
     # The way out, named: a refusal an operator cannot act on is a 500 with
     # better manners.
-    assert "Remove the lot from the auction first" in detail
+    assert "Take the lot out of the auction first" in detail
+    assert "settle it as withdrawn" in detail
     assert "missing" in detail
 
     db.refresh(listing)
@@ -981,6 +982,44 @@ def test_marking_one_member_of_an_auction_lot_missing_is_refused(
     # committed.
     assert plain_item.status.code == "received"
     assert db.get(AuctionLot, auction_lot.id) is not None
+
+
+def test_marking_a_coin_on_a_direct_auction_listing_missing_ends_it(
+    db: Session, admin_user: User, make_item: ItemFactory, ebay_venue: SalesVenue
+) -> None:
+    """A receipt still ends an auction-format listing that is in no auction.
+
+    The Offer dialog offers a coin directly on eBay by auction; no
+    `auction_lot` row exists, so there is nothing to take it out of first.
+    `_refuse_auction_lots` keyed on `format` alone would have refused this
+    with advice that cannot be followed (review of the final fix wave,
+    Important #1). It keys on the `auction_lot` row now, so the receipt ends
+    the offer the way it ends any other.
+    """
+    item = make_item()
+    listing = offering_writes.offer(
+        db,
+        item=item,
+        venue=ebay_venue,
+        listing_format=ListingFormat.auction,
+        price=Decimal("10.00"),
+        title="1921 Morgan dollar",
+        description="",
+        external_id=None,
+    )
+    db.flush()
+
+    receive_items(
+        ReceiveRequest(
+            item_ids=[item.id], outcome="missing", acknowledge_for_sale=True
+        ),
+        db,
+        admin_user,
+    )
+
+    db.expire_all()
+    assert db.get_one(Listing, listing.id).status is ListingStatus.ended
+    assert db.get_one(InventoryItem, item.id).status.code == "missing"
 
 
 def test_consigning_notes_the_move_with_the_auction(

@@ -291,6 +291,7 @@ def _closed_auction(
     *,
     lot_count: int,
     consigned: bool = False,
+    closed: bool = True,
 ) -> tuple[int, list[int], list[int]]:
     """A closed auction of `lot_count` single-coin lots, real and committed.
 
@@ -307,6 +308,9 @@ def _closed_auction(
     `consigned=True` runs `consign` between `schedule` and `close`, which is
     the state ruling R13 is about: `close` leaves `consigned_on` set, so a
     closed auction's coins may still be sitting at the house.
+
+    `closed=False` stops at `scheduled`, for the race between `consign` and
+    `cancel`, which is the one status both accept.
     """
     with factory() as session:
         venue = session.get_one(SalesVenue, venue_id)
@@ -339,7 +343,8 @@ def _closed_auction(
         auctions.schedule(session, auction)
         if consigned:
             auctions.consign(session, auction, on_date=date(2026, 9, 1))
-        auctions.close(session, auction)
+        if closed:
+            auctions.close(session, auction)
         session.commit()
         return auction.id, lot_ids, item_ids
 
@@ -935,7 +940,10 @@ def test_cancelling_an_auction_races_settling_it(
       lock is back, which is why the test forbids both.
 
     Restoring the line makes it green again; fifteen further runs of
-    fifteen, no failure.
+    fifteen, no failure. The red is by likelihood, not by construction: a
+    run in which `cancel` finishes all six lots before `settle` asks for the
+    auction row never overlaps and passes even without the lock. It has not
+    been observed, which is what six lots are for.
 
     **One distinction this test deliberately preserves.** If `settle` commits
     without ever contending, `cancel`'s final `UPDATE auction` matches zero
@@ -1126,3 +1134,94 @@ def test_cancelling_an_auction_races_settling_it(
             )
             is None
         )
+
+
+def test_consigning_an_auction_races_cancelling_it(
+    committed: sessionmaker[Session],
+) -> None:
+    """Consign and cancel the same scheduled auction at once: no deadlock.
+
+    Found by the review of the final fix wave (Important #2). Once `cancel`
+    took the `auction` row first, `consign` became the next writer that
+    reached an auction's coins before its auction row: its item moves
+    flushed before its `UPDATE auction`, so on a `scheduled` auction -- the
+    one status both accept -- each could hold what the other wanted.
+    `consign` now takes `_lock_auction` first as well.
+
+    Two outcomes are legal and both are asserted: `consign` first, and the
+    cancel that follows re-reads `consigned`, brings every coin back to the
+    drawer and cancels; or `cancel` first, and `consign` re-reads
+    `cancelled` and is refused by name. Either way the auction ends
+    cancelled with no coin left at the house.
+    """
+    venue_id = _house_venue(committed, f"{RACE_PREFIX}-consign")
+    drawer_id = _drawer(committed)
+    auction_id, _, item_ids = _closed_auction(
+        committed, venue_id, lot_count=6, closed=False
+    )
+    barrier = threading.Barrier(2)
+    refusals: list[str] = []
+
+    def consign_it() -> Outcome:
+        with committed() as session:
+            try:
+                auction = session.get_one(Auction, auction_id)
+                barrier.wait(timeout=10)
+                auctions.consign(session, auction, on_date=date(2026, 9, 1))
+                session.commit()
+                return "consigned"
+            except AuctionRefused as exc:
+                session.rollback()
+                refusals.append(str(exc))
+                return "refused"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    def cancel_it() -> Outcome:
+        with committed() as session:
+            try:
+                auction = session.get_one(Auction, auction_id)
+                barrier.wait(timeout=10)
+                auctions.cancel(session, auction, returned_to_location_id=drawer_id)
+                session.commit()
+                return "cancelled"
+            except AuctionRefused as exc:
+                session.rollback()
+                refusals.append(str(exc))
+                return "refused"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(consign_it)
+        second = pool.submit(cancel_it)
+        outcomes = sorted([first.result(), second.result()])
+
+    assert "deadlock" not in outcomes, outcomes
+    assert "stale" not in outcomes, outcomes
+    assert outcomes in (["cancelled", "consigned"], ["cancelled", "refused"]), outcomes
+    if "refused" in outcomes:
+        assert refusals == [
+            f"auction #{auction_id} is cancelled, so it cannot be marked consigned"
+        ], refusals
+
+    with committed() as verify:
+        auction = verify.get_one(Auction, auction_id)
+        assert auction.status is AuctionStatus.cancelled
+        assert auction.consigned_on is None
+        for item_id in item_ids:
+            item = verify.get_one(InventoryItem, item_id)
+            if "consigned" in outcomes:
+                # They went to the house and the cancel brought them back.
+                assert item.storage_location_id == drawer_id, item_id
+            else:
+                # They never left: a build_item coin has no location at all.
+                assert item.storage_location_id is None, item_id

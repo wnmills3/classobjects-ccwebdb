@@ -436,47 +436,44 @@ def test_recording_a_manual_sale_against_an_auction_lot_is_refused(
     assert db.get_one(AuctionLot, auction_lot.id).auction_id == auction.id
 
 
-def test_the_refusal_names_no_auction_once_the_lot_has_been_removed(
+def test_a_direct_auction_format_listing_records_its_sale(
     db: Session,
-    heritage_venue: SalesVenue,
+    ebay_venue: SalesVenue,
     make_item: Callable[..., InventoryItem],
     admin_user: User,
 ) -> None:
-    """The R11 residue the whole-branch review found: a message that was untrue.
+    """An eBay auction offered directly, with no auction behind it, sells here.
 
-    `app.auctions.remove_lot` **deletes** the `auction_lot` row (ruling R11)
-    and leaves the listing with `format = auction`, so
-    `_refuse_manual_auction_sale` still fires against a listing that is in no
-    auction at all. It used to say "is an auction lot" with nothing after it,
-    which reads as "the auction is unknown" rather than "there is no
-    auction". The refusal itself was always right -- the listing is `ended`
-    by then and Record sale has nothing to sell -- so this is about the
-    sentence an operator reads, and it is asserted here rather than left to
-    a reviewer to notice again.
+    The Offer dialog offers a coin on eBay by auction without any `auction`
+    row; Record sale is the only way that sale is recorded. The guard keyed
+    on `format` alone and refused it (review of the final fix wave,
+    Important #1); it now refuses only a listing that is a lot of an auction.
     """
-    auction = Auction(sales_venue_id=heritage_venue.id, title="September Sale")
-    db.add(auction)
-    db.flush()
-    auction_lot = auctions.add_lot(
-        db, auction, make_item(), lot_number="1", reserve=None, price=Decimal("10.00")
+    listing = offering_writes.offer(
+        db,
+        item=make_item(),
+        venue=ebay_venue,
+        listing_format=ListingFormat.auction,
+        price=Decimal("10.00"),
+        title="1921 Morgan dollar",
+        description="",
+        external_id=None,
     )
-    listing = auction_lot.listing
-    auctions.remove_lot(db, auction_lot)
     db.flush()
 
-    with pytest.raises(SaleRefused, match="no longer in any auction") as refused:
-        record_sale(
-            db,
-            listing,
-            price=Decimal("50.00"),
-            buyer_username="coinfan88",
-            external_order_id=None,
-            fees=[],
-            recorded_by=admin_user,
-        )
-    # The wrong half of the old wording, stated as an assertion: nothing may
-    # claim an auction that no row names.
-    assert "auction #" not in str(refused.value)
+    order = record_sale(
+        db,
+        listing,
+        price=Decimal("50.00"),
+        buyer_username="coinfan88",
+        external_order_id=None,
+        fees=[],
+        recorded_by=admin_user,
+    )
+
+    assert order.sales_venue_id == ebay_venue.id
+    db.expire_all()
+    assert db.get_one(Listing, listing.id).status is ListingStatus.ended
 
 
 def test_settlement_still_reaches_record_sale_lines_for_an_auction_lot(

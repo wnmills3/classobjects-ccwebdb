@@ -19,6 +19,7 @@ from app.models import (
     Auction,
     InventoryItem,
     Listing,
+    ListingFormat,
     ListingStatus,
     SalesLot,
     SalesLotStatus,
@@ -601,39 +602,37 @@ def test_ending_an_auction_lot_listing_directly_is_refused(
     assert db.get_one(Listing, auction_lot.listing_id).status is ListingStatus.active
 
 
-def test_ending_a_listing_whose_lot_was_removed_names_no_auction(
+def test_ending_a_direct_auction_format_listing_is_allowed(
     client: TestClient,
     db: Session,
     admin_headers: dict[str, str],
     make_item: ItemFactory,
-    heritage_venue: SalesVenue,
+    ebay_venue: SalesVenue,
 ) -> None:
-    """The R11 residue the whole-branch review found: a message that was untrue.
+    """An auction-format listing with no auction behind it ends like any other.
 
-    `app.auctions.remove_lot` deletes the `auction_lot` row and leaves
-    `format = auction` on the listing, so this guard still fires against a
-    listing that belongs to no auction. The refusal is correct in outcome --
-    `remove_lot` already ended the offer, so there is nothing to end -- but
-    the old wording said "is an auction lot" and named no auction, which
-    reads as "unknown" rather than "none". Wording only; asserted so it stays
-    true.
+    The Offer dialog offers a coin directly on eBay by auction; no
+    `auction_lot` row exists, so there is no auction to end it through. The
+    guard keyed on `format` alone and refused it, leaving the listing with no
+    way to be ended (review of the final fix wave, Important #1).
     """
-    item = make_item()
-    auction = Auction(sales_venue_id=heritage_venue.id, title="September Sale")
-    db.add(auction)
-    db.commit()
-    auction_lot = auctions.add_lot(
-        db, auction, item, lot_number="1", reserve=None, price=Decimal("10.00")
+    listing = offering_writes.offer(
+        db,
+        item=make_item(),
+        venue=ebay_venue,
+        listing_format=ListingFormat.auction,
+        price=Decimal("10.00"),
+        title="1921 Morgan dollar",
+        description="",
+        external_id=None,
     )
-    listing_id = auction_lot.listing_id
-    auctions.remove_lot(db, auction_lot)
     db.commit()
 
-    response = client.post(f"/api/listings/{listing_id}/end", headers=admin_headers)
-    assert response.status_code == 409, response.text
-    detail = response.json()["detail"]
-    assert "no longer in any auction" in detail
-    assert "auction #" not in detail
+    response = client.post(f"/api/listings/{listing.id}/end", headers=admin_headers)
+    assert response.status_code == 200, response.text
+
+    db.expire_all()
+    assert db.get_one(Listing, listing.id).status is ListingStatus.ended
 
 
 def test_ending_an_unknown_listing_is_not_found(

@@ -312,7 +312,7 @@ def _refuse_auction_lots(
     `auction_lot`.
 
     **The premise that made this look unreachable was false by one line.**
-    The "already received" refusal above is conditioned on
+    The "already received" refusal in `receive_items` is conditioned on
     `payload.outcome == "received"`, so the three outcomes that end an offer
     -- `missing`, `returned`, `canceled` -- skip it entirely; an
     already-received coin is exactly this path's input. And
@@ -336,13 +336,22 @@ def _refuse_auction_lots(
       linking them to the auction -- the stranding rulings R9 and R13 exist
       to prevent, through a third door.
     - **After it closes, sold**, `sales_writes.record_sale_lines` refuses
-      that lot "not on offer" and the auction can never be settled.
+      that lot "not on offer" and the auction cannot be settled until the
+      lot is re-entered as withdrawn.
 
     **The trade this makes, deliberately:** a coin in an auction that goes
     missing is now a **two-step** operation -- take the lot out of the
-    auction, then record the loss -- which is the same trade ruling R25
-    already accepted for Record sale. The message says so, because the
+    auction (remove it before the auction closes; settle it as withdrawn, or
+    cancel, after), then record the loss -- which is the same trade ruling
+    R25 already accepted for Record sale. The message says so, because the
     operator is the one who has to do the second step.
+
+    **Keyed on the `auction_lot` row, not on `format` alone.** The Offer
+    dialog offers a coin directly on eBay by auction, with no auction behind
+    it; `offers_holding` returns only live listings, so a live
+    auction-format listing with no `auction_lot` row is always such a direct
+    offer, and it is ended here like any other (review of the final fix
+    wave, Important #1).
 
     Placed beside `offering_writes.refuse_if_lot_unheld`, over the
     *authoritative* `offers_holding` read and under the locks, not at the top
@@ -366,21 +375,19 @@ def _refuse_auction_lots(
         .tuples()
         .all()
     )
-    named = sorted(
-        f"listing #{live.id}"
-        + (
-            f" of auction #{auctions_by_listing[live.id]}"
-            if live.id in auctions_by_listing
-            else ""
-        )
-        for live in lots
+    if not auctions_by_listing:
+        return
+    named = ", ".join(
+        f"listing #{listing_id} of auction #{auction_id}"
+        for listing_id, auction_id in sorted(auctions_by_listing.items())
     )
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail=(
             f"Recording these items {outcome} would end an auction lot's offer: "
-            f"{named}. Remove the lot from the auction first, then record the "
-            f"items {outcome}."
+            f"{named}. Take the lot out of the auction first -- remove it, or "
+            "once the auction has closed, settle it as withdrawn or cancel the "
+            f"auction -- then record the items {outcome}."
         ),
     )
 

@@ -294,14 +294,17 @@ def add_lot(
     no backref event -- SQLAlchemy synchronises a *loaded* collection only
     when a relationship attribute is assigned, never from a bare FK column --
     so a session that had already read `auction.lots` before this call would
-    keep seeing the old, short list for the rest of the session. `consign`
-    still iterates `auction.lots`; against the FK-only construction it could
-    silently skip the very lot this call just added. Fixed in fix round 1
-    (Important #1). `cancel` used to iterate it too and now reads `_lots_of`
-    instead (whole-branch review, Minor #8), which is the stronger of the two
-    answers -- the relationship fix keeps a loaded collection honest, a fresh
-    read never asks it to be.
+    keep seeing the old, short list for the rest of the session, and a
+    caller iterating it could silently skip the very lot this call just
+    added. Fixed in fix round 1 (Important #1). `consign`, `cancel` and
+    `settle` now all read `_lots_of` instead, which is the stronger of the
+    two answers -- the relationship fix keeps a loaded collection honest, a
+    fresh read never asks it to be.
+
+    Takes the `auction` row first (`_lock_auction`), like every transition
+    that reaches an auction's coins -- see that function for why.
     """
+    auction = _lock_auction(db, auction)
     if auction.status not in (AuctionStatus.draft, AuctionStatus.scheduled):
         raise AuctionRefused(
             f"auction #{auction.id} is {auction.status.value}, so lots cannot be added"
@@ -407,8 +410,11 @@ def remove_lot(
     See this module's own docstring for why this does not need
     `offering_writes.refuse_if_lot_unheld`: `end_offer` is always called here
     on `auction_lot.listing`, a listing this function was handed by name.
+
+    Takes the `auction` row first (`_lock_auction`), like every transition
+    that reaches an auction's coins -- see that function for why.
     """
-    auction = auction_lot.auction
+    auction = _lock_auction(db, auction_lot.auction)
     if auction.status not in _LOTS_REMOVABLE:
         raise AuctionRefused(
             f"auction #{auction.id} is {auction.status.value}, "
@@ -571,7 +577,14 @@ def consign(
     falls back to a different one -- the same shape as
     `app.sales_venues.ensure_store_venue`'s `ReferenceDataMissing` for a
     missing `own_store` platform kind.
+
+    Takes the `auction` row first (`_lock_auction`), like every transition
+    that reaches an auction's coins: its item moves used to flush *before*
+    its `UPDATE auction`, the inverse of `cancel`, so the two could deadlock
+    on a scheduled auction. Reads its lots through `_lots_of`, not
+    `auction.lots`, for the reason that function gives.
     """
+    auction = _lock_auction(db, auction)
     venue = auction.sales_venue
     if venue.kind.code != _AUCTION_HOUSE_KIND_CODE:
         raise AuctionRefused(
@@ -585,7 +598,7 @@ def consign(
         )
     location = _consigned_location(db, venue.name)
     note = f"Consigned to auction #{auction.id}"
-    for auction_lot in auction.lots:
+    for auction_lot in _lots_of(db, auction):
         for item in offering_writes.offered_items(db, auction_lot.listing):
             lifecycle_writes.set_location(
                 db, item, location.id, user_id=user_id, note=note
@@ -717,12 +730,14 @@ def cancel(
     (`tests/test_settlement_race.py`) is the proof, and reds with
     `['cancelled', 'deadlock']` when this line is removed.
 
-    **No other transition needs it.** `remove_lot`, `add_lot` and `consign`
-    are each gated to `draft`/`scheduled`/`consigned`, on which `settle`
-    refuses immediately after taking the auction row and therefore never goes
-    on to wait for an item; `close` and `schedule` take no rows but the
-    auction's own. Adding `_lock_auction` to them is defensible hardening,
-    not a fix for this cycle.
+    **`add_lot`, `remove_lot` and `consign` take it first too.** Against
+    `settle` alone they would not need to -- each is gated to statuses
+    `settle` refuses on -- but `cancel` is legal on exactly those statuses,
+    and once `cancel` holds the auction row from its first statement, a
+    transition that reaches coins first and the auction row last inverts
+    against it. `consign` did: its item moves flushed before its
+    `UPDATE auction`. `close` and `schedule` take no rows but the auction's
+    own.
 
     A second effect, and a wanted one: the status and custody checks below
     now read a **locked, re-read** row, so cancel-versus-cancel and a stale
@@ -878,14 +893,18 @@ def _lock_auction(db: Session, auction: Auction) -> Auction:
     other auction transitions and cannot invert against lots, items or
     listings -- which is what makes adding a level here safe at all.
 
-    **Taken by `settle` and by `cancel`, and by both or by neither.** The
-    two are the writers that go on to take an auction's coins, and ruling R8
-    made them both legal on a `closed` auction. One taking this level and the
-    other not is the "caller that bypasses the owner" shape, one level up:
-    measured as a real `DeadlockDetected` and an HTTP 500 in the whole-branch
-    review (Critical #1), and now proven by
-    `test_cancelling_an_auction_races_settling_it`. Any future transition
-    that reaches a coin must take this first as well.
+    **Taken first by every transition that reaches an auction's coins** --
+    `add_lot`, `remove_lot`, `consign`, `cancel` and `settle` -- and by all
+    of them or by none. One taking this level and another not is the "caller
+    that bypasses the owner" shape, one level up: `settle` alone took it
+    until the whole-branch review measured a real `DeadlockDetected` and an
+    HTTP 500 against `cancel` (Critical #1, proven by
+    `test_cancelling_an_auction_races_settling_it`), and the review of that
+    fix found the same inversion between the newly-locking `cancel` and
+    `consign`, whose item moves flushed before its `UPDATE auction`. Any
+    future transition that reaches a coin must take this first as well.
+    `schedule` and `close` touch only the auction row and rely on its
+    `version` column.
 
     Why it is needed: `settle` decides what to write from the auction's
     status and its lot table, and then writes both. Two settlements of one
@@ -926,11 +945,13 @@ def _lots_of(db: Session, auction: Auction) -> list[AuctionLot]:
     these rows, so a stale collection here is a lot left unsettled inside a
     transaction that then marks the auction `settled`; `cancel` removes every
     one of them, so a stale collection there is a lot left live under an
-    auction that reads `cancelled`.
+    auction that reads `cancelled`. A fresh read closes that only together
+    with the auction lock: `add_lot` takes `_lock_auction` first, so it
+    cannot insert a lot between another transition's read and its commit.
 
     Ascending id, one order for every pass, so two concurrent passes over the
-    same auction cannot take the same rows two ways. Both callers now share
-    this function rather than each sorting for itself.
+    same auction cannot take the same rows two ways. Every caller shares
+    this function rather than sorting for itself.
     """
     return list(
         db.scalars(
