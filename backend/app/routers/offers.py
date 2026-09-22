@@ -30,6 +30,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from .. import lot_writes, offering_writes, sales_writes
 from ..deps import AdminUser, DbSession
 from ..models import (
+    AuctionLot,
     InventoryItem,
     Listing,
     ListingFormat,
@@ -554,14 +555,56 @@ def update_listing(
     return _out(_get_listing(db, listing_id))
 
 
+def _refuse_auction_lot(db: Session, listing: Listing) -> None:
+    """Refuse to end an auction-format listing directly. Task 5, defect 1.
+
+    An auction-format listing always belongs to an `auction_lot`
+    (`uq_auction_lot_listing_id`), and `app.auctions` is that row's sole
+    writer -- `remove_lot`, `cancel` and `settle` each end the listing
+    *and* either delete the `auction_lot` row or record its result, in one
+    transaction. This endpoint calls only `offering_writes.end_offer`, which
+    has no idea `auction_lot` exists: ending an auction listing through here
+    would leave a live `auction_lot` row pointing at a listing that is no
+    longer offered.
+
+    That is not a hypothetical. `app.auctions.consign` reads an auction's
+    coins through `offering_writes.offered_items(db, auction_lot.listing)`,
+    which answers `[]` for an ended listing -- so a lot ended this way would
+    be silently skipped, and the owner would see an auction reporting itself
+    consigned while that lot's coins never moved. `GET /api/listings` would
+    also go on showing the lot as `ended`, with no auction transition ever
+    having produced that state.
+
+    The fix is a guard, not a rewrite: an auction lot is ended through its
+    auction -- `remove_lot`, `cancel` (both a withdrawal) or `settle` (a
+    result) -- never directly, the same way `routers.auctions` has no
+    endpoint that writes `listing.status` for an auction lot itself.
+    """
+    if listing.format is ListingFormat.auction:
+        auction_id = db.scalar(
+            select(AuctionLot.auction_id).where(AuctionLot.listing_id == listing.id)
+        )
+        where = f" of auction #{auction_id}" if auction_id is not None else ""
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"listing #{listing.id} is an auction lot{where}; end it through "
+                "the auction (remove the lot, cancel, or settle), not directly"
+            ),
+        )
+
+
 @router.post("/listings/{listing_id}/end")
 def end_listing(listing_id: int, db: DbSession, _admin: AdminUser) -> ListingOut:
     """End an offer, resuming any store listing it set aside.
 
     Withdrawal, not a sale: `sold=True` belongs to the record-a-sale path,
     which has a buyer and a price to record alongside the ending.
+
+    Refuses an auction-format listing outright -- see `_refuse_auction_lot`.
     """
     listing = _get_listing(db, listing_id)
+    _refuse_auction_lot(db, listing)
     try:
         offering_writes.end_offer(db, listing, sold=False)
         db.commit()

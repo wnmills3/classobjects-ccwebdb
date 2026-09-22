@@ -1601,6 +1601,257 @@ class SaleRecordedOut(BaseModel):
     item_codes: list[str]
 
 
+# --------------------------------------------------------------------------
+# Auctions
+# --------------------------------------------------------------------------
+
+
+class AuctionIn(BaseModel):
+    """Start an auction. It begins `draft`, with no lots."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: A `sales_venue` code.
+    venue: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=255)
+    #: The house's own number for the sale.
+    external_id: str | None = Field(default=None, max_length=128)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    notes: str | None = None
+
+
+class AuctionUpdate(BaseModel):
+    """A change to an auction's own wording or dates. Omitted fields are left alone.
+
+    Never the platform: an auction's lots are already offered on
+    `auction.sales_venue`, and changing it here would desync them from the
+    listings `add_lot` created against the venue this row named at the time.
+    Never the status either -- each transition is its own endpoint, because
+    moving from one status to the next has consequences a field assignment
+    cannot express.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    external_id: str | None = Field(default=None, max_length=128)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    notes: str | None = None
+    #: The version the form loaded; a mismatch is a 409.
+    version: int | None = None
+
+
+class AuctionLotIn(BaseModel):
+    """Add a lot to an auction: an assembled lot, or a single item as a lot of one.
+
+    Exactly one of `item_id` and `lot_id` -- the same discipline `OfferIn`
+    holds `items` and `lot_id` to, and for the same reason: a request naming
+    both or neither is ambiguous rather than merely redundant.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    lot_number: str = Field(min_length=1, max_length=32)
+    item_id: int | None = None
+    lot_id: int | None = None
+    reserve: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+    #: The starting bid. Defaults to 0 when omitted, `add_lot`'s own meaning
+    #: for "none given".
+    price: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+    title: str | None = Field(default=None, max_length=500)
+    description: str | None = None
+    external_id: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def _one_subject(self) -> AuctionLotIn:
+        """Exactly one of `item_id`, `lot_id` -- never both, never neither."""
+        if (self.item_id is None) == (self.lot_id is None):
+            raise ValueError("Exactly one of item_id or lot_id is required")
+        return self
+
+
+class AuctionLotUpdate(BaseModel):
+    """Renumber a lot, or change its reserve. Omitted fields are left alone."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lot_number: str | None = Field(default=None, min_length=1, max_length=32)
+    reserve: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+
+
+class AuctionConsignIn(BaseModel):
+    """Mark an auction consigned: when custody moved to the house."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    on_date: date
+
+
+class AuctionCancelIn(BaseModel):
+    """Cancel an auction, and where its consigned items come back to, if any."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    returned_to_location_id: int | None = None
+
+
+class AuctionLotOut(BaseModel):
+    """One lot in an auction: its slot in the sale, and the listing behind it."""
+
+    id: int
+    lot_number: str
+    reserve: Decimal | None = None
+    #: `sold`, `unsold` or `withdrawn`; null until the auction is settled.
+    result: str | None = None
+    hammer_price: Decimal | None = None
+    #: The buyer's display name, once the lot has sold. Null before
+    #: settlement, and for an auction house that never named one.
+    buyer: str | None = None
+    listing: ListingOut
+
+
+class AuctionOut(BaseModel):
+    """One auction, with every lot it currently holds."""
+
+    id: int
+    #: A `sales_venue` code.
+    venue: str
+    venue_name: str
+    title: str
+    external_id: str | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    status: str
+    #: When custody moved to the house. Null unless it is, or was, consigned.
+    consigned_on: date | None = None
+    notes: str | None = None
+    #: Send this back on a PATCH to be told about a conflicting edit.
+    version: int
+    lots: list[AuctionLotOut]
+
+
+class AuctionListOut(BaseModel):
+    """Every auction the filter matched. An object, so a page count can be added."""
+
+    auctions: list[AuctionOut]
+
+
+class SettlementLineIn(BaseModel):
+    """One lot's outcome, as the settlement grid enters it.
+
+    `hammer_price` and `buyer_username` matter only when `result` is `sold`;
+    `app.auctions.settle` refuses either one given alongside an `unsold` or
+    `withdrawn` result.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    auction_lot_id: int
+    #: `sold`, `unsold` or `withdrawn`.
+    result: str
+    #: Same precision limits as `OfferItemIn.price`, for the same two reasons.
+    hammer_price: Decimal | None = Field(
+        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
+    )
+    buyer_username: str | None = Field(default=None, max_length=128)
+
+
+class SettlementFeesIn(BaseModel):
+    """One buyer's actual fees from the house's statement.
+
+    `buyer_username=None` is the auction house's standing undisclosed buyer
+    -- the same meaning `SettlementLineIn.buyer_username=None` carries --
+    never a blank the owner still has to fill in; the house's own statement
+    either names a buyer or it does not.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    buyer_username: str | None = Field(default=None, max_length=128)
+    fees: list[FeeLineIn] = Field(default_factory=list)
+
+
+class SettleIn(BaseModel):
+    """A whole settlement grid: every lot's result, and every buyer's fees."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Capped for the reason `OfferIn.items` is: one request is one
+    #: transaction holding one row lock per item the auction's lots name.
+    #:
+    #: No `min_length=1`: an empty grid is `app.auctions.settle`'s own
+    #: refusal to make, naming every lot that has no result -- the same
+    #: reason `OfferIn.items` carries no minimum either.
+    lines: list[SettlementLineIn] = Field(default_factory=list, max_length=500)
+    fees: list[SettlementFeesIn] = Field(default_factory=list, max_length=200)
+    #: Where a house's unsold and withdrawn lots come back to. Required only
+    #: when the house still holds something and at least one lot is coming
+    #: back -- `app.auctions.settle` decides that, not this schema.
+    returned_to_location_id: int | None = None
+
+    @model_validator(mode="after")
+    def _refuse_duplicate_fee_buyers(self) -> SettleIn:
+        """Refuse two fee groups naming the same `buyer_username` exactly.
+
+        Two groups whose spelling merely *casefolds* to the same buyer --
+        `CoinFan88` and `coinfan88` -- are `app.auctions.settle`'s own job to
+        catch and name (ruling R17): each survives into the `Mapping` this
+        schema builds, because a `dict` keyed on the literal strings keeps
+        both. An **exact** repeat of one spelling would not: building that
+        `Mapping` from this list would let the second entry silently
+        overwrite the first, which is the "a lookup miss must not default
+        silently" hazard for a write instead of a read. Caught here, before
+        that `Mapping` is ever built, rather than let one buyer's fees
+        vanish.
+        """
+        seen: set[str | None] = set()
+        duplicated: list[str] = []
+        for group in self.fees:
+            if group.buyer_username in seen:
+                duplicated.append(group.buyer_username or "the undisclosed buyer")
+            seen.add(group.buyer_username)
+        if duplicated:
+            raise ValueError(
+                f"fees given twice for the same buyer_username: {', '.join(duplicated)}"
+            )
+        return self
+
+
+class SettleOut(BaseModel):
+    """What a settlement wrote: the auction as it now stands, and every order."""
+
+    auction: AuctionOut
+    orders: list[SaleRecordedOut]
+
+
+class AuctionRefusalOut(BaseModel):
+    """One problem a refused auction transition named."""
+
+    reason: str
+
+
+class AuctionRefusedOut(BaseModel):
+    """The 409 or 422 body an `AuctionRefused`-family exception produces.
+
+    `refused` always holds at least one entry: most transitions refuse for
+    one reason, and `settle` may refuse for several -- see
+    `app.main._problem_list`, which splits `app.auctions.settle`'s
+    semicolon-joined message back into one entry per problem so a single-lot
+    refusal and a whole grid's worth both carry this same shape.
+    """
+
+    detail: str
+    refused: list[AuctionRefusalOut]
+
+
 class PurchaseOrderCreate(BaseModel):
     """A new purchase: a vendor, and everything else optional.
 
