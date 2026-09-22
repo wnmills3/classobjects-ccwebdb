@@ -33,6 +33,7 @@ import pytest
 from app import offering_writes, sales_writes
 from app.auctions import (
     AuctionRefused,
+    SettlementInputInvalid,
     SettlementLine,
     add_lot,
     close,
@@ -45,6 +46,7 @@ from app.models import (
     AuctionLot,
     AuctionLotResult,
     AuctionStatus,
+    Customer,
     InventoryItem,
     Listing,
     ListingFormat,
@@ -825,9 +827,14 @@ def test_a_marketplace_lot_must_name_its_buyer(
 def test_a_negative_fee_refuses_the_whole_settlement(
     db: Session, closed_auction: Auction, admin_user: User
 ) -> None:
-    """A refund is not a negative fee, and one bad number stops everything."""
+    """A refund is not a negative fee, and one bad number stops everything.
+
+    `SettlementInputInvalid` by name (ruling R15) -- the wider
+    `AuctionRefused` would keep passing if the pair were collapsed, since
+    this is a subclass of it.
+    """
     before = db.scalar(select(func.count()).select_from(SalesOrder))
-    with pytest.raises(AuctionRefused, match="negative"):
+    with pytest.raises(SettlementInputInvalid, match="negative"):
         settle(
             db,
             closed_auction,
@@ -851,8 +858,14 @@ def test_a_sub_cent_hammer_price_is_refused(
     So a row and the shares split from it would disagree by a cent. The
     predicate is `sales_writes.money_problem`'s, asked here rather than
     written out a second time.
+
+    `SettlementInputInvalid`, not the wider `AuctionRefused`: sub-cent binds
+    hammer prices and not only fees, and it is bad input either way (ruling
+    R15). Naming the narrower class is what makes this fail if the pair is
+    ever collapsed -- `pytest.raises(AuctionRefused)` would keep passing,
+    since the narrower one is a subclass.
     """
-    with pytest.raises(AuctionRefused, match="cent"):
+    with pytest.raises(SettlementInputInvalid, match="cent"):
         settle(
             db,
             closed_auction,
@@ -1144,3 +1157,210 @@ def test_settlement_ends_only_item_listings_it_did_not_name(
 
     assert store_listing.status is ListingStatus.ended
     assert store_listing.paused_by_listing_id is None
+
+
+# --------------------------------------------------------------------------
+# Which refusal (ruling R15), and who the buyer is (ruling R17)
+# --------------------------------------------------------------------------
+
+
+def test_bad_money_and_a_conflict_are_different_refusals(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """A number that is not money is 422; a conflict with the auction is 409.
+
+    The two are a subclass pair, mirroring `sales_writes.SaleInputInvalid`
+    under `SaleRefused`, so **`pytest.raises(AuctionRefused)` catches both**
+    and asserting the type alone would prove nothing. Each case therefore
+    asserts `isinstance` in the direction that can fail: the money one *is*
+    a `SettlementInputInvalid`, the conflict one is *not*.
+
+    This is also the only thing standing between a reversed pair of `except`
+    clauses in Task 5's router and every 422 silently becoming a 409 -- mypy
+    cannot see that ordering, because the narrower type is still assignable
+    to the wider one.
+    """
+    lots = lots_of(db, closed_auction)
+    sold = sold_everything(db, closed_auction, price=Decimal("100.00"), buyer="amy")
+
+    with pytest.raises(AuctionRefused) as bad_money:
+        settle(
+            db,
+            closed_auction,
+            lines=sold,
+            fees={"amy": [FeeLine("commission", Decimal("-1.00"))]},
+            settled_by=admin_user,
+        )
+    assert isinstance(bad_money.value, SettlementInputInvalid)
+
+    with pytest.raises(AuctionRefused) as conflict:
+        settle(
+            db,
+            closed_auction,
+            lines=[SettlementLine(lots[0].id, AuctionLotResult.unsold)],
+            fees={},
+            settled_by=admin_user,
+        )
+    assert not isinstance(conflict.value, SettlementInputInvalid)
+
+
+def test_a_grid_with_both_kinds_of_problem_refuses_as_the_wider_one(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """409 is the safer answer about a mixture: something really is in the way.
+
+    Lot 1 carries a negative price (bad input) and lot 2 no result at all (a
+    conflict). Saying "the form was wrong" about that would send the owner
+    looking only at the numbers.
+    """
+    lots = lots_of(db, closed_auction)
+    with pytest.raises(AuctionRefused) as caught:
+        settle(
+            db,
+            closed_auction,
+            lines=[
+                SettlementLine(
+                    lots[0].id, AuctionLotResult.sold, Decimal("-1.00"), "amy"
+                )
+            ],
+            fees={"amy": []},
+            settled_by=admin_user,
+        )
+    assert not isinstance(caught.value, SettlementInputInvalid)
+    assert "negative" in str(caught.value)
+    assert "lot 2 has no result" in str(caught.value)
+
+
+def test_two_spellings_of_one_buyer_make_one_order(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """`CoinFan88` and `coinfan88` are one person, so they are one order.
+
+    Grouping case-sensitively while `buyers.venue_buyer` matches
+    case-insensitively wrote **two orders against a single customer** --
+    which reconciles against the house's statement one order short, with
+    nothing in the schema saying the two belong together (ruling R17).
+
+    The fee is keyed with a third spelling, so this also proves the `fees`
+    mapping is folded the same way rather than only the lots.
+    """
+    lots = lots_of(db, closed_auction)
+    orders = settle(
+        db,
+        closed_auction,
+        lines=[
+            SettlementLine(
+                lots[0].id, AuctionLotResult.sold, Decimal("100.00"), "CoinFan88"
+            ),
+            SettlementLine(
+                lots[1].id, AuctionLotResult.sold, Decimal("200.00"), "coinfan88"
+            ),
+            SettlementLine(
+                lots[2].id, AuctionLotResult.sold, Decimal("300.00"), " COINFAN88 "
+            ),
+            SettlementLine(lots[3].id, AuctionLotResult.unsold),
+        ],
+        fees={"COINFAN88": [FeeLine("commission", Decimal("60.00"))]},
+        settled_by=admin_user,
+    )
+
+    assert len(orders) == 1
+    assert len(orders[0].items) == 3
+    assert orders[0].total_amount == Decimal("600.00")
+    assert sum(share.fee_amount for share in shares_of(db, orders[0])) == Decimal(
+        "60.00"
+    )
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(Customer)
+            .where(Customer.sales_venue_id == closed_auction.sales_venue_id)
+        )
+        == 1
+    )
+    db.expire_all()
+    assert {row.buyer_customer_id for row in lots_of(db, closed_auction)} == {
+        orders[0].customer_id,
+        None,
+    }
+
+
+def test_the_customer_keeps_the_spelling_the_owner_typed(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """Grouping folds case; the customer record must not.
+
+    The first spelling the grid used is what is stored -- never
+    `coinfan88`, which is a key this module invented and not a name anyone
+    entered.
+    """
+    lots = lots_of(db, closed_auction)
+    orders = settle(
+        db,
+        closed_auction,
+        lines=[
+            SettlementLine(
+                lots[0].id, AuctionLotResult.sold, Decimal("100.00"), "CoinFan88"
+            ),
+            SettlementLine(
+                lots[1].id, AuctionLotResult.sold, Decimal("100.00"), "coinfan88"
+            ),
+            SettlementLine(lots[2].id, AuctionLotResult.unsold),
+            SettlementLine(lots[3].id, AuctionLotResult.unsold),
+        ],
+        fees={"CoinFan88": []},
+        settled_by=admin_user,
+    )
+    # Both assertions, because either alone passes for the wrong reason: a
+    # grouping that did not fold would still store `CoinFan88` on its first
+    # order, and a group that stored the fold would still be one order.
+    assert len(orders) == 1
+    assert orders[0].customer.venue_username == "CoinFan88"
+
+
+def test_fees_keyed_to_a_buyer_nobody_bought_as_still_refuse(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """Folding the fee keys must not fold *every* key into a match.
+
+    `ghost` casefolds to itself and still bought nothing, so the orphan-fee
+    refusal survives ruling R17 rather than being swallowed by the wider
+    comparison.
+    """
+    with pytest.raises(AuctionRefused, match="bought nothing"):
+        settle(
+            db,
+            closed_auction,
+            lines=sold_everything(
+                db, closed_auction, price=Decimal("100.00"), buyer="CoinFan88"
+            ),
+            fees={
+                "coinfan88": [],
+                "ghost": [FeeLine("commission", Decimal("10.00"))],
+            },
+            settled_by=admin_user,
+        )
+
+
+def test_one_buyer_given_two_fee_keys_that_fold_together_is_refused(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """Two fee rows for one buyer would silently drop one of them.
+
+    `fee_lines` is a dict keyed on the folded name, so without this refusal
+    the second spelling would overwrite the first and a real fee would vanish
+    from the order.
+    """
+    with pytest.raises(AuctionRefused, match="given twice"):
+        settle(
+            db,
+            closed_auction,
+            lines=sold_everything(
+                db, closed_auction, price=Decimal("100.00"), buyer="CoinFan88"
+            ),
+            fees={
+                "CoinFan88": [FeeLine("commission", Decimal("10.00"))],
+                "coinfan88": [FeeLine("processing", Decimal("5.00"))],
+            },
+            settled_by=admin_user,
+        )
