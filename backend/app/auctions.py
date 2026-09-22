@@ -125,6 +125,7 @@ from .models import (
 
 __all__ = [
     "AuctionRefused",
+    "SettlementInputInvalid",
     "SettlementLine",
     "add_lot",
     "cancel",
@@ -138,6 +139,46 @@ __all__ = [
 
 class AuctionRefused(Exception):
     """One auction transition cannot happen now, with the reason for a person."""
+
+
+class SettlementInputInvalid(AuctionRefused):
+    """The settlement grid itself is malformed, not in conflict with the state.
+
+    A hammer price or a fee that is negative, or given to less than the cent
+    -- bad input, the spec's *Errors* split between "bad input" and "conflicts
+    with other work ... or a stale version". Everything else `settle` refuses
+    stays plain `AuctionRefused`: the auction is not `closed`, a lot has no
+    result or two, a line names a lot from another sale, a sold lot outside
+    an auction house names no buyer, fees are given for someone who bought
+    nothing, or coins have nowhere to come back to. Each of those is a real
+    conflict between what the grid says and what the auction is, which the
+    owner could not have known from the form alone.
+
+    **Task 5 maps this to 422 and plain `AuctionRefused` to 409**, so the
+    same bad number refuses the same way whether it was typed into the
+    settlement grid or into the Listings page's Record sale -- that one
+    reaches `sales_writes.SaleInputInvalid`, which this deliberately mirrors
+    (ruling R15). A subclass, not a field, for exactly the reasons
+    `SaleInputInvalid`'s own docstring gives: every existing
+    `except AuctionRefused` and `pytest.raises(AuctionRefused)` keeps
+    catching this unchanged, and an HTTP layer dispatches by `except` clause
+    order rather than by matching on a message string.
+
+    **The same warning applies here as there: mypy does not check that
+    ordering.** A reversed `except AuctionRefused` before
+    `except SettlementInputInvalid` still type-checks cleanly, and every 422
+    silently becomes a 409. `test_bad_money_and_a_conflict_are_different_refusals`
+    in `test_auction_settlement.py` is what stands between that reversal and
+    a silent regression until Task 5 adds its own router-level twin.
+
+    **A grid with both kinds of problem refuses as the wider one.** `settle`
+    reports every problem in one message, and a message that contains a real
+    conflict is not merely bad input -- so `SettlementInputInvalid` is raised
+    only when *every* problem in it is a money problem. 409 is the safer
+    answer when the two are mixed: it tells the owner something about the
+    auction is in the way, which is true, rather than that the form alone was
+    wrong, which is not.
+    """
 
 
 #: Statuses in which a lot may still be withdrawn *individually*, through the
@@ -647,26 +688,51 @@ class SettlementLine:
     buyer_username: str | None = None
 
 
-def _buyer_key(username: str | None) -> str | None:
-    """The buyer a username names, normalised exactly as `venue_buyer` does.
+def _buyer_name(username: str | None) -> str | None:
+    """The username as the owner typed it, minus surrounding whitespace.
 
-    Strip, then treat empty as absent. Through the same rule rather than a
-    second one, because this is what decides how many *orders* a settlement
-    writes: `"amy"` and `" amy "` grouped apart here would produce two
-    orders that `buyers.venue_buyer` then hangs on one customer -- the
-    opposite of the "one order per buyer" the spec's *Settle* row asks for,
-    and invisible until someone counted the orders.
+    What goes **into the customer record**, through `buyers.venue_buyer`.
+    Empty and whitespace-only both become `None`, which is that function's
+    own rule for the undisclosed buyer -- an untouched optional form field
+    sends `""`, not a missing field, and `venue_username = ''` is a distinct
+    non-null value the partial unique index cannot catch.
 
-    Case is deliberately **not** folded here even though `venue_buyer`
-    matches case-insensitively: folding would make `settle` invent a
-    username the owner did not type, and grouping `Amy` with `amy` under
-    whichever spelling happened to come first is a decision for the console's
-    grid, not for this function. The cost is that a grid spelling one buyer
-    two ways writes two orders to one customer; the console's own picker is
-    what keeps that from happening.
+    Deliberately **not** casefolded: a customer row must carry the name the
+    owner actually typed, `CoinFan88`, not a flattening of it. The folding
+    belongs to `_buyer_key` below, which decides only how the grid is
+    grouped.
     """
     stripped = username.strip() if username else None
     return stripped or None
+
+
+def _buyer_key(username: str | None) -> str | None:
+    """The grouping key for a buyer: `_buyer_name`, casefolded.
+
+    This is what decides how many *orders* a settlement writes, so it has to
+    answer the same question `buyers.venue_buyer` answers when it decides how
+    many *customers* exist -- and that one matches on
+    `func.lower(venue_username) == stored.lower()`, case-insensitively, with
+    a case-insensitive partial unique index (`uq_customer_venue_username`)
+    behind it. Grouping case-sensitively while the customer lookup folds is
+    how a grid spelling one buyer `CoinFan88` on one row and `coinfan88` on
+    the next wrote **two orders against one customer** (ruling R17): the
+    orders reconcile against the house's statement one short, and nothing in
+    the schema says they belong together.
+
+    `casefold`, not `lower`: it is the operation defined for caseless
+    matching rather than for display, it handles the cases `lower` does not,
+    and it costs nothing here. That makes this very slightly wider than
+    `venue_buyer`'s SQL `lower()`, which is the safe direction -- two
+    spellings this groups together still resolve to one customer, whereas two
+    it grouped apart could not be put back together afterwards.
+
+    The key never leaves this module. `_BuyerGroup` carries the first
+    spelling the grid used alongside it, and that is what reaches
+    `venue_buyer`.
+    """
+    name = _buyer_name(username)
+    return None if name is None else name.casefold()
 
 
 def _lock_auction(db: Session, auction: Auction) -> Auction:
@@ -730,6 +796,45 @@ def _lots_of(db: Session, auction: Auction) -> list[AuctionLot]:
     )
 
 
+@dataclass(frozen=True)
+class _Problem:
+    """One thing wrong with a settlement grid, and which refusal it belongs to.
+
+    `bad_input` marks the `SettlementInputInvalid` half -- a number that is
+    not money -- as against a genuine conflict with the auction's state
+    (ruling R15). Carried per problem rather than decided at the end from the
+    message text, because `settle` reports every problem in one message and
+    matching on a string to pick an HTTP status is exactly the
+    "default silently to the wrong status" shape `sales_writes.SaleInputInvalid`
+    was made a subclass to avoid.
+    """
+
+    text: str
+    bad_input: bool = False
+
+
+@dataclass(frozen=True)
+class _BuyerGroup:
+    """One buyer's sold lots, keyed for grouping and spelled for the record.
+
+    `key` is the casefolded form (`_buyer_key`) that every lookup uses --
+    the grouping itself, and the `fees` mapping -- so one buyer spelled two
+    ways in the grid is one order (ruling R17).
+
+    `username` is the **first spelling the grid used** for that key, passed
+    to `buyers.venue_buyer` unchanged: a customer record carries the name the
+    owner typed, never a casefolded flattening of it. First rather than last
+    only because something has to win and the earliest lot is the one the
+    owner entered first; `venue_buyer` matches case-insensitively either way,
+    so both spellings resolve to the same customer regardless of which is
+    stored.
+    """
+
+    key: str | None
+    username: str | None
+    lots: list[tuple[AuctionLot, Decimal]]
+
+
 def _grid_problems(
     auction: Auction,
     lots: Sequence[AuctionLot],
@@ -738,48 +843,55 @@ def _grid_problems(
     duplicated: Sequence[str],
     fees: Mapping[str | None, Sequence[sales_writes.FeeLine]],
     returned_to_location_id: int | None,
-) -> list[str]:
+) -> list[_Problem]:
     """Everything wrong with this settlement grid, not merely the first thing.
 
     A list rather than a raise, because the console shows a grid and fixing
     one problem per round trip is miserable -- the owner wants to see every
     lot that needs attention at once. `settle` turns whatever comes back
-    into a single `AuctionRefused`.
+    into a single refusal, whose class it picks from the `bad_input` flags.
 
     Every money check asks `sales_writes.money_problem`, the same predicate
-    `record_sale_lines` raises on. Two answers to "is this a real amount of
-    money" is how a hammer price this function waved through becomes one
+    `record_sale_lines` raises on, and every one of them is flagged
+    `bad_input=True`. Two answers to "is this a real amount of money" is how
+    a hammer price this function waved through becomes one
     `record_sale_lines` refuses part way down a settlement that has already
     written an order.
     """
-    problems: list[str] = [
-        f"lot id {line.auction_lot_id} is not in auction #{auction.id}"
+    problems: list[_Problem] = [
+        _Problem(f"lot id {line.auction_lot_id} is not in auction #{auction.id}")
         for line in unplaced
     ]
-    problems += [f"lot {number} was given two results" for number in duplicated]
+    problems += [
+        _Problem(f"lot {number} was given two results") for number in duplicated
+    ]
     names_buyers = auction.sales_venue.kind.code != _AUCTION_HOUSE_KIND_CODE
     for row in lots:
         line = by_lot.get(row.id)
         if line is None:
-            problems.append(f"lot {row.lot_number} has no result")
+            problems.append(_Problem(f"lot {row.lot_number} has no result"))
             continue
         if line.result is not AuctionLotResult.sold:
             if line.hammer_price is not None:
                 problems.append(
-                    f"lot {row.lot_number} is {line.result.value}, so it cannot "
-                    "have a hammer price"
+                    _Problem(
+                        f"lot {row.lot_number} is {line.result.value}, so it cannot "
+                        "have a hammer price"
+                    )
                 )
             continue
         if line.hammer_price is None:
-            problems.append(f"lot {row.lot_number} sold but has no hammer price")
+            problems.append(
+                _Problem(f"lot {row.lot_number} sold but has no hammer price")
+            )
         else:
             money = sales_writes.money_problem(
                 line.hammer_price, f"lot {row.lot_number}'s hammer price"
             )
             if money is not None:
-                problems.append(money)
+                problems.append(_Problem(money, bad_input=True))
         if names_buyers and _buyer_key(line.buyer_username) is None:
-            problems.append(f"lot {row.lot_number} sold but names no buyer")
+            problems.append(_Problem(f"lot {row.lot_number} sold but names no buyer"))
 
     bought: set[str | None] = {
         _buyer_key(line.buyer_username)
@@ -791,13 +903,13 @@ def _grid_problems(
         key = _buyer_key(given)
         label = given if given is not None else "the undisclosed buyer"
         if key in seen:
-            problems.append(f"fees for {label} are given twice")
+            problems.append(_Problem(f"fees for {label} are given twice"))
             continue
         seen.add(key)
         if key not in bought:
-            problems.append(f"fees are given for {label}, who bought nothing")
+            problems.append(_Problem(f"fees are given for {label}, who bought nothing"))
         problems += [
-            money
+            _Problem(money, bad_input=True)
             for money in (
                 sales_writes.money_problem(fee.amount, f"a fee for {label}")
                 for fee in fee_lines
@@ -813,15 +925,17 @@ def _grid_problems(
         ]
         if coming_home:
             problems.append(
-                f"auction #{auction.id} is consigned: returned_to_location_id is "
-                f"required to bring back lot(s) {', '.join(coming_home)}"
+                _Problem(
+                    f"auction #{auction.id} is consigned: returned_to_location_id "
+                    f"is required to bring back lot(s) {', '.join(coming_home)}"
+                )
             )
     return problems
 
 
 def _sold_by_buyer(
     lots: Sequence[AuctionLot], by_lot: Mapping[int, SettlementLine]
-) -> list[tuple[str | None, list[tuple[AuctionLot, Decimal]]]]:
+) -> list[_BuyerGroup]:
     """The sold lots grouped by buyer, both orders fixed and reproducible.
 
     One group is one order: "one order per buyer holding their lots" (spec,
@@ -830,18 +944,26 @@ def _sold_by_buyer(
     appears and the lots within a group in id order -- the same sequence
     every time, which is what lets a settlement be compared against the
     house's statement line by line.
+
+    Grouped on the casefolded `_buyer_key` and reported with the first
+    spelling seen -- see `_BuyerGroup`.
     """
-    grouped: dict[str | None, list[tuple[AuctionLot, Decimal]]] = {}
+    grouped: dict[str | None, _BuyerGroup] = {}
     for row in lots:
         line = by_lot[row.id]
         if line.result is not AuctionLotResult.sold:
             continue
         if line.hammer_price is None:  # pragma: no cover - refused by _grid_problems
             raise AuctionRefused(f"lot {row.lot_number} sold but has no hammer price")
-        grouped.setdefault(_buyer_key(line.buyer_username), []).append(
-            (row, line.hammer_price)
-        )
-    return list(grouped.items())
+        key = _buyer_key(line.buyer_username)
+        group = grouped.get(key)
+        if group is None:
+            group = _BuyerGroup(
+                key=key, username=_buyer_name(line.buyer_username), lots=[]
+            )
+            grouped[key] = group
+        group.lots.append((row, line.hammer_price))
+    return list(grouped.values())
 
 
 def settle(
@@ -922,14 +1044,31 @@ def settle(
     `test_a_failure_part_way_through_leaves_nothing_written`, whose docstring
     records what removing it looks like.
 
+    **One buyer spelled two ways is still one buyer** (ruling R17). Lots are
+    grouped on a casefolded username, the same question
+    `buyers.venue_buyer` answers when it decides how many *customers* exist,
+    so a grid saying `CoinFan88` on one row and `coinfan88` on the next
+    writes one order rather than two against a single customer. The customer
+    record keeps the first spelling the grid used, never the fold. The `fees`
+    mapping is keyed the same way.
+
     Raises `AuctionRefused` -- listing **every** problem, not the first -- if
     the auction is not `closed`, any lot lacks a result, any lot has two, any
     line names a lot from another auction, a sold lot lacks a hammer price
-    or (outside an auction house) a buyer, an unsold lot carries a price, any
-    hammer price or fee is negative or given to less than the cent, fees are
-    given for someone who bought nothing, or coins have nowhere to come back
-    to. The refusals `record_sale_lines` raises -- `sales_writes.SaleRefused`
-    and its narrower `SaleInputInvalid` -- are left to propagate unchanged;
+    or (outside an auction house) a buyer, an unsold lot carries a price,
+    fees are given twice for one buyer or for someone who bought nothing, or
+    coins have nowhere to come back to.
+
+    Raises the narrower `SettlementInputInvalid` -- still an
+    `AuctionRefused`, so nothing catching the wider one changes -- when every
+    problem found is a **number that is not money**: a negative or sub-cent
+    hammer price or fee. Task 5 maps that to 422 and the wider one to 409, so
+    the same bad figure refuses the same way here as it does through the
+    Listings page's Record sale (ruling R15). A grid holding both kinds
+    refuses as the wider one; see `SettlementInputInvalid`.
+
+    The refusals `record_sale_lines` raises -- `sales_writes.SaleRefused` and
+    its narrower `SaleInputInvalid` -- are left to propagate unchanged;
     reaching one means a conflict arrived after this function's own checks
     passed, and the savepoint above has already undone whatever had been
     written.
@@ -957,10 +1096,24 @@ def settle(
         auction, lots, by_lot, unplaced, duplicated, fees, returned_to_location_id
     )
     if problems:
-        raise AuctionRefused(
-            f"auction #{auction.id} cannot be settled: " + "; ".join(problems)
+        # The narrower class only when *every* problem is bad input (ruling
+        # R15). A message that also names a real conflict is not merely a
+        # badly filled form, and 409 is the safer of the two answers to give
+        # about a mixture -- see `SettlementInputInvalid`.
+        refusal = (
+            SettlementInputInvalid
+            if all(problem.bad_input for problem in problems)
+            else AuctionRefused
+        )
+        raise refusal(
+            f"auction #{auction.id} cannot be settled: "
+            + "; ".join(problem.text for problem in problems)
         )
 
+    # Keyed the same casefolded way the lots are grouped (ruling R17), so a
+    # fee entered against `COINFAN88` reaches the order built from lots that
+    # said `coinfan88`. `_grid_problems` has already refused two keys that
+    # casefold to one, so nothing is silently overwritten here.
     fee_lines = {_buyer_key(given): given_fees for given, given_fees in fees.items()}
     # Every coin in the auction, in one pass, through the single owner of the
     # acquisition order. Read before anything is ended, because
@@ -981,25 +1134,33 @@ def settle(
             line = by_lot[row.id]
             row.result = line.result
             row.hammer_price = line.hammer_price
-        for buyer, group in _sold_by_buyer(lots, by_lot):
+        for group in _sold_by_buyer(lots, by_lot):
             order = sales_writes.record_sale_lines(
                 db,
                 [
                     sales_writes.SaleLine(listing_id=row.listing_id, price=price)
-                    for row, price in group
+                    for row, price in group.lots
                 ],
-                buyer_username=buyer,
-                # The sale number, which is the only platform reference a
-                # settlement has: the house's statement names the sale, not
-                # one order per buyer inside it. Nothing constrains this
-                # column to be unique, so two buyers in one sale carrying the
-                # same number is the reconciliation key the owner actually
-                # has rather than a collision.
+                # The first spelling the grid used, not the casefolded key:
+                # a customer record carries the name the owner typed
+                # (ruling R17, and `_BuyerGroup`).
+                buyer_username=group.username,
+                # The sale number, and deliberately the same one on every
+                # buyer's order (ruling R18): it identifies the **sale**,
+                # which is what the owner reconciles an auction house's
+                # statement against, and the house's statement names the sale
+                # rather than one order per buyer inside it. Nothing
+                # constrains this column to be unique, so the repetition is
+                # the reconciliation key rather than a collision. If per-buyer
+                # invoice numbers are ever wanted they are a field on the
+                # settlement grid, entered from the statement -- never a value
+                # derived here, because nothing in this transaction knows
+                # them.
                 external_order_id=auction.external_id,
-                fees=fee_lines.get(buyer, ()),
+                fees=fee_lines.get(group.key, ()),
                 recorded_by=settled_by,
             )
-            for row, _ in group:
+            for row, _ in group.lots:
                 row.buyer_customer_id = order.customer_id
             orders.append(order)
 
