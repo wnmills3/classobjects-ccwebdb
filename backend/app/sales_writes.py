@@ -236,6 +236,14 @@ def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
     refuse that lot's listing as "not on offer", so the auction could never
     be settled after.
 
+    **Two messages, because there are two true things to say** (whole-branch
+    review, Minor #7). Ruling R11 has `remove_lot` *delete* the `auction_lot`
+    row while the listing keeps `format = auction`, so this guard also fires
+    against a listing that is in no auction at all -- and the old single
+    message, "is an auction lot" with the auction silently omitted, read as
+    "the auction is unknown" rather than "there is no auction". Only one of
+    the two can name an auction; both refuse.
+
     **Placed in `record_sale`, not in `record_sale_lines`.** The single-sale
     convenience wrapper is what `routers.offers.record_listing_sale` --
     "Record sale", the button beside "End" on the Listings page -- calls;
@@ -250,9 +258,14 @@ def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
         auction_id = db.scalar(
             select(AuctionLot.auction_id).where(AuctionLot.listing_id == listing.id)
         )
-        where = f" of auction #{auction_id}" if auction_id is not None else ""
+        if auction_id is None:
+            raise SaleRefused(
+                f"listing #{listing.id} was offered as an auction lot and is no "
+                "longer in any auction; its lot was removed, which ended the "
+                "offer. Offer the coins again before selling them"
+            )
         raise SaleRefused(
-            f"listing #{listing.id} is an auction lot{where}; it sells "
+            f"listing #{listing.id} is a lot of auction #{auction_id}; it sells "
             "through settlement, not Record sale"
         )
 

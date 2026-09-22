@@ -1335,7 +1335,12 @@ migration for its own sake: `ccwebdb`'s `alembic_version` already reads
 `e267ec3aedc1`, the auctions branch's head revision.
 
 **What is still outstanding is not the migration. It is seeding and a
-restart:**
+restart, and both are done *after this branch is merged into `main`*** --
+not before, and not instead of merging. Said in so many words because the
+rest of this section only implies it: the schema being current in `ccwebdb`
+says nothing about which code is checked out or running, and restarting the
+servers off an unmerged branch would put the wrong thing in front of the
+shop.
 
 1. **Load reference data.** From `backend\`, with the conda environment
    active:
