@@ -10,6 +10,21 @@ so the row locks are released rather than held until the request unwinds --
 reached from `place_order`, `revise_order` and `_lock_listings`. A caller
 that catches one of those refusals is holding a rolled-back session, not a
 live one.
+
+**Known limit: `_refuse`'s rollback is whole-session, even inside a
+savepoint.** `db.rollback()` unwinds the outermost transaction, not just the
+nearest `db.begin_nested()`, so a `_refuse` reached from inside
+`auctions.settle`'s savepoint (`place_order` is called there, through
+`sales_writes.record_sale_lines`, always with a `venue`) would discard more
+than that one buyer's order -- the whole settlement, not merely its
+savepoint. It errs safe, never unsafe: more is rolled back, never less. It is
+also unreached today, because `venue` being non-`None` already skips the two
+checks (`sellable_in_shop`, `is_active`) that gate on a shop listing, and
+settlement always requests exactly the quantity each lot listing offers, so
+the one check that still applies with a venue -- `quantity_available <
+line.quantity` -- has nothing to find. Recorded rather than fixed: narrowing
+`_refuse` to roll back to the active savepoint would need it to know whether
+one is open, which is a caller concern this module does not otherwise track.
 """
 
 from __future__ import annotations

@@ -222,6 +222,26 @@ class Listing(TimestampMixin, Base):
     Separate from `inventory_item` because an item may be listed, delisted and
     relisted at different prices, and because the public catalogue must be able
     to expose a listing without exposing the item behind it.
+
+    **Known limit: a re-offer loses the previous ending's timestamp.**
+    `ended_at` has exactly one writer (`offering_writes._end`), which only
+    ever sets it forward, once; nothing ever clears it back to `None` on the
+    row that carries it. What is missing is the other half: relisting the
+    same item or lot is always a **new** `Listing` row (`offering_writes.
+    offer`), never a reuse of the ended one, and there is no
+    `listing_status_history` table mirroring `ItemStatusHistory` to link the
+    two into one queryable timeline. The old row's `ended_at` is still in the
+    database -- reachable by `inventory_item_id` or `sales_lot_id` -- but
+    nothing walks an item's or a lot's listings as a history the way
+    `ItemStatusHistory` does for status, so the moment a listing ended is
+    effectively lost the instant the next offer starts, unless a caller
+    already knows to go looking for the earlier row. Auction settlement
+    (`app.auctions.settle`) is what makes this matter: it makes a listing's
+    ending part of the financial record -- when a lot's coins were pulled
+    from the sale and returned matters for reconciling against the house's
+    statement -- so this is the first place the gap sits under money rather
+    than under a cosmetic history view. Building the table is a separate
+    decision (`docs/specs/selling-design.md`, *Out of scope*).
     """
 
     __tablename__ = "listing"

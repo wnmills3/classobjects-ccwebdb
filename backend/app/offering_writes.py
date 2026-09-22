@@ -1131,8 +1131,12 @@ def offer(
                 member.item_code,
                 f"is already offered in the shop, listing #{ours[0].id}",
             )
-        # By listing id, because one store listing can hold more than one
-        # member and must not be paused (and have its claims moved) twice.
+        # By listing id, defensively: `_refuse_unofferable` (above, via
+        # `_refuse_grouped`) has already refused any member that is an open
+        # part of an already-offered lot, so within one call `held` can only
+        # ever be a plain item listing and `ours` cannot repeat a listing id
+        # across members. Keyed regardless, so the loop stays safe rather
+        # than relying on that invariant to hold forever.
         to_pause.update({held.id: held for held in ours})
 
     listing = Listing(

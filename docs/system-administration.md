@@ -1307,6 +1307,139 @@ all predate `offer_claim`, `sales_venue` and `item_attribute`, so before
 2026-09-20 there was no copy that had both the current schema and the
 collection in it.
 
+## Applying a schema release
+
+Two different things, kept separate on purpose:
+
+1. **What is left to do for the auctions release** (phase 4 of
+   `docs/specs/selling-design.md`), stated as the current fact -- not as a
+   migration still ahead of it.
+2. **The general procedure** a release still follows from here on, for the
+   one after this.
+
+Conflating them is the mistake to avoid: the auctions release did not reach
+`ccwebdb` by the procedure below, and knowing that is what keeps the next
+release from assuming it can skip a step because "last time we didn't need
+it."
+
+### This release: the schema is already live
+
+On 2026-09-22 a dispatched agent ran `alembic downgrade -1` and then
+`alembic upgrade head` against `ccwebdb` by mistake, while verifying a
+migration fix on a database that was already at the auctions branch's
+revision from ordinary development. No data was lost -- 7,656 items and a
+$536,118.82 cost basis, every selling table empty, verified directly --
+because the destructive step happened to land on tables holding zero rows.
+The owner's decision was to accept the state rather than re-run a rehearsed
+migration for its own sake: `ccwebdb`'s `alembic_version` already reads
+`e267ec3aedc1`, the auctions branch's head revision.
+
+**What is still outstanding is not the migration. It is seeding and a
+restart:**
+
+1. **Load reference data.** From `backend\`, with the conda environment
+   active:
+
+   ```cmd
+   python -m app.seeding load
+   ```
+
+   This is what puts `storage_location_kind.consigned` into the database.
+   It is **not** seeded by the migration -- unlike `sales_venue_kind` and
+   `sales_fee_kind`, the only two tables the schema itself seeds
+   (`backend/app/models/__init__.py`), `storage_location_kind` has always
+   been a JSON-backed vocabulary (`backend/data/reference/
+   operations.json`), and the `consigned` row was added to that file rather
+   than to the migration -- see migration `e267ec3aedc1`'s own docstring for
+   why an `INSERT` there would have been the wrong fix. Without this step,
+   `app.auctions.consign` fails the first time anyone tries to mark an
+   auction consigned, naming a reference code that does not exist.
+
+2. **Restart the servers.** `scripts\ccweb_startup.cmd` runs uvicorn without
+   `--reload`, so the backend that is already running is still serving
+   whatever code was live before this branch merged -- the schema being
+   current in the database does not make the API current. From a shell with
+   nothing depending on the current session:
+
+   ```cmd
+   scripts\ccweb_shutdown.cmd
+   scripts\ccweb_startup.cmd
+   ```
+
+**Then check:**
+
+| Check | Expected |
+|---|---|
+| `alembic_version` | `e267ec3aedc1` (`scripts\ccweb_psql.cmd -c "select version_num from alembic_version;"`) |
+| Item count and cost basis | 7,656 items, $536,118.82 total cost, unchanged from before |
+| Selling tables | 0 lots, 0 auctions, 0 fees, 0 shares -- nobody has sold anything yet |
+| `storage_location_kind` | contains `consigned` (`scripts\ccweb_psql.cmd -c "select code from storage_location_kind order by sort_order;"`) |
+| The shop catalogue | answers (`GET /api/catalog`, or load the storefront) |
+| The console | answers, and `/owner/auctions` loads with no auctions listed |
+
+### The general procedure, for the release after this one
+
+The shape the auctions release was supposed to follow, and did not get the
+chance to. Follow it next time regardless -- what happened this time was an
+accident recovered from, not a reason to trust one less step.
+
+1. **Back up, and verify the backup by restoring it -- never by `--list`.**
+   *Backing up and restoring*, above, is the whole reason this rule exists:
+   `--list` once showed a 13 MB copy that held zero inventory items, for
+   three days, before `--verify` caught it. From `backend\`:
+
+   ```cmd
+   python -m app.backup --name pre_release_YYYYMMDD
+   python -m app.backup --verify pre_release_YYYYMMDD
+   ```
+
+   `--verify` must print `matches the source on every table`. If it names
+   tables that differ, the backup is not usable and there is nothing to
+   apply the migration to yet.
+
+2. **Rehearse the migration on a scratch restore of that verified backup,
+   and show the counts before and after.** This is what *Testing*, "Before
+   live", in `docs/specs/selling-design.md` requires, and applying three
+   migrations at once to a database holding the whole collection -- as the
+   auctions release would have been, had it gone through this path -- is
+   exactly the case worth rehearsing; a scratch run costs minutes.
+
+   ```cmd
+   set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/pre_release_YYYYMMDD"
+   python -m app.backup --name ccwebdb_rehearsal
+   set "PGDATABASE=ccwebdb_rehearsal"
+   scripts\ccweb_psql.cmd -c "select count(*) from inventory_item where deleted_at is null;"
+   set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_rehearsal"
+   python -m alembic upgrade head
+   scripts\ccweb_psql.cmd -c "select count(*) from inventory_item where deleted_at is null;"
+   ```
+
+   The two counts must agree, and the second run's `alembic_version` must
+   read the new head. `scripts\ccweb_rebuild.cmd` runs `alembic upgrade
+   head` then `python -m app.seeding load`, in that order, against a
+   from-scratch database -- not `ccwebdb_rehearsal` here, which already
+   holds the collection -- but the **order** is the convention this
+   rehearsal follows too: schema first, reference data second.
+
+3. **Only then touch the live database.** Apply against `ccwebdb` itself,
+   with `DATABASE_URL` pointing at it (the default in `.env`, so usually no
+   override is needed):
+
+   ```cmd
+   python -m alembic upgrade head
+   python -m app.seeding load
+   ```
+
+4. **Check**, the same shape as *This release* above: `alembic_version`
+   reads the new head; the item count and cost basis are unchanged; every
+   table the new migration added is empty (nobody has used a feature that
+   did not exist five minutes ago); the shop catalogue and the console both
+   answer.
+
+5. **Restart the servers** -- `scripts\ccweb_shutdown.cmd` then
+   `scripts\ccweb_startup.cmd` -- for the same reason as *This release*:
+   uvicorn runs without `--reload`.
+
 ## Things that are deliberately not configurable
 
 Worth knowing so nobody goes looking for a setting that was never written:

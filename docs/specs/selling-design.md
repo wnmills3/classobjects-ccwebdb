@@ -2,8 +2,23 @@
 
 Design. Status: **agreed with the owner 2026-09-17**; phases 0-2 (offering)
 built, phase 2R (record a sale) **built 2026-09-21**, phase 3 (sales lots)
-**built 2026-09-21**. Phase 4 (auctions) follows, and **live is not migrated
-until it is merged too**.
+**built 2026-09-21**, phase 4 (auctions) **built 2026-09-22**. All four
+phases are now built; `docs/system-administration.md` (*Applying a schema
+release*) has what remains before this branch's schema and code are live.
+
+**Live is already at this phase's schema, ahead of the planned migration.**
+On 2026-09-22 a dispatched agent ran `alembic downgrade -1` then
+`alembic upgrade head` against `ccwebdb` by mistake while verifying a
+migration fix, on a database that was already at this branch's revision from
+ordinary development. No data was lost -- 7,656 items and a $536,118.82 cost
+basis, every selling table empty, verified directly -- because the
+destructive step happened to hit tables holding zero rows. The owner's
+decision was to accept the state rather than treat it as a rehearsed live
+migration: `alembic_version` reads this phase's head, but reference-data
+seeding and a server restart are still outstanding, and the planned
+backup-verify-rehearse procedure below was not the path that got it there.
+See `docs/system-administration.md` for both what remains for this release
+and the general procedure future releases still follow.
 **Revised 2026-09-20** with the owner: the phase-2 remainder, phase 3 and phase
 4 were scoped together and four points where this document and the built code
 had drifted apart were reconciled. See *Revision, 2026-09-20* below.
@@ -205,6 +220,31 @@ The public catalogue and checkout accept only listings with
 
 An auction-format listing always belongs to an auction; a timed eBay auction is
 an auction with one lot.
+
+**Ruling R11: removing a lot from an auction deletes its `auction_lot` row.**
+`app.auctions.remove_lot` deletes rather than marks it withdrawn, so a
+`lot_number` is free for reuse immediately. Chosen over marking it ended
+because `uq_auction_lot_auction_lot_number` would otherwise hold a
+now-meaningless number forever against a spec that calls lot numbers
+editable up to the sale (`refuse_unless_lot_editable`), and the partial
+unique index that would let an ended row coexist with a reused number is a
+new migration -- unacceptable once this branch's migration is already the
+one applied to the live database (see *Revision, 2026-09-20*, *Delivery*,
+above). Two consequences a future reader must not assume away:
+
+- **A removed lot leaves no auction-side record.** Nothing says a coin was
+  ever pulled into this auction and taken back out; the coin's own
+  `location_history` is the only trace, if it was ever consigned.
+- **An ended, auction-format listing may have no `auction_lot` row at all.**
+  A join from `listing` to `auction_lot` for a `format = auction` listing is
+  not guaranteed to find one once the lot has been withdrawn.
+
+`AuctionLotResult.withdrawn` is the post-close equivalent and does **not**
+carry this gap: it is a settlement result, recorded on a row `settle` keeps,
+not deletes (spec, *Settle*, below). That is exactly why the public
+`remove_lot` refuses a `closed` auction unconditionally (ruling R14) --
+pulling a lot out after the sale has closed is a settlement result to
+record, not a removal with nothing left to say what became of it.
 
 ### Sales
 
@@ -462,8 +502,15 @@ Each phase is merged and applied on its own.
    listings in the shop and at checkout, `/api/sales-lots`, and the Lots page
    (`/owner/lots`). Carries one **known defect** and one **known coverage
    hole**, both recorded below; neither is fixed on this phase's branch.
-4. **Auctions**: `auction`, `auction_lot`, the `consigned` location kind, the
-   Auctions page and settlement.
+4. **Auctions**: **built 2026-09-22.** `auction`, `auction_lot`, the
+   `consigned` location kind, the Auctions page and settlement.
+   `storage_location_kind.consigned` ships as a `data/reference/
+   operations.json` row loaded by `python -m app.seeding load`, deliberately
+   **not** a migration `INSERT` -- see the migration `e267ec3aedc1`'s own
+   docstring for why, and `backend/app/models/__init__.py` for the only two
+   tables (`sales_venue_kind`, `sales_fee_kind`) the schema itself seeds.
+   Carries one recorded decision on lot removal (ruling R11) and three known
+   limits, all below.
 
 `paused_by_listing_id` is introduced in phase 2, the first phase that pauses a
 store listing (offering a stored item on eBay pauses its store listing).
@@ -555,15 +602,26 @@ The owner decides. Nothing in phases 3 or 4 depends on the answer.
 
 **Delivery.** Three branches, merged in order: the phase-2 remainder, sales
 lots, auctions. One migration each, so `test_migrations_round_trip` exercises
-them separately, but **live is not migrated until all three are merged** -- one
-backup, one `alembic upgrade head`, one verification pass.
+them separately. The plan was **live is not migrated until all three are
+merged** -- one backup, one `alembic upgrade head`, one verification pass. It
+did not happen that way: see *Live is already at this phase's schema, ahead
+of the planned migration* at the top of this document, and
+`docs/system-administration.md` for what a deliberate release still looks
+like.
 
-**Out of scope, added 2026-09-20.** Relisting clears `ended_at` and there is no
-listing history table, so a re-offer loses the previous ending's timestamp. A
-`listing_status_history` mirroring `ItemStatusHistory` is the fix. Auction
-settlement is the first thing that makes a listing's ending part of the
-financial record, so phase 4 documents the limit where it starts to matter
-rather than quietly inheriting it. Building the table is a separate decision.
+**Out of scope, added 2026-09-20.** There is no listing history table, so a
+re-offer of the same item or lot -- always a **new** `Listing` row, never a
+reuse of the ended one -- has nothing linking it back to the row it
+succeeded: the old row's `ended_at` is still in the database, but nothing
+walks an item's or a lot's listings as one timeline the way
+`ItemStatusHistory` does for status. A `listing_status_history` mirroring
+`ItemStatusHistory` is the fix. Auction settlement (built phase 4,
+`app.auctions.settle`) is the first thing that makes a listing's ending part
+of the financial record -- when a lot's coins were pulled from the sale and
+returned matters for reconciling against the house's statement -- so this is
+where the limit starts to matter rather than staying a cosmetic gap; see the
+`Listing` model's own docstring (`backend/app/models/sales.py`). Building the
+table is a separate decision, not made on this branch.
 
 ## The lock order between `order_writes` and `offering_writes`
 
@@ -716,6 +774,36 @@ Small, deliberate, and recorded so they read as choices.
   and for the console's Lots page, whose useful default is "everything" --
   but the history list only ever grows, and `SalesLotListOut` is an object
   rather than a bare list precisely "so a page count can be added".
+
+Added with phase 4:
+
+- **`SettlementInputInvalid` is unreachable through the live settle
+  endpoint.** `app.auctions.settle` raises it when every problem in a
+  refused grid is a bad money figure, and Task 5 maps it to 422 rather than
+  409 -- but the request schemas already carry `ge=0, decimal_places=2` on
+  every hammer price and fee, so pydantic refuses a negative or sub-cent
+  figure before `settle` ever sees the grid. The 422 path is proven only by
+  monkeypatching the schema check out of the way
+  (`test_bad_money_and_a_conflict_are_different_refusals`); that is
+  belt-and-braces for a caller that bypasses the schema (a script hitting
+  the API directly, or a future client with looser validation), not a
+  defect.
+- **A rare race can create duplicate consigned `StorageLocation` rows for
+  one auction house.** `app.auctions.consign`'s "create the location the
+  first time this platform is consigned to" has no partial unique index
+  behind it, so two auctions for the same house racing their first
+  consignment can each decide no row exists yet and each create one. Fixing
+  it needs a partial unique index -- a new migration -- and the live
+  database is already at this branch's revision (see *Live is already at
+  this phase's schema*, at the top of this document); accepted and
+  documented rather than fixed on this branch.
+- **`order_writes._refuse` rolls back the whole session, even inside
+  `auctions.settle`'s savepoint.** It errs safe -- more is undone, never
+  less -- and is unreached today because settlement always passes a `venue`
+  (skipping the two checks that gate on a shop listing) and always requests
+  exactly the quantity each lot listing offers (the one check that still
+  applies with a venue). See the note where `_refuse` is defined
+  (`backend/app/order_writes.py`).
 
 ## Not in this design
 
