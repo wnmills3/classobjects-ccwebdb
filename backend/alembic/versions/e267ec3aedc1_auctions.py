@@ -6,13 +6,20 @@ Adds `auction` (`draft` -> `scheduled` -> [`consigned`] -> `closed` ->
 same relationship `sales_lot` has). `lot_number` is unique only within its
 auction, since lot numbers restart every sale.
 
-Also seeds the `consigned` storage-location kind, the same way phase 1
-seeded `sales_venue_kind`: `storage_location_kind` itself already has a
+The `consigned` storage-location kind this schema needs is deliberately
+**not** seeded here. Unlike `sales_venue_kind` and `sales_fee_kind` -- the
+only two tables the schema itself seeds by migration
+(`backend/app/models/__init__.py`) -- `storage_location_kind` already has a
 JSON-backed vocabulary (`data/reference/operations.json`, loaded by
-`app.seeding.seed_all`) that this row has also been added to for a fresh
-install, but a database that has already run past this migration is not
-re-seeded automatically, so the row is inserted here too. `_upsert` is
-idempotent on `code`, so running `seed_all` afterwards leaves this row alone.
+`app.seeding.seed_all`), and every row it has ever had came from there. The
+`consigned` code has been added to that file instead; a live database picks
+it up the next time `python -m app.seeding load` runs, which
+`scripts/ccweb_rebuild.cmd` already does immediately after `alembic upgrade
+head`. Do not "fix" this by re-adding an INSERT/DELETE pair here -- that was
+tried and reverted (see git history), because a migration for the auction
+schema has no business owning a row the vocabulary table owns, and
+`_upsert`'s `source = 'manual'` guard already makes the seeder safe to run
+against a hand-corrected database.
 
 Revision ID: e267ec3aedc1
 Revises: 0b323ea7ef7c
@@ -44,13 +51,14 @@ _STATUS = postgresql.ENUM(
 )
 _RESULT = postgresql.ENUM("sold", "unsold", "withdrawn", name="auction_lot_result")
 
-#: The next sort_order after `in_transit` (40) and before `sold` (50) in
-#: operations.json's storage_location_kind list.
-_CONSIGNED_SORT_ORDER = 45
-
 
 def upgrade() -> None:
-    """Create `auction` and `auction_lot`, and seed the `consigned` location kind."""
+    """Create `auction` and `auction_lot`.
+
+    The `consigned` storage-location kind this schema needs comes from
+    `data/reference/operations.json` via `app.seeding.seed_all`, not from an
+    INSERT here -- see the module docstring.
+    """
     bind = op.get_bind()
     _STATUS.create(bind)
     _RESULT.create(bind)
@@ -123,23 +131,9 @@ def upgrade() -> None:
     )
     op.create_index("ix_auction_lot_auction_id", "auction_lot", ["auction_id"])
 
-    bind.execute(
-        sa.text(
-            "INSERT INTO storage_location_kind "
-            "(code, label, sort_order, is_active, source) "
-            "VALUES ('consigned', 'Consigned to auction house', :o, true, 'seeded')"
-        ),
-        {"o": _CONSIGNED_SORT_ORDER},
-    )
-
 
 def downgrade() -> None:
-    """Drop `auction_lot` before `auction`, and remove the seeded location kind."""
-    bind = op.get_bind()
-    bind.execute(
-        sa.text("DELETE FROM storage_location_kind WHERE code = 'consigned'")
-    )
-
+    """Drop `auction_lot` before `auction`."""
     op.drop_index("ix_auction_lot_auction_id", table_name="auction_lot")
     op.drop_table("auction_lot")
 
