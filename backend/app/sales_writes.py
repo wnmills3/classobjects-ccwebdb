@@ -220,9 +220,21 @@ def record_sale(
     # that pair of orders was the deadlock
     # `docs/specs/lock-order-design.md` records. `place_order` and
     # `end_offer` below both take the same rows again, and find them held.
-    listing = offering_writes.lock_for_sale(db, listing_ids=[listing.id]).listings[
+    #
+    # `.get` and an explicit refusal rather than a subscript: this replaced a
+    # `.scalar_one()`, whose `NoResultFound` named the row that was missing,
+    # and a bare `KeyError` on an integer reads like a bug in this function
+    # instead. A listing cannot actually vanish here -- `listing.sales_lot_id`
+    # and `sales_order_item.listing_id` are both `RESTRICT` and nothing in
+    # this codebase deletes a listing -- so this is the same 409-shaped
+    # conflict as the status check below rather than a case a caller is
+    # expected to meet.
+    locked = offering_writes.lock_for_sale(db, listing_ids=[listing.id]).listings.get(
         listing.id
-    ]
+    )
+    if locked is None:
+        raise SaleRefused(f"Listing {listing.id} no longer exists")
+    listing = locked
     if listing.status is not ListingStatus.active:
         # Names the platform as well as the listing: the spec's *Errors*
         # section asks for both, and an owner with the same item offered in

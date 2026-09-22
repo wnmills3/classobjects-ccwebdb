@@ -408,6 +408,67 @@ def receive_items(
             )
 
     to_status = require_code(db, ItemStatus, payload.outcome, "status")
+
+    # Every row this receipt will touch, taken **before the first write** and
+    # in the canonical order, through the one function that owns it
+    # (`offering_writes.lock_for_sale`: lot rows, then items, then listings).
+    #
+    # Load-bearing, and it was the last inversion left after the lock order
+    # was given a single owner. `set_status` below writes `inventory_item`
+    # rows -- taking their exclusive row locks at the flush that follows --
+    # and only then did `end_offer` run, whose own pass waits on the *lot*
+    # row. So receiving used to acquire items before lots, the inverse of
+    # every other writer, and an administrator marking a lot's member
+    # `missing` while a shopper checked that lot out could each hold what the
+    # other waited for: `order_writes._lock_listings` takes the lot row as
+    # its first statement and then waits on the member row this endpoint
+    # holds. Taking the whole set here puts receiving in the same order as
+    # everything else, and the `end_offer` calls below then re-lock rows this
+    # transaction already holds.
+    #
+    # Measured, and the deadlock is the *worse* of two losses rather than the
+    # only one: with the pass removed, the race test loses eight of eight to
+    # a `StaleDataError` instead, because the receipt's unlocked UPDATE of
+    # the member row queues behind the checkout and then writes through a
+    # version that has moved. Locking and re-reading first removes that too,
+    # the same false conflict `_lock_items`' docstring describes.
+    #
+    # `including_paused=True` so the item set derived here is exactly the
+    # `_affected_items` set `end_offer` will ask for, rather than a narrower
+    # one that would leave it taking an item row for the first time while
+    # this transaction already held listings.
+    #
+    # The `offers_holding` read here **chooses what to lock and nothing
+    # else**; the authoritative one is the second call, below, after the
+    # writes and under these locks. That split is the same read-lock-re-read
+    # discipline `lock_for_sale` applies to a listing's member set, and it is
+    # needed here for the same reason: this read is unlocked, so between it
+    # and the locks a concurrent checkout can end one of these offers, or a
+    # concurrent `offer` can create a new one. Acting on this list would then
+    # end a listing somebody else had already ended -- which for a lot
+    # listing rewrites `sales_lot.status` from `sold` to `dissolved`, two
+    # histories the spec says never collapse into one. The race test caught
+    # exactly that.
+    #
+    # Re-reading is enough rather than a loop: `_lock_listing_rows` takes
+    # every live offer holding one of these items in the same statement as
+    # the ones named here, evaluated *after* the item rows are held, and a
+    # listing comes to hold an item only through a claim whose writer holds
+    # the item row first. So every row the second read can return is one this
+    # transaction already holds.
+    if ends_offer:
+        offering_writes.lock_for_sale(
+            db,
+            listing_ids=[
+                live.id
+                for live in offering_writes.offers_holding(
+                    db, [item.id for item in items]
+                )
+            ],
+            item_ids=[item.id for item in items],
+            including_paused=True,
+        )
+
     for item in items:
         set_status(
             db,
@@ -445,6 +506,11 @@ def receive_items(
     # a lot is offered by the *lot's* listing and has no listing of its own,
     # so the direct query left the lot on sale after one of its pieces went
     # missing.
+    #
+    # This is the *authoritative* read of that set, not the one above, which
+    # only chose what to lock -- see there. Every row it can return is
+    # already held, so re-reading costs a SELECT and buys the guarantee that
+    # nothing here ends an offer another transaction has already ended.
     if ends_offer:
         for live in offering_writes.offers_holding(db, [item.id for item in items]):
             offering_writes.end_offer(db, live)

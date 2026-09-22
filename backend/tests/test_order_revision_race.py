@@ -13,7 +13,7 @@ left, never a `StaleDataError` and never a silent oversell.
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
@@ -42,6 +42,7 @@ from app.schemas import OrderStatusUpdate
 from fastapi import HTTPException
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm.exc import StaleDataError
 
 from tests.test_concurrency import RACE_TITLE, _code_id, _seed
 
@@ -517,3 +518,152 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_cancellation(
     assert other.quantity_available == 5
     assert item_description == "touched by session B"
     assert item_disposition == "listed"
+
+
+def _stale_on_first_real_flush(session: Session) -> Callable[..., None]:
+    """A flush that fails the way a lost optimistic-lock race fails.
+
+    Patched in place of `Session.flush` on one session, for the two tests
+    below. The real shape it stands in for -- `_after_stock_change`'s
+    unlocked write to `inventory_item.disposition` -- is no longer reachable:
+    `offering_writes.lock_for_sale` locks and re-reads every version-tracked
+    row `revise_order` and `update_order_status` write, which is what the two
+    tests above assert. So the only way left to reach either handler is to
+    make a flush fail on purpose.
+
+    **It raises only when there is pending work to flush**, and that is
+    load-bearing rather than tidiness. `Session._autoflush` calls `flush()`
+    unconditionally and lets `flush()` itself return early on a clean
+    session, so a stand-in that raised on every call would fire on the first
+    autoflush of the run -- which in both functions below happens *before*
+    the `try` block, so the error would escape without the handler ever being
+    asked and the test would pass for the wrong reason (measured: it failed
+    at the pre-`try` `SELECT ... FOR UPDATE` of the order row). Raising only
+    once something is actually pending puts the failure where a real lost
+    version race puts it: at the flush that carries the write.
+
+    What the two tests below therefore do and do not prove. They prove the
+    clauses are handlers and not decoration: a `StaleDataError` raised at the
+    write inside either block comes back as a 409 naming the order, and
+    removing the clause lets it escape. They do **not** prove the narrower
+    point that the messages must use a captured `order_id` rather than
+    `order.id` -- that needs a session genuinely awaiting rollback after a
+    *real* failed flush, and there is no longer a write in either function
+    that can produce one. That reasoning is recorded in the comments at both
+    clauses instead.
+    """
+    real = session.flush
+
+    def _flush(*args: object, **kwargs: object) -> None:
+        if session.new or session.dirty or session.deleted:
+            raise StaleDataError(
+                "forced: a version-tracked row this write touched had already moved"
+            )
+        real()
+
+    return _flush
+
+
+def test_a_stale_data_error_inside_revise_order_is_a_409_not_a_500(
+    committed: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`revise_order`'s `except StaleDataError` must refuse, not escape.
+
+    Covers `order_writes.py`'s clause, which the two tests above used to
+    cover through a real stale item write before the lock order fix made
+    that shape unreachable (see `_raise_stale`). Without the clause the
+    `StaleDataError` reaches the router as an unhandled 500.
+
+    Survives: deleting the `except StaleDataError` block from
+    `order_writes.revise_order` makes this fail with
+    `StaleDataError` in place of the `HTTPException` it expects.
+    """
+    listing_id, (buyer_id, admin_id) = _seed(committed, stock=2, buyers=2)
+
+    with committed() as session:
+        buyer = _present(session.get(User, buyer_id))
+        order = place_order(
+            session, customer_for_user(session, buyer), [Line(listing_id, 1)], buyer
+        )
+        session.commit()
+        order_id, version = order.id, order.version
+
+        order = _present(_load(session, order_id))
+        admin = _present(session.get(User, admin_id))
+        customer = order.customer
+        monkeypatch.setattr(session, "flush", _stale_on_first_real_flush(session))
+        with pytest.raises(HTTPException) as excinfo:
+            revise_order(
+                session,
+                order,
+                customer=customer,
+                lines=[Line(listing_id, 2)],
+                notes=None,
+                version=version,
+                by=admin,
+            )
+        monkeypatch.undo()
+
+    assert excinfo.value.status_code == 409
+    # The order's own number, not a bare "something went wrong": the clause
+    # builds this message from a captured `order_id` precisely so it can be
+    # named after a failed flush has expired every instance.
+    assert f"Order #{order_id}" in excinfo.value.detail
+    assert "reload" in excinfo.value.detail.lower()
+
+    with committed() as verify:
+        # `_refuse` rolls back before raising, so the revision left nothing:
+        # asserting only the status code would pass on a half-applied edit.
+        assert _present(verify.get(Listing, listing_id)).quantity_available == 1
+        order_v = _present(verify.get(SalesOrder, order_id))
+        assert [line.quantity for line in order_v.items] == [1]
+
+
+def test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500(
+    committed: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`update_order_status`' `except StaleDataError` must refuse, not escape.
+
+    Covers `routers/orders.py`'s clause, the cancellation twin of the test
+    above, and reaches it by the path that clause's own comment names: the
+    status write is pending when `return_stock` issues its first SELECT, so
+    the autoflush is what fails -- well before `db.commit()`, which is why
+    wrapping only the commit was not enough when this was first fixed.
+
+    Survives: deleting the `except StaleDataError` block from
+    `routers.orders.update_order_status` makes this fail with
+    `StaleDataError` in place of the `HTTPException` it expects.
+    """
+    listing_id, (buyer_id, admin_id) = _seed(committed, stock=1, buyers=2)
+    with committed() as s:
+        _present(s.get(User, admin_id)).role = UserRole.admin
+        s.commit()
+
+    with committed() as session:
+        buyer = _present(session.get(User, buyer_id))
+        order = place_order(
+            session, customer_for_user(session, buyer), [Line(listing_id, 1)], buyer
+        )
+        session.commit()
+        order_id = order.id
+
+        admin = _present(session.get(User, admin_id))
+        monkeypatch.setattr(session, "flush", _stale_on_first_real_flush(session))
+        with pytest.raises(HTTPException) as excinfo:
+            update_order_status(
+                order_id, OrderStatusUpdate(status="cancelled"), session, admin
+            )
+        monkeypatch.undo()
+
+    assert excinfo.value.status_code == 409
+    assert f"Order #{order_id}" in excinfo.value.detail
+    assert "reload" in excinfo.value.detail.lower()
+
+    with committed() as verify:
+        # The clause rolls back, so neither the status nor the stock moved --
+        # a cancellation half-applied is the damage this handler prevents.
+        assert _present(verify.get(Listing, listing_id)).quantity_available == 0
+        assert (
+            _status_code(verify, _present(verify.get(SalesOrder, order_id)))
+            == "pending"
+        )
