@@ -15,11 +15,18 @@ Layout follows `docs/database-design.md`:
     lifecycle       status and location history (section 7)
     images          files, derivatives and their uses (section 8)
     sales           listings, customers, orders, shipments (section 9)
+    auctions        consigning lots to a sale, and settling it (section 9)
     scaffold        the users table, all that remains of the demo
 """
 
 from __future__ import annotations
 
+from .auctions import (
+    Auction,
+    AuctionLot,
+    AuctionLotResult,
+    AuctionStatus,
+)
 from .base import (
     Base,
     ProvenanceSource,
@@ -181,6 +188,10 @@ __all__ = [
     "AddressKind",
     "AppliesTo",
     "AttributeGroup",
+    "Auction",
+    "AuctionLot",
+    "AuctionLotResult",
+    "AuctionStatus",
     "Authenticity",
     "Base",
     "BullionForm",

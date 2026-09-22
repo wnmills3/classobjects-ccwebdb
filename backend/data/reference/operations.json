@@ -43,6 +43,8 @@
     {"code": "safe", "label": "Safe", "sort_order": 20},
     {"code": "home", "label": "Home", "sort_order": 30},
     {"code": "in_transit", "label": "In transit", "sort_order": 40},
+    {"code": "consigned", "label": "Consigned to auction house", "sort_order": 45,
+     "_note": "One row per auction-house platform (institution = the platform's name), created the first time that platform is consigned to."},
     {"code": "sold", "label": "Sold", "sort_order": 50},
     {"code": "unknown", "label": "Unknown", "sort_order": 60}
   ],
