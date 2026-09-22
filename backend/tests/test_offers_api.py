@@ -15,7 +15,15 @@ from decimal import Decimal
 import httpx
 import pytest
 from app import offering_writes
-from app.models import InventoryItem, Listing, SalesVenue, SalesVenueKind
+from app.models import (
+    InventoryItem,
+    Listing,
+    ListingStatus,
+    SalesLot,
+    SalesLotStatus,
+    SalesVenue,
+    SalesVenueKind,
+)
 from app.schemas import OfferRefusedOut
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -703,3 +711,57 @@ def test_one_coin_s_offers_keep_a_lot_listing_that_has_ended(
 
     assert [row["id"] for row in rows] == [lot_listing_id]
     assert rows[0]["status"] == "ended"
+
+
+def test_ending_a_sold_lot_s_listing_again_leaves_it_sold(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    offered_lot_listing: Listing,
+) -> None:
+    """A second `POST /end` must not rewrite a sold lot's history.
+
+    `sold` and `dissolved` are different histories and never collapse into
+    one (spec, *`sales_lot` and `sales_lot_item`*). This endpoint is the one
+    route that could collapse them: it loads the listing with `_get_listing`,
+    a plain id lookup with no status filter, and calls
+    `offering_writes.end_offer(sold=False)` unconditionally. So a lot bought
+    in the shop -- settled as `end_offer(sold=True)`, lot `sold`, listing
+    `ended` -- was one admin API call away from being rewritten to
+    `dissolved` while its members stayed `sold`, because `end_offer` skips
+    the disposition loop for a sale and `_end` had no guard of its own.
+
+    A **money path**, and reachable with no concurrency at all: a stale
+    console tab, or a double-click, is enough. The guard is in
+    `offering_writes._end` rather than here or in `end_offer`, for the reason
+    its docstring gives -- that module is the single writer of
+    `sales_lot.status`, and an invariant every caller has to remember is the
+    "agree by hand" shape this branch exists to remove.
+
+    `ended_at` is asserted as well as the status: a second ending that
+    overwrote only the timestamp would still lose the moment the offer really
+    ended, and the status assertions alone would pass on it.
+    """
+    listing_id = offered_lot_listing.id
+    lot_id = offered_lot_listing.sales_lot_id
+    assert lot_id is not None
+
+    offering_writes.end_offer(db, offered_lot_listing, sold=True)
+    db.commit()
+    first_ended_at = offered_lot_listing.ended_at
+    assert first_ended_at is not None
+    assert db.get_one(SalesLot, lot_id).status is SalesLotStatus.sold
+    released = [member.released_at for member in db.get_one(SalesLot, lot_id).members]
+    assert all(stamp is not None for stamp in released)
+
+    again = client.post(f"/api/listings/{listing_id}/end", headers=admin_headers)
+    assert again.status_code == 200, again.text
+    assert again.json()["status"] == "ended"
+
+    db.expire_all()
+    lot = db.get_one(SalesLot, lot_id)
+    listing = db.get_one(Listing, listing_id)
+    assert lot.status is SalesLotStatus.sold, lot.status
+    assert listing.status is ListingStatus.ended
+    assert listing.ended_at == first_ended_at
+    assert [member.released_at for member in lot.members] == released

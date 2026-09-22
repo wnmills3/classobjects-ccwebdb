@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import CoinDetail, CurrencyDetail, InventoryItem, ItemKind, Listing
+from app import lot_writes, offering_writes
+from app.models import (
+    CoinDetail,
+    CurrencyDetail,
+    InventoryItem,
+    ItemKind,
+    Listing,
+    ListingFormat,
+    SalesLot,
+    SalesVenue,
+)
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import select, text
@@ -528,3 +538,80 @@ def test_a_piece_detail_row_starts_empty(
         select(CoinDetail.variety).where(CoinDetail.inventory_item_id.in_(ids))
     ).all()
     assert set(varieties) == {None}
+
+
+def test_a_coin_offered_inside_a_lot_cannot_be_split(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    lot_of_three: SalesLot,
+    ebay_venue: SalesVenue,
+) -> None:
+    """A member of an *offered* sales lot is refused, acknowledgement or not.
+
+    The sibling of "a coin sold inside a lot can no longer be split"
+    (`7ea6eb0`), one step earlier in the lifecycle: that one closed the
+    **sold** case, this one the **offered** case, and the two failed the same
+    way because both asked `listing.inventory_item_id`, which is NULL on a
+    lot listing. `split_item`'s listing loop still asks it -- deliberately,
+    it is what ends an *item's own* listings -- so a lot listing is invisible
+    there and nothing ended the lot's offer.
+
+    Measured before the fix, through this exact route: unacknowledged gave
+    409 with the for-sale warning (`sale_state._offering` reads claims, so
+    the *warning* was always lot-aware), and acknowledged gave **200**. The
+    coin was split, and the lot went on offering it: listing `active`, lot
+    `offered`, membership open, claim `active`, `offered_items` still naming
+    a parent with `split_at` set. A buyer looking at a group containing a
+    coin that no longer exists as a whole item -- while
+    `offering_writes._refuse_unofferable` refuses to offer a split item and
+    `lot_writes._refuse_unofferable` refuses to put one in a lot.
+
+    **Unconditional, not a `sale_state.guard` warning**, which is the whole
+    point: `acknowledge_for_sale` exists for changes a buyer should be told
+    about, not for ones that leave the offer describing something untrue.
+    Only `offered` refuses, exactly as `offering_writes._refuse_grouped`
+    scopes it: an `assembling` lot has been shown to nobody, and offering it
+    later refuses the split member by name anyway.
+
+    Survives: removing the `lot_holding` check from `splitting.split_item`
+    makes this fail with 200 and two children.
+    """
+    offering_writes.offer(
+        db,
+        lot=lot_of_three,
+        venue=ebay_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("1000.00"),
+        title="Three Morgan Dollars",
+        description="",
+        external_id=None,
+    )
+    db.commit()
+    member = lot_writes.open_members(db, lot_of_three)[0].item
+    member_id = member.id
+    pieces = {
+        "mode": "equal",
+        "pieces": [{"source_title": "Half A"}, {"source_title": "Half B"}],
+        "acknowledge_for_sale": True,
+    }
+
+    refused = do_split(client, admin_headers, member_id, pieces)
+
+    assert refused.status_code == 409, refused.text
+    # Names the lot, not just "cannot be split": ending or dissolving that
+    # lot is the one thing that unfreezes the coin, and an operator reading
+    # the refusal still has to go and find which lot.
+    assert f"lot #{lot_of_three.id}" in refused.json()["detail"]
+
+    db.expire_all()
+    # Real state, not the status code alone: the code would pass on a split
+    # that happened and then failed to serialise its response.
+    parent = db.get_one(InventoryItem, member_id)
+    assert parent.split_at is None
+    assert (
+        db.scalars(
+            select(InventoryItem.id).where(InventoryItem.parent_item_id == member_id)
+        ).all()
+        == []
+    )

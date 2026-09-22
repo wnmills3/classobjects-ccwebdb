@@ -41,12 +41,15 @@ makes that a real hazard (`_lock_listing_rows`).
 takes more than one kind of row reaches it through `lock_for_sale`** --
 `offer` and `end_offer` here, `order_writes.place_order`, `revise_order` and
 `return_stock`, `sales_writes.record_sale`, and
-`routers.inventory.receive_items`. That is seven, listed rather than asserted
-because the list has already had an exception: `receive_items` wrote its item
-rows before calling `end_offer`, and so took items before lots, until fix
-round 1 gave it the pass too (`docs/specs/lock-order-design.md` has the
-concurrent pair it deadlocked with). `_acquire`'s own docstring carries the
-rest. `order_writes` used to take
+`routers.inventory.receive_items`, and `splitting.split_item`. That is eight,
+listed rather than asserted because the list has already been wrong twice:
+`receive_items` wrote its item rows before calling `end_offer`, and so took
+items before lots, until fix round 1 gave it the pass too; and
+`split_item` was filed as single-kind when it is not -- it holds the parent
+`inventory_item` row across an `end_offer` call, the same shape as `offer`'s
+lot lock, and reaches the order only through that call. `_acquire`'s own
+docstring carries the rest, and `docs/specs/lock-order-design.md` enumerates
+every `with_for_update` in the package. `order_writes` used to take
 listings first, because `place_order` is handed listing ids, and the two
 orders together were a real deadlock. The order that carries a guarantee is
 this one -- the listing set here is *derived* from claims this module alone
@@ -65,7 +68,7 @@ Functions flush and never commit; the caller's request owns the transaction.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -102,6 +105,7 @@ __all__ = [
     "offer",
     "offered_items",
     "offers_holding",
+    "refuse_if_lot_unheld",
     "sellable_in_shop",
     "shop_listing_filters",
 ]
@@ -549,8 +553,22 @@ def _acquire(
     ascending id. Every writer that takes more than one kind of row comes
     through here: `offer` and `end_offer` in this module, and, through
     `lock_for_sale`, `order_writes.place_order`, `revise_order` and
-    `return_stock`, `sales_writes.record_sale`, and
-    `routers.inventory.receive_items`.
+    `return_stock`, `sales_writes.record_sale`,
+    `routers.inventory.receive_items` and `splitting.split_item`.
+
+    **Two of those hold a row taken outside this pass, and say so here rather
+    than leaving a reader to find out.** `offer` holds the lot row, which
+    `_lot_members` must take before it can read the membership that produces
+    the item ids -- so the lot is still first and the rule holds. And
+    `split_item` holds the parent `inventory_item` row (`db.refresh(...,
+    with_for_update=True)`) across the `end_offer` call at the end of it,
+    which then takes listing rows through here. That is items-then-listings,
+    the canonical direction, and it takes no lot row at all: its loop filters
+    `Listing.inventory_item_id == parent.id`, which is NULL on a lot listing,
+    and a parent that *is* an open member of an offered lot is refused
+    outright by `split_item` before it gets that far. Both halves matter --
+    without the refusal, `end_offer`'s pass would reach the lot listing
+    through `offers_holding` and take a lot row after an item row.
 
     They used to agree by hand and two of them disagreed --
     `order_writes` took listings first because `place_order` is handed
@@ -594,10 +612,15 @@ class LockedForSale:
 
     `item_ids` is the confirmed item set, ascending -- what `end_offer` walks
     when it decides which dispositions go back to `held`.
+
+    `lot_ids` is the lot rows this pass holds, and it is reported rather than
+    assumed because a caller can lock a lot listing without it: see
+    `refuse_if_lot_unheld`, which is the one thing that reads it.
     """
 
     listings: dict[int, Listing]
     item_ids: tuple[int, ...]
+    lot_ids: frozenset[int]
 
 
 def _listings_by_id(db: Session, listing_ids: Collection[int]) -> list[Listing]:
@@ -674,6 +697,49 @@ def _refuse_if_changed(
         )
 
 
+def refuse_if_lot_unheld(listings: Iterable[Listing], lot_ids: Collection[int]) -> None:
+    """Refuse to *end* a lot listing whose lot row this pass does not hold.
+
+    The completeness half of the acquisition, and the twin of
+    `_refuse_if_changed`: that one asks whether the *items* a listing offers
+    moved between the read and the locks, this one whether a *lot* did.
+
+    **Asked by the caller, not by `lock_for_sale`, and the difference is the
+    whole design.** Locking a lot listing without its lot row is harmless in
+    itself -- `offer` does it on every race it loses to a lot offer, then
+    refuses cleanly with `OfferRefused` and never touches a lot row at all.
+    It only becomes the inversion again if the caller goes on to call
+    `end_offer` on that listing, whose own pass takes the lot row *late*,
+    while items and listings are already held. So the refusal belongs at the
+    site that ends derived listings, which today is exactly one:
+    `routers.inventory.receive_items`. Making `lock_for_sale` refuse instead
+    turns an ordinary lost race into a 500 -- measured, it reds
+    `test_offering_a_lot_races_offering_one_of_its_members`.
+
+    A lot row can only be taken first, so a lot listing that arrived in the
+    derived half after `lock_for_sale`'s `offers_holding` read cannot be
+    repaired by taking its lot row now: that would be lots after listings,
+    the inversion this module exists to prevent. Refusing is the one answer
+    that keeps the order true, and the rows are held, so it is deterministic
+    rather than something to retry.
+
+    Reachable only by a lot being offered in the window between that read and
+    the item lock -- microseconds, and it needs a concurrent `offer` of a lot
+    containing one of these items. `LockSetChanged` for the reason that
+    exception gives: not a conflict a caller can act on, and a named 500
+    beats either a deadlock or the quiet ending of a lot whose row nobody
+    holds.
+    """
+    held = set(lot_ids)
+    for listing in listings:
+        if listing.sales_lot_id is not None and listing.sales_lot_id not in held:
+            raise LockSetChanged(
+                f"listing {listing.id} belongs to lot {listing.sales_lot_id}, "
+                "whose row this pass did not take: it joined the set after the "
+                "read that chose which lot rows to lock"
+            )
+
+
 def lock_for_sale(
     db: Session,
     *,
@@ -722,7 +788,29 @@ def lock_for_sale(
     items = set(item_ids)
     for reachable in before.values():
         items.update(reachable)
+
+    # Lot rows for **both** halves of the listing set, not just the named
+    # half, and this cost a defect to learn. `_lock_listing_rows` also takes
+    # every live offer holding one of these items, and one of those can be a
+    # lot listing the caller never named -- a coin whose own store listing is
+    # paused while an offered lot holds it, which `routers.inventory.
+    # receive_items` reaches by asking `offers_holding` rather than by naming
+    # ids. Locking such a listing without its lot row leaves the caller to
+    # take that lot row *later*, through `end_offer`, while already holding
+    # items and listings: the original inversion, one level down, against a
+    # checkout that holds the lot row and waits on a member.
+    #
+    # `offers_holding` rather than a predicate of its own, so "which live
+    # offers hold these items" has the one definition `_lock_listing_rows`
+    # derives from. Unlocked, and that is what `_refuse_if_lot_unheld` below
+    # covers: a lot offered between this read and the locks would be reached
+    # by the derived half and have no row held here.
     lot_ids = {row.sales_lot_id for row in chosen if row.sales_lot_id is not None}
+    lot_ids |= {
+        row.sales_lot_id
+        for row in offers_holding(db, items)
+        if row.sales_lot_id is not None
+    }
 
     locked = {
         row.id: row
@@ -734,7 +822,11 @@ def lock_for_sale(
         including_paused=including_paused,
     )
     _refuse_if_changed(locked, before, after)
-    return LockedForSale(listings=locked, item_ids=tuple(sorted(items)))
+    return LockedForSale(
+        listings=locked,
+        item_ids=tuple(sorted(items)),
+        lot_ids=frozenset(lot_ids),
+    )
 
 
 def _locked_offers(db: Session, item_id: int) -> Sequence[Listing]:
@@ -1158,7 +1250,38 @@ def _end(db: Session, listing: Listing, *, sold: bool = False) -> None:
 
     A dissolved lot never comes back: re-offering the same coins starts a new
     lot, which is why nothing here moves a lot back to `assembling`.
+
+    **An already-ended listing is left exactly as it is**, and that guard is
+    here rather than in `end_offer` or in any caller. It is not defensive
+    tidying: `routers.offers.end_listing`
+    (`POST /api/listings/{id}/end`) loads its listing with a plain id lookup
+    and calls `end_offer(sold=False)` unconditionally, so a lot bought in the
+    shop -- settled as `sold`, its listing `ended` -- was one admin API call
+    from being rewritten to `dissolved` while its members stayed `sold`,
+    because `end_offer` skips the disposition loop for a sale. `sold` and
+    `dissolved` are different histories and never collapse into one (spec,
+    *`sales_lot` and `sales_lot_item`*), and no concurrency is needed to
+    collapse them -- a stale console tab is enough
+    (`test_ending_a_sold_lot_s_listing_again_leaves_it_sold`).
+
+    **Why here and not in `end_offer`.** This module is the single writer of
+    `sales_lot.status`, so an invariant each caller has to remember is the
+    "four call sites that agree by hand" shape this branch exists to remove.
+    A guard in `end_offer` would also miss the `paused_by_it` loop there,
+    which calls this function directly.
+
+    **An early return, not a refusal**, for three reasons. Ending an offer
+    that has already ended asks for a state it is already in, so returning
+    makes the endpoint idempotent rather than punishing a double-click or a
+    stale tab. The recursion above ends a *batch* of paused listings, where a
+    refusal would abort the whole ending over one member. And the harm being
+    prevented is a **rewrite** -- of `lot.status`, and of `ended_at`, which a
+    second ending would move off the moment the offer really ended -- not an
+    action anyone needs to be told about. The cost is that this cannot tell a
+    caller its request did nothing; nothing today wants to know.
     """
+    if listing.status is ListingStatus.ended:
+        return
     listing.status = ListingStatus.ended
     listing.ended_at = utcnow()
     listing.paused_by_listing_id = None
@@ -1184,12 +1307,21 @@ def _end(db: Session, listing: Listing, *, sold: bool = False) -> None:
     # lot, which is true of `end_offer` and is worth checking rather than
     # assuming if `_end` ever gains a second entry point.
     #
-    # The second, which held before that and still does independently: every
-    # path that *waits* on a lot row takes it first and holds nothing else
-    # (`offer`, `add_member`, `remove_member`, `edit_lot`), and the lot
-    # reached here always has a listing, so it is never a lot a concurrent
-    # `offer` could be holding -- that lot is still `assembling` and has no
-    # listing.
+    # The second, which held before that and still does independently: the
+    # lot reached here always has a listing, so it is never a lot a
+    # concurrent `offer` could be holding -- that lot is still `assembling`
+    # and has no listing. Every `lot_writes` path that *waits* on a lot row
+    # takes it first and holds nothing else: `add_member`, `remove_member`,
+    # `edit_lot` and `delete_lot`, all through
+    # `_refuse_unless_assembling`, plus `offer` through `_lot_members`.
+    #
+    # "Holds nothing else" is **not** true of every waiter in the codebase,
+    # and saying so absolutely would be wrong: `order_writes.revise_order`
+    # and `routers.orders.update_order_status` both lock the `sales_order`
+    # row and only then reach a lot row, through `_lock_listings`. There is
+    # no cycle, because nothing that holds a lot row ever waits on a
+    # `sales_order` row -- that table is written by `order_writes` alone, and
+    # this module never touches it.
     # `version_id_col` then covers this write against a stale in-session lot,
     # and `_lock_lots` re-read the row so that version is the current one.
     lot.status = SalesLotStatus.sold if sold else SalesLotStatus.dissolved

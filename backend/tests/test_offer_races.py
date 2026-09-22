@@ -1215,6 +1215,16 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
     - Ending the listings from the *first* `offers_holding` read instead of
       the second makes it fail on `lot.status`: `AssertionError: dissolved`,
       after a completed sale.
+
+    Stability: **16 runs, 16 passes, and the outcome was
+    `['bought', 'marked']` all sixteen times**, measured. The checkout always
+    reaches the lot row first here, so **the `else` branch below has never
+    been observed to run.** It is kept because which side wins is a property
+    of this machine's timing rather than of the code, and a test asserting
+    only the observed branch would quietly stop checking anything the day
+    that changed. The state it describes is covered by a test that always
+    runs: `test_marking_a_coin_missing_first_refuses_the_checkout_of_its_lot`
+    below, which is the same pair in a fixed order rather than a race.
     """
     members = [_seed_item(committed) for _ in range(2)]
     store_id = _store_venue_id(committed)
@@ -1329,3 +1339,71 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
                 )
                 is None
             )
+
+
+def test_marking_a_coin_missing_first_refuses_the_checkout_of_its_lot(
+    committed: sessionmaker[Session],
+) -> None:
+    """The receipt-first ordering, fixed rather than raced.
+
+    The deterministic companion to
+    `test_buying_a_lot_races_marking_one_of_its_coins_missing`. That race is
+    honest about which side wins -- measured sixteen of sixteen, the checkout
+    does -- so the state a receipt-first ordering leaves would otherwise be
+    asserted only in a branch nothing ever executes. Here the order is
+    imposed: the receipt commits, and only then does the checkout run.
+
+    Not a concurrency guarantee, and it does not pretend to be one. It is the
+    *outcome* half: ending a lot's offer dissolves the lot (there is no
+    "withdraw but keep the group"), so the other coins come back to the
+    drawer individually and the cart that held the lot is told the offer is
+    over rather than selling a group one of whose coins is missing.
+    """
+    members = [_seed_item(committed) for _ in range(2)]
+    store_id = _store_venue_id(committed)
+    listing_id, customer_id, admin_id = _seed_lot_listing_and_buyer(
+        committed, members, store_id
+    )
+
+    with committed() as session:
+        receive_items(
+            ReceiveRequest(
+                item_ids=[members[0]], outcome="missing", acknowledge_for_sale=True
+            ),
+            session,
+            session.get_one(User, admin_id),
+        )
+
+    with committed() as session:
+        buyer = session.get_one(Customer, customer_id)
+        operator = session.get_one(User, admin_id)
+        with pytest.raises(HTTPException) as excinfo:
+            order_writes.place_order(
+                session,
+                buyer,
+                [order_writes.Line(listing_id=listing_id, quantity=1)],
+                operator,
+            )
+        session.rollback()
+    assert excinfo.value.status_code == 409
+    assert "not currently for sale" in excinfo.value.detail
+
+    with committed() as verify:
+        listing = verify.get_one(Listing, listing_id)
+        assert listing.status is ListingStatus.ended
+        assert listing.sales_lot_id is not None
+        lot = verify.get_one(SalesLot, listing.sales_lot_id)
+        # `dissolved`, not `sold`: nothing was bought, and the two histories
+        # never collapse into one.
+        assert lot.status is SalesLotStatus.dissolved
+        assert verify.get_one(InventoryItem, members[0]).status.code == "missing"
+        # The coin that was fine goes back to the drawer rather than staying
+        # `listed` on an offer that no longer exists.
+        assert verify.get_one(InventoryItem, members[1]).disposition.code == "held"
+        assert _open_lot_ids(committed, members[1]) == []
+        assert (
+            verify.scalar(
+                select(SalesOrderItem.id).where(SalesOrderItem.listing_id == listing_id)
+            )
+            is None
+        )

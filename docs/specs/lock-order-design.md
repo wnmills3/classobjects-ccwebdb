@@ -181,11 +181,37 @@ absolutely in the first draft and there was an exception at the time:
 | `order_writes.return_stock` | `_lock_listings` |
 | `sales_writes.record_sale` | `lock_for_sale(listing_ids=...)` |
 | `routers.inventory.receive_items` | `lock_for_sale(listing_ids=..., item_ids=..., including_paused=True)`, **added in fix round 1** — see below |
+| `splitting.split_item` | `end_offer` → `lock_for_sale`, while holding the parent item row it took itself — **added in fix round 2**, see below |
 
-Every other `with_for_update` in `backend/app` takes one kind of row, or
-re-locks rows the transaction already holds (`_locked_offers` per member,
-`end_offer`'s `paused_by_it` pass, `lot_writes._refuse_unless_assembling`'s
-lot row, `splitting.split_item`'s item row).
+### Every `with_for_update` in `backend/app`, enumerated
+
+"Every other one takes a single kind of row" was written here in round 1 and
+was **wrong about `split_item`**, which takes two. An enumeration that is
+wrong is worse than the absolute it replaced, because it looks checked. So
+the whole list, ten sites:
+
+| Site | Row kind | Role |
+|---|---|---|
+| `offering_writes._lock_lots` | `sales_lot` | the acquisition, step 1 |
+| `offering_writes._lock_items` | `inventory_item` | the acquisition, step 2 |
+| `offering_writes._lock_listing_rows` | `listing` | the acquisition, step 3 |
+| `offering_writes._locked_offers` | `listing` | re-lock, once per member |
+| `offering_writes.end_offer`'s `paused_by_it` | `listing` | re-lock, to *identify* rows already held |
+| `offering_writes._lot_members` | `sales_lot` | step 1 for `offer`, which must hold the row to read the membership that produces the item ids |
+| `lot_writes._refuse_unless_assembling` | `sales_lot` | single kind; `add_member`, `remove_member`, `edit_lot`, `delete_lot` |
+| `order_writes.revise_order` | `sales_order` | single kind, taken before `_lock_listings` |
+| `routers.orders.update_order_status` | `sales_order` | single kind, taken before `return_stock` |
+| `splitting.split_item` | `inventory_item` | **two kinds**: this row is held across the `end_offer` call at the end of the function, which takes listing rows |
+
+`split_item` is safe and is now safe *by construction* rather than by
+accident. Its order is items → listings, the canonical direction, and it
+takes no lot row: its listing loop filters `Listing.inventory_item_id ==
+parent.id`, which is NULL on a lot listing. What made that an accident was
+that a parent which *is* an open member of an offered lot would have reached
+the lot listing through `end_offer`'s own `offers_holding` derivation and
+taken a lot row after an item row. Round 2 refuses that split outright, for
+reasons that have nothing to do with locking — see *Splitting a coin offered
+inside a lot* below.
 
 ### `receive_items` was the one remaining inversion, and is now closed
 
@@ -226,6 +252,67 @@ the other possible loss of the same inversion -- the receipt holding the
 member row while waiting on the lot -- and it was **not observed** in
 sixteen mutated runs. Both are a 500 for an operator and the pass removes
 both: it locks and re-reads the member row before writing it.
+
+### The `_end` defect, found in review and fixed in round 2
+
+Round 1 reported this as latent on the strength of a claim that was **false**:
+that no caller reaches `end_offer` on an already-ended listing because
+"`routers.offers` checks the status". It does not.
+`POST /api/listings/{id}/end` loads its listing with a plain id lookup and
+calls `end_offer(sold=False)` unconditionally.
+
+So it was **one admin API call**, with no concurrency at all: a lot bought in
+the shop settles as `end_offer(sold=True)` — lot `sold`, listing `ended` —
+and a second `POST .../end` on the same listing rewrote the lot to
+`dissolved` while its members stayed `sold`, because `end_offer` skips the
+disposition loop for a sale. Measured through that route before the fix:
+`AssertionError: dissolved`. A stale console tab is enough.
+
+Fixed with an early return in `offering_writes._end` when the listing is
+already `ended` — in `_end`, not `end_offer` or the router, because this
+module is the single writer of `sales_lot.status` and because `end_offer`'s
+own `paused_by_it` loop calls `_end` directly. An early return rather than a
+refusal: it makes the endpoint idempotent, the recursion ends a *batch* where
+a refusal would abort the whole ending over one member, and the harm being
+prevented is a rewrite (of `lot.status`, and of `ended_at`) rather than an
+action anyone needs to be told about. Covered by
+`test_ending_a_sold_lot_s_listing_again_leaves_it_sold`.
+
+`receive_items`' second `offers_holding` read is now defence rather than the
+only defence.
+
+### Splitting a coin offered inside a lot
+
+Adjacent, found in the same review, and **measured end to end through
+`POST /api/inventory/{id}/split` rather than reasoned about** — which is
+what caught that the story was half right.
+
+`splitting.split_item` refused a parent sold on its own and (since `7ea6eb0`)
+one sold inside a lot, but nothing refused a parent that was a live member of
+an *offered* lot. Its listing loop filters `Listing.inventory_item_id ==
+parent.id`, which is NULL on a lot listing, so the lot's offer was never
+ended either.
+
+Measured: unacknowledged gave **409** with the for-sale warning —
+`sale_state._offering` reads claims, so the warning was always lot-aware —
+and acknowledged gave **200**. The coin was split and the lot went on
+offering it: listing `active`, lot `offered`, membership open, claim
+`active`, `offered_items` still naming a parent with `split_at` set. A buyer
+looking at a group containing a coin that no longer exists as a whole item,
+while `offering_writes._refuse_unofferable` refuses to *offer* a split item
+and `lot_writes._refuse_unofferable` refuses to put one *into* a lot.
+
+Fixed in `split_item` with `lot_writes.lot_holding`, the same predicate
+`_refuse_grouped` and `routers.inventory.delete_item` use. Unconditional,
+not an `acknowledge_for_sale` warning: that flag is for changes a buyer
+should be told about, not for ones that leave the offer describing something
+untrue. Only `offered` refuses, exactly as `_refuse_grouped` scopes it — an
+`assembling` lot has been shown to nobody, and offering it later refuses the
+split member by name.
+
+It also makes `split_item`'s place in the lock table safe by construction
+rather than by accident: with the refusal, a parent in an offered lot never
+reaches `end_offer`, so no lot row is ever taken after its item row.
 
 ### Two claims in this note were wrong
 

@@ -571,12 +571,16 @@ def test_a_stale_data_error_inside_revise_order_is_a_409_not_a_500(
 
     Covers `order_writes.py`'s clause, which the two tests above used to
     cover through a real stale item write before the lock order fix made
-    that shape unreachable (see `_raise_stale`). Without the clause the
+    that shape unreachable (see `_stale_on_first_real_flush`). Without the
+    clause the
     `StaleDataError` reaches the router as an unhandled 500.
 
-    Survives: deleting the `except StaleDataError` block from
-    `order_writes.revise_order` makes this fail with
-    `StaleDataError` in place of the `HTTPException` it expects.
+    Survives: replacing the body of `order_writes.revise_order`'s
+    `except StaleDataError` clause with a bare `raise` makes this fail with
+    `StaleDataError` in place of the `HTTPException` it expects. **Not**
+    deleting the clause, which is a `SyntaxError` -- the `try` needs a
+    handler -- so what is mutated is the 409 conversion, which is the
+    behaviour under test anyway.
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=2, buyers=2)
 
@@ -630,9 +634,10 @@ def test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500(
     the autoflush is what fails -- well before `db.commit()`, which is why
     wrapping only the commit was not enough when this was first fixed.
 
-    Survives: deleting the `except StaleDataError` block from
-    `routers.orders.update_order_status` makes this fail with
-    `StaleDataError` in place of the `HTTPException` it expects.
+    Survives: replacing the body of `routers.orders.update_order_status`'
+    `except StaleDataError` clause with a bare `raise` makes this fail with
+    `StaleDataError` in place of the `HTTPException` it expects -- not
+    deleting the clause, for the reason the test above gives.
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=1, buyers=2)
     with committed() as s:
