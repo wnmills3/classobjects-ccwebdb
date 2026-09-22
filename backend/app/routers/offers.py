@@ -571,7 +571,7 @@ def update_listing(
 def _refuse_auction_lot(db: Session, listing: Listing) -> None:
     """Refuse to end an auction-format listing directly. Task 5, defect 1.
 
-    An auction-format listing always belongs to an `auction_lot`
+    An auction-format listing has **at most one** `auction_lot`
     (`uq_auction_lot_listing_id`), and `app.auctions` is that row's sole
     writer -- `remove_lot`, `cancel` and `settle` each end the listing
     *and* either delete the `auction_lot` row or record its result, in one
@@ -592,17 +592,34 @@ def _refuse_auction_lot(db: Session, listing: Listing) -> None:
     auction -- `remove_lot`, `cancel` (both a withdrawal) or `settle` (a
     result) -- never directly, the same way `routers.auctions` has no
     endpoint that writes `listing.status` for an auction lot itself.
+
+    **Two messages, because there are two true things to say** (whole-branch
+    review, Minor #7). Ruling R11 has `remove_lot` *delete* the `auction_lot`
+    row while the listing keeps `format = auction`, so this guard also fires
+    against a listing that is in no auction at all -- and the old single
+    message, "is an auction lot" with the auction silently omitted, read as
+    "the auction is unknown" rather than "there is no auction". The refusal
+    stays correct in both cases; only one of them can name an auction.
     """
     if listing.format is ListingFormat.auction:
         auction_id = db.scalar(
             select(AuctionLot.auction_id).where(AuctionLot.listing_id == listing.id)
         )
-        where = f" of auction #{auction_id}" if auction_id is not None else ""
+        if auction_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"listing #{listing.id} was offered as an auction lot and is "
+                    "no longer in any auction; its lot was removed, which already "
+                    "ended the offer. There is nothing left to end"
+                ),
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"listing #{listing.id} is an auction lot{where}; end it through "
-                "the auction (remove the lot, cancel, or settle), not directly"
+                f"listing #{listing.id} is a lot of auction #{auction_id}; end it "
+                "through the auction (remove the lot, cancel, or settle), not "
+                "directly"
             ),
         )
 

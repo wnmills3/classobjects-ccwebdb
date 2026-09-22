@@ -601,6 +601,41 @@ def test_ending_an_auction_lot_listing_directly_is_refused(
     assert db.get_one(Listing, auction_lot.listing_id).status is ListingStatus.active
 
 
+def test_ending_a_listing_whose_lot_was_removed_names_no_auction(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+    heritage_venue: SalesVenue,
+) -> None:
+    """The R11 residue the whole-branch review found: a message that was untrue.
+
+    `app.auctions.remove_lot` deletes the `auction_lot` row and leaves
+    `format = auction` on the listing, so this guard still fires against a
+    listing that belongs to no auction. The refusal is correct in outcome --
+    `remove_lot` already ended the offer, so there is nothing to end -- but
+    the old wording said "is an auction lot" and named no auction, which
+    reads as "unknown" rather than "none". Wording only; asserted so it stays
+    true.
+    """
+    item = make_item()
+    auction = Auction(sales_venue_id=heritage_venue.id, title="September Sale")
+    db.add(auction)
+    db.commit()
+    auction_lot = auctions.add_lot(
+        db, auction, item, lot_number="1", reserve=None, price=Decimal("10.00")
+    )
+    listing_id = auction_lot.listing_id
+    auctions.remove_lot(db, auction_lot)
+    db.commit()
+
+    response = client.post(f"/api/listings/{listing_id}/end", headers=admin_headers)
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert "no longer in any auction" in detail
+    assert "auction #" not in detail
+
+
 def test_ending_an_unknown_listing_is_not_found(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

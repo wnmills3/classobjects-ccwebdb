@@ -8,6 +8,14 @@ then takes every coin in the whole auction in **one**
 a single session -- Task 3's own review said so -- because a lock nobody is
 contending for behaves exactly like no lock at all.
 
+A third writer joined them after the whole-branch review: `app.auctions.
+cancel` is legal on a `closed` auction (ruling R8) and used to take the
+`auction` row only as its **last** statement, the inverse of `settle`'s
+order. `test_cancelling_an_auction_races_settling_it` is that pair, and it
+measures `_lock_auction` from the *other* side -- the two-settlement test
+below cannot, because removing the lock from `cancel` leaves `settle`'s
+intact and the test still green.
+
 Real, committing sessions, one per thread, released together by a
 `threading.Barrier`, exactly as `test_offer_races.py` does it. `TestClient`
 cannot do this job at all: it funnels every request through Starlette's
@@ -636,14 +644,42 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
     because the `auction` row lock serialises two settlements before either
     of them takes a coin.
 
-    Both operations are legitimate and **both succeed**, the shape
-    `test_offer_races.py::test_buying_a_lot_races_marking_one_of_its_coins_
-    missing` already has: `acknowledge_for_sale=True` is the operator saying
-    "I know this coin is on offer, record it missing anyway", so
-    `sale_state.guard` does not refuse. What the interleaving decides is only
-    which one goes first. `"deadlock"` and `"stale"` are asserted against
-    separately, for the reason that file gives: a loser is entitled to be
-    refused with a reason, never to a 500 on a money path.
+    Both operations are legitimate, both take their rows, and **neither is a
+    500** -- which is the whole guarantee. `"deadlock"` and `"stale"` are
+    asserted against separately, for the reason `test_offer_races.py` gives:
+    a loser is entitled to be refused with a reason, never to a 500 on a
+    money path.
+
+    **Two outcomes are legal now, and both are asserted** (changed by the
+    whole-branch review's Important #2; it used to assert `["marked",
+    "settled"]` alone). `routers.inventory._refuse_auction_lots` refuses a
+    receipt that would end an auction-format listing -- a coin in an auction
+    goes missing in two steps, remove the lot then record the loss, the trade
+    ruling R25 already accepted for Record sale. That refusal is raised
+    **after** `offering_writes.lock_for_sale` and under its locks, beside
+    `refuse_if_lot_unheld`, so the receipt still acquires exactly the rows it
+    always did: this is still a race test and not a refusal test, and the
+    mutation below still reds it, which is the proof rather than the claim.
+    Which pair a run produces depends only on who reaches the item locks
+    first:
+
+    - the **receipt** first: it holds the rows, its authoritative
+      `offers_holding` re-read still sees a live auction-format listing, and
+      it refuses with 409 and rolls back -- `["refused", "settled"]`;
+    - the **settlement** first: it commits, so that same re-read finds no
+      live offer left to refuse and the coin is recorded missing --
+      `["marked", "settled"]`.
+
+    **Both were measured, and the split is not subtle.** Running the whole
+    file: `["refused", "settled"]`, fifteen runs of fifteen. Running this
+    test with the file's two earlier tests deselected (`-k races`):
+    `["marked", "settled"]`, ten runs of ten. Nothing in the test changed
+    between those two -- only how warm the process was when the barrier
+    released -- which is exactly why the assertion names both pairs instead
+    of whichever one the machine happened to produce that afternoon.
+    `acknowledge_for_sale=True` is still the operator saying "I know this
+    coin is on offer, record it missing anyway", which is what keeps
+    `sale_state.guard` from refusing before the locks are taken at all.
 
     Every lot is `unsold` and the auction is **consigned**, and both are
     load-bearing rather than incidental. That combination is the one path on
@@ -788,7 +824,10 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
     assert "deadlock" not in outcomes, outcomes
     assert "stale" not in outcomes, outcomes
     assert "lock_set_changed" not in outcomes, outcomes
-    assert outcomes == ["marked", "settled"], outcomes
+    # Both legal, and which one happens is decided by who reaches the item
+    # locks first -- see this test's docstring. Neither is a 500, which is
+    # the guarantee.
+    assert outcomes in (["marked", "settled"], ["refused", "settled"]), outcomes
 
     with committed() as verify:
         auction = verify.get_one(Auction, auction_id)
@@ -825,12 +864,265 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
             )
             is None
         )
-        assert verify.get_one(InventoryItem, contested).status.code == "missing"
+        # The receipt's own effect, and the only thing the two legal
+        # interleavings differ on: it recorded the loss when settlement had
+        # already ended the offers, and was refused while they were still
+        # live.
+        expected = "missing" if "marked" in outcomes else "received"
+        assert verify.get_one(InventoryItem, contested).status.code == expected
         for item_id in item_ids:
             item = verify.get_one(InventoryItem, item_id)
             assert item.disposition.code == "held"
-            if item_id != contested:
-                # The coins that were fine are home, at the location the
-                # settlement was told to return them to -- not still sitting
-                # in the house's consigned location.
-                assert item.storage_location_id == drawer_id
+            # **Every** coin is home now, the contested one included, at the
+            # location the settlement was told to return them to rather than
+            # still sitting in the house's consigned location. Before
+            # `_refuse_auction_lots`, a receipt that won this race ended the
+            # lot's offer, so settlement's `offered_items` came back empty
+            # for that lot and left the coin at the auction house -- which is
+            # why this assertion used to have to skip it.
+            assert item.storage_location_id == drawer_id
+
+
+def test_cancelling_an_auction_races_settling_it(
+    committed: sessionmaker[Session],
+) -> None:
+    """Cancel and settle the same closed auction at once: no deadlock, no 500.
+
+    The race the whole-branch review's **Critical #1** named, and the one
+    nothing here covered: the two settlement tests above race settle against
+    settle and against a receipt, and nothing cancelled. Both endpoints are
+    admin-only, both buttons are present on a `closed` auction in the
+    console, and ruling **R8** made `cancel` legal on `closed` -- so two
+    tabs, or two operators, is all it takes.
+
+    **The defect.** `settle` took the `auction` row FOR UPDATE first
+    (`auctions._lock_auction`, ruling R2) and then the coins through
+    `offering_writes.lock_for_sale`: auction -> lots -> items -> listings.
+    `cancel` took no auction row at all, ended each lot's offer through
+    `offering_writes` and wrote `UPDATE auction SET status='cancelled'` as
+    its **last** statement: lots -> items -> listings -> auction. R2's own
+    argument that the new outermost level "cannot invert" was true when
+    written, because `cancel` was then gated to
+    `draft`/`scheduled`/`consigned` while `settle` proceeds only on `closed`
+    -- R8 widened `cancel` and created the second party, and nothing
+    re-derived R2 after it. The fix finishes R2 rather than undoing it:
+    `_lock_auction` is now `cancel`'s first statement too.
+
+    **The mutation that reds this test:** delete the
+    `auction = _lock_auction(db, auction)` line from `app.auctions.cancel`.
+    Measured, ten runs of ten red, in two shapes:
+
+    - `AssertionError: ['cancelled', 'deadlock']`, seven of ten. `settle` is
+      the victim, `sqlalchemy.exc.OperationalError` wrapping
+      `psycopg.errors.DeadlockDetected`, observed verbatim:
+
+          deadlock detected
+          DETAIL:  Process 3544 waits for ShareLock on transaction 2027215;
+          blocked by process 56560.  Process 56560 waits for ShareLock on
+          transaction 2027214; blocked by process 3544.
+          HINT:  See server log for query details.
+          CONTEXT:  while locking tuple (0,2) in relation "sales_lot"
+
+      Neither router catches `OperationalError` -- `routers.auctions`
+      catches only `StaleDataError` -- so that is an **HTTP 500 on a money
+      path**, with a non-deterministic victim.
+    - `AssertionError: ['settled', 'stale']`, three of ten. `settle` got all
+      the way through without contending and `cancel`'s final `UPDATE
+      auction ... WHERE version = :v` matched no rows. That one is the
+      *clean* 409 described below -- correct behaviour for the unlocked
+      code, and the reason the mutation has to be judged on both assertions
+      rather than on the deadlock alone. Neither shape is reachable once the
+      lock is back, which is why the test forbids both.
+
+    Restoring the line makes it green again; fifteen further runs of
+    fifteen, no failure.
+
+    **One distinction this test deliberately preserves.** If `settle` commits
+    without ever contending, `cancel`'s final `UPDATE auction` matches zero
+    rows on `Auction.version` and raises `StaleDataError`, which
+    `routers.auctions.cancel_auction` already turns into a clean 409. That
+    path is **correct and is not the defect**; only the `DeadlockDetected`
+    abort is a 500. With the lock in place the loser never reaches that
+    UPDATE at all -- it waits on the auction row, re-reads the status the
+    winner wrote and is refused by name -- which is why `"stale"` is
+    asserted against separately here rather than folded in with `"refused"`.
+
+    **Which one wins is not fixed, and nothing here depends on it.** Both
+    threads queue on `SELECT ... FOR UPDATE` of the same row; the winner
+    finishes, the loser re-reads and refuses. So exactly two outcome pairs
+    are legal, both asserted, and the loser's message is checked against
+    whichever of them happened -- a refusal with the *wrong* reason (a grid
+    problem, say, which is also an `AuctionRefused`) would otherwise score as
+    a won race. Measured over fifteen runs: settlement won eleven,
+    cancellation four, every one of them a clean refusal for the loser.
+
+    Six lots rather than three, to widen the window the mutation needs: with
+    the lock removed, `cancel` must be holding one lot's rows when `settle`
+    asks for all of them, and six `end_offer` passes is six times the
+    opportunity. Every lot is `unsold` and the auction is never consigned, so
+    no return location is needed on either side and the test measures the
+    lock rather than ruling R13's custody contract.
+    """
+    venue_id = _house_venue(committed, f"{RACE_PREFIX}-cancel")
+    admin_id = _admin(committed)
+    auction_id, lot_ids, item_ids = _closed_auction(committed, venue_id, lot_count=6)
+    lines = [SettlementLine(lot_id, AuctionLotResult.unsold) for lot_id in lot_ids]
+    barrier = threading.Barrier(2)
+    #: Every refusal either side raised, so the assertions can check *why*
+    #: the loser lost. `list.append` is the whole of the sharing, and it is
+    #: atomic.
+    refusals: list[str] = []
+
+    def settle_it() -> Outcome:
+        with committed() as session:
+            try:
+                auction = session.get_one(Auction, auction_id)
+                operator = session.get_one(User, admin_id)
+                barrier.wait(timeout=10)
+                auctions.settle(
+                    session, auction, lines=lines, fees={}, settled_by=operator
+                )
+                session.commit()
+                return "settled"
+            except SettlementInputInvalid:
+                # Before the wider class, which is its base -- see the
+                # two-settlement race above.
+                session.rollback()
+                return "input_invalid"
+            except AuctionRefused as exc:
+                session.rollback()
+                refusals.append(str(exc))
+                return "refused"
+            except OfferRefused:
+                session.rollback()
+                return "offer_refused"
+            except SaleRefused:
+                session.rollback()
+                return "sale_refused"
+            except LockSetChanged:
+                session.rollback()
+                return "lock_set_changed"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except IntegrityError:
+                session.rollback()
+                return "integrity_error"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    def cancel_it() -> Outcome:
+        with committed() as session:
+            try:
+                auction = session.get_one(Auction, auction_id)
+                barrier.wait(timeout=10)
+                auctions.cancel(session, auction)
+                session.commit()
+                return "cancelled"
+            except AuctionRefused as exc:
+                session.rollback()
+                refusals.append(str(exc))
+                return "refused"
+            except OfferRefused:
+                session.rollback()
+                return "offer_refused"
+            except LockSetChanged:
+                session.rollback()
+                return "lock_set_changed"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except IntegrityError:
+                session.rollback()
+                return "integrity_error"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(settle_it)
+        second = pool.submit(cancel_it)
+        outcomes = sorted([first.result(), second.result()])
+
+    assert "deadlock" not in outcomes, outcomes
+    assert "stale" not in outcomes, outcomes
+    assert "lock_set_changed" not in outcomes, outcomes
+    assert outcomes in (["cancelled", "refused"], ["refused", "settled"]), outcomes
+
+    settled_won = "settled" in outcomes
+    expected = (
+        f"auction #{auction_id} is already settled"
+        if settled_won
+        else f"auction #{auction_id} is cancelled, so it cannot be settled"
+    )
+    assert refusals == [expected], refusals
+
+    with committed() as verify:
+        auction = verify.get_one(Auction, auction_id)
+        lots = list(
+            verify.scalars(
+                select(AuctionLot)
+                .where(AuctionLot.auction_id == auction_id)
+                .order_by(AuctionLot.id)
+            ).all()
+        )
+        if settled_won:
+            assert auction.status is AuctionStatus.settled
+            # Every lot still there, every one resolved: a cancel that also
+            # got through would have deleted these rows.
+            assert [row.result for row in lots] == [AuctionLotResult.unsold] * 6
+        else:
+            assert auction.status is AuctionStatus.cancelled
+            # `remove_lot` deletes rather than marks (ruling R11), so a
+            # cancelled auction keeps none of its lot rows.
+            assert lots == []
+        assert auction.consigned_on is None
+
+        # True of both winners, and the reason the loser has to lose
+        # *cleanly*: each ends every listing and dissolves every sales lot
+        # exactly once, and neither sells anything.
+        for item_id in item_ids:
+            item = verify.get_one(InventoryItem, item_id)
+            assert item.disposition.code == "held"
+            claims = list(
+                verify.scalars(
+                    select(OfferClaim).where(OfferClaim.inventory_item_id == item_id)
+                ).all()
+            )
+            assert [claim.state for claim in claims] == [ClaimState.released], claims
+        listings = list(
+            verify.scalars(
+                select(Listing).where(
+                    Listing.sales_lot_id.in_(
+                        select(SalesLotItem.sales_lot_id).where(
+                            SalesLotItem.inventory_item_id.in_(item_ids)
+                        )
+                    )
+                )
+            ).all()
+        )
+        assert len(listings) == 6, listings
+        for listing in listings:
+            assert listing.status is ListingStatus.ended
+            assert listing.sales_lot_id is not None
+            assert (
+                verify.get_one(SalesLot, listing.sales_lot_id).status
+                is SalesLotStatus.dissolved
+            )
+        # Nothing sold on either path, so no order, no line and no share --
+        # the assertion a settlement that ran *through* a cancel would break.
+        assert (
+            verify.scalar(
+                select(SalesOrderItemShare.id).where(
+                    SalesOrderItemShare.inventory_item_id.in_(item_ids)
+                )
+            )
+            is None
+        )
+        assert (
+            verify.scalar(
+                select(Customer.id).where(Customer.sales_venue_id == venue_id)
+            )
+            is None
+        )

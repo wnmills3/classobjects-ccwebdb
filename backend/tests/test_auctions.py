@@ -43,7 +43,11 @@ from app.models import (
     SalesVenue,
     StorageLocation,
     StorageLocationKind,
+    User,
 )
+from app.routers.inventory import receive_items
+from app.schemas import ReceiveRequest
+from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -868,6 +872,115 @@ def test_consigned_location_lookup_ignores_a_row_with_an_identifier(
         assert location is not None
         assert location.id != decoy.id
         assert location.identifier is None
+
+
+# --------------------------------------------------------------------------
+# Whole-branch review, Important #2: a receipt may not end an auction lot
+# --------------------------------------------------------------------------
+
+
+def test_marking_one_member_of_an_auction_lot_missing_is_refused(
+    db: Session, admin_user: User, auction_lot: AuctionLot
+) -> None:
+    """`POST /inventory/receive` must not end an auction lot's offer. 409.
+
+    The third door onto an orphaned `auction_lot`, after
+    `routers.offers.end_listing` and `sales_writes.record_sale`, and the one
+    the whole-branch review found still open (Important #2). It was thought
+    unreachable because a coin in an auction has already been received --
+    false by one line: the "already received" refusal in `receive_items` is
+    conditioned on `payload.outcome == "received"`, and `missing`, `returned`
+    and `canceled`, the three outcomes that *end an offer*, skip it. From
+    there `offering_writes.offers_holding` is format-blind and hands the
+    endpoint the lot's `auction`-format listing through its derived half.
+
+    **The multi-member case, which nothing on the branch covered.** The race
+    suite's own helper builds single-coin lots, so the damage it could show
+    was confined to the contested coin. Here one member of a two-member lot
+    is marked `missing`. Measured against the unguarded endpoint, by removing
+    `routers.inventory._refuse_auction_lots` and reading the rows back:
+
+        lot listing status:            ended
+        sales lot status:              dissolved
+        other member's store listing:  active   (resumed, back in the shop)
+        auction_lot row still present: True
+
+    -- the **whole lot** out of the sale over one missing coin, the innocent
+    member quietly returned to the store, and an `auction_lot` row still
+    holding its lot number and pointing at an ended listing, which is what
+    `consign` then silently skips and what `settle` reads as an empty lot.
+    (A member with no other offer would go back to `held` instead of to the
+    shop; this fixture's `stored_item` has a store listing, so it shows the
+    resumption.) So the assertions below are deliberately about the member
+    that was **not** received.
+
+    The refusal is raised under `lock_for_sale`'s locks, after the
+    authoritative `offers_holding` re-read, so nothing is written when it
+    fires -- the endpoint commits once, at the end. The pending status write
+    that got as far as a flush is discarded with the savepoint here, exactly
+    as `get_db` discards it in production when the handler raises.
+
+    The trade is stated in the message, because the operator has to act on
+    it: remove the lot from the auction first, then record the loss. Ruling
+    R25 accepted the same two-step for Record sale.
+    """
+    listing = auction_lot.listing
+    lot = listing.sales_lot
+    assert lot is not None
+    store_listing = db.scalars(
+        select(Listing).where(Listing.paused_by_listing_id == listing.id)
+    ).one()
+    stored_item = store_listing.inventory_item
+    assert stored_item is not None
+    (plain_item,) = [
+        member.item
+        for member in lot.members
+        if member.inventory_item_id != stored_item.id
+    ]
+
+    savepoint = db.begin_nested()
+    with pytest.raises(HTTPException) as refused:
+        receive_items(
+            ReceiveRequest(
+                item_ids=[plain_item.id],
+                outcome="missing",
+                acknowledge_for_sale=True,
+            ),
+            db,
+            admin_user,
+        )
+    savepoint.rollback()
+
+    assert refused.value.status_code == 409
+    detail = str(refused.value.detail)
+    assert f"listing #{listing.id} of auction #{auction_lot.auction_id}" in detail
+    # The way out, named: a refusal an operator cannot act on is a 500 with
+    # better manners.
+    assert "Remove the lot from the auction first" in detail
+    assert "missing" in detail
+
+    db.refresh(listing)
+    db.refresh(lot)
+    db.refresh(store_listing)
+    db.refresh(stored_item)
+    db.refresh(plain_item)
+    # The lot is still on sale, whole: this is the assertion that fails
+    # against the unguarded endpoint.
+    assert listing.status is ListingStatus.active
+    assert lot.status is SalesLotStatus.offered
+    assert {member.inventory_item_id for member in lot.members} == {
+        stored_item.id,
+        plain_item.id,
+    }
+    # The innocent member is untouched -- not released back to `held`, and
+    # its store listing still set aside by the auction rather than resumed
+    # under it.
+    assert stored_item.disposition.code == "listed"
+    assert store_listing.status is ListingStatus.paused
+    # And the coin the receipt named kept its status, because nothing was
+    # committed.
+    assert plain_item.status.code == "received"
+    assert db.get(AuctionLot, auction_lot.id) is not None
 
 
 def test_consigning_notes_the_move_with_the_auction(

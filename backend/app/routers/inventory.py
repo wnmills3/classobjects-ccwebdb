@@ -42,6 +42,7 @@ from ..inventory_search import (
 )
 from ..lifecycle_writes import record_initial_status, set_location, set_status
 from ..models import (
+    AuctionLot,
     Authenticity,
     BullionForm,
     CoinDetail,
@@ -64,6 +65,7 @@ from ..models import (
     ItemStatus,
     ItemStatusHistory,
     Listing,
+    ListingFormat,
     Metal,
     Mint,
     NoteType,
@@ -294,6 +296,93 @@ def _classifier_code(db: Session, model: type, fk: int | None) -> str | None:
         return None
     row = db.get(model, fk)
     return row.code if row is not None else None
+
+
+def _refuse_auction_lots(
+    db: Session, listings: Sequence[Listing], outcome: str
+) -> None:
+    """Refuse a receipt that would end an auction lot's offer. 409.
+
+    The third door onto an orphaned `auction_lot`, after
+    `routers.offers.end_listing` and `sales_writes.record_sale`, and the one
+    a whole-branch review found still open. `app.auctions` is the sole writer
+    of `auction_lot`, and `remove_lot`, `cancel` and `settle` each end the
+    lot's listing *and* delete or resolve its row in one transaction. This
+    endpoint calls `offering_writes.end_offer`, which has never heard of
+    `auction_lot`.
+
+    **The premise that made this look unreachable was false by one line.**
+    The "already received" refusal above is conditioned on
+    `payload.outcome == "received"`, so the three outcomes that end an offer
+    -- `missing`, `returned`, `canceled` -- skip it entirely; an
+    already-received coin is exactly this path's input. And
+    `offering_writes.offers_holding` filters on claims and listing status
+    only. It is **format-blind**, so an `active` auction lot listing comes
+    back through the *derived* half and is ended like any other.
+
+    What that costs, all three measured against this branch rather than
+    imagined:
+
+    - **Before the auction closes**, one missing coin ends the whole lot
+      listing, dissolves its `sales_lot` and releases **every other member**
+      back to `held`, while the `auction_lot` row keeps its lot number.
+      `app.auctions.consign` then reads `offering_writes.offered_items` ->
+      `[]` and silently skips the lot: the auction reports itself consigned
+      and those coins never left.
+    - **After it closes, consigned**, `settle`'s `_return_from_consignment`
+      reads the same empty list, returns nothing, and then clears
+      `auction.consigned_on` on the claim that everything came home. The
+      lot's healthy members are left filed at the auction house with nothing
+      linking them to the auction -- the stranding rulings R9 and R13 exist
+      to prevent, through a third door.
+    - **After it closes, sold**, `sales_writes.record_sale_lines` refuses
+      that lot "not on offer" and the auction can never be settled.
+
+    **The trade this makes, deliberately:** a coin in an auction that goes
+    missing is now a **two-step** operation -- take the lot out of the
+    auction, then record the loss -- which is the same trade ruling R25
+    already accepted for Record sale. The message says so, because the
+    operator is the one who has to do the second step.
+
+    Placed beside `offering_writes.refuse_if_lot_unheld`, over the
+    *authoritative* `offers_holding` read and under the locks, not at the top
+    of the endpoint: the set is derived from claims and is only known here,
+    and this is already the endpoint's "refuse before the first `end_offer`,
+    all or nothing" point. The rows are held by then, so the refusal is
+    deterministic rather than something to retry -- and the locks are taken
+    either way, which is what keeps
+    `test_settling_a_consigned_auction_races_a_coin_going_missing` a race
+    test rather than a refusal test.
+    """
+    lots = [live for live in listings if live.format is ListingFormat.auction]
+    if not lots:
+        return
+    auctions_by_listing: dict[int, int] = dict(
+        db.execute(
+            select(AuctionLot.listing_id, AuctionLot.auction_id).where(
+                AuctionLot.listing_id.in_([live.id for live in lots])
+            )
+        )
+        .tuples()
+        .all()
+    )
+    named = sorted(
+        f"listing #{live.id}"
+        + (
+            f" of auction #{auctions_by_listing[live.id]}"
+            if live.id in auctions_by_listing
+            else ""
+        )
+        for live in lots
+    )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"Recording these items {outcome} would end an auction lot's offer: "
+            f"{named}. Remove the lot from the auction first, then record the "
+            f"items {outcome}."
+        ),
+    )
 
 
 @router.post("/receive")
@@ -543,6 +632,11 @@ def receive_items(
             offering_writes.offers_holding(db, [item.id for item in items])
         )
         offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
+        # An auction lot is ended through its auction, never here -- see
+        # `_refuse_auction_lots`. Beside `refuse_if_lot_unheld` and for the
+        # same reason: both are "this set cannot be ended by this endpoint",
+        # asked once over the whole set before the first `end_offer`.
+        _refuse_auction_lots(db, live_offers, payload.outcome)
         for live in live_offers:
             offering_writes.end_offer(db, live)
 

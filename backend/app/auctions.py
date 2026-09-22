@@ -59,8 +59,9 @@ did not name must first pass that set through `refuse_if_lot_unheld`, because
 Postgres deadlock under concurrency, not a single-request bug. `remove_lot`
 and `cancel` both call `end_offer`, and neither needs it: both always call it
 on `auction_lot.listing`, a listing this module named by holding the
-`AuctionLot` row itself (`remove_lot`) or by iterating `auction.lots`
-(`cancel`, which removes lots through `_remove_lot` one at a time) -- never a
+`AuctionLot` row itself (`remove_lot`) or by reading this auction's own lot
+rows through `_lots_of` (`cancel`, which removes lots through `_remove_lot`
+one at a time) -- never a
 listing reached through `lock_for_sale`'s *derived* half, the search that
 finds a listing because it holds one of the caller's items without the
 caller ever naming it (`routers.inventory.receive_items` is the one caller
@@ -294,9 +295,12 @@ def add_lot(
     when a relationship attribute is assigned, never from a bare FK column --
     so a session that had already read `auction.lots` before this call would
     keep seeing the old, short list for the rest of the session. `consign`
-    and `cancel` both iterate `auction.lots`; against the FK-only
-    construction, either could silently skip the very lot this call just
-    added. Fixed in fix round 1 (Important #1).
+    still iterates `auction.lots`; against the FK-only construction it could
+    silently skip the very lot this call just added. Fixed in fix round 1
+    (Important #1). `cancel` used to iterate it too and now reads `_lots_of`
+    instead (whole-branch review, Minor #8), which is the stronger of the two
+    answers -- the relationship fix keeps a loaded collection honest, a fresh
+    read never asks it to be.
     """
     if auction.status not in (AuctionStatus.draft, AuctionStatus.scheduled):
         raise AuctionRefused(
@@ -691,14 +695,55 @@ def cancel(
     still be cancelled as a whole; `cancel`'s own check above is the gate
     that applies.
 
-    Lots are removed in **ascending id order** (fix round 1, Minor #7):
-    `auction.lots` carries no `order_by` of its own
-    (`app/models/auctions.py`), and locking them one at a time in whatever
-    order the collection happens to return would let two concurrent cancels
-    of the same auction acquire their rows in different orders and deadlock,
-    rather than one losing cleanly with a 409. Sorting first makes the order
-    identical for both sessions; within a single pass the canonical
-    lot -> items -> listings order inside `end_offer` is unaffected.
+    **Takes the `auction` row FOR UPDATE first, exactly as `settle` does**
+    (`_lock_auction`, whole-branch review Critical #1 -- the completion of
+    ruling R2, not a departure from it). R2 gave `settle` a new outermost
+    lock level above `offering_writes`' canonical lot -> items -> listings
+    order, and argued it could not invert because the only other writer that
+    could reach an auction's coins was gated to statuses `settle` refuses on.
+    **Ruling R8 then widened `cancel` to accept `closed`** and created the
+    second party that argument assumed away: both endpoints are legal on a
+    `closed` auction, two console tabs is all it takes, and `cancel` used to
+    reach the coins with no auction row held and write `UPDATE auction` as
+    its *last* statement -- lots -> items -> listings -> auction, the exact
+    inverse of `settle`. Measured interleaving: `cancel` takes the first
+    lot's item, `settle` takes the auction row and then waits on that item,
+    `cancel` finishes its lots and waits on the auction row. Postgres
+    `DeadlockDetected`, surfacing as `sqlalchemy.exc.OperationalError`, which
+    neither router catches -- an HTTP 500 on a money path with a
+    non-deterministic victim. Taking the same outermost level here adds no
+    new level and makes the two agree;
+    `test_cancelling_an_auction_races_settling_it`
+    (`tests/test_settlement_race.py`) is the proof, and reds with
+    `['cancelled', 'deadlock']` when this line is removed.
+
+    **No other transition needs it.** `remove_lot`, `add_lot` and `consign`
+    are each gated to `draft`/`scheduled`/`consigned`, on which `settle`
+    refuses immediately after taking the auction row and therefore never goes
+    on to wait for an item; `close` and `schedule` take no rows but the
+    auction's own. Adding `_lock_auction` to them is defensible hardening,
+    not a fix for this cycle.
+
+    A second effect, and a wanted one: the status and custody checks below
+    now read a **locked, re-read** row, so cancel-versus-cancel and a stale
+    status read are refused with an `AuctionRefused` naming the status rather
+    than losing later on `Auction.version` with a blunt `StaleDataError`.
+    The version column still guards the case where `settle` commits without
+    ever contending -- that 409 is correct and is a different path from the
+    deadlock above.
+
+    Lots are removed in **ascending id order** (fix round 1, Minor #7)
+    through `_lots_of`, never `auction.lots`: that collection carries no
+    `order_by` of its own (`app/models/auctions.py`), and locking lots one at
+    a time in whatever order it happens to return would let two concurrent
+    cancels of the same auction acquire their rows in different orders and
+    deadlock, rather than one losing cleanly. `_lots_of` reads them fresh and
+    ascending, which also closes the stale-collection hazard its own
+    docstring was written for -- `cancel` used to rely on
+    `routers.auctions._get_auction` eager-loading per request, a caller's
+    loading strategy rather than a guarantee. Within a single pass the
+    canonical lot -> items -> listings order inside `end_offer` is
+    unaffected.
 
     `returned_to_location_id` (ruling R9, fix round 1; keyed on custody, not
     status, since ruling R13, fix round 2): the same contract `remove_lot`
@@ -732,9 +777,10 @@ def cancel(
     Needs no `offering_writes.refuse_if_lot_unheld` for the same reason
     `remove_lot` does not -- see this module's own docstring: every
     `end_offer` call this makes goes through `_remove_lot`, on a listing
-    named by iterating `auction.lots`, never one reached through
+    named by this auction's own lot rows, never one reached through
     `lock_for_sale`'s derived half.
     """
+    auction = _lock_auction(db, auction)
     if auction.status in (AuctionStatus.settled, AuctionStatus.cancelled):
         raise AuctionRefused(f"auction #{auction.id} is already {auction.status.value}")
     if auction.consigned_on is not None and returned_to_location_id is None:
@@ -744,7 +790,7 @@ def cancel(
             "its items back before it can be cancelled"
         )
     still_consigned = auction.consigned_on is not None
-    for auction_lot in sorted(auction.lots, key=lambda row: row.id):
+    for auction_lot in _lots_of(db, auction):
         _remove_lot(db, auction_lot, returned_to_location_id=returned_to_location_id)
     if still_consigned:
         auction.consigned_on = None
@@ -832,6 +878,15 @@ def _lock_auction(db: Session, auction: Auction) -> Auction:
     other auction transitions and cannot invert against lots, items or
     listings -- which is what makes adding a level here safe at all.
 
+    **Taken by `settle` and by `cancel`, and by both or by neither.** The
+    two are the writers that go on to take an auction's coins, and ruling R8
+    made them both legal on a `closed` auction. One taking this level and the
+    other not is the "caller that bypasses the owner" shape, one level up:
+    measured as a real `DeadlockDetected` and an HTTP 500 in the whole-branch
+    review (Critical #1), and now proven by
+    `test_cancelling_an_auction_races_settling_it`. Any future transition
+    that reaches a coin must take this first as well.
+
     Why it is needed: `settle` decides what to write from the auction's
     status and its lot table, and then writes both. Two settlements of one
     auction that each read `closed` would each go on to record every lot's
@@ -869,10 +924,13 @@ def _lots_of(db: Session, auction: Auction) -> list[AuctionLot]:
     added keeps the short list for the rest of the session -- the defect fix
     round 1 found in `add_lot`. `settle` writes a result to every one of
     these rows, so a stale collection here is a lot left unsettled inside a
-    transaction that then marks the auction `settled`.
+    transaction that then marks the auction `settled`; `cancel` removes every
+    one of them, so a stale collection there is a lot left live under an
+    auction that reads `cancelled`.
 
-    Ascending id for the reason `cancel` sorts: one order for every pass, so
-    two concurrent settlements cannot take the same rows two ways.
+    Ascending id, one order for every pass, so two concurrent passes over the
+    same auction cannot take the same rows two ways. Both callers now share
+    this function rather than each sorting for itself.
     """
     return list(
         db.scalars(
