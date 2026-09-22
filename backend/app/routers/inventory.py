@@ -1710,7 +1710,7 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"{item.item_code} has a listing and cannot be deleted. "
+                f"{item.item_code} has been offered and cannot be deleted. "
                 f"An item that has ever been offered -- on its own or inside "
                 f"a sales lot -- stays in the record permanently: ending the "
                 f"listing takes it off sale but does not remove it, because "

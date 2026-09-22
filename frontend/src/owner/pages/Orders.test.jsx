@@ -169,6 +169,35 @@ describe('owner Orders', () => {
     expect(cancelled).toBeDisabled()
   })
 
+  it('does offer cancel for an outside sale that has already shipped', async () => {
+    // The refusal the test above covers is the server's, and the server only
+    // refuses a cancellation that would really return stock. A shipped order
+    // returns none, so cancelling one is allowed -- it is how a refund is
+    // recorded. An `auction_house` sale is created `delivered`, so every one
+    // arrives in this state; greying the option out made that workflow
+    // unreachable from the console.
+    api.listOrders.mockResolvedValue([
+      {
+        ...ORDERS[0],
+        sales_venue_code: 'heritage',
+        sales_venue_name: 'Heritage',
+        status: 'delivered',
+      },
+    ])
+    renderWithProviders(<Orders />, {
+      auth: adminAuth(),
+      route: '/orders',
+      strict: true,
+    })
+    await screen.findByText('Ada Lovelace')
+    const select = within(rowFor(12)).getByRole('combobox')
+    const cancelled = within(select).getByRole('option', { name: /cancelled/i })
+    expect(cancelled).toBeEnabled()
+    // The tooltip goes with the greying, so it must go too -- a disabled
+    // reason left on an enabled option is a claim the page no longer makes.
+    expect(cancelled).not.toHaveAttribute('title')
+  })
+
   it('shows a refusal without losing the list', async () => {
     api.setOrderStatus.mockRejectedValue(new Error('Order #12 cannot move to that'))
     const user = await renderPage()
