@@ -109,6 +109,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import lifecycle_writes, lot_writes, offering_writes, sales_writes
+from .errors import ReferenceDataMissing
 from .models import (
     Auction,
     AuctionLot,
@@ -484,7 +485,7 @@ def _return_from_consignment(
         )
 
 
-def refuse_unless_lot_editable(auction_lot: AuctionLot) -> None:
+def refuse_unless_lot_editable(db: Session, auction_lot: AuctionLot) -> None:
     """Raise `AuctionRefused` unless this lot's number or reserve may still change.
 
     Ruling R22 (Task 5 follow-up): nothing owned this decision before --
@@ -507,12 +508,25 @@ def refuse_unless_lot_editable(auction_lot: AuctionLot) -> None:
     other single-writer columns do, so there is nothing beyond the gate
     itself for this module to own (see `routers.auctions.update_auction_lot`'s
     own docstring).
+
+    **Takes `(db, auction_lot)`, the module's own convention** (Minor #9,
+    Task 5 fix round 1), and reads the auction's status through `db` and
+    `auction_lot.auction_id` -- a plain column, always present -- rather
+    than through the `auction_lot.auction` relationship: that attribute is a
+    lazy load, which emits a `SELECT` of its own on a cold instance and
+    raises `DetachedInstanceError` on an expired one, so a "pure check" that
+    reads it is not actually free of the session. Asking `db` directly for
+    just the one column this function needs is both the honest signature and
+    the cheaper query.
     """
-    auction = auction_lot.auction
-    if auction.status not in _LOTS_REMOVABLE:
+    # `get_one`, not `scalar(select(...))`: `auction_id` is `ondelete="RESTRICT"`,
+    # so the row is guaranteed to exist, and this reads that guarantee's
+    # type as well as its data -- `AuctionStatus`, never `AuctionStatus | None`.
+    auction_status = db.get_one(Auction, auction_lot.auction_id).status
+    if auction_status not in _LOTS_REMOVABLE:
         raise AuctionRefused(
-            f"auction #{auction.id} is {auction.status.value}, so lot "
-            f"{auction_lot.lot_number} cannot be renumbered or have its "
+            f"auction #{auction_lot.auction_id} is {auction_status.value}, so "
+            f"lot {auction_lot.lot_number} cannot be renumbered or have its "
             "reserve changed"
         )
 
@@ -545,14 +559,15 @@ def consign(
     Minor #8), so the history says *why* the item went, not only where.
 
     Raises `AuctionRefused` if the platform is not an auction house, or if
-    the auction is not `scheduled`. Raises `RuntimeError` if the `consigned`
+    the auction is not `scheduled`. Raises `errors.ReferenceDataMissing` (a
+    narrow `RuntimeError`, ruling R24, Task 5 fix round 1) if the `consigned`
     storage-location kind is not seeded: a live database that has run the
     migration but not `python -m app.seeding load` is a real, expected state
     (migration `e267ec3aedc1`'s own docstring), and this is the message that
     tells the owner what to do. Nothing here creates the kind on the fly or
     falls back to a different one -- the same shape as
-    `app.sales_venues.ensure_store_venue`'s `RuntimeError` for a missing
-    `own_store` platform kind.
+    `app.sales_venues.ensure_store_venue`'s `ReferenceDataMissing` for a
+    missing `own_store` platform kind.
     """
     venue = auction.sales_venue
     if venue.kind.code != _AUCTION_HOUSE_KIND_CODE:
@@ -613,7 +628,7 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
         )
     )
     if kind_id is None:
-        raise RuntimeError(
+        raise ReferenceDataMissing(
             f"storage_location_kind {_CONSIGNED_KIND_CODE!r} is not seeded: "
             "run `python -m app.seeding load`"
         )

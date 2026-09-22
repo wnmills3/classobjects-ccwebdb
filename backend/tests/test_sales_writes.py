@@ -6,9 +6,11 @@ from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
-from app import offering_writes, order_writes
+from app import auctions, offering_writes, order_writes
 from app.allocation import allocate
 from app.models import (
+    Auction,
+    AuctionLot,
     ClaimState,
     Customer,
     InventoryItem,
@@ -389,6 +391,88 @@ def test_an_already_ended_listing_cannot_be_sold(
             fees=[],
             recorded_by=admin_user,
         )
+
+
+def test_recording_a_manual_sale_against_an_auction_lot_is_refused(
+    db: Session,
+    heritage_venue: SalesVenue,
+    make_item: Callable[..., InventoryItem],
+    admin_user: User,
+) -> None:
+    """Ruling R25 (Task 5 fix round 1): an auction lot sells through settlement.
+
+    `record_sale` reaching `offering_writes.end_offer(sold=True)` on an
+    auction-format listing would end it and write an order outside
+    settlement entirely, leaving the `auction_lot` row live and pointing at
+    a listing no longer offered -- and then stranding the auction for good,
+    since `app.auctions.settle`'s own call to `record_sale_lines` would
+    refuse that lot's listing as "not on offer" from then on. Refused before
+    anything is written: the listing stays `active` and the `auction_lot`
+    row is untouched.
+    """
+    auction = Auction(
+        sales_venue_id=heritage_venue.id, title="September Signature Sale"
+    )
+    db.add(auction)
+    db.flush()
+    auction_lot = auctions.add_lot(
+        db, auction, make_item(), lot_number="1", reserve=None, price=Decimal("10.00")
+    )
+    db.flush()
+
+    with pytest.raises(SaleRefused, match=f"auction #{auction.id}"):
+        record_sale(
+            db,
+            auction_lot.listing,
+            price=Decimal("50.00"),
+            buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
+
+    db.expire_all()
+    assert db.get_one(Listing, auction_lot.listing_id).status is ListingStatus.active
+    assert db.get_one(AuctionLot, auction_lot.id).auction_id == auction.id
+
+
+def test_settlement_still_reaches_record_sale_lines_for_an_auction_lot(
+    db: Session,
+    heritage_venue: SalesVenue,
+    make_item: Callable[..., InventoryItem],
+    admin_user: User,
+) -> None:
+    """The guard is on `record_sale`, not `record_sale_lines`.
+
+    Settlement is unaffected.
+
+    `_refuse_manual_auction_sale` is called from `record_sale` alone, so
+    `app.auctions.settle`'s own multi-listing calls into `record_sale_lines`
+    -- for the exact auction-format listings the guard protects -- must
+    still succeed. `test_auction_settlement.py` already proves this
+    end-to-end through `settle`; this pins the narrower claim directly
+    against the function the guard sits beside, so a future change that
+    widened the guard's placement would fail here first.
+    """
+    auction = Auction(
+        sales_venue_id=heritage_venue.id, title="September Signature Sale"
+    )
+    db.add(auction)
+    db.flush()
+    auction_lot = auctions.add_lot(
+        db, auction, make_item(), lot_number="1", reserve=None, price=Decimal("10.00")
+    )
+    db.flush()
+
+    order = record_sale_lines(
+        db,
+        [SaleLine(listing_id=auction_lot.listing_id, price=Decimal("50.00"))],
+        buyer_username="coinfan88",
+        external_order_id=None,
+        fees=[],
+        recorded_by=admin_user,
+    )
+    assert order.total_amount == Decimal("50.00")
 
 
 def test_a_second_sale_of_the_same_listing_is_refused_as_not_on_offer(

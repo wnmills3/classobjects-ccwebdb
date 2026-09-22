@@ -145,13 +145,36 @@ def test_auctions_are_admin_only(
 def test_auction_transitions_are_admin_only(
     client: TestClient, customer_headers: dict[str, str]
 ) -> None:
-    """The guard runs before the handler, so no auction needs to exist."""
-    for path in (
-        "/api/auctions/1/schedule",
-        "/api/auctions/1/close",
-    ):
-        assert client.post(path).status_code == 401
-        assert client.post(path, headers=customer_headers).status_code == 403
+    """The guard runs before the handler, so no auction needs to exist.
+
+    Minor #8 (Task 5 fix round 1): every transition, not just schedule and
+    close -- consign, cancel and settle each take a body, so each is sent a
+    schema-valid one to isolate the admin gate from request validation.
+    """
+    posts: tuple[tuple[str, dict[str, object]], ...] = (
+        ("/api/auctions/1/schedule", {}),
+        ("/api/auctions/1/consign", {"on_date": "2026-01-01"}),
+        ("/api/auctions/1/close", {}),
+        ("/api/auctions/1/cancel", {}),
+        ("/api/auctions/1/settle", {"lines": [], "fees": []}),
+        (
+            "/api/auctions/1/lots",
+            {"lot_number": "1", "item_id": 1, "price": "1.00"},
+        ),
+    )
+    for path, body in posts:
+        assert client.post(path, json=body).status_code == 401
+        assert client.post(path, json=body, headers=customer_headers).status_code == 403
+    for path in ("/api/auctions/1/lots/1",):
+        assert client.delete(path).status_code == 401
+        assert client.delete(path, headers=customer_headers).status_code == 403
+        assert client.patch(path, json={"lot_number": "1A"}).status_code == 401
+        assert (
+            client.patch(
+                path, json={"lot_number": "1A"}, headers=customer_headers
+            ).status_code
+            == 403
+        )
 
 
 # --------------------------------------------------------------------------
@@ -496,8 +519,10 @@ def test_renumbering_a_lot_in_a_closed_auction_is_refused(
     Once closed, the lot numbers are part of the record a house's statement
     is reconciled against, and a reserve is meaningless -- the same boundary
     `remove_lot` already draws (`_LOTS_REMOVABLE`). The other side of this --
-    that the change is allowed before close -- is `test_renumbering_a_lot`,
-    against a `draft` auction.
+    that the change is allowed before close -- is `test_renumbering_a_lot`
+    (`draft`) and, below (Minor #8, Task 5 fix round 1),
+    `test_renumbering_a_lot_while_scheduled` and
+    `test_renumbering_a_lot_while_consigned`.
     """
     lot = _auction_lots(db, closed_auction_of_two_lots)[0]
     response = client.patch(
@@ -510,6 +535,70 @@ def test_renumbering_a_lot_in_a_closed_auction_is_refused(
 
     db.expire_all()
     assert db.get_one(AuctionLot, lot.id).lot_number == lot.lot_number
+
+
+def test_renumbering_a_lot_while_scheduled(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    scheduled_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    """R22's allowed side, for `scheduled`.
+
+    `test_renumbering_a_lot` covers `draft`.
+    """
+    item = make_item()
+    added = client.post(
+        f"/api/auctions/{scheduled_auction.id}/lots",
+        headers=admin_headers,
+        json={"lot_number": "1", "item_id": item.id, "price": "1.00"},
+    )
+    lot_id = added.json()["lots"][0]["id"]
+
+    response = client.patch(
+        f"/api/auctions/{scheduled_auction.id}/lots/{lot_id}",
+        headers=admin_headers,
+        json={"lot_number": "1A"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["lots"][0]["lot_number"] == "1A"
+
+
+def test_renumbering_a_lot_while_consigned(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    scheduled_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    """R22's allowed side, for `consigned`.
+
+    A house may still fix a lot number after custody moved, before the sale
+    itself runs.
+    """
+    item = make_item()
+    added = client.post(
+        f"/api/auctions/{scheduled_auction.id}/lots",
+        headers=admin_headers,
+        json={"lot_number": "1", "item_id": item.id, "price": "1.00"},
+    )
+    lot_id = added.json()["lots"][0]["id"]
+    consigned = client.post(
+        f"/api/auctions/{scheduled_auction.id}/consign",
+        headers=admin_headers,
+        json={"on_date": "2026-10-01"},
+    )
+    assert consigned.status_code == 200, consigned.text
+    assert consigned.json()["status"] == "consigned"
+
+    response = client.patch(
+        f"/api/auctions/{scheduled_auction.id}/lots/{lot_id}",
+        headers=admin_headers,
+        json={"lot_number": "1A"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["lots"][0]["lot_number"] == "1A"
 
 
 def test_renumbering_a_lot_to_null_is_unprocessable(
@@ -651,9 +740,12 @@ def test_consign_with_no_seed_is_a_500_naming_the_seeder(
 
     The live database is in exactly this state today -- migrated to this
     branch's revision, but `python -m app.seeding load` has not run. Before
-    `app.main` registered a handler for `RuntimeError`, this reached the
-    console as a bodyless "Internal Server Error"; the message
-    `app.auctions.consign` raises never left the server log.
+    `app.main` registered a handler for this, it reached the console as a
+    bodyless "Internal Server Error"; the message `app.auctions.consign`
+    raises never left the server log. Registered on
+    `errors.ReferenceDataMissing` since ruling R24 (Task 5 fix round 1), not
+    on `RuntimeError` itself -- see `test_an_unrelated_runtime_error_is_not_swallowed`
+    for the regression that ruling closed.
     """
     db.execute(
         delete(StorageLocationKind).where(StorageLocationKind.code == "consigned")
@@ -667,6 +759,36 @@ def test_consign_with_no_seed_is_a_500_naming_the_seeder(
     )
     assert response.status_code == 500, response.text
     assert "app.seeding load" in response.json()["detail"]
+
+
+def test_an_unrelated_runtime_error_is_not_swallowed(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    scheduled_auction: Auction,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ruling R24 (Task 5 fix round 1): only `errors.ReferenceDataMissing` is caught.
+
+    Before this ruling, the 500 handler was registered on `RuntimeError`
+    itself -- also the base of `NotImplementedError` and `RecursionError`,
+    and of every incidental `RuntimeError` anywhere in the app. Handling the
+    base class took a genuine bug away from `ServerErrorMiddleware` (no
+    traceback logged) and from `TestClient` (no re-raise), turning it into a
+    tidy 500 wearing a "server precondition" label. A plain `RuntimeError`
+    from a monkeypatched writer -- not `ReferenceDataMissing` -- must still
+    escape this client unhandled, the same as any other unexpected crash.
+    """
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("something else entirely, not a seeding problem")
+
+    monkeypatch.setattr(auctions, "consign", _boom)
+    with pytest.raises(RuntimeError, match="something else entirely"):
+        client.post(
+            f"/api/auctions/{scheduled_auction.id}/consign",
+            headers=admin_headers,
+            json={"on_date": "2026-10-01"},
+        )
 
 
 def test_closing_and_cancelling_an_auction(
@@ -885,7 +1007,13 @@ def test_a_plain_auction_refused_from_settle_is_still_a_409(
         json={"lines": [], "fees": []},
     )
     assert response.status_code == 409, response.text
-    assert response.json()["detail"] == "a real conflict, for the test"
+    body = response.json()
+    assert body["detail"] == "a real conflict, for the test"
+    # Minor #8 (Task 5 fix round 1): the other three dispatch tests in this
+    # section check `refused` as well as `detail`; this one had not.
+    assert body["refused"] == [
+        {"reason": "a real conflict, for the test", "lot_number": None}
+    ]
 
 
 def test_sale_input_invalid_from_settle_is_a_422_not_a_409(

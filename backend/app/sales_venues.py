@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .errors import ReferenceDataMissing
 from .models import SalesVenue, SalesVenueKind
 
 __all__ = ["STORE_CODE", "ensure_store_venue", "store_venue_id"]
@@ -20,17 +21,27 @@ STORE_CODE = "store"
 
 
 def store_venue_id(db: Session) -> int:
-    """The web store platform's id; it must exist."""
+    """The web store platform's id; it must exist.
+
+    Raises `errors.ReferenceDataMissing` (ruling R24, Task 5 fix round 1) --
+    a narrow `RuntimeError` `app.main` registers a handler for -- rather than
+    the base class, so an unrelated `RuntimeError` anywhere else in the app
+    keeps crashing loudly instead of being mistaken for this.
+    """
     found = db.scalar(select(SalesVenue.id).where(SalesVenue.is_own_store.is_(True)))
     if found is None:
-        raise RuntimeError(
+        raise ReferenceDataMissing(
             "No web store platform: run `alembic upgrade head` on this database"
         )
     return found
 
 
 def ensure_store_venue(db: Session) -> int:
-    """Create the web store platform if it is missing, and return its id."""
+    """Create the web store platform if it is missing, and return its id.
+
+    Raises `errors.ReferenceDataMissing` for the same reason `store_venue_id`
+    does, if the `own_store` `sales_venue_kind` is not seeded.
+    """
     found = db.scalar(select(SalesVenue.id).where(SalesVenue.is_own_store.is_(True)))
     if found is not None:
         return found
@@ -38,7 +49,7 @@ def ensure_store_venue(db: Session) -> int:
         select(SalesVenueKind.id).where(SalesVenueKind.code == "own_store")
     )
     if kind_id is None:
-        raise RuntimeError(
+        raise ReferenceDataMissing(
             "sales_venue_kind 'own_store' is not seeded: "
             "run `python -m app.seeding load`"
         )

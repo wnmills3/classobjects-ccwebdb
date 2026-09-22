@@ -9,10 +9,13 @@ console needs.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from decimal import Decimal
+
 import httpx
 import pytest
-from app import offering_writes, sales_writes
-from app.models import Listing, SalesOrder, User
+from app import auctions, offering_writes, sales_writes
+from app.models import Auction, InventoryItem, Listing, SalesOrder, SalesVenue, User
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -131,6 +134,38 @@ def test_selling_an_unknown_listing_is_a_404(
     """An id nothing wears is a 404, not a refusal about its state."""
     response = _post(client, 999_999_999, admin_headers)
     assert response.status_code == 404
+
+
+def test_recording_a_sale_on_an_auction_lot_is_a_409(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    heritage_venue: SalesVenue,
+    make_item: Callable[..., InventoryItem],
+) -> None:
+    """Ruling R25 (Task 5 fix round 1): an auction lot sells through settlement.
+
+    Record sale sits beside End on the Listings page, and defect 1's guard
+    (`routers.offers._refuse_auction_lot`) only closed the End half. This is
+    the other route to the same orphaned `auction_lot`:
+    `sales_writes.record_sale` now refuses before writing anything, naming
+    the auction. `test_sales_writes.py` proves the writer refuses and leaves
+    the listing and the `auction_lot` row untouched; this proves the same
+    refusal reaches the console as a 409.
+    """
+    auction = Auction(
+        sales_venue_id=heritage_venue.id, title="September Signature Sale"
+    )
+    db.add(auction)
+    db.commit()
+    auction_lot = auctions.add_lot(
+        db, auction, make_item(), lot_number="1", reserve=None, price=Decimal("10.00")
+    )
+    db.commit()
+
+    response = _post(client, auction_lot.listing_id, admin_headers)
+    assert response.status_code == 409, response.text
+    assert f"auction #{auction.id}" in response.json()["detail"]
 
 
 def test_an_unknown_fee_kind_is_a_422(
