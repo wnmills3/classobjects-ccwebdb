@@ -385,7 +385,13 @@ def test_two_settlements_of_one_auction_leave_one_set_of_orders(
     doing its own locked re-read, not this lock working -- an accidental
     backstop, and the distinction matters because it is not general: a
     settlement whose lots were all `unsold` calls `record_sale_lines` for
-    nobody, so nothing re-reads on its behalf at all.
+    nobody, so nothing re-reads on its behalf at all. **Measured rather than
+    argued**, by running this same race with an all-`unsold` grid against the
+    same mutation: five runs of five, `['settled', 'stale']` --
+    `StaleDataError` on `auction.version`, a 500 with nothing for an operator
+    to act on, where the sold grid at least produced a refusal. The grid this
+    test uses is the *milder* of the two failures, which is the safe
+    direction for a proof to err in.
 
     Does **not** survive removing the `offering_writes.lock_for_sale` pass
     from `settle`, and that is stated rather than left as a gap: measured ten
