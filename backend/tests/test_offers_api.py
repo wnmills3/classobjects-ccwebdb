@@ -14,8 +14,9 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from app import offering_writes
+from app import auctions, offering_writes
 from app.models import (
+    Auction,
     InventoryItem,
     Listing,
     ListingStatus,
@@ -559,6 +560,45 @@ def test_ending_an_offer(
         client, admin_headers, venue.code, [{"item_id": item.id, "price": "11.00"}]
     )
     assert again.status_code == 201, again.text
+
+
+def test_ending_an_auction_lot_listing_directly_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+    heritage_venue: SalesVenue,
+) -> None:
+    """Task 5, defect 1: an auction lot is ended through its auction, not here.
+
+    `app.auctions.consign` reads an auction's coins through
+    `offering_writes.offered_items(db, auction_lot.listing)`, which answers
+    `[]` for an ended listing. Ending this listing straight through
+    `POST /api/listings/{id}/end` -- which knows nothing of `auction_lot` --
+    would leave a live `auction_lot` row pointing at a listing no longer
+    offered anywhere, and the owner would see an auction reporting itself
+    consigned while this lot's coins never moved.
+    """
+    item = make_item()
+    auction = Auction(
+        sales_venue_id=heritage_venue.id, title="September Signature Sale"
+    )
+    db.add(auction)
+    db.commit()
+    auction_lot = auctions.add_lot(
+        db, auction, item, lot_number="1", reserve=None, price=Decimal("10.00")
+    )
+    db.commit()
+
+    response = client.post(
+        f"/api/listings/{auction_lot.listing_id}/end", headers=admin_headers
+    )
+    assert response.status_code == 409, response.text
+    assert f"auction #{auction.id}" in response.json()["detail"]
+
+    # Nothing was ended: the listing is exactly as it was.
+    db.expire_all()
+    assert db.get_one(Listing, auction_lot.listing_id).status is ListingStatus.active
 
 
 def test_ending_an_unknown_listing_is_not_found(

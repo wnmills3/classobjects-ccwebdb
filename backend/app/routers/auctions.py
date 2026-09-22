@@ -1,0 +1,749 @@
+"""Auctions: the HTTP face of `app.auctions`.
+
+Admin only, and deliberately so: an auction lot carries what its coins cost,
+same as an offer, and a house's fees and hammer prices are staff-only figures
+the shop's own catalogue endpoints never touch.
+
+Every write here goes through `app.auctions`, the sole writer of `auction`
+and `auction_lot`, or -- for `lot_number` and `reserve`, administrative
+fields the same way `Listing.price`, `.title` and `.description` are -- is a
+plain `setattr` the way `routers.offers.update_listing` edits those, because
+neither field carries a consequence `app.auctions` needs to own. This module
+resolves ids and codes, owns the transaction, and shapes the response; it
+decides nothing about what may be added, removed, consigned, closed,
+cancelled or settled.
+
+**`AuctionRefused` and its narrower `SettlementInputInvalid`, and
+`sales_writes.SaleRefused` and its narrower `SaleInputInvalid`, are never
+caught here at all.** Ruling R20 (the Task 5 brief): each pair is registered
+as a FastAPI exception handler in `app.main`, keyed by class, so the HTTP
+status a refusal gets can never depend on the order of an `except` clause a
+later edit reordered without anyone noticing. See `app.main`'s own note on
+this for the full reasoning. `settle` alone can raise all four -- its own
+`AuctionRefused`/`SettlementInputInvalid` from the grid, or
+`sales_writes.SaleRefused`/`SaleInputInvalid` from the `record_sale_lines`
+call inside it -- which is exactly the shape an ordered `except` in this
+module would have had the hardest time getting right, and now does not have
+to.
+
+**A write is all or nothing.** Every endpoint that commits wraps its calls
+into `app.auctions` in a `try`/`except Exception: db.rollback(); raise`, even
+where the writer itself never leaves a partial write behind (it checks every
+refusal before writing anything -- see that module's own docstring): the
+`client` fixture in `tests/conftest.py` shares one session across every
+request in a test, with no per-request teardown to roll it back, so a path
+that skipped this would leave that shared session dirty for the next
+assertion in the same test rather than merely for the next request in
+production, where `database.get_db`'s own `finally: db.close()` would have
+done it anyway.
+
+Plain ids are read into locals before each `try`, and every implicit
+autoflush stays inside it, the same discipline `routers.lots.update_sales_lot`
+documents: after a failed flush, reading any ORM attribute raises
+`PendingRollbackError` instead of the refusal a handler was trying to send.
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Annotated, Any
+
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import Select, func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
+
+from .. import auctions, lot_writes, offering_writes, sales_writes
+from ..deps import AdminUser, DbSession
+from ..models import (
+    Auction,
+    AuctionLot,
+    AuctionLotResult,
+    AuctionStatus,
+    InventoryItem,
+    Listing,
+    SalesLot,
+    SalesLotItem,
+    SalesOrder,
+    SalesOrderFee,
+    SalesOrderItem,
+    SalesOrderItemShare,
+    SalesVenue,
+    StorageLocation,
+)
+from ..schemas import (
+    AuctionCancelIn,
+    AuctionConsignIn,
+    AuctionIn,
+    AuctionListOut,
+    AuctionLotIn,
+    AuctionLotOut,
+    AuctionLotUpdate,
+    AuctionOut,
+    AuctionRefusedOut,
+    AuctionUpdate,
+    ListingOut,
+    SaleRecordedOut,
+    SettleIn,
+    SettleOut,
+)
+from .offers import external_url
+
+router = APIRouter(prefix="/auctions", tags=["selling"])
+
+_STALE = "This auction was changed by someone else. Reload and reapply your changes."
+
+_REFUSAL_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_409_CONFLICT: {"model": AuctionRefusedOut},
+    status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": AuctionRefusedOut},
+}
+
+
+# --------------------------------------------------------------------------
+# Resolving what the client sent
+# --------------------------------------------------------------------------
+
+
+def _venue_by_code(db: Session, code: str) -> SalesVenue:
+    """Resolve a `sales_venue` code. An unknown platform is a 422."""
+    venue = db.scalar(select(SalesVenue).where(SalesVenue.code == code))
+    if venue is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown venue: {code!r}",
+        )
+    return venue
+
+
+def _auction_status(code: str) -> AuctionStatus:
+    """Resolve an auction status code, naming the ones that exist."""
+    try:
+        return AuctionStatus(code)
+    except ValueError as exc:
+        allowed = ", ".join(member.value for member in AuctionStatus)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown status: {code!r}. Use one of: {allowed}",
+        ) from exc
+
+
+def _lot_result(code: str) -> AuctionLotResult:
+    """Resolve a settlement result code, naming the ones that exist."""
+    try:
+        return AuctionLotResult(code)
+    except ValueError as exc:
+        allowed = ", ".join(member.value for member in AuctionLotResult)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown result: {code!r}. Use one of: {allowed}",
+        ) from exc
+
+
+def _item_by_id(db: Session, item_id: int) -> InventoryItem:
+    """The item to add as a lot of one. An id no item wears is a 422."""
+    item = db.get(InventoryItem, item_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown item_id: {item_id}",
+        )
+    return item
+
+
+def _lot_by_id(db: Session, lot_id: int) -> SalesLot:
+    """The assembled lot to add. An id no lot wears is a 422."""
+    lot = db.get(SalesLot, lot_id)
+    if lot is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown lot_id: {lot_id}",
+        )
+    return lot
+
+
+def _location_by_id(db: Session, location_id: int) -> StorageLocation:
+    """A storage location to return items to. An id no location wears is a 422."""
+    location = db.get(StorageLocation, location_id)
+    if location is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown returned_to_location_id: {location_id}",
+        )
+    return location
+
+
+# --------------------------------------------------------------------------
+# Shaping the response
+# --------------------------------------------------------------------------
+
+
+def _eager(stmt: Select[tuple[Auction]]) -> Select[tuple[Auction]]:
+    """Load what `_out` reads, so a list of auctions is not a query per row."""
+    return stmt.options(
+        selectinload(Auction.sales_venue).selectinload(SalesVenue.kind),
+        selectinload(Auction.lots)
+        .selectinload(AuctionLot.listing)
+        .selectinload(Listing.inventory_item),
+        selectinload(Auction.lots)
+        .selectinload(AuctionLot.listing)
+        .selectinload(Listing.sales_venue),
+        selectinload(Auction.lots)
+        .selectinload(AuctionLot.listing)
+        .selectinload(Listing.currency),
+        selectinload(Auction.lots)
+        .selectinload(AuctionLot.listing)
+        .selectinload(Listing.sales_lot)
+        .selectinload(SalesLot.members)
+        .selectinload(SalesLotItem.item),
+        selectinload(Auction.lots).selectinload(AuctionLot.buyer),
+    )
+
+
+def _get_auction(db: Session, auction_id: int) -> Auction:
+    """One auction with its lots, or a 404."""
+    auction = db.scalar(_eager(select(Auction).where(Auction.id == auction_id)))
+    if auction is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No such auction"
+        )
+    return auction
+
+
+def _auction_lot_by_id(db: Session, auction: Auction, lot_id: int) -> AuctionLot:
+    """One lot of this auction, or a 404 naming the auction as well as the id."""
+    row = db.scalar(
+        select(AuctionLot).where(
+            AuctionLot.id == lot_id, AuctionLot.auction_id == auction.id
+        )
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No such lot #{lot_id} in auction #{auction.id}",
+        )
+    return row
+
+
+def _listing_out(listing: Listing) -> ListingOut:
+    """Shape a lot's listing exactly the way `routers.offers._out` does.
+
+    Duplicated rather than imported -- that function is private to its own
+    module -- but must agree with it field for field: the Listings page and
+    the Auctions page show the very same listing through two different
+    endpoints, and a drift between them would show two different costs for
+    one coin. `routers.offers.external_url` is imported rather than
+    duplicated, since that one is already public.
+    """
+    item = listing.inventory_item
+    lot = listing.sales_lot
+    venue = listing.sales_venue
+    title = f"Listing #{listing.id}"
+    cost_basis: Decimal | None = None
+    member_count: int | None = None
+    if item is not None:
+        title = item.source_title
+        cost_basis = item.total_cost
+    elif lot is not None:
+        title = lot.title
+        cost_basis = sum((row.item.total_cost for row in lot.members), Decimal("0.00"))
+        member_count = len(lot.members)
+    return ListingOut(
+        id=listing.id,
+        item_id=listing.inventory_item_id,
+        item_code=item.item_code if item is not None else None,
+        item_title=title,
+        venue=venue.code,
+        venue_name=venue.name,
+        format=listing.format.value,
+        status=listing.status.value,
+        price=listing.price,
+        currency=listing.currency.code,
+        quantity_available=listing.quantity_available,
+        title=listing.title,
+        description=listing.description,
+        external_id=listing.external_id,
+        external_url=external_url(listing, venue),
+        listed_at=listing.listed_at,
+        ended_at=listing.ended_at,
+        paused_by_listing_id=listing.paused_by_listing_id,
+        sales_lot_id=listing.sales_lot_id,
+        member_count=member_count,
+        cost_basis=cost_basis,
+        version=listing.version,
+    )
+
+
+def _lot_out(auction_lot: AuctionLot) -> AuctionLotOut:
+    """Shape one auction lot: its slot in the sale, and the listing behind it."""
+    return AuctionLotOut(
+        id=auction_lot.id,
+        lot_number=auction_lot.lot_number,
+        reserve=auction_lot.reserve,
+        result=auction_lot.result.value if auction_lot.result is not None else None,
+        hammer_price=auction_lot.hammer_price,
+        buyer=auction_lot.buyer.display_name if auction_lot.buyer is not None else None,
+        listing=_listing_out(auction_lot.listing),
+    )
+
+
+def _out(auction: Auction) -> AuctionOut:
+    """Shape one auction for the console, with every lot it currently holds.
+
+    Sorted by id, never left as `auction.lots` returned it: that collection
+    carries no `order_by` of its own (`app/models/auctions.py`), the same
+    reason `app.auctions._lots_of` sorts before it writes to them.
+    """
+    venue = auction.sales_venue
+    return AuctionOut(
+        id=auction.id,
+        venue=venue.code,
+        venue_name=venue.name,
+        title=auction.title,
+        external_id=auction.external_id,
+        starts_at=auction.starts_at,
+        ends_at=auction.ends_at,
+        status=auction.status.value,
+        consigned_on=auction.consigned_on,
+        notes=auction.notes,
+        version=auction.version,
+        lots=[_lot_out(row) for row in sorted(auction.lots, key=lambda row: row.id)],
+    )
+
+
+def _order_out(db: Session, order: SalesOrder) -> SaleRecordedOut:
+    """Shape one settlement order the way `routers.offers._sale_recorded` does.
+
+    A near-duplicate, not a shared import, for the same reason `_listing_out`
+    is: that function is private to its own module. `settle` can return
+    several orders from one call, one per buyer, and each needs the same
+    shape the Listings page's Record sale already returns -- gross, fees, net
+    and the coins that went out.
+    """
+    fee_total = db.scalar(
+        select(func.sum(SalesOrderFee.amount)).where(
+            SalesOrderFee.sales_order_id == order.id
+        )
+    ) or Decimal("0.00")
+    item_codes = list(
+        db.scalars(
+            select(InventoryItem.item_code)
+            .join(
+                SalesOrderItemShare,
+                SalesOrderItemShare.inventory_item_id == InventoryItem.id,
+            )
+            .join(
+                SalesOrderItem,
+                SalesOrderItemShare.sales_order_item_id == SalesOrderItem.id,
+            )
+            .where(SalesOrderItem.sales_order_id == order.id)
+            .order_by(InventoryItem.item_code)
+        )
+    )
+    return SaleRecordedOut(
+        id=order.id,
+        external_order_id=order.external_order_id,
+        total_amount=order.total_amount,
+        fee_total=fee_total,
+        net_amount=order.total_amount - fee_total,
+        buyer=order.customer.display_name,
+        item_codes=item_codes,
+    )
+
+
+# --------------------------------------------------------------------------
+# Reading and creating
+# --------------------------------------------------------------------------
+
+
+@router.get("")
+def list_auctions(
+    db: DbSession,
+    _admin: AdminUser,
+    venue: Annotated[str | None, Query(description="A sales_venue code")] = None,
+    wanted_status: Annotated[str | None, Query(alias="status")] = None,
+) -> AuctionListOut:
+    """Every auction, newest first. Filterable by platform and by status."""
+    stmt = select(Auction)
+    if venue is not None:
+        stmt = stmt.where(Auction.sales_venue_id == _venue_by_code(db, venue).id)
+    if wanted_status is not None:
+        stmt = stmt.where(Auction.status == _auction_status(wanted_status))
+    rows = db.scalars(_eager(stmt).order_by(Auction.id.desc())).all()
+    return AuctionListOut(auctions=[_out(row) for row in rows])
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+def create_auction(payload: AuctionIn, db: DbSession, _admin: AdminUser) -> AuctionOut:
+    """Start an auction. It begins `draft`, with no lots yet."""
+    venue = _venue_by_code(db, payload.venue)
+    auction = Auction(
+        sales_venue_id=venue.id,
+        title=payload.title,
+        external_id=payload.external_id,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+        notes=payload.notes,
+    )
+    db.add(auction)
+    db.commit()
+    return _out(_get_auction(db, auction.id))
+
+
+#: Columns that are `NOT NULL` on `Auction` but optional on `AuctionUpdate` --
+#: omitting one leaves it alone, but an explicit null is a client mistake.
+_REQUIRED_ON_UPDATE = frozenset({"title"})
+
+
+def _refuse_null_required(data: dict[str, Any]) -> None:
+    """Raise a 422 naming every required column a PATCH sent as an explicit null."""
+    nulled = sorted(f for f in _REQUIRED_ON_UPDATE if f in data and data[f] is None)
+    if nulled:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{', '.join(nulled)} cannot be null",
+        )
+
+
+@router.patch("/{auction_id}")
+def update_auction(
+    auction_id: int, payload: AuctionUpdate, db: DbSession, _admin: AdminUser
+) -> AuctionOut:
+    """Change an auction's own wording or dates. Send `version` to catch conflicts.
+
+    Never the platform or the status -- see `AuctionUpdate`'s own docstring.
+    """
+    auction = _get_auction(db, auction_id)
+    data: dict[str, Any] = payload.model_dump(exclude_unset=True)
+    expected = data.pop("version", None)
+    if expected is not None and expected != auction.version:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
+    _refuse_null_required(data)
+
+    for field, value in data.items():
+        setattr(auction, field, value)
+
+    try:
+        db.commit()
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from exc
+    return _out(_get_auction(db, auction_id))
+
+
+# --------------------------------------------------------------------------
+# Lots
+# --------------------------------------------------------------------------
+
+
+def _duplicate_lot_number(lot_number: str) -> HTTPException:
+    """The 409 a repeated `lot_number` within one auction produces."""
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"lot_number {lot_number!r} is already used in this auction",
+    )
+
+
+@router.post("/{auction_id}/lots", status_code=status.HTTP_201_CREATED)
+def add_auction_lot(
+    auction_id: int, payload: AuctionLotIn, db: DbSession, _admin: AdminUser
+) -> AuctionOut:
+    """Add a lot: an assembled lot, or a single item as a lot of one.
+
+    Same refusals and store-listing pausing as any offer (spec, *Add to an
+    auction*), because that is exactly what this is -- `app.auctions.add_lot`
+    calls `offering_writes.offer` underneath. `EmptyLot` is checked **before**
+    `LotRefused`: it is that class's own subclass, and `routers.offers.py`
+    carries the identical ordering warning for the identical reason.
+    """
+    auction = _get_auction(db, auction_id)
+    lot_number = payload.lot_number
+    if payload.lot_id is not None:
+        subject: SalesLot | InventoryItem = _lot_by_id(db, payload.lot_id)
+    elif payload.item_id is not None:
+        subject = _item_by_id(db, payload.item_id)
+    else:  # pragma: no cover - AuctionLotIn._one_subject already refuses this
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Exactly one of item_id or lot_id is required",
+        )
+
+    try:
+        auctions.add_lot(
+            db,
+            auction,
+            subject,
+            lot_number=lot_number,
+            reserve=payload.reserve,
+            price=payload.price,
+            title=payload.title,
+            description=payload.description,
+            external_id=payload.external_id,
+        )
+        db.commit()
+    # ----------------------------------------------------------------
+    # ORDER-SENSITIVE. `EmptyLot` is a subclass of `LotRefused`, so it must
+    # be caught first -- the identical trap, and the identical fix,
+    # `routers.offers.create_offers` documents at its own matching clauses.
+    # ----------------------------------------------------------------
+    except lot_writes.EmptyLot as empty:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(empty)
+        ) from empty
+    except lot_writes.LotRefused as refused_lot:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(refused_lot)
+        ) from refused_lot
+    except offering_writes.OfferRefused as refused:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{refused.item_code}: {refused.reason}",
+        ) from refused
+    except IntegrityError as exc:
+        db.rollback()
+        raise _duplicate_lot_number(lot_number) from exc
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from stale
+    except Exception:
+        db.rollback()
+        raise
+    return _out(_get_auction(db, auction_id))
+
+
+@router.delete("/{auction_id}/lots/{lot_id}")
+def remove_auction_lot(
+    auction_id: int,
+    lot_id: int,
+    db: DbSession,
+    _admin: AdminUser,
+    returned_to_location_id: Annotated[
+        int | None,
+        Query(description="Required if the auction is consigned"),
+    ] = None,
+) -> AuctionOut:
+    """Take a lot out of its auction: end its offer, as an ordinary End.
+
+    `AuctionRefused` -- the auction has closed, settled or been cancelled, or
+    the auction is consigned and no return location was given -- is left to
+    propagate to the handler `app.main` registers for it; see this module's
+    own docstring for why nothing here catches it.
+    """
+    auction = _get_auction(db, auction_id)
+    auction_lot = _auction_lot_by_id(db, auction, lot_id)
+    if returned_to_location_id is not None:
+        _location_by_id(db, returned_to_location_id)
+    try:
+        auctions.remove_lot(
+            db, auction_lot, returned_to_location_id=returned_to_location_id
+        )
+        db.commit()
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from stale
+    except Exception:
+        db.rollback()
+        raise
+    return _out(_get_auction(db, auction_id))
+
+
+@router.patch("/{auction_id}/lots/{lot_id}")
+def update_auction_lot(
+    auction_id: int,
+    lot_id: int,
+    payload: AuctionLotUpdate,
+    db: DbSession,
+    _admin: AdminUser,
+) -> AuctionOut:
+    """Renumber a lot, or change its reserve.
+
+    A plain `setattr`, not a call into `app.auctions`: neither field is a
+    status, a claim or a location, so nothing else in the codebase needs to
+    agree on what changing one means -- the same reasoning
+    `routers.offers.update_listing` gives for editing `price`, `title` and
+    `description` on a `Listing` row directly.
+    """
+    auction = _get_auction(db, auction_id)
+    auction_lot = _auction_lot_by_id(db, auction, lot_id)
+    data: dict[str, Any] = payload.model_dump(exclude_unset=True)
+    if "lot_number" in data and data["lot_number"] is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="lot_number cannot be null",
+        )
+
+    for field, value in data.items():
+        setattr(auction_lot, field, value)
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise _duplicate_lot_number(
+            data.get("lot_number", auction_lot.lot_number)
+        ) from exc
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from stale
+    except Exception:
+        db.rollback()
+        raise
+    return _out(_get_auction(db, auction_id))
+
+
+# --------------------------------------------------------------------------
+# Transitions
+# --------------------------------------------------------------------------
+
+
+@router.post("/{auction_id}/schedule", responses=_REFUSAL_RESPONSES)
+def schedule_auction(auction_id: int, db: DbSession, _admin: AdminUser) -> AuctionOut:
+    """Move a draft auction to scheduled."""
+    auction = _get_auction(db, auction_id)
+    try:
+        auctions.schedule(db, auction)
+        db.commit()
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from stale
+    except Exception:
+        db.rollback()
+        raise
+    return _out(_get_auction(db, auction_id))
+
+
+@router.post("/{auction_id}/consign", responses=_REFUSAL_RESPONSES)
+def consign_auction(
+    auction_id: int, payload: AuctionConsignIn, db: DbSession, admin: AdminUser
+) -> AuctionOut:
+    """Move every member item into the house's consigned location.
+
+    A migrated-but-unseeded database -- the real state the live database is
+    in today -- raises a bare `RuntimeError` from `app.auctions.consign`,
+    naming the missing seed. Nothing here catches it either: `app.main`
+    registers a handler for `RuntimeError` itself, so the message reaches the
+    operator instead of a bare 500 (see that handler's own docstring).
+    """
+    auction = _get_auction(db, auction_id)
+    try:
+        auctions.consign(db, auction, on_date=payload.on_date, user_id=admin.id)
+        db.commit()
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from stale
+    except Exception:
+        db.rollback()
+        raise
+    return _out(_get_auction(db, auction_id))
+
+
+@router.post("/{auction_id}/close", responses=_REFUSAL_RESPONSES)
+def close_auction(auction_id: int, db: DbSession, _admin: AdminUser) -> AuctionOut:
+    """Close the auction: lot results may now be entered."""
+    auction = _get_auction(db, auction_id)
+    try:
+        auctions.close(db, auction)
+        db.commit()
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from stale
+    except Exception:
+        db.rollback()
+        raise
+    return _out(_get_auction(db, auction_id))
+
+
+@router.post("/{auction_id}/cancel", responses=_REFUSAL_RESPONSES)
+def cancel_auction(
+    auction_id: int, payload: AuctionCancelIn, db: DbSession, _admin: AdminUser
+) -> AuctionOut:
+    """Cancel the auction and remove every lot it still holds."""
+    auction = _get_auction(db, auction_id)
+    if payload.returned_to_location_id is not None:
+        _location_by_id(db, payload.returned_to_location_id)
+    try:
+        auctions.cancel(
+            db, auction, returned_to_location_id=payload.returned_to_location_id
+        )
+        db.commit()
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from stale
+    except Exception:
+        db.rollback()
+        raise
+    return _out(_get_auction(db, auction_id))
+
+
+@router.post(
+    "/{auction_id}/settle", response_model=SettleOut, responses=_REFUSAL_RESPONSES
+)
+def settle_auction(
+    auction_id: int, payload: SettleIn, db: DbSession, admin: AdminUser
+) -> SettleOut:
+    """Apply a whole settlement grid to a closed auction. One transaction.
+
+    `AuctionRefused`, `SettlementInputInvalid`, `sales_writes.SaleRefused`
+    and `sales_writes.SaleInputInvalid` are all left to propagate: every one
+    of the four handlers `app.main` registers may fire from this single call,
+    and none of them is caught here -- see this module's own docstring.
+    """
+    auction = _get_auction(db, auction_id)
+    if payload.returned_to_location_id is not None:
+        _location_by_id(db, payload.returned_to_location_id)
+    lines = [
+        auctions.SettlementLine(
+            auction_lot_id=line.auction_lot_id,
+            result=_lot_result(line.result),
+            hammer_price=line.hammer_price,
+            buyer_username=line.buyer_username,
+        )
+        for line in payload.lines
+    ]
+    fees = {
+        group.buyer_username: [
+            sales_writes.FeeLine(fee.kind, fee.amount, fee.note) for fee in group.fees
+        ]
+        for group in payload.fees
+    }
+    try:
+        orders = auctions.settle(
+            db,
+            auction,
+            lines,
+            fees,
+            settled_by=admin,
+            returned_to_location_id=payload.returned_to_location_id,
+        )
+        db.commit()
+    except StaleDataError as stale:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_STALE
+        ) from stale
+    except Exception:
+        db.rollback()
+        raise
+    return SettleOut(
+        auction=_out(_get_auction(db, auction_id)),
+        orders=[_order_out(db, order) for order in orders],
+    )
