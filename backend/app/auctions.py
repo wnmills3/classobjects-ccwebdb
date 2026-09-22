@@ -124,6 +124,7 @@ from .models import (
 )
 
 __all__ = [
+    "AuctionRefusal",
     "AuctionRefused",
     "SettlementInputInvalid",
     "SettlementLine",
@@ -131,14 +132,53 @@ __all__ = [
     "cancel",
     "close",
     "consign",
+    "refuse_unless_lot_editable",
     "remove_lot",
     "schedule",
     "settle",
 ]
 
 
+@dataclass(frozen=True)
+class AuctionRefusal:
+    """One problem an `AuctionRefused` named, structured for a caller to read.
+
+    Ruling R21 (Task 5 follow-up): `str(exc)` -- the message every existing
+    `except AuctionRefused` clause, log line and test already reads -- stays
+    exactly what it always was; this is *additional* structure carried
+    alongside it, not a replacement, so nothing that reads the message
+    changes. `lot_number` is set when the problem names one lot in
+    particular, which is most of them, and `None` for a problem that does
+    not -- a buyer's fees, or the auction as a whole. A caller serving this
+    over HTTP (`routers.auctions`) reads this instead of re-parsing the
+    message text, so the console can mark a settlement grid's offending rows
+    without depending on `"; "` never appearing inside one problem's own
+    words, which the text it replaces could not promise.
+    """
+
+    reason: str
+    lot_number: str | None = None
+
+
 class AuctionRefused(Exception):
-    """One auction transition cannot happen now, with the reason for a person."""
+    """One auction transition cannot happen now, with the reason for a person.
+
+    `refusals` (ruling R21) is the same information `str(exc)` carries,
+    structured: one `AuctionRefusal` per problem, in the order `settle`
+    found them. Every raise site but `settle`'s own grid refusal names
+    exactly one problem, so passing nothing here defaults `refusals` to that
+    single message wrapped as one entry -- every caller sees a uniform list
+    of at least one, regardless of which raise produced it.
+    """
+
+    def __init__(
+        self, message: str, *, refusals: Sequence[AuctionRefusal] | None = None
+    ) -> None:
+        """Set `str(exc)` to `message`, unchanged, and `self.refusals` beside it."""
+        super().__init__(message)
+        self.refusals = (
+            list(refusals) if refusals is not None else [AuctionRefusal(message)]
+        )
 
 
 class SettlementInputInvalid(AuctionRefused):
@@ -441,6 +481,39 @@ def _return_from_consignment(
             location_id,
             user_id=user_id,
             note=f"Returned from consignment, auction #{auction_lot.auction_id}",
+        )
+
+
+def refuse_unless_lot_editable(auction_lot: AuctionLot) -> None:
+    """Raise `AuctionRefused` unless this lot's number or reserve may still change.
+
+    Ruling R22 (Task 5 follow-up): nothing owned this decision before --
+    `routers.auctions.update_auction_lot` wrote `lot_number` and `reserve`
+    with a plain `setattr` and no gate at all, the same way it still writes
+    them, just unconditionally until now. The boundary is `_LOTS_REMOVABLE`,
+    the identical tuple `remove_lot` uses: `draft`, `scheduled` or
+    `consigned`, never `closed`, `settled` or `cancelled`. A lot number and a
+    reserve are both things set *before* the sale runs -- once the auction is
+    `closed`, the lot numbers are part of the record the house's statement is
+    reconciled against, and a reserve is meaningless once a result exists to
+    read instead. This matches the shape `remove_lot` already has: a
+    `withdrawn` lot after close is a **settlement** result to be entered, not
+    a table edit to be made.
+
+    Raises naming the lot and the auction's status, the same words every
+    other refusal in this module uses. Callers still perform the write
+    themselves -- `lot_number` and `reserve` carry no consequence for
+    `offer_claim`, `sales_lot.status` or a location the way this module's
+    other single-writer columns do, so there is nothing beyond the gate
+    itself for this module to own (see `routers.auctions.update_auction_lot`'s
+    own docstring).
+    """
+    auction = auction_lot.auction
+    if auction.status not in _LOTS_REMOVABLE:
+        raise AuctionRefused(
+            f"auction #{auction.id} is {auction.status.value}, so lot "
+            f"{auction_lot.lot_number} cannot be renumbered or have its "
+            "reserve changed"
         )
 
 
@@ -807,10 +880,18 @@ class _Problem:
     matching on a string to pick an HTTP status is exactly the
     "default silently to the wrong status" shape `sales_writes.SaleInputInvalid`
     was made a subclass to avoid.
+
+    `lot_number` (ruling R21) is this problem's own lot, when it has exactly
+    one -- most problems do -- and `None` for one that spans several lots or
+    none at all (a buyer's fees, or the whole auction). It is what
+    `settle` copies onto the `AuctionRefusal` it raises with, alongside
+    `text`; nothing here is thrown away the way the old semicolon-joined
+    message alone would have.
     """
 
     text: str
     bad_input: bool = False
+    lot_number: str | None = None
 
 
 @dataclass(frozen=True)
@@ -859,39 +940,57 @@ def _grid_problems(
     written an order.
     """
     problems: list[_Problem] = [
+        # No `lot_number`: the id names no lot in this auction, so there is
+        # no lot_number to give -- it may not even exist anywhere.
         _Problem(f"lot id {line.auction_lot_id} is not in auction #{auction.id}")
         for line in unplaced
     ]
     problems += [
-        _Problem(f"lot {number} was given two results") for number in duplicated
+        _Problem(f"lot {number} was given two results", lot_number=number)
+        for number in duplicated
     ]
     names_buyers = auction.sales_venue.kind.code != _AUCTION_HOUSE_KIND_CODE
     for row in lots:
         line = by_lot.get(row.id)
         if line is None:
-            problems.append(_Problem(f"lot {row.lot_number} has no result"))
+            problems.append(
+                _Problem(
+                    f"lot {row.lot_number} has no result", lot_number=row.lot_number
+                )
+            )
             continue
         if line.result is not AuctionLotResult.sold:
             if line.hammer_price is not None:
                 problems.append(
                     _Problem(
                         f"lot {row.lot_number} is {line.result.value}, so it cannot "
-                        "have a hammer price"
+                        "have a hammer price",
+                        lot_number=row.lot_number,
                     )
                 )
             continue
         if line.hammer_price is None:
             problems.append(
-                _Problem(f"lot {row.lot_number} sold but has no hammer price")
+                _Problem(
+                    f"lot {row.lot_number} sold but has no hammer price",
+                    lot_number=row.lot_number,
+                )
             )
         else:
             money = sales_writes.money_problem(
                 line.hammer_price, f"lot {row.lot_number}'s hammer price"
             )
             if money is not None:
-                problems.append(_Problem(money, bad_input=True))
+                problems.append(
+                    _Problem(money, bad_input=True, lot_number=row.lot_number)
+                )
         if names_buyers and _buyer_key(line.buyer_username) is None:
-            problems.append(_Problem(f"lot {row.lot_number} sold but names no buyer"))
+            problems.append(
+                _Problem(
+                    f"lot {row.lot_number} sold but names no buyer",
+                    lot_number=row.lot_number,
+                )
+            )
 
     bought: set[str | None] = {
         _buyer_key(line.buyer_username)
@@ -1107,7 +1206,11 @@ def settle(
         )
         raise refusal(
             f"auction #{auction.id} cannot be settled: "
-            + "; ".join(problem.text for problem in problems)
+            + "; ".join(problem.text for problem in problems),
+            refusals=[
+                AuctionRefusal(reason=problem.text, lot_number=problem.lot_number)
+                for problem in problems
+            ],
         )
 
     # Keyed the same casefolded way the lots are grouped (ruling R17), so a

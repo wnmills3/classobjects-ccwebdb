@@ -690,12 +690,22 @@ def record_listing_sale(
     `decimal_places=2` already refuse a negative or sub-cent price or fee
     before this body ever runs -- but the guard stays in `record_sale` for
     phase-4 auction settlement, a future caller that will not pass through
-    this schema at all). Both are decided, and both are caught,
-    before anything is written, so either status means nothing was written;
-    an unknown fee kind fails the same way, as the 422 `require_code`
-    already raises. `SaleInputInvalid` is checked first because it is a
-    `SaleRefused` subclass: reversing the two `except` clauses would route
-    every 422 into the 409 branch instead, silently.
+    this schema at all). Both are decided, and both are caught, before
+    anything is written, so either status means nothing was written; an
+    unknown fee kind fails the same way, as the 422 `require_code` already
+    raises.
+
+    **Neither is caught here** (ruling R23, Task 5 follow-up). Both used to
+    be, in `except` clauses ordered with `SaleInputInvalid` first because it
+    is a `SaleRefused` subclass -- reversing them would have routed every 422
+    into the 409 branch, silently, and mypy would not have noticed. Now both
+    propagate to the handlers `app.main` registers for them by class, the
+    same as every `app.auctions` caller already does, which makes that
+    reversal unwritable here too rather than merely documented and warned
+    against. `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409`
+    (`test_record_sale_api.py`) is unchanged and still proves the dispatch;
+    only how it is proven changed under it, from `except` order to
+    registration.
     """
     try:
         listing = db.get(Listing, listing_id)
@@ -714,19 +724,21 @@ def record_listing_sale(
             recorded_by=user,
             equal_shares=body.equal_shares,
         )
-    except HTTPException:
-        db.rollback()
-        raise
-    except sales_writes.SaleInputInvalid as invalid:
-        db.rollback()
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, str(invalid)
-        ) from invalid
-    except sales_writes.SaleRefused as refused:
-        db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from refused
     except StaleDataError as stale:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, _STALE) from stale
+    except Exception:
+        # Every other exception this can raise, `HTTPException` and
+        # `sales_writes.SaleRefused`/`SaleInputInvalid` included: rolled back
+        # here, unconditionally, and re-raised unchanged -- this decides no
+        # status, so it creates no ordering hazard of its own. The `client`
+        # fixture in `tests/conftest.py` shares one session across every
+        # request in a test with no per-request teardown, so a path that
+        # skipped this would leave that shared session dirty for the next
+        # assertion, not merely for the next request in production, where
+        # `database.get_db`'s own `finally: db.close()` would have done it
+        # anyway.
+        db.rollback()
+        raise
     db.commit()
     return _sale_recorded(db, order)

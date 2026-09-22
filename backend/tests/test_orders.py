@@ -17,6 +17,7 @@ from app.models import (
     SalesOrder,
     SalesOrderItemShare,
     SalesOrderStatus,
+    SalesVenue,
     User,
 )
 from app.sales_venues import store_venue_id
@@ -24,7 +25,7 @@ from app.sales_writes import record_sale
 from app.security import hash_password
 from fastapi.testclient import TestClient
 from httpx import Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from tests.conftest import item_of
@@ -486,6 +487,47 @@ def test_cancelling_restores_stock(
     )
     db.refresh(listing)
     assert listing.quantity_available == 5
+
+
+def test_cancelling_with_no_store_platform_is_a_500_naming_the_fix(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """Task 5 follow-up: the live `routers/orders.py` case of defect 2's fix.
+
+    `update_order_status` -> `_no_stock_to_return` -> `store_venue_id` is a
+    **live** path: any admin cancelling an unshipped store order runs it,
+    with no code change needed to reach it, unlike `app.auctions.consign`
+    which needs an auction house auction first. Before `app.main` registered
+    a handler for `RuntimeError`, this reached the console as a bodyless
+    500; now the same handler that closes defect 2 for `consign` closes it
+    here too, in one place, exactly as the ruling asked.
+
+    Simulated by flipping the seeded store platform's `is_own_store` rather
+    than deleting the row: `sales_venue.id` is referenced by the listing and
+    the order this test itself builds, so a delete would fail on its own
+    foreign keys before the scenario this test wants ever arose. Flipping the
+    one column `store_venue_id` actually asks about reproduces "no web store
+    platform" without disturbing anything that references the row.
+    """
+    order = place(client, customer_headers, listing.id, 1).json()
+    db.execute(
+        update(SalesVenue)
+        .where(SalesVenue.id == store_venue_id(db))
+        .values(is_own_store=False)
+    )
+    db.commit()
+
+    response = client.patch(
+        f"/api/orders/{order['id']}",
+        json={"status": "cancelled"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 500, response.text
+    assert "alembic upgrade head" in response.json()["detail"]
 
 
 def test_cancelling_twice_does_not_double_restore(

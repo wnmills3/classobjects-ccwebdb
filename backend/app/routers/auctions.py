@@ -566,14 +566,22 @@ def update_auction_lot(
 ) -> AuctionOut:
     """Renumber a lot, or change its reserve.
 
-    A plain `setattr`, not a call into `app.auctions`: neither field is a
-    status, a claim or a location, so nothing else in the codebase needs to
-    agree on what changing one means -- the same reasoning
+    Gated by `app.auctions.refuse_unless_lot_editable` (ruling R22, Task 5
+    follow-up): `draft`, `scheduled` or `consigned` only, the same boundary
+    `remove_lot` already uses -- a lot number and a reserve are both set
+    *before* the sale, and once `closed` the lot numbers are part of the
+    record a house's statement is reconciled against. The write itself is
+    still a plain `setattr`, not a further call into `app.auctions`: neither
+    field is a status, a claim or a location, so nothing else in the
+    codebase needs to agree on what changing one means -- the same reasoning
     `routers.offers.update_listing` gives for editing `price`, `title` and
-    `description` on a `Listing` row directly.
+    `description` on a `Listing` row directly. `AuctionRefused` from the gate
+    is left to propagate to the handler `app.main` registers for it, the
+    same as every other transition in this router.
     """
     auction = _get_auction(db, auction_id)
     auction_lot = _auction_lot_by_id(db, auction, lot_id)
+    auctions.refuse_unless_lot_editable(auction_lot)
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
     if "lot_number" in data and data["lot_number"] is None:
         raise HTTPException(

@@ -87,36 +87,49 @@ app.include_router(auctions_router.router, prefix=settings.api_prefix)
 # `test_a_plain_auction_refused_is_still_a_409`
 # (`backend/tests/test_auctions_api.py`) are what stand behind this, the same
 # way `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409` stands
-# behind `routers/offers.py`'s own ordered `except` clauses for the same
-# pair -- **not migrated to a handler here**, so that one keeps its own,
-# different failure mode (a silent status swap) as a documented follow-up
-# for the final review to triage, rather than two designs drifting apart
-# mid-task.
+# behind this module's own registration for `sales_writes`' identical pair.
+#
+# Ruling R23 (Task 5 follow-up): `routers/offers.py`'s `record_listing_sale`
+# used to carry its own ordered `except SaleInputInvalid` / `except
+# SaleRefused` clauses -- a live production path where reversing the two
+# would have silently turned every 422 into a 409, with mypy accepting the
+# reversal cleanly either way. That endpoint now lets both propagate to the
+# handlers registered here instead, the same as every `app.auctions` caller
+# already did; the hazard is unwritable there too, not merely documented.
 # ---------------------------------------------------------------------------
 
 
-def _problem_list(message: str) -> list[dict[str, str]]:
-    """Every semicolon-joined problem in a refusal message, as its own entry.
+def _refusal_body(exc: Exception) -> dict[str, object]:
+    """The `{detail, refused: [...]}` body every refusal in this API answers with.
 
-    `auctions.settle` collects **every** problem a settlement grid has and
-    joins them with `"; "` into one message (`auctions._grid_problems`,
-    `auctions.settle`'s own raise), because the console shows a grid and
-    fixing one problem at a time is miserable. Splitting that message back
-    apart is what lets `POST /api/auctions/{id}/settle` answer the way
-    `POST /api/offers` already does -- `{detail, refused: [...]}` -- so the
-    console can mark every offending row, not just the first one named in a
-    sentence.
+    Ruling R21 (Task 5 follow-up): built from the raised exception's own
+    `refusals` attribute when it has one -- `auctions.AuctionRefused` and its
+    narrower `SettlementInputInvalid` both do, one `auctions.AuctionRefusal`
+    per problem `auctions.settle` found, `lot_number` included where the
+    problem named one. This **replaces** splitting `str(exc)` on `"; "`,
+    which was a text convention standing in for this structure: it broke
+    silently the moment any one problem's own words held a semicolon, and
+    nothing type-checked it. `str(exc)` itself -- `detail` here -- is
+    untouched; only where `refused` comes from has changed.
 
-    Every other auction transition raises `AuctionRefused` for exactly one
-    reason, with no `"; "` in it, so splitting it here still produces a
-    `refused` list -- of one entry, itself the whole message -- rather than
-    two different response shapes depending on which endpoint asked. None of
-    `_grid_problems`'s own problem texts contain `"; "` themselves (see that
-    function): a hammer price, a lot number or a fee label never gets a
-    semicolon woven into it, so this split never fires in the middle of one
-    problem's own words.
+    `sales_writes.SaleRefused` and its narrower `SaleInputInvalid` carry no
+    `refusals` attribute -- `record_sale_lines` stops at the first problem
+    rather than collecting a grid's worth -- so `getattr` falls back to a
+    `refused` list of exactly one entry, built from the plain message. That
+    fallback is exact, not an approximation: a single-reason refusal *is*
+    one entry, whichever class raised it.
     """
-    return [{"reason": part} for part in message.split("; ")]
+    message = str(exc)
+    refusals = getattr(exc, "refusals", None)
+    if refusals is None:
+        return {"detail": message, "refused": [{"reason": message, "lot_number": None}]}
+    return {
+        "detail": message,
+        "refused": [
+            {"reason": refusal.reason, "lot_number": refusal.lot_number}
+            for refusal in refusals
+        ],
+    }
 
 
 def _refused(_request: Request, exc: Exception) -> JSONResponse:
@@ -127,10 +140,8 @@ def _refused(_request: Request, exc: Exception) -> JSONResponse:
     order, is what keeps this from ever catching the narrower sibling each
     one has.
     """
-    message = str(exc)
     return JSONResponse(
-        status_code=status.HTTP_409_CONFLICT,
-        content={"detail": message, "refused": _problem_list(message)},
+        status_code=status.HTTP_409_CONFLICT, content=_refusal_body(exc)
     )
 
 
@@ -141,10 +152,8 @@ def _bad_input(_request: Request, exc: Exception) -> JSONResponse:
     `auctions.SettlementInputInvalid`, the narrow half of each pair `_refused`
     handles the wide half of.
     """
-    message = str(exc)
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": message, "refused": _problem_list(message)},
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=_refusal_body(exc)
     )
 
 

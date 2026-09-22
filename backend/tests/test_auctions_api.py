@@ -380,7 +380,11 @@ def test_adding_a_lot_to_a_closed_auction_is_refused(
     assert response.status_code == 409, response.text
     body = response.json()
     assert "closed" in body["detail"]
-    assert body["refused"] == [{"reason": body["detail"]}]
+    # Ruling R21: `refused` is built from the exception's own `refusals`
+    # attribute, not by splitting `detail` on "; " -- a single-reason
+    # `AuctionRefused` from `add_lot` names no one lot, so `lot_number` is
+    # null.
+    assert body["refused"] == [{"reason": body["detail"], "lot_number": None}]
 
 
 def test_adding_a_lot_with_a_repeated_lot_number_is_a_conflict(
@@ -481,6 +485,33 @@ def test_renumbering_a_lot(
     assert row["reserve"] == "15.00"
 
 
+def test_renumbering_a_lot_in_a_closed_auction_is_refused(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    closed_auction_of_two_lots: Auction,
+) -> None:
+    """Ruling R22: `draft`, `scheduled` or `consigned` only, never `closed`.
+
+    Once closed, the lot numbers are part of the record a house's statement
+    is reconciled against, and a reserve is meaningless -- the same boundary
+    `remove_lot` already draws (`_LOTS_REMOVABLE`). The other side of this --
+    that the change is allowed before close -- is `test_renumbering_a_lot`,
+    against a `draft` auction.
+    """
+    lot = _auction_lots(db, closed_auction_of_two_lots)[0]
+    response = client.patch(
+        f"/api/auctions/{closed_auction_of_two_lots.id}/lots/{lot.id}",
+        headers=admin_headers,
+        json={"lot_number": "1A"},
+    )
+    assert response.status_code == 409, response.text
+    assert "closed" in response.json()["detail"]
+
+    db.expire_all()
+    assert db.get_one(AuctionLot, lot.id).lot_number == lot.lot_number
+
+
 def test_renumbering_a_lot_to_null_is_unprocessable(
     client: TestClient,
     admin_headers: dict[str, str],
@@ -554,7 +585,7 @@ def test_scheduling_twice_is_refused(
     assert response.status_code == 409, response.text
     body = response.json()
     assert "scheduled" in body["detail"]
-    assert body["refused"] == [{"reason": body["detail"]}]
+    assert body["refused"] == [{"reason": body["detail"], "lot_number": None}]
 
 
 def test_consigning_a_marketplace_auction_is_refused(
@@ -752,6 +783,12 @@ def test_settlement_refusal_lists_every_problem_lot(
     assert response.status_code == 409, response.text
     body = response.json()
     assert len(body["refused"]) == 2
+    # Ruling R21: `refused` is structured from `auctions.AuctionRefusal`, not
+    # parsed back out of `detail` -- each problem here is about exactly one
+    # lot, and its own `lot_number` says which, with no re-parsing needed.
+    assert sorted(row["lot_number"] for row in body["refused"]) == sorted(
+        row.lot_number for row in lots
+    )
     reasons = " ".join(row["reason"] for row in body["refused"])
     for row in lots:
         assert row.lot_number in reasons
@@ -825,7 +862,9 @@ def test_settlement_input_invalid_is_a_422_not_a_409(
     assert response.status_code == 422, response.text
     body = response.json()
     assert body["detail"] == "deliberately malformed, for the test"
-    assert body["refused"] == [{"reason": "deliberately malformed, for the test"}]
+    assert body["refused"] == [
+        {"reason": "deliberately malformed, for the test", "lot_number": None}
+    ]
 
 
 def test_a_plain_auction_refused_from_settle_is_still_a_409(
@@ -872,7 +911,11 @@ def test_sale_input_invalid_from_settle_is_a_422_not_a_409(
         json={"lines": [], "fees": []},
     )
     assert response.status_code == 422, response.text
-    assert response.json()["detail"] == "deliberately malformed, for the test"
+    body = response.json()
+    assert body["detail"] == "deliberately malformed, for the test"
+    assert body["refused"] == [
+        {"reason": "deliberately malformed, for the test", "lot_number": None}
+    ]
 
 
 def test_sale_refused_from_settle_is_a_409(
@@ -891,4 +934,48 @@ def test_sale_refused_from_settle_is_a_409(
         json={"lines": [], "fees": []},
     )
     assert response.status_code == 409, response.text
-    assert response.json()["detail"] == "a real conflict, for the test"
+    body = response.json()
+    assert body["detail"] == "a real conflict, for the test"
+    # `sales_writes.SaleRefused` carries no `refusals` attribute --
+    # `record_sale_lines` stops at the first problem rather than collecting
+    # a grid's worth -- so `app.main._refusal_body` falls back to a single
+    # entry built from the plain message, not an empty or missing list.
+    assert body["refused"] == [
+        {"reason": "a real conflict, for the test", "lot_number": None}
+    ]
+
+
+def test_a_semicolon_in_a_reason_survives_the_round_trip(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    closed_auction_of_two_lots: Auction,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ruling R21: `refused` is built from `AuctionRefused.refusals`, never text-split.
+
+    Before this ruling, `app.main` recovered `refused` by splitting
+    `str(exc)` on `"; "` -- a text convention, not a type-checked contract,
+    that would have silently cut this single problem in two. Passing
+    `refusals` explicitly, the way `auctions.settle` itself now does, proves
+    the fix rather than merely asserting the old bug is gone: a reason
+    containing a real semicolon reaches the console as the one entry it is.
+    """
+    problem = "lot 1 and lot 2 cannot both be results; that is the whole problem"
+
+    def _raise_refused(*args: object, **kwargs: object) -> list[SalesOrder]:
+        raise auctions.AuctionRefused(
+            f"auction #{closed_auction_of_two_lots.id} cannot be settled: {problem}",
+            refusals=[auctions.AuctionRefusal(reason=problem, lot_number="1")],
+        )
+
+    monkeypatch.setattr(auctions, "settle", _raise_refused)
+    response = client.post(
+        f"/api/auctions/{closed_auction_of_two_lots.id}/settle",
+        headers=admin_headers,
+        json={"lines": [], "fees": []},
+    )
+    assert response.status_code == 409, response.text
+    body = response.json()
+    # Exactly one entry, the reason intact semicolon and all -- the old
+    # split-on-"; " shape would have produced two.
+    assert body["refused"] == [{"reason": problem, "lot_number": "1"}]

@@ -1833,19 +1833,31 @@ class SettleOut(BaseModel):
 
 
 class AuctionRefusalOut(BaseModel):
-    """One problem a refused auction transition named."""
+    """One problem a refused auction transition named, as `app.auctions.AuctionRefusal`.
+
+    `lot_number` is set when the problem names one lot in particular --
+    most of them do -- and null for one that does not (a buyer's fees, or
+    the auction as a whole), or for a refusal from `sales_writes` rather
+    than `app.auctions`, which carries no lot at all.
+    """
 
     reason: str
+    lot_number: str | None = None
 
 
 class AuctionRefusedOut(BaseModel):
     """The 409 or 422 body an `AuctionRefused`-family exception produces.
 
     `refused` always holds at least one entry: most transitions refuse for
-    one reason, and `settle` may refuse for several -- see
-    `app.main._problem_list`, which splits `app.auctions.settle`'s
-    semicolon-joined message back into one entry per problem so a single-lot
-    refusal and a whole grid's worth both carry this same shape.
+    one reason, and `settle` may refuse for several. Ruling R21 (Task 5
+    follow-up): built directly from the raised exception's own `refusals`
+    attribute (`app.auctions.AuctionRefused.refusals`, a list of
+    `app.auctions.AuctionRefusal`) rather than by splitting `str(exc)` on
+    `"; "` -- a text convention that broke the moment a problem's own words
+    contained a semicolon, and that nothing type-checked. A
+    `sales_writes.SaleRefused`/`SaleInputInvalid`, which carries no such
+    attribute, still produces a `refused` list of exactly one entry, built
+    from its plain message.
     """
 
     detail: str
