@@ -1,6 +1,6 @@
-"""Auction transitions: adding and removing lots, and the auction's own life.
+"""Auction transitions: adding and removing lots, settling, and an auction's life.
 
-Task 2 of the auctions phase. `app/models/auctions.py` (Task 1) built the
+Tasks 2 and 3 of the auctions phase. `app/models/auctions.py` (Task 1) built the
 schema; this module is the sole writer of `auction` and `auction_lot`, the
 same single-writer discipline `offering_writes.py` keeps for `listing.status`,
 `offer_claim` and `sales_lot.status`, and `lifecycle_writes.py` keeps for
@@ -20,21 +20,26 @@ docstring) -- so this module calls `offering_writes.offer` and
 into consignment custody **is** a location change, so `consign` and the
 return-from-consignment half of `remove_lot`/`cancel` call
 `lifecycle_writes.set_location` rather than assigning
-`inventory_item.storage_location_id` directly. Settlement (`settle`) is a
-later task's writer and is deliberately not here, but `remove_lot` and
-`cancel` already carry the `returned_to_location_id` contract it will share
-(ruling R9, fix round 1) -- see `_return_from_consignment`, the one place
-"move these items back" is implemented. Custody is tracked by
+`inventory_item.storage_location_id` directly. And settling a lot **is** a
+sale, so `settle` (Task 3) calls `sales_writes.record_sale_lines` for the
+money rather than writing `sales_order`, `sales_order_fee` or
+`sales_order_item_share` here -- it is the second caller
+`sales_writes`' single entry point was built for (spec, *Where
+record-a-sale lives*), and the only thing it needed that recording one sale
+did not is several listings on one order, because a house bills per buyer.
+`remove_lot`, `cancel` and `settle` share the `returned_to_location_id`
+contract (ruling R9, fix round 1) through `_return_from_consignment`, the
+one place "move these items back" is implemented. Custody is tracked by
 `auction.consigned_on is not None`, never by `auction.status is
 AuctionStatus.consigned` (ruling R13, fix round 2): `close` accepts a
 `consigned` auction without clearing the date, so status alone cannot tell
 whether the house still holds something -- fix round 1's `status ==
 consigned` check let `consign -> close -> cancel`, and `consign -> close ->
 _remove_lot` (reached through `cancel`), walk straight past the return
-requirement fix round 1 had just added. `consigned_on` is cleared in
-exactly one place, `cancel`, once every one of the auction's lots has
-actually been returned -- never inside `_remove_lot`, which only ever
-returns one lot's worth. The **public** `remove_lot` never sees this shape
+requirement fix round 1 had just added. `consigned_on` is cleared in exactly
+two places, `cancel` and `settle`, each once every one of the auction's lots
+that had to come back actually has -- never inside `_remove_lot`, which only
+ever returns one lot's worth. The **public** `remove_lot` never sees this shape
 at all: it refuses a `closed` auction unconditionally (ruling R14, fix
 round 3), so `consign -> close -> remove_lot` is not a reachable call
 sequence -- only `cancel`, acting on the whole auction, can touch a closed
@@ -62,42 +67,72 @@ caller ever naming it (`routers.inventory.receive_items` is the one caller
 today that reaches a listing that way). And `end_offer` itself, called here
 with `sold=False` (withdrawal, never a sale), only ever ends the one listing
 it is handed -- the `paused_by_it` listings it also touches are *resumed*,
-not ended, on that path; only `sold=True` ends them, and this module never
-passes it. So no call in this module ends a listing it did not name, and
-`refuse_if_lot_unheld` has nothing to discharge here. Independently verified
-in the fix-round-1 review, including that `lock_for_sale` seeds `lot_ids`
-from the *named* listings before `_acquire` runs, so the lot row of the
-listing `remove_lot` names is always taken first regardless.
+not ended, on that path. Independently verified in the fix-round-1 review,
+including that `lock_for_sale` seeds `lot_ids` from the *named* listings
+before `_acquire` runs, so the lot row of the listing `remove_lot` names is
+always taken first regardless.
+
+**`settle` does take the `sold=True` branch, and the answer is still no --
+but for a different reason, which had to be established rather than
+inherited.** A sale ends the store listings its offer paused instead of
+resuming them (spec, *Record a sale*), and those are listings settlement
+never named. The obligation covers exactly one case: one of them being a
+**lot** listing, whose lot row `_end` would then rewrite. It cannot happen.
+`paused_by_listing_id` is written in exactly one statement in the whole
+codebase -- `offering_writes.offer`'s `to_pause` loop -- over the own-store
+listings that already hold a member being offered elsewhere; and each member
+passes `_refuse_unofferable` -> `_refuse_grouped` first, in the same loop
+iteration, which refuses any coin that is an open member of an **offered**
+lot. A lot listing holds its coins only through the claims `offer` wrote
+(`_holds_any`), and `_end` releases those claims and the lot's memberships in
+the same breath, so "a lot listing holds this coin" and "this coin is in an
+offered lot" are one fact. So no lot listing can ever carry
+`paused_by_listing_id`, `end_offer(sold=True)`'s second `_end` only ever ends
+item listings -- which return before touching a lot row -- and
+`refuse_if_lot_unheld` still has nothing to discharge in this module.
+`offering_writes._end`'s own docstring already said this is what
+`_refuse_grouped` makes true; Task 3 measured it rather than reading it, in
+`test_a_lot_listing_can_never_be_paused_by_another_offer` and
+`test_settlement_ends_only_item_listings_it_did_not_name`
+(`tests/test_auction_settlement.py`). Those two are the tripwire if
+`_refuse_grouped` is ever relaxed.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import lifecycle_writes, lot_writes, offering_writes
+from . import lifecycle_writes, lot_writes, offering_writes, sales_writes
 from .models import (
     Auction,
     AuctionLot,
+    AuctionLotResult,
     AuctionStatus,
     InventoryItem,
     ListingFormat,
     SalesLot,
+    SalesOrder,
     StorageLocation,
     StorageLocationKind,
+    User,
 )
 
 __all__ = [
     "AuctionRefused",
+    "SettlementLine",
     "add_lot",
     "cancel",
     "close",
     "consign",
     "remove_lot",
     "schedule",
+    "settle",
 ]
 
 
@@ -587,3 +622,412 @@ def cancel(
         auction.consigned_on = None
     auction.status = AuctionStatus.cancelled
     db.flush()
+
+
+@dataclass(frozen=True)
+class SettlementLine:
+    """One lot's outcome, as the settlement grid collected it.
+
+    `hammer_price` and `buyer_username` are meaningful only for a `sold`
+    lot; an `unsold` or `withdrawn` one leaves both at their defaults, and
+    `settle` refuses a price given alongside either -- money entered against
+    a lot that did not sell is a mis-filled grid, not a fact.
+
+    `buyer_username` of `None` means two different things depending on the
+    platform, which is why `settle` reads it against the venue's kind rather
+    than on its own: at an auction house it is the standing **undisclosed
+    buyer** the spec's *Decisions* table gives every house that does not name
+    its buyers, and anywhere else it is a blank the owner still has to fill
+    in.
+    """
+
+    auction_lot_id: int
+    result: AuctionLotResult
+    hammer_price: Decimal | None = None
+    buyer_username: str | None = None
+
+
+def _buyer_key(username: str | None) -> str | None:
+    """The buyer a username names, normalised exactly as `venue_buyer` does.
+
+    Strip, then treat empty as absent. Through the same rule rather than a
+    second one, because this is what decides how many *orders* a settlement
+    writes: `"amy"` and `" amy "` grouped apart here would produce two
+    orders that `buyers.venue_buyer` then hangs on one customer -- the
+    opposite of the "one order per buyer" the spec's *Settle* row asks for,
+    and invisible until someone counted the orders.
+
+    Case is deliberately **not** folded here even though `venue_buyer`
+    matches case-insensitively: folding would make `settle` invent a
+    username the owner did not type, and grouping `Amy` with `amy` under
+    whichever spelling happened to come first is a decision for the console's
+    grid, not for this function. The cost is that a grid spelling one buyer
+    two ways writes two orders to one customer; the console's own picker is
+    what keeps that from happening.
+    """
+    stripped = username.strip() if username else None
+    return stripped or None
+
+
+def _lock_auction(db: Session, auction: Auction) -> Auction:
+    """Take the auction row FOR UPDATE and re-read it. The outermost lock.
+
+    **A new, outermost level above `offering_writes`' canonical order**
+    (`docs/specs/lock-order-design.md`), and it must be taken strictly
+    *before* `lock_for_sale`, never after or between. Nothing else in the
+    codebase ever takes an `auction` row, so this level is contended only by
+    other auction transitions and cannot invert against lots, items or
+    listings -- which is what makes adding a level here safe at all.
+
+    Why it is needed: `settle` decides what to write from the auction's
+    status and its lot table, and then writes both. Two settlements of one
+    auction that each read `closed` would each go on to record every lot's
+    sale, and `lock_for_sale` cannot serialise them -- it takes the *items*,
+    and the second settlement would simply wait for them and then do its
+    work on a lot table the first had already settled. The auction row is the
+    only thing both passes are guaranteed to want. The loser waits here,
+    re-reads `settled`, and is refused by `settle`'s own status check with a
+    message rather than by a unique index or a half-written second order.
+
+    `db.flush()` first, because `Session.refresh` expires an instance
+    *before* it reloads: a pending change to this auction would be discarded
+    rather than written. `populate_existing` for the reason
+    `offering_writes._lock_listing_rows` gives -- a row already in the
+    identity map comes back locked but stale without it.
+
+    Deliberately one statement, and deliberately not folded into `settle`:
+    Task 4's race test mutates exactly this, and a lock spread across three
+    lines of another function is one a mutation can silently half-remove.
+    """
+    db.flush()
+    return db.scalars(
+        select(Auction)
+        .where(Auction.id == auction.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one()
+
+
+def _lots_of(db: Session, auction: Auction) -> list[AuctionLot]:
+    """This auction's lots, read fresh and in ascending id order.
+
+    Never `auction.lots`: that collection carries no `order_by` of its own
+    (`app/models/auctions.py`), and a session that read it before a lot was
+    added keeps the short list for the rest of the session -- the defect fix
+    round 1 found in `add_lot`. `settle` writes a result to every one of
+    these rows, so a stale collection here is a lot left unsettled inside a
+    transaction that then marks the auction `settled`.
+
+    Ascending id for the reason `cancel` sorts: one order for every pass, so
+    two concurrent settlements cannot take the same rows two ways.
+    """
+    return list(
+        db.scalars(
+            select(AuctionLot)
+            .where(AuctionLot.auction_id == auction.id)
+            .order_by(AuctionLot.id)
+        ).all()
+    )
+
+
+def _grid_problems(
+    auction: Auction,
+    lots: Sequence[AuctionLot],
+    by_lot: Mapping[int, SettlementLine],
+    unplaced: Sequence[SettlementLine],
+    duplicated: Sequence[str],
+    fees: Mapping[str | None, Sequence[sales_writes.FeeLine]],
+    returned_to_location_id: int | None,
+) -> list[str]:
+    """Everything wrong with this settlement grid, not merely the first thing.
+
+    A list rather than a raise, because the console shows a grid and fixing
+    one problem per round trip is miserable -- the owner wants to see every
+    lot that needs attention at once. `settle` turns whatever comes back
+    into a single `AuctionRefused`.
+
+    Every money check asks `sales_writes.money_problem`, the same predicate
+    `record_sale_lines` raises on. Two answers to "is this a real amount of
+    money" is how a hammer price this function waved through becomes one
+    `record_sale_lines` refuses part way down a settlement that has already
+    written an order.
+    """
+    problems: list[str] = [
+        f"lot id {line.auction_lot_id} is not in auction #{auction.id}"
+        for line in unplaced
+    ]
+    problems += [f"lot {number} was given two results" for number in duplicated]
+    names_buyers = auction.sales_venue.kind.code != _AUCTION_HOUSE_KIND_CODE
+    for row in lots:
+        line = by_lot.get(row.id)
+        if line is None:
+            problems.append(f"lot {row.lot_number} has no result")
+            continue
+        if line.result is not AuctionLotResult.sold:
+            if line.hammer_price is not None:
+                problems.append(
+                    f"lot {row.lot_number} is {line.result.value}, so it cannot "
+                    "have a hammer price"
+                )
+            continue
+        if line.hammer_price is None:
+            problems.append(f"lot {row.lot_number} sold but has no hammer price")
+        else:
+            money = sales_writes.money_problem(
+                line.hammer_price, f"lot {row.lot_number}'s hammer price"
+            )
+            if money is not None:
+                problems.append(money)
+        if names_buyers and _buyer_key(line.buyer_username) is None:
+            problems.append(f"lot {row.lot_number} sold but names no buyer")
+
+    bought: set[str | None] = {
+        _buyer_key(line.buyer_username)
+        for line in by_lot.values()
+        if line.result is AuctionLotResult.sold
+    }
+    seen: set[str | None] = set()
+    for given, fee_lines in fees.items():
+        key = _buyer_key(given)
+        label = given if given is not None else "the undisclosed buyer"
+        if key in seen:
+            problems.append(f"fees for {label} are given twice")
+            continue
+        seen.add(key)
+        if key not in bought:
+            problems.append(f"fees are given for {label}, who bought nothing")
+        problems += [
+            money
+            for money in (
+                sales_writes.money_problem(fee.amount, f"a fee for {label}")
+                for fee in fee_lines
+            )
+            if money is not None
+        ]
+
+    if auction.consigned_on is not None and returned_to_location_id is None:
+        coming_home = [
+            row.lot_number
+            for row in lots
+            if row.id in by_lot and by_lot[row.id].result is not AuctionLotResult.sold
+        ]
+        if coming_home:
+            problems.append(
+                f"auction #{auction.id} is consigned: returned_to_location_id is "
+                f"required to bring back lot(s) {', '.join(coming_home)}"
+            )
+    return problems
+
+
+def _sold_by_buyer(
+    lots: Sequence[AuctionLot], by_lot: Mapping[int, SettlementLine]
+) -> list[tuple[str | None, list[tuple[AuctionLot, Decimal]]]]:
+    """The sold lots grouped by buyer, both orders fixed and reproducible.
+
+    One group is one order: "one order per buyer holding their lots" (spec,
+    *Settle*). `lots` arrives in ascending id order and a dict keeps
+    insertion order, so the groups come out in the order their first lot
+    appears and the lots within a group in id order -- the same sequence
+    every time, which is what lets a settlement be compared against the
+    house's statement line by line.
+    """
+    grouped: dict[str | None, list[tuple[AuctionLot, Decimal]]] = {}
+    for row in lots:
+        line = by_lot[row.id]
+        if line.result is not AuctionLotResult.sold:
+            continue
+        if line.hammer_price is None:  # pragma: no cover - refused by _grid_problems
+            raise AuctionRefused(f"lot {row.lot_number} sold but has no hammer price")
+        grouped.setdefault(_buyer_key(line.buyer_username), []).append(
+            (row, line.hammer_price)
+        )
+    return list(grouped.items())
+
+
+def settle(
+    db: Session,
+    auction: Auction,
+    lines: Sequence[SettlementLine],
+    fees: Mapping[str | None, Sequence[sales_writes.FeeLine]],
+    *,
+    settled_by: User,
+    returned_to_location_id: int | None = None,
+) -> list[SalesOrder]:
+    """Apply a whole settlement grid to a closed auction. One transaction.
+
+    Every lot's result, every sold lot's money and every unsold lot's coins,
+    or none of it (spec, *Settle*). Returns one `SalesOrder` per buyer, in
+    the order their first lot appears in the sale.
+
+    `fees` is keyed by buyer username -- `None` for an auction house's
+    undisclosed buyer -- because a house bills per buyer **order**, not per
+    lot. That is the one thing settlement needed that recording a single
+    sale did not, and it is why `sales_writes` grew `record_sale_lines`
+    rather than this module growing a loop over `record_sale`: two lots to
+    one buyer are one order with two lines, and the order's fee divides
+    across the coins of both.
+
+    **Order of operations, and each one matters.**
+
+    1. Take the `auction` row FOR UPDATE (`_lock_auction`), the outermost
+       lock level and strictly before anything else. See that function.
+    2. Refuse. Every problem in the grid is collected and reported together
+       (`_grid_problems`), and nothing is written until the list comes back
+       empty.
+    3. Take every coin in the **whole auction** in one
+       `offering_writes.lock_for_sale` call, never one per lot. That function
+       is the single owner of the acquisition order -- lot rows, then items,
+       then listings -- and reaching past it, or reaching it a lot at a time,
+       is what reproduces the deadlock `docs/specs/lock-order-design.md`
+       exists to prevent. Two lots sharing no coins still share this auction,
+       which step 1 already serialised; this call is what serialises them
+       against a checkout, an offer or a sale elsewhere.
+    4. Sold lots, grouped by buyer: one `sales_writes.record_sale_lines` per
+       buyer, which ends each listing as **sold** -- the lot `sold`, its
+       members' paused store listings **ended** rather than resumed, the
+       coins `sold`.
+    5. Unsold and withdrawn lots: their coins come home first (only if the
+       house still holds them), then `offering_writes.end_offer` with no
+       sale, so the lot dissolves, paused store listings resume **at their
+       old price**, and coins nothing else offers go back to `held`.
+    6. `consigned_on` cleared, status `settled`.
+
+    **Custody is keyed on `auction.consigned_on is not None`** (ruling R13),
+    never on the status: `close` accepts a `consigned` auction without
+    clearing the date, so a settled sale's coins may still be sitting at the
+    house while the status reads `closed`. This is one of the two places the
+    date is cleared -- `cancel` is the other -- and it clears it once every
+    unsold and withdrawn lot has actually been returned. A sold lot's coins
+    stay where they are: they left with the buyer, and moving them home
+    would be a lie in the location history.
+
+    `returned_to_location_id` is required only when the house still holds
+    coins **and** at least one lot is coming back; an auction where
+    everything sold needs nowhere to return to.
+
+    A `withdrawn` lot is returned exactly as an `unsold` one is.
+    `AuctionLotResult.withdrawn` is what "was in a closed auction and did not
+    sell" means, which is why the public `remove_lot` refuses a closed
+    auction outright (ruling R14): pulling a lot out after the sale is a
+    settlement result, not a removal with no record of what became of it.
+    The `auction_lot` rows are **kept**, unlike `remove_lot`, which deletes
+    them -- `result`, `hammer_price` and `buyer_customer_id` are exactly what
+    those columns were added for.
+
+    **The whole of steps 4 to 6 runs inside one savepoint**
+    (`db.begin_nested`), so a failure against the second buyer takes the
+    first buyer's order, fees, shares and endings back out with it rather
+    than leaving an auction half settled. The caller still commits. That
+    boundary is not decoration: it is mutation-verified by
+    `test_a_failure_part_way_through_leaves_nothing_written`, whose docstring
+    records what removing it looks like.
+
+    Raises `AuctionRefused` -- listing **every** problem, not the first -- if
+    the auction is not `closed`, any lot lacks a result, any lot has two, any
+    line names a lot from another auction, a sold lot lacks a hammer price
+    or (outside an auction house) a buyer, an unsold lot carries a price, any
+    hammer price or fee is negative or given to less than the cent, fees are
+    given for someone who bought nothing, or coins have nowhere to come back
+    to. The refusals `record_sale_lines` raises -- `sales_writes.SaleRefused`
+    and its narrower `SaleInputInvalid` -- are left to propagate unchanged;
+    reaching one means a conflict arrived after this function's own checks
+    passed, and the savepoint above has already undone whatever had been
+    written.
+    """
+    auction = _lock_auction(db, auction)
+    if auction.status is not AuctionStatus.closed:
+        raise AuctionRefused(
+            f"auction #{auction.id} is {auction.status.value}, so it cannot be settled"
+        )
+    lots = _lots_of(db, auction)
+
+    by_lot: dict[int, SettlementLine] = {}
+    unplaced: list[SettlementLine] = []
+    duplicated: list[str] = []
+    known = {row.id: row.lot_number for row in lots}
+    for line in lines:
+        if line.auction_lot_id not in known:
+            unplaced.append(line)
+        elif line.auction_lot_id in by_lot:
+            duplicated.append(known[line.auction_lot_id])
+        else:
+            by_lot[line.auction_lot_id] = line
+
+    problems = _grid_problems(
+        auction, lots, by_lot, unplaced, duplicated, fees, returned_to_location_id
+    )
+    if problems:
+        raise AuctionRefused(
+            f"auction #{auction.id} cannot be settled: " + "; ".join(problems)
+        )
+
+    fee_lines = {_buyer_key(given): given_fees for given, given_fees in fees.items()}
+    # Every coin in the auction, in one pass, through the single owner of the
+    # acquisition order. Read before anything is ended, because
+    # `offered_items` answers from the *open* memberships that `end_offer`
+    # releases -- asking again after step 5 would find a lot's coins gone.
+    offering_writes.lock_for_sale(
+        db,
+        item_ids=sorted(
+            item.id
+            for row in lots
+            for item in offering_writes.offered_items(db, row.listing)
+        ),
+    )
+
+    orders: list[SalesOrder] = []
+    with db.begin_nested():
+        for row in lots:
+            line = by_lot[row.id]
+            row.result = line.result
+            row.hammer_price = line.hammer_price
+        for buyer, group in _sold_by_buyer(lots, by_lot):
+            order = sales_writes.record_sale_lines(
+                db,
+                [
+                    sales_writes.SaleLine(listing_id=row.listing_id, price=price)
+                    for row, price in group
+                ],
+                buyer_username=buyer,
+                # The sale number, which is the only platform reference a
+                # settlement has: the house's statement names the sale, not
+                # one order per buyer inside it. Nothing constrains this
+                # column to be unique, so two buyers in one sale carrying the
+                # same number is the reconciliation key the owner actually
+                # has rather than a collision.
+                external_order_id=auction.external_id,
+                fees=fee_lines.get(buyer, ()),
+                recorded_by=settled_by,
+            )
+            for row, _ in group:
+                row.buyer_customer_id = order.customer_id
+            orders.append(order)
+
+        coming_home = [
+            row for row in lots if by_lot[row.id].result is not AuctionLotResult.sold
+        ]
+        if coming_home and auction.consigned_on is not None:
+            if returned_to_location_id is None:  # pragma: no cover - refused above
+                raise AuctionRefused(
+                    f"auction #{auction.id} is consigned: "
+                    "returned_to_location_id is required"
+                )
+            # Every return before any ending, never interleaved:
+            # `_return_from_consignment` reads a lot's coins through
+            # `offered_items`, which `end_offer` releases.
+            for row in coming_home:
+                _return_from_consignment(
+                    db, row, returned_to_location_id, user_id=settled_by.id
+                )
+        for row in coming_home:
+            offering_writes.end_offer(db, row.listing)
+
+        # Cleared here and only after the loop above: the house is holding
+        # nothing of this auction's any more, whether because everything sold
+        # or because everything that did not has just come back. An auction
+        # that was never consigned leaves this alone.
+        if auction.consigned_on is not None:
+            auction.consigned_on = None
+        auction.status = AuctionStatus.settled
+        db.flush()
+    return orders

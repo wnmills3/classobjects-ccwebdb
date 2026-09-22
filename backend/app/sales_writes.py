@@ -11,14 +11,22 @@ the buyer from `buyers.venue_buyer`, and the listing is ended by
 here, and this module never constructs a `SalesOrderItemShare` itself -- only
 fills in the `fee_amount` on rows `place_order` already made.
 
-**One entry point on purpose, even though today it has only one caller.**
-`record_sale`'s only caller right now is the Listings page's Record sale
-(`app.routers.offers`); shop checkout writes its orders through
-`order_writes.place_order` directly, without fees, and never calls this
-function. The design is for a caller that does not exist yet: phase-4
-auction settlement, where an auction settling four lots to two buyers will
-be two calls to `record_sale`, not a second implementation of fees and
+**One implementation, two doors onto it.** `record_sale_lines` takes a
+buyer's whole purchase -- several listings on one order -- and `record_sale`
+is that function called with a list of one. The Listings page's Record sale
+(`app.routers.offers`) still calls `record_sale`; shop checkout writes its
+orders through `order_writes.place_order` directly, without fees, and never
+calls either. The second caller this single entry point was built for
+(spec, *Where record-a-sale lives*) is phase-4 auction settlement, and it
+arrived in Task 3: an auction settling four lots to two buyers is **two**
+calls, one per buyer, not four and not a second implementation of fees and
 shares that can drift from this one.
+
+`record_sale_lines` rather than a loop over `record_sale` because an auction
+house bills per buyer *order*, not per lot: two lots to one buyer are one
+order with two lines, and the order's fee divides across every coin on both
+lines. That widened denominator is the only thing settlement needed that
+recording a single sale did not.
 """
 
 from __future__ import annotations
@@ -47,9 +55,12 @@ from .references import require_code
 __all__ = [
     "FeeLine",
     "SaleInputInvalid",
+    "SaleLine",
     "SaleRefused",
     "ShareMissing",
+    "money_problem",
     "record_sale",
+    "record_sale_lines",
 ]
 
 #: What a sale's order status is, by the kind of platform it happened on.
@@ -109,6 +120,51 @@ class FeeLine:
     note: str | None = None
 
 
+@dataclass(frozen=True)
+class SaleLine:
+    """One listing on one order, and what it sold for.
+
+    The unit `record_sale_lines` takes several of, because an auction house
+    bills a buyer once for every lot they took rather than once per lot. It
+    carries no quantity: an outside sale is always the whole offer -- a lot
+    listing is quantity 1 by `ck_listing_lot_quantity_one`, and the single
+    item case has always passed 1 -- so a quantity here would be a second
+    way to say something no caller can vary.
+    """
+
+    listing_id: int
+    price: Decimal
+
+
+def money_problem(amount: Decimal, what: str) -> str | None:
+    """Why `amount` cannot be money on this branch, or None if it can.
+
+    The predicate half of `_refuse_money`, public because
+    `auctions.settle` has to collect **every** bad figure in a settlement
+    grid before refusing -- the console shows a grid, and fixing one problem
+    at a time is miserable -- while every other caller wants to stop at the
+    first. Two answers to "is this a real amount of money" is how a hammer
+    price the settlement accepted becomes one `record_sale_lines` refuses
+    half way through a settlement that has already written orders.
+
+    Sub-cent is refused, not rounded, because PostgreSQL's rounding of
+    `Numeric(12, 2)` and `allocate`'s `ROUND_HALF_EVEN` do not agree on a
+    half cent: a row and the shares split from it would differ by a cent.
+    """
+    if amount < 0:
+        return f"{what} cannot be negative, not {amount}"
+    if amount != amount.quantize(_CENT):
+        return f"{what} must be given to the cent, not {amount}"
+    return None
+
+
+def _refuse_money(amount: Decimal, what: str) -> None:
+    """Raise `SaleInputInvalid` if `amount` is not money to the cent."""
+    problem = money_problem(amount, what)
+    if problem is not None:
+        raise SaleInputInvalid(problem)
+
+
 class ShareMissing(Exception):
     """A line is missing a share for one of the items its listing offered.
 
@@ -131,7 +187,9 @@ def _shared_items(db: Session, listing: Listing) -> list[InventoryItem]:
     snapshot all divide the same group in the same order.
 
     Must be asked *before* `end_offer` releases the memberships, which is the
-    order `record_sale` below already runs in.
+    order `record_sale_lines` below already runs in -- and it asks once per
+    listing, up front, so a two-line order's second listing is read while it
+    is still whole rather than after the first one's ending has run.
 
     An empty answer stays `SaleInputInvalid` -- 422, the spec's empty-lot
     case. It is still reachable here even though `offering_writes.offer` now
@@ -172,39 +230,107 @@ def record_sale(
 ) -> SalesOrder:
     """Record that `listing` sold, and end it. Caller commits.
 
-    Takes `listing`'s row lock and re-reads it before deciding anything, so
-    the "is it still on offer?" question is answered from the current row
-    rather than from whatever the caller loaded. A second operator racing the
-    same listing is refused with "not on offer".
+    The one-listing case of `record_sale_lines`, and **only** that: this
+    function keeps the name and the signature its production caller
+    (`POST /api/listings/{id}/sale`) already uses and adds no second
+    implementation of fees, shares or endings below it. Everything this used
+    to do, and every reason it did it in that order, now lives in
+    `record_sale_lines`; read that docstring for the behaviour, including
+    which refusals are `SaleInputInvalid` and which stay a plain
+    `SaleRefused`.
+
+    Widened rather than duplicated because auction settlement needs several
+    listings on one order -- an auction house bills per buyer, not per lot --
+    and a second order creator beside this one is exactly the drift the
+    spec's "one entry point on purpose" was written to prevent.
+    """
+    return record_sale_lines(
+        db,
+        [SaleLine(listing_id=listing.id, price=price)],
+        buyer_username=buyer_username,
+        external_order_id=external_order_id,
+        fees=fees,
+        recorded_by=recorded_by,
+        equal_shares=equal_shares,
+        status_code=status_code,
+    )
+
+
+def record_sale_lines(
+    db: Session,
+    lines: Sequence[SaleLine],
+    *,
+    buyer_username: str | None,
+    external_order_id: str | None,
+    fees: Sequence[FeeLine],
+    recorded_by: User,
+    equal_shares: bool = False,
+    status_code: str | None = None,
+) -> SalesOrder:
+    """Record one buyer's whole purchase as a single order, and end its listings.
+
+    One order, one buyer, one platform, any number of listings. The
+    single-listing `record_sale` is this function with a list of one; there
+    is no other path.
+
+    **The fee spans the lines, and the price does not.** `place_order`
+    already writes one zero-fee share per offered item -- one per member for
+    a lot listing, cost-weighted -- so each line's own money is divided
+    among that line's own coins before this function sees it. A fee is the
+    *order's* money: an auction house bills a buyer once for everything they
+    took, so it is divided once, across every item of every line, by the
+    same `_weights`/`allocate` pair. That widened denominator is the only
+    genuinely new arithmetic here, and it is where a cent can go missing.
+
+    Takes every listing's row lock and re-reads it before deciding anything,
+    so the "is it still on offer?" question is answered from the current row
+    rather than from whatever the caller loaded. A second operator racing any
+    one of them is refused with "not on offer". One
+    `offering_writes.lock_for_sale` call covers the whole order: that
+    function is the single owner of the acquisition order -- lot rows, then
+    items, then listings -- and a caller that takes them itself, or takes
+    them a listing at a time, is what reproduces the deadlock
+    `docs/specs/lock-order-design.md` records.
 
     Raises before writing anything, as one of two kinds -- the split matters
     to a caller mapping this to HTTP, so it is a subclass, not just a
-    message. `SaleInputInvalid` (itself a `SaleRefused`): `price` or a fee is
-    negative, or either is given to less than the cent (this branch's money
-    reconciles exactly, and a sub-cent amount cannot -- PostgreSQL's rounding
-    of `Numeric(12, 2)` and `allocate`'s `ROUND_HALF_EVEN` do not agree on
-    one, so a row and the shares split from it would disagree by a cent --
-    true of `price` the moment a lot listing divides it through `allocate`
-    too, not only of a fee today). Plain `SaleRefused`, a genuine conflict
-    rather than bad input: the listing is not on offer, or `venue`'s kind has
-    no default order status and no `status_code` was given explicitly. An
-    unknown fee kind code, or an explicit `status_code` that is not itself a
-    real status, is resolved before the order is created too, for the same
-    reason -- each fails as `HTTPException`, the way every other classifier
-    lookup in this codebase does, rather than reaching `place_order` after a
-    write has already happened.
+    message. `SaleInputInvalid` (itself a `SaleRefused`): no lines at all, the
+    same listing named twice, a `price` or a fee that is negative or given to
+    less than the cent (see `money_problem` for why sub-cent cannot be
+    rounded), or a listing with nothing left to divide money among
+    (`_shared_items`). Plain `SaleRefused`, a genuine conflict rather than bad
+    input: a listing is not on offer, two listings are on different
+    platforms, or the venue's kind has no default order status and no
+    `status_code` was given explicitly. An unknown fee kind code, or an
+    explicit `status_code` that is not itself a real status, is resolved
+    before the order is created too, for the same reason -- each fails as
+    `HTTPException`, the way every other classifier lookup in this codebase
+    does, rather than reaching `place_order` after a write has already
+    happened.
+
+    The order of the checks below is the order the single-listing version
+    always ran in -- locked status, then price, then fees, then the items,
+    the fee kinds, the order status and only then the buyer, which is the
+    first thing that writes. Each check now runs over every line before the
+    next begins, so a two-line order refuses on the same grounds and in the
+    same sequence a one-line order does.
     """
-    # Locked and re-read *before* the status check, not after it. `listing` is
-    # whatever the caller had in hand -- `routers.offers` fetches it with a
-    # plain `db.get` -- and the check below is the one that decides whether
-    # this sale may happen at all, so deciding it on an unlocked read is
-    # deciding it on a value another operator may already have changed. The
-    # spec's *Concurrency* paragraph requires the lock before the read for
-    # exactly this reason.
+    if not lines:
+        raise SaleInputInvalid("a sale needs at least one listing")
+    listing_ids = [line.listing_id for line in lines]
+    if len(set(listing_ids)) != len(listing_ids):
+        raise SaleInputInvalid("a listing cannot appear twice on one order")
+
+    # Locked and re-read *before* the status check, not after it. The
+    # listings the caller named are whatever it had in hand, and the check
+    # below is the one that decides whether this sale may happen at all, so
+    # deciding it on an unlocked read is deciding it on a value another
+    # operator may already have changed. The spec's *Concurrency* paragraph
+    # requires the lock before the read for exactly this reason.
     #
-    # Nothing downstream re-reads `status`: `place_order` takes the same lock
-    # a moment later, but `order_writes` skips both `sellable_in_shop` and
-    # `is_active` when a venue is given, because an outside listing is
+    # Nothing downstream re-reads `status`: `place_order` takes the same
+    # locks a moment later, but `order_writes` skips both `sellable_in_shop`
+    # and `is_active` when a venue is given, because an outside listing is
     # neither. Its stock check is all that remains -- an accidental backstop
     # at quantity 1, with a message about stock rather than about the sale,
     # and no backstop at all above 1 (`app/seed.py`'s demo listings are 5 and
@@ -212,14 +338,19 @@ def record_sale(
     # an already-ended listing and call `end_offer(sold=True)` twice.
     #
     # `offering_writes.end_offer` re-reads the same way, for the same reason;
-    # this follows it. Taken through `offering_writes.lock_for_sale`, which is
-    # the single owner of the acquisition order -- the listing's lot, then its
-    # items, then the listings -- rather than a `FOR UPDATE OF listing` of its
-    # own. This used to lock the listing alone and call the order unchanged,
-    # which was true of `place_order` as it then was and false of `offer`:
-    # that pair of orders was the deadlock
+    # this follows it. Taken through `offering_writes.lock_for_sale`, which
+    # is the single owner of the acquisition order -- the listings' lots,
+    # then their items, then the listings -- rather than a
+    # `FOR UPDATE OF listing` of its own. This used to lock the listing alone
+    # and call the order unchanged, which was true of `place_order` as it
+    # then was and false of `offer`: that pair of orders was the deadlock
     # `docs/specs/lock-order-design.md` records. `place_order` and
     # `end_offer` below both take the same rows again, and find them held.
+    #
+    # One call for the whole order, never one per line: the canonical order
+    # is only canonical across a whole acquisition, and two settlements
+    # taking their lots one at a time in different orders is the deadlock
+    # this door exists to prevent.
     #
     # `.get` and an explicit refusal rather than a subscript: this replaced a
     # `.scalar_one()`, whose `NoResultFound` named the row that was missing,
@@ -229,32 +360,41 @@ def record_sale(
     # this codebase deletes a listing -- so this is the same 409-shaped
     # conflict as the status check below rather than a case a caller is
     # expected to meet.
-    locked = offering_writes.lock_for_sale(db, listing_ids=[listing.id]).listings.get(
-        listing.id
-    )
-    if locked is None:
-        raise SaleRefused(f"Listing {listing.id} no longer exists")
-    listing = locked
-    if listing.status is not ListingStatus.active:
-        # Names the platform as well as the listing: the spec's *Errors*
-        # section asks for both, and an owner with the same item offered in
-        # two places needs to know which offer this was about.
-        raise SaleRefused(
-            f"Listing {listing.id} on {listing.sales_venue.name} is not on offer "
-            f"({listing.status.value})"
-        )
-    if price < 0:
-        raise SaleInputInvalid(f"Price cannot be negative, not {price}")
-    if price != price.quantize(_CENT):
-        raise SaleInputInvalid(f"Price must be given to the cent, not {price}")
-    for fee in fees:
-        if fee.amount < 0:
-            raise SaleInputInvalid("A fee cannot be negative")
-        if fee.amount != fee.amount.quantize(_CENT):
-            raise SaleInputInvalid(f"A fee must be given to the cent, not {fee.amount}")
+    locked = offering_writes.lock_for_sale(db, listing_ids=listing_ids)
+    ordered = sorted(lines, key=lambda line: line.listing_id)
+    listings: list[Listing] = []
+    for line in ordered:
+        row = locked.listings.get(line.listing_id)
+        if row is None:
+            raise SaleRefused(f"Listing {line.listing_id} no longer exists")
+        if row.status is not ListingStatus.active:
+            # Names the platform as well as the listing: the spec's *Errors*
+            # section asks for both, and an owner with the same item offered
+            # in two places needs to know which offer this was about.
+            raise SaleRefused(
+                f"Listing {row.id} on {row.sales_venue.name} is not on offer "
+                f"({row.status.value})"
+            )
+        listings.append(row)
 
-    venue = listing.sales_venue
-    items = _shared_items(db, listing)
+    for line in ordered:
+        _refuse_money(line.price, "Price")
+    for fee in fees:
+        _refuse_money(fee.amount, "A fee")
+
+    # One order belongs to one platform -- `sales_order.sales_venue_id` is a
+    # single column, and the fee kinds, the buyer and the default status are
+    # all read off that one venue below. A caller that mixed two would get an
+    # order filed under whichever listing happened to sort first, which is
+    # a conflict worth naming rather than a silent choice.
+    venue_ids = {row.sales_venue_id for row in listings}
+    if len(venue_ids) > 1:
+        raise SaleRefused(
+            "one order cannot span two platforms: listings "
+            + ", ".join(str(row.id) for row in listings)
+        )
+    venue = listings[0].sales_venue
+    items_by_listing = {row.id: _shared_items(db, row) for row in listings}
     # Resolved before the order exists, not inside the write loop below: an
     # unknown fee kind code must fail before anything is written, the same
     # discipline as the checks above.
@@ -282,7 +422,12 @@ def record_sale(
     order = order_writes.place_order(
         db,
         buyer,
-        [order_writes.Line(listing_id=listing.id, quantity=1, unit_price=price)],
+        [
+            order_writes.Line(
+                listing_id=line.listing_id, quantity=1, unit_price=line.price
+            )
+            for line in ordered
+        ],
         recorded_by,
         venue=venue,
         status_code=status,
@@ -306,29 +451,35 @@ def record_sale(
         )
         total_fees += fee.amount
 
-    # `place_order` already created one share per offered item -- one for an
-    # item listing carrying the whole line's `amount`, one per member for a
-    # lot listing carrying its cost-weighted part -- each with a zero
-    # `fee_amount` (`order_writes._sync_shares`). Only the fee half is this
-    # module's to fill in; it never constructs a share.
+    # `place_order` already created one share per offered item on every line
+    # -- one for an item listing carrying the whole line's `amount`, one per
+    # member for a lot listing carrying its cost-weighted part -- each with a
+    # zero `fee_amount` (`order_writes._sync_shares`). Only the fee half is
+    # this module's to fill in; it never constructs a share.
     #
     # `line.shares` is safe to read here: `place_order` passes `new_line=True`,
     # so `_sync_shares` never consults that collection and so never leaves it
     # cached empty from before the row existed. This was a `select()` while it
     # did.
-    line = order.items[0]
-    weights = _weights(items, equal=equal_shares)
-    fee_amounts = allocate(total_fees, weights)
-    shares_by_item = {share.inventory_item_id: share for share in line.shares}
-    for item, fee_amount in zip(items, fee_amounts, strict=True):
-        share = shares_by_item.get(item.id)
+    covered = [(row.id, item) for row in listings for item in items_by_listing[row.id]]
+    fee_amounts = allocate(
+        total_fees, _weights([item for _, item in covered], equal=equal_shares)
+    )
+    shares_by_item = {
+        (order_line.listing_id, share.inventory_item_id): share
+        for order_line in order.items
+        for share in order_line.shares
+    }
+    for (listing_id, item), fee_amount in zip(covered, fee_amounts, strict=True):
+        share = shares_by_item.get((listing_id, item.id))
         if share is None:
             raise ShareMissing(
                 f"{item.item_code} has no share on the line for listing "
-                f"{listing.id}; order_writes wrote one per offered item"
+                f"{listing_id}; order_writes wrote one per offered item"
             )
         share.fee_amount = fee_amount
 
-    offering_writes.end_offer(db, listing, sold=True)
+    for row in listings:
+        offering_writes.end_offer(db, row, sold=True)
     db.flush()
     return order
