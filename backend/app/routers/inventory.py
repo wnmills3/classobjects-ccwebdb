@@ -426,12 +426,13 @@ def receive_items(
     # everything else, and the `end_offer` calls below then re-lock rows this
     # transaction already holds.
     #
-    # Measured, and the deadlock is the *worse* of two losses rather than the
-    # only one: with the pass removed, the race test loses eight of eight to
-    # a `StaleDataError` instead, because the receipt's unlocked UPDATE of
-    # the member row queues behind the checkout and then writes through a
-    # version that has moved. Locking and re-reading first removes that too,
-    # the same false conflict `_lock_items`' docstring describes.
+    # Measured, and the abort is not the only loss the inversion permits --
+    # nor the one observed. With the pass removed the race test loses eight
+    # of eight to a `StaleDataError`, because the receipt's unlocked UPDATE
+    # of the member row queues behind the checkout and then writes through a
+    # version that has moved. Both are a 500 for an operator, and locking
+    # and re-reading first removes both -- the second is the same false
+    # conflict `offering_writes._lock_items`' docstring describes.
     #
     # `including_paused=True` so the item set derived here is exactly the
     # `_affected_items` set `end_offer` will ask for, rather than a narrower
@@ -450,14 +451,26 @@ def receive_items(
     # histories the spec says never collapse into one. The race test caught
     # exactly that.
     #
-    # Re-reading is enough rather than a loop: `_lock_listing_rows` takes
-    # every live offer holding one of these items in the same statement as
-    # the ones named here, evaluated *after* the item rows are held, and a
-    # listing comes to hold an item only through a claim whose writer holds
-    # the item row first. So every row the second read can return is one this
-    # transaction already holds.
+    # Re-reading is enough rather than a loop **for the listing rows**:
+    # `_lock_listing_rows` takes every live offer holding one of these items
+    # in the same statement as the ones named here, evaluated *after* the item
+    # rows are held, and a listing comes to hold an item only through a claim
+    # whose writer holds the item row first. So every listing row the second
+    # read can return is one this transaction already holds.
+    #
+    # That argument is silent about **lot** rows, and it has to be: a lot
+    # listing reached only through the derived half has its listing row locked
+    # and its lot row taken only if `lock_for_sale`'s own `offers_holding`
+    # read saw it. A lot offered in the window between that read and the item
+    # lock would not be. Ending such a listing takes its lot row *late* --
+    # `end_offer` -> `lock_for_sale` -> `_lock_lots` -- while this
+    # transaction already holds items and listings, which is the original
+    # inversion one level down, against a checkout holding that lot row and
+    # waiting on a member. `refuse_if_lot_unheld` below is the check, and
+    # `lot_ids` is why this keeps the result rather than discarding it.
+    locked = None
     if ends_offer:
-        offering_writes.lock_for_sale(
+        locked = offering_writes.lock_for_sale(
             db,
             listing_ids=[
                 live.id
@@ -508,11 +521,20 @@ def receive_items(
     # missing.
     #
     # This is the *authoritative* read of that set, not the one above, which
-    # only chose what to lock -- see there. Every row it can return is
+    # only chose what to lock -- see there. Every listing row it can return is
     # already held, so re-reading costs a SELECT and buys the guarantee that
     # nothing here ends an offer another transaction has already ended.
-    if ends_offer:
-        for live in offering_writes.offers_holding(db, [item.id for item in items]):
+    #
+    # Checked before the first `end_offer`, not per listing: this is all or
+    # nothing like the rest of the receipt, and a refusal must not leave half
+    # the offers ended. Nothing is written when it fires -- the router commits
+    # once, at the end.
+    if ends_offer and locked is not None:
+        live_offers = list(
+            offering_writes.offers_holding(db, [item.id for item in items])
+        )
+        offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
+        for live in live_offers:
             offering_writes.end_offer(db, live)
 
     db.commit()

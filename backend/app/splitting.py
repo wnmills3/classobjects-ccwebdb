@@ -39,7 +39,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import offering_writes, sale_state
+from . import lot_writes, offering_writes, sale_state
 from .allocation import allocate
 from .lifecycle_writes import record_initial_status
 from .models import (
@@ -51,6 +51,7 @@ from .models import (
     Listing,
     ListingStatus,
     ProvenanceSource,
+    SalesLotStatus,
     SalesOrderItem,
 )
 
@@ -150,10 +151,16 @@ def split_item(
 
     Raises `SplitError` for an unknown mode, fewer than two pieces, a lot
     already split, a lot that is itself a piece, a piece holding less than
-    one item, or a lot that appears in an order -- sold on its own or
-    inside a sales lot -- and `AllocationError`
+    one item, a lot that appears in an order -- sold on its own or inside a
+    sales lot -- or **an open member of a sales lot that is currently
+    offered**, and `AllocationError`
     from `allocate` if the cost cannot be divided. `routers.inventory`
     catches only the first, so an `AllocationError` here is a 500.
+
+    The last two are a pair -- sold inside a lot, and offered inside one --
+    and neither is negotiable by `acknowledge_for_sale`, unlike the listing
+    warning `routers.inventory.split` raises before calling this. See each
+    check for why.
 
     `mode` is `EQUAL` or `RELATIVE`; anything else is a `SplitError`. The
     API edge constrains it further (`SplitRequest.mode` carries a pattern),
@@ -214,6 +221,45 @@ def split_item(
         # are released and the listing ended, so the listing half finds
         # nothing either.
         raise SplitError(f"{parent.item_code} appears in an order and cannot be split")
+
+    # The sibling of the check above, one step earlier in the lifecycle: that
+    # one refuses a coin already **sold** inside a lot, this one a coin still
+    # **offered** inside one. Both failed the same way before they existed,
+    # and for the same reason -- `listing.inventory_item_id` is NULL on a lot
+    # listing, so a lot is invisible to any predicate built on it. The listing
+    # loop at the end of this function still asks that column, deliberately:
+    # its job is to end an item's *own* listings, and a lot listing is not
+    # one. So nothing there ended the lot's offer, and nothing here refused
+    # the split.
+    #
+    # Measured through `POST /api/inventory/{id}/split` before this existed:
+    # unacknowledged gave 409 with the for-sale warning, because
+    # `sale_state._offering` reads claims and so was always lot-aware --
+    # and **acknowledged gave 200**. The coin was split while the lot went on
+    # offering it: listing `active`, lot `offered`, membership open, claim
+    # `active`, and `offered_items` still naming a parent with `split_at`
+    # set. A buyer looking at a group containing a coin that no longer exists
+    # as a whole item -- while `offering_writes._refuse_unofferable` refuses
+    # to offer a split item and `lot_writes._refuse_unofferable` refuses to
+    # put one into a lot.
+    #
+    # Unconditional, like the order check above and unlike
+    # `sale_state.guard`: `acknowledge_for_sale` is for changes a buyer
+    # should be told about, not for ones that leave the offer describing
+    # something untrue. Only `offered` refuses, exactly as
+    # `offering_writes._refuse_grouped` scopes the same rule -- an
+    # `assembling` lot has been shown to nobody, and offering it afterwards
+    # refuses the split member by name.
+    #
+    # `lot_writes.lot_holding` rather than a query of its own, so "already in
+    # a lot" keeps the one definition `_refuse_grouped` and
+    # `routers.inventory.delete_item` also use.
+    holding_lot = lot_writes.lot_holding(db, parent.id)
+    if holding_lot is not None and holding_lot.status is SalesLotStatus.offered:
+        raise SplitError(
+            f"{parent.item_code} is in lot #{holding_lot.id}, which is offered: "
+            "end or dissolve the lot before splitting it"
+        )
 
     weights = _weights(pieces, mode)
     costs = allocate(parent.item_cost, weights)

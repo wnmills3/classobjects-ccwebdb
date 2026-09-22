@@ -1596,3 +1596,38 @@ def test_a_listing_the_lock_found_ended_is_not_refused_for_its_released_members(
     offering_writes._refuse_if_changed(
         {listing_id: offered_lot_listing}, before, {listing_id: ()}
     )
+
+
+def test_ending_a_lot_listing_whose_lot_row_is_unheld_is_refused(
+    db: Session, offered_lot_listing: Listing, listing: Listing
+) -> None:
+    """The completeness half of the pass: a lot listing needs its lot row.
+
+    `lock_for_sale` takes the lot rows of the listings it was *named* and of
+    the live offers its own `offers_holding` read saw. A lot offered in the
+    window between that read and the item lock is reached by the derived half
+    of `_lock_listing_rows` -- locked as a listing, with no lot row held --
+    and ending it would take that lot row late, after items and listings.
+    That is the original inversion one level down.
+
+    Asserted directly, because the window cannot be opened through the public
+    API without a second connection inside a single call. Both branches, and
+    the difference between them is the point: an *item* listing needs no lot
+    row, and refusing on one would refuse every ordinary receipt.
+
+    Survives: dropping the `sales_lot_id is not None` half of the condition
+    makes the first call below raise on a plain item listing; dropping the
+    `not in held` half makes the second call pass.
+    """
+    lot_id = offered_lot_listing.sales_lot_id
+    assert lot_id is not None
+    assert listing.sales_lot_id is None
+
+    # Held, and an item listing that needs nothing held: neither raises.
+    offering_writes.refuse_if_lot_unheld([offered_lot_listing], {lot_id})
+    offering_writes.refuse_if_lot_unheld([listing], set())
+
+    with pytest.raises(offering_writes.LockSetChanged) as excinfo:
+        offering_writes.refuse_if_lot_unheld([offered_lot_listing], set())
+    assert str(lot_id) in str(excinfo.value)
+    assert str(offered_lot_listing.id) in str(excinfo.value)

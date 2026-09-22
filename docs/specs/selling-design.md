@@ -607,14 +607,24 @@ is handed `Line(listing_id=...)`.
   `populate_existing` and `selectinload(Listing.sales_venue)` behaviour,
   which `lock_for_sale` provides, and keeps its 404 for an unknown listing
   id.
-- **Seven writers come through it**, enumerated in
+- **Eight writers come through it**, enumerated in
   `docs/specs/lock-order-design.md` rather than asserted as "every writer" --
-  that phrasing was used first and had an exception.
+  that phrasing was used first and was wrong twice.
   `routers.inventory.receive_items` wrote its `inventory_item` status rows
   and flushed them before calling `end_offer`, so it took items before lots;
   an administrator marking a lot member `missing` while a shopper checked
   that lot out was the pair. Closed in fix round 1 by taking the pass before
-  the first write.
+  the first write. And `splitting.split_item` was filed as single-kind when
+  it holds the parent item row across an `end_offer` call; it is safe, and
+  round 2 made it safe by construction rather than by accident.
+
+**Two related rules, both found in review and both about a lot describing
+something untrue.** `offering_writes._end` leaves an already-`ended` listing
+alone, so a second `POST /api/listings/{id}/end` cannot rewrite a `sold` lot
+to `dissolved` -- one admin call, no concurrency needed. And
+`splitting.split_item` refuses a coin that is an open member of an *offered*
+lot, unconditionally, the sibling of the sold-inside-a-lot refusal: a lot
+must not go on offering a coin that no longer exists as a whole item.
 - **A confirming re-read**, because the member set has to be *read* before
   it can be locked. It holds the set frozen only while the listing is still
   on offer: an offered lot's membership cannot otherwise change
