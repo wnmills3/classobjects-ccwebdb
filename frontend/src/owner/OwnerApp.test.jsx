@@ -9,6 +9,9 @@ vi.mock('./api', () => ({
   api: {
     listUnattachedImages: vi.fn().mockResolvedValue([]),
     listLots: vi.fn().mockResolvedValue({ lots: [] }),
+    listAuctions: vi.fn().mockResolvedValue({ auctions: [] }),
+    listSalesVenues: vi.fn().mockResolvedValue([]),
+    listStorageLocations: vi.fn().mockResolvedValue([]),
   },
 }))
 
@@ -76,6 +79,24 @@ describe('owner console shell', () => {
     renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/lots' })
     expect(
       await screen.findByRole('heading', { name: /sales lots/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('links to the Auctions page, after Lots and nowhere else', () => {
+    // Ruling R4: a single flat NavLink after Lots, not a "Selling" nav
+    // group -- that restructuring was measured deliberately out of scope
+    // for this branch.
+    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
+    const links = screen.getAllByRole('link').map((link) => link.textContent)
+    const lotsIndex = links.indexOf('Lots')
+    expect(lotsIndex).toBeGreaterThan(-1)
+    expect(links[lotsIndex + 1]).toBe('Auctions')
+  })
+
+  it('routes /auctions to the auctions page', async () => {
+    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/auctions' })
+    expect(
+      await screen.findByRole('heading', { name: /^auctions$/i }),
     ).toBeInTheDocument()
   })
 

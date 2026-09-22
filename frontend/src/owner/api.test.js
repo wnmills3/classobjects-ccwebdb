@@ -143,6 +143,104 @@ describe('recordSale', () => {
   })
 })
 
+describe('auctions', () => {
+  // `AuctionLotIn` and `SettleIn` validate every money field as a Decimal
+  // string -- reserve, price, hammer price, a fee amount -- the same shape
+  // `recordSale` above is tested against, and for the same reason: a
+  // `Number` round-trip anywhere between the page and this call is how a
+  // cent goes missing.
+  it('adds a lot with its money fields as the exact strings given', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.addAuctionLot(1, {
+      lot_number: '1',
+      item_id: 42,
+      reserve: '20.00',
+      price: '10.00',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auctions/1/lots',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    const body = sentBody(fetchMock)
+    expect(body).toEqual({
+      lot_number: '1',
+      item_id: 42,
+      reserve: '20.00',
+      price: '10.00',
+    })
+    expect(typeof body.reserve).toBe('string')
+    expect(typeof body.price).toBe('string')
+  })
+
+  it('removes a lot with the return location as a query parameter', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.removeAuctionLot(1, 7, 9)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/auctions/1/lots/7?returned_to_location_id=9')
+    expect(init.method).toBe('DELETE')
+  })
+
+  it('removes a lot with no query parameter when no location is given', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.removeAuctionLot(1, 7, null)
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/auctions/1/lots/7')
+  })
+
+  it('cancels an auction with an empty body when it was never consigned', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.cancelAuction(1)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/auctions/1/cancel')
+    expect(JSON.parse(init.body)).toEqual({})
+  })
+
+  it('settles an auction with the hammer prices and fees as the exact strings typed', async () => {
+    // Three different figures throughout, on purpose (as `recordSale`'s own
+    // test above does): a fixture where the hammer price and a fee coincide
+    // could pass for the wrong reason.
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.settleAuction(1, {
+      lines: [
+        {
+          auction_lot_id: 201,
+          result: 'sold',
+          hammer_price: '150.00',
+          buyer_username: 'amy',
+        },
+        {
+          auction_lot_id: 202,
+          result: 'unsold',
+          hammer_price: null,
+          buyer_username: null,
+        },
+      ],
+      fees: [
+        { buyer_username: 'amy', fees: [{ kind: 'commission', amount: '24.00' }] },
+      ],
+    })
+
+    const body = sentBody(fetchMock)
+    expect(body.lines[0].hammer_price).toBe('150.00')
+    expect(typeof body.lines[0].hammer_price).toBe('string')
+    expect(body.fees[0].fees[0].amount).toBe('24.00')
+    expect(typeof body.fees[0].fees[0].amount).toBe('string')
+  })
+})
+
 describe('sales lots', () => {
   it('sends lot membership changes as the API expects', async () => {
     saveTokens({ access_token: 'a', refresh_token: 'r' })
