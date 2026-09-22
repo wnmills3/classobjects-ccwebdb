@@ -50,7 +50,7 @@ from app.security import hash_password
 from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -769,6 +769,15 @@ def test_offering_a_lot_races_offering_one_of_its_members(
     on `InventoryItem.version` instead of being refused with a reason.
     Measured, six runs of six: `AssertionError: ['stale', 'won']`.
 
+    **Re-measured after `offer` began taking these rows through
+    `lock_for_sale`: fourteen of sixteen, not sixteen of sixteen.** Two runs
+    of the mutated code passed. This mutation was always a race about which
+    thread gets to its disposition write first, so it reproduces *often*
+    rather than *always*; the earlier "six of six" was a smaller sample of
+    the same thing, not a stronger result. The guarantee itself is not
+    probabilistic -- what varies is only whether the two threads overlap
+    closely enough for the missing lock to matter on a given run.
+
     **Not** `uq_offer_claim_active`, which is what this test was originally
     specified against. Measured six runs of six with that index removed and
     the item lock left in: all six pass. The lock serialises the two
@@ -864,12 +873,26 @@ def test_two_checkouts_race_for_one_lot(
 ) -> None:
     """One lot sitting in two carts is bought exactly once, and ends once.
 
-    Survives: removing `.with_for_update()` from
-    `order_writes._lock_listings` (`app/order_writes.py:102-113`) makes this
-    fail -- both checkouts then decide on a `quantity_available` they read
-    before the other committed, and the loser dies on `Listing.version`
-    rather than being told what is left. Measured, ten runs of ten:
-    `AssertionError: ['stale', 'won']`.
+    Survives: removing `.with_for_update(...)` from **all three** statements
+    in `offering_writes._acquire` -- `_lock_lots`, `_lock_items` and
+    `_lock_listing_rows` -- makes this fail: both checkouts then decide on a
+    `quantity_available` they read before the other committed, and the loser
+    dies on `Listing.version` rather than being told what is left. Measured,
+    eight runs of eight: `AssertionError: ['stale', 'won']`.
+
+    **Re-measured when the lock order was given a single owner, and the named
+    mutation had to change.** It used to be the listing lock alone, in
+    `order_writes._lock_listings`. That statement now reaches through
+    `offering_writes.lock_for_sale`, which takes the lot's row and the
+    members' rows *before* it -- and **any one of those three serialises two
+    checkouts of one lot on its own**. Measured: removing only the listing
+    lock passes eight of eight, and leaving only the item lock passes four of
+    four. The guarantee is over-determined now rather than less well
+    protected, which is why this test names three sites instead of one; the
+    *ordering* those three are taken in is what
+    `test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`
+    (`tests/test_offering_writes.py`) measures, because no single-lock
+    mutation can reach it.
 
     **This is not the race the task specified**, and the substitution is
     deliberate. The specified one was a checkout racing a *pause* of the same
@@ -881,13 +904,22 @@ def test_two_checkouts_race_for_one_lot(
     code can pause an offered lot's store listing. Written as specified, the
     race passed because the pause was simply refused, which is a Task 7
     guarantee and not a concurrency one; and in the fuller run it instead hit
-    a genuine Postgres deadlock, because `place_order` takes listings before
-    items while `offering_writes.offer` takes items before listings. That
-    deadlock is reported as a defect rather than pinned by a test here.
+    a genuine Postgres deadlock, because `place_order` took listings before
+    items while `offering_writes.offer` took items before listings. That
+    deadlock was reported as a defect, and is now fixed and pinned by
+    `test_buying_a_lot_races_offering_one_of_its_coins` below.
 
     Two checkouts of one lot listing is the guarantee that *is* both real and
     lot-specific: `_settle_sold_lots` must end the lot exactly once, and its
     members must be paid their shares exactly once.
+
+    This race is also what proved the lock-order design note wrong about an
+    offered lot's membership being frozen outright. The loser reads the two
+    members, waits, and finds none: `offering_writes._end` released them when
+    the winner's sale ended the listing. `lock_for_sale`'s confirming re-read
+    holds the set frozen only while the listing is still on offer, and this
+    test is what fails if that exemption goes -- with `LockSetChanged`
+    instead of the 409 below.
     """
     members = [_seed_item(committed) for _ in range(2)]
     store_id = _store_venue_id(committed)
@@ -965,6 +997,157 @@ def test_two_checkouts_race_for_one_lot(
             verify.scalars(
                 select(SalesOrderItemShare).where(
                     SalesOrderItemShare.sales_order_item_id == lines[0].id
+                )
+            ).all()
+        )
+        assert sorted(share.inventory_item_id for share in shares) == sorted(members)
+        assert sum((share.amount for share in shares), Decimal("0.00")) == Decimal(
+            "250.00"
+        )
+
+
+def test_buying_a_lot_races_offering_one_of_its_coins(
+    committed: sessionmaker[Session],
+) -> None:
+    """A checkout of a lot and an offer of one of its coins never deadlock.
+
+    The cross-writer race the phase-3 branch could not write. `place_order`
+    took the listing and then the items; `offering_writes.offer` took the
+    items and then the listings, so a checkout of a lot and an offer of one
+    of its coins could each hold what the other waited for and Postgres
+    aborted one of them. `"deadlock"` below is that abort, and it is asserted
+    against separately from `"refused"` for the reason this file already
+    asserts `"stale"` separately: a loser is entitled to be *refused*, with a
+    reason a person can act on, never to a 500 from an aborted transaction.
+
+    Both operations are legitimate on their own and exactly one of them can
+    win. Whichever order the two transactions land in, the offer is the one
+    refused -- by `_refuse_grouped` while the lot is still offered, or by
+    `_refuse_sold` once the checkout has bought it -- so the outcome pair is
+    the same and only the *reason* differs. That is the point: with one owner
+    for the acquisition order, which thread arrives first stops deciding
+    whether anyone gets an error page.
+
+    Survives: **bypassing the single owner** from `order_writes._lock_listings`
+    -- putting back its own
+    `select(Listing).where(...).order_by(Listing.id).with_for_update()`, so
+    that module takes listings first again while `offering_writes` still
+    takes items first -- makes this fail. Measured, eight runs of eight:
+    `AssertionError: ['bought', 'deadlock']`, which is also what the
+    pre-fix code gave, eight runs of eight, before the owner existed.
+
+    **Inverting `offering_writes._acquire` does *not* make this fail**, and
+    that is worth stating rather than leaving as a gap: the inversion moves
+    both writers at once, so they still agree and there is still no cycle
+    (measured, eight runs of eight green). A deadlock needs *disagreement*,
+    not a particular direction. The inversion is caught by
+    `test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`
+    (`tests/test_offering_writes.py`), which measures the sequence of kinds
+    on one connection. The two tests are a pair and neither covers the
+    other's mutation.
+
+    Stability: twenty runs of twenty green with the fix in place, no result
+    varying.
+    """
+    members = [_seed_item(committed) for _ in range(2)]
+    store_id = _store_venue_id(committed)
+    listing_id, customer_id, admin_id = _seed_lot_listing_and_buyer(
+        committed, members, store_id
+    )
+    elsewhere_id = _venue(committed, "race-lock-order")
+    barrier = threading.Barrier(2)
+
+    def buy_the_lot() -> Outcome:
+        with committed() as session:
+            try:
+                # Buyer and operator loaded before the barrier, the way a
+                # request handler already holds them, so the first statement
+                # this thread issues after the barrier is the lock pass
+                # itself rather than two `get_one` round trips.
+                buyer = session.get_one(Customer, customer_id)
+                operator = session.get_one(User, admin_id)
+                barrier.wait(timeout=10)
+                order_writes.place_order(
+                    session,
+                    buyer,
+                    [order_writes.Line(listing_id=listing_id, quantity=1)],
+                    operator,
+                )
+                session.commit()
+                return "bought"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except (HTTPException, IntegrityError):
+                session.rollback()
+                return "refused"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    def offer_a_coin() -> Outcome:
+        with committed() as session:
+            try:
+                item = session.get_one(InventoryItem, members[0])
+                venue = session.get_one(SalesVenue, elsewhere_id)
+                barrier.wait(timeout=10)
+                offering_writes.offer(
+                    session,
+                    item=item,
+                    venue=venue,
+                    listing_format=ListingFormat.fixed_price,
+                    price=Decimal("10.00"),
+                    title="RACE coin from a lot",
+                    description="",
+                    external_id=None,
+                )
+                session.commit()
+                return "offered"
+            except OperationalError:
+                session.rollback()
+                return "deadlock"
+            except (OfferRefused, IntegrityError):
+                session.rollback()
+                return "refused"
+            except StaleDataError:
+                session.rollback()
+                return "stale"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        # Both submitted before either is waited on, for the reason
+        # `test_two_checkouts_race_for_one_lot` gives: waiting on the first
+        # result before submitting the second leaves the barrier with nobody
+        # to meet.
+        first = pool.submit(buy_the_lot)
+        second = pool.submit(offer_a_coin)
+        outcomes = sorted([first.result(), second.result()])
+
+    assert "deadlock" not in outcomes, outcomes
+    assert "stale" not in outcomes, outcomes
+    assert outcomes == ["bought", "refused"], outcomes
+
+    with committed() as verify:
+        # The outcome strings alone would pass on a coin offered in two
+        # places at once, on a lot left `offered`, and on shares that do not
+        # add up to what was paid. Each is the real damage, so each is asserted.
+        sold = verify.get_one(Listing, listing_id)
+        assert sold.quantity_available == 0
+        assert sold.status is ListingStatus.ended
+        assert sold.sales_lot_id is not None
+        lot = verify.get_one(SalesLot, sold.sales_lot_id)
+        assert lot.status is SalesLotStatus.sold
+        assert (
+            verify.scalar(
+                select(Listing.id).where(Listing.sales_venue_id == elsewhere_id)
+            )
+            is None
+        )
+        for member_id in members:
+            assert verify.get_one(InventoryItem, member_id).disposition.code == "sold"
+        shares = list(
+            verify.scalars(
+                select(SalesOrderItemShare).where(
+                    SalesOrderItemShare.inventory_item_id.in_(members)
                 )
             ).all()
         )

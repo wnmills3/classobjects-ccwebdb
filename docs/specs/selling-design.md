@@ -565,66 +565,80 @@ settlement is the first thing that makes a listing's ending part of the
 financial record, so phase 4 documents the limit where it starts to matter
 rather than quietly inheriting it. Building the table is a separate decision.
 
-## Known defect: the lock order between `order_writes` and `offering_writes`
+## The lock order between `order_writes` and `offering_writes`
 
-Found by phase 3's race tests, 2026-09-21, and **deliberately not fixed on
-that branch**. Recorded here so it reads as a parked decision rather than an
-oversight.
+**Was a known defect. Fixed 2026-09-21** on `fix/lock-order`, in the
+direction `docs/specs/lock-order-design.md` recommended and the owner chose.
+Kept here as a record rather than deleted, because the shape it describes is
+the one a future writer would recreate.
 
-**The two money-path modules take their two kinds of row in opposite
-orders.**
+**The defect.** The two money-path modules took their two kinds of row in
+opposite orders. `offering_writes` (`offer`, `end_offer`) took the lot row,
+then the items ascending, then the listings ascending. `order_writes`
+(`place_order`, `revise_order`, `return_stock`) took the **listings** first,
+in `_lock_listings`, and reached the items afterwards -- through
+`_after_stock_change`, and for a lot through `end_offer` inside
+`_settle_sold_lots`. So a shopper checking out a lot while an administrator
+offered one of its coins somewhere else could end up with each transaction
+holding what the other waited for, and Postgres broke the tie by aborting
+one: an **HTTP 500** instead of the clean refusal either path was built to
+give, with either party the victim. Nothing was ever left half-written -- a
+deadlock abort rolls the whole transaction back -- so the damage was a bad
+error and a lost request, not corrupt data. It was **pre-existing on
+`main`**; sales lots widened the exposure (a lot sale always crosses zero and
+touches N member rows) without creating it.
 
-| Module | Order it takes |
-|---|---|
-| `app/offering_writes.py` (`offer`, `end_offer`) | lot row, then **items** (ascending id), then **listings** (ascending id) -- its module docstring says so |
-| `app/order_writes.py` (`place_order`, `revise_order`, `return_stock`) | **listings** first (`_lock_listings`), then the **items**, through `_after_stock_change` and, for a lot, through `end_offer` inside `_settle_sold_lots` |
+**The fix: one owner for the acquisition order.** Not four call sites
+brought into agreement by hand -- four hand-written sequences are four
+chances to drift, which is the whole reason this design already has one
+writer per fact. The canonical order is `offering_writes`', because it is
+the one that carries a guarantee: that module's listing set is *derived*
+from `offer_claim`, it is the only writer of claims, and the derivation is
+only safe with the items held first, which is what claim uniqueness rests
+on. `order_writes` took listings first for no reason but that `place_order`
+is handed `Line(listing_id=...)`.
 
-So a shopper checking out a lot while an administrator offers one of its
-coins somewhere else can end up with each transaction holding what the other
-waits for. Postgres breaks the tie by aborting one of them: the victim gets
-an **HTTP 500** rather than the clean `OfferRefused` the refusal paths were
-built to give, either party may be the victim, and the aborted transaction
-is rolled back whole, so nothing is left half-written. The damage is a bad
-error message and a lost request, not corrupt data.
+- **`offering_writes._acquire`** is the one place the order exists: lot
+  rows, then items, then listings, each kind in one ascending statement.
+- **`offering_writes.lock_for_sale`** is its public door and accepts either
+  entry point -- items (what `offer` has) or listings (what checkout, a
+  revision, a stock return and `record_sale` have), resolving listing → lot
+  → member itself. `_lock_listings` keeps its own `populate_existing` and
+  `selectinload(Listing.sales_venue)` behaviour, which `lock_for_sale`
+  provides, and keeps its 404 for an unknown listing id.
+- **A confirming re-read**, because the member set has to be *read* before
+  it can be locked. It holds the set frozen only while the listing is still
+  on offer: an offered lot's membership cannot otherwise change
+  (`lot_writes._refuse_unless_assembling`, `_refuse_grouped`), but
+  `offering_writes._end` releases every membership when the lot is sold or
+  dissolved, and the loser of two checkouts racing one lot sees exactly
+  that. A change while the listing is still live is `LockSetChanged`, a 500
+  by the same reasoning as `ShareMissing`; the offer's own ending is the
+  ordinary case each caller already refuses cleanly.
+- **Ordering only: no schema change and no migration.**
 
-**It is pre-existing on `main`.** Read both modules at `main`: buying the
-last unit of an ordinary item listing already takes the listing's lock in
-`_lock_listings` and then the item's row-level lock when
-`_after_stock_change` writes its disposition, while `offer` at `main`
-already takes the item first and the listing second. Sales lots **widen the
-exposure** -- a lot sale always crosses zero, and it touches N member rows
-instead of one -- but did not create it.
+**The coverage hole is closed.** Nothing used to race `order_writes` against
+`offering_writes` on a lot, because the only reachable cross-writer shape
+was the deadlock and such a test would have been permanently red. It is now
+`test_buying_a_lot_races_offering_one_of_its_coins`
+(`tests/test_offer_races.py`): a checkout of a lot against an offer of one of
+its coins, two real connections behind a barrier, asserting one winner, one
+clean refusal and **no** `OperationalError` in either thread. Its companion
+`test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`
+(`tests/test_offering_writes.py`) measures the sequence of kinds on one
+connection, which is what catches an inversion of the shared helper -- the
+threaded test cannot, because inverting the single owner moves both writers
+at once and they still agree.
 
-**Why it was parked.** A fix has to move `place_order`, `revise_order`, the
-`_lock_listings` call in `return_stock` and `sales_writes.record_sale`: four
-call sites across two modules that both handle money, and **which side
-moves is the owner's decision**. Moving `order_writes` to items-first means
-checkout takes an inventory lock it does not otherwise need; moving
-`offering_writes` to listings-first means reordering the module that owns
-every claim. Doing either inside the sales-lots branch would have put an
-unreviewed change to store checkout in a branch about grouping coins.
-
-`backend/app/order_writes.py`'s `_settle_sold_lots` and
-`offering_writes._lock_offers` both point here. Until it is fixed, a comment
-in either module that asserts the orders agree is wrong; one did, and was
-corrected on 2026-09-21.
-
-### Known coverage hole
-
-**Nothing races `order_writes` against `offering_writes` on a lot.** Phase
-3's third race test was specified as a checkout racing a *pause* of the same
-lot, and that shape turned out to be impossible: `lot_writes._refuse_grouped`
-refuses offering a member of an `offered` lot at all, a lot cannot be
-re-offered, and a member cannot join a second open lot, so nothing can pause
-a lot listing. It was replaced by two checkouts racing for one lot, which is
-reachable and is mutation-proven.
-
-The one cross-writer shape still reachable is the deadlock above, so a test
-of it would be permanently red. **This is a hole to be filled by whoever
-fixes the lock order**, in the same change: with the orders agreed, a
-checkout of a lot racing an `offer` or `end_offer` on one of its coins
-becomes a refusal a test can assert on, and it is exactly the test that
-would stop the inversion coming back.
+**A false conflict went with it.** `_after_stock_change` writes
+`inventory_item.disposition`, which carries a version column and used to go
+unlocked, so an unrelated concurrent edit to a coin lost the race and a
+person was told to reload their revision or their cancellation. Those items
+are now locked and re-read before anything is written
+(`test_a_concurrently_edited_item_no_longer_refuses_a_revision` and
+`..._a_cancellation`). The `except StaleDataError` clauses in
+`order_writes.revise_order` and `routers.orders.update_order_status` are
+deliberately left in place as defence in depth.
 
 ## Known limits
 

@@ -41,7 +41,7 @@ from .models import (
     User,
 )
 from .models.base import utcnow
-from .offering_writes import end_offer, offered_items, sellable_in_shop
+from .offering_writes import end_offer, lock_for_sale, offered_items, sellable_in_shop
 from .references import require_code
 from .sale_snapshot import take as take_snapshot
 from .sales_venues import store_venue_id
@@ -84,31 +84,44 @@ def customer_for_user(db: Session, user: User) -> Customer:
 
 
 def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
-    """Lock listings FOR UPDATE in id order, so contenders never deadlock.
+    """Take every row these listings reach, and hand back the listings.
 
-    ``populate_existing`` matters as much as the lock itself: without it, a
+    **This function no longer decides the lock order, and that is the point.**
+    It used to take the listings first, because `place_order` is handed
+    listing ids and nothing here needed any other order -- while
+    `offering_writes` took the items first, because *its* listing set is
+    derived from claims and the claim-uniqueness guarantee depends on holding
+    the items before that derivation is read. Two orders, one deadlock: a
+    checkout of a lot and an `offer` or `end_offer` touching one of its coins
+    could each hold what the other waited for, and Postgres aborted one with a
+    500 instead of the clean refusal either path would otherwise give. The
+    order that carried a guarantee stayed; this one moved.
+
+    So the acquisition is `offering_writes.lock_for_sale`: the lot rows these
+    listings belong to, then their items, then the listings -- each kind in
+    one ascending statement, with a confirming re-read of the member set. It
+    is the same function `offer` and `end_offer` call, which is what makes the
+    order a single definition rather than four call sites that agree by hand.
+
+    What stays this function's own is everything after the lock.
+    ``populate_existing`` matters as much as the lock itself -- without it, a
     listing already in the session's identity map (eagerly loaded by the
-    caller before the lock was taken) is returned unchanged -- locked, but
-    still holding pre-lock values for `quantity_available`, `is_active` and
-    `version`. With it, the locked row's current values overwrite whatever
-    was cached.
+    caller before the lock was taken) is returned unchanged, locked but still
+    holding pre-lock values for `quantity_available`, `is_active` and
+    `version` -- and `sales_venue` is eagerly loaded rather than lazy, because
+    `sellable_in_shop` reads it for every locked listing and a lazy load would
+    emit that SELECT while these rows are held FOR UPDATE. `lock_for_sale`
+    does both, for these reasons; see `_lock_listing_rows`.
 
-    `sales_venue` is loaded here rather than left to lazy-load:
-    `sellable_in_shop` reads it for every locked listing, and a lazy load
-    would emit that SELECT
-    while these rows are held FOR UPDATE, lengthening the lock for no reason.
-    A separate SELECT is what `selectinload` issues anyway, so it cannot widen
-    the `FOR UPDATE` to `sales_venue` the way a join would.
+    The result is narrowed to the ids asked for. `lock_for_sale` also returns
+    the listings it reached through the items -- a member's own store listing
+    that the lot's offer paused, say -- and those are rows this transaction
+    holds but this order knows nothing about.
     """
-    rows = db.scalars(
-        select(Listing)
-        .where(Listing.id.in_(ids))
-        .order_by(Listing.id)
-        .with_for_update()
-        .options(selectinload(Listing.sales_venue))
-        .execution_options(populate_existing=True)
-    ).all()
-    found = {listing.id: listing for listing in rows}
+    locked = lock_for_sale(db, listing_ids=ids).listings
+    found = {
+        listing_id: locked[listing_id] for listing_id in ids if listing_id in locked
+    }
     missing = sorted(ids - set(found))
     if missing:
         _refuse(db, status.HTTP_404_NOT_FOUND, f"Unknown listing id(s): {missing}")
@@ -185,26 +198,22 @@ def _settle_sold_lots(db: Session, listings: Sequence[Listing]) -> None:
     those memberships, so a lot ended first would leave the sale with no
     shares at all.
 
-    **The lock order here is the known deadlock, and this comment used to
-    deny it.** It said the order is the one `sales_writes.record_sale`
-    already takes -- the listing first (`_lock_listings`), then the items and
-    the lot inside `end_offer` -- and concluded that this adds no new
-    deadlock shape. True against `record_sale`, and **false** against
-    `app.offering_writes`, which takes the two the other way round: lot, then
-    items, then listings (its module docstring says so, and `offer` does
-    exactly that). A checkout of a lot and a concurrent `offer` or `end_offer`
-    touching one of its coins can each hold what the other waits for, and
-    Postgres aborts one with a 500 rather than the clean `OfferRefused`.
+    **The lock order here was the deadlock, and is now settled.** This
+    comment once claimed the order matched `sales_writes.record_sale`'s --
+    listing first, then the items and the lot inside `end_offer` -- and
+    concluded it added no new deadlock shape. True against `record_sale`, and
+    false against `app.offering_writes`, which took the two the other way
+    round: lot, then items, then listings. A checkout of a lot and a
+    concurrent `offer` or `end_offer` touching one of its coins could each
+    hold what the other waited for, and Postgres aborted one with a 500
+    rather than the clean `OfferRefused`.
 
-    The inversion is **pre-existing on `main`**, where `_after_stock_change`
-    already writes an `InventoryItem` row -- taking its exclusive lock --
-    after `_lock_listings` has taken the listing. Selling a lot widens the
-    exposure rather than creating it: a lot sale always crosses zero and
-    touches N member rows. It is deliberately **not fixed on this branch**;
-    the fix moves four call sites across two money-path modules and which
-    side moves is the owner's decision. `docs/specs/selling-design.md`,
-    *Known defect: the lock order between `order_writes` and
-    `offering_writes`*, is the record.
+    `_lock_listings` now takes those rows through
+    `offering_writes.lock_for_sale`, so both modules acquire in the one
+    canonical order and `end_offer` below re-locks rows this transaction
+    already holds. `test_buying_a_lot_races_offering_one_of_its_coins`
+    (`tests/test_offer_races.py`) is the race that could not be written while
+    the two disagreed, and it is what stops the inversion coming back.
     """
     for listing in listings:
         end_offer(db, listing, sold=True)
@@ -503,8 +512,9 @@ def revise_order(
 ) -> bool:
     """Make an order's contents match `lines`, moving stock by the difference.
 
-    Locks the order row first -- always before any listing lock, so every
-    writer that takes both locks takes them in the same order -- and
+    Locks the order row first -- always before `_lock_listings` takes any of
+    the sale's own rows, so every writer that takes both takes them in the
+    same order -- and
     re-reads it with `populate_existing`, including its items: a concurrent
     checkout or another revision may have changed the order or the stock a
     caller read before this call. The status actually checked is read from
@@ -738,18 +748,28 @@ def revise_order(
             db.flush()
             _settle_sold_lots(db, sold_lots)
     except StaleDataError:
-        # The order lock makes a stale write to the `sales_order` row itself
-        # hard to hit here -- it was locked and re-read above, and
-        # `update_order_status` takes the same lock before it writes.  What
-        # isn't locked is `InventoryItem.disposition`, written by
-        # `_after_stock_change` above and carrying its own version column: a
-        # concurrent edit to that item's inventory row (outside the order
-        # path) can still lose the race at any of this section's flushes,
-        # explicit or implicit (`require_code`, `db.get(InventoryItem, ...)`,
-        # a lazy load). Surface it the same way the version check above does,
-        # rather than as an unhandled 500 -- using `order_id`, not `order.id`:
-        # every instance in the session is expired once the flush has
-        # failed, and reading an attribute off one issues a SELECT that
+        # **Defence in depth, no longer a live path, and it used to be one.**
+        # The order lock already made a stale write to the `sales_order` row
+        # itself hard to hit -- it was locked and re-read above, and
+        # `update_order_status` takes the same lock before it writes. What was
+        # *not* locked was `InventoryItem.disposition`, written by
+        # `_after_stock_change` above and carrying its own version column, so
+        # a concurrent edit to that inventory row (outside the order path)
+        # lost the race at one of this section's flushes and a person was
+        # told to reload their revision because someone else had edited a
+        # coin's description. `_lock_listings` now takes its rows through
+        # `offering_writes.lock_for_sale`, which locks and re-reads every item
+        # `_after_stock_change` writes, so every version-tracked row this
+        # function writes -- `sales_order`, `listing`, `inventory_item`,
+        # `sales_lot` -- was locked and re-read first.
+        # `test_a_concurrently_edited_item_no_longer_refuses_a_revision`
+        # (`tests/test_order_revision_race.py`) is that change, and says why
+        # this clause is kept rather than removed.
+        #
+        # If it is ever reached, it must surface the way the version check
+        # above does rather than as an unhandled 500 -- using `order_id`, not
+        # `order.id`: every instance in the session is expired once the flush
+        # has failed, and reading an attribute off one issues a SELECT that
         # raises `PendingRollbackError` instead of the value.
         _refuse(
             db,
@@ -781,11 +801,13 @@ def record_status_change(
 def return_stock(db: Session, order: SalesOrder) -> None:
     """Add each line's quantity back to its listing.
 
-    Locks the order's listings the same way `place_order` and `revise_order`
-    do -- FOR UPDATE, in id order, re-read -- so this cannot deadlock against
-    a concurrent checkout or revision touching the same listings. The caller
-    locks and re-reads `order` itself first, before calling this, the same
-    order-first, listings-second sequence `revise_order` uses.
+    Takes the order's rows the same way `place_order` and `revise_order` do,
+    through `_lock_listings` and so through `offering_writes.lock_for_sale`
+    -- lot rows, then items, then listings, each FOR UPDATE in id order and
+    re-read -- so this cannot deadlock against a concurrent checkout, a
+    revision, or an offer touching the same coins. The caller locks and
+    re-reads `order` itself first, before calling this, the same order-first
+    sequence `revise_order` uses.
     """
     listings = _lock_listings(db, {item.listing_id for item in order.items})
     for item in sorted(order.items, key=lambda item: item.listing_id):

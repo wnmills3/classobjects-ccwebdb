@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
@@ -195,6 +196,43 @@ def _captured_locks(db: Session, table: str) -> Iterator[list[dict[str, object]]
         """Keep the parameters of each locking select against `table`."""
         if f"FROM {table}" in statement and "FOR UPDATE" in statement:
             seen.append(dict(parameters) if isinstance(parameters, dict) else {})
+
+    bind = db.get_bind()
+    event.listen(bind, "before_cursor_execute", _record)
+    try:
+        yield seen
+    finally:
+        event.remove(bind, "before_cursor_execute", _record)
+
+
+@contextmanager
+def _locked_tables(db: Session) -> Iterator[list[str]]:
+    """Record, in order, which table each `FOR UPDATE` in this block takes.
+
+    `_captured_locks` above measures the rows one table's locks ask for;
+    this measures the *sequence of kinds*, which is the other half of the
+    rule and the half two modules used to disagree about. Same reasoning for
+    measuring the acquisition rather than the collision: a real deadlock
+    needs two connections and this suite may not open a second one against
+    the shared test database -- `tests/test_offer_races.py` is where that
+    happens.
+    """
+    seen: list[str] = []
+
+    def _record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        """Keep the table name of each locking select."""
+        if "FOR UPDATE" not in statement:
+            return
+        match = re.search(r"\bFROM\s+(\w+)", statement)
+        if match is not None:
+            seen.append(match.group(1))
 
     bind = db.get_bind()
     event.listen(bind, "before_cursor_execute", _record)
@@ -1019,9 +1057,9 @@ def test_every_listing_a_lot_offer_locks_is_taken_in_one_pass(
 ) -> None:
     """N sorted statements are not a sorted acquisition, and that deadlocks.
 
-    `_locked_offers` runs once per member, so before `_lock_offers` the
-    listing locks were ordered *within* each call and unordered across the
-    loop. A lot of two whose shop listings are #9 and #4 took #9 then #4,
+    `_locked_offers` runs once per member, so before `_lock_listing_rows`
+    the listing locks were ordered *within* each call and unordered across
+    the loop. A lot of two whose shop listings are #9 and #4 took #9 then #4,
     while a two-line `place_order` (`order_writes._lock_listings`) takes #4
     then #9: each transaction holds what the other waits for. The item lock
     does not save the pair, because `place_order` takes no item lock at all.
@@ -1061,6 +1099,45 @@ def test_every_listing_a_lot_offer_locks_is_taken_in_one_pass(
     assert locks, "no listing was locked at all"
     first = set(locks[0].values())
     assert {item.id for item in items} <= first
+
+
+def test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order(
+    db: Session,
+    store_lot_listing: Listing,
+    customer_user: User,
+    admin_user: User,
+) -> None:
+    """Lot row, then items, then listings -- from the checkout side.
+
+    The deterministic half of the lock-order fix. `order_writes.place_order`
+    used to take the listing first, because it is handed listing ids, while
+    `offer` took the items first, because its listing set is derived from
+    claims it alone writes. Both orders now come out of
+    `offering_writes._acquire`, so a checkout of a lot acquires exactly what
+    an offer of one of its coins does and the two can no longer each hold
+    what the other waits for.
+
+    Asserted on the *first* lock of each kind, because later passes re-lock
+    rows this transaction already holds -- `_locked_offers` per member,
+    `end_offer` inside `_settle_sold_lots` -- and those neither block nor
+    reorder anything. Swapping two lines in `_acquire` makes this fail;
+    `tests/test_offer_races.py::test_buying_a_lot_races_offering_one_of_its_coins`
+    is the same guarantee measured as a real collision between two
+    connections.
+    """
+    customer = order_writes.customer_for_user(db, customer_user)
+    with _locked_tables(db) as taken:
+        order_writes.place_order(
+            db,
+            customer,
+            [order_writes.Line(listing_id=store_lot_listing.id, quantity=1)],
+            admin_user,
+        )
+
+    for kind in ("sales_lot", "inventory_item", "listing"):
+        assert kind in taken, (kind, taken)
+    assert taken.index("sales_lot") < taken.index("inventory_item"), taken
+    assert taken.index("inventory_item") < taken.index("listing"), taken
 
 
 def test_offering_a_lot_twice_is_refused_by_name(
@@ -1451,3 +1528,71 @@ def test_members_with_no_remaining_claim_go_held(
         item = db.get(InventoryItem, item_id)
         assert item is not None
         assert item.disposition.code == "held"
+
+
+def test_a_live_listing_whose_members_moved_under_the_lock_is_refused(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """The confirming re-read refuses a still-live listing whose set moved.
+
+    `lock_for_sale` has to read which items a listing offers *before* it can
+    lock them -- the ids are what it needs in order to lock anything -- so it
+    re-reads under the locks and compares. The comparison itself is asserted
+    here directly, because the window it guards cannot be opened through the
+    public API: while the offer stands, `lot_writes.
+    _refuse_unless_assembling` refuses every membership change.
+
+    Both branches, and the difference between them is the whole point.
+    """
+    listing_id = offered_lot_listing.id
+    before = {
+        listing_id: tuple(
+            item.id for item in offering_writes.offered_items(db, offered_lot_listing)
+        )
+    }
+    assert len(before[listing_id]) > 1
+
+    # Unchanged: nothing is raised.
+    offering_writes._refuse_if_changed(
+        {listing_id: offered_lot_listing}, before, dict(before)
+    )
+
+    # A member gone while the listing is still `active` is the violation.
+    with pytest.raises(offering_writes.LockSetChanged) as excinfo:
+        offering_writes._refuse_if_changed(
+            {listing_id: offered_lot_listing},
+            before,
+            {listing_id: before[listing_id][:1]},
+        )
+    assert str(listing_id) in str(excinfo.value)
+
+
+def test_a_listing_the_lock_found_ended_is_not_refused_for_its_released_members(
+    db: Session, offered_lot_listing: Listing
+) -> None:
+    """A set emptied by the offer's own ending is ordinary, not a violation.
+
+    The design note behind this work said an offered lot's membership is
+    frozen outright. It is not: `offering_writes._end` releases every open
+    membership the moment the lot is sold or dissolved, so the losing side of
+    two checkouts racing one lot reads two members, waits, and finds none.
+    Refusing that would turn the clean 409 `place_order` gives ("is not
+    currently for sale") into a 500 for the ordinary case of arriving second.
+
+    The listing's status is what separates the two, so it is what this test
+    moves. Fails if `_refuse_if_changed` drops the status test: the empty
+    `after` below then raises.
+    """
+    listing_id = offered_lot_listing.id
+    before = {
+        listing_id: tuple(
+            item.id for item in offering_writes.offered_items(db, offered_lot_listing)
+        )
+    }
+    offering_writes.end_offer(db, offered_lot_listing, sold=True)
+    assert offered_lot_listing.status is ListingStatus.ended
+    assert offering_writes.offered_items(db, offered_lot_listing) == []
+
+    offering_writes._refuse_if_changed(
+        {listing_id: offered_lot_listing}, before, {listing_id: ()}
+    )
