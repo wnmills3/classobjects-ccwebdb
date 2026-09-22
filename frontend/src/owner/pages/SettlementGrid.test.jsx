@@ -206,4 +206,87 @@ describe('SettlementGrid', () => {
     )
     expect(screen.getByLabelText(/return unsold/i)).toBeVisible()
   })
+
+  it('disables both Settle buttons until a required return location is chosen', async () => {
+    // `app.auctions.settle` refuses when the house still holds something
+    // and a non-sold lot has nowhere to come back to -- the same
+    // `auction.consigned_on` predicate `RemoveLotConfirm`/`CancelConfirm`
+    // already gate on in `Auctions.jsx`. Both the "Settle..." button and
+    // the confirm dialog's own "Settle" button are covered.
+    const user = userEvent.setup()
+    const auction = closedAuction({ consigned_on: '2026-10-01' })
+    renderWithProviders(
+      <SettlementGrid
+        auction={auction}
+        isAuctionHouse
+        locations={[{ id: 9, label: 'Home safe', kind: 'home' }]}
+        onSettled={vi.fn()}
+      />,
+      { strict: true, reference: reference() },
+    )
+
+    const settleButton = screen.getByRole('button', { name: /^settle/i })
+    // Nothing marked non-sold yet, so nothing needs to come home.
+    expect(settleButton).toBeEnabled()
+
+    await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'unsold')
+    expect(settleButton).toBeDisabled()
+
+    await user.selectOptions(
+      screen.getByLabelText('Return unsold and withdrawn items to'),
+      '9',
+    )
+    expect(settleButton).toBeEnabled()
+
+    await user.click(settleButton)
+    const dialog = screen.getByRole('dialog', { name: /settle/i })
+    expect(within(dialog).getByRole('button', { name: 'Settle' })).toBeEnabled()
+  })
+
+  it('groups the settlement grid buyers case-insensitively, keeping the first spelling', async () => {
+    // R28: `app.auctions._buyer_key` is `.strip().casefold()`, so `amy` and
+    // `Amy` are one buyer server-side; two fee sub-tables here would have
+    // produced an unexplainable "fees for Amy are given twice" refusal.
+    const user = userEvent.setup()
+    const auction = closedAuction()
+    api.settleAuction.mockResolvedValue({
+      auction: { ...auction, status: 'settled' },
+      orders: [{ id: 1 }],
+    })
+    renderWithProviders(
+      <SettlementGrid
+        auction={auction}
+        isAuctionHouse={false}
+        locations={[]}
+        onSettled={vi.fn()}
+      />,
+      { strict: true, reference: reference() },
+    )
+
+    await user.selectOptions(screen.getByLabelText('Result for lot 1'), 'sold')
+    await user.type(screen.getByLabelText('Hammer price for lot 1'), '100.00')
+    await user.type(screen.getByLabelText('Buyer for lot 1'), 'amy')
+    await user.selectOptions(screen.getByLabelText('Result for lot 2'), 'sold')
+    await user.type(screen.getByLabelText('Hammer price for lot 2'), '50.00')
+    await user.type(screen.getByLabelText('Buyer for lot 2'), 'Amy')
+
+    // One fee sub-table, not two.
+    expect(screen.getByLabelText('Commission fee for amy')).toBeVisible()
+    expect(screen.queryByLabelText('Commission fee for Amy')).toBeNull()
+
+    await user.type(screen.getByLabelText('Commission fee for amy'), '10.00')
+    await user.click(screen.getByRole('button', { name: /^settle/i }))
+    const dialog = screen.getByRole('dialog', { name: /settle/i })
+    await user.click(within(dialog).getByRole('button', { name: 'Settle' }))
+
+    const [, payload] = api.settleAuction.mock.calls[0]
+    // Each lot's own line keeps whatever the owner typed on that row...
+    expect(payload.lines.map((l) => l.buyer_username)).toEqual(['amy', 'Amy'])
+    // ...but the fees are one group, spelled the way the first sold lot
+    // typed it -- the same "first spelling wins" rule `_BuyerGroup.username`
+    // uses server-side for the customer record.
+    expect(payload.fees).toEqual([
+      { buyer_username: 'amy', fees: [{ kind: 'commission', amount: '10.00' }] },
+    ])
+  })
 })
