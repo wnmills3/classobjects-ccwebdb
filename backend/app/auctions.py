@@ -24,7 +24,16 @@ return-from-consignment half of `remove_lot`/`cancel` call
 later task's writer and is deliberately not here, but `remove_lot` and
 `cancel` already carry the `returned_to_location_id` contract it will share
 (ruling R9, fix round 1) -- see `_return_from_consignment`, the one place
-"move these items back" is implemented.
+"move these items back" is implemented. Custody is tracked by
+`auction.consigned_on is not None`, never by `auction.status is
+AuctionStatus.consigned` (ruling R13, fix round 2): `close` accepts a
+`consigned` auction without clearing the date, so status alone cannot tell
+whether the house still holds something -- fix round 1's `status ==
+consigned` check let `consign -> close -> cancel`, and `consign -> close ->
+remove_lot`, walk straight past the return requirement fix round 1 had just
+added. `consigned_on` is cleared in exactly one place, `cancel`, once every
+one of the auction's lots has actually been returned -- never inside
+`_remove_lot`, which only ever returns one lot's worth.
 
 Every transition validates the auction's current status (and, for `consign`,
 the platform's kind) before writing anything, and refuses with a message
@@ -94,9 +103,13 @@ class AuctionRefused(Exception):
 #: Statuses in which a lot may still be withdrawn *individually*, through the
 #: public `remove_lot`: before the sale has closed. `consigned` is included
 #: -- an auction house may still need a lot pulled back after physical
-#: custody moved, before the sale itself runs. `cancel` has its own, wider
-#: boundary (ruling R8) and reaches lot removal through `_remove_lot`
-#: directly, bypassing this gate -- see `cancel`'s own docstring.
+#: custody moved, before the sale itself runs. `remove_lot` also accepts
+#: `closed` on its own, narrower condition -- `auction.consigned_on is not
+#: None` -- not listed here because that check needs the auction row, not
+#: just its status; see `remove_lot`'s own docstring (ruling R13, fix round
+#: 2). `cancel` has its own, wider status boundary (ruling R8) and reaches
+#: lot removal through `_remove_lot` directly, bypassing this gate -- see
+#: `cancel`'s own docstring.
 _LOTS_REMOVABLE = (
     AuctionStatus.draft,
     AuctionStatus.scheduled,
@@ -224,26 +237,50 @@ def remove_lot(
     `lot_number` for reuse, which `uq_auction_lot_auction_lot_number` would
     otherwise hold onto forever for a lot that never sold.
 
-    `returned_to_location_id` (ruling R9, fix round 1): **required** when the
-    auction is `consigned`, because its items physically left the premises
-    and something has to say where they came back to before the lot can be
-    considered withdrawn -- the spec's *Consignment custody* moves items
-    "there, and back", and this is the "back" half for a withdrawal rather
-    than a settlement. Ignored otherwise; a caller may pass `None` (the
-    default) or omit it entirely for any other status.
+    `returned_to_location_id` (ruling R9, fix round 1; keyed on custody, not
+    status, since ruling R13, fix round 2): **required** whenever
+    `auction.consigned_on is not None`, because its items physically left the
+    premises and something has to say where they came back to before the lot
+    can be considered withdrawn -- the spec's *Consignment custody* moves
+    items "there, and back", and this is the "back" half for a withdrawal
+    rather than a settlement. `consigned_on is not None` means the house
+    still holds *something* of this auction's, whatever the auction's
+    current *status* is -- in particular, `close` accepts a `consigned`
+    auction and does not clear the date, so a lot can still need returning
+    from a `closed` auction. Checking `status == consigned` instead was
+    fix round 1's defect (Important #1, fix round 2): `consign -> close ->
+    remove_lot` read `closed`, not `consigned`, and skipped the requirement
+    and the move entirely, leaving the coin filed at the house with nothing
+    saying so. Ignored otherwise; a caller may pass `None` (the default) or
+    omit it entirely when `consigned_on` is already `None`.
 
     Raises `AuctionRefused` if the auction has already closed, settled or
     been cancelled -- editing a finished or abandoned auction's lot table
     makes no sense once results are being entered, or nothing is happening
     any more. Also raises `AuctionRefused`, naming the missing argument, if
-    the auction is `consigned` and `returned_to_location_id` is not given.
+    `auction.consigned_on is not None` and `returned_to_location_id` is not
+    given.
 
     See this module's own docstring for why this does not need
     `offering_writes.refuse_if_lot_unheld`: `end_offer` is always called here
     on `auction_lot.listing`, a listing this function was handed by name.
+
+    **`closed` is accepted too, but only when the house still holds
+    something (`auction.consigned_on is not None`)** -- ruling R13, fix
+    round 2, extended here beyond its letter to keep the interpretation
+    coherent: refusing a `closed`-and-consigned auction would mean no public
+    call could ever bring a single withdrawn lot's coins home once the
+    auction closed, forcing a whole-auction `cancel` for what may be one
+    disputed lot out of many. A `closed` auction that was **never**
+    consigned still refuses, unchanged from fix round 1 -- there is nothing
+    to return, and reshuffling a finished auction's lot table for no
+    physical reason still makes no sense.
     """
     auction = auction_lot.auction
-    if auction.status not in _LOTS_REMOVABLE:
+    closed_but_consigned = (
+        auction.status is AuctionStatus.closed and auction.consigned_on is not None
+    )
+    if auction.status not in _LOTS_REMOVABLE and not closed_but_consigned:
         raise AuctionRefused(
             f"auction #{auction.id} is {auction.status.value}, "
             "so lots cannot be removed"
@@ -265,14 +302,22 @@ def _remove_lot(
     own `_LOTS_REMOVABLE` check refusing a `closed` auction that `cancel` has
     already decided, by its own check, is cancellable.
 
-    If the auction is `consigned`, the lot's items are moved back to
+    If the house still holds something of this auction's
+    (`auction.consigned_on is not None`, ruling R13 -- **not** `auction.status
+    is AuctionStatus.consigned`, which a `closed` auction fails even though
+    the coins never came home), the lot's items are moved back to
     `returned_to_location_id` (required; see `remove_lot`'s docstring)
     *before* the offer ends -- `_return_from_consignment` reads the lot's
     open membership through `offering_writes.offered_items`, which
     `end_offer` would otherwise have already released.
+
+    Never clears `auction.consigned_on` -- that is an auction-level fact
+    (ruling R13, fix round 2), owned by `cancel`, which clears it only once
+    every one of the auction's lots has been returned. Removing a single lot
+    out of several leaves the house still holding the rest.
     """
     auction = auction_lot.auction
-    if auction.status is AuctionStatus.consigned:
+    if auction.consigned_on is not None:
         if returned_to_location_id is None:
             raise AuctionRefused(
                 f"auction #{auction.id} is consigned: returned_to_location_id "
@@ -485,16 +530,25 @@ def cancel(
     identical for both sessions; within a single pass the canonical
     lot -> items -> listings order inside `end_offer` is unaffected.
 
-    `returned_to_location_id` (ruling R9, fix round 1): the same contract
-    `remove_lot` carries, and for the same reason -- **required** when the
-    auction is `consigned`, since every one of its lots needs somewhere to
-    return its items to before it can be withdrawn. When the return happens,
-    `consigned_on` is cleared along with the status move: a cancelled
-    auction was never consigned to anywhere any more, and leaving the date
-    set would misdescribe a location the items no longer occupy.
+    `returned_to_location_id` (ruling R9, fix round 1; keyed on custody, not
+    status, since ruling R13, fix round 2): the same contract `remove_lot`
+    carries, and for the same reason -- **required** whenever
+    `auction.consigned_on is not None`, since every one of its lots needs
+    somewhere to return its items to before it can be withdrawn. **Not**
+    `auction.status is AuctionStatus.consigned`: `close` accepts a
+    `consigned` auction without clearing the date, so `consign -> close ->
+    cancel` used to read `closed`, skip this requirement entirely, and cancel
+    an auction whose coins were still sitting at the house with nothing
+    saying so (Important #1, fix round 2 -- the defect fix round 1's own
+    ruling R8 opened by letting `cancel` accept `closed`, and R9 did not
+    anticipate). When the return happens, `consigned_on` is cleared along
+    with the status move -- **only here**, once every lot has actually been
+    returned, never inside `_remove_lot`: a single lot coming home out of
+    five leaves the house still holding the other four, so the field is an
+    auction-level fact, not a per-lot one.
 
     Checked here **as well as** inside `_remove_lot`'s own identical guard,
-    and the duplication is deliberate, not an oversight: a `consigned`
+    and the duplication is deliberate, not an oversight: a consigned
     auction with **zero** lots (`consign` never requires at least one) never
     enters the removal loop below, so `_remove_lot`'s check would never run
     at all -- this is the only guard that covers that case. Mutation-verified
@@ -502,8 +556,8 @@ def cancel(
     (`test_cancelling_a_consigned_auction_with_no_lots_requires_a_return_location`).
 
     Raises `AuctionRefused` if the auction has already been settled or
-    cancelled, or if it is `consigned` and `returned_to_location_id` is
-    missing.
+    cancelled, or if `auction.consigned_on is not None` and
+    `returned_to_location_id` is missing.
 
     Needs no `offering_writes.refuse_if_lot_unheld` for the same reason
     `remove_lot` does not -- see this module's own docstring: every
@@ -513,15 +567,15 @@ def cancel(
     """
     if auction.status in (AuctionStatus.settled, AuctionStatus.cancelled):
         raise AuctionRefused(f"auction #{auction.id} is already {auction.status.value}")
-    if auction.status is AuctionStatus.consigned and returned_to_location_id is None:
+    if auction.consigned_on is not None and returned_to_location_id is None:
         raise AuctionRefused(
             f"auction #{auction.id} is consigned: returned_to_location_id is "
             "required to bring its items back before it can be cancelled"
         )
-    was_consigned = auction.status is AuctionStatus.consigned
+    still_consigned = auction.consigned_on is not None
     for auction_lot in sorted(auction.lots, key=lambda row: row.id):
         _remove_lot(db, auction_lot, returned_to_location_id=returned_to_location_id)
-    if was_consigned:
+    if still_consigned:
         auction.consigned_on = None
     auction.status = AuctionStatus.cancelled
     db.flush()
