@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import ColumnElement, delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
@@ -760,36 +760,14 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
     )
 
 
-def _sold_this_item(item_id: int) -> ColumnElement[bool]:
-    """Every order line that covers this item, as itself or inside a lot.
-
-    `order_writes._sync_shares` writes one `sales_order_item_share` per item
-    a line covers -- one for an item listing, one per member for a lot -- so
-    the share table is the one place both shapes are visible.
-
-    The listing's own `inventory_item_id` is kept **alongside** the shares
-    rather than replaced by them. It is NULL on a lot listing, so it cannot
-    answer for a lot; but it is the only thing that finds a line written
-    before shares existed, a case `_sync_shares` itself still allows for.
-    Dropping it would quietly lose those sales from an item's history.
-    """
-    return or_(
-        Listing.inventory_item_id == item_id,
-        SalesOrderItem.id.in_(
-            select(SalesOrderItemShare.sales_order_item_id).where(
-                SalesOrderItemShare.inventory_item_id == item_id
-            )
-        ),
-    )
-
-
 def _share_of(item_id: int) -> ScalarSelect[Decimal]:
     """What this one item was credited with on a line, as a scalar subquery.
 
-    A correlated subquery rather than a join, for the reason `_sold_this_item`
-    uses one: joining `sales_order_item_share` would repeat a lot line once
-    per member and report a single sale three times. At most one share row
-    can match -- one per (line, item) pair -- so this cannot multiply rows.
+    A correlated subquery rather than a join, for the reason
+    `sale_state.sold_this_item` uses one: joining `sales_order_item_share`
+    would repeat a lot line once per member and report a single sale three
+    times. At most one share row can match -- one per (line, item) pair --
+    so this cannot multiply rows.
 
     Typed `ScalarSelect[Decimal]` after the column, not `Decimal | None`: a
     scalar subquery that matches nothing still yields SQL NULL, which is why
@@ -845,7 +823,7 @@ def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemS
         .join(SalesOrder, SalesOrder.id == SalesOrderItem.sales_order_id)
         .join(SalesOrderStatus, SalesOrderStatus.id == SalesOrder.sales_order_status_id)
         .join(Customer, Customer.id == SalesOrder.customer_id)
-        .where(_sold_this_item(item.id))
+        .where(sale_state.sold_this_item(item.id))
         .order_by(SalesOrder.placed_at.desc(), SalesOrderItem.id.desc())
     ).tuples()
     return [

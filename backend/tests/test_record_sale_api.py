@@ -357,3 +357,63 @@ def test_a_recorded_outside_sale_cannot_be_cancelled(
     still_paid = client.get(f"/api/orders/{order_id}", headers=admin_headers)
     assert still_paid.status_code == 200
     assert still_paid.json()["status"] == "paid"
+
+
+def test_an_auction_house_sale_can_be_cancelled_as_a_refund(
+    client: TestClient,
+    db: Session,
+    heritage_listing: Listing,
+    admin_headers: dict[str, str],
+) -> None:
+    """The delivered twin of the refusal above, and the case that changed.
+
+    An auction house has already shipped for us by the time its sale is
+    recorded, so `sales_writes._STATUS_BY_VENUE_KIND` starts that order at
+    **delivered** -- which is in `routers.orders.SHIPPED_STATUSES`. When the
+    cancel refusal was narrowed to unshipped orders, every auction-house sale
+    moved from "always refused" to "always allowed" in one step, and nothing
+    covered it: the branch tests a shipped *store* lot order and an unshipped
+    *outside* one, never the delivered outside one that only this venue kind
+    produces.
+
+    Allowing it is right, and for exactly the reason the refusal exists.
+    `return_stock` is not called for a shipped order, so nothing is added
+    back to the ended listing and nothing is stranded -- the item stays
+    `sold`, which is the truth after an auction house has shipped it, and
+    cancelling is how the refund is recorded. The assertions below are that
+    pair: the order really cancels, and no stock came back.
+
+    The mutation that proves it: drop `previous not in SHIPPED_STATUSES |
+    {"cancelled"}` from the refusal at `routers.orders` and confirm this goes
+    red with a 409 naming Heritage.
+    """
+    heritage_listing_id = heritage_listing.id
+    recorded = _post(client, heritage_listing_id, admin_headers)
+    assert recorded.status_code == 201, recorded.text
+    order_id = recorded.json()["id"]
+    # Asserted, not assumed: "delivered" is the whole premise -- a sale that
+    # started `paid` would be refused below for an ordinary reason and this
+    # test would pass without ever reaching the case it is named for.
+    started = client.get(f"/api/orders/{order_id}", headers=admin_headers)
+    assert started.status_code == 200, started.text
+    assert started.json()["status"] == "delivered"
+
+    response = client.patch(
+        f"/api/orders/{order_id}",
+        json={"status": "cancelled"},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "cancelled"
+    # No stock returned, which is what made this safe to allow: the listing
+    # the sale ended stays ended and empty, and the coin stays sold.
+    db.expire_all()
+    listing = db.get(Listing, heritage_listing_id)
+    assert listing is not None
+    assert listing.status.value == "ended"
+    assert listing.quantity_available == 0
+    assert item_of(listing).disposition.code == "sold"
+    current = client.get(f"/api/orders/{order_id}", headers=admin_headers)
+    assert current.status_code == 200
+    assert current.json()["status"] == "cancelled"
