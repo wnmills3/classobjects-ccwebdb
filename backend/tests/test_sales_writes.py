@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
@@ -25,7 +26,15 @@ from app.models import (
     User,
 )
 from app.models.base import utcnow
-from app.sales_writes import FeeLine, SaleRefused, ShareMissing, record_sale
+from app.sales_writes import (
+    FeeLine,
+    SaleInputInvalid,
+    SaleLine,
+    SaleRefused,
+    ShareMissing,
+    record_sale,
+    record_sale_lines,
+)
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -675,3 +684,151 @@ def test_a_missing_share_is_an_internal_error_not_a_refusal(
         )
     assert f"listing {offered_lot_listing.id}" in str(excinfo.value)
     assert "CC-" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------
+# Several listings on one order (`record_sale_lines`)
+#
+# Settlement's case: an auction house bills a buyer once for every lot they
+# took. The single-listing `record_sale` above is this function called with a
+# list of one, so everything already proved about it proves the same thing
+# here -- these cover only what having more than one line adds.
+# --------------------------------------------------------------------------
+
+
+def test_two_listings_make_one_order_with_two_lines(
+    db: Session,
+    ebay_listing: Listing,
+    offered_lot_listing: Listing,
+    admin_user: User,
+) -> None:
+    """One buyer, one order, two lines -- not two orders that have to be merged."""
+    order = record_sale_lines(
+        db,
+        [
+            SaleLine(listing_id=ebay_listing.id, price=Decimal("120.00")),
+            SaleLine(listing_id=offered_lot_listing.id, price=Decimal("1000.00")),
+        ],
+        buyer_username="coinfan88",
+        external_order_id="EB-99",
+        fees=[],
+        recorded_by=admin_user,
+    )
+    assert len(order.items) == 2
+    assert order.total_amount == Decimal("1120.00")
+    assert ebay_listing.status is ListingStatus.ended
+    assert offered_lot_listing.status is ListingStatus.ended
+
+
+def test_the_fee_is_divided_across_every_line_not_within_one(
+    db: Session,
+    ebay_listing: Listing,
+    offered_lot_listing: Listing,
+    admin_user: User,
+) -> None:
+    """The order's fee spans the lines; each line's own price does not.
+
+    One coin costing 120 against a lot costing 500/300/200: a fee of 10.00
+    over all four cost bases is 1.07 / 4.46 / 2.68 / 1.79, which no
+    per-line division produces.
+    """
+    order = record_sale_lines(
+        db,
+        [
+            SaleLine(listing_id=ebay_listing.id, price=Decimal("120.00")),
+            SaleLine(listing_id=offered_lot_listing.id, price=Decimal("1000.00")),
+        ],
+        buyer_username="coinfan88",
+        external_order_id=None,
+        fees=[FeeLine("commission", Decimal("10.00"))],
+        recorded_by=admin_user,
+    )
+    db.flush()
+    fees = db.scalars(
+        select(SalesOrderItemShare.fee_amount)
+        .join(
+            SalesOrderItem,
+            SalesOrderItem.id == SalesOrderItemShare.sales_order_item_id,
+        )
+        .where(SalesOrderItem.sales_order_id == order.id)
+        .order_by(
+            SalesOrderItemShare.sales_order_item_id,
+            SalesOrderItemShare.inventory_item_id,
+        )
+    ).all()
+    assert sum(fees, Decimal("0.00")) == Decimal("10.00")
+    assert len(fees) == 4
+
+
+def test_one_order_cannot_span_two_platforms(
+    db: Session,
+    ebay_listing: Listing,
+    heritage_venue: SalesVenue,
+    make_item: Callable[..., InventoryItem],
+    admin_user: User,
+) -> None:
+    """`sales_order.sales_venue_id` is one column, so the order is one platform's.
+
+    A conflict rather than bad input -- the caller could not have known from
+    the request which platform each listing was on -- so a plain
+    `SaleRefused`, 409, not the narrower 422.
+
+    The second listing is built here rather than taken from the
+    `heritage_listing` fixture: that one offers the same coin as
+    `ebay_listing`, which `offer` refuses outright, so the pair can never
+    exist at once.
+    """
+    at_heritage = offering_writes.offer(
+        db,
+        item=make_item(title="1893-S Morgan Dollar"),
+        venue=heritage_venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("500.00"),
+        title="1893-S Morgan Dollar",
+        description="",
+        external_id=None,
+    )
+    with pytest.raises(SaleRefused, match="two platforms") as caught:
+        record_sale_lines(
+            db,
+            [
+                SaleLine(listing_id=ebay_listing.id, price=Decimal("120.00")),
+                SaleLine(listing_id=at_heritage.id, price=Decimal("500.00")),
+            ],
+            buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
+    assert not isinstance(caught.value, SaleInputInvalid)
+
+
+def test_the_same_listing_twice_on_one_order_is_refused(
+    db: Session, ebay_listing: Listing, admin_user: User
+) -> None:
+    """Both lines would end the same offer and split its coins' money twice."""
+    with pytest.raises(SaleInputInvalid, match="twice"):
+        record_sale_lines(
+            db,
+            [
+                SaleLine(listing_id=ebay_listing.id, price=Decimal("120.00")),
+                SaleLine(listing_id=ebay_listing.id, price=Decimal("130.00")),
+            ],
+            buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
+
+
+def test_a_sale_with_no_lines_at_all_is_refused(db: Session, admin_user: User) -> None:
+    """An order with nothing on it has no platform, no buyer and no money."""
+    with pytest.raises(SaleInputInvalid, match="at least one listing"):
+        record_sale_lines(
+            db,
+            [],
+            buyer_username="coinfan88",
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
