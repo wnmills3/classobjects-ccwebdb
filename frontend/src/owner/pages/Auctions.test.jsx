@@ -6,7 +6,6 @@ vi.mock('../api', () => ({
   api: {
     listAuctions: vi.fn(),
     createAuction: vi.fn(),
-    updateAuction: vi.fn(),
     scheduleAuction: vi.fn(),
     consignAuction: vi.fn(),
     closeAuction: vi.fn(),
@@ -18,6 +17,7 @@ vi.mock('../api', () => ({
     listSalesVenues: vi.fn(),
     listStorageLocations: vi.fn(),
     listLots: vi.fn(),
+    searchInventory: vi.fn(),
   },
 }))
 
@@ -112,10 +112,16 @@ describe('Auctions', () => {
   })
 
   it('shows a load failure without blanking the page', async () => {
-    // Per 872e219: a load failure must show an error, not take the page down.
+    // Per 872e219: a load failure must show an error, not take the page
+    // down. The page's own shell (its heading) has to survive too -- a
+    // render that replaced the whole page with a bare error paragraph would
+    // still pass an assertion on the error text alone, which is exactly the
+    // defect 872e219 fixed. `Lots.jsx`'s identical-purpose test asserts the
+    // same pairing.
     api.listAuctions.mockRejectedValue(new ApiError(500, 'boom', {}))
     renderWithProviders(<Auctions />, { strict: true })
     expect(await screen.findByText(/boom/)).toBeVisible()
+    expect(screen.getByRole('heading', { name: /^auctions$/i })).toBeVisible()
   })
 
   it('starts a new auction on a chosen platform', async () => {
@@ -153,10 +159,17 @@ describe('Auctions', () => {
     )
   })
 
-  it('adds a single item as a lot of one', async () => {
+  it('adds a single item as a lot of one, found by its item code', async () => {
+    // R27: the owner types the code the way every other item-selection
+    // surface (OfferDialog, Lots, ItemFinder) shows it -- never a raw
+    // database id -- and it is resolved through the same
+    // `GET /api/inventory/{view}/search?item_code=...` the search page uses.
     const user = userEvent.setup()
     const row = auction()
     api.listAuctions.mockResolvedValue({ auctions: [row] })
+    api.searchInventory.mockResolvedValue({
+      rows: [{ id: 42, item_code: 'CC-000042', description: 'A Morgan dollar' }],
+    })
     api.addAuctionLot.mockResolvedValue({ ...row, lots: [auctionLot()] })
     renderWithProviders(<Auctions />, { strict: true })
 
@@ -164,16 +177,66 @@ describe('Auctions', () => {
     await user.click(await screen.findByRole('button', { name: 'Add lot...' }))
     const dialog = screen.getByRole('dialog', { name: /add a lot/i })
     await user.type(within(dialog).getByLabelText('Lot number'), '1')
-    await user.type(within(dialog).getByLabelText('Item ID'), '42')
+    await user.type(within(dialog).getByLabelText('Item code'), 'CC-000042')
     await user.click(within(dialog).getByRole('button', { name: 'Add lot' }))
 
+    expect(api.searchInventory).toHaveBeenCalledWith('coins', {
+      item_code: 'CC-000042',
+    })
     expect(api.addAuctionLot).toHaveBeenCalledWith(
       row.id,
       expect.objectContaining({ lot_number: '1', item_id: 42 }),
     )
   })
 
-  it('does not let a closed auction s lot numbers be edited', async () => {
+  it('falls back to the currency view when a code is not a coin', async () => {
+    const user = userEvent.setup()
+    const row = auction()
+    api.listAuctions.mockResolvedValue({ auctions: [row] })
+    api.searchInventory.mockImplementation((view) =>
+      Promise.resolve(
+        view === 'currency'
+          ? { rows: [{ id: 77, item_code: 'CC-000077', description: 'A banknote' }] }
+          : { rows: [] },
+      ),
+    )
+    api.addAuctionLot.mockResolvedValue({ ...row, lots: [auctionLot()] })
+    renderWithProviders(<Auctions />, { strict: true })
+
+    await user.click(await screen.findByRole('button', { name: 'View' }))
+    await user.click(await screen.findByRole('button', { name: 'Add lot...' }))
+    const dialog = screen.getByRole('dialog', { name: /add a lot/i })
+    await user.type(within(dialog).getByLabelText('Lot number'), '1')
+    await user.type(within(dialog).getByLabelText('Item code'), 'CC-000077')
+    await user.click(within(dialog).getByRole('button', { name: 'Add lot' }))
+
+    expect(api.addAuctionLot).toHaveBeenCalledWith(
+      row.id,
+      expect.objectContaining({ item_id: 77 }),
+    )
+  })
+
+  it('names the code when no item matches it, and does not add a lot', async () => {
+    const user = userEvent.setup()
+    const row = auction()
+    api.listAuctions.mockResolvedValue({ auctions: [row] })
+    api.searchInventory.mockResolvedValue({ rows: [] })
+    renderWithProviders(<Auctions />, { strict: true })
+
+    await user.click(await screen.findByRole('button', { name: 'View' }))
+    await user.click(await screen.findByRole('button', { name: 'Add lot...' }))
+    const dialog = screen.getByRole('dialog', { name: /add a lot/i })
+    await user.type(within(dialog).getByLabelText('Lot number'), '1')
+    await user.type(within(dialog).getByLabelText('Item code'), 'CC-999999')
+    await user.click(within(dialog).getByRole('button', { name: 'Add lot' }))
+
+    expect(
+      await within(dialog).findByText('No item with code CC-999999.'),
+    ).toBeVisible()
+    expect(api.addAuctionLot).not.toHaveBeenCalled()
+  })
+
+  it("does not let a closed auction's lot numbers be edited", async () => {
     // `app.auctions.refuse_unless_lot_editable`: draft, scheduled or
     // consigned only. The console must not let the owner walk into that
     // refusal blindly.

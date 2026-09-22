@@ -51,7 +51,7 @@ const EMPTY_LINE = { result: '', hammer_price: '', buyer_username: '' }
  * it; it only says what "Settle" is about to do and that a refused grid
  * writes nothing.
  */
-function SettleConfirm({ auction, busy, onConfirm, onCancel }) {
+function SettleConfirm({ auction, busy, canSettle, onConfirm, onCancel }) {
   const question = `Settle ${auction.title}?`
   return (
     <ModalDialog label={question} onClose={onCancel}>
@@ -62,7 +62,7 @@ function SettleConfirm({ auction, busy, onConfirm, onCancel }) {
         nothing is written; the grid stays open with every offending lot marked.
       </p>
       <div className="row">
-        <button disabled={busy} onClick={onConfirm}>
+        <button disabled={busy || !canSettle} onClick={onConfirm}>
           {busy ? 'Settling...' : 'Settle'}
         </button>
         <button className="link" onClick={onCancel}>
@@ -112,22 +112,30 @@ export default function SettlementGrid({
       [lot.id]: { ...(current[lot.id] ?? EMPTY_LINE), [field]: value },
     }))
 
-  // Every buyer named on a lot currently marked sold, trimmed and
-  // deduplicated. A blank buyer is only offered a fee row for an auction
-  // house, where blank is the standing undisclosed buyer rather than a form
-  // nobody finished filling in.
-  const soldBuyers = Array.from(
-    new Set(
-      auction.lots
-        .map((lot) => lineFor(lot))
-        .filter((line) => line.result === 'sold')
-        .map((line) => line.buyer_username.trim()),
-    ),
-  ).filter((raw) => raw !== '' || isAuctionHouse)
-  const buyers = soldBuyers.map((raw) => ({
-    key: raw,
-    label: raw === '' ? 'Undisclosed buyer' : raw,
-  }))
+  // Every buyer named on a lot currently marked sold, grouped the way
+  // `app.auctions._buyer_key` groups them server-side: casefolded, so
+  // `amy` on one lot and `Amy` on another are one buyer here too, not two
+  // fee sub-tables the owner has no way to reconcile. `key` is the fold,
+  // used for lookups and React keys; `raw` is the **first spelling seen**,
+  // in `auction.lots`' own ascending-id order -- the same "first spelling
+  // wins" rule `_BuyerGroup.username` uses for the customer record, so the
+  // spelling this sends back as `buyer_username` is the same one the
+  // backend would have kept had two spellings reached it. A blank buyer is
+  // only offered a fee row for an auction house, where blank is the
+  // standing undisclosed buyer rather than a form nobody finished filling
+  // in.
+  const buyersByKey = new Map()
+  for (const lot of auction.lots) {
+    const line = lineFor(lot)
+    if (line.result !== 'sold') continue
+    const raw = line.buyer_username.trim()
+    if (raw === '' && !isAuctionHouse) continue
+    const key = raw.toLowerCase()
+    if (!buyersByKey.has(key)) {
+      buyersByKey.set(key, { key, raw, label: raw === '' ? 'Undisclosed buyer' : raw })
+    }
+  }
+  const buyers = Array.from(buyersByKey.values())
 
   const setFee = (buyerKey, kindCode) => (e) =>
     setFeeAmounts((current) => ({
@@ -163,6 +171,22 @@ export default function SettlementGrid({
     0,
   )
 
+  // `app.auctions.settle` refuses when the house still holds something
+  // (`auction.consigned_on is not None`) and at least one lot with a
+  // chosen, non-sold result has nowhere named to come back to
+  // (`_grid_problems`'s own `coming_home` check). `RemoveLotConfirm` and
+  // `CancelConfirm` in `Auctions.jsx` disable their confirm button the same
+  // way, on the same `consigned_on` predicate -- this is that pattern
+  // applied here, so the owner cannot walk into a refusal the console could
+  // see coming.
+  const needsReturnLocation =
+    auction.consigned_on != null &&
+    auction.lots.some((lot) => {
+      const result = lineFor(lot).result
+      return result !== '' && result !== 'sold'
+    })
+  const canSettle = !needsReturnLocation || returnedToLocationId !== ''
+
   async function settle() {
     setSettling(true)
     setError('')
@@ -187,7 +211,7 @@ export default function SettlementGrid({
     }
     const fees = buyers
       .map((buyer) => ({
-        buyer_username: buyer.key === '' ? null : buyer.key,
+        buyer_username: buyer.key === '' ? null : buyer.raw,
         fees: feeKinds
           .map((kind) => ({
             kind: kind.code,
@@ -352,13 +376,21 @@ export default function SettlementGrid({
       </dl>
 
       <div className="row">
-        <button onClick={() => setConfirming(true)}>Settle...</button>
+        <button disabled={!canSettle} onClick={() => setConfirming(true)}>
+          Settle...
+        </button>
+        {!canSettle && (
+          <span className="muted">
+            Choose where unsold and withdrawn items come back to first.
+          </span>
+        )}
       </div>
 
       {confirming && (
         <SettleConfirm
           auction={auction}
           busy={settling}
+          canSettle={canSettle}
           onConfirm={settle}
           onCancel={() => setConfirming(false)}
         />

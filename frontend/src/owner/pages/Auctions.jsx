@@ -192,6 +192,31 @@ function AuctionForm({ venues, onSaved, onClose }) {
 const ADD_LOT_KEYS = { lotNumber: 'l' }
 
 /**
+ * Resolve an item code (`CC-######`, as the owner reads it off the coin,
+ * never a raw database id -- every other item-selection surface in this
+ * console, `OfferDialog.jsx`, `Lots.jsx`, `ItemFinder.jsx`, shows the code,
+ * not an id) to the id `AuctionLotIn.item_id` actually needs.
+ *
+ * `GET /api/inventory/{view}/search` filters `item_code` with `ilike`
+ * (`inventory_search.py`), already reachable through `api.searchInventory`
+ * -- no new endpoint. It takes a view, though, and a code alone does not
+ * say whether the item is a coin or a note, so this tries `coins` first and
+ * falls back to `currency`. Null when neither view has an exact match
+ * (case-insensitive, since `ilike` itself is): the caller names the code
+ * that came back empty rather than a raw id nobody typed.
+ */
+async function findItemIdByCode(code) {
+  for (const view of ['coins', 'currency']) {
+    const page = await api.searchInventory(view, { item_code: code })
+    const match = (page?.rows ?? []).find(
+      (row) => String(row.item_code).toLowerCase() === code.toLowerCase(),
+    )
+    if (match) return match.id
+  }
+  return null
+}
+
+/**
  * Add a lot to an auction: an assembled lot, or a single item as a lot of one.
  *
  * `AuctionLotIn._one_subject` takes exactly one of `item_id` and `lot_id`
@@ -202,7 +227,7 @@ const ADD_LOT_KEYS = { lotNumber: 'l' }
 function AddLotDialog({ auction, onSaved, onClose }) {
   const [mode, setMode] = useState('item')
   const [lotNumber, setLotNumber] = useState('')
-  const [itemId, setItemId] = useState('')
+  const [itemCode, setItemCode] = useState('')
   const [lotId, setLotId] = useState('')
   const [reserve, setReserve] = useState('')
   const [price, setPrice] = useState('')
@@ -237,8 +262,8 @@ function AddLotDialog({ auction, onSaved, onClose }) {
       setError('A lot number is required.')
       return
     }
-    if (mode === 'item' && itemId.trim() === '') {
-      setError('Enter the item to add.')
+    if (mode === 'item' && itemCode.trim() === '') {
+      setError('Enter the item code to add.')
       return
     }
     if (mode === 'lot' && lotId === '') {
@@ -254,7 +279,14 @@ function AddLotDialog({ auction, onSaved, onClose }) {
         price: price.trim() === '' ? null : price.trim(),
       }
       if (mode === 'item') {
-        payload.item_id = Number(itemId.trim())
+        const code = itemCode.trim()
+        const itemId = await findItemIdByCode(code)
+        if (!mounted.current) return
+        if (itemId === null) {
+          setError(`No item with code ${code}.`)
+          return
+        }
+        payload.item_id = itemId
       } else {
         payload.lot_id = Number(lotId)
       }
@@ -308,11 +340,11 @@ function AddLotDialog({ auction, onSaved, onClose }) {
         </label>
         {mode === 'item' ? (
           <label>
-            Item ID
+            Item code
             <input
-              inputMode="numeric"
-              value={itemId}
-              onChange={(e) => setItemId(e.target.value)}
+              value={itemCode}
+              onChange={(e) => setItemCode(e.target.value)}
+              placeholder="CC-000123"
             />
           </label>
         ) : (

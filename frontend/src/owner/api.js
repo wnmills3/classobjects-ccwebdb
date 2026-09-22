@@ -220,8 +220,10 @@ export const api = {
     return send(`/api/auctions${qs ? `?${qs}` : ''}`)
   },
   createAuction: (payload) => send('/api/auctions', { method: 'POST', body: payload }),
-  updateAuction: (id, payload) =>
-    send(`/api/auctions/${id}`, { method: 'PATCH', body: payload }),
+  // No `updateAuction` here: this task adds no UI that edits an auction's
+  // own title, dates or notes (`AuctionUpdate` in `schemas.py`), and a call
+  // nothing sends is dead surface with no request-body test of its own to
+  // keep it honest -- add it back with the task that actually needs it.
   scheduleAuction: (id) => send(`/api/auctions/${id}/schedule`, { method: 'POST' }),
   consignAuction: (id, payload) =>
     send(`/api/auctions/${id}/consign`, { method: 'POST', body: payload }),
