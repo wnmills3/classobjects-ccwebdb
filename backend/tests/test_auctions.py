@@ -647,7 +647,7 @@ def test_cancelling_a_closed_consigned_auction_returns_items_and_clears_consigne
         assert item.storage_location_id == home.id
 
 
-def test_removing_one_lot_from_a_closed_consigned_auction_leaves_consigned_on_set(
+def test_removing_one_lot_from_a_consigned_auction_leaves_consigned_on_set(
     db: Session, heritage_venue: SalesVenue, make_item: ItemFactory
 ) -> None:
     """Partial return: the house still holds what was not brought home.
@@ -655,9 +655,13 @@ def test_removing_one_lot_from_a_closed_consigned_auction_leaves_consigned_on_se
     `consigned_on` names an auction-level fact -- something of this
     auction's is still at the house -- so returning one lot out of two must
     not clear it, even though that lot's own items really did come home.
-    Also proves `remove_lot` itself now accepts a `closed` auction when
-    `consigned_on is not None`, the one place ruling R13 was extended beyond
-    its literal text (see `remove_lot`'s own docstring).
+
+    Reaches the rule through a path that can actually occur (ruling R14, fix
+    round 3, replacing round 2's post-`close` version of this test): the
+    auction stays `consigned`, never `close`d, because `remove_lot` refuses
+    `closed` unconditionally now -- pulling a single lot from a *closed*
+    auction is `settle`'s job (`AuctionLotResult.withdrawn`), not this
+    function's.
     """
     auction = Auction(sales_venue_id=heritage_venue.id, title="Two-lot house sale")
     db.add(auction)
@@ -680,8 +684,7 @@ def test_removing_one_lot_from_a_closed_consigned_auction_leaves_consigned_on_se
     )
     schedule(db, auction)
     consign(db, auction, on_date=date(2026, 10, 1))
-    close(db, auction)
-    assert auction.status is AuctionStatus.closed
+    assert auction.status is AuctionStatus.consigned
     consigned_on = auction.consigned_on
     assert consigned_on is not None
 
@@ -703,6 +706,31 @@ def test_removing_one_lot_from_a_closed_consigned_auction_leaves_consigned_on_se
         select(AuctionLot).where(AuctionLot.auction_id == auction.id)
     ).all()
     assert len(remaining) == 1
+
+
+def test_removing_a_lot_from_a_closed_auction_is_refused_even_if_consigned(
+    db: Session, house_auction: Auction
+) -> None:
+    """Ruling R14, fix round 3: `closed` refuses unconditionally.
+
+    Complements `test_removing_a_lot_from_a_closed_auction_is_refused`
+    (fix round 1), which covers a `closed` auction that was **never**
+    consigned; this covers the other half of "whether or not it was ever
+    consigned". Once closed, a lot that did not sell is
+    `AuctionLotResult.withdrawn` -- a settlement result Task 3's `settle`
+    will record, along with returning its items -- not something this
+    function may pull out with no record of what became of it. Reverts fix
+    round 2's own widening of this same gate, which the coordinator ruled
+    was not intended.
+    """
+    consign(db, house_auction, on_date=date(2026, 10, 1))
+    close(db, house_auction)
+    assert house_auction.status is AuctionStatus.closed
+    assert house_auction.consigned_on is not None
+    (auction_lot,) = house_auction.lots
+
+    with pytest.raises(AuctionRefused, match="closed"):
+        remove_lot(db, auction_lot, returned_to_location_id=1)
 
 
 def test_cancelling_a_never_consigned_auction_still_needs_no_return_location(
