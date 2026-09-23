@@ -454,7 +454,7 @@ export default function NewPurchase() {
     <section>
       <h1>New purchase</h1>
       <HelpScope>
-        <div className="filter-grid">
+        <div className="filter-grid" data-help="purchase_mode">
           <label className="checkbox">
             <input
               type="radio"

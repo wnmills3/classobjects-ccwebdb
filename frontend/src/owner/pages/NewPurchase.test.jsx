@@ -155,6 +155,17 @@ describe('NewPurchase: creating a purchase', () => {
     expect(screen.getByText(/Every item entered below is stamped/)).toBeInTheDocument()
   })
 
+  it('explains the existing-or-new choice when a radio is chosen', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.click(
+      screen.getByRole('radio', { name: /add to an existing purchase/i }),
+    )
+    expect(
+      screen.getByText(/Every item belongs to exactly one purchase/),
+    ).toBeInTheDocument()
+  })
+
   it('keeps what was typed when the order is refused as a duplicate', async () => {
     const user = userEvent.setup()
     api.createPurchaseOrder.mockRejectedValue(

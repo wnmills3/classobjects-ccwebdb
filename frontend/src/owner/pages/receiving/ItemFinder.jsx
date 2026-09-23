@@ -217,7 +217,7 @@ export default function ItemFinder({ onPick, initialOrderNumber = '', epoch = 0 
   return (
     <HelpScope>
       <div className="item-finder">
-        <div className="filter-grid">
+        <div className="filter-grid" data-help="search_kind">
           {KINDS.map(([value, label]) => (
             <label key={value} className="checkbox">
               <input
