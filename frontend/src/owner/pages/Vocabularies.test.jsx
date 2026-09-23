@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -207,6 +207,44 @@ describe('Vocabularies', () => {
     expect(await screen.findByText('U.S. Note')).toBeVisible()
     expect(screen.queryByLabelText('New name for United States Note')).toBeNull()
     expect(reference.invalidate).toHaveBeenCalledWith('note_type')
+  })
+
+  it('moves a value in a sequenced vocabulary and re-sorts the list', async () => {
+    const user = userEvent.setup()
+    const ms63 = value('MS63', 'MS63', [], { sort_order: 10 })
+    const ms64 = value('MS64', 'MS64', [], { sort_order: 20 })
+    api.listReferenceTables.mockResolvedValue(['series', 'grade'])
+    api.getReferenceForEditing.mockImplementation(async (table) =>
+      table === 'grade'
+        ? { table, sequenced: true, values: [ms63, ms64] }
+        : {
+            table,
+            values: [value('walking_liberty_half', 'Walking Liberty Half Dollar')],
+          },
+    )
+    api.renameReferenceValue.mockResolvedValue({ ...ms64, sort_order: 5 })
+    renderWithProviders(<Vocabularies />, { auth: adminAuth(), reference })
+    await screen.findByText('Walking Liberty Half Dollar')
+    await user.selectOptions(screen.getByLabelText('Vocabulary'), 'grade')
+    const position = await screen.findByLabelText('Position of MS64')
+    await user.clear(position)
+    await user.type(position, '5{Enter}')
+
+    expect(api.renameReferenceValue).toHaveBeenCalledWith('grade', 'MS64', {
+      label: 'MS64',
+      sort_order: 5,
+    })
+    await waitFor(() =>
+      expect(screen.getAllByRole('row')[1].cells[0]).toHaveTextContent('MS64'),
+    )
+    expect(reference.invalidate).toHaveBeenCalledWith('grade')
+  })
+
+  it('offers no position for an alphabetical vocabulary', async () => {
+    const user = userEvent.setup()
+    await openNoteTypes(user)
+    expect(screen.queryByRole('columnheader', { name: 'Position' })).toBeNull()
+    expect(screen.queryByLabelText('Position of United States Note')).toBeNull()
   })
 
   it('cancels a rename without saving', async () => {

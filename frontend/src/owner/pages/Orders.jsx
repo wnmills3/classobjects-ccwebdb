@@ -190,7 +190,9 @@ export default function Orders() {
                       // own, not an approximation of it.
                       const unshipped = !SHIPPED_STATUSES.includes(order.status)
                       const outsideSale =
-                        s === 'cancelled' && order.sales_venue_code !== 'store' && unshipped
+                        s === 'cancelled' &&
+                        order.sales_venue_code !== 'store' &&
+                        unshipped
                       const endedListing =
                         s === 'cancelled' &&
                         !outsideSale &&

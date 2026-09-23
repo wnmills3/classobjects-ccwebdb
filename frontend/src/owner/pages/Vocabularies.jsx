@@ -138,8 +138,10 @@ function MergePanel({ table, value, others, onMerged, onCancel }) {
   )
 }
 
-function ValueRow({ table, value, others, shared, onChanged, onMerged }) {
+function ValueRow({ table, value, others, shared, sequenced, onChanged, onMerged }) {
   const [draft, setDraft] = useState('')
+  // The position being typed, as text; the value's own until it is edited.
+  const [order, setOrder] = useState(String(value.sort_order))
   // The label being typed, or null when not renaming.
   const [label, setLabel] = useState(null)
   const [merging, setMerging] = useState(false)
@@ -268,6 +270,37 @@ function ValueRow({ table, value, others, shared, onChanged, onMerged }) {
           </form>
         )}
       </td>
+      {sequenced && (
+        <td>
+          <form
+            className="alias-add"
+            onSubmit={(e) => {
+              e.preventDefault()
+              update({ sort_order: Number(order) })
+            }}
+          >
+            {/* Text with a digits pattern, not type=number: a number input
+                steps on the mouse wheel, which reorders a vocabulary by
+                scrolling the page. */}
+            <input
+              className="order-input"
+              inputMode="numeric"
+              pattern="[0-9]+"
+              aria-label={`Position of ${value.label}`}
+              value={order}
+              onChange={(e) => setOrder(e.target.value)}
+            />
+            <button
+              type="submit"
+              disabled={
+                saving || !/^\d+$/.test(order) || Number(order) === value.sort_order
+              }
+            >
+              Move
+            </button>
+          </form>
+        </td>
+      )}
       <td>
         <code>{value.code}</code>
       </td>
@@ -348,6 +381,7 @@ export default function Vocabularies() {
   const [reloads, setReloads] = useState(0)
   const [notice, setNotice] = useState('')
   const values = loaded.table === table ? loaded.values : null
+  const sequenced = loaded.table === table && loaded.sequenced
   const error = tablesError || (loaded.table === table ? loaded.error : '')
 
   useEffect(() => {
@@ -362,7 +396,13 @@ export default function Vocabularies() {
     api
       .getReferenceForEditing(table)
       .then((body) => {
-        if (current) setLoaded({ table, values: body.values, error: '' })
+        if (current)
+          setLoaded({
+            table,
+            values: body.values,
+            sequenced: Boolean(body.sequenced),
+            error: '',
+          })
       })
       .catch((err) => {
         if (current) setLoaded({ table, values: null, error: err.message })
@@ -375,10 +415,15 @@ export default function Vocabularies() {
   const counts = useMemo(() => aliasCounts(values ?? []), [values])
 
   function changed(updated) {
-    setLoaded((l) => ({
-      ...l,
-      values: l.values.map((v) => (v.code === updated.code ? updated : v)),
-    }))
+    setLoaded((l) => {
+      const next = l.values.map((v) => (v.code === updated.code ? updated : v))
+      // A moved value goes where it now sorts, the way the server orders a
+      // sequenced table: by position, then code.
+      if (l.sequenced) {
+        next.sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
+      }
+      return { ...l, values: next }
+    })
     // Pickers elsewhere hold this vocabulary; their copy is now stale.
     context?.invalidate(table)
   }
@@ -440,6 +485,7 @@ export default function Vocabularies() {
           <thead>
             <tr>
               <th>Label</th>
+              {sequenced && <th>Position</th>}
               <th>Code</th>
               <th>Aliases</th>
             </tr>
@@ -452,6 +498,7 @@ export default function Vocabularies() {
                 value={value}
                 others={active.filter((v) => v.code !== value.code)}
                 shared={(alias) => (counts.get(alias.toLowerCase()) ?? 0) > 1}
+                sequenced={sequenced}
                 onChanged={changed}
                 onMerged={merged}
               />
