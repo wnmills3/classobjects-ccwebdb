@@ -157,6 +157,29 @@ describe('FriedbergLookup', () => {
     expect(rows[1]).toHaveAttribute('title', 'unverified proposal')
   })
 
+  it('after a failed attach, a retry only attaches -- it does not record again', async () => {
+    // Recording it twice was refused as a duplicate, leaving the owner stuck
+    // (code review, 2026-09-23).
+    api.createFriedbergNumber.mockResolvedValue({ id: 9, fr_number: 'FR-TEST-1' })
+    api.attachFriedberg
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValue({ fr_number: 'FR-TEST-1', friedberg_status: 'proposed' })
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.type(await screen.findByLabelText(/fr\. number/i), 'FR-TEST-1')
+
+    await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
+    expect(await screen.findByText('network down')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
+    await waitFor(() => expect(api.attachFriedberg).toHaveBeenCalledTimes(2))
+    expect(api.createFriedbergNumber).toHaveBeenCalledTimes(1)
+    expect(api.attachFriedberg).toHaveBeenLastCalledWith(412, {
+      friedberg_id: 9,
+      status: 'proposed',
+    })
+  })
+
   it('surfaces a 409 on recording rather than swallowing it', async () => {
     api.createFriedbergNumber.mockRejectedValue(
       Object.assign(new Error("fr_number 'FR-TEST-1' is already recorded as row 7"), {

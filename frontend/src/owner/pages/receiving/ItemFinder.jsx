@@ -37,7 +37,7 @@ const EMPTY_FILTERS = {
  * status it asks for. The search endpoint filters one view and one status
  * value per request, so "any kind, not yet arrived" is four, merged.
  */
-async function runSearch({ kind, filters }) {
+async function runSearch({ kind, filters, orderId = null }) {
   const views = kind === 'any' ? ['coins', 'currency'] : [kind]
   const statuses =
     filters.status === ANY_STATUS
@@ -47,7 +47,8 @@ async function runSearch({ kind, filters }) {
         : OUTSTANDING_STATUSES
   const shared = {}
   if (filters.denomination) shared.denomination = filters.denomination
-  if (filters.orderNumber.trim()) shared.order_number = filters.orderNumber.trim()
+  if (orderId != null) shared.purchase_order_id = orderId
+  else if (filters.orderNumber.trim()) shared.order_number = filters.orderNumber.trim()
 
   const requests = []
   for (const view of views) {
@@ -127,8 +128,12 @@ function searchInto(
  * a second time is still refused by the backend, which names when it
  * arrived.
  *
- * `initialOrderNumber` fills the order field and searches at once -- how a
- * link naming one order (`?order=`) opens here. `epoch`, bumped by the page
+ * `orderId` (with `initialOrderNumber` to show in the field) is how a link
+ * naming one order (`?order=`) opens here: it searches at once, by the
+ * order's id -- its number is neither unique across vendors nor always
+ * recorded, so matching the number would show other orders' items or none.
+ * The id stays in force while the field still shows that order's number;
+ * typing another number searches by number as usual. `epoch`, bumped by the page
  * after each receipt, repeats the last search, so the item just received
  * leaves the "not yet arrived" list instead of staying clickable.
  *
@@ -139,7 +144,12 @@ function searchInto(
  * `onPick(row)` receives the whole result row: the receipt dialog it opens
  * names what it is about.
  */
-export default function ItemFinder({ onPick, initialOrderNumber = '', epoch = 0 }) {
+export default function ItemFinder({
+  onPick,
+  orderId = null,
+  initialOrderNumber = '',
+  epoch = 0,
+}) {
   const [kind, setKind] = useState('any')
   const [filters, setFilters] = useState({
     ...EMPTY_FILTERS,
@@ -152,7 +162,7 @@ export default function ItemFinder({ onPick, initialOrderNumber = '', epoch = 0 
   const [error, setError] = useState('')
   // True from the start when a linked order searches on mount, rather than
   // set inside that effect.
-  const [busy, setBusy] = useState(Boolean(initialOrderNumber))
+  const [busy, setBusy] = useState(orderId != null)
   const cancelRef = useRef(null)
   const lastQueryRef = useRef(null)
   const statuses = useReference('item_status')
@@ -169,8 +179,10 @@ export default function ItemFinder({ onPick, initialOrderNumber = '', epoch = 0 
 
   function find() {
     setBusy(true)
+    // Still the linked order while its number is what the field shows.
+    const linked = orderId != null && filters.orderNumber === initialOrderNumber
     searchInto(
-      { kind, filters },
+      { kind, filters, orderId: linked ? orderId : null },
       { cancelRef, lastQueryRef, setResults, setSearchedStatus, setError, setBusy },
     )
   }
@@ -185,8 +197,12 @@ export default function ItemFinder({ onPick, initialOrderNumber = '', epoch = 0 
   // A linked order searches once, on arrival. The page remounts this (by
   // key) for a different order, so the initial query never changes here.
   const [initialQuery] = useState(() =>
-    initialOrderNumber
-      ? { kind: 'any', filters: { ...EMPTY_FILTERS, orderNumber: initialOrderNumber } }
+    orderId != null
+      ? {
+          kind: 'any',
+          filters: { ...EMPTY_FILTERS, orderNumber: initialOrderNumber },
+          orderId,
+        }
       : null,
   )
   useEffect(() => {

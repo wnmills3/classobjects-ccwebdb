@@ -139,12 +139,37 @@ describe('ItemFinder', () => {
     expect(calls()[0][1].denomination).toBe('usd_coin_0_01')
   })
 
-  it('searches at once for an order it was opened on', async () => {
-    renderWithProviders(<ItemFinder onPick={vi.fn()} initialOrderNumber="27-1234" />)
+  it('searches at once, by id, for an order it was opened on', async () => {
+    renderWithProviders(
+      <ItemFinder onPick={vi.fn()} orderId={7} initialOrderNumber="27-1234" />,
+    )
     expect(screen.getByLabelText(/order number/i)).toHaveValue('27-1234')
-    // No Find pressed: a link naming one order goes straight to its items.
+    // No Find pressed: a link naming one order goes straight to its items --
+    // by id, since a number is neither unique across vendors nor always
+    // recorded (code review, 2026-09-23).
     await waitFor(() => expect(api.searchInventory).toHaveBeenCalledTimes(4))
-    expect(calls().every(([, params]) => params.order_number === '27-1234')).toBe(true)
+    expect(calls().every(([, params]) => params.purchase_order_id === 7)).toBe(true)
+    expect(calls().some(([, params]) => 'order_number' in params)).toBe(false)
+  })
+
+  it('finds an order recorded with no number', async () => {
+    renderWithProviders(<ItemFinder onPick={vi.fn()} orderId={8} initialOrderNumber="" />)
+    await waitFor(() => expect(api.searchInventory).toHaveBeenCalledTimes(4))
+    expect(calls().every(([, params]) => params.purchase_order_id === 8)).toBe(true)
+  })
+
+  it('searches by number once another number is typed over a linked one', async () => {
+    renderWithProviders(
+      <ItemFinder onPick={vi.fn()} orderId={7} initialOrderNumber="27-1234" />,
+    )
+    await waitFor(() => expect(api.searchInventory).toHaveBeenCalledTimes(4))
+    const box = screen.getByLabelText(/order number/i)
+    await userEvent.clear(box)
+    await userEvent.type(box, '4452')
+    await find(8)
+    const typed = calls().slice(4)
+    expect(typed.every(([, params]) => params.order_number === '4452')).toBe(true)
+    expect(typed.some(([, params]) => 'purchase_order_id' in params)).toBe(false)
   })
 
   it('repeats the last search when the page says a receipt landed', async () => {

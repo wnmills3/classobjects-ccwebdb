@@ -323,6 +323,9 @@ _SHARED_FILTERS: dict[str, Filt] = {
     # Partial and case-insensitive, like item code: Receiving finds a parcel
     # by an order number typed in part, read off a packing slip.
     "order_number": Filt("po.order_number", "ilike", (_J_PURCHASE_ORDER,)),
+    # Exact: a link naming one order. Its number is neither unique across
+    # vendors nor always recorded, so a number match cannot stand in for it.
+    "purchase_order_id": Filt("i.purchase_order_id"),
     "country": Filt("c.code", join=(_J_COUNTRY,)),
     # Not here: `grade`, `grade_min` and `grade_max` are search terms
     # (55%, BU+), read by `_grade_clause`.

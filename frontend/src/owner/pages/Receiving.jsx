@@ -43,7 +43,10 @@ export default function Receiving() {
   const [params] = useSearchParams()
   const orderId = orderIdFromParams(params)
   const [linked, setLinked] = useState(null)
-  const [linkError, setLinkError] = useState('')
+  // Keyed by the order it is about, like `linked`: an error for one link
+  // must not stay on screen, or hold the page, once the address names
+  // another order (code review, 2026-09-23).
+  const [linkFailure, setLinkFailure] = useState(null)
   const [receiving, setReceiving] = useState(null)
   const [lastReceipt, setLastReceipt] = useState({})
   const [epoch, setEpoch] = useState(0)
@@ -57,7 +60,7 @@ export default function Receiving() {
         if (!cancelled) setLinked({ id: orderId, order: body })
       })
       .catch((err) => {
-        if (!cancelled) setLinkError(err.message)
+        if (!cancelled) setLinkFailure({ id: orderId, message: err.message })
       })
     return () => {
       cancelled = true
@@ -67,15 +70,23 @@ export default function Receiving() {
   // Derived, not synchronised: the stored answer counts only for the order
   // the address names now.
   const order = linked?.id === orderId ? linked.order : null
-  const orderNumber = order?.order_number ?? null
+  const linkError = linkFailure?.id === orderId ? linkFailure.message : ''
   const waitingForOrder = orderId != null && order == null && !linkError
 
   const scope = `order:${orderId}`
   const openLine = receiving?.scope === scope ? receiving.line : null
 
   function handleReceiptDone(used) {
-    setReceiving(null)
     if (used) setLastReceipt(used)
+    closeReceipt()
+  }
+
+  // Every close searches again, not only a clean receipt: a receipt whose
+  // photograph failed to upload keeps the dialog open for the error, and
+  // is recorded all the same -- closing it must not leave the item listed
+  // as not yet arrived (code review, 2026-09-23).
+  function closeReceipt() {
+    setReceiving(null)
     setEpoch((n) => n + 1)
   }
 
@@ -105,8 +116,9 @@ export default function Receiving() {
       {!waitingForOrder && (
         <div className="admin-form">
           <ItemFinder
-            key={orderNumber ?? ''}
-            initialOrderNumber={orderNumber ?? ''}
+            key={orderId ?? ''}
+            orderId={order ? orderId : null}
+            initialOrderNumber={order?.order_number ?? ''}
             epoch={epoch}
             onPick={(line) => setReceiving({ scope, line })}
           />
@@ -116,7 +128,7 @@ export default function Receiving() {
       {openLine && (
         <ModalDialog
           label={`Receive ${openLine.item_code}`}
-          onClose={() => setReceiving(null)}
+          onClose={closeReceipt}
         >
           <h2>
             <span className="mono">{openLine.item_code}</span>{' '}
@@ -127,7 +139,7 @@ export default function Receiving() {
             initial={lastReceipt}
             onDone={handleReceiptDone}
           />
-          <button type="button" className="link" onClick={() => setReceiving(null)}>
+          <button type="button" className="link" onClick={closeReceipt}>
             Close
           </button>
         </ModalDialog>

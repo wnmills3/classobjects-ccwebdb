@@ -105,7 +105,7 @@ describe('Receiving', () => {
     expect(await morganButton()).toBeInTheDocument()
     expect(screen.getByLabelText(/order number/i)).toHaveValue('27-1234')
     expect(
-      api.searchInventory.mock.calls.every(([, p]) => p.order_number === '27-1234'),
+      api.searchInventory.mock.calls.every(([, p]) => p.purchase_order_id === 1),
     ).toBe(true)
     const link = screen.getByRole('link', { name: 'Vendor page' })
     expect(link).toHaveAttribute('href', 'https://www.ebay.com/itm/1')
@@ -116,6 +116,26 @@ describe('Receiving', () => {
     renderOnOrder()
     await morganButton()
     expect(screen.queryByRole('link', { name: 'Vendor page' })).toBeNull()
+  })
+
+  it('drops a failed link’s error once the address names another order', async () => {
+    api.getPurchaseOrder.mockImplementation((id) =>
+      id === 1
+        ? Promise.reject(new Error('Purchase order not found'))
+        : Promise.resolve({
+            id: 2,
+            order_number: '27-9999',
+            vendor: 'eBay',
+            ordered_on: '2026-08-30',
+            lines: [],
+          }),
+    )
+    renderOnOrder(<NavigateButton to="/receiving?order=2" />)
+    expect(await screen.findByText('Purchase order not found')).toBeInTheDocument()
+
+    screen.getByText('go').click()
+    expect(await screen.findByRole('heading', { name: /27-9999/ })).toBeInTheDocument()
+    expect(screen.queryByText('Purchase order not found')).toBeNull()
   })
 
   it('follows the route to another order, as Back/Forward would', async () => {
@@ -205,6 +225,14 @@ describe('receiving one line at a time', () => {
     await waitFor(() => expect(api.uploadImage).toHaveBeenCalled())
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(await screen.findByText(/obverse\.jpg.*file too large/i)).toBeInTheDocument()
+
+    // The receipt was recorded, so closing must search again: the item is
+    // no longer "not yet arrived" (code review, 2026-09-23).
+    const before = api.searchInventory.mock.calls.length
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
+    await waitFor(() =>
+      expect(api.searchInventory.mock.calls.length).toBeGreaterThan(before),
+    )
   })
 
   it('offers the previous line’s location again on the next one', async () => {
