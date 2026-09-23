@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -206,6 +207,10 @@ class FriedbergNumber(TimestampMixin, Base):
         nullable=True,
     )
     size_class: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: Printed on a web press rather than sheet-fed; None when not known. The
+    #: two printings of one series, district and denomination are different
+    #: types with different numbers, so this is part of the identity below.
+    web_press: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source: Mapped[ProvenanceSource] = mapped_column(
@@ -224,6 +229,9 @@ class FriedbergNumber(TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("fr_number", name="uq_friedberg_number_fr_number"),
+        # NULLS NOT DISTINCT: most series have no letter, so with NULLs
+        # distinct this index never fired for them and the same type could be
+        # recorded twice under two numbers (measured 2026-09-23).
         Index(
             "uq_friedberg_number_identity",
             "denomination_id",
@@ -231,7 +239,9 @@ class FriedbergNumber(TimestampMixin, Base):
             "series_letter",
             "note_type_id",
             "district_letter",
+            "web_press",
             unique=True,
+            postgresql_nulls_not_distinct=True,
             postgresql_where=text(
                 "denomination_id IS NOT NULL AND series_year IS NOT NULL "
                 "AND note_type_id IS NOT NULL"

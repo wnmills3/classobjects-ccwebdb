@@ -350,6 +350,15 @@ applies only to fully-specified rows, plus an unconditional `unique (fr_number)`
 so a licensed dataset could later be merged on the catalogue number without
 duplicating.
 
+The tuple is denomination, series year and letter, note type, district and
+**web press** (added 2026-09-23): a web-press and a sheet-fed printing of one
+series and district are different types with different numbers. The index is
+`NULLS NOT DISTINCT`. Without it the index never fired for a series with no
+letter -- most of them -- because Postgres treats two NULLs as different, and
+the same type could be recorded twice under two numbers. A note's number is
+attached, confirmed, changed and cleared from the item editor as well as
+from Receiving.
+
 ---
 
 ## 6. Money and valuation

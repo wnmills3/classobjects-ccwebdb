@@ -83,6 +83,9 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // an item a buyer is looking at, and a second request for the same body
   // just to get one more field it already has would be wasted.
   const [itemSaleState, setItemSaleState] = useState([])
+  // The whole body of that same fetch, so the Friedberg lookup can start
+  // from what the note already records instead of blank fields.
+  const [itemDetail, setItemDetail] = useState(null)
   const [friedbergOpen, setFriedbergOpen] = useState(false)
   // The refusal the server sent, held while the operator answers it.
   const [forSaleRefusal, setForSaleRefusal] = useState(null)
@@ -126,6 +129,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
     setTrackedItemId(singleItemId)
     setItemKind(null)
     setItemSaleState([])
+    setItemDetail(null)
     setFriedbergOpen(false)
   }
 
@@ -138,6 +142,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
         if (!cancelled) {
           setItemKind(body.item_kind ?? null)
           setItemSaleState(body.sale_state ?? [])
+          setItemDetail(body)
         }
       })
       .catch(() => {
@@ -146,6 +151,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
         if (!cancelled) {
           setItemKind(null)
           setItemSaleState([])
+          setItemDetail(null)
         }
       })
     return () => {
@@ -406,6 +412,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
             <FriedbergLookup
               key={singleItemId}
               itemId={singleItemId}
+              item={itemDetail}
               onClose={() => setFriedbergOpen(false)}
             />
           )}

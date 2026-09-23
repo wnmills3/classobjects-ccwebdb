@@ -118,6 +118,9 @@ export const api = {
     send('/api/friedberg', { method: 'POST', body: payload }),
   attachFriedberg: (itemId, payload) =>
     send(`/api/inventory/${itemId}/friedberg`, { method: 'POST', body: payload }),
+  // Takes the number off the note; the catalogue row stays.
+  clearFriedberg: (itemId) =>
+    send(`/api/inventory/${itemId}/friedberg`, { method: 'DELETE' }),
   // Signature combinations narrowed to the pairs whose term covers a series
   // year -- not `getReference` (in shared/api.js), which has no way to pass
   // `year`. Adding the param there would hand every anonymous shop visitor a

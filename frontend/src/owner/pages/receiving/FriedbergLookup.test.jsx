@@ -185,6 +185,72 @@ describe('FriedbergLookup', () => {
     )
   })
 
+  it('starts from what the note records, district and web press included', async () => {
+    const item = {
+      id: 412,
+      denomination: 'usd_note_1',
+      note_type: 'frn',
+      seal_color: 'green',
+      series_year: 1995,
+      series_letter: null,
+      signature_combination: 'FR-TEST-SIG-A',
+      fed_district: 'B',
+      attributes: [{ code: 'web_press', label: 'Web Press Note' }],
+    }
+    renderWithProviders(<FriedbergLookup itemId={412} item={item} />)
+    await waitFor(() => expect(api.getSignatureCombinations).toHaveBeenCalledWith(1995))
+
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+
+    // Would fail a form that started blank, or that dropped the district or
+    // the press: nothing here was typed.
+    await waitFor(() =>
+      expect(api.searchFriedberg).toHaveBeenCalledWith({
+        denomination: 'usd_note_1',
+        note_type: 'frn',
+        seal_color: 'green',
+        series_year: 1995,
+        signature_combination: 'FR-TEST-SIG-A',
+        district_letter: 'B',
+        web_press: true,
+      }),
+    )
+  })
+
+  it('does not read a missing Web Press attribute as sheet-fed', async () => {
+    renderWithProviders(
+      <FriedbergLookup itemId={412} item={{ id: 412, attributes: [] }} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await waitFor(() => expect(api.searchFriedberg).toHaveBeenCalledWith({}))
+  })
+
+  it('records the district and press it was given, and says it attached', async () => {
+    const onAttached = vi.fn()
+    renderWithProviders(<FriedbergLookup itemId={412} onAttached={onAttached} />)
+    await userEvent.type(screen.getByLabelText(/district/i), 'B')
+    await userEvent.selectOptions(screen.getByLabelText(/web press/i), 'no')
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+
+    await userEvent.type(await screen.findByLabelText(/fr\. number/i), 'FR-TEST-1')
+    await userEvent.click(
+      screen.getByRole('button', { name: /record & attach as proposed/i }),
+    )
+
+    await waitFor(() =>
+      expect(api.createFriedbergNumber).toHaveBeenCalledWith({
+        fr_number: 'FR-TEST-1',
+        district_letter: 'B',
+        web_press: false,
+      }),
+    )
+    await waitFor(() =>
+      expect(onAttached).toHaveBeenCalledWith(
+        expect.objectContaining({ fr_number: 'FR-TEST-1' }),
+      ),
+    )
+  })
+
   it('never shows a stale search after a newer one has already landed', async () => {
     let resolveFirst
     api.searchFriedberg
