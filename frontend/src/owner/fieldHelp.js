@@ -11,12 +11,166 @@
  * CLAUDE.md's reference-data rule.
  */
 export const FIELD_HELP = {
+  // -- the purchase ---------------------------------------------------------
+  vendor: {
+    title: 'Vendor',
+    text:
+      'Who sold it: the website, auction house, dealer or person. Add a new one ' +
+      "if it isn't listed.",
+  },
+  ordered_on: {
+    title: 'Order date',
+    text:
+      'The date of the purchase -- when the order was placed or the auction won -- ' +
+      'not the date it arrived. Arrival is recorded in Receiving.',
+  },
+  source_url: {
+    title: 'Web address',
+    text:
+      'A link to the listing, auction lot or invoice, so the purchase can be ' +
+      'checked later. It appears as "Vendor page" on the order.',
+  },
+  purchase_notes: {
+    title: 'Notes',
+    text: 'Anything about the purchase as a whole, rather than one item on it.',
+  },
+  purchase_filter: {
+    title: 'Filter',
+    text: 'Type part of an order number or a vendor name to shorten the list.',
+  },
+  tax_rate: {
+    title: 'Tax rate',
+    text:
+      'The sales tax rate charged on this purchase, as a decimal: 0.0635 for 6.35%. ' +
+      'Leave it blank to use the configured default. Every item entered below ' +
+      'is stamped with it.',
+  },
+  no_sales_tax: {
+    title: 'No sales tax charged',
+    text:
+      'Tick when the seller charged no sales tax at all -- the items are stamped ' +
+      'with a rate of zero rather than the default.',
+  },
+  tax_includes_shipping: {
+    title: 'Tax on shipping',
+    text:
+      'Whether the tax was charged on shipping as well as on the price. States ' +
+      'differ; "As configured" uses the default setting.',
+  },
+  // -- an item --------------------------------------------------------------
+  item_kind: {
+    title: 'Kind',
+    text:
+      'What the item is: a coin, a banknote, bullion, a set, and so on. It decides ' +
+      'which fields apply -- a note has no metal or strike type, a coin no serial ' +
+      'number.',
+  },
+  source_title: {
+    title: 'Title',
+    text:
+      'What the seller called it, as written in the listing or invoice -- kept as ' +
+      "the seller's words. The title a buyer sees is set when it is offered for sale.",
+  },
+  piece_count: {
+    title: 'Pieces',
+    text:
+      'How many pieces this one entry stands for: 1 for a single coin or note, more ' +
+      'for a roll, a set or a lot bought as one. A lot can be split into its ' +
+      'pieces later.',
+  },
+  item_cost: {
+    title: 'Item cost',
+    text:
+      'What was paid for this item, in dollars, before shipping and tax. On an ' +
+      'order of several items, the price of this one.',
+  },
+  shipping_cost: {
+    title: 'Shipping',
+    text: "This item's share of the shipping charged on the order, in dollars.",
+  },
+  country: {
+    title: 'Country',
+    text: 'The country that issued it.',
+  },
+  strike_type: {
+    title: 'Strike type',
+    text:
+      'How the coin was made: a business strike, made for circulation and graded ' +
+      'Mint State (MS), or a proof, struck with specially polished dies for ' +
+      'collectors and graded PR. It decides whether a 65 reads MS65 or PR65.',
+  },
+  grade: {
+    title: 'Grade',
+    text:
+      'The condition, on the 1 to 70 scale graders use -- 70 is perfect. Coins and ' +
+      'notes each have their own scale in this list.',
+  },
+  grade_designation: {
+    title: 'Grade designation',
+    text:
+      'A qualifier the grader adds to the grade, such as DCAM (Deep Cameo) on a ' +
+      'proof, RD (Red) on copper, or EPQ (Exceptional Paper Quality) on a note.',
+  },
+  grading_service: {
+    title: 'Grading service',
+    text:
+      'The company that graded and sealed it in a holder ("slab") -- PCGS, NGC, ' +
+      'PMG and others. Leave blank for an ungraded ("raw") item.',
+  },
+  cert_number: {
+    title: 'Certificate number',
+    text:
+      "The grading company's certification number, printed on the slab's label; " +
+      "it identifies this one item on the company's website. Check it against the " +
+      "label: numbers copied from a seller's listing are sometimes wrong.",
+  },
+  metal: {
+    title: 'Metal',
+    text:
+      'What it is struck in: silver, gold, copper, copper-nickel clad, and so on. ' +
+      'With the fineness and weight, it decides the melt value.',
+  },
+  series: {
+    title: 'Series',
+    text:
+      'The design it belongs to, as collectors name it: Morgan Dollar, Walking ' +
+      'Liberty Half Dollar, Silver Certificate.',
+  },
+  variety: {
+    title: 'Variety',
+    text:
+      'A die variety or other variant within the date and mint -- a doubled die, ' +
+      'an overdate -- as the seller or grader names it.',
+  },
+  year_start: {
+    title: 'Year',
+    text:
+      'The date on the coin. For a set, or a coin dated only to an era, tick ' +
+      '"Range of years" and give the first and last year.',
+  },
+  year_end: {
+    title: 'Year to',
+    text: 'The last year of the range.',
+  },
+  new_item_status: {
+    title: 'Status',
+    text:
+      'Ordered: bought but not yet in hand -- record its arrival later in ' +
+      'Receiving. Received: already in hand.',
+  },
+  description: {
+    title: 'Description',
+    text:
+      "Anything else worth keeping about this item: the seller's full description, " +
+      'notes on condition or where it came from.',
+  },
+  // -- searching and receiving ----------------------------------------------
   order_number: {
     title: 'Order number',
     text:
       "The seller's order or invoice number, from the receipt, email or packing " +
-      'slip. Part of it is enough: "4452" finds order 114-4452-X, upper or lower ' +
-      'case alike.',
+      'slip. When searching, part of it is enough: "4452" finds order ' +
+      '114-4452-X, upper or lower case alike.',
   },
   status: {
     title: 'Status',
