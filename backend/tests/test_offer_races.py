@@ -58,8 +58,10 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from tests.conftest import (
     ClaimInvariantViolation,
+    check_auction_invariant,
     check_claim_invariant,
     check_disposition_invariant,
+    check_listing_history_invariant,
     check_lot_invariant,
 )
 
@@ -166,6 +168,8 @@ def _cleanup_race_rows(cleanup: Session) -> None:
         check_claim_invariant(cleanup)
         check_lot_invariant(cleanup)
         check_disposition_invariant(cleanup)
+        check_listing_history_invariant(cleanup)
+        check_auction_invariant(cleanup)
     finally:
         lot_ids = list(cleanup.scalars(race_lot_ids).all())
         cleanup.query(SalesOrderItemShare).filter(

@@ -21,6 +21,10 @@ from app.database import Base, get_db
 from app.grades import GRADE_DISPLAY_SQL, split_fields
 from app.main import app
 from app.models import (
+    Auction,
+    AuctionLot,
+    AuctionLotResult,
+    AuctionStatus,
     Authenticity,
     ClaimState,
     Country,
@@ -443,15 +447,139 @@ def check_listing_history_invariant(db: Session) -> None:
         )
 
 
+class AuctionInvariantViolation(AssertionError):
+    """An auction, its lots and the listings they detail disagree.
+
+    Its own type for the reason `LotInvariantViolation` gives: the claim
+    waiver absorbs only `ClaimInvariantViolation`, and must not exempt this.
+    """
+
+
+#: Statuses in which an auction's lots are still on offer: nothing has been
+#: settled, and `cancel` has not removed them. `closed` is here because the
+#: sale has happened but its results have not been entered -- `settle` is
+#: what ends the listings, not `close`.
+_AUCTION_LOTS_ON_OFFER = frozenset(
+    {
+        AuctionStatus.draft,
+        AuctionStatus.scheduled,
+        AuctionStatus.consigned,
+        AuctionStatus.closed,
+    }
+)
+
+#: Statuses in which the house may still hold an auction's coins. `close`
+#: accepts a `consigned` auction without clearing `consigned_on` (ruling R13),
+#: so `closed` is one of them; `cancel` and `settle` clear the date.
+_AUCTION_CUSTODY_POSSIBLE = frozenset({AuctionStatus.consigned, AuctionStatus.closed})
+
+
+def _auction_lot_problems(
+    status: AuctionStatus,
+    result: AuctionLotResult | None,
+    hammer_price: Decimal | None,
+    buyer_customer_id: int | None,
+    listing_status: ListingStatus,
+    listing_format: ListingFormat,
+) -> list[str]:
+    """Every rule one `auction_lot` row breaks, named, given its auction and listing.
+
+    Fails closed on an `AuctionStatus` this does not know: a new status is a
+    violation until someone decides what its lots should look like.
+    """
+    problems: list[str] = []
+    if listing_format is not ListingFormat.auction:
+        problems.append(f"details a {listing_format.value} listing")
+    if status in _AUCTION_LOTS_ON_OFFER:
+        if result is not None:
+            problems.append(f"has a result on a {status.value} auction")
+        if listing_status is not ListingStatus.active:
+            problems.append(
+                f"its listing is {listing_status.value} on a {status.value} auction"
+            )
+    elif status is AuctionStatus.settled:
+        if result is None:
+            problems.append("has no result on a settled auction")
+        if listing_status is not ListingStatus.ended:
+            problems.append(f"its listing is {listing_status.value} after settlement")
+    elif status is AuctionStatus.cancelled:
+        problems.append("survived its auction's cancellation")
+    else:
+        problems.append(f"belongs to an auction in unknown status {status.value}")
+    if result is AuctionLotResult.sold:
+        if hammer_price is None or buyer_customer_id is None:
+            problems.append("sold with no hammer price or no buyer")
+    elif hammer_price is not None or buyer_customer_id is not None:
+        problems.append("carries a hammer price or buyer but did not sell")
+    return problems
+
+
+def check_auction_invariant(db: Session) -> None:
+    """Assert every auction agrees with its lots, and every lot with its listing.
+
+    `app.auctions` is the sole writer of `auction` and `auction_lot`, and it
+    reaches listings only through `offering_writes`, so these hold after every
+    write unless something wrote around them:
+
+    - An auction whose lots are still on offer (`draft` through `closed`) has
+      no lot results, and every lot's listing is `active`. An auction listing
+      is never paused -- only a store listing is.
+    - A `settled` auction has a result on every lot, and every lot's listing
+      is `ended`.
+    - A `cancelled` auction has no lots: `cancel` deletes them (ruling R11).
+    - A `sold` lot has a hammer price and a buyer; any other lot has neither.
+    - A lot details an auction-format listing. Not the converse: the Offer
+      dialog puts a coin on eBay by auction with no `auction` behind it.
+    - `consigned_on` is set exactly when the house may hold the coins: always
+      on a `consigned` auction, possibly on a `closed` one, never otherwise.
+
+    Two queries, no per-row loads, for the same reason `check_claim_invariant`
+    is one.
+    """
+    wrong: list[str] = []
+    lot_rows = db.execute(
+        select(
+            AuctionLot.id,
+            Auction.status,
+            AuctionLot.result,
+            AuctionLot.hammer_price,
+            AuctionLot.buyer_customer_id,
+            Listing.status,
+            Listing.format,
+        )
+        .join(Auction, Auction.id == AuctionLot.auction_id)
+        .join(Listing, Listing.id == AuctionLot.listing_id)
+    ).all()
+    for lot_id, *fields in lot_rows:
+        wrong.extend(
+            f"auction_lot {lot_id} {problem}"
+            for problem in _auction_lot_problems(*fields)
+        )
+    custody_rows = db.execute(
+        select(Auction.id, Auction.status, Auction.consigned_on)
+    ).all()
+    for auction_id, status, consigned_on in custody_rows:
+        if consigned_on is not None and status not in _AUCTION_CUSTODY_POSSIBLE:
+            wrong.append(f"auction {auction_id} is {status.value} but still consigned")
+        if consigned_on is None and status is AuctionStatus.consigned:
+            wrong.append(f"auction {auction_id} is consigned with no consigned_on")
+    if wrong:
+        raise AuctionInvariantViolation("; ".join(wrong))
+
+
 @pytest.fixture(autouse=True)
 def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     """After every test, each claim's state must equal its listing's status.
 
-    Also runs `check_lot_invariant` and `check_disposition_invariant`, the
-    two checks Task 8 adds, unconditionally and ahead of the waiver handling
-    below. `claim_invariant_waiver` absorbs a `ClaimInvariantViolation`
-    only -- it is a waiver of the claim half of this fixture, never of the
-    lot or disposition rule, and neither of those two ever consults it.
+    Also runs `check_lot_invariant`, `check_disposition_invariant`,
+    `check_listing_history_invariant` and `check_auction_invariant`, all
+    ahead of the claim waiver handling below. `claim_invariant_waiver`
+    absorbs a `ClaimInvariantViolation` only -- it is a waiver of the claim
+    half of this fixture, never of another rule, and none of them consults
+    it. The auction check has its own `auction_invariant_waiver`, graded the
+    same way (a `reason=` is required, and a waiver that stops biting fails)
+    and equally narrow: it absorbs an `AuctionInvariantViolation` and nothing
+    else.
 
     ``db`` is fetched with ``request.getfixturevalue("db")`` -- and only when
     ``"db" in request.fixturenames``, i.e. only for a test that already has a
@@ -550,6 +678,22 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     if "db" in request.fixturenames:
         db = request.getfixturevalue("db")
     yield
+    auction_waiver = request.node.get_closest_marker("auction_invariant_waiver")
+    if (
+        auction_waiver is not None
+        and not str(auction_waiver.kwargs.get("reason") or "").strip()
+    ):
+        pytest.fail(
+            f"{request.node.name} is marked auction_invariant_waiver with no "
+            "reason= naming the scenario it waives; add one"
+        )
+    if auction_waiver is not None and db is None:
+        pytest.fail(
+            f"{request.node.name} is marked auction_invariant_waiver "
+            f"({auction_waiver.kwargs['reason']!r}) but has no `db` fixture in "
+            "its closure, so the auction invariant is never checked for it "
+            "and the waiver waives nothing; remove it"
+        )
     waiver = request.node.get_closest_marker("claim_invariant_waiver")
     # `str(...).strip()`, not a bare truthiness check: `not "   "` is `False`,
     # so a whitespace-only reason -- "   " or "\n\t" -- would otherwise pass
@@ -586,6 +730,22 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     check_lot_invariant(db)
     check_disposition_invariant(db)
     check_listing_history_invariant(db)
+    # Its own waiver, graded the same way as the claim waiver below: a marked
+    # test must still break the rule, or the waiver is stale.
+    if auction_waiver is None:
+        check_auction_invariant(db)
+    else:
+        try:
+            check_auction_invariant(db)
+        except AuctionInvariantViolation:
+            pass
+        else:
+            pytest.fail(
+                f"{request.node.name} is marked auction_invariant_waiver "
+                f"({auction_waiver.kwargs['reason']!r}) but the auction "
+                "invariant no longer disagrees -- the waiver is stale; fix or "
+                "remove it"
+            )
     if waiver is None:
         check_claim_invariant(db)
         return

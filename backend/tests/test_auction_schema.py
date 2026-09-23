@@ -21,6 +21,7 @@ from app.models import (
     Currency,
     InventoryItem,
     Listing,
+    ListingFormat,
     SalesVenue,
     StorageLocationKind,
 )
@@ -36,10 +37,15 @@ def _usd(db: Session) -> int:
 
 
 def _listing(db: Session, item: InventoryItem, venue: SalesVenue) -> Listing:
-    """A plain listing to attach one auction lot to."""
+    """An auction-format listing to attach one auction lot to.
+
+    Auction-format because an `auction_lot` only ever details one --
+    `conftest.check_auction_invariant` holds every test to that.
+    """
     listing = Listing(
         inventory_item_id=item.id,
         sales_venue_id=venue.id,
+        format=ListingFormat.auction,
         currency_id=_usd(db),
         price=Decimal("10.00"),
         quantity_available=1,
@@ -149,6 +155,12 @@ def test_a_new_auction_defaults_to_draft_and_version_one(
     assert row.version == 1
 
 
+@pytest.mark.auction_invariant_waiver(
+    reason=(
+        "a column test: it sets a result and hammer price on a draft "
+        "auction's lot by hand, with no buyer, which only settle may write"
+    )
+)
 def test_a_lot_result_is_null_until_settled(
     db: Session, auction: Auction, lot_listing: Listing
 ) -> None:
