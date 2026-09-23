@@ -476,7 +476,43 @@ button.link.danger {
   background: var(--surface);
 }
 
-/* HelpScope: the help area under a form, explaining the focused field.
+/* The console shell: menu, page, help band, in a column the height of the
+   window. Only the page (.content) scrolls, so a form always fits between
+   the menu and the band, and the band never scrolls out of sight. */
+.console-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  padding-bottom: 0;
+}
+.console-app > .topbar {
+  flex: none;
+}
+.console-app > .content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 16px;
+}
+.help-bar {
+  flex: none;
+  max-height: 30vh;
+  overflow: auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9em;
+  line-height: 1.4;
+  /* Room for two lines even when empty, so the page above does not jump
+     as explanations come and go. */
+  min-height: calc(2.8em + 16px);
+}
+
+/* HelpScope outside the console shell (a form rendered on its own): the
+   help area under the form, explaining the focused field.
    Sticky to the bottom of the view, so a long form such as the item editor
    keeps it in sight while the field being explained is on screen. */
 .help-area {

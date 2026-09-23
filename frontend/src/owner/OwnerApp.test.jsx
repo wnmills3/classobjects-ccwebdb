@@ -74,6 +74,17 @@ describe('owner console shell', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps a help band at the bottom of the console, once', () => {
+    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
+    const bands = screen.getAllByRole('contentinfo', { name: 'Field help' })
+    expect(bands).toHaveLength(1)
+    // The band comes after the page, so it sits below it in the column.
+    const main = screen.getByRole('main')
+    expect(
+      main.compareDocumentPosition(bands[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
   it('links to the Lots page', () => {
     renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
     expect(screen.getByRole('link', { name: /^lots$/i })).toBeInTheDocument()
