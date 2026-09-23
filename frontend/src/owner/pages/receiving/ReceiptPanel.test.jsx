@@ -16,7 +16,7 @@ vi.mock('../../api', () => ({
     // Reachable once a currency item is selected -- FriedbergLookup calls
     // these itself, but it only mounts after "Look up Friedberg number" is
     // pressed, so most tests here never touch them.
-    getSignatureCombinations: vi.fn(),
+    getSignatureChoices: vi.fn(),
     searchFriedberg: vi.fn(),
     createFriedbergNumber: vi.fn(),
     attachFriedberg: vi.fn(),
@@ -77,7 +77,7 @@ beforeEach(() => {
   api.getInventoryItem.mockResolvedValue(ITEM)
   api.setItemReview.mockResolvedValue({ reviewed: [] })
   api.updateInventoryItem.mockResolvedValue({})
-  api.getSignatureCombinations.mockResolvedValue({
+  api.getSignatureChoices.mockResolvedValue({
     table: 'signature_combination',
     values: [],
   })

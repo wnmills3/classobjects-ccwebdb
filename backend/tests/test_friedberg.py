@@ -420,6 +420,96 @@ def test_clearing_a_coin_is_404(
 
 
 # ---------------------------------------------------------------------------
+# GET /friedberg/signatures -- the pairs a note of this series can carry
+# ---------------------------------------------------------------------------
+
+
+def _signatures(
+    client: TestClient, headers: dict[str, str], **params: object
+) -> tuple[list[str], str]:
+    resp = client.get("/api/friedberg/signatures", params=params, headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    return [value["code"] for value in body["values"]], body["source"]
+
+
+def test_a_lettered_series_offers_its_own_later_signers(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Series 1963-A was signed by Granahan and Fowler, whose term began in 1965.
+
+    Narrowing by "whose term covers 1963" offered only Granahan / Dillon, so
+    the right pair for a 1963-A note could not be chosen (2026-09-23,
+    CC-007656). The seeded `note_issue` facts answer it exactly.
+    """
+    codes, source = _signatures(
+        client,
+        admin_headers,
+        denomination="usd_note_1",
+        note_type="frn",
+        series_year=1963,
+        series_letter="A",
+    )
+    assert codes == ["granahan_fowler"]
+    assert source == "note_issue"
+
+
+def test_no_letter_yet_offers_every_letter_of_the_series(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A blank letter may not be typed yet: wider is safe, narrower hid the answer."""
+    codes, _ = _signatures(
+        client,
+        admin_headers,
+        denomination="usd_note_1",
+        note_type="frn",
+        series_year=1963,
+    )
+    assert {"granahan_dillon", "granahan_fowler", "granahan_barr"} <= set(codes)
+
+
+def test_a_series_with_no_facts_falls_back_to_signers_still_in_office(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Without facts, a pair whose term ended before the series cannot sign it.
+
+    Any pair still in office at or after the series year can -- a lettered
+    series is printed later -- so the fallback keeps those, Fowler included.
+    """
+    codes, source = _signatures(
+        client,
+        admin_headers,
+        denomination="usd_note_2",
+        note_type="frn",
+        series_year=1963,
+    )
+    assert source == "term"
+    assert "granahan_fowler" in codes
+    assert "smith_dillon" not in codes  # left office in 1962
+
+
+def test_with_no_series_year_every_pair_is_offered(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Nothing to narrow by yet: the whole list, not an empty picker."""
+    codes, source = _signatures(client, admin_headers)
+    assert source == "all"
+    assert {"smith_dillon", "granahan_fowler"} <= set(codes)
+
+
+def test_an_unknown_code_narrowing_signatures_is_422(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A typo must not quietly widen or empty the list."""
+    resp = client.get(
+        "/api/friedberg/signatures",
+        params={"denomination": "usd_note_one", "series_year": 1963},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+
+# ---------------------------------------------------------------------------
 # Authorisation
 # ---------------------------------------------------------------------------
 

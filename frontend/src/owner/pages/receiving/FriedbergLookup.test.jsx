@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
   api: {
-    getSignatureCombinations: vi.fn(),
+    getSignatureChoices: vi.fn(),
     searchFriedberg: vi.fn(),
     createFriedbergNumber: vi.fn(),
     attachFriedberg: vi.fn(),
@@ -51,7 +51,7 @@ const ROW_UNVERIFIED = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  api.getSignatureCombinations.mockResolvedValue({
+  api.getSignatureChoices.mockResolvedValue({
     table: 'signature_combination',
     values: SIGNATURES_ALL,
   })
@@ -69,25 +69,27 @@ beforeEach(() => {
 
 describe('FriedbergLookup', () => {
   it('offers the unnarrowed signature list, then narrows once a year is entered', async () => {
-    api.getSignatureCombinations.mockImplementation((year) =>
+    api.getSignatureChoices.mockImplementation((params = {}) =>
       Promise.resolve({
         table: 'signature_combination',
-        values: year ? SIGNATURES_1963 : SIGNATURES_ALL,
+        values: params.series_year ? SIGNATURES_1963 : SIGNATURES_ALL,
       }),
     )
     renderWithProviders(<FriedbergLookup itemId={412} />)
 
     // No year entered yet: the unnarrowed list, not an empty one.
-    await waitFor(() =>
-      expect(api.getSignatureCombinations).toHaveBeenCalledWith(undefined),
-    )
+    await waitFor(() => expect(api.getSignatureChoices).toHaveBeenCalledWith({}))
     const select = await screen.findByLabelText(/signature combination/i)
     expect(select).toHaveTextContent('Test Treasurer A / Test Secretary A')
     expect(select).toHaveTextContent('Test Treasurer B / Test Secretary B')
 
     await userEvent.type(screen.getByLabelText(/series year/i), '1963')
 
-    await waitFor(() => expect(api.getSignatureCombinations).toHaveBeenCalledWith(1963))
+    await waitFor(() =>
+      expect(api.getSignatureChoices).toHaveBeenCalledWith(
+        expect.objectContaining({ series_year: 1963 }),
+      ),
+    )
     // Would still pass a component that fetched the year but ignored the
     // response: asserting the wider pair is gone, not just that the narrow
     // one is present, is what actually proves the list was replaced.
@@ -105,7 +107,11 @@ describe('FriedbergLookup', () => {
     await userEvent.type(screen.getByLabelText(/seal color/i), 'green')
     await userEvent.type(screen.getByLabelText(/series year/i), '2017')
     await userEvent.type(screen.getByLabelText(/series letter/i), 'a')
-    await waitFor(() => expect(api.getSignatureCombinations).toHaveBeenCalledWith(2017))
+    await waitFor(() =>
+      expect(api.getSignatureChoices).toHaveBeenCalledWith(
+        expect.objectContaining({ series_year: 2017 }),
+      ),
+    )
     await userEvent.selectOptions(
       screen.getByLabelText(/signature combination/i),
       'FR-TEST-SIG-A',
@@ -198,7 +204,11 @@ describe('FriedbergLookup', () => {
       attributes: [{ code: 'web_press', label: 'Web Press Note' }],
     }
     renderWithProviders(<FriedbergLookup itemId={412} item={item} />)
-    await waitFor(() => expect(api.getSignatureCombinations).toHaveBeenCalledWith(1995))
+    await waitFor(() =>
+      expect(api.getSignatureChoices).toHaveBeenCalledWith(
+        expect.objectContaining({ series_year: 1995 }),
+      ),
+    )
 
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
@@ -213,6 +223,65 @@ describe('FriedbergLookup', () => {
         signature_combination: 'FR-TEST-SIG-A',
         district_letter: 'B',
         web_press: true,
+      }),
+    )
+  })
+
+  it('narrows signatures by the whole series, letter included', async () => {
+    const item = {
+      id: 412,
+      denomination: 'usd_note_1',
+      note_type: 'frn',
+      seal_color: 'green',
+      series_year: 1963,
+      series_letter: 'A',
+      attributes: [],
+    }
+    renderWithProviders(<FriedbergLookup itemId={412} item={item} />)
+    // Would fail a component that narrowed by year alone -- the letter is
+    // what moves 1963 to 1963-A and its later signers (CC-007656).
+    await waitFor(() =>
+      expect(api.getSignatureChoices).toHaveBeenCalledWith({
+        denomination: 'usd_note_1',
+        note_type: 'frn',
+        seal_color: 'green',
+        series_year: 1963,
+        series_letter: 'A',
+      }),
+    )
+  })
+
+  it("keeps the note's own signatures even when the list leaves them out", async () => {
+    // The narrowed list offers only pair A; the note records pair B.
+    api.getSignatureChoices.mockImplementation((params = {}) =>
+      Promise.resolve({
+        values: params.series_year ? SIGNATURES_1963 : SIGNATURES_ALL,
+        source: params.series_year ? 'note_issue' : 'all',
+      }),
+    )
+    const item = {
+      id: 412,
+      series_year: 1963,
+      signature_combination: 'FR-TEST-SIG-B',
+      attributes: [],
+    }
+    renderWithProviders(<FriedbergLookup itemId={412} item={item} />)
+
+    const select = await screen.findByLabelText(/signature combination/i)
+    // Would fail the old behaviour, which cleared a choice the narrowed list
+    // did not hold -- silently, and it was usually the right one.
+    await waitFor(() =>
+      expect(select).toHaveTextContent(
+        'Test Treasurer B / Test Secretary B (not listed for this series)',
+      ),
+    )
+    expect(select).toHaveValue('FR-TEST-SIG-B')
+
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await waitFor(() =>
+      expect(api.searchFriedberg).toHaveBeenCalledWith({
+        series_year: 1963,
+        signature_combination: 'FR-TEST-SIG-B',
       }),
     )
   })

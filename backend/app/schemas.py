@@ -2051,6 +2051,26 @@ class FriedbergNumberCreate(BaseModel):
     description: str | None = None
 
 
+class SignatureChoice(BaseModel):
+    """One Treasurer / Secretary pair the lookup may offer."""
+
+    code: str
+    label: str
+
+
+class SignatureChoicesOut(BaseModel):
+    """The signature pairs a note of the given series can carry.
+
+    `source` says how sure the list is: `note_issue` is the seeded facts for
+    that series, `term` is the fallback for a series with none (every pair
+    still in office at or after the series year), and `all` means nothing
+    was given to narrow by.
+    """
+
+    values: list[SignatureChoice]
+    source: str
+
+
 class FriedbergAttachIn(BaseModel):
     """Attach a catalogue row to a currency item's `currency_detail`."""
 
