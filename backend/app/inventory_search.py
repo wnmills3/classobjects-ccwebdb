@@ -320,6 +320,9 @@ _SHARED_COLUMNS: dict[str, Col] = {
 
 _SHARED_FILTERS: dict[str, Filt] = {
     "item_code": Filt(_C_ITEM_CODE, "ilike"),
+    # Partial and case-insensitive, like item code: Receiving finds a parcel
+    # by an order number typed in part, read off a packing slip.
+    "order_number": Filt("po.order_number", "ilike", (_J_PURCHASE_ORDER,)),
     "country": Filt("c.code", join=(_J_COUNTRY,)),
     # Not here: `grade`, `grade_min` and `grade_max` are search terms
     # (55%, BU+), read by `_grade_clause`.

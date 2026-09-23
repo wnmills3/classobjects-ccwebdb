@@ -134,6 +134,46 @@ def test_a_coin_row_carries_its_purchase_order(
     assert row["ordered_on"] == "2025-01-09"
 
 
+def test_part_of_an_order_number_finds_that_order_s_items(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Receiving searches by order number, typed in part -- "4452" or "114-4".
+
+    Case-insensitive and anywhere in the number, as item code and serial
+    number already are, so a number read off a packing slip in pieces finds
+    its parcel. An item on another order, or on none, is not returned.
+    """
+    wanted = _order(
+        db, number="114-4452-X", vendor_name="ebay.com", ordered_on=date(2025, 2, 1)
+    )
+    other = _order(
+        db, number="227-0001", vendor_name="apmex.com", ordered_on=date(2025, 2, 2)
+    )
+    mine = coin(db, purchase_order_id=wanted.id)
+    coin(db, purchase_order_id=other.id)
+    coin(db)
+
+    for fragment in ("4452", "114-4", "x"):
+        body = search(client, "coins", admin_headers, order_number=fragment).json()
+        assert {r["id"] for r in body["rows"]} == {mine.id}, fragment
+
+
+def test_an_order_number_finds_notes_too(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """One parcel can hold coins and notes; the currency view filters the same."""
+    order = _order(
+        db, number="555-NOTES", vendor_name="ebay.com", ordered_on=date(2025, 3, 1)
+    )
+    wanted = note(db, source_title="On the order", serial="B11111111A")
+    wanted.purchase_order_id = order.id
+    db.commit()
+    note(db, source_title="Not on it", serial="B22222222A")
+
+    body = search(client, "currency", admin_headers, order_number="555").json()
+    assert {r["id"] for r in body["rows"]} == {wanted.id}
+
+
 def test_an_item_without_a_purchase_order_still_appears(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

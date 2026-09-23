@@ -1,22 +1,31 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useReference } from '../../../shared/reference-context'
 import { api } from '../../api'
+import HelpScope from '../../HelpScope'
 
-//: view value paired with its radio label.
-const VIEWS = [
+//: kind value paired with its radio label. `any` searches both views -- one
+//: parcel can hold coins and notes, and the coins view is everything that
+//: is not a note, so the two together are every item.
+const KINDS = [
+  ['any', 'Any'],
   ['coins', 'Coins'],
   ['currency', 'Currency'],
 ]
 
 //: The statuses that mean "has not arrived yet." `missing` is included
 //: alongside `ordered` because a parcel written off as missing sometimes
-//: turns up -- see `OutstandingList`'s matching list.
+//: turns up.
 const OUTSTANDING_STATUSES = ['ordered', 'missing']
+
+//: The status select's value for "no status filter at all" -- the whole of
+//: an order, received lines included, the way the old order view showed it.
+const ANY_STATUS = 'any'
 
 const EMPTY_FILTERS = {
   status: '',
   denomination: '',
+  orderNumber: '',
   year: '',
   mint: '',
   serialNumber: '',
@@ -24,49 +33,128 @@ const EMPTY_FILTERS = {
 }
 
 /**
- * Finds an item by what it is, for when the object is in hand and which order
- * it came from is not known.
- *
- * Every field here is already a filter `GET /api/inventory/{view}/search`
- * supports, so this needs no backend of its own -- it only shapes the query.
- *
- * By default it finds only what has not arrived: `status=ordered` or
- * `status=missing` -- a parcel written off as missing and later turning up is
- * exactly what that code exists for. The search endpoint's `status` filter
- * compares to one value, so that default is two requests, merged. Choosing a
- * status searches that one instead, so an item already recorded as received
- * can be found; receiving it a second time is still refused by the backend,
- * which names when it arrived.
- *
- * Status and denomination are chosen from their vocabularies rather than
- * typed. The filters compare codes, so a typed "Cent" never matched
- * `usd_coin_0_01` -- a denomination box that could only ever find nothing.
- *
- * A single "year" typed here becomes both `year_min` and `year_max`: the
- * backend has no single-year filter, only that range pair.
- *
- * `cancelRef` guards against a stale response the same way `Receiving.jsx`
- * guards a stale order fetch: a search in flight sets a `cancelled` flag a
- * later event can flip before the response lands. Switching the view is the
- * case that matters -- a coins row must never render, let alone be clickable
- * into `onPick`, once the fields on screen are currency's -- and starting a
- * fresh search invalidates whatever the button's own last click kicked off,
- * so two in-flight requests can never both write to `results`.
- *
- * `onPick(row)` receives the whole result row, not its id: the receipt dialog
- * it opens names what it is about, and the caller has no other copy of the
- * item code and description to look it up from.
+ * The requests one search makes: every view the kind covers, times every
+ * status it asks for. The search endpoint filters one view and one status
+ * value per request, so "any kind, not yet arrived" is four, merged.
  */
-export default function ItemFinder({ onPick }) {
-  const [view, setView] = useState('coins')
-  const [filters, setFilters] = useState(EMPTY_FILTERS)
+async function runSearch({ kind, filters }) {
+  const views = kind === 'any' ? ['coins', 'currency'] : [kind]
+  const statuses =
+    filters.status === ANY_STATUS
+      ? [null]
+      : filters.status
+        ? [filters.status]
+        : OUTSTANDING_STATUSES
+  const shared = {}
+  if (filters.denomination) shared.denomination = filters.denomination
+  if (filters.orderNumber.trim()) shared.order_number = filters.orderNumber.trim()
+
+  const requests = []
+  for (const view of views) {
+    const params = { ...shared }
+    // Kind-specific fields only once that kind is chosen: they are shown
+    // only then, and the other view would refuse them as unknown filters.
+    if (kind === 'coins') {
+      if (filters.year) {
+        params.year_min = filters.year
+        params.year_max = filters.year
+      }
+      if (filters.mint) params.mint = filters.mint
+    } else if (kind === 'currency') {
+      if (filters.serialNumber) params.serial_number = filters.serialNumber
+      if (filters.seriesYear) params.series_year = filters.seriesYear
+    }
+    for (const status of statuses) {
+      requests.push(api.searchInventory(view, status ? { ...params, status } : params))
+    }
+  }
+  const bodies = await Promise.all(requests)
+  return bodies.flatMap((body) => body.rows)
+}
+
+/**
+ * Run `query`, guarded against a stale response, and show what it finds.
+ *
+ * Module-level and handed the component's setters and refs, rather than a
+ * function in the component body, so the effects that call it depend only on
+ * what actually triggers them: setters and refs are stable, a body function
+ * is new every render. Returns the cancel function, for an effect's cleanup.
+ */
+function searchInto(
+  query,
+  { cancelRef, lastQueryRef, setResults, setSearchedStatus, setError, setBusy },
+) {
+  cancelRef.current?.()
+  let cancelled = false
+  cancelRef.current = () => {
+    cancelled = true
+  }
+  lastQueryRef.current = query
+  runSearch(query)
+    .then((rows) => {
+      if (cancelled) return
+      setResults(rows)
+      setSearchedStatus(query.filters.status)
+      setError('')
+    })
+    .catch((err) => {
+      if (cancelled) return
+      setError(err.message)
+      setResults(null)
+    })
+    .finally(() => {
+      if (!cancelled) setBusy(false)
+    })
+  return () => {
+    cancelled = true
+  }
+}
+
+/**
+ * Receiving's one search: find what arrived by order number, by what it
+ * is, or both.
+ *
+ * Replaced the page's "By order" / "By item" choice (2026-09-23): an order
+ * number field that takes part of the number does what picking an order
+ * from a list did, and the same form still finds an item in hand whose
+ * order is not known. Every field is a filter `GET
+ * /api/inventory/{view}/search` supports -- `order_number` matches part of
+ * the number, case-insensitively -- so this only shapes the query.
+ *
+ * By default it finds only what has not arrived (`ordered` or `missing`).
+ * Choosing a status searches that one; "Any status" drops the filter, which
+ * is how to see a whole order, received lines included. Receiving something
+ * a second time is still refused by the backend, which names when it
+ * arrived.
+ *
+ * `initialOrderNumber` fills the order field and searches at once -- how a
+ * link naming one order (`?order=`) opens here. `epoch`, bumped by the page
+ * after each receipt, repeats the last search, so the item just received
+ * leaves the "not yet arrived" list instead of staying clickable.
+ *
+ * `cancelRef` guards against a stale response: a search in flight sets a
+ * `cancelled` flag a later search or kind switch flips before it lands, so
+ * two in-flight requests can never both write to `results`.
+ *
+ * `onPick(row)` receives the whole result row: the receipt dialog it opens
+ * names what it is about.
+ */
+export default function ItemFinder({ onPick, initialOrderNumber = '', epoch = 0 }) {
+  const [kind, setKind] = useState('any')
+  const [filters, setFilters] = useState({
+    ...EMPTY_FILTERS,
+    orderNumber: initialOrderNumber,
+  })
   const [results, setResults] = useState(null)
   //: The status the displayed results were searched for, so the "nothing
   //: matches" message describes that search, not a status picked since.
   const [searchedStatus, setSearchedStatus] = useState('')
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  // True from the start when a linked order searches on mount, rather than
+  // set inside that effect.
+  const [busy, setBusy] = useState(Boolean(initialOrderNumber))
   const cancelRef = useRef(null)
+  const lastQueryRef = useRef(null)
   const statuses = useReference('item_status')
   const denominations = useReference('denomination')
 
@@ -79,165 +167,188 @@ export default function ItemFinder({ onPick }) {
     cancelRef.current = null
   }
 
-  function switchView(next) {
+  function find() {
+    setBusy(true)
+    searchInto(
+      { kind, filters },
+      { cancelRef, lastQueryRef, setResults, setSearchedStatus, setError, setBusy },
+    )
+  }
+
+  function switchKind(next) {
     invalidatePendingSearch()
     setBusy(false)
-    setView(next)
+    setKind(next)
     setResults(null)
   }
 
-  async function find() {
-    invalidatePendingSearch()
-    let cancelled = false
-    cancelRef.current = () => {
-      cancelled = true
-    }
+  // A linked order searches once, on arrival. The page remounts this (by
+  // key) for a different order, so the initial query never changes here.
+  const [initialQuery] = useState(() =>
+    initialOrderNumber
+      ? { kind: 'any', filters: { ...EMPTY_FILTERS, orderNumber: initialOrderNumber } }
+      : null,
+  )
+  useEffect(() => {
+    if (!initialQuery) return undefined
+    return searchInto(initialQuery, {
+      cancelRef,
+      lastQueryRef,
+      setResults,
+      setSearchedStatus,
+      setError,
+      setBusy,
+    })
+  }, [initialQuery])
 
-    setBusy(true)
-    setError('')
-    const params = {}
-    if (filters.denomination) params.denomination = filters.denomination
-    if (view === 'coins') {
-      if (filters.year) {
-        params.year_min = filters.year
-        params.year_max = filters.year
-      }
-      if (filters.mint) params.mint = filters.mint
-    } else {
-      if (filters.serialNumber) params.serial_number = filters.serialNumber
-      if (filters.seriesYear) params.series_year = filters.seriesYear
-    }
-    const wanted = filters.status ? [filters.status] : OUTSTANDING_STATUSES
-
-    try {
-      const bodies = await Promise.all(
-        wanted.map((status) => api.searchInventory(view, { ...params, status })),
-      )
-      if (cancelled) return
-      setResults(bodies.flatMap((body) => body.rows))
-      setSearchedStatus(filters.status)
-    } catch (err) {
-      if (cancelled) return
-      setError(err.message)
-      setResults(null)
-    } finally {
-      if (!cancelled) setBusy(false)
-    }
-  }
+  // After a receipt: the same search again, so what just arrived drops out.
+  useEffect(() => {
+    if (epoch === 0 || !lastQueryRef.current) return undefined
+    return searchInto(lastQueryRef.current, {
+      cancelRef,
+      lastQueryRef,
+      setResults,
+      setSearchedStatus,
+      setError,
+      setBusy,
+    })
+  }, [epoch])
 
   return (
-    <div className="item-finder">
-      <div className="filter-grid">
-        {VIEWS.map(([value, label]) => (
-          <label key={value} className="checkbox">
+    <HelpScope>
+      <div className="item-finder">
+        <div className="filter-grid">
+          {KINDS.map(([value, label]) => (
+            <label key={value} className="checkbox">
+              <input
+                type="radio"
+                name="item-finder-kind"
+                value={value}
+                checked={kind === value}
+                onChange={() => switchKind(value)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+
+        <div className="filter-grid">
+          <label data-help="order_number">
+            Order number
             <input
-              type="radio"
-              name="item-finder-view"
-              value={value}
-              checked={view === value}
-              onChange={() => switchView(value)}
+              type="text"
+              value={filters.orderNumber}
+              onChange={(e) => setField('orderNumber', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') find()
+              }}
             />
-            {label}
           </label>
-        ))}
-      </div>
+          <label data-help="status">
+            Status
+            <select
+              value={filters.status}
+              onChange={(e) => setField('status', e.target.value)}
+            >
+              <option value="">Not yet arrived</option>
+              <option value={ANY_STATUS}>Any status</option>
+              {(statuses ?? []).map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label data-help="denomination">
+            Denomination
+            <select
+              value={filters.denomination}
+              onChange={(e) => setField('denomination', e.target.value)}
+            >
+              <option value="">Any</option>
+              {(denominations ?? []).map((d) => (
+                <option key={d.code} value={d.code}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-      <div className="filter-grid">
-        <label>
-          Status
-          <select
-            value={filters.status}
-            onChange={(e) => setField('status', e.target.value)}
-          >
-            <option value="">Not yet arrived</option>
-            {(statuses ?? []).map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Denomination
-          <select
-            value={filters.denomination}
-            onChange={(e) => setField('denomination', e.target.value)}
-          >
-            <option value="">Any</option>
-            {(denominations ?? []).map((d) => (
-              <option key={d.code} value={d.code}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          {kind === 'coins' && (
+            <>
+              <label data-help="year">
+                Year
+                <input
+                  type="text"
+                  value={filters.year}
+                  onChange={(e) => setField('year', e.target.value)}
+                />
+              </label>
+              <label data-help="mint">
+                Mint
+                <input
+                  type="text"
+                  value={filters.mint}
+                  onChange={(e) => setField('mint', e.target.value)}
+                />
+              </label>
+            </>
+          )}
+          {kind === 'currency' && (
+            <>
+              <label data-help="serial_number">
+                Serial number
+                <input
+                  type="text"
+                  value={filters.serialNumber}
+                  onChange={(e) => setField('serialNumber', e.target.value)}
+                />
+              </label>
+              <label data-help="series_year">
+                Series year
+                <input
+                  type="text"
+                  value={filters.seriesYear}
+                  onChange={(e) => setField('seriesYear', e.target.value)}
+                />
+              </label>
+            </>
+          )}
+        </div>
 
-        {view === 'coins' ? (
-          <>
-            <label>
-              Year
-              <input
-                type="text"
-                value={filters.year}
-                onChange={(e) => setField('year', e.target.value)}
-              />
-            </label>
-            <label>
-              Mint
-              <input
-                type="text"
-                value={filters.mint}
-                onChange={(e) => setField('mint', e.target.value)}
-              />
-            </label>
-          </>
-        ) : (
-          <>
-            <label>
-              Serial number
-              <input
-                type="text"
-                value={filters.serialNumber}
-                onChange={(e) => setField('serialNumber', e.target.value)}
-              />
-            </label>
-            <label>
-              Series year
-              <input
-                type="text"
-                value={filters.seriesYear}
-                onChange={(e) => setField('seriesYear', e.target.value)}
-              />
-            </label>
-          </>
+        <button disabled={busy} onClick={find}>
+          {busy ? 'Finding...' : 'Find'}
+        </button>
+
+        {error && <p className="error">{error}</p>}
+
+        {results && results.length === 0 && (
+          <p className="muted">
+            {searchedStatus
+              ? 'Nothing in that status matches.'
+              : 'Nothing outstanding matches.'}
+          </p>
+        )}
+
+        {results && results.length > 0 && (
+          <ul className="order-picker">
+            {results.map((row) => (
+              <li key={row.id}>
+                <button type="button" className="order-row" onClick={() => onPick(row)}>
+                  <span className="mono">{row.item_code}</span> {row.description}
+                  {row.order_number && (
+                    <span className="muted">
+                      {' '}
+                      &middot; {row.order_number}
+                      {row.vendor ? ` · ${row.vendor}` : ''}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
-
-      <button disabled={busy} onClick={find}>
-        Find
-      </button>
-
-      {error && <p className="error">{error}</p>}
-
-      {results && results.length === 0 && (
-        <p className="muted">
-          {searchedStatus
-            ? 'Nothing in that status matches those attributes.'
-            : 'Nothing outstanding matches those attributes.'}
-        </p>
-      )}
-
-      {results && results.length > 0 && (
-        <ul className="order-picker">
-          {results.map((row) => (
-            <li key={row.id}>
-              <button type="button" className="order-row" onClick={() => onPick(row)}>
-                <span className="mono">{row.item_code}</span> {row.description}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    </HelpScope>
   )
 }
