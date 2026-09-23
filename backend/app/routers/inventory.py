@@ -1166,16 +1166,23 @@ def _emptied(data: dict[str, Any]) -> list[str]:
     ]
 
 
-def _note_changes(db: Session, data: dict[str, Any]) -> dict[str, object]:
+def _note_changes(
+    db: Session, data: dict[str, Any], held: CurrencyDetail | None = None
+) -> dict[str, object]:
     """The currency-detail columns a request sets, with codes resolved.
 
     Resolved before anything is written, like every other code here, so an
-    unknown seal colour is a 422 that leaves the item untouched.
+    unknown seal colour is a 422 that leaves the item untouched. `held` is
+    the one note being edited, when there is one: a retired value it already
+    holds stays saveable (ruling S5). A bulk edit passes none.
     """
     changes: dict[str, object] = {}
     for field, model in NOTE_CLASSIFIERS.items():
         if field in data:
-            changes[f"{field}_id"] = code_to_id(db, model, data[field], field)
+            keep = getattr(held, f"{field}_id") if held is not None else None
+            changes[f"{field}_id"] = code_to_id(
+                db, model, data[field], field, keep=keep
+            )
     for field in NOTE_SCALARS:
         if field in data:
             value = data[field]
@@ -1531,16 +1538,19 @@ def update_item(
     years = resolve_years((item.year_start, item.year_end), data)
     if years is not None:
         refuse_backwards(years, item.item_code)
-    _apply_note_changes([item], _note_changes(db, data))
+    _apply_note_changes([item], _note_changes(db, data, item.currency_detail))
 
     for field, model in ITEM_CLASSIFIERS.items():
         if field in data:
             value = data[field]
             resolved: int | None
+            # `keep`: a value this item already holds stays saveable after it
+            # is retired (ruling S5); only a new use of one is refused.
+            held = getattr(item, f"{field}_id")
             if field in REQUIRED_CLASSIFIERS:
-                resolved = require_code(db, model, value, field)
+                resolved = require_code(db, model, value, field, keep=held)
             else:
-                resolved = code_to_id(db, model, value, field)
+                resolved = code_to_id(db, model, value, field, keep=held)
             # Status is the one classifier with a history table behind it.
             # Going through set_status is what keeps that table true; a plain
             # setattr here is the bug this endpoint used to have. Status is
