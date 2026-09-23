@@ -159,6 +159,22 @@ describe('Changes made elsewhere while the form is open', () => {
     )
   })
 
+  it('says who made the other change, from the change log', async () => {
+    const user = userEvent.setup()
+    await openAndEditDescription(user)
+    await somebodyElseSaves({
+      description: 'Mercury dime, cleaned',
+      last_changes: {
+        description: { by: 'Pat Buyer', at: '2026-09-23T21:41:00Z' },
+      },
+    })
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      /now Mercury dime, cleaned, changed by Pat Buyer at /,
+    )
+    expect(alert).toHaveTextContent(/; yours Winged Liberty dime/)
+  })
+
   it('drops my edit on Use theirs', async () => {
     const user = userEvent.setup()
     await openAndEditDescription(user)

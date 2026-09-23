@@ -52,7 +52,7 @@ must change together, exactly one module writes them (§11).
                                   │
       item_certification, item_error, item_attribute_link   (identification)
       item_status_history, location_history ── storage_location
-      item_field_review, item_field_source                  (per-field state)
+      item_field_review, item_field_source, item_field_change  (per-field state)
       item_image ── image ── image_derivative
       valuation_snapshot                    composition, metal_price
 
@@ -475,6 +475,14 @@ house would otherwise each create a location.
 |---|---|---|
 | `item_field_review` (`field_name`, `reviewed_at`, `reviewed_by_id`) | a person confirmed this field by looking at the object | `(inventory_item_id, field_name)` |
 | `item_field_source` (`field_name`, `derived_by`, `derived_at`) | a pass filled this field from known facts and may refresh it; `derived_by = 'held'` means a person emptied it on purpose and no pass may fill it | `(inventory_item_id, field_name)` |
+| `item_field_change` (`field_name`, `old_value`, `new_value` JSONB, `changed_by_id`, `changed_at`) | a person's edit changed this field -- one row per change, never updated | none; indexed on `(inventory_item_id, field_name, changed_at)` |
+
+`item_field_change` is written by the item edit and the bulk edit
+(`app.field_changes`), in the same transaction as the change, only for a field
+whose value actually moved. Values are stored as the item editor sees them
+(codes for classifiers, strings for money). It is what the editor reads to say
+*who* changed a field it warns about; the passes, receiving and offering do
+not write it, so a field changed that way has no entry.
 
 Per field, because attribution works field by field and a half-done item is
 the normal state. No `item_field_source` row means the value is a person's or
@@ -775,6 +783,7 @@ with the lock removed.
 | `app.order_writes` | order lines and share amounts; stock decrements |
 | `app.sales_writes` | `sales_order_fee`, share `fee_amount` |
 | `app.field_sources` | `item_field_source` |
+| `app.field_changes` | `item_field_change` |
 
 **Migrations.** Every schema change is an Alembic revision.
 `tests/test_migrations.py` asserts that autogenerate finds no difference

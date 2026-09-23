@@ -619,6 +619,13 @@ class ItemSaleOut(BaseModel):
     snapshot_at: datetime | None = None
 
 
+class FieldChangeOut(BaseModel):
+    """A field's most recent change by a person's edit: who, and when."""
+
+    by: str | None
+    at: datetime
+
+
 class ItemDetailOut(InventoryItemOut):
     """One item, with everything the edit form needs in one round trip.
 
@@ -699,6 +706,11 @@ class ItemDetailOut(InventoryItemOut):
     friedberg_status: str | None = None
     #: Whether the attached catalogue row has been confirmed by anyone.
     friedberg_verified: bool | None = None
+
+    #: Each field's most recent change by an edit, keyed by field: who made
+    #: it and when (`item_field_change`). The editor names them when it warns
+    #: about a field changed elsewhere. A field never edited has no entry.
+    last_changes: dict[str, FieldChangeOut] = Field(default_factory=dict)
 
     #: What the item is beyond its grade: Star Note, No Motto, First Strike.
     #: Removed ones are not listed.
