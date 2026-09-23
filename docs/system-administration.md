@@ -1388,47 +1388,56 @@ The shape the auctions release was supposed to follow, and did not get the
 chance to. Follow it next time regardless -- what happened this time was an
 accident recovered from, not a reason to trust one less step.
 
-1. **Back up, and verify the backup by restoring it -- never by `--list`.**
-   *Backing up and restoring*, above, is the whole reason this rule exists:
-   `--list` once showed a 13 MB copy that held zero inventory items, for
-   three days, before `--verify` caught it. From `backend\`:
+1. **Back up with `pg_dump`, and verify it by restoring it.** Not with
+   `app.backup`, for this step: that copy is built from the **current
+   models** and carries no `alembic_version`, so once the new code is checked
+   out it already has the new tables -- it cannot be migrated, and it tries
+   to read tables live does not have yet. `pg_dump` copies the database as it
+   is. (`app.backup --verify` is still the check for its own copies, and
+   `--list` is still never evidence -- see *Backing up and restoring*.)
 
    ```cmd
-   python -m app.backup --name pre_release_YYYYMMDD
-   python -m app.backup --verify pre_release_YYYYMMDD
+   set "PGBIN=%USERPROFILE%\miniforge3\envs\ccwebdb\Library\bin"
+   "%PGBIN%\pg_dump.exe" -Fc -d ccwebdb -f "%USERPROFILE%\dev\ccwebdb-backups\ccwebdb_pre_release_YYYYMMDD.dump"
+   "%PGBIN%\psql.exe" -d postgres -c "CREATE DATABASE ccwebdb_rehearsal"
+   "%PGBIN%\pg_restore.exe" -d ccwebdb_rehearsal --no-owner "%USERPROFILE%\dev\ccwebdb-backups\ccwebdb_pre_release_YYYYMMDD.dump"
    ```
 
-   `--verify` must print `matches the source on every table`. If it names
-   tables that differ, the backup is not usable and there is nothing to
-   apply the migration to yet.
+   Then compare every table's row count between `ccwebdb` and
+   `ccwebdb_rehearsal`; they must agree exactly. If they do not, the backup
+   is not usable and nothing is applied.
 
-2. **Rehearse the migration on a scratch restore of that verified backup,
-   and show the counts before and after.** This is what *Testing*, "Before
-   live", in `docs/specs/selling-design.md` requires, and applying three
-   migrations at once to a database holding the whole collection -- as the
-   auctions release would have been, had it gone through this path -- is
-   exactly the case worth rehearsing; a scratch run costs minutes.
+2. **Rehearse the migration on that restore, and show the counts before and
+   after.** This is what *Testing*, "Before live", in
+   `docs/specs/selling-design.md` requires; a scratch run costs minutes.
 
    ```cmd
-   set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/pre_release_YYYYMMDD"
-   python -m app.backup --name ccwebdb_rehearsal
    set "PGDATABASE=ccwebdb_rehearsal"
-   scripts\ccweb_psql.cmd -c "select count(*) from inventory_item where deleted_at is null;"
+   scripts\ccweb_psql.cmd -c "select count(*), sum(total_cost) from inventory_item where deleted_at is null;"
    set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_rehearsal"
    python -m alembic upgrade head
-   scripts\ccweb_psql.cmd -c "select count(*) from inventory_item where deleted_at is null;"
+   scripts\ccweb_psql.cmd -c "select count(*), sum(total_cost) from inventory_item where deleted_at is null;"
+   set "DATABASE_URL="
+   set "PGDATABASE="
    ```
 
-   The two counts must agree, and the second run's `alembic_version` must
-   read the new head. `scripts\ccweb_rebuild.cmd` runs `alembic upgrade
-   head` then `python -m app.seeding load`, in that order, against a
-   from-scratch database -- not `ccwebdb_rehearsal` here, which already
-   holds the collection -- but the **order** is the convention this
-   rehearsal follows too: schema first, reference data second.
+   The two counts must agree, and `alembic_version` must read the new head.
+   Clear both variables before the next step -- they are what point the
+   commands at the rehearsal rather than at live -- and drop
+   `ccwebdb_rehearsal` afterwards; it is a full copy of the collection.
+   `scripts\ccweb_rebuild.cmd` runs `alembic upgrade head` then `python -m
+   app.seeding load`, in that order, against a from-scratch database; the
+   **order** is the convention this follows too: schema first, reference
+   data second.
 
-3. **Only then touch the live database.** Apply against `ccwebdb` itself,
-   with `DATABASE_URL` pointing at it (the default in `.env`, so usually no
-   override is needed):
+   Run this way for the first time on 2026-09-23, for migration
+   `cb1bb956f50b`: every one of 81 tables matched after the restore, and
+   the rehearsal left 7,656 items and $536,118.82 unchanged.
+
+3. **Only then touch the live database**, with the servers stopped
+   (`scripts\ccweb_shutdown.cmd /keepdb`) so nothing writes while the
+   schema changes. Apply against `ccwebdb` itself, with `DATABASE_URL`
+   pointing at it (the default in `.env`, so usually no override is needed):
 
    ```cmd
    python -m alembic upgrade head
