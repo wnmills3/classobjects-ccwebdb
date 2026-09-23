@@ -54,6 +54,7 @@ __all__ = [
     "Listing",
     "ListingFormat",
     "ListingStatus",
+    "ListingStatusHistory",
     "OfferClaim",
     "SalesFeeKind",
     "SalesLot",
@@ -223,25 +224,12 @@ class Listing(TimestampMixin, Base):
     relisted at different prices, and because the public catalogue must be able
     to expose a listing without exposing the item behind it.
 
-    **Known limit: a re-offer loses the previous ending's timestamp.**
-    `ended_at` has exactly one writer (`offering_writes._end`), which only
-    ever sets it forward, once; nothing ever clears it back to `None` on the
-    row that carries it. What is missing is the other half: relisting the
-    same item or lot is always a **new** `Listing` row (`offering_writes.
-    offer`), never a reuse of the ended one, and there is no
-    `listing_status_history` table mirroring `ItemStatusHistory` to link the
-    two into one queryable timeline. The old row's `ended_at` is still in the
-    database -- reachable by `inventory_item_id` or `sales_lot_id` -- but
-    nothing walks an item's or a lot's listings as a history the way
-    `ItemStatusHistory` does for status, so the moment a listing ended is
-    effectively lost the instant the next offer starts, unless a caller
-    already knows to go looking for the earlier row. Auction settlement
-    (`app.auctions.settle`) is what makes this matter: it makes a listing's
-    ending part of the financial record -- when a lot's coins were pulled
-    from the sale and returned matters for reconciling against the house's
-    statement -- so this is the first place the gap sits under money rather
-    than under a cosmetic history view. Building the table is a separate
-    decision (`docs/specs/selling-design.md`, *Out of scope*).
+    Relisting the same item or lot is always a **new** `Listing` row
+    (`offering_writes.offer`), never a reuse of the ended one, and `ended_at`
+    has exactly one writer (`offering_writes._end`), which sets it once. The
+    timeline across those rows -- every offer, pause, resumption and ending,
+    and whether an ending was a sale or a withdrawal -- is
+    `ListingStatusHistory`, written in the same flush as each change.
     """
 
     __tablename__ = "listing"
@@ -360,6 +348,45 @@ class Listing(TimestampMixin, Base):
             "inventory_item_id",
             postgresql_where=text("is_active"),
         ),
+    )
+
+
+class ListingStatusHistory(Base):
+    """Every status a listing has had, and when -- the offer timeline.
+
+    Mirrors `ItemStatusHistory`. Written only by `offering_writes`, the sole
+    writer of `listing.status`, in the same flush as the change it records:
+    the opening row when an offer is made, and one row for each pause,
+    resumption and ending after it. `note` says why, in words -- "sold",
+    "withdrawn", "paused for listing #12" -- because the status alone cannot
+    tell a sale from a withdrawal, and auction settlement makes that
+    difference part of the financial record.
+
+    A re-offer is a new `Listing` row, so an item's or a lot's whole offer
+    history is these rows over every listing that held it, in `changed_at`
+    order.
+    """
+
+    __tablename__ = "listing_status_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("listing.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Null on the opening row -- a listing has no status before it has one.
+    from_status: Mapped[ListingStatus | None] = mapped_column(
+        enum_column(ListingStatus, "listing_status"), nullable=True
+    )
+    to_status: Mapped[ListingStatus] = mapped_column(
+        enum_column(ListingStatus, "listing_status"), nullable=False
+    )
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_listing_status_history_listing_time", "listing_id", "changed_at"),
     )
 
 

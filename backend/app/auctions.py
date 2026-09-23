@@ -106,7 +106,8 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from . import lifecycle_writes, lot_writes, offering_writes, sales_writes
@@ -622,21 +623,18 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
     unordered `Session.scalar` would return whichever of two such rows came
     back first.
 
-    Found by a plain lookup rather than raced with an upsert against a
-    unique index: Postgres treats two `NULL` `identifier` values as
-    *distinct*, so `uq_storage_location_identity` is no backstop here, and
-    two concurrent first-consignments of the *same* platform, from two
-    *different* auctions, can each pass the `found is None` check and insert
-    a duplicate location (fix round 1, Minor #6 -- confirmed as a real, if
-    minor, gap: a duplicate row and items split across two "Consigned:
-    Heritage" entries, not lost data). `auction.version`'s optimistic lock
-    only serialises two consigns of the *same* auction and does not cover
-    this. Not fixed here: the spec's *Concurrency* paragraph does not name
-    this race, and closing it for real needs a partial unique index on
-    `(storage_location_kind_id, institution) WHERE identifier IS NULL` --
-    a migration, which this task does not add. This docstring is that
-    decision's record, so the gap is a documented choice rather than an
-    oversight the next reader has to rediscover.
+    **Created with `INSERT ... ON CONFLICT DO NOTHING`, then read back.**
+    Postgres treats two `NULL` `identifier` values as distinct, so
+    `uq_storage_location_identity` never covered this row, and two
+    concurrent first consignments to one house, from two different
+    auctions, could each find nothing and insert a duplicate location --
+    coins split across two "Consigned: Heritage" entries (auctions fix round
+    1, Minor #6). `uq_storage_location_identity_no_identifier` (migration
+    `cb1bb956f50b`) closes that for the `identifier IS NULL` case, and the
+    upsert is what turns the loser of that race into a reader of the
+    winner's row instead of an `IntegrityError` and a 500: it waits for the
+    first insert to commit, does nothing, and the `SELECT` below finds the
+    one row.
     """
     kind_id = db.scalar(
         select(StorageLocationKind.id).where(
@@ -648,21 +646,21 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
             f"storage_location_kind {_CONSIGNED_KIND_CODE!r} is not seeded: "
             "run `python -m app.seeding load`"
         )
-    found = db.scalar(
+    db.execute(
+        pg_insert(StorageLocation)
+        .values(storage_location_kind_id=kind_id, institution=institution)
+        .on_conflict_do_nothing(
+            index_elements=["storage_location_kind_id", "institution"],
+            index_where=text("identifier IS NULL"),
+        )
+    )
+    return db.scalars(
         select(StorageLocation).where(
             StorageLocation.storage_location_kind_id == kind_id,
             StorageLocation.institution == institution,
             StorageLocation.identifier.is_(None),
         )
-    )
-    if found is not None:
-        return found
-    location = StorageLocation(
-        storage_location_kind_id=kind_id, institution=institution
-    )
-    db.add(location)
-    db.flush()
-    return location
+    ).one()
 
 
 def close(db: Session, auction: Auction) -> None:

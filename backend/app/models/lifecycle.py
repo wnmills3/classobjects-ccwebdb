@@ -86,6 +86,19 @@ class StorageLocation(TimestampMixin, Base):
             "identifier",
             name="uq_storage_location_identity",
         ),
+        # The same identity for a location with no box number. Postgres
+        # treats two NULLs as distinct, so the constraint above never fired
+        # for them: two first consignments to one house, raced, could each
+        # insert a "Consigned: Heritage" row and split its coins between two
+        # (`auctions._consigned_location`). This index is what the constraint
+        # meant for that case.
+        Index(
+            "uq_storage_location_identity_no_identifier",
+            "storage_location_kind_id",
+            "institution",
+            unique=True,
+            postgresql_where=text("identifier IS NULL"),
+        ),
     )
 
 

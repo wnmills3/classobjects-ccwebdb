@@ -33,6 +33,7 @@ from app.models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    ListingStatusHistory,
     OfferClaim,
     ReferenceMixin,
     SalesFeeKind,
@@ -53,7 +54,7 @@ from app.sales_venues import ensure_store_venue, store_venue_id
 from app.security import hash_password
 from app.seeding import seed_all
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.orm import Session
 
@@ -400,6 +401,48 @@ def check_disposition_invariant(db: Session) -> None:
         )
 
 
+class HistoryInvariantViolation(AssertionError):
+    """A listing's recorded history disagrees with its current status.
+
+    Its own type for the reason `LotInvariantViolation` gives: the claim
+    waiver absorbs only `ClaimInvariantViolation`, and must not exempt this.
+    """
+
+
+def check_listing_history_invariant(db: Session) -> None:
+    """Assert each listing's latest history row names its current status.
+
+    One direction only: a listing **with** history must agree with it. A
+    listing with none is allowed, because `build_listing` (this file)
+    inserts listings directly for dozens of tests, the same allowance
+    `check_disposition_invariant` makes. What is left catches the shape that
+    matters: something wrote `listing.status` on an offered listing without
+    going through `offering_writes._set_status`, and the history silently
+    stopped being true.
+
+    One query, no per-row loads, for the same reason `check_claim_invariant`
+    is one.
+    """
+    latest = (
+        select(
+            ListingStatusHistory.listing_id,
+            func.max(ListingStatusHistory.id).label("last_id"),
+        )
+        .group_by(ListingStatusHistory.listing_id)
+        .subquery()
+    )
+    wrong = db.execute(
+        select(Listing.id, Listing.status, ListingStatusHistory.to_status)
+        .join(latest, latest.c.listing_id == Listing.id)
+        .join(ListingStatusHistory, ListingStatusHistory.id == latest.c.last_id)
+        .where(Listing.status != ListingStatusHistory.to_status)
+    ).all()
+    if wrong:
+        raise HistoryInvariantViolation(
+            f"listing status disagrees with its latest history row: {wrong}"
+        )
+
+
 @pytest.fixture(autouse=True)
 def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     """After every test, each claim's state must equal its listing's status.
@@ -542,6 +585,7 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     # still fail. That is why each raises its own type.
     check_lot_invariant(db)
     check_disposition_invariant(db)
+    check_listing_history_invariant(db)
     if waiver is None:
         check_claim_invariant(db)
         return

@@ -149,7 +149,7 @@ class AuctionLot(Base):
     )
     hammer_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     buyer_customer_id: Mapped[int | None] = mapped_column(
-        ForeignKey("customer.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey("customer.id", ondelete="RESTRICT"), index=True, nullable=True
     )
 
     auction: Mapped[Auction] = relationship(back_populates="lots")

@@ -609,6 +609,11 @@ of the planned migration* at the top of this document, and
 `docs/system-administration.md` for what a deliberate release still looks
 like.
 
+**Built 2026-09-22** (`ListingStatusHistory`, migration `cb1bb956f50b`),
+so the paragraph below is history: every status change is recorded by
+`offering_writes` in the same flush, with a note saying whether an ending
+was a sale or a withdrawal.
+
 **Out of scope, added 2026-09-20.** There is no listing history table, so a
 re-offer of the same item or lot -- always a **new** `Listing` row, never a
 reuse of the ended one -- has nothing linking it back to the row it
@@ -788,15 +793,11 @@ Added with phase 4:
   belt-and-braces for a caller that bypasses the schema (a script hitting
   the API directly, or a future client with looser validation), not a
   defect.
-- **A rare race can create duplicate consigned `StorageLocation` rows for
-  one auction house.** `app.auctions.consign`'s "create the location the
-  first time this platform is consigned to" has no partial unique index
-  behind it, so two auctions for the same house racing their first
-  consignment can each decide no row exists yet and each create one. Fixing
-  it needs a partial unique index -- a new migration -- and the live
-  database is already at this branch's revision (see *Live is already at
-  this phase's schema*, at the top of this document); accepted and
-  documented rather than fixed on this branch.
+- **Closed 2026-09-22** (migration `cb1bb956f50b`): the race that could
+  create duplicate consigned `StorageLocation` rows for one auction house.
+  `uq_storage_location_identity_no_identifier` covers the `identifier IS
+  NULL` case the original constraint could not, and `_consigned_location`
+  upserts, so the loser of the race reads the winner's row.
 - **`order_writes._refuse` rolls back the whole session, even inside
   `auctions.settle`'s savepoint.** It errs safe -- more is undone, never
   less -- and is unreached today because settlement always passes a `venue`
