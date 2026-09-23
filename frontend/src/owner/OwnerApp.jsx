@@ -1,6 +1,7 @@
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 
 import { useAuth } from '../shared/auth-context'
+import { HelpBar, HelpProvider } from './HelpBar'
 import AdminPeople from './pages/AdminPeople'
 import Auctions from './pages/Auctions'
 import { InventoryCoins, InventoryCurrency } from './pages/Inventory'
@@ -32,68 +33,76 @@ function RequireAdmin({ children }) {
   return children
 }
 
+/**
+ * The console shell: the menu, the page, and the help band, in a column the
+ * height of the window. Only the page scrolls, so every form fits between
+ * the menu and the band and a field's explanation is always in sight.
+ */
 function Console() {
   const { user, logout } = useAuth()
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <span className="brand">
-          ccwebdb{/* */}
-          <span className="brand-sub">Console</span>
-        </span>
+    <HelpProvider>
+      <div className="app console-app">
+        <header className="topbar">
+          <span className="brand">
+            ccwebdb{/* */}
+            <span className="brand-sub">Console</span>
+          </span>
 
-        <nav className="nav">
-          <NavLink to="/inventory/coins">Coins</NavLink>
-          <NavLink to="/inventory/currency">Currency</NavLink>
-          <NavLink to="/photos">Photos</NavLink>
-          <NavLink to="/receiving">Receive</NavLink>
-          <NavLink to="/purchases/new">New purchase</NavLink>
-          <NavLink to="/orders">Orders</NavLink>
-          <NavLink to="/people">People</NavLink>
-          {/* The spec's Selling group (selling-design.md, *Console*): the
+          <nav className="nav">
+            <NavLink to="/inventory/coins">Coins</NavLink>
+            <NavLink to="/inventory/currency">Currency</NavLink>
+            <NavLink to="/photos">Photos</NavLink>
+            <NavLink to="/receiving">Receive</NavLink>
+            <NavLink to="/purchases/new">New purchase</NavLink>
+            <NavLink to="/orders">Orders</NavLink>
+            <NavLink to="/people">People</NavLink>
+            {/* The spec's Selling group (selling-design.md, *Console*): the
               three pages that put things on sale, together. A labelled
               group rather than a submenu -- nothing to open, and a screen
               reader announces the grouping. */}
-          <span className="nav-group" role="group" aria-label="Selling">
-            <span className="nav-group-label" aria-hidden="true">
-              Selling
+            <span className="nav-group" role="group" aria-label="Selling">
+              <span className="nav-group-label" aria-hidden="true">
+                Selling
+              </span>
+              <NavLink to="/listings">Listings</NavLink>
+              <NavLink to="/lots">Lots</NavLink>
+              <NavLink to="/auctions">Auctions</NavLink>
             </span>
-            <NavLink to="/listings">Listings</NavLink>
-            <NavLink to="/lots">Lots</NavLink>
-            <NavLink to="/auctions">Auctions</NavLink>
-          </span>
-          <NavLink to="/platforms">Platforms</NavLink>
-          <NavLink to="/vocabularies">Vocabularies</NavLink>
-        </nav>
+            <NavLink to="/platforms">Platforms</NavLink>
+            <NavLink to="/vocabularies">Vocabularies</NavLink>
+          </nav>
 
-        <div className="account">
-          <span className="muted">{user.email}</span>
-          <button className="link" onClick={logout}>
-            Sign out
-          </button>
-        </div>
-      </header>
+          <div className="account">
+            <span className="muted">{user.email}</span>
+            <button className="link" onClick={logout}>
+              Sign out
+            </button>
+          </div>
+        </header>
 
-      <main className="content">
-        <Routes>
-          <Route path="/" element={<Navigate to="/inventory/coins" replace />} />
-          <Route path="/inventory/coins" element={<InventoryCoins />} />
-          <Route path="/inventory/currency" element={<InventoryCurrency />} />
-          <Route path="/photos" element={<Photos />} />
-          <Route path="/receiving" element={<Receiving />} />
-          <Route path="/purchases/new" element={<NewPurchase />} />
-          <Route path="/orders" element={<Orders />} />
-          <Route path="/people" element={<AdminPeople />} />
-          <Route path="/listings" element={<Listings />} />
-          <Route path="/lots" element={<Lots />} />
-          <Route path="/auctions" element={<Auctions />} />
-          <Route path="/platforms" element={<Platforms />} />
-          <Route path="/vocabularies" element={<Vocabularies />} />
-          <Route path="*" element={<p className="muted">Page not found.</p>} />
-        </Routes>
-      </main>
-    </div>
+        <main className="content">
+          <Routes>
+            <Route path="/" element={<Navigate to="/inventory/coins" replace />} />
+            <Route path="/inventory/coins" element={<InventoryCoins />} />
+            <Route path="/inventory/currency" element={<InventoryCurrency />} />
+            <Route path="/photos" element={<Photos />} />
+            <Route path="/receiving" element={<Receiving />} />
+            <Route path="/purchases/new" element={<NewPurchase />} />
+            <Route path="/orders" element={<Orders />} />
+            <Route path="/people" element={<AdminPeople />} />
+            <Route path="/listings" element={<Listings />} />
+            <Route path="/lots" element={<Lots />} />
+            <Route path="/auctions" element={<Auctions />} />
+            <Route path="/platforms" element={<Platforms />} />
+            <Route path="/vocabularies" element={<Vocabularies />} />
+            <Route path="*" element={<p className="muted">Page not found.</p>} />
+          </Routes>
+        </main>
+        <HelpBar />
+      </div>
+    </HelpProvider>
   )
 }
 

@@ -2,6 +2,9 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { useNavigate } from 'react-router-dom'
+
+import { HelpBar, HelpProvider } from './HelpBar'
 import HelpScope from './HelpScope'
 import { FIELD_HELP } from './fieldHelp'
 import { renderWithProviders } from '../test/helpers'
@@ -24,6 +27,49 @@ function Form() {
     </HelpScope>
   )
 }
+
+/** Moves the route the way a nav link would. */
+function Go({ to }) {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      go
+    </button>
+  )
+}
+
+describe('the console help band', () => {
+  function Shell() {
+    return (
+      <HelpProvider>
+        <Form />
+        <Go to="/elsewhere" />
+        <HelpBar />
+      </HelpProvider>
+    )
+  }
+
+  it('shows the focused field in the band, not in an area under the form', async () => {
+    renderWithProviders(<Shell />)
+    const band = screen.getByRole('contentinfo', { name: 'Field help' })
+    expect(band).toHaveTextContent(/click in a field/i)
+
+    await userEvent.click(screen.getByLabelText(/series letter/i))
+    expect(band).toHaveTextContent(/not the letter in the seal/)
+    // One place only: the scope draws no area of its own inside the shell.
+    expect(screen.getAllByText(/not the letter in the seal/)).toHaveLength(1)
+  })
+
+  it('clears when the page changes, so no field is explained under the wrong page', async () => {
+    renderWithProviders(<Shell />)
+    await userEvent.click(screen.getByLabelText(/series year/i))
+    const band = screen.getByRole('contentinfo', { name: 'Field help' })
+    expect(band).toHaveTextContent(/year the design was adopted/)
+
+    await userEvent.click(screen.getByRole('button', { name: 'go' }))
+    expect(band).toHaveTextContent(/click in a field/i)
+  })
+})
 
 describe('HelpScope', () => {
   it('explains the field that has focus, and follows focus to the next', async () => {
