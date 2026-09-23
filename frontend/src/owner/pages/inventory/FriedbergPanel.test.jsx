@@ -86,7 +86,8 @@ describe('FriedbergPanel', () => {
     expect(onChanged).not.toHaveBeenCalled()
   })
 
-  it('offers a lookup for a note with no number, filled from the note', async () => {
+  it('one press of Look up searches with what the note records', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => ({}))
     const note = {
       ...PROPOSED,
       friedberg_id: null,
@@ -99,10 +100,22 @@ describe('FriedbergPanel', () => {
     expect(screen.getByText(/no number attached/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^clear$/i })).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: /look up/i }))
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+
+    // Would fail the old two-press flow: no second Look up is pressed here,
+    // and no search field is shown to fill in (2026-09-23).
     await waitFor(() =>
       expect(api.searchFriedberg).toHaveBeenCalledWith({ district_letter: 'B' }),
     )
+    expect(screen.queryByLabelText(/series year/i)).toBeNull()
+    // Nothing in the catalogue: the web search opens on its own.
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(
+        expect.stringContaining('https://www.google.com/ai?q='),
+        'friedberg-web-search',
+        expect.stringContaining('popup'),
+      ),
+    )
+    open.mockRestore()
   })
 })
