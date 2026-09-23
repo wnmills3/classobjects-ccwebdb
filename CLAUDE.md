@@ -6,7 +6,14 @@ skill specifies a different path, format, or workflow, this file wins.
 ## Documentation layout
 
 - Specs go in **`docs/specs/<topic>-design.md`** — flat, alongside the other docs.
-- Plans go in **`docs/plans/`**.
+- Plans go in **`docs/plans/`**, and are **temporary**: a plan is the
+  step-by-step build of a feature, and it is deleted once that work is merged.
+  What was built is described by its spec, which is kept current. (All plans
+  were removed on 2026-09-23, at the owner's request; they remain in git.)
+- **Documentation describes the current state, not its history.** When
+  something changes, edit the doc in place and drop what no longer holds;
+  no revision logs, amendment lists or "originally" narratives. The history
+  is in git.
 - **No date in any filename.** `attribution-design.md`, never
   `2026-09-07-attribution-design.md`. The date belongs in the document's own
   header and in git, both of which stay accurate when the file is revised; a
@@ -14,11 +21,8 @@ skill specifies a different path, format, or workflow, this file wins.
 - **No tool-specific subdirectory.** Never `docs/superpowers/`, `docs/claude/`,
   or similar. Project documentation is not filed under the name of whatever
   tool created it.
-- `docs/data-import-plan.md` **describes the current state**, not a plan plus
-  amendments. It was rewritten that way on 2026-09-23, at the owner's request,
-  from the original plan and Amendments A–K. Keep it current: edit it in place
-  when something changes, and drop what no longer holds. The original plan and
-  every amendment remain in git (`git log -p docs/data-import-plan.md`).
+- `docs/data-import-plan.md` follows the same rule: it was rewritten from the
+  original plan and Amendments A–K into the current state on 2026-09-23.
 
 ## Writing files
 

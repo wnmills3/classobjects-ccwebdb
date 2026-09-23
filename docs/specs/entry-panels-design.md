@@ -1,181 +1,150 @@
 # Entry panels: New purchase and New item
 
-Design. Status: implemented (2026-09-15).
+The database is the system of record, so acquisitions are entered in the
+console: **New purchase** records a vendor and a purchase order, and **New
+item** records a coin, banknote or lot bought on it. Splitting a lot,
+attributing its pieces, editing a vendor and editing a purchase order happen
+elsewhere; a Friedberg number is attached afterwards from Receiving or the item
+editor.
 
-## The problem
+## Rules
 
-The database has been the system of record since 2026-09-08
-(`docs/workflow-import-and-cleanup.md`): rebuilding from the spreadsheet destroys
-work that exists nowhere else. But nothing in the application can add an
-acquisition. `docs/workflow-new-collection.md` specifies the panels and says
-"the entry panels described here do not yet [exist]". The only creation paths
-are the importer, the demo seed, and `POST /api/catalog`, which always creates a
-shop listing, marks the item `listed`, and records no vendor, purchase order,
-coin or banknote detail.
-
-The owner has banknotes to add now.
-
-## Scope
-
-In: **New purchase** (a vendor and a purchase order) and **New item** (a coin,
-banknote or other item bought on that purchase, standalone or as a lot).
-
-Out: Split, Attribute and Group panels (the split endpoint exists; attribution
-has the review pane); vendor editing and merging; purchase-order editing;
-Friedberg attachment at entry (done afterwards from Receiving, which already
-has `FriedbergLookup` for a currency item).
-
-## Decisions
-
-| Question | Decision |
+| Question | Rule |
 |---|---|
-| Can an item exist without a purchase? | **No new item is entered outside a purchase.** A standalone buy is a purchase holding one item. The purchase's order number is optional, so a walk-in or show purchase needs only a vendor. |
-| Where do shipping and tax live? | **On each item, as the schema already has them** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The purchase page's tax-rate field starts empty, meaning the configured rate (sent as `tax_rate: null`); "No sales tax charged" sends 0; an explicit rate is validated as 0-1 with up to 4 places (a leading-dot form like `.0635` accepted). "Tax on shipping" is a three-state choice -- "As configured" sends `null`, "Taxed" sends `true`, "Not taxed" sends `false` -- since a plain checkbox cannot express "not taxed" separately from "use the configured default", and the configured default is `true`. There is no endpoint exposing the configured rate to a new page. These resolved values pre-fill each new item form. No migration. |
-| A lot? | **An item with `piece_count > 1`**, as the workflow doc defines. Splitting stays a later step. |
-| Status on entry | **`ordered` or `received`**, default `ordered`; `received` for things already in hand. The opening status history row is written either way. |
-| Disposition, authenticity, valuation, source | `held`, `unverified` unless given, `numismatic`, `manual`. |
-| Vendors | Picked from a list; a missing vendor is added inline (name, kind, web address). Names are unique. |
-| Repeated entry | **"Save and add another"** keeps exactly `item_kind`, `status`, `country`, `denomination`, `series`, `series_year`, `series_letter`, `seal_color`, `fed_district`, `note_type`, `grading_service`, `metal`, `mint` (plus the purchase-wide tax defaults, which come from the page) and clears everything else: `source_title`, `description`, year fields and the range checkbox, `grade`, `grade_designation`, `serial_number`, `cert_number`, `variety`, `item_cost`, `shipping_cost`, `piece_count` (back to 1). |
-| Web addresses | A purchase's `source_url` must start with `http://` or `https://` (422 otherwise), the same rule Receiving applies when showing it. |
+| Can an item exist without a purchase? | **No.** A standalone buy is a purchase holding one item. The order number is optional, so a walk-in or show purchase needs only a vendor. |
+| Where do shipping and tax live? | **On each item** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The page's purchase-wide values pre-fill each item. |
+| A lot? | An item with `piece_count > 1`. Splitting is a later step. |
+| Status on entry | `ordered` (default) or `received` for things already in hand. The opening status-history row is written either way. |
+| Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. |
+| Vendors | Picked from a list; a missing one is added inline. Names are unique, case-insensitively. |
+| Web addresses | A purchase's `source_url` must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing it. |
 
-## API contract (binding for backend and frontend)
+**Tax fields are three-state.** The tax-rate box starts empty, meaning the
+configured rate (sent as `tax_rate: null`); "No sales tax charged" sends 0 and
+disables the box; an explicit rate is validated as 0-1 with up to 4 places (a
+leading-dot `.0635` accepted), and while it is invalid the item form refuses to
+save, with a visible reason. "Tax on shipping" is "As configured" (`null`),
+"Taxed" (`true`) or "Not taxed" (`false`): a checkbox cannot tell "not taxed"
+from "use the default", and the default is `true`.
 
-All endpoints are administrator-only: 401 signed out, 403 for a customer. Request
-bodies forbid unknown fields (422). Money crosses as decimal strings.
+## API
 
-### Vendors -- `backend/app/routers/acquisitions.py`, new `vendors_router`, prefix `/vendors`
+All endpoints are administrator-only (401 signed out, 403 for a customer).
+Request bodies forbid unknown fields (422). Money crosses as decimal strings.
 
-`GET /api/vendors` -> 200, list ordered by name:
+### Vendors (`routers/acquisitions.py`)
 
-```json
-[{"id": 3, "name": "ebay.com", "url": "https://www.ebay.com", "vendor_kind": "marketplace"}]
-```
+- `GET /api/vendors` -- ordered by name: `id`, `name`, `url`, `vendor_kind`.
+- `POST /api/vendors` -- `name` (1-255, trimmed), `url` (http(s) only, or
+  null), `vendor_kind` (code; null -> `unknown`). 201 with the vendor; 409 on a
+  duplicate name; 422 for an unknown kind or non-http url.
 
-`POST /api/vendors` body `{"name": str (1-255, trimmed, required), "url": str | null (http(s) only), "vendor_kind": str | null (vendor_kind code; null -> "unknown")}`
--> 201 with the vendor as above. 409 `"A vendor named <name> already exists"` on a
-duplicate name (case-insensitive). 422 unknown kind or non-http url.
+### Purchase orders
 
-### Purchase orders -- `purchase_orders_router`, prefix `/purchase-orders`
+- `POST /api/purchase-orders` -- `vendor_id`, `order_number` (trimmed; "" ->
+  null), `ordered_on` (not after tomorrow), `source_url` (http(s) only),
+  `notes`. 201 with `PurchaseOrderDetailOut`. 404 for an unknown vendor; 409
+  when that vendor already has that order number (a partial unique index, so
+  several unnumbered purchases from one vendor are allowed).
+- `GET /api/purchase-orders` and `GET /api/purchase-orders/{id}`, whose lines
+  carry `source_title` and `item_kind` for the page's items table.
 
-`POST /api/purchase-orders` body `{"vendor_id": int, "order_number": str | null (trimmed; "" -> null), "ordered_on": date | null (not in the future beyond today+1 day, as receiving), "source_url": str | null (http(s) only), "notes": str | null}`
--> 201 with the existing `PurchaseOrderDetailOut` (`id, order_number, vendor, ordered_on, source_url, lines: []`).
-404 unknown vendor. 409 `"<vendor> order <number> is already recorded"` when that
-vendor already has that order number (the partial unique index).
+### Items: `POST /api/inventory` (`ItemCreate`)
 
-The existing `GET /api/purchase-orders` is unchanged. `GET /api/purchase-orders/{id}`'s
-line shape gained `source_title` and `item_kind`, for the items table on this page.
+| Field | Rule |
+|---|---|
+| `purchase_order_id` | required; 404 if unknown |
+| `item_kind` | required code |
+| `source_title` | required, 1-500 |
+| `description` | default "" |
+| `year_start`, `year_end` | a start with no end is a single year; end before start is a 422 |
+| `piece_count` | default 1, >= 1 |
+| `item_cost`, `shipping_cost` | default 0.00, >= 0, 2 places |
+| `tax_rate`, `tax_includes_shipping` | null -> the configured default |
+| `status` | `ordered` or `received` |
+| `country`, `denomination`, `grade`, `strike_type`, `grade_designation`, `grading_service`, `metal`, `series`, `bullion_form` | codes; unknown -> 422 naming the field. `grade` may be compound (`MS65`), split into number and strike type. |
+| `storage_form` | null -> `single` |
+| `authenticity` | null -> `unverified` |
+| `cert_number` | creates one `item_certification`, graded by `grading_service` |
+| `mint`, `variety` | coin detail; refused for `currency` |
+| `serial_number`, `series_year`, `series_letter` (<= 4), `seal_color`, `fed_district`, `note_type`, `signature_combination` | currency detail; refused for any other kind |
+| `suggested` | field names whose value the form filled from the facts and the person left alone; recorded as derived defaults |
 
-### Items -- `backend/app/routers/inventory.py`, `POST /api/inventory`
+A detail field for the other kind is a 422 naming the field: a silently
+dropped serial number is data loss. A denomination whose `kind` contradicts
+the item kind is a 422.
 
-Body (`ItemCreate`, extra forbidden):
-
-| Field | Type | Rule |
-|---|---|---|
-| `purchase_order_id` | int | required; 404 if unknown |
-| `item_kind` | str | required item_kind code |
-| `source_title` | str | required, 1-500 |
-| `description` | str | default "" |
-| `year_start`, `year_end` | int \| null | `year_end` null with a start -> equal to start (single year); end before start -> 422 |
-| `piece_count` | int | default 1, >= 1 |
-| `item_cost`, `shipping_cost` | Decimal | default "0.00", >= 0, 2 places |
-| `tax_rate` | Decimal \| null | 0..1, 4 places; null -> configured default |
-| `tax_includes_shipping` | bool \| null | null -> configured default |
-| `status` | str | `ordered` (default) or `received`; anything else 422 |
-| `country`, `denomination`, `grade`, `grade_designation`, `grading_service`, `metal`, `series`, `bullion_form` | str \| null | codes; unknown -> 422 naming the field |
-| `storage_form` | str \| null | code; null -> `single` |
-| `authenticity` | str \| null | code; null -> `unverified` |
-| `cert_number` | str \| null | creates one `item_certification` (with `grading_service`) |
-| `mint`, `variety` | str \| null | coin detail; only when the kind is not `currency` |
-| `serial_number`, `series_year`, `series_letter`, `seal_color`, `fed_district`, `note_type` | str/int \| null | currency detail; only when the kind is `currency`; `series_letter` <= 4 chars |
-
-Sending currency-detail fields for a non-currency kind, or coin-detail fields for
-`currency`, is a 422 naming the field -- a silently dropped serial number is data
-loss.
-
-Behaviour, in one transaction, mirroring `SchemaLoader.load()`:
-resolve every code (422 on the first unknown, naming the field) -> build the
-`InventoryItem` (`source=manual`, `disposition=held`, `valuation_basis=numismatic`,
-tax fields set only when given so the model defaults apply otherwise) -> flush ->
-add exactly one detail row: `CurrencyDetail` for `currency`, otherwise `CoinDetail`
--> add the certification if `cert_number` -> `record_initial_status(db, item,
-user_id=admin.id, note="entered in the console")` -> commit.
-
-Response 201: the same body `GET /api/inventory/{id}` returns (`ItemDetailOut`),
-so the console can show the generated `item_code`.
+In one transaction: resolve every code, build the item, add exactly one detail
+row (`CurrencyDetail` for currency, otherwise `CoinDetail`), add the
+certification, record the `suggested` fields in `item_field_source`, write the
+opening status row ("entered in the console"), bring the item's classifier
+defaults up to date (`classifier-defaults-design.md`), commit. The response is
+the same body `GET /api/inventory/{id}` returns, so the console can show the
+new `item_code`.
 
 ## Console
 
-New route `/purchases/new`, nav link **New purchase** (after Receive).
+Route `/purchases/new`, nav link **New purchase**
+(`owner/pages/NewPurchase.jsx`), in two steps on one page:
 
-**`frontend/src/owner/pages/NewPurchase.jsx`** -- two steps on one page:
+1. **The purchase.** Either *Add to an existing purchase* -- a list filterable
+   by order number or vendor, as keyboard-reachable buttons -- or a new one:
+   vendor (with "+ Add a vendor..." opening an inline name / kind / web address
+   form that never submits the outer form), order number, order date, web
+   address, notes, **Create purchase**. A refusal is shown in place with the
+   input kept.
+2. **Items on this purchase.** The purchase heading, the purchase-wide tax
+   values, a table of items entered so far (code, title, kind, cost, status),
+   the New item form, a **Receive these** link to `/receiving?order=<id>`, and
+   **Start another purchase**.
 
-1. *The purchase.* Either "Add to an existing purchase" (a filterable picker,
-   by order number or vendor, over `listPurchaseOrders()`, showing number,
-   vendor, date, as keyboard-reachable buttons) or a new one: vendor select
-   (from `listVendors()`, with "+ Add a vendor..." opening an inline name /
-   kind / web address form that calls `createVendor`, its inputs never
-   submitting the outer purchase form), order number, order date, web
-   address, notes, **Create purchase**.
-   Refusals (409 duplicate order, 422) are shown in place, keeping what was typed.
-2. *Items on this purchase*, once a purchase is chosen or created: the purchase
-   heading (vendor, number, date), purchase-wide defaults (a tax-rate field that
-   starts empty -- meaning the configured rate, sent as `tax_rate: null`;
-   accepting a leading-dot rate like `.0635`; "No sales tax charged" sends 0;
-   an explicit rate is validated as 0-1 with up to 4 places, and while it is
-   invalid the item form below refuses to save, with a visible reason; and
-   "Tax on shipping", a three-state choice -- "As configured" (`null`),
-   "Taxed" (`true`), "Not taxed" (`false`)),
-   a table of items entered so far (item code, title, kind, cost, status) built
-   from `getPurchaseOrder(id).lines`, the **New item** form below it, a link
-   **Receive these** (a routed link, not a hard-coded shop path) to
-   `/receiving?order=<id>`, and a **Start another purchase** button back to
-   step 1.
+**New item** (`owner/pages/entry/NewItemForm.jsx`):
 
-**`frontend/src/owner/pages/entry/NewItemForm.jsx`** -- props
-`{ purchaseOrderId, defaults, onSaved }`:
-- Kind (select over the `item_kind` vocabulary), title, description, year (with
-  "Range of years" like the item editor), piece count, cost, shipping, status
-  (ordered / received radio), country, denomination, grade (note-grade scale for
-  currency, coin scales otherwise, as the item editor filters; changing the kind
-  across that boundary clears a grade already picked, while a change that stays
-  on one side of it -- coin to bullion, say -- keeps it), grade designation,
-  grading service, certificate number, metal (non-currency), series.
-- Coin block (kind not currency): mint, variety.
-- Banknote block (kind currency): serial number, series year, series letter, seal
-  colour, Federal Reserve district, note type.
-- Classifier pickers are `ReferenceSelect`, so a missing value is added in place.
-- Money validated with `isMoney` from `pages/orders/cents.js` before sending.
-- **Save** and **Save and add another** (keeps the shared fields listed in
-  Decisions, clears the rest, focuses the title). A refusal is shown in the form
-  with the input kept.
-- Keyboard accelerators via `accel` / `AccessLabel` (Alt+letter, avoiding D, E, F)
-  and `useSaveShortcut` (Ctrl+S / Ctrl+Enter = Save).
+- Kind, title, description, year (with "Range of years"), piece count, cost,
+  shipping, status (ordered / received), country, denomination, strike type
+  (not for a note), grade, grade designation, grading service, certificate
+  number, metal (not for a note), series.
+- Coin block (not currency): mint, variety. Banknote block (currency): serial
+  number, series year and letter, note class, seal, signatures, Reserve Bank.
+- Pickers are `ReferenceSelect`, filtered to the item's kind
+  (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
+  for currency and the coin scales otherwise; changing kind across that
+  boundary clears a picked grade, a change within one side keeps it.
+- **Suggestions.** As facts are entered the form asks `GET /api/defaults/note`
+  or `/coin` and fills what the facts decide, marked *suggested*
+  (`classifier-defaults-design.md`).
+- **Errors** are recorded with `ErrorsPanel`, saved after the item is created,
+  with a Retry if that second step fails.
+- Money is validated with `isMoney` before sending.
+- **Save** clears the whole form. **Save and add another** keeps
+  `SHARED_ON_REPEAT` -- kind, status, country, denomination, series, series
+  year and letter, seal, district, note class, signatures, grading service,
+  metal, mint -- clears everything that varies piece to piece (title,
+  description, years, grade, designation, serial, certificate, variety, cost,
+  shipping, piece count back to 1) and focuses the title.
+- Keyboard accelerators via `accel` / `AccessLabel` (Alt+letter, avoiding D,
+  E and F, which the browser claims) and `useSaveShortcut` (Ctrl+S /
+  Ctrl+Enter saves).
 
-Console API additions in `frontend/src/owner/api.js`: `listVendors()`,
-`createVendor(payload)`, `createPurchaseOrder(payload)`, `createInventoryItem(payload)`.
+## Field help
 
-Docs: `docs/workflow-new-collection.md` status updated (New purchase, New item and
-New lot exist; Split panel, Attribute walk and Group still do not);
-`docs/system-administration.md` gains an "Entering a purchase" section.
+Whichever field has focus is explained in the console's **help band**, fixed
+at the bottom of the window. The console is laid out as a column the height
+of the window -- menu, page, band -- and only the page scrolls, so a form
+always fits between the menu and the band and the explanation never scrolls
+out of sight. `owner/HelpBar.jsx` holds the band (`HelpProvider`, `HelpBar`)
+and clears it on moving to another page; `owner/HelpScope.jsx` wraps a form
+and publishes to the band (drawing an area of its own only outside the
+console shell, as in a component test). A field opts in with
+`data-help="<key>"` on its label -- or on the element wrapping a radio group
+or a box named through `htmlFor` -- and `owner/fieldHelp.js` holds the text,
+keyed by the field's API name, so every form explains a field the same way.
+Nothing is placed inside a label: a control in a label with no `for` takes
+the label from its field. The last field explained stays shown when focus
+moves to one with none; scopes nest, and the innermost one with help for the
+focused field shows it. The same mechanism serves the item editor,
+Receiving's search form and the Friedberg lookup. A test scans the console
+source and fails on any `data-help` key with no text.
 
-## Testing
-
-Backend (`backend/tests/test_entry_vendors_purchases.py`, `backend/tests/test_inventory_create.py`):
-vendor list/create, duplicate name 409 (case-insensitive), unknown kind 422,
-non-http url 422; purchase create, unknown vendor 404, duplicate vendor+number 409,
-two purchases with no number for one vendor allowed, future date 422, bad url 422;
-item create for a coin (coin detail, mint) and a banknote (currency detail with
-serial, series year/letter, seal, district, note type; generated
-`series_designation`), a lot (`piece_count` 5), `status` ordered vs received with
-one opening status-history row, tax defaults vs explicit zero, certification row,
-single-year normalisation, unknown code 422 naming the field, cross-kind detail
-fields 422, unknown purchase order 404, extra field 422, and 401/403 on every new
-endpoint with nothing written. The response carries a generated `CC-` item code.
-
-Frontend (`NewPurchase.test.jsx`, `entry/NewItemForm.test.jsx`): creating a
-vendor inline and a purchase; picking an existing purchase; 409 kept in place;
-item payload for a coin and a banknote (banknote fields shown only for currency);
-money validation; Save and add another keeps shared fields and clears per-note
-fields; accelerators present; Receive these link.
-
-Gates: `scripts\ccweb_check.cmd` exit 0 before merge; a final whole-branch review.
+Help text is public numismatic fact only -- what is printed where on a note
+and what it means -- never a catalogue's numbering or a price guide's values.

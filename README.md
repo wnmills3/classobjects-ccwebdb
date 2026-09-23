@@ -2,26 +2,32 @@
 
 Numismatic and Currency Web Platform for Inventory and Sales.
 
-A FastAPI backend and React frontend for managing a coin and banknote
-inventory. Administrators maintain the catalogue; customers browse it and place
-orders.
+A FastAPI backend and two React applications over one PostgreSQL database: an
+**owner console** for cataloguing, receiving, photographing and selling a coin
+and banknote collection, and a **shop** where customers browse and order. Why
+it exists and what it deliberately does not do is in
+[docs/project-purpose.md](docs/project-purpose.md).
+
+The `ccwebdb` database is the system of record for the collection. The
+spreadsheet it was imported from is historic; data is corrected in the console
+or by passes over stored items, never by re-importing
+([docs/data-import-plan.md](docs/data-import-plan.md)).
 
 ## Stack
 
 | Layer    | Choice                                                      |
 | -------- | ----------------------------------------------------------- |
 | Backend  | FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2                |
-| Database | PostgreSQL 18 (run from the conda environment, no Docker)    |
+| Database | PostgreSQL 18, run from the conda environment (no Docker)    |
 | Auth     | JWT access + refresh tokens, argon2 password hashing         |
-| Frontend | React 19 + React Router 7, Vite 8, plain JavaScript          |
+| Frontend | React 19 + React Router 7, Vite 8, Vitest, plain JavaScript  |
 | Tooling  | Miniforge/conda for binaries, uv for Python dependencies     |
 
 ## Getting started
 
-First time on a machine, follow **[docs/environment-setup.md](docs/environment-setup.md)** —
-it covers Miniforge, uv, Node, PostgreSQL and the database bootstrap.
-
-Once set up, one command starts the database, the API and the UI:
+First time on a machine, follow
+**[docs/environment-setup.md](docs/environment-setup.md)**. After that, one
+command starts the database, the API and both applications:
 
 ```cmd
 scripts\ccweb_startup.cmd
@@ -29,246 +35,143 @@ scripts\ccweb_startup.cmd
 
 | | |
 |---|---|
-| UI | http://127.0.0.1:5173 |
-| API docs | http://127.0.0.1:8000/docs |
-| Sign in | `admin@example.com` / `adminpassword` (see `.env`) |
+| Shop | http://127.0.0.1:5173 |
+| Owner console | http://127.0.0.1:5173/owner |
+| API docs (OpenAPI) | http://127.0.0.1:8000/docs |
 
-Stop it again with `scripts\ccweb_shutdown.cmd`. See
-[docs/runtime-operations.md](docs/runtime-operations.md) for what those do and
-how to run a service by hand with `--reload`.
+Stop with `scripts\ccweb_shutdown.cmd`; see what is running with
+`scripts\ccweb_status.cmd`. [docs/runtime-operations.md](docs/runtime-operations.md)
+covers every script.
 
 ## Layout
 
 ```
 backend/
   app/
-    main.py              FastAPI app and CORS
-    config.py            settings from .env
-    database.py          engine, session factory, declarative base
-    deps.py              current-user and admin-role dependencies
-    security.py          argon2 hashing, JWT issue/verify
-    schemas.py           Pydantic request/response models
-    models/              the schema, by subject area: core (inventory_item
-                         and the coin/currency detail tables), reference,
+    main.py, config.py, database.py, deps.py, security.py, schemas.py
+    models/              the schema by subject area: core, reference,
                          identification, valuation, lifecycle, images,
-                         sales, and views
-    routers/             auth, catalog, inventory, reference, images, orders
-    inventory_search.py  one search implementation, two view specifications
-    splitting.py         breaking a lot into its pieces
-    allocation.py        largest-remainder division of money, to the penny
-    references.py        classifier code <-> id resolution
-    imaging.py           metadata stripping, thumb/web renditions
-    storage.py           content-addressed file storage
-    seeding.py           load and export reference data as versioned JSON
-    seed.py              idempotent admin user
-    importers/           spreadsheet import: a durable engine and a
-                         disposable per-spreadsheet profile
+                         sales, auctions, views
+    routers/             the HTTP API (see below)
+    *_writes.py          the single writers: lifecycle (status, location),
+                         offering (listings, claims, disposition), orders,
+                         sales, lots
+    inventory_search.py  owner search and facets over the base tables
+    issues.py            named diagnostics (no year, no grade, ...)
+    classifier_defaults.py, series_match.py, series_classify.py,
+    serial_patterns.py, rating_pass.py, photo_import.py
+                         passes over stored items; dry run unless --commit
+    seeding.py           load and export reference data (backend/data/reference/)
+    seed.py              first administrator plus demo items (never on live)
+    backup.py            database-to-database copy with --verify
+    importers/           workbook import: durable engine, disposable profile
   alembic/               migrations
+  data/reference/        shipped vocabularies as versioned JSON
+  tests/                 pytest, against its own ccwebdb_test database
 frontend/
-  src/
-    api.js               fetch wrapper with automatic token refresh
-    format.js            money and date formatting
-    auth-context.js      context and hook  -- split from the provider so
-    auth.jsx             provider only        Fast Refresh keeps app state
-    cart-context.js      cart contents; the provider in cart.jsx is what
-    cart.jsx             persists them to localStorage
-    reference-context.js vocabularies for the pickers
-    reference.jsx
-    pages/               Catalog, CoinDetail, Cart, Orders, Login, Register,
-                         AdminCoins, Inventory (coins and currency views)
-docs/
-  environment-setup.md         first time on a machine
-  runtime-operations.md        starting and stopping the services
-  code-quality.md              the gates, and the exceptions that are justified
-  database-design.md           the target schema
-  data-import-plan.md          import decisions, amendments A-H
-  spreadsheet-import-design.md
-scripts/                       startup, shutdown, check, psql, pgadmin, claude
+  index.html, owner.html two entries, built as two isolated bundles
+  src/store/             the shop
+  src/owner/             the owner console
+  src/shared/            API client, auth, formatting, vocabularies
+scripts/                 ccweb_*.cmd: startup, shutdown, status, check, psql,
+                         pgadmin, claude, rebuild, sonar
+docs/                    project, operations and design documents; designs
+                         for individual features are in docs/specs/
 ```
 
 ## API
 
-| Method | Path                 | Access   |
-| ------ | -------------------- | -------- |
-| POST   | `/api/auth/register` | public   |
-| POST   | `/api/auth/login`    | public   |
-| POST   | `/api/auth/refresh`  | public   |
-| GET    | `/api/auth/me`       | signed in |
-| GET    | `/api/catalog`       | public   |
-| GET    | `/api/catalog/{id}`  | public   |
-| POST   | `/api/catalog`       | admin    |
-| PATCH  | `/api/catalog/{id}`  | admin    |
-| DELETE | `/api/catalog/{id}`  | admin    |
-| GET    | `/api/reference`     | public (vocabulary index)  |
-| GET    | `/api/reference/{table}` | public               |
-| POST   | `/api/reference/{table}` | admin (add a value)  |
-| PATCH  | `/api/reference/{table}/{code}` | admin (rename) |
-| GET    | `/api/inventory/{view}/search` | admin (`coins` \| `currency`) |
-| GET    | `/api/inventory/{id}` | admin                     |
-| POST   | `/api/inventory/{id}/split` | admin               |
-| POST   | `/api/images`        | admin (multipart upload)   |
-| GET    | `/api/images/{id}/{thumb\|web}` | public          |
-| DELETE | `/api/images/{id}`   | admin    |
-| POST   | `/api/orders`        | customer |
-| GET    | `/api/orders`        | own orders; admins see all |
-| GET    | `/api/orders/{id}`   | own order; admins see all  |
-| PATCH  | `/api/orders/{id}`   | admin (status changes)     |
+Everything is under `/api`; the live OpenAPI page at `/docs` is the complete
+reference. By area:
 
-The `{id}` in the catalogue paths is a **listing** id. A catalogue entry is a
-`listing` joined to the `inventory_item` behind it: the item is what you own,
-the listing is what it is being sold for. The API presents the pair as one
-resource because that is how a shop is operated, and returns the item's id
-alongside as `inventory_item_id`.
+| Area | Prefix | Access |
+|---|---|---|
+| Accounts | `/auth`, `/users`, `/customers` | sign-in public; administration admin |
+| Shop catalogue | `/catalog` | public, read only |
+| Customer orders | `/orders` | customers their own; admins all |
+| Inventory | `/inventory` (search, create, bulk, edit, receive, split, errors, reviews, delete) | admin |
+| Purchases | `/vendors`, `/purchase-orders`, `/storage-locations` | admin |
+| Vocabularies | `/reference` (read public; add, rename, alias, merge admin), `/defaults` | mixed |
+| Photographs | `/images`, `/image-links` (renditions public, by content hash) | mixed |
+| Selling | `/sales-venues`, `/offers`, `/listings` (end, record a sale), `/sales-lots`, `/auctions` | admin |
+| Friedberg numbers | `/friedberg`, `/inventory/{id}/friedberg` | admin; the owner's own numbers only |
 
-Notable behaviour:
+Rules that hold across the API:
 
-- **Classifiers cross the API as codes, not ids** -- `"item_kind": "bullion"`,
-  `"grade": "MS64"`, `"country": "US"`. Ids differ between installations; codes
-  are the stable contract. An unknown code is a 422 naming the field, never a
-  silently null column. The API never invents classifier rows.
-- **Concurrent edits are detected, not silently applied.** Every GET returns a
-  `version` token; sending it back with a PATCH makes the save conditional. If
-  someone else saved meanwhile the request is refused with 409 and the current
-  state, instead of overwriting their work with values loaded before their
-  change. Reads are never blocked -- no locks are involved.
-- Placing an order locks the affected listings (`SELECT ... FOR UPDATE`, taken
-  in id order) and decrements availability atomically, so concurrent buyers
-  cannot oversell. Verified by tests that drive the handler from real threads
-  -- a test that serialises its requests passes even with the lock removed.
-- Order lines record `unit_price` at purchase time, so later price edits do not
-  rewrite order history.
-- Cancelling an unshipped order returns its units to availability. Cancelling
-  one already packed or shipped does not: that stock has left the building.
-- Selling the last unit moves the item's `disposition` to `sold`. Its `status`
-  -- how it was acquired -- is untouched; the two lifecycles are independent.
-- A listing that appears in an existing order cannot be deleted; withdraw it by
-  setting `is_active` to false.
-- Every inventory item carries a permanent `item_code` (`CC-000123`), issued
-  once, never changed and never reused -- so a returned item resumes its own
-  history, and a reference in an audit stays unambiguous.
-- **Uploaded images have their metadata stripped at ingest, not at publish.**
-  Photographs of valuables routinely carry the GPS coordinates of where they
-  were taken. Orientation is applied to the pixels first, then every metadata
-  segment is removed, then the written bytes are re-read and checked -- an
-  image that still carries metadata is refused rather than stored. Verified
-  against real collection photographs, all of which carried GPS.
-- Originals are never served. Public requests are answered only from generated
-  `thumb` and `web` renditions.
-- Images are content-addressed by the hash of the cleansed bytes, so uploading
-  the same photograph twice stores one file.
-- **Coins and currency browse as separate inventories**, because the columns
-  that matter differ: a coin has a mint mark and a variety, a banknote has a
-  series letter, a seal colour and its own printed serial. One grid would
-  leave most columns blank most of the time.
-- The search panel's options come from **facets** -- value counts over the
-  current result set -- not the full vocabulary. A real collection uses a
-  fraction of the fifty-odd grades defined, so offering all of them buries the
-  ones present. Counts reflect the filters already applied, so a choice that
-  would return nothing is visibly empty before it is made.
-- **An unrecognised filter is a 422, never ignored.** A silently dropped
-  filter returns the whole collection and looks like a matching result.
-- **Vocabularies grow with use.** A value missing from a picker can be added
-  from the picker, marked `manual` so one installation's additions stay out of
-  a catalogue shared with another.
-- **Renaming a value changes its label everywhere at once**, because every
-  record refers to it by foreign key -- there is nothing to migrate. The
-  `code` never changes: it appears in saved filters and bookmarked searches,
-  and renaming the label is exactly what lets a poorly worded one be fixed
-  without breaking them.
-- Searches read the base tables with only the joins each query needs, not the
-  wide inventory views. Measured over 6,370 coins, a page plus all facets went
-  from 400 ms to 23 ms -- the cost was never the normalisation, it was asking
-  a fourteen-way join for one column.
-- **A lot can be split into its pieces**, dividing the cost between them.
-  `equal` gives every piece the same share -- right for twenty identical rounds
-  in a tube. `relative` divides in proportion to a value supplied per piece --
-  right for a mint set, where charging the cent and the half dollar the same
-  cost basis would make one look like a disaster and the other a windfall.
-  `price` and `shipping` always reconcile to the penny; the allocation floors
-  each share and hands the remainder to the parts cut hardest. `taxes` is
-  generated per row, so the pieces' rounded taxes can total a cent or two away
-  from the lot's -- that difference is reported, never absorbed silently.
-- The lot is kept and marked `split_at`, because it holds the purchase order
-  and the price actually paid. Everything that counts inventory or money
-  excludes it, so a lot and its pieces are never both counted.
+- **Classifiers cross the API as codes, not ids** (`"grade": "MS64"`). An
+  unknown code is a 422 naming the field; the API never invents a vocabulary
+  row. An unrecognised search filter is also a 422, never ignored -- a dropped
+  filter returns the whole collection and looks like a result.
+- **Concurrent edits are detected.** Reads return a `version`; a write that
+  sends a stale one is refused with 409 and the current state.
+- **No item is offered twice.** At most one active offer per item, enforced
+  by a partial unique index on `offer_claim`; checkout locks the listings it
+  buys in id order.
+- **Order lines record the price paid**, so later price edits do not rewrite
+  history.
+- **Every item has a permanent `item_code`** (`CC-000123`), issued once and
+  never reused.
+- **Photographs are stripped of metadata at ingest** (they carry GPS), and
+  only generated `thumb` and `web` renditions are ever served. Storage
+  location and inventory photographs never reach a customer; `routers/catalog.py`
+  builds each public response field by field.
+- **Money is `NUMERIC` and `Decimal`**, never a float; lot splits reconcile to
+  the penny.
 
 ## Looking at the data
 
 In a browser, with pgAdmin:
 
-```
+```cmd
 scripts\ccweb_pgadmin.cmd
 ```
 
-That starts pgAdmin on <http://127.0.0.1:5050> and opens it, with the `ccwebdb`
-connection already registered — the password is `devpassword` and pgAdmin will
-offer to remember it. The rows are under **Databases > ccwebdb > Schemas >
-public > Views**.
+It opens pgAdmin on http://127.0.0.1:5050 with the `ccwebdb` connection
+already registered (password `devpassword`). pgAdmin is not a project
+dependency; install it once into its own uv tool environment, pinned to 3.13
+because `pywinpty` has no wheel for the newer interpreter uv would otherwise
+pick:
 
-pgAdmin is deliberately *not* a project dependency. It lives in its own uv tool
-environment outside the repository, so it never enters `uv.lock` and never
-reaches the conda environment that `UV_PROJECT_ENVIRONMENT` points at:
-
-```
+```cmd
 uv tool install --python 3.13 pgadmin4
 ```
 
-Pin 3.13. uv otherwise picks the newest interpreter it can see — miniforge's
-3.14 — and `pywinpty` publishes no `cp314` wheel, so uv falls back to building
-it from Rust source and fails on the missing MSVC linker.
-
 At the command line, with psql:
 
-```
+```cmd
 scripts\ccweb_psql.cmd                              interactive psql
 scripts\ccweb_psql.cmd -c "select * from metal;"    one statement
 scripts\ccweb_psql.cmd -f query.sql                 a file
 ```
 
-Query the **views** rather than the base tables: `coin_inventory`,
-`currency_inventory`, `item_valuation` and `public_catalog` resolve every
-foreign key to a readable code, so `grade` reads `MS64` instead of `grade_id`
-reading `37`. They also exclude lots that have been split, so nothing is
-counted twice.
+The views `coin_inventory`, `currency_inventory`, `item_valuation` and
+`public_catalog` resolve foreign keys to readable codes and exclude split and
+deleted rows, which makes them the easy place to query by hand. The
+application itself does not read them.
 
-One trap when writing queries by hand: `title` holds the *denomination* as the
-spreadsheet wrote it (`0.25`, `Mint Set`, `5`), not a descriptive name. The
-words a person would search for live in `description` -- "Morgan" appears 899
-times there and never once in `title`. Search both, as the API already does:
+One trap: `source_title` holds the workbook's denomination text (`0.25`,
+`Mint Set`), not a name. The words a person searches for are in
+`description`. Search both:
 
 ```sql
 select item_code, description, year_start, grade from coin_inventory
-where coalesce(title, '') || ' ' || coalesce(description, '') ilike '%morgan%';
+where coalesce(source_title, '') || ' ' || coalesce(description, '') ilike '%morgan%';
 ```
 
-## Code quality
+## Code quality and tests
 
-```
-scripts\ccweb_check.cmd          format, lint, types, tests, frontend
+```cmd
+scripts\ccweb_check.cmd          every gate: ruff, mypy, pytest, eslint, prettier, vitest, bundle isolation
 scripts\ccweb_check.cmd fix      auto-fix first, then check
 ```
 
-`ruff` formats and lints the Python, `eslint` and `prettier` the frontend,
-`mypy` reports on types. Every public class, method and function carries a
-docstring and every function is annotated, enforced by ruff's `D` and `ANN`
-rule sets. See [docs/code-quality.md](docs/code-quality.md) for what is
-checked, and for the three exceptions and why each exists.
+Every gate is at zero, so any finding is new.
+[docs/code-quality.md](docs/code-quality.md) lists what runs and the three
+justified lint exceptions. The Python suite builds and drops its own
+`ccwebdb_test` database and never touches `ccwebdb`.
 
 ## Dependencies
 
-Python dependencies are managed **exclusively** by uv (`uv add`, `uv sync`) and
-land in the conda `ccwebdb` environment. Do not `conda install` or `pip install`
-Python packages into that environment — see the gotchas in
-[docs/environment-setup.md](docs/environment-setup.md).
-
-## Tests
-
-```cmd
-uv run pytest
-```
-
-69 tests covering authentication and token handling, catalogue reads and
-admin-only writes, the purchase flow, and model/migration drift. The suite
-builds and drops its own `ccwebdb_test` database, so it never touches
-development data — see [docs/environment-setup.md](docs/environment-setup.md)
-for the one-time `CREATEDB` grant it needs.
+Python dependencies are managed **only** by uv (`uv add`, `uv sync`) and land
+in the conda `ccwebdb` environment. Never `conda install` or `pip install` a
+Python package there; see [docs/environment-setup.md](docs/environment-setup.md).

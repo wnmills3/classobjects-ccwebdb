@@ -32,8 +32,7 @@ export const api = {
 
   // No catalogue writes: the Manage page that used them is retired, and
   // offering an item the business already owns is what replaces it
-  // (`docs/plans/selling-offers.md`). The endpoints themselves go with that
-  // work, so nothing loses the ability to end a listing meanwhile.
+  // (`docs/specs/selling-design.md`).
 
   renameReferenceValue: (table, code, payload) =>
     send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),

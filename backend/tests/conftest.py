@@ -208,7 +208,8 @@ def db(engine: Engine) -> Iterator[Session]:
 
 
 #: Every listing status paired with the claim state `offering_writes` gives
-#: it. `docs/specs/selling-design.md` (*Testing*) requires this to hold after
+#: it. `docs/specs/selling-design.md` (*Invariants checked after every test*)
+#: requires this to hold after
 #: every write in the suite -- `offering_writes` is the only writer of either
 #: column, in one transaction, so a disagreement means something wrote around
 #: it.
@@ -244,7 +245,7 @@ def check_claim_invariant(db: Session) -> None:
     a listing's "own" claim; an earlier version of this function did exactly
     that, to wave off some `test_offering_writes.py` scaffolding that builds a
     claim for a different item on an existing `listing_id`. That refinement is
-    wrong, not merely narrower, for two reasons `docs/plans/selling-sales-lots.md`
+    wrong, not merely narrower, for two reasons `docs/specs/selling-design.md`
     makes concrete:
 
     - Phase 3 makes `Listing.inventory_item_id` **nullable** (a lot listing

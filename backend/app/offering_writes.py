@@ -1049,7 +1049,7 @@ def _lot_members(db: Session, lot: SalesLot) -> list[InventoryItem]:
     rows = lot_writes.open_members(db, lot)
     if not rows:
         # `EmptyLot`, a `LotRefused` subclass, so the router answers 422 for
-        # bad input rather than 409 for a conflict (spec, *Errors*).
+        # bad input rather than 409 for a conflict (spec, *API*).
         raise lot_writes.EmptyLot(f"lot #{lot.id} has no members to offer")
     # `open_members` orders by `inventory_item_id`; every reader downstream
     # relies on that one sequence, so it is never re-sorted here.
