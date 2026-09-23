@@ -50,7 +50,10 @@ const ROW_UNVERIFIED = {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks()
   vi.clearAllMocks()
+  // jsdom has no window.open, and a Look up with no match now opens one.
+  vi.spyOn(window, 'open').mockImplementation(() => ({}))
   api.getSignatureChoices.mockResolvedValue({
     table: 'signature_combination',
     values: SIGNATURES_ALL,
@@ -289,8 +292,8 @@ describe('FriedbergLookup', () => {
     )
   })
 
-  it('with no match, offers Search the web instead of Copy, in a pop-up', async () => {
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+  it('with no match, Look up opens the web search itself, in a pop-up', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => ({}))
     const reference = emptyReference({
       tables: {
         denomination: [{ code: 'usd_note_1', label: '$1 Bill' }],
@@ -313,24 +316,66 @@ describe('FriedbergLookup', () => {
     expect(screen.queryByRole('button', { name: /search the web/i })).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
-    const searchButton = await screen.findByRole('button', { name: /search the web/i })
-    expect(screen.queryByRole('button', { name: /^copy/i })).toBeNull()
-    expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('')
-
-    await userEvent.click(searchButton)
     const expected =
       'What is the Friedberg number for Series 1963-A $1 Federal Reserve Note New York Test Treasurer A Test Secretary A?'
-    // A named pop-up window, not a tab: the results sit beside the form, and
-    // a second search reuses the same window.
-    expect(open).toHaveBeenCalledWith(
-      `https://www.google.com/ai?q=${encodeURIComponent(expected)}`,
-      'friedberg-web-search',
-      expect.stringContaining('popup'),
+    // Pressing Look up alone ends in the web search when the catalogue has
+    // nothing -- in a named pop-up window, not a tab, so the answer sits
+    // beside the form and a second search reuses the same window.
+    await waitFor(() =>
+      expect(open).toHaveBeenCalledWith(
+        `https://www.google.com/ai?q=${encodeURIComponent(expected)}`,
+        'friedberg-web-search',
+        expect.stringContaining('popup'),
+      ),
     )
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: /^copy/i })).toBeNull()
+    expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('')
+    expect(screen.queryByText(/blocked the search window/i)).toBeNull()
+
+    // The button stays, to open it again.
+    await userEvent.click(screen.getByRole('button', { name: /search the web/i }))
+    expect(open).toHaveBeenCalledTimes(2)
     // Searching the web writes nothing: no record, no attach.
     expect(api.createFriedbergNumber).not.toHaveBeenCalled()
     expect(api.attachFriedberg).not.toHaveBeenCalled()
     open.mockRestore()
+  })
+
+  it('says so when the browser blocks the search window', async () => {
+    window.open.mockImplementation(() => null)
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    expect(await screen.findByText(/blocked the search window/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /search the web/i })).toBeEnabled()
+  })
+
+  it('in the item editor, searches at once and shows no fields', async () => {
+    api.searchFriedberg.mockResolvedValue([ROW_VERIFIED])
+    const item = { id: 412, series_year: 1963, series_letter: 'A', attributes: [] }
+    renderWithProviders(<FriedbergLookup itemId={412} item={item} searchNow />)
+
+    expect(await screen.findByRole('button', { name: 'Copy FR-TEST-1' })).toBeEnabled()
+    expect(api.searchFriedberg).toHaveBeenCalledTimes(1)
+    expect(api.searchFriedberg).toHaveBeenCalledWith({
+      series_year: 1963,
+      series_letter: 'A',
+    })
+    expect(screen.queryByLabelText(/series year/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /^look up$/i })).toBeNull()
+
+    // A note recorded wrongly can still be searched differently.
+    await userEvent.click(screen.getByRole('button', { name: /change search fields/i }))
+    expect(screen.getByLabelText(/series year/i)).toHaveValue('1963')
+    expect(screen.getByRole('button', { name: /^look up$/i })).toBeInTheDocument()
+  })
+
+  it('in the item editor, searches once even in StrictMode', async () => {
+    renderWithProviders(
+      <FriedbergLookup itemId={412} item={{ id: 412, attributes: [] }} searchNow />,
+      { strict: true },
+    )
+    await waitFor(() => expect(window.open).toHaveBeenCalledTimes(1))
   })
 
   it('with a match, offers Copy instead of Search the web', async () => {

@@ -78,7 +78,7 @@ export default function FriedbergPanel({ item, onChanged }) {
           )}
           {!open && (
             <button type="button" disabled={busy} onClick={() => setOpen(true)}>
-              {attached ? 'Change...' : 'Look up...'}
+              {attached ? 'Look up again' : 'Look up'}
             </button>
           )}
         </div>
@@ -87,6 +87,7 @@ export default function FriedbergPanel({ item, onChanged }) {
           <FriedbergLookup
             itemId={item.id}
             item={item}
+            searchNow
             onClose={() => setOpen(false)}
             onAttached={onChanged}
           />

@@ -58,10 +58,41 @@ export function webSearchText(fields, labels = {}) {
   return `What is the Friedberg number for ${note || 'this US banknote'}?`
 }
 
+/**
+ * Open Google AI Mode on `text` in the named pop-up window beside the form.
+ *
+ * A pop-up, not a tab, so the answer sits beside the form; the name makes a
+ * second search reuse that window. Returns what `window.open` does: null
+ * when the browser blocked it, which the caller reports.
+ */
+function openWebSearch(text) {
+  return window.open(
+    `${AI_SEARCH}${encodeURIComponent(text)}`,
+    'friedberg-web-search',
+    'popup,width=1000,height=800',
+  )
+}
+
 //: Google's AI Mode shortcut. It keeps `q` through its redirect (measured
 //: 2026-09-23: /ai?q= -> /aimode?q=), where `/search?udm=50` was stripped
 //: for a request without a browser session.
 const AI_SEARCH = 'https://www.google.com/ai?q='
+
+/** The search and record calls' filters, from the form's fields; blanks omitted. */
+function filtersOf(fields) {
+  const filters = {}
+  if (fields.denomination) filters.denomination = fields.denomination
+  if (fields.noteType) filters.note_type = fields.noteType
+  if (fields.sealColor) filters.seal_color = fields.sealColor
+  if (fields.seriesYear) filters.series_year = Number(fields.seriesYear)
+  if (fields.seriesLetter) filters.series_letter = fields.seriesLetter
+  if (fields.signatureCombination) {
+    filters.signature_combination = fields.signatureCombination
+  }
+  if (fields.district) filters.district_letter = fields.district
+  if (fields.press in PRESS) filters.web_press = PRESS[fields.press]
+  return filters
+}
 
 /** A vocabulary's values as a code -> label map; empty while it loads. */
 function labelsOf(values) {
@@ -110,9 +141,22 @@ function fromItem(item) {
  * it: the fields start from what the note records. `onAttached` is told
  * after a number is attached, so a caller showing the current number can
  * read it again.
+ *
+ * `searchNow` (the item editor) searches at once with what the note records
+ * and hides the fields: the owner asked for the answer, not a form to press
+ * Look up on a second time. "Change search fields" shows them for a note
+ * whose record is incomplete or wrong. Without it (Receiving) the fields
+ * are shown, filled from the note, for the owner to complete first.
  */
-export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
+export default function FriedbergLookup({
+  itemId,
+  item,
+  onClose,
+  onAttached,
+  searchNow = false,
+}) {
   const [initial] = useState(() => fromItem(item))
+  const [showFields, setShowFields] = useState(!searchNow)
   const [denomination, setDenomination] = useState(initial.denomination)
   const [noteType, setNoteType] = useState(initial.noteType)
   const [sealColor, setSealColor] = useState(initial.sealColor)
@@ -128,8 +172,41 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
 
   const [results, setResults] = useState(null)
   const [searchError, setSearchError] = useState('')
-  const [searching, setSearching] = useState(false)
+  // Starts true under `searchNow`, rather than being set inside the effect
+  // below: the search is already under way on the first render.
+  const [searching, setSearching] = useState(searchNow)
   const searchCancelRef = useRef(null)
+  const searchTextRef = useRef('')
+  const [popupBlocked, setPopupBlocked] = useState(false)
+
+  // The item editor's search, run once with what the note records. It takes
+  // the same stale-response guard as a pressed Look up, so a Look up pressed
+  // after "Change search fields" supersedes it rather than racing it.
+  useEffect(() => {
+    if (!searchNow) return undefined
+    let cancelled = false
+    searchCancelRef.current = () => {
+      cancelled = true
+    }
+    api
+      .searchFriedberg(filtersOf(initial))
+      .then((rows) => {
+        if (cancelled) return
+        // Inlined, not `showResults`: the effect runs once, and a function
+        // declared in the body would have to be one of its dependencies.
+        setResults(rows)
+        if (rows.length === 0) setPopupBlocked(!openWebSearch(searchTextRef.current))
+      })
+      .catch((err) => {
+        if (!cancelled) setSearchError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setSearching(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [searchNow, initial])
 
   const [recordFrNumber, setRecordFrNumber] = useState('')
   const [recordError, setRecordError] = useState('')
@@ -208,14 +285,25 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
       signature_combination: labelsOf([...allSignatures, ...signatureOptions]),
     },
   )
-  // A pop-up window, not a tab, so the results sit beside this form; the
-  // name makes a second search reuse that window rather than open another.
+  // The latest search text, for a search whose answer lands after the
+  // vocabularies finish loading -- its question then uses their labels, not
+  // the codes the first render had.
+  useEffect(() => {
+    searchTextRef.current = searchText
+  })
+
   function searchWeb() {
-    window.open(
-      `${AI_SEARCH}${encodeURIComponent(searchText)}`,
-      'friedberg-web-search',
-      'popup,width=1000,height=800',
-    )
+    setPopupBlocked(!openWebSearch(searchText))
+  }
+
+  /**
+   * What a finished search does: a match shows its number to copy; no
+   * match opens the web search straight away, so pressing Look up always
+   * ends in an answer or the place to find one.
+   */
+  function showResults(rows) {
+    setResults(rows)
+    if (rows.length === 0) setPopupBlocked(!openWebSearch(searchTextRef.current))
   }
 
   const signatureListed = signatureOptions.some(
@@ -231,16 +319,16 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
   }
 
   function currentFilters() {
-    const filters = {}
-    if (denomination) filters.denomination = denomination
-    if (noteType) filters.note_type = noteType
-    if (sealColor) filters.seal_color = sealColor
-    if (seriesYear) filters.series_year = Number(seriesYear)
-    if (seriesLetter) filters.series_letter = seriesLetter
-    if (signatureCombination) filters.signature_combination = signatureCombination
-    if (district) filters.district_letter = district
-    if (press in PRESS) filters.web_press = PRESS[press]
-    return filters
+    return filtersOf({
+      denomination,
+      noteType,
+      sealColor,
+      seriesYear,
+      seriesLetter,
+      signatureCombination,
+      district,
+      press,
+    })
   }
 
   async function search() {
@@ -257,7 +345,7 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
     try {
       const rows = await api.searchFriedberg(currentFilters())
       if (cancelled) return
-      setResults(rows)
+      showResults(rows)
     } catch (err) {
       if (cancelled) return
       setSearchError(err.message)
@@ -339,107 +427,133 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
 
   return (
     <div className="friedberg-lookup">
-      <div className="filter-grid">
-        <label>
-          Denomination
-          <ReferenceSelect
-            table="denomination"
-            value={denomination}
-            onChange={(e) => setDenomination(e.target.value)}
-            placeholder="usd_note_5_00"
-          />
-        </label>
-        <label>
-          Note type
-          <ReferenceSelect
-            table="note_type"
-            value={noteType}
-            onChange={(e) => setNoteType(e.target.value)}
-            placeholder="federal_reserve_note"
-          />
-        </label>
-        <label>
-          Seal color
-          <ReferenceSelect
-            table="seal_color"
-            value={sealColor}
-            onChange={(e) => setSealColor(e.target.value)}
-            placeholder="green"
-          />
-        </label>
-        <label>
-          Series year
-          <input
-            type="text"
-            inputMode="numeric"
-            value={seriesYear}
-            onChange={(e) => setSeriesYear(e.target.value)}
-          />
-        </label>
-        <label>
-          Series letter
-          <input
-            type="text"
-            maxLength={1}
-            value={seriesLetter}
-            onChange={(e) => setSeriesLetter(e.target.value.toUpperCase())}
-          />
-        </label>
-        <label>
-          Signature combination
-          <select
-            value={signatureCombination}
-            onChange={(e) => setSignatureCombination(e.target.value)}
-          >
-            <option value="">--</option>
-            {signatureCombination && !signatureListed && (
-              <option value={signatureCombination}>
-                {signatureLabel} (not listed for this series)
-              </option>
-            )}
-            {signatureOptions.map((entry) => (
-              <option key={entry.code} value={entry.code}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          District
-          <ReferenceSelect
-            table="fed_district"
-            value={district}
-            onChange={(e) => setDistrict(e.target.value)}
-            placeholder="B"
-          />
-        </label>
-        <label>
-          Web press
-          <select value={press} onChange={(e) => setPress(e.target.value)}>
-            <option value="">Not known</option>
-            <option value="yes">Yes</option>
-            <option value="no">No, sheet-fed</option>
-          </select>
-        </label>
-      </div>
+      {!showFields && (
+        <div className="row">
+          <span className="muted">
+            {searching
+              ? 'Looking up this note...'
+              : 'Looked up from what this note records.'}
+          </span>
+          <button type="button" className="link" onClick={() => setShowFields(true)}>
+            Change search fields
+          </button>
+          {onClose && (
+            <button type="button" className="link" onClick={onClose}>
+              Close
+            </button>
+          )}
+        </div>
+      )}
+      {showFields && (
+        <>
+          <div className="filter-grid">
+            <label>
+              Denomination
+              <ReferenceSelect
+                table="denomination"
+                value={denomination}
+                onChange={(e) => setDenomination(e.target.value)}
+                placeholder="usd_note_5_00"
+              />
+            </label>
+            <label>
+              Note type
+              <ReferenceSelect
+                table="note_type"
+                value={noteType}
+                onChange={(e) => setNoteType(e.target.value)}
+                placeholder="federal_reserve_note"
+              />
+            </label>
+            <label>
+              Seal color
+              <ReferenceSelect
+                table="seal_color"
+                value={sealColor}
+                onChange={(e) => setSealColor(e.target.value)}
+                placeholder="green"
+              />
+            </label>
+            <label>
+              Series year
+              <input
+                type="text"
+                inputMode="numeric"
+                value={seriesYear}
+                onChange={(e) => setSeriesYear(e.target.value)}
+              />
+            </label>
+            <label>
+              Series letter
+              <input
+                type="text"
+                maxLength={1}
+                value={seriesLetter}
+                onChange={(e) => setSeriesLetter(e.target.value.toUpperCase())}
+              />
+            </label>
+            <label>
+              Signature combination
+              <select
+                value={signatureCombination}
+                onChange={(e) => setSignatureCombination(e.target.value)}
+              >
+                <option value="">--</option>
+                {signatureCombination && !signatureListed && (
+                  <option value={signatureCombination}>
+                    {signatureLabel} (not listed for this series)
+                  </option>
+                )}
+                {signatureOptions.map((entry) => (
+                  <option key={entry.code} value={entry.code}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              District
+              <ReferenceSelect
+                table="fed_district"
+                value={district}
+                onChange={(e) => setDistrict(e.target.value)}
+                placeholder="B"
+              />
+            </label>
+            <label>
+              Web press
+              <select value={press} onChange={(e) => setPress(e.target.value)}>
+                <option value="">Not known</option>
+                <option value="yes">Yes</option>
+                <option value="no">No, sheet-fed</option>
+              </select>
+            </label>
+          </div>
 
-      <div className="row">
-        {/* Not disabled while a search is already running: refining a filter
+          <div className="row">
+            {/* Not disabled while a search is already running: refining a filter
             and pressing this again before a slow response lands is a normal
             way to use the form, not a mistake to block. The stale-response
             guard above (`searchCancelRef`) is what keeps that safe, the same
             idiom `ItemFinder` uses for its own "Find" button. */}
-        <button type="button" onClick={search}>
-          {searching ? 'Looking up...' : 'Look up'}
-        </button>
-        {onClose && (
-          <button type="button" className="link" onClick={onClose}>
-            Close
-          </button>
-        )}
-      </div>
+            <button type="button" onClick={search}>
+              {searching ? 'Looking up...' : 'Look up'}
+            </button>
+            {onClose && (
+              <button type="button" className="link" onClick={onClose}>
+                Close
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       {searchError && <p className="error">{searchError}</p>}
+      {popupBlocked && (
+        <p className="error">
+          The browser blocked the search window -- press Search the web to open it.
+        </p>
+      )}
 
       {/* One field, one pair of Save buttons. Found in the catalogue: each
           match has a Copy button that puts its number in the field. Not
@@ -480,9 +594,9 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
             </ul>
           ) : (
             <p className="muted">
-              No match in the catalogue yet -- search the web, then type or paste the
-              number here. An AI answer can be wrong: save it as proposed until you have
-              checked it against the note or a reference.
+              No match in the catalogue yet, so the web search has opened in its own
+              window -- type or paste the number here. An AI answer can be wrong: save
+              it as proposed until you have checked it against the note or a reference.
             </p>
           )}
           <div className="row">
