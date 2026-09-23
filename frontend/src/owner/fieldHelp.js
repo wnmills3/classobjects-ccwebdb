@@ -164,7 +164,21 @@ export const FIELD_HELP = {
       "Anything else worth keeping about this item: the seller's full description, " +
       'notes on condition or where it came from.',
   },
+  purchase_mode: {
+    title: 'Existing or new purchase',
+    text:
+      'Add to an existing purchase when more items from an order already entered ' +
+      'need recording; start a new one for a new order. Every item belongs to ' +
+      'exactly one purchase.',
+  },
   // -- searching and receiving ----------------------------------------------
+  search_kind: {
+    title: 'Kind',
+    text:
+      'Any searches coins and notes together -- one parcel can hold both. Choose ' +
+      'Coins to search by year and mint, or Currency to search by serial number ' +
+      'and series year.',
+  },
   order_number: {
     title: 'Order number',
     text:

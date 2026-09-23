@@ -207,4 +207,13 @@ describe('ItemFinder', () => {
     await userEvent.click(screen.getByLabelText(/order number/i))
     expect(screen.getByText(/part of it is enough/i)).toBeInTheDocument()
   })
+
+  it('explains the kind radio buttons when one is chosen', async () => {
+    // The owner found the radios left the help area unchanged (2026-09-23).
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    await userEvent.click(screen.getByLabelText(/order number/i))
+    await userEvent.click(screen.getByRole('radio', { name: /currency/i }))
+    expect(screen.getByText(/one parcel can hold both/)).toBeInTheDocument()
+    expect(screen.queryByText(/part of it is enough/i)).toBeNull()
+  })
 })
