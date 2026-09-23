@@ -51,6 +51,7 @@ from app.models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    ListingStatusHistory,
     SalesLot,
     SalesOrder,
     SalesOrderItem,
@@ -599,6 +600,32 @@ def test_an_unsold_lot_sends_an_unoffered_coin_back_to_held(
     assert {row.listing.status for row in lots_of(db, closed_auction)} == {
         ListingStatus.ended
     }
+
+
+def test_the_history_says_a_lot_came_back_unsold_not_withdrawn(
+    db: Session, closed_auction: Auction, admin_user: User
+) -> None:
+    """`ListingStatusHistory` keeps the settlement fact, not a bare "withdrawn".
+
+    An unsold lot at a sale is not an owner's withdrawal; reconciling against
+    the house's statement needs to tell the two apart.
+    """
+    lots = lots_of(db, closed_auction)
+    settle(
+        db,
+        closed_auction,
+        lines=[SettlementLine(row.id, AuctionLotResult.unsold) for row in lots],
+        fees={},
+        settled_by=admin_user,
+    )
+
+    notes = db.scalars(
+        select(ListingStatusHistory.note).where(
+            ListingStatusHistory.listing_id.in_([row.listing_id for row in lots]),
+            ListingStatusHistory.to_status == ListingStatus.ended,
+        )
+    ).all()
+    assert notes == [f"unsold at auction #{closed_auction.id}"] * len(lots)
 
 
 def test_a_withdrawn_lot_returns_its_items_exactly_as_an_unsold_one_does(

@@ -93,17 +93,35 @@ describe('Lots', () => {
     expect(screen.getByText('1000.00')).toBeVisible()
   })
 
-  it('says when it is showing only the newest lots', async () => {
-    api.listLots.mockResolvedValue({ lots: [assembling], total: 250 })
+  it('shows every open lot even when the history is paged', async () => {
+    // The newest page of all lots does not reach this old open one; the
+    // separate read of open lots must still bring it.
+    const sold = { ...assembling, id: 900, title: 'Sold lot', status: 'sold' }
+    api.listLots.mockImplementation(async (params = {}) =>
+      params.status === 'assembling'
+        ? { lots: [assembling], total: 1 }
+        : { lots: [sold], total: 250 },
+    )
     renderWithProviders(<Lots />, { strict: true })
-    expect(await screen.findByText('Showing the newest 1 of 250 lots.')).toBeVisible()
+
+    expect(await screen.findByText(assembling.title)).toBeVisible()
+    expect(screen.getByText('Sold lot')).toBeVisible()
+    // 250 lots in all, one of them open: the history holds 249, shows 1.
+    expect(screen.getByText('Showing the newest 1 of 249 lots.')).toBeVisible()
+    expect(api.listLots).toHaveBeenCalledWith({ status: 'assembling', limit: 500 })
   })
 
   it('says nothing about paging when every lot is shown', async () => {
-    api.listLots.mockResolvedValue({ lots: [assembling], total: 1 })
+    api.listLots.mockImplementation(async (params = {}) =>
+      params.status === 'assembling'
+        ? { lots: [assembling], total: 1 }
+        : { lots: [assembling], total: 1 },
+    )
     renderWithProviders(<Lots />, { strict: true })
     await screen.findByText(assembling.title)
     expect(screen.queryByText(/Showing the newest/)).not.toBeInTheDocument()
+    // Listed once, not once per read.
+    expect(screen.getAllByText(assembling.title)).toHaveLength(1)
   })
 
   it('sends the version token when membership changes', async () => {

@@ -348,7 +348,7 @@ def split_item(
             Listing.status != ListingStatus.ended,
         )
     ).all():
-        offering_writes.end_offer(db, listing)
+        offering_writes.end_offer(db, listing, note="item split into pieces")
 
     db.flush()
     return children

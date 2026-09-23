@@ -774,6 +774,150 @@ def test_the_share_migration_backfills_existing_lines(
     }
 
 
+@pytest.fixture
+def listing_history_migration_url() -> Iterator[str]:
+    """A throwaway database for backfilling the history of real listings."""
+    url = TEST_URL
+    name = f"{url.database}_migrations_listing_history"
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    target = url.set(database=name).render_as_string(hide_password=False)
+    try:
+        yield target
+    finally:
+        with admin.connect() as conn:
+            conn.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = :name AND pid <> pg_backend_pid() "
+                    "AND backend_type = 'client backend'"
+                ),
+                {"name": name},
+            )
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        admin.dispose()
+
+
+def test_the_listing_history_migration_backfills_existing_listings(
+    listing_history_migration_url: str,
+) -> None:
+    """Upgrade with listings in every status in place, then downgrade again.
+
+    Migration `cb1bb956f50b` writes an opening row for every listing and a
+    second for any no longer active; the suite-wide history invariant then
+    assumes each listing's latest row names its status. An empty table
+    proves only that the DDL runs.
+    """
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", listing_history_migration_url)
+    upgrade(config, "e267ec3aedc1")
+
+    engine = create_engine(listing_history_migration_url)
+    reference = (
+        "INSERT INTO {table} (code, label, sort_order, is_active, source) "
+        "VALUES (:code, :code, 0, true, 'seeded') RETURNING id"
+    )
+    with engine.begin() as conn:
+
+        def add(table: str, code: str) -> int:
+            return conn.execute(
+                text(reference.format(table=table)), {"code": code}
+            ).scalar_one()
+
+        item_columns = {
+            "item_kind_id": "item_kind",
+            "storage_form_id": "storage_form",
+            "authenticity_id": "authenticity",
+            "status_id": "item_status",
+            "disposition_id": "disposition",
+            "valuation_basis_id": "valuation_basis",
+        }
+        required = {column: add(table, "x") for column, table in item_columns.items()}
+        currency_id = conn.execute(
+            text(
+                "INSERT INTO currency (code, label, sort_order, is_active, source, "
+                "symbol, minor_units) VALUES ('USD', 'US dollar', 0, true, 'seeded', "
+                "'$', 2) RETURNING id"
+            )
+        ).scalar_one()
+        store_id = conn.scalar(text("SELECT id FROM sales_venue WHERE code = 'store'"))
+
+        listing_ids = {}
+        for status in ("active", "paused", "ended"):
+            item_id = conn.execute(
+                text(
+                    "INSERT INTO inventory_item (item_kind_id, storage_form_id, "
+                    "authenticity_id, status_id, disposition_id, valuation_basis_id, "
+                    "item_cost, shipping_cost, tax_rate, tax_includes_shipping, "
+                    "source, created_at, updated_at) VALUES (:item_kind_id, "
+                    ":storage_form_id, :authenticity_id, :status_id, "
+                    ":disposition_id, :valuation_basis_id, 0, 0, 0, false, "
+                    "'manual', now(), now()) RETURNING id"
+                ),
+                required,
+            ).scalar_one()
+            listing_ids[status] = conn.execute(
+                text(
+                    "INSERT INTO listing (inventory_item_id, price, currency_id, "
+                    "sales_venue_id, format, status, listed_at, ended_at, "
+                    "created_at, updated_at) VALUES (:i, 10.00, :c, :s, "
+                    "'fixed_price', :status, '2026-09-01', :ended, now(), now()) "
+                    "RETURNING id"
+                ),
+                {
+                    "i": item_id,
+                    "c": currency_id,
+                    "s": store_id,
+                    "status": status,
+                    "ended": "2026-09-05" if status == "ended" else None,
+                },
+            ).scalar_one()
+
+    upgrade(config, "head")
+    with engine.connect() as conn:
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT listing_id, from_status::text, to_status::text, note, "
+                    "changed_at::date::text FROM listing_status_history "
+                    "ORDER BY listing_id, id"
+                )
+            )
+            .tuples()
+            .all()
+        )
+    by_listing: dict[int, list[tuple[str | None, str, str, str]]] = {}
+    for listing_id, from_status, to_status, note, day in rows:
+        by_listing.setdefault(listing_id, []).append(
+            (from_status, to_status, note, day)
+        )
+    assert by_listing[listing_ids["active"]] == [
+        (None, "active", "offered (backfilled)", "2026-09-01"),
+    ]
+    assert by_listing[listing_ids["ended"]] == [
+        (None, "active", "offered (backfilled)", "2026-09-01"),
+        ("active", "ended", "ended (backfilled)", "2026-09-05"),
+    ]
+    paused = by_listing[listing_ids["paused"]]
+    assert [row[:3] for row in paused] == [
+        (None, "active", "offered (backfilled)"),
+        ("active", "paused", "paused (backfilled; time estimated)"),
+    ]
+
+    downgrade(config, "e267ec3aedc1")
+    with engine.connect() as conn:
+        history_table = conn.scalar(
+            text("SELECT to_regclass('listing_status_history')")
+        )
+        listings = conn.scalar(text("SELECT count(*) FROM listing"))
+    engine.dispose()
+    assert history_table is None
+    assert listings == 3
+
+
 def test_migrations_round_trip(round_trip_url: str) -> None:
     """`alembic downgrade base` must complete after `alembic upgrade head`.
 

@@ -192,11 +192,17 @@ function DiscardConfirm({ lot, busy, onConfirm, onCancel }) {
   )
 }
 
+//: At most this many open lots are read at once -- far beyond any real
+//: afternoon's assembling, and the API's own ceiling.
+const OPEN_LIMIT = 500
+
 /** The Lots page: what is being assembled, and what has already gone out. */
 export default function Lots() {
   const [lots, setLots] = useState(null)
-  // How many lots exist in all: the list is the newest page of them.
-  const [total, setTotal] = useState(0)
+  // Every lot that is not assembling, and how many of those the page shows:
+  // the history is paged (newest first), the lots still being assembled
+  // never are -- an old open lot must not fall off the page.
+  const [pastPage, setPastPage] = useState({ shown: 0, total: 0 })
   // A load failed. Kept apart from `refusal` below, which is a *write* the
   // API turned down: returning the error instead of the page unmounted
   // everything the operator needed in order to react to it (872e219).
@@ -216,12 +222,25 @@ export default function Lots() {
 
   useEffect(() => {
     let cancelled = false
-    api
-      .listLots()
-      .then((page) => {
+    // Two reads: every open lot, whatever its age, and the newest page of
+    // everything for the history below it. Merged, the open ones from the
+    // first read -- the second may have cut some of them off.
+    Promise.all([
+      api.listLots({ status: 'assembling', limit: OPEN_LIMIT }),
+      api.listLots(),
+    ])
+      .then(([open, page]) => {
         if (cancelled) return
-        setLots(page?.lots ?? [])
-        setTotal(page?.total ?? 0)
+        const past = (page?.lots ?? []).filter((lot) => lot.status !== 'assembling')
+        const openCount = (page?.lots ?? []).length - past.length
+        const stillOpen = (open?.lots ?? []).filter(
+          (lot) => lot.status === 'assembling',
+        )
+        setLots([...stillOpen, ...past])
+        setPastPage({
+          shown: past.length,
+          total: Math.max(0, (page?.total ?? 0) - (open?.total ?? openCount)),
+        })
         setError('')
       })
       .catch((err) => !cancelled && setError(err.message))
@@ -361,11 +380,6 @@ export default function Lots() {
       </div>
 
       {lots === null && !error && <p className="muted">Loading...</p>}
-      {lots !== null && total > lots.length && (
-        <p className="muted">
-          Showing the newest {lots.length} of {total} lots.
-        </p>
-      )}
 
       <h2>Assembling</h2>
       {lots !== null && assembling.length === 0 && (
@@ -477,6 +491,11 @@ export default function Lots() {
       ))}
 
       <h2>Offered, sold and dissolved</h2>
+      {lots !== null && pastPage.total > pastPage.shown && (
+        <p className="muted">
+          Showing the newest {pastPage.shown} of {pastPage.total} lots.
+        </p>
+      )}
       {lots !== null && history.length === 0 && (
         <p className="muted">No lot has been offered yet.</p>
       )}

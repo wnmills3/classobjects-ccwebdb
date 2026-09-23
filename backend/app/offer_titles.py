@@ -79,8 +79,12 @@ def _series_label(db: Session, item: InventoryItem) -> str | None:
     return series.label if series is not None else None
 
 
-def _coin_title(db: Session, item: InventoryItem) -> list[str]:
-    """The descriptive parts of a coin's title, without the grade."""
+def _coin_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
+    """A coin's title parts without the grade, and whether any part names it.
+
+    A year and a mint mark ("1921-S") date a coin but do not say what it is;
+    only a set form, series, denomination or variety does.
+    """
     detail = db.scalar(
         select(CoinDetail).where(CoinDetail.inventory_item_id == item.id)
     )
@@ -98,21 +102,29 @@ def _coin_title(db: Session, item: InventoryItem) -> list[str]:
         if mint is not None and mint.mark and single_year:
             years = f"{years}-{mint.mark}"
         parts.append(years)
+    named = False
     if item.set_form is not None:
         parts.append(item.set_form.label)
+        named = True
     else:
         name = _series_label(db, item)
         if name is None and item.denomination is not None:
             name = item.denomination.label
         if name is not None:
             parts.append(name)
+            named = True
     if detail is not None and detail.variety:
         parts.append(detail.variety)
-    return parts
+        named = True
+    return parts, named
 
 
-def _note_title(db: Session, item: InventoryItem) -> list[str]:
-    """The descriptive parts of a note's title, without the grade."""
+def _note_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
+    """A note's title parts without the grade, and whether any part names it.
+
+    A series or a year dates a note; its face value, type or series label
+    say what it is.
+    """
     detail = db.scalar(
         select(CurrencyDetail).where(CurrencyDetail.inventory_item_id == item.id)
     )
@@ -127,6 +139,7 @@ def _note_title(db: Session, item: InventoryItem) -> list[str]:
     elif item.year_start is not None:
         parts.append(str(item.year_start))
     face = item.denomination.label if item.denomination is not None else None
+    named = note_type is not None or face is not None
     if note_type is not None:
         # "$1 Bill" is the vocabulary's word for the face value alone; with
         # a note type beside it, "$1 Silver Certificate" is how it is said.
@@ -139,24 +152,25 @@ def _note_title(db: Session, item: InventoryItem) -> list[str]:
         name = _series_label(db, item)
         if name is not None:
             parts.append(name)
-    return parts
+            named = True
+    return parts, named
 
 
 def suggested_title(db: Session, item: InventoryItem) -> str:
-    """The title a listing of this item should start from. Never empty.
+    """The title a listing of this item should start from.
 
     Built from the item's classified facts; falls back to `source_title`
-    only when there is nothing descriptive to say -- a bare year or a bare
-    grade names nothing a buyer is looking for.
+    when nothing in them names the item -- a date, a mint mark or a grade
+    alone says nothing a buyer is looking for, and the seller's wording,
+    however rough, is at least the operator's own record of what it is.
+    Empty only when that is empty too, and the dialog then shows an empty
+    title for the operator to write.
     """
     if item.item_kind.code == _CURRENCY_KIND:
-        described = _note_title(db, item)
+        described, named = _note_title(db, item)
     else:
-        described = _coin_title(db, item)
-    # A title of nothing but a year says nothing; the item has not been
-    # classified far enough to be named, and the seller's wording, however
-    # rough, is at least the operator's own record of what it is.
-    if not described or described == [_years(item)]:
+        described, named = _coin_title(db, item)
+    if not named:
         return item.source_title
     return " ".join([*described, *_graded(item)])
 

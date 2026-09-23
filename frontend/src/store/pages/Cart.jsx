@@ -9,6 +9,9 @@ import { money } from '../../shared/format'
 
 export default function Cart() {
   const { lines, setQuantity, remove, clear, total } = useCart()
+  // The total is in the lines' own currency. Lines in two currencies have no
+  // meaningful sum, so it shows as absent rather than as dollars.
+  const currencies = [...new Set(lines.map(({ coin }) => coin.currency || 'USD'))]
   const { user } = useAuth()
   const navigate = useNavigate()
   const [error, setError] = useState('')
@@ -104,7 +107,7 @@ export default function Cart() {
         <tfoot>
           <tr>
             <th colSpan={3}>Total</th>
-            <th>{money(total)}</th>
+            <th>{currencies.length > 1 ? money(null) : money(total, currencies[0])}</th>
             <th />
           </tr>
         </tfoot>

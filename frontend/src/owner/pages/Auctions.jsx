@@ -246,7 +246,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
   useEffect(() => {
     let cancelled = false
     api
-      .listLots({ status: 'assembling' })
+      .listLots({ status: 'assembling', limit: 500 })
       .then((page) => !cancelled && setAssemblingLots(page?.lots ?? []))
       .catch((err) => !cancelled && setError(err.message))
     return () => {

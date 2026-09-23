@@ -493,7 +493,10 @@ export default function Vocabularies() {
           <tbody>
             {shown.map((value) => (
               <ValueRow
-                key={value.code}
+                // The position is part of the key so the Position field starts
+                // again from the stored value whenever that changes -- a move,
+                // a reload -- rather than keeping what was last typed.
+                key={`${value.code}:${value.sort_order}`}
                 table={table}
                 value={value}
                 others={active.filter((v) => v.code !== value.code)}

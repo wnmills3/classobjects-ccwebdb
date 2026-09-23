@@ -37,6 +37,10 @@ describe('money', () => {
     expect(money('12.5', 'CAD')).toBe('CA$12.50')
   })
 
+  it('shows an unrecognised currency code as written, never throws', () => {
+    expect(money('12.5', 'GOLD')).toBe('12.5 GOLD')
+  })
+
   it('falls back to US dollars when no currency is known', () => {
     expect(money('12.5', undefined)).toBe('$12.50')
     expect(money('12.5', null)).toBe('$12.50')

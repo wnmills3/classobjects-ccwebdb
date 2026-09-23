@@ -92,7 +92,7 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
   useEffect(() => {
     let cancelled = false
     api
-      .listLots({ status: 'assembling' })
+      .listLots({ status: 'assembling', limit: 500 })
       .then((page) => !cancelled && setLots(page?.lots ?? []))
       .catch((err) => !cancelled && setError(err.message))
     return () => {

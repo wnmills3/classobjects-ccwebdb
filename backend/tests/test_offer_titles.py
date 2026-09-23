@@ -140,6 +140,29 @@ def test_an_unclassified_item_keeps_the_seller_wording(db: Session) -> None:
     assert suggested_title(db, item) == "Copper Round 1oz"
 
 
+def test_a_date_and_mint_mark_alone_do_not_make_a_title(db: Session) -> None:
+    """A date, mint mark and grade name nothing a buyer searches for."""
+    item = build_item(db, title="Silver dollar, S mint", year_start=1921)
+    db.add(CoinDetail(inventory_item_id=item.id, mint_id=_id(db, Mint, "S")))
+    db.flush()
+
+    assert suggested_title(db, item) == "Silver dollar, S mint"
+
+
+def test_a_note_known_only_by_its_years_keeps_the_wording(db: Session) -> None:
+    item = build_item(
+        db,
+        kind="currency",
+        title="Old note",
+        year_start=1935,
+        year_end=1940,
+        grade_id=None,
+        strike_type_id=None,
+    )
+
+    assert suggested_title(db, item) == "Old note"
+
+
 def test_the_endpoint_answers_per_item_and_skips_unknown_ids(
     client: TestClient, db: Session, admin_headers: dict[str, str]
 ) -> None:
