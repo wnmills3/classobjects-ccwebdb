@@ -358,6 +358,11 @@ class OrderItemOut(BaseModel):
     #: The item and listing as sold (app.sale_snapshot). Console only: it
     #: holds costs. None for a shopper, and for lines older than snapshots.
     snapshot: dict[str, object] | None = None
+    #: Whether the listing this line bought from has ended -- a lot bought in
+    #: the shop, or any outside sale. Cancelling an unshipped order with such
+    #: a line is refused (`routers.orders._no_stock_to_return`); the console
+    #: reads this to grey the option out instead of offering it and failing.
+    listing_ended: bool = False
 
 
 class OrderOut(BaseModel):
