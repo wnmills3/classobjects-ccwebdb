@@ -233,6 +233,26 @@ describe('OfferDialog', () => {
     expect(screen.getByLabelText('Title for CC-000009')).toHaveValue('Also suggested')
   })
 
+  it('shows each item’s recorded value beside its cost', async () => {
+    renderWithProviders(
+      <OfferDialog
+        items={[{ ...ITEMS[0], numismatic_value: '245.00' }, ITEMS[1]]}
+        onOffered={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+    await screen.findByRole('option', { name: 'eBay' })
+
+    expect(screen.getByRole('columnheader', { name: 'Value' })).toBeInTheDocument()
+    expect(within(rowFor('CC-000007')).getByText('245.00')).toBeInTheDocument()
+    // No value recorded: blank-with-a-mark, not zero.
+    const cells = within(rowFor('CC-000009')).getAllByRole('cell')
+    const valueColumn = screen
+      .getAllByRole('columnheader')
+      .findIndex((header) => header.textContent === 'Value')
+    expect(cells[valueColumn]).not.toHaveTextContent('0')
+  })
+
   it('says so when the suggested titles cannot be loaded', async () => {
     api.getOfferTitles.mockRejectedValue(new Error('offline'))
     renderDialog()
@@ -295,9 +315,10 @@ describe('OfferDialog', () => {
     renderDialog()
     await fillIn(user, { venue: 'store', prices: ['189.00', '99.00'] })
 
-    expect(within(rowFor('CC-000007')).getAllByText('--')).toHaveLength(2)
-    // The uncosted item: no cost, no fees, no net, no margin.
-    expect(within(rowFor('CC-000009')).getAllByText('--')).toHaveLength(4)
+    // No recorded value, no fees, no net.
+    expect(within(rowFor('CC-000007')).getAllByText('--')).toHaveLength(3)
+    // The uncosted item: no cost, no value, no fees, no net, no margin.
+    expect(within(rowFor('CC-000009')).getAllByText('--')).toHaveLength(5)
   })
 
   // The refusal that matters: the API refuses the whole batch and says why,

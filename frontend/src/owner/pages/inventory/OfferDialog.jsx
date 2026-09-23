@@ -80,6 +80,8 @@ function subjectsFor(items, lot) {
         title: lot.title,
         description: lot.description ?? '',
         cost: lot.cost_basis,
+        // A lot has no value of its own; its members' are on the Lots page.
+        value: null,
       },
     ]
   }
@@ -90,6 +92,9 @@ function subjectsFor(items, lot) {
     title: item.source_title ?? '',
     description: item.description ?? '',
     cost: item.total_cost,
+    // What it is worth to a collector, as recorded -- the other number a
+    // price is set against. A search row and the item detail both carry it.
+    value: item.numismatic_value ?? null,
   }))
 }
 
@@ -357,6 +362,7 @@ export default function OfferDialog({
             <th>Description</th>
             <th>Listing number</th>
             <th>Cost</th>
+            <th>Value</th>
             <th>Fees</th>
             <th>Net</th>
             <th>Margin</th>
@@ -406,6 +412,7 @@ export default function OfferDialog({
                   />
                 </td>
                 <td>{subject.cost ?? UNKNOWN}</td>
+                <td>{subject.value ?? UNKNOWN}</td>
                 {/* Blank rather than zero when nobody has recorded what this
                     platform charges: "free" and "not looked up" are
                     different facts. */}
