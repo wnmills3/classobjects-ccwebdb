@@ -452,14 +452,21 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
           {results.length > 0 ? (
             <ul className="order-picker">
               {results.map((row) => (
-                <li key={row.id} className="order-row">
-                  <span className="mono">{row.fr_number}</span> {describeMatch(row)}
-                  {' -- '}
-                  {row.verified ? (
-                    <strong>Verified</strong>
-                  ) : (
-                    <span className="muted">Unverified proposal</span>
-                  )}
+                // The number and its Copy button, nothing else: what is
+                // copied is exactly what is shown. The row's description and
+                // whether it is verified are on hover, for telling two
+                // matches apart.
+                <li
+                  key={row.id}
+                  className="order-row row"
+                  title={[
+                    describeMatch(row),
+                    row.verified ? 'verified' : 'unverified proposal',
+                  ]
+                    .filter(Boolean)
+                    .join(' -- ')}
+                >
+                  <span className="mono">{row.fr_number}</span>
                   <button
                     type="button"
                     disabled={busy}

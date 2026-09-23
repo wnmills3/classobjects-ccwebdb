@@ -134,22 +134,24 @@ describe('FriedbergLookup', () => {
     )
   })
 
-  it('shows a verified result and an unverified proposal differently', async () => {
-    api.searchFriedberg.mockResolvedValue([ROW_VERIFIED, ROW_UNVERIFIED])
+  it('shows each match as its number and a Copy button, details on hover', async () => {
+    api.searchFriedberg.mockResolvedValue([
+      { ...ROW_VERIFIED, denomination: 'usd_note_1', note_type: 'frn' },
+      ROW_UNVERIFIED,
+    ])
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
     const rows = await screen.findAllByRole('listitem')
     expect(rows).toHaveLength(2)
+    // Only the number and "Copy" on the row -- the owner asked for exactly
+    // that (2026-09-23): codes and status run together read as noise.
+    expect(rows[0]).toHaveTextContent(/^FR-TEST-1\s*Copy$/)
+    expect(rows[1]).toHaveTextContent(/^FR-TEST-2\s*Copy$/)
     // Would pass a component that labeled every row the same way only if
-    // both fixtures agreed -- they deliberately do not, so this fails a
-    // component that always says "Verified" or always says "Unverified
-    // proposal" regardless of the row's own `verified` flag.
-    expect(rows[0]).toHaveTextContent('FR-TEST-1')
-    expect(rows[0]).toHaveTextContent('Verified')
-    expect(rows[0]).not.toHaveTextContent('Unverified')
-    expect(rows[1]).toHaveTextContent('FR-TEST-2')
-    expect(rows[1]).toHaveTextContent('Unverified proposal')
+    // both fixtures agreed -- they deliberately do not.
+    expect(rows[0]).toHaveAttribute('title', 'usd_note_1 · frn -- verified')
+    expect(rows[1]).toHaveAttribute('title', 'unverified proposal')
   })
 
   it('surfaces a 409 on recording rather than swallowing it', async () => {
