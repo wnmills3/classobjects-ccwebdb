@@ -125,6 +125,22 @@ agreeing copies.
   set changed — which the freeze rules say it cannot — the request refuses
   rather than proceeding on a stale set.
 - **No schema change, no migration.** This is ordering only.
+- **Measured 2026-09-22, after the merge.** Through `POST /api/orders` on
+  the test database, 30 single-coin and 15 three-coin-lot store checkouts:
+
+  | Checkout | Median | p95 | Statements | Of which `FOR UPDATE` |
+  |---|---|---|---|---|
+  | One coin | 24.8 ms | 31.1 ms | 54 | 2 |
+  | Lot of three | 51.1 ms | 52.4 ms | 125 | 7 |
+
+  The read this change added is **one** of those statements. What dominates
+  is the sale snapshot -- roughly forty `SELECT`s per coin, one
+  `item_detail` per member, already recorded in `selling-design.md`'s
+  *Known limits* -- so that, not the lock order, is where to look if
+  checkout ever needs to be faster. Not measured: the wait a checkout may
+  now make on a lot row another transaction holds, where it used to refuse
+  at once. That needs two writers on one lot at the same moment, and is
+  bounded by the other transaction's length.
 - **The missing test becomes writable.** No test currently races
   `order_writes` against `offering_writes` on a lot, because the only
   reachable cross-writer shape is this deadlock and such a test would be
