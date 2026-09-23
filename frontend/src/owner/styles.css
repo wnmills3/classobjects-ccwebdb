@@ -475,6 +475,25 @@ button.link.danger {
 .row-pick:hover {
   background: var(--surface);
 }
+
+/* HelpScope: the help area under a form, explaining the focused field.
+   Sticky to the bottom of the view, so a long form such as the item editor
+   keeps it in sight while the field being explained is on screen. */
+.help-area {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
 /* Receiving: the receipt panel, now inside the line's own dialog -- the
    arrival date, storage location and note, plus the four outcome buttons. */
 .receipt-panel {

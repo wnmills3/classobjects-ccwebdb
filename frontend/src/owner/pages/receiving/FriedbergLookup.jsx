@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
+import HelpScope from '../../HelpScope'
 
 //: A matched row's classifiers, rendered as one readable line -- only the
 //: attributes the row actually knows are shown, since a half-known row (see
@@ -427,117 +428,16 @@ export default function FriedbergLookup({
 
   return (
     <div className="friedberg-lookup">
-      {!showFields && (
-        <div className="row">
-          <span className="muted">
-            {searching
-              ? 'Looking up this note...'
-              : 'Looked up from what this note records.'}
-          </span>
-          <button type="button" className="link" onClick={() => setShowFields(true)}>
-            Change search fields
-          </button>
-          {onClose && (
-            <button type="button" className="link" onClick={onClose}>
-              Close
-            </button>
-          )}
-        </div>
-      )}
-      {showFields && (
-        <>
-          <div className="filter-grid">
-            <label>
-              Denomination
-              <ReferenceSelect
-                table="denomination"
-                value={denomination}
-                onChange={(e) => setDenomination(e.target.value)}
-                placeholder="usd_note_5_00"
-              />
-            </label>
-            <label>
-              Note type
-              <ReferenceSelect
-                table="note_type"
-                value={noteType}
-                onChange={(e) => setNoteType(e.target.value)}
-                placeholder="federal_reserve_note"
-              />
-            </label>
-            <label>
-              Seal color
-              <ReferenceSelect
-                table="seal_color"
-                value={sealColor}
-                onChange={(e) => setSealColor(e.target.value)}
-                placeholder="green"
-              />
-            </label>
-            <label>
-              Series year
-              <input
-                type="text"
-                inputMode="numeric"
-                value={seriesYear}
-                onChange={(e) => setSeriesYear(e.target.value)}
-              />
-            </label>
-            <label>
-              Series letter
-              <input
-                type="text"
-                maxLength={1}
-                value={seriesLetter}
-                onChange={(e) => setSeriesLetter(e.target.value.toUpperCase())}
-              />
-            </label>
-            <label>
-              Signature combination
-              <select
-                value={signatureCombination}
-                onChange={(e) => setSignatureCombination(e.target.value)}
-              >
-                <option value="">--</option>
-                {signatureCombination && !signatureListed && (
-                  <option value={signatureCombination}>
-                    {signatureLabel} (not listed for this series)
-                  </option>
-                )}
-                {signatureOptions.map((entry) => (
-                  <option key={entry.code} value={entry.code}>
-                    {entry.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              District
-              <ReferenceSelect
-                table="fed_district"
-                value={district}
-                onChange={(e) => setDistrict(e.target.value)}
-                placeholder="B"
-              />
-            </label>
-            <label>
-              Web press
-              <select value={press} onChange={(e) => setPress(e.target.value)}>
-                <option value="">Not known</option>
-                <option value="yes">Yes</option>
-                <option value="no">No, sheet-fed</option>
-              </select>
-            </label>
-          </div>
-
+      <HelpScope>
+        {!showFields && (
           <div className="row">
-            {/* Not disabled while a search is already running: refining a filter
-            and pressing this again before a slow response lands is a normal
-            way to use the form, not a mistake to block. The stale-response
-            guard above (`searchCancelRef`) is what keeps that safe, the same
-            idiom `ItemFinder` uses for its own "Find" button. */}
-            <button type="button" onClick={search}>
-              {searching ? 'Looking up...' : 'Look up'}
+            <span className="muted">
+              {searching
+                ? 'Looking up this note...'
+                : 'Looked up from what this note records.'}
+            </span>
+            <button type="button" className="link" onClick={() => setShowFields(true)}>
+              Change search fields
             </button>
             {onClose && (
               <button type="button" className="link" onClick={onClose}>
@@ -545,97 +445,201 @@ export default function FriedbergLookup({
               </button>
             )}
           </div>
-        </>
-      )}
+        )}
+        {showFields && (
+          <>
+            <div className="filter-grid">
+              <label data-help="denomination">
+                Denomination
+                <ReferenceSelect
+                  table="denomination"
+                  value={denomination}
+                  onChange={(e) => setDenomination(e.target.value)}
+                  placeholder="usd_note_5_00"
+                />
+              </label>
+              <label data-help="note_type">
+                Note type
+                <ReferenceSelect
+                  table="note_type"
+                  value={noteType}
+                  onChange={(e) => setNoteType(e.target.value)}
+                  placeholder="federal_reserve_note"
+                />
+              </label>
+              <label data-help="seal_color">
+                Seal color
+                <ReferenceSelect
+                  table="seal_color"
+                  value={sealColor}
+                  onChange={(e) => setSealColor(e.target.value)}
+                  placeholder="green"
+                />
+              </label>
+              <label data-help="series_year">
+                Series year
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={seriesYear}
+                  onChange={(e) => setSeriesYear(e.target.value)}
+                />
+              </label>
+              <label data-help="series_letter">
+                Series letter
+                <input
+                  type="text"
+                  maxLength={1}
+                  value={seriesLetter}
+                  onChange={(e) => setSeriesLetter(e.target.value.toUpperCase())}
+                />
+              </label>
+              <label data-help="signature_combination">
+                Signature combination
+                <select
+                  value={signatureCombination}
+                  onChange={(e) => setSignatureCombination(e.target.value)}
+                >
+                  <option value="">--</option>
+                  {signatureCombination && !signatureListed && (
+                    <option value={signatureCombination}>
+                      {signatureLabel} (not listed for this series)
+                    </option>
+                  )}
+                  {signatureOptions.map((entry) => (
+                    <option key={entry.code} value={entry.code}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label data-help="fed_district">
+                District
+                <ReferenceSelect
+                  table="fed_district"
+                  value={district}
+                  onChange={(e) => setDistrict(e.target.value)}
+                  placeholder="B"
+                />
+              </label>
+              <label data-help="web_press">
+                Web press
+                <select value={press} onChange={(e) => setPress(e.target.value)}>
+                  <option value="">Not known</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No, sheet-fed</option>
+                </select>
+              </label>
+            </div>
 
-      {searchError && <p className="error">{searchError}</p>}
-      {popupBlocked && (
-        <p className="error">
-          The browser blocked the search window -- press Search the web to open it.
-        </p>
-      )}
+            <div className="row">
+              {/* Not disabled while a search is already running: refining a filter
+            and pressing this again before a slow response lands is a normal
+            way to use the form, not a mistake to block. The stale-response
+            guard above (`searchCancelRef`) is what keeps that safe, the same
+            idiom `ItemFinder` uses for its own "Find" button. */}
+              <button type="button" onClick={search}>
+                {searching ? 'Looking up...' : 'Look up'}
+              </button>
+              {onClose && (
+                <button type="button" className="link" onClick={onClose}>
+                  Close
+                </button>
+              )}
+            </div>
+          </>
+        )}
 
-      {/* One field, one pair of Save buttons. Found in the catalogue: each
+        {searchError && <p className="error">{searchError}</p>}
+        {popupBlocked && (
+          <p className="error">
+            The browser blocked the search window -- press Search the web to open it.
+          </p>
+        )}
+
+        {/* One field, one pair of Save buttons. Found in the catalogue: each
           match has a Copy button that puts its number in the field. Not
           found: the field stays blank and Search the web takes Copy's place
           -- the owner reads the number off the results window and types or
           pastes it here. Nothing is fetched or saved from the search itself
           (see `webSearchText`). */}
-      {results && (
-        <div className="admin-form">
-          {results.length > 0 ? (
-            <ul className="order-picker">
-              {results.map((row) => (
-                // The number and its Copy button, nothing else: what is
-                // copied is exactly what is shown. The row's description and
-                // whether it is verified are on hover, for telling two
-                // matches apart.
-                <li
-                  key={row.id}
-                  className="order-row row"
-                  title={[
-                    describeMatch(row),
-                    row.verified ? 'verified' : 'unverified proposal',
-                  ]
-                    .filter(Boolean)
-                    .join(' -- ')}
-                >
-                  <span className="mono">{row.fr_number}</span>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    aria-label={`Copy ${row.fr_number}`}
-                    onClick={() => setRecordFrNumber(row.fr_number)}
+        {results && (
+          <div className="admin-form">
+            {results.length > 0 ? (
+              <ul className="order-picker">
+                {results.map((row) => (
+                  // The number and its Copy button, nothing else: what is
+                  // copied is exactly what is shown. The row's description and
+                  // whether it is verified are on hover, for telling two
+                  // matches apart.
+                  <li
+                    key={row.id}
+                    className="order-row row"
+                    title={[
+                      describeMatch(row),
+                      row.verified ? 'verified' : 'unverified proposal',
+                    ]
+                      .filter(Boolean)
+                      .join(' -- ')}
                   >
-                    Copy
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted">
-              No match in the catalogue yet, so the web search has opened in its own
-              window -- type or paste the number here. An AI answer can be wrong: save
-              it as proposed until you have checked it against the note or a reference.
-            </p>
-          )}
-          <div className="row">
-            <label>
-              Fr. number
-              <input
-                type="text"
-                value={recordFrNumber}
-                onChange={(e) => setRecordFrNumber(e.target.value)}
-              />
-            </label>
-            {results.length === 0 && (
-              <button type="button" onClick={searchWeb} title={searchText}>
-                Search the web
-              </button>
+                    <span className="mono">{row.fr_number}</span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-label={`Copy ${row.fr_number}`}
+                      onClick={() => setRecordFrNumber(row.fr_number)}
+                    >
+                      Copy
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">
+                No match in the catalogue yet, so the web search has opened in its own
+                window -- type or paste the number here. An AI answer can be wrong: save
+                it as proposed until you have checked it against the note or a
+                reference.
+              </p>
             )}
+            <div className="row">
+              <label data-help="fr_number">
+                Fr. number
+                <input
+                  type="text"
+                  value={recordFrNumber}
+                  onChange={(e) => setRecordFrNumber(e.target.value)}
+                />
+              </label>
+              {results.length === 0 && (
+                <button type="button" onClick={searchWeb} title={searchText}>
+                  Search the web
+                </button>
+              )}
+            </div>
+            {recordError && <p className="error">{recordError}</p>}
+            <div className="row">
+              <button
+                type="button"
+                disabled={!recordFrNumber.trim() || busy}
+                onClick={() => save('proposed')}
+              >
+                Save as proposed
+              </button>
+              <button
+                type="button"
+                disabled={!recordFrNumber.trim() || busy}
+                onClick={() => save('confirmed')}
+              >
+                Save as confirmed
+              </button>
+            </div>
           </div>
-          {recordError && <p className="error">{recordError}</p>}
-          <div className="row">
-            <button
-              type="button"
-              disabled={!recordFrNumber.trim() || busy}
-              onClick={() => save('proposed')}
-            >
-              Save as proposed
-            </button>
-            <button
-              type="button"
-              disabled={!recordFrNumber.trim() || busy}
-              onClick={() => save('confirmed')}
-            >
-              Save as confirmed
-            </button>
-          </div>
-        </div>
-      )}
+        )}
 
-      {attachError && <p className="error">{attachError}</p>}
-      {attachMessage && <p className="muted">{attachMessage}</p>}
+        {attachError && <p className="error">{attachError}</p>}
+        {attachMessage && <p className="muted">{attachMessage}</p>}
+      </HelpScope>
     </div>
   )
 }

@@ -581,6 +581,19 @@ describe('a banknote in the editor', () => {
     expect(screen.getByLabelText('note_type')).toHaveAttribute('accesskey', 'a')
   })
 
+  it('explains the note field that has focus in the help area', async () => {
+    api.getInventoryItem.mockResolvedValue(note)
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+
+    await user.click(await screen.findByDisplayValue('1957'))
+    expect(screen.getByText(/year the design was adopted/)).toBeInTheDocument()
+    await user.click(screen.getByDisplayValue('A12345678B'))
+    expect(screen.getByText(/star in place of the last letter/)).toBeInTheDocument()
+    await user.click(screen.getByLabelText('fed_district'))
+    expect(screen.getByText(/letter in the black seal/)).toBeInTheDocument()
+  })
+
   it('drops the mark once the field is changed, and saves the change', async () => {
     api.getInventoryItem.mockResolvedValue(note)
     api.updateInventoryItem.mockResolvedValue({})
