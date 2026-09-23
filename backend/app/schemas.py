@@ -641,6 +641,10 @@ class ItemDetailOut(InventoryItemOut):
     fineness: Decimal | None = None
     gross_weight_ozt: Decimal | None = None
     fine_weight_ozt: Decimal | None = None
+    #: What the item is worth to a collector, as last recorded -- the
+    #: "value" column the offer dialog shows beside cost when pricing.
+    #: Read-only here: nothing in the editor sets it yet.
+    numismatic_value: Decimal | None = None
     tax_rate: Decimal
     tax_includes_shipping: bool
     #: The rate a new item would be stamped with today. The form's "No sales

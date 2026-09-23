@@ -928,6 +928,7 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
                 "fineness",
                 "gross_weight_ozt",
                 "fine_weight_ozt",
+                "numismatic_value",
                 "piece_count",
                 "item_cost",
                 "shipping_cost",

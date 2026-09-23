@@ -266,6 +266,20 @@ def test_the_detail_payload_covers_every_editable_field(
     assert not missing, f"editable but never returned: {missing}"
 
 
+def test_the_detail_carries_the_numismatic_value(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The offer dialog's Value column reads it from here (the Offers panel).
+
+    A search row always had it; the detail did not, so offering from the
+    item editor showed no value to price against.
+    """
+    item = make_item(db, numismatic_value=Decimal("245.00"))
+    body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
+
+    assert body["numismatic_value"] == "245.00"
+
+
 def test_a_banknote_cannot_be_given_a_metal(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
