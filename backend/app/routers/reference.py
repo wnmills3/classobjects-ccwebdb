@@ -229,6 +229,7 @@ def get_table(
             _to_value(row, model, active.get(row.id), retired.get(row.id))
             for row in rows
         ],
+        sequenced=table in _SEQUENCED_TABLES,
     )
 
 

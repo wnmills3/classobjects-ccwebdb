@@ -187,7 +187,10 @@ describe('owner Orders', () => {
     const select = within(rowFor(12)).getByRole('combobox')
     const cancelled = within(select).getByRole('option', { name: /cancelled/i })
     expect(cancelled).toBeDisabled()
-    expect(cancelled).toHaveAttribute('title', expect.stringMatching(/listing has ended/))
+    expect(cancelled).toHaveAttribute(
+      'title',
+      expect.stringMatching(/listing has ended/),
+    )
   })
 
   it('still offers cancel for an ordinary shop order', async () => {

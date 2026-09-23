@@ -31,6 +31,18 @@ def test_a_vocabulary_comes_back_ready_for_a_picker(client: TestClient) -> None:
     assert orders == sorted(orders)
 
 
+def test_a_vocabulary_says_whether_its_order_means_anything(
+    client: TestClient,
+) -> None:
+    """Grades are in scale order; series are alphabetical.
+
+    The Vocabularies page offers to change a value's position only where the
+    position is what the pickers sort by.
+    """
+    assert client.get("/api/reference/grade").json()["sequenced"] is True
+    assert client.get("/api/reference/series").json()["sequenced"] is False
+
+
 def test_the_endpoint_is_public(client: TestClient) -> None:
     """Vocabularies are public; they reveal nothing held.
 

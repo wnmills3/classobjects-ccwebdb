@@ -482,6 +482,10 @@ class ReferenceTableOut(BaseModel):
 
     table: str
     values: list[ReferenceValueOut]
+    #: True when the values are in a meaningful order (`sort_order`) rather
+    #: than alphabetical: grades, denominations, lifecycles. The Vocabularies
+    #: page offers to change the order only for these.
+    sequenced: bool = False
 
 
 # --------------------------------------------------------------------------
