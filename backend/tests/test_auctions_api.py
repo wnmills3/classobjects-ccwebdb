@@ -761,6 +761,41 @@ def test_consign_with_no_seed_is_a_500_naming_the_seeder(
     assert "app.seeding load" in response.json()["detail"]
 
 
+def test_a_shopper_is_not_told_how_the_server_is_misconfigured(
+    client: TestClient,
+    customer_headers: dict[str, str],
+    listing: Listing,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Checkout raises the same exception; its text is not the shopper's.
+
+    "run `alembic upgrade head` on this database" is an operator's
+    instruction. A customer's checkout gets a generic 500 -- the full
+    message still goes to the log, and an administrator's request still
+    carries it (the test above).
+    """
+    from app import order_writes
+    from app.errors import ReferenceDataMissing
+
+    def missing(*_args: object, **_kwargs: object) -> int:
+        raise ReferenceDataMissing(
+            "No web store platform: run `alembic upgrade head` on this database"
+        )
+
+    monkeypatch.setattr(order_writes, "store_venue_id", missing)
+
+    response = client.post(
+        "/api/orders",
+        json={"items": [{"listing_id": listing.id, "quantity": 1}]},
+        headers=customer_headers,
+    )
+
+    assert response.status_code == 500, response.text
+    detail = response.json()["detail"]
+    assert "alembic" not in detail
+    assert "not fully set up" in detail
+
+
 def test_an_unrelated_runtime_error_is_not_swallowed(
     client: TestClient,
     admin_headers: dict[str, str],

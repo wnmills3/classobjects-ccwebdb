@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -29,6 +31,8 @@ from .routers import (
 from .routers import (
     auctions as auctions_router,
 )
+
+_log = logging.getLogger(__name__)
 
 app = FastAPI(
     title="ccwebdb",
@@ -158,7 +162,7 @@ def _bad_input(_request: Request, exc: Exception) -> JSONResponse:
     )
 
 
-def _server_misconfigured(_request: Request, exc: Exception) -> JSONResponse:
+def _server_misconfigured(request: Request, exc: Exception) -> JSONResponse:
     """A precondition the operator must fix, not a bug in one request: 500.
 
     `auctions.consign` and `sales_venues.ensure_store_venue`/`store_venue_id`
@@ -187,10 +191,23 @@ def _server_misconfigured(_request: Request, exc: Exception) -> JSONResponse:
     crash it was. `test_an_unrelated_runtime_error_is_not_swallowed`
     (`test_auctions_api.py`) is the regression test: a plain `RuntimeError`
     from a monkeypatched writer must still escape `TestClient` unhandled.
+
+    **Only an administrator's request is told what is missing** (auctions
+    whole-branch review, Minor #6). `sales_venues.store_venue_id` raises this
+    from the shop's public routes too, and "run `alembic upgrade head` on
+    this database" is an operator's instruction, not a stranger's business.
+    `deps.require_admin` marks an admin request; everyone else gets a
+    generic message, and the full one goes to the log either way, so the
+    operator still finds it.
     """
+    _log.error("server misconfigured: %s", exc)
+    if getattr(request.state, "is_admin", False):
+        detail = str(exc)
+    else:
+        detail = "The shop is not fully set up yet. Please try again later."
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": str(exc)},
+        content={"detail": detail},
     )
 
 

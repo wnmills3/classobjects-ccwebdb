@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -54,13 +54,20 @@ def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-def require_admin(user: CurrentUser) -> User:
-    """Reject anyone who is not an administrator."""
+def require_admin(user: CurrentUser, request: Request) -> User:
+    """Reject anyone who is not an administrator.
+
+    Also marks the request as an administrator's (`request.state.is_admin`),
+    which is how `app.main._server_misconfigured` decides who may read an
+    operational message -- the exception handler has no dependency of its
+    own to ask, and must not open a session to find out.
+    """
     if user.role is not UserRole.admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator privileges required",
         )
+    request.state.is_admin = True
     return user
 
 
