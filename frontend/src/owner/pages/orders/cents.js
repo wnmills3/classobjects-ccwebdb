@@ -1,27 +1,12 @@
 /**
  * Money in whole cents, for the order editor's running total.
  *
- * Money crosses the API as decimal strings. Adding them as floats gives
- * 59.97000000000001 for three at 19.99, so the editor works in integer cents
- * and only formats at the edge. The server's total is still the real one.
+ * The conversions live in `shared/cents.js`, which the shop's cart uses too;
+ * they are re-exported here so the console's callers are unchanged.
  */
-const MONEY = /^\d+(\.\d{1,2})?$/
+import { isMoney, toCents } from '../../../shared/cents'
 
-export const isMoney = (text) => MONEY.test(String(text).trim())
-
-export function toCents(text) {
-  if (!isMoney(text)) {
-    throw new RangeError(`not a money amount: ${JSON.stringify(text)}`)
-  }
-  const [whole, fraction = ''] = String(text).trim().split('.')
-  return Number(whole) * 100 + Number(`${fraction}00`.slice(0, 2))
-}
-
-// `cents` is always a non-negative integer here -- order money (prices,
-// quantities, totals) is never negative in this editor.
-export function fromCents(cents) {
-  return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`
-}
+export { fromCents, isMoney, toCents } from '../../../shared/cents'
 
 export function totalCents(lines) {
   return lines.reduce((sum, line) => {

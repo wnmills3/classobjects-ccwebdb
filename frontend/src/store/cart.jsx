@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { fromCents, isMoney, toCents } from '../shared/cents'
 import { CartContext } from './cart-context'
 
 const CART_KEY = 'ccwebdb.cart'
@@ -62,14 +63,18 @@ export function CartProvider({ children }) {
 
   const clear = useCallback(() => setLines([]), [])
 
+  // `total` is a decimal string, summed in whole cents: adding prices as
+  // floats shows $59.97000000000001 for three coins at $19.99. A price that
+  // is not a money amount (a corrupted saved cart) is left out rather than
+  // turning the whole total into NaN; checkout prices every line again.
   const { count, total } = useMemo(() => {
     let count = 0
-    let total = 0
+    let cents = 0
     for (const line of lines) {
       count += line.quantity
-      total += Number(line.coin.price) * line.quantity
+      if (isMoney(line.coin.price)) cents += toCents(line.coin.price) * line.quantity
     }
-    return { count, total }
+    return { count, total: fromCents(cents) }
   }, [lines])
 
   const value = useMemo(

@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../shared/api'
 import { useAuth } from '../../shared/auth-context'
 import { useCart } from '../cart-context'
+import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { money } from '../../shared/format'
 
 export default function Cart() {
@@ -76,7 +77,7 @@ export default function Cart() {
               <td>
                 <Link to={`/coins/${coin.id}`}>{coin.title}</Link>
               </td>
-              <td>{money(coin.price)}</td>
+              <td>{money(coin.price, coin.currency)}</td>
               <td>
                 <input
                   type="number"
@@ -87,7 +88,11 @@ export default function Cart() {
                   className="qty"
                 />
               </td>
-              <td>{money(Number(coin.price) * quantity)}</td>
+              <td>
+                {isMoney(coin.price)
+                  ? money(fromCents(toCents(coin.price) * quantity), coin.currency)
+                  : money(null)}
+              </td>
               <td>
                 <button className="link" onClick={() => remove(coin.id)}>
                   Remove

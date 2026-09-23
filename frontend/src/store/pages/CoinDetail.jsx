@@ -71,7 +71,7 @@ export default function CoinDetail() {
       </p>
       <h1>{coin.title}</h1>
       {cover && <img className="detail-image" src={cover.url} alt={cover.alt} />}
-      <p className="price large">{money(coin.price)}</p>
+      <p className="price large">{money(coin.price, coin.currency)}</p>
       <p className="muted">
         {coin.quantity_available > 0
           ? `${coin.quantity_available} available`
