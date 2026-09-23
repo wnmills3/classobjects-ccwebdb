@@ -394,6 +394,29 @@ def test_an_already_ended_listing_cannot_be_sold(
         )
 
 
+def test_recording_a_sale_on_a_store_listing_is_refused(
+    db: Session, listing: Listing, admin_user: User
+) -> None:
+    """Ruling S4: a shop item sells through checkout, not Record sale.
+
+    Refused before anything is written, naming the path that does exist --
+    an order on the customer's behalf -- so an in-person sale still has one.
+    """
+    with pytest.raises(SaleRefused, match="on the customer's behalf"):
+        record_sale(
+            db,
+            listing,
+            price=Decimal("50.00"),
+            buyer_username=None,
+            external_order_id=None,
+            fees=[],
+            recorded_by=admin_user,
+        )
+    db.expire_all()
+    assert db.get_one(Listing, listing.id).status is ListingStatus.active
+    assert db.scalar(select(func.count()).select_from(SalesOrder)) == 0
+
+
 def test_recording_a_manual_sale_against_an_auction_lot_is_refused(
     db: Session,
     heritage_venue: SalesVenue,

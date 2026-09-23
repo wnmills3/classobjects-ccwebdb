@@ -581,6 +581,13 @@ settlement, which is what keeps settlement from growing its own copy of fees
 and shares. (Corrected 2026-09-21: this section previously named three
 callers, including store checkout.)
 
+**Decided 2026-09-22 (ruling S4): refused.** `sales_writes.record_sale`
+refuses a web-store listing with a message naming the path that exists --
+an order on the customer's behalf, from the Orders page -- and
+`_STATUS_BY_VENUE_KIND` no longer has an `own_store` key, so the wider
+`record_sale_lines` fails closed behind it. Reversing it is that key and the
+Listings page's button. The question as it was put:
+
 **Open decision: record-a-sale on a store listing.** `_STATUS_BY_VENUE_KIND`
 maps `own_store -> paid`, so `record_sale` will accept a store listing, and
 until 2026-09-21 the Listings page offered **Record sale...** on store rows.

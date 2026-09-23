@@ -73,8 +73,12 @@ __all__ = [
 #: Subscripted, never `.get(..., "paid")`: a venue kind this dictionary does
 #: not name must be refused, not silently treated as "paid" -- the one
 #: default that would misreport a sale as money already collected.
+#:
+#: `own_store` is deliberately absent (ruling S4, 2026-09-22): a shop item
+#: sells through checkout, and an in-person sale of one is an order placed
+#: on the customer's behalf -- `_refuse_store_sale` says so in words, and
+#: this absence keeps `record_sale_lines` failing closed behind it.
 _STATUS_BY_VENUE_KIND = {
-    "own_store": "paid",
     "marketplace": "paid",
     "live_auction": "paid",
     "auction_house": "delivered",
@@ -219,6 +223,25 @@ def _weights(items: Sequence[InventoryItem], *, equal: bool) -> list[Decimal]:
     return [item.total_cost for item in items]
 
 
+def _refuse_store_sale(listing: Listing) -> None:
+    """Refuse Record sale on a web-store listing: it sells through checkout.
+
+    Ruling S4 (2026-09-22), settling the spec's open decision *Record-a-sale
+    on a store listing*. The Listings page already hid the button on store
+    rows; the API still took the request, which made it a second way to sell
+    a shop item -- past the cart and past checkout, minting an "Undisclosed
+    buyer (store)" when the username was blank. An in-person sale of a shop
+    item is entered as an order on the customer's behalf (the Orders page),
+    which goes through checkout's own rules.
+    """
+    if listing.sales_venue.is_own_store:
+        raise SaleRefused(
+            f"listing #{listing.id} is in the web store, which sells through "
+            "checkout. For an in-person sale, place an order on the customer's "
+            "behalf from the Orders page."
+        )
+
+
 def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
     """Refuse to record a manual sale against an auction-format listing.
 
@@ -298,6 +321,7 @@ def record_sale(
     lives here rather than in `record_sale_lines` precisely so
     `app.auctions.settle`'s own calls into the wider function are untouched.
     """
+    _refuse_store_sale(listing)
     _refuse_manual_auction_sale(db, listing)
     return record_sale_lines(
         db,

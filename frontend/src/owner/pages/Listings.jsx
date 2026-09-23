@@ -448,13 +448,11 @@ export default function Listings() {
                       And never on a store row. Recording a sale of a store
                       listing is a second way to sell a shop item -- past the
                       cart, past checkout, minting an "Undisclosed buyer
-                      (store)" when the buyer is left blank -- which is an
-                      accident of `_STATUS_BY_VENUE_KIND` having an
-                      `own_store` key, not a decision anyone made. An
-                      in-person or show sale may well want it; that is the
-                      owner's call, recorded as an open decision in
-                      `docs/specs/selling-design.md`, and until it is made the
-                      button is not offered. An unmatched platform (the venue
+                      (store)" when the buyer is left blank. Decided
+                      2026-09-22 (ruling S4): the API refuses it too
+                      (`sales_writes._refuse_store_sale`), and an in-person
+                      sale of a shop item is an order on the customer's
+                      behalf, from the Orders page. An unmatched platform (the venue
                       list failed to load, and the table still shows) reads as
                       "not the store", the same way `isAuctionHouse` below
                       reads an unmatched one as "not an auction house":
