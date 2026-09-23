@@ -121,14 +121,18 @@ export const api = {
   // Takes the number off the note; the catalogue row stays.
   clearFriedberg: (itemId) =>
     send(`/api/inventory/${itemId}/friedberg`, { method: 'DELETE' }),
-  // Signature combinations narrowed to the pairs whose term covers a series
-  // year -- not `getReference` (in shared/api.js), which has no way to pass
-  // `year`. Adding the param there would hand every anonymous shop visitor a
-  // query string only this console feature has a reason to use.
-  getSignatureCombinations: (year) =>
-    send(`/api/reference/signature_combination${year ? `?year=${year}` : ''}`, {
-      auth: false,
-    }),
+  // The signature pairs a note of this series can carry, from the seeded
+  // `note_issue` facts -- not the pairs in office in the series year, which
+  // hides every lettered series' later signers. With no series year, every
+  // pair. Body: { values: [{ code, label }], source }.
+  getSignatureChoices: (params = {}) => {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== '' && v !== null && v !== undefined) qs.set(k, v)
+    })
+    const query = qs.toString()
+    return send(`/api/friedberg/signatures${query ? `?${query}` : ''}`)
+  },
 
   // acquisition -- reading what was ordered, to record what arrived
   listPurchaseOrders: (params = {}) => {

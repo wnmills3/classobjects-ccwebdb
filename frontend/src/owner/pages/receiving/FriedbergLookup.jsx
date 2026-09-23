@@ -81,6 +81,7 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
   const [district, setDistrict] = useState(initial.district)
   const [press, setPress] = useState(initial.press)
   const [signatureOptions, setSignatureOptions] = useState([])
+  const [allSignatures, setAllSignatures] = useState([])
 
   const [results, setResults] = useState(null)
   const [searchError, setSearchError] = useState('')
@@ -95,25 +96,46 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
   const [attachError, setAttachError] = useState('')
   const [attachMessage, setAttachMessage] = useState('')
 
-  // Narrows to the pairs whose term covers `seriesYear` -- the public-fact
-  // half of this feature, already seeded server-side. With no year entered,
-  // `getSignatureCombinations` is called with `undefined`, which the backend
-  // treats as "no year filter" and returns the unnarrowed list, rather than
-  // this offering an empty pulldown before the owner has typed anything.
+  // Every pair, once, so a choice the narrowed list leaves out can still be
+  // shown by its name rather than its code.
   useEffect(() => {
     let cancelled = false
-    const year = seriesYear ? Number(seriesYear) : undefined
     api
-      .getSignatureCombinations(year)
+      .getSignatureChoices()
       .then((body) => {
-        if (cancelled) return
-        setSignatureOptions(body.values)
-        // A choice the previous, wider list allowed can fall outside a newly
-        // narrowed one -- clear it rather than submit a code the pulldown no
-        // longer offers.
-        setSignatureCombination((prev) =>
-          prev && !body.values.some((entry) => entry.code === prev) ? '' : prev,
-        )
+        if (!cancelled) setAllSignatures(body.values)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Narrows to the pairs a note of this series can carry -- the seeded
+  // `note_issue` facts, the public-fact half of this feature. Not the pairs
+  // in office in the series year: that hid every lettered series' later
+  // signers (1963-A is Granahan / Fowler). With no year entered the backend
+  // returns every pair rather than an empty pulldown.
+  //
+  // A choice the narrowed list leaves out is **kept**, never cleared: it is
+  // usually what the note itself records, and clearing it silently is how a
+  // right answer vanished before. The pulldown shows it marked instead.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .getSignatureChoices(
+        seriesYear
+          ? {
+              denomination,
+              note_type: noteType,
+              seal_color: sealColor,
+              series_year: Number(seriesYear),
+              series_letter: seriesLetter,
+            }
+          : {},
+      )
+      .then((body) => {
+        if (!cancelled) setSignatureOptions(body.values)
       })
       .catch(() => {
         if (!cancelled) setSignatureOptions([])
@@ -121,7 +143,14 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
     return () => {
       cancelled = true
     }
-  }, [seriesYear])
+  }, [denomination, noteType, sealColor, seriesYear, seriesLetter])
+
+  const signatureListed = signatureOptions.some(
+    (entry) => entry.code === signatureCombination,
+  )
+  const signatureLabel =
+    allSignatures.find((entry) => entry.code === signatureCombination)?.label ??
+    signatureCombination
 
   function invalidatePendingSearch() {
     searchCancelRef.current?.()
@@ -271,6 +300,11 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
             onChange={(e) => setSignatureCombination(e.target.value)}
           >
             <option value="">--</option>
+            {signatureCombination && !signatureListed && (
+              <option value={signatureCombination}>
+                {signatureLabel} (not listed for this series)
+              </option>
+            )}
             {signatureOptions.map((entry) => (
               <option key={entry.code} value={entry.code}>
                 {entry.label}

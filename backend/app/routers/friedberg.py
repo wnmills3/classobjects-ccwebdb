@@ -15,6 +15,7 @@ turns a proposal into a fact the next lookup can trust.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -28,6 +29,7 @@ from ..models import (
     Denomination,
     FriedbergNumber,
     InventoryItem,
+    NoteIssue,
     NoteType,
     ProvenanceSource,
     ReferenceMixin,
@@ -41,6 +43,8 @@ from ..schemas import (
     FriedbergAttachOut,
     FriedbergNumberCreate,
     FriedbergNumberOut,
+    SignatureChoice,
+    SignatureChoicesOut,
 )
 
 #: Endpoints 1 and 2 live under `/friedberg`; endpoint 3 attaches a result to
@@ -219,6 +223,73 @@ def search_friedberg(
 
     rows = db.scalars(stmt.order_by(FriedbergNumber.id)).all()
     return [_to_out(db, row) for row in rows]
+
+
+@friedberg_router.get("/signatures")
+def signature_choices(
+    db: DbSession,
+    _admin: AdminUser,
+    denomination: Annotated[str | None, Query()] = None,
+    note_type: Annotated[str | None, Query()] = None,
+    seal_color: Annotated[str | None, Query()] = None,
+    series_year: Annotated[int | None, Query()] = None,
+    series_letter: Annotated[str | None, Query()] = None,
+) -> SignatureChoicesOut:
+    """The Treasurer / Secretary pairs a note of this series can carry.
+
+    **Not "whose term covers the series year".** A series is named for the
+    year its design was adopted, and a lettered series is printed later under
+    later officials: series 1963 is Granahan / Dillon, 1963-A Granahan /
+    Fowler, whose term began in 1965. Narrowing by term hid the right pair
+    for every lettered series (2026-09-23).
+
+    So the seeded `note_issue` facts decide, matched on whatever is given. A
+    blank letter matches every letter of the series -- it may just not be
+    typed yet, and a list too wide is recoverable where one too narrow is
+    not. A series with no facts falls back to every pair whose term ended no
+    earlier than the series year. Public fact throughout, never a
+    catalogue's numbering.
+    """
+    active = select(SignatureCombination).where(
+        SignatureCombination.is_active.is_(True)
+    )
+    ordered = (SignatureCombination.sort_order, SignatureCombination.code)
+    if series_year is None:
+        return _choices(db.scalars(active.order_by(*ordered)).all(), "all")
+
+    facts = select(NoteIssue.signature_combination_id).where(
+        NoteIssue.series_year == series_year
+    )
+    for column, model, code, name in (
+        (NoteIssue.denomination_id, Denomination, denomination, "denomination"),
+        (NoteIssue.note_type_id, NoteType, note_type, "note_type"),
+        (NoteIssue.seal_color_id, SealColor, seal_color, "seal_color"),
+    ):
+        row_id = code_to_id(db, model, code, name)
+        if row_id is not None:
+            facts = facts.where(column == row_id)
+    if series_letter:
+        facts = facts.where(NoteIssue.series_letter == series_letter)
+
+    known = db.scalars(
+        active.where(SignatureCombination.id.in_(facts)).order_by(*ordered)
+    ).all()
+    if known:
+        return _choices(known, "note_issue")
+    still_in_office = active.where(
+        or_(
+            SignatureCombination.term_to.is_(None),
+            SignatureCombination.term_to >= series_year,
+        )
+    )
+    return _choices(db.scalars(still_in_office.order_by(*ordered)).all(), "term")
+
+
+def _choices(rows: Sequence[SignatureCombination], source: str) -> SignatureChoicesOut:
+    return SignatureChoicesOut(
+        values=[SignatureChoice(code=row.code, label=row.label) for row in rows],
+        source=source,
+    )
 
 
 @friedberg_router.post("", status_code=status.HTTP_201_CREATED)

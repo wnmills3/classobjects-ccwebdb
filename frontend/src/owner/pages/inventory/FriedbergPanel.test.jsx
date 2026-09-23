@@ -6,7 +6,7 @@ vi.mock('../../api', () => ({
   api: {
     attachFriedberg: vi.fn(),
     clearFriedberg: vi.fn(),
-    getSignatureCombinations: vi.fn(),
+    getSignatureChoices: vi.fn(),
     searchFriedberg: vi.fn(),
     createFriedbergNumber: vi.fn(),
   },
@@ -32,7 +32,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.attachFriedberg.mockResolvedValue({})
   api.clearFriedberg.mockResolvedValue(null)
-  api.getSignatureCombinations.mockResolvedValue({ values: [] })
+  api.getSignatureChoices.mockResolvedValue({ values: [] })
   api.searchFriedberg.mockResolvedValue([])
 })
 

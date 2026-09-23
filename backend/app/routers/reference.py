@@ -236,13 +236,14 @@ def get_table(
 def _limit_to_year(
     model: type[ReferenceMixin], stmt: Select[Any], year: int
 ) -> Select[Any]:
-    """Narrow a term-bounded vocabulary to the values valid in a given year.
+    """Narrow a term-bounded vocabulary to the values in office in a given year.
 
-    Signature combinations are the case this exists for. A note's series year
-    decides which Treasurer and Secretary can possibly appear on it, so a
-    picker offering all eleven invites the wrong one to be chosen -- and the
-    signatures are what separate one catalogue variant from another, so a
-    wrong one is a wrong lookup.
+    Answers "who held office in this year", and nothing more. It is **not**
+    the pairs a note of that *series* can carry: a lettered series is printed
+    later, under later officials (1963-A is Granahan / Fowler, in office from
+    1965), so narrowing a note's signatures this way hides the right pair.
+    The Friedberg lookup used it for that until 2026-09-23 and now asks
+    `GET /friedberg/signatures`, which reads the `note_issue` facts.
 
     A table without a term is returned unfiltered rather than empty: the
     parameter is a narrowing where one is possible, not a requirement.
