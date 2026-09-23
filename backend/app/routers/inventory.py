@@ -645,7 +645,7 @@ def receive_items(
         # asked once over the whole set before the first `end_offer`.
         _refuse_auction_lots(db, live_offers, payload.outcome)
         for live in live_offers:
-            offering_writes.end_offer(db, live)
+            offering_writes.end_offer(db, live, note=f"item recorded {payload.outcome}")
 
     db.commit()
     # The outcome as well as the count. This endpoint records `missing`,

@@ -9,7 +9,16 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import Denomination, Grade, ItemKind, Metal, Series, StrikeType
+from app.models import (
+    CurrencyDetail,
+    Denomination,
+    Grade,
+    ItemKind,
+    Metal,
+    SealColor,
+    Series,
+    StrikeType,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -512,3 +521,53 @@ def test_an_item_keeps_a_retired_value_it_already_holds(
     )
     assert refused.status_code == 422, refused.text
     assert "Retired series" in refused.json()["detail"]
+
+
+def test_a_retired_grade_sent_as_a_compound_grade_is_kept(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The editor sends "MS64", which is split into a grade and a strike first.
+
+    `keep` has to compare after that split, against the grade id the item
+    holds -- the path most likely to regress, because the code sent is not
+    the code stored.
+    """
+    holder = make_item(db, grade_id=code_id(db, Grade, "64"))
+    other = make_item(db, grade_id=None)
+    db.get_one(Grade, holder.grade_id).is_active = False
+    db.commit()
+
+    kept = client.patch(
+        f"/api/inventory/{holder.id}", headers=admin_headers, json={"grade": "MS64"}
+    )
+    assert kept.status_code == 200, kept.text
+
+    refused = client.patch(
+        f"/api/inventory/{other.id}", headers=admin_headers, json={"grade": "MS64"}
+    )
+    assert refused.status_code == 422, refused.text
+    assert "Retired grade" in refused.json()["detail"]
+
+
+def test_a_note_keeps_a_retired_seal_colour_it_already_holds(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The note fields resolve through `_note_changes`, which `keep` must reach."""
+    blue = code_id(db, SealColor, "blue")
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    db.add(CurrencyDetail(inventory_item_id=note.id, seal_color_id=blue))
+    other = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    db.add(CurrencyDetail(inventory_item_id=other.id))
+    db.get_one(SealColor, blue).is_active = False
+    db.commit()
+
+    kept = client.patch(
+        f"/api/inventory/{note.id}", headers=admin_headers, json={"seal_color": "blue"}
+    )
+    assert kept.status_code == 200, kept.text
+
+    refused = client.patch(
+        f"/api/inventory/{other.id}", headers=admin_headers, json={"seal_color": "blue"}
+    )
+    assert refused.status_code == 422, refused.text
+    assert "Retired seal_color" in refused.json()["detail"]

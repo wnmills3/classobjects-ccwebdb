@@ -567,7 +567,14 @@ def _refuse_rewriting_an_ended_offer(listing: Listing, data: dict[str, Any]) -> 
     """
     if listing.status is not ListingStatus.ended:
         return
-    frozen = sorted(set(data) - _EDITABLE_AFTER_ENDING)
+    # Changed values only: the console's edit form sends price, title and
+    # description with every save, so refusing by key would refuse the one
+    # edit this allows -- setting the listing number -- from the console.
+    frozen = sorted(
+        field
+        for field, value in data.items()
+        if field not in _EDITABLE_AFTER_ENDING and getattr(listing, field) != value
+    )
     if frozen:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

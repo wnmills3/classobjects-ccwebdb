@@ -24,6 +24,19 @@ def _set(
     )
 
 
+def test_an_ordinary_shop_order_s_listing_has_not_ended(
+    client: TestClient, listing: Listing, customer_headers: dict[str, str]
+) -> None:
+    """The negative half: a coin bought with stock left keeps its listing live.
+
+    Without this, a regression that always answered `listing_ended: true`
+    would grey out Cancel on every shop order and pass the suite.
+    """
+    placed = place(client, customer_headers, listing.id, 1)
+    assert placed.status_code == 201, placed.text
+    assert placed.json()["items"][0]["listing_ended"] is False
+
+
 def test_cancelling_a_shop_order_that_bought_a_lot_is_refused(
     client: TestClient,
     db: Session,

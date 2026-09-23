@@ -461,7 +461,11 @@ def _remove_lot(
                 "bring its items back before the lot can be removed"
             )
         _return_from_consignment(db, auction_lot, returned_to_location_id)
-    offering_writes.end_offer(db, auction_lot.listing)
+    offering_writes.end_offer(
+        db,
+        auction_lot.listing,
+        note=f"removed from auction #{auction_lot.auction_id}",
+    )
     db.delete(auction_lot)
     db.flush()
 
@@ -1391,7 +1395,13 @@ def settle(
                     db, row, returned_to_location_id, user_id=settled_by.id
                 )
         for row in coming_home:
-            offering_writes.end_offer(db, row.listing)
+            # Said as what it was: unsold, or withdrawn from the sale -- not
+            # the bare "withdrawn" an End would record. This is the fact
+            # `ListingStatusHistory` exists to keep for settlement.
+            result = by_lot[row.id].result.value
+            offering_writes.end_offer(
+                db, row.listing, note=f"{result} at auction #{auction.id}"
+            )
 
         # Cleared here and only after the loop above: the house is holding
         # nothing of this auction's any more, whether because everything sold

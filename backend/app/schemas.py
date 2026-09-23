@@ -1121,7 +1121,9 @@ class ReferenceValueRename(BaseModel):
     """
 
     label: str = Field(min_length=1, max_length=255)
-    sort_order: int | None = None
+    #: Bounded to the column's own range: a larger number would overflow the
+    #: INTEGER and surface as a 500 instead of a 422.
+    sort_order: int | None = Field(default=None, ge=0, le=2**31 - 1)
     is_active: bool | None = None
 
 

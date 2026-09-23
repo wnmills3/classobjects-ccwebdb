@@ -640,10 +640,17 @@ def test_an_ended_offer_s_terms_cannot_be_rewritten(
     assert db.get_one(Listing, listing["id"]).price == Decimal("10.00")
 
     # The platform's own number is still settable: it is often looked up late.
+    # Sent the way the console's form sends it -- every field, the frozen
+    # ones unchanged -- which is what must still be accepted.
     numbered = client.patch(
         f"/api/listings/{listing['id']}",
         headers=admin_headers,
-        json={"external_id": "126655443322"},
+        json={
+            "price": "10.00",
+            "title": listing["title"],
+            "description": listing["description"],
+            "external_id": "126655443322",
+        },
     )
     assert numbered.status_code == 200, numbered.text
     assert numbered.json()["external_id"] == "126655443322"

@@ -1428,7 +1428,9 @@ def _end(
     lot.status = SalesLotStatus.sold if sold else SalesLotStatus.dissolved
 
 
-def end_offer(db: Session, listing: Listing, *, sold: bool = False) -> None:
+def end_offer(
+    db: Session, listing: Listing, *, sold: bool = False, note: str | None = None
+) -> None:
     """End an offer, resuming or ending the store listings it paused.
 
     `sold=False` is a withdrawal: a store listing set aside for this offer
@@ -1444,6 +1446,11 @@ def end_offer(db: Session, listing: Listing, *, sold: bool = False) -> None:
     A **lot** listing ends its lot with it (`_end`): `dissolved` when
     withdrawn, `sold` when settled, and its members released either way. The
     two are different histories and never collapse into one.
+
+    `note` is what `ListingStatusHistory` records for the ending, when the
+    caller knows more than "sold" or "withdrawn" -- an auction lot that came
+    back unsold, a coin marked missing, a lot split into pieces. Without one,
+    `_end` records "sold" or "withdrawn" from `sold`.
     """
     # Lot row, then items, then listings, through the one owner of that order
     # (`lock_for_sale`). `including_paused=True` because an ending's item set
@@ -1492,7 +1499,7 @@ def end_offer(db: Session, listing: Listing, *, sold: bool = False) -> None:
         .execution_options(populate_existing=True)
     ).all()
 
-    _end(db, listing, sold=sold)
+    _end(db, listing, sold=sold, note=note)
     # Flushed before anything is resumed, not with it: this listing's claim
     # must be released in the database before the claim it paused goes back to
     # active, or the two are briefly active on one item and the partial unique

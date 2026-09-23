@@ -43,6 +43,17 @@ def test_a_vocabulary_says_whether_its_order_means_anything(
     assert client.get("/api/reference/series").json()["sequenced"] is False
 
 
+def test_a_position_beyond_the_column_is_refused_not_a_500(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    response = client.patch(
+        "/api/reference/grade/64",
+        headers=admin_headers,
+        json={"label": "64", "sort_order": 2**31},
+    )
+    assert response.status_code == 422, response.text
+
+
 def test_the_endpoint_is_public(client: TestClient) -> None:
     """Vocabularies are public; they reveal nothing held.
 

@@ -27,12 +27,21 @@ function formatterFor(currencyCode) {
  *
  * `currencyCode` is the ISO code the amount is in. Listings and catalogue
  * items carry one (`currency`); pass it where the data has it. USD is only
- * the default for shapes that carry none -- orders today.
+ * the default for shapes that carry none -- orders today. A code `Intl`
+ * does not recognise is shown as written beside the amount.
  */
 export function money(value, currencyCode = 'USD') {
   const text = typeof value === 'number' ? String(value) : String(value ?? '').trim()
   if (!DECIMAL.test(text)) return '--'
-  return formatterFor(currencyCode || 'USD').format(text)
+  const code = currencyCode || 'USD'
+  try {
+    return formatterFor(code).format(text)
+  } catch {
+    // Not an ISO 4217 code -- currencies are an admin-edited vocabulary, and
+    // Intl refuses anything it does not know. The amount and the code as
+    // stored, rather than a page that fails to render.
+    return `${text} ${code}`
+  }
 }
 
 export function date(value) {
