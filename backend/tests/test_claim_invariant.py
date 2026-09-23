@@ -57,18 +57,39 @@ suite.
 from __future__ import annotations
 
 import inspect
+import re
+from collections.abc import Callable
+from datetime import date
+from decimal import Decimal
 
 import pytest
-from app.models import ClaimState, Disposition, Listing, OfferClaim, SalesLotStatus
+from app import offering_writes
+from app.auctions import add_lot, schedule
+from app.models import (
+    Auction,
+    AuctionLot,
+    AuctionLotResult,
+    AuctionStatus,
+    ClaimState,
+    Disposition,
+    InventoryItem,
+    Listing,
+    ListingFormat,
+    OfferClaim,
+    SalesLotStatus,
+    SalesVenue,
+)
 from app.references import require_code
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests import conftest
 from tests.conftest import (
+    AuctionInvariantViolation,
     ClaimInvariantViolation,
     DispositionInvariantViolation,
     LotInvariantViolation,
+    check_auction_invariant,
     check_claim_invariant,
     check_disposition_invariant,
     check_lot_invariant,
@@ -265,3 +286,118 @@ def test_the_disposition_invariant_is_wired_into_the_autouse_fixture(
     assert "_claim_invariant" in request.fixturenames  # the fixture is in the closure
     src = inspect.getsource(conftest._claim_invariant)
     assert "check_disposition_invariant(db)" in src
+
+
+@pytest.fixture
+def scheduled_auction_lot(
+    db: Session, heritage_venue: SalesVenue, make_item: Callable[..., InventoryItem]
+) -> AuctionLot:
+    """One lot in a scheduled auction-house sale, built through `app.auctions`."""
+    auction = Auction(sales_venue_id=heritage_venue.id, title="Proof Sale")
+    db.add(auction)
+    db.flush()
+    auction_lot = add_lot(
+        db, auction, make_item(), lot_number="1", reserve=None, price=Decimal("0")
+    )
+    schedule(db, auction)
+    return auction_lot
+
+
+def _result_before_settlement(db: Session, lot: AuctionLot) -> None:
+    lot.result = AuctionLotResult.unsold
+
+
+def _ended_under_an_open_auction(db: Session, lot: AuctionLot) -> None:
+    # Through the sanctioned writer, so the claim, history and disposition
+    # checks all stay satisfied and only the auction rule is broken -- the
+    # shape a missing End guard on an auction lot would leave.
+    offering_writes.end_offer(db, lot.listing)
+
+
+def _settled_without_results(db: Session, lot: AuctionLot) -> None:
+    lot.auction.status = AuctionStatus.settled
+
+
+def _cancelled_with_lots(db: Session, lot: AuctionLot) -> None:
+    lot.auction.status = AuctionStatus.cancelled
+
+
+def _sold_without_a_buyer(db: Session, lot: AuctionLot) -> None:
+    lot.hammer_price = Decimal("100.00")
+    lot.result = AuctionLotResult.sold
+
+
+def _money_on_an_unsold_lot(db: Session, lot: AuctionLot) -> None:
+    lot.hammer_price = Decimal("100.00")
+
+
+def _consigned_on_a_scheduled_auction(db: Session, lot: AuctionLot) -> None:
+    lot.auction.consigned_on = date(2026, 9, 23)
+
+
+def _consigned_without_a_date(db: Session, lot: AuctionLot) -> None:
+    lot.auction.status = AuctionStatus.consigned
+
+
+def _detailing_a_fixed_price_listing(db: Session, lot: AuctionLot) -> None:
+    lot.listing.format = ListingFormat.fixed_price
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AuctionInvariantViolation,
+    reason=(
+        "proof that each auction rule can fail: breaking it here must raise "
+        "both in this call and in the autouse fixture's teardown"
+    ),
+)
+@pytest.mark.parametrize(
+    ("breaker", "names"),
+    [
+        (_result_before_settlement, "has a result on a scheduled auction"),
+        (_ended_under_an_open_auction, "its listing is ended on a scheduled auction"),
+        (_settled_without_results, "has no result on a settled auction"),
+        (_cancelled_with_lots, "survived its auction's cancellation"),
+        (_sold_without_a_buyer, "sold with no hammer price or no buyer"),
+        (_money_on_an_unsold_lot, "carries a hammer price or buyer but did not sell"),
+        (_consigned_on_a_scheduled_auction, "is scheduled but still consigned"),
+        (_consigned_without_a_date, "is consigned with no consigned_on"),
+        (_detailing_a_fixed_price_listing, "details a fixed_price listing"),
+    ],
+    ids=lambda value: getattr(value, "__name__", None),
+)
+def test_the_auction_invariant_catches_each_rule(
+    db: Session,
+    scheduled_auction_lot: AuctionLot,
+    breaker: Callable[[Session, AuctionLot], None],
+    names: str,
+) -> None:
+    """Each rule, broken alone, must be the one the check names.
+
+    The `pytest.raises(match=...)` is what makes each case specific: without
+    it, one rule firing by accident would satisfy the `xfail` for every case,
+    and a rule that could never fire would go unnoticed. The unguarded call
+    after it is what makes the call phase raise, for the reason this module's
+    docstring gives.
+    """
+    check_auction_invariant(db)  # clean before the break, or the proof is vacuous
+    breaker(db, scheduled_auction_lot)
+    db.flush()
+    with pytest.raises(AuctionInvariantViolation, match=re.escape(names)):
+        check_auction_invariant(db)
+    check_auction_invariant(db)
+
+
+def test_the_auction_check_runs_ahead_of_the_waiver_branch() -> None:
+    """The fixture runs the auction check, where a claim waiver cannot absorb it.
+
+    Read from source for the reason
+    `test_the_lot_check_runs_ahead_of_the_waiver_branch` gives. The call is
+    matched together with the branch it sits in: it also appears inside the
+    auction waiver's own `try`, so a bare `"check_auction_invariant(db)" in
+    src` stayed green, measured, with the unwaived call deleted.
+    """
+    src = inspect.getsource(conftest._claim_invariant)
+    unwaived = "if auction_waiver is None:\n        check_auction_invariant(db)\n"
+    assert unwaived in src
+    assert src.index(unwaived) < src.index("if waiver is None")

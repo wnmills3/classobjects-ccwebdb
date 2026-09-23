@@ -420,14 +420,30 @@ is otherwise unchanged.
 - **Mutation checks**: drop the `offer_claim` partial unique index, and
   separately the `FOR UPDATE` in offer and settle, and confirm the race tests
   fail; restore and confirm they pass.
-- **Invariants after every write in the suite**, all three **built**, all
-  three run by `tests/conftest.py`'s autouse `_claim_invariant` fixture:
+- **Invariants after every write in the suite**, all five **built**, all
+  five run by `tests/conftest.py`'s autouse `_claim_invariant` fixture, and
+  called by hand in the two race files' `committed` fixtures, which that
+  fixture cannot reach:
 
   | Rule | Check | Exception it raises | Built |
   |---|---|---|---|
   | A claim's state equals its listing's status | `check_claim_invariant` | `ClaimInvariantViolation` | phase 2R |
   | An open lot membership implies its lot is `assembling` or `offered` | `check_lot_invariant` | `LotInvariantViolation` | **phase 3** |
   | A `HELD_BY` claim implies its item is `listed` or already sold away | `check_disposition_invariant` | `DispositionInvariantViolation` | **phase 3** |
+  | A listing's latest history row names its current status | `check_listing_history_invariant` | `HistoryInvariantViolation` | selling follow-ups |
+  | An auction agrees with its lots, and each lot with its listing (below) | `check_auction_invariant` | `AuctionInvariantViolation` | 2026-09-23 |
+
+  The auction rules: until `settled`, no lot has a result and every lot's
+  listing is `active`; once `settled`, every lot has a result and an `ended`
+  listing; a `cancelled` auction has no lots (R11); a `sold` lot has a hammer
+  price and a buyer and any other lot has neither; a lot details an
+  auction-format listing (not the converse -- a coin may be on eBay by
+  auction with no `auction` behind it); `consigned_on` is set on every
+  `consigned` auction, may be set on a `closed` one (R13), and on no other.
+  Two tests build auction rows around `app.auctions` on purpose and carry
+  the `auction_invariant_waiver` marker -- a separate marker, for the reason
+  the next paragraph gives, graded like the claim waiver: `reason=` required,
+  and a waiver that stops biting fails.
 
   **Three separate checks with three separate exception types, and the
   separation is load-bearing.** Four tests carry the

@@ -500,6 +500,13 @@ def test_a_direct_auction_format_listing_records_its_sale(
     assert db.get_one(Listing, listing.id).status is ListingStatus.ended
 
 
+@pytest.mark.auction_invariant_waiver(
+    reason=(
+        "calls record_sale_lines directly on a draft auction's lot, as "
+        "settle would, without settle: the listing ends while the auction "
+        "stays draft"
+    )
+)
 def test_settlement_still_reaches_record_sale_lines_for_an_auction_lot(
     db: Session,
     heritage_venue: SalesVenue,
