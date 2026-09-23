@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from ..deps import AdminUser, DbSession
 from ..models import (
+    CurrencyDetail,
     Denomination,
     FriedbergNumber,
     InventoryItem,
@@ -78,6 +79,7 @@ def _to_out(db: Session, row: FriedbergNumber) -> FriedbergNumberOut:
         ),
         district_letter=row.district_letter,
         size_class=row.size_class,
+        web_press=row.web_press,
         description=row.description,
         source=row.source.value,
         verified=row.verified_at is not None,
@@ -100,6 +102,9 @@ def search_friedberg(
         str | None, Query(description="A signature_combination code")
     ] = None,
     district_letter: Annotated[str | None, Query()] = None,
+    web_press: Annotated[
+        bool | None, Query(description="Printed on a web press")
+    ] = None,
 ) -> list[FriedbergNumberOut]:
     """Search the owner's catalogue by what is visible on a note in hand.
 
@@ -199,6 +204,15 @@ def search_friedberg(
         )
         hits.append(FriedbergNumber.district_letter == district_letter)
 
+    if web_press is not None:
+        narrow.append(
+            or_(
+                FriedbergNumber.web_press == web_press,
+                FriedbergNumber.web_press.is_(None),
+            )
+        )
+        hits.append(FriedbergNumber.web_press == web_press)
+
     stmt = select(FriedbergNumber)
     if narrow:
         stmt = stmt.where(and_(*narrow), or_(*hits))
@@ -244,6 +258,7 @@ def create_friedberg_number(
         ),
         district_letter=payload.district_letter,
         size_class=payload.size_class,
+        web_press=payload.web_press,
         description=payload.description,
         source=ProvenanceSource.manual,
     )
@@ -264,6 +279,42 @@ def create_friedberg_number(
     db.commit()
     db.refresh(row)
     return _to_out(db, row)
+
+
+def _note_detail(db: Session, item_id: int) -> CurrencyDetail:
+    """The note's currency detail, or a 404 naming why there is none.
+
+    Refused when the item has no `currency_detail` -- a coin has no Friedberg
+    number, and silently doing nothing would hide that mistake rather than
+    report it.
+    """
+    item = db.get(InventoryItem, item_id)
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
+        )
+    detail = item.currency_detail
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item has no currency_detail -- only a banknote can carry "
+            "a Friedberg number",
+        )
+    return detail
+
+
+@item_router.delete("/{item_id}/friedberg", status_code=status.HTTP_204_NO_CONTENT)
+def clear_friedberg(item_id: int, db: DbSession, _admin: AdminUser) -> None:
+    """Take the Friedberg number off a note, which goes back to `unknown`.
+
+    The catalogue row stays: it records a type that exists, whether or not
+    this note turned out to be one. A row confirmed by an earlier attach stays
+    confirmed for the same reason.
+    """
+    detail = _note_detail(db, item_id)
+    detail.friedberg_id = None
+    detail.friedberg_status = "unknown"
+    db.commit()
 
 
 @item_router.post("/{item_id}/friedberg")
@@ -288,18 +339,7 @@ def attach_friedberg(
             f"of {sorted(FRIEDBERG_STATUSES)}",
         )
 
-    item = db.get(InventoryItem, item_id)
-    if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
-        )
-    detail = item.currency_detail
-    if detail is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Item has no currency_detail -- only a banknote can carry "
-            "a Friedberg number",
-        )
+    detail = _note_detail(db, item_id)
 
     friedberg = db.get(FriedbergNumber, payload.friedberg_id)
     if friedberg is None:
@@ -319,7 +359,7 @@ def attach_friedberg(
     db.refresh(friedberg)
 
     return FriedbergAttachOut(
-        inventory_item_id=item.id,
+        inventory_item_id=item_id,
         friedberg_id=detail.friedberg_id,
         friedberg_status=detail.friedberg_status,
         fr_number=friedberg.fr_number,

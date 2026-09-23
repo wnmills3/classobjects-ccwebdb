@@ -8,6 +8,7 @@ import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
+import FriedbergPanel from './FriedbergPanel'
 import OffersPanel from './OffersPanel'
 import PhotosPanel from './PhotosPanel'
 
@@ -725,6 +726,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
               <span />
             </label>
           ))}
+          <FriedbergPanel item={item} onChanged={reloadItem} />
         </>
       )}
 

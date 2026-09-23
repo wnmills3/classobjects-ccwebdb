@@ -54,6 +54,7 @@ from ..models import (
     Disposition,
     ErrorType,
     FedDistrict,
+    FriedbergNumber,
     Grade,
     GradeDesignation,
     GradingService,
@@ -913,6 +914,19 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
             for field, model in NOTE_CLASSIFIERS.items()
         }
         note.update({field: getattr(detail, field) for field in NOTE_SCALARS})
+        friedberg = (
+            db.get(FriedbergNumber, detail.friedberg_id)
+            if detail.friedberg_id is not None
+            else None
+        )
+        note.update(
+            friedberg_id=detail.friedberg_id,
+            friedberg_number=friedberg.fr_number if friedberg else None,
+            friedberg_status=detail.friedberg_status,
+            friedberg_verified=(
+                friedberg.verified_at is not None if friedberg else None
+            ),
+        )
 
     return ItemDetailOut(
         **{

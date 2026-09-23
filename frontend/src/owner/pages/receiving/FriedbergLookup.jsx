@@ -15,7 +15,32 @@ function describeMatch(row) {
   if (row.seal_color) parts.push(row.seal_color)
   if (row.signature_combination) parts.push(row.signature_combination)
   if (row.district_letter) parts.push(`district ${row.district_letter}`)
+  if (row.web_press === true) parts.push('web press')
+  if (row.web_press === false) parts.push('sheet-fed')
   return parts.join(' · ')
+}
+
+//: The web-press pulldown's values, as the search and record calls take them.
+//: Blank is "not known" and filters nothing -- a note without the Web Press
+//: attribute is not thereby known to be sheet-fed.
+const PRESS = { yes: true, no: false }
+
+/**
+ * The search fields as the note already records them, so the owner starts
+ * from what the item says rather than retyping it. Only Web Press can be
+ * read from an attribute, and only as "yes": its absence proves nothing.
+ */
+function fromItem(item) {
+  return {
+    denomination: item?.denomination ?? '',
+    noteType: item?.note_type ?? '',
+    sealColor: item?.seal_color ?? '',
+    seriesYear: item?.series_year != null ? String(item.series_year) : '',
+    seriesLetter: item?.series_letter ?? '',
+    signatureCombination: item?.signature_combination ?? '',
+    district: item?.fed_district ?? '',
+    press: (item?.attributes ?? []).some((a) => a.code === 'web_press') ? 'yes' : '',
+  }
 }
 
 /**
@@ -37,14 +62,24 @@ function describeMatch(row) {
  * before every new search, so a slow response for an abandoned query can
  * never land after a faster, later one and make a result clickable that no
  * longer matches what is on screen.
+ *
+ * `item` is the note's detail (`GET /inventory/{id}`), when the caller has
+ * it: the fields start from what the note records. `onAttached` is told
+ * after a number is attached, so a caller showing the current number can
+ * read it again.
  */
-export default function FriedbergLookup({ itemId, onClose }) {
-  const [denomination, setDenomination] = useState('')
-  const [noteType, setNoteType] = useState('')
-  const [sealColor, setSealColor] = useState('')
-  const [seriesYear, setSeriesYear] = useState('')
-  const [seriesLetter, setSeriesLetter] = useState('')
-  const [signatureCombination, setSignatureCombination] = useState('')
+export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
+  const [initial] = useState(() => fromItem(item))
+  const [denomination, setDenomination] = useState(initial.denomination)
+  const [noteType, setNoteType] = useState(initial.noteType)
+  const [sealColor, setSealColor] = useState(initial.sealColor)
+  const [seriesYear, setSeriesYear] = useState(initial.seriesYear)
+  const [seriesLetter, setSeriesLetter] = useState(initial.seriesLetter)
+  const [signatureCombination, setSignatureCombination] = useState(
+    initial.signatureCombination,
+  )
+  const [district, setDistrict] = useState(initial.district)
+  const [press, setPress] = useState(initial.press)
   const [signatureOptions, setSignatureOptions] = useState([])
 
   const [results, setResults] = useState(null)
@@ -101,6 +136,8 @@ export default function FriedbergLookup({ itemId, onClose }) {
     if (seriesYear) filters.series_year = Number(seriesYear)
     if (seriesLetter) filters.series_letter = seriesLetter
     if (signatureCombination) filters.signature_combination = signatureCombination
+    if (district) filters.district_letter = district
+    if (press in PRESS) filters.web_press = PRESS[press]
     return filters
   }
 
@@ -144,6 +181,7 @@ export default function FriedbergLookup({ itemId, onClose }) {
       setAttachMessage(
         `Attached ${body.fr_number} to this item as ${body.friedberg_status}.`,
       )
+      onAttached?.(body)
       return body
     } catch (err) {
       setAttachError(err.message)
@@ -238,6 +276,23 @@ export default function FriedbergLookup({ itemId, onClose }) {
                 {entry.label}
               </option>
             ))}
+          </select>
+        </label>
+        <label>
+          District
+          <ReferenceSelect
+            table="fed_district"
+            value={district}
+            onChange={(e) => setDistrict(e.target.value)}
+            placeholder="B"
+          />
+        </label>
+        <label>
+          Web press
+          <select value={press} onChange={(e) => setPress(e.target.value)}>
+            <option value="">Not known</option>
+            <option value="yes">Yes</option>
+            <option value="no">No, sheet-fed</option>
           </select>
         </label>
       </div>

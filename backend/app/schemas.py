@@ -690,6 +690,14 @@ class ItemDetailOut(InventoryItemOut):
     series_year: int | None = None
     series_letter: str | None = None
     serial_number: str | None = None
+    #: The Friedberg number attached to the note, if any. Set through
+    #: `POST`/`DELETE /inventory/{id}/friedberg`, never by a PATCH.
+    friedberg_id: int | None = None
+    friedberg_number: str | None = None
+    #: unknown, proposed, confirmed or conflicting; None for anything but a note.
+    friedberg_status: str | None = None
+    #: Whether the attached catalogue row has been confirmed by anyone.
+    friedberg_verified: bool | None = None
 
     #: What the item is beyond its grade: Star Note, No Motto, First Strike.
     #: Removed ones are not listed.
@@ -2011,6 +2019,8 @@ class FriedbergNumberOut(BaseModel):
     signature_combination: str | None
     district_letter: str | None
     size_class: str | None
+    #: Printed on a web press; None when not known.
+    web_press: bool | None
     description: str | None
     #: A `provenance_source` value: seeded, derived, manual. Every row here is
     #: `manual` today -- there is no licensed dataset to seed from -- but the
@@ -2037,6 +2047,7 @@ class FriedbergNumberCreate(BaseModel):
     signature_combination: str | None = None
     district_letter: str | None = Field(default=None, min_length=1, max_length=1)
     size_class: str | None = Field(default=None, pattern="^(large|small|fractional)$")
+    web_press: bool | None = None
     description: str | None = None
 
 

@@ -276,6 +276,150 @@ def test_confirming_stamps_verifier_and_timestamp(
 
 
 # ---------------------------------------------------------------------------
+# Web press: a printing method, and part of what identifies a type
+# ---------------------------------------------------------------------------
+
+
+def _typed(fr_number: str, web_press: bool | None) -> dict[str, object]:
+    """One fully known type, differing from its siblings only by press."""
+    return {
+        "fr_number": fr_number,
+        "note_type": "frn",
+        "denomination": "usd_note_1",
+        "series_year": 1995,
+        "district_letter": "B",
+        "web_press": web_press,
+    }
+
+
+def test_web_press_is_recorded_and_returned(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The press is stored on the row, not merely accepted and dropped."""
+    resp = client.post(
+        "/api/friedberg", json=_typed("FR-TEST-W1", True), headers=admin_headers
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["web_press"] is True
+
+    listed = client.get("/api/friedberg", headers=admin_headers).json()
+    assert [row["web_press"] for row in listed] == [True]
+
+
+def test_a_web_press_and_a_sheet_fed_printing_are_different_types(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Same denomination, series, note type and district; different press.
+
+    Before the press was part of the identity, the second of these was a 409
+    -- the catalogue could hold only one of two real, distinct types.
+    """
+    web = client.post(
+        "/api/friedberg", json=_typed("FR-TEST-W2", True), headers=admin_headers
+    )
+    sheet = client.post(
+        "/api/friedberg", json=_typed("FR-TEST-S2", False), headers=admin_headers
+    )
+    assert web.status_code == 201, web.text
+    assert sheet.status_code == 201, sheet.text
+
+
+def test_the_same_type_and_press_twice_is_still_a_conflict(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Adding the press to the identity must not have loosened it."""
+    first = client.post(
+        "/api/friedberg", json=_typed("FR-TEST-W3", True), headers=admin_headers
+    )
+    again = client.post(
+        "/api/friedberg", json=_typed("FR-TEST-W4", True), headers=admin_headers
+    )
+    assert first.status_code == 201, first.text
+    assert again.status_code == 409, again.text
+
+
+def test_the_web_press_filter_narrows_like_every_other(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Asking for web press finds web and unknown-press rows, never sheet-fed."""
+    ids = {
+        press: client.post(
+            "/api/friedberg",
+            json=_typed(f"FR-TEST-F{index}", press) | {"series_year": 1990 + index},
+            headers=admin_headers,
+        ).json()["id"]
+        for index, press in enumerate((True, False, None))
+    }
+    resp = client.get(
+        "/api/friedberg",
+        params={"denomination": "usd_note_1", "web_press": "true"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert _ids(resp.json()) == {ids[True], ids[None]}
+
+
+# ---------------------------------------------------------------------------
+# The item editor: what is attached, and taking it off again
+# ---------------------------------------------------------------------------
+
+
+def test_the_item_detail_says_which_number_is_attached(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The editor shows the number, its status and whether it is verified."""
+    item = _currency_item(db)
+    friedberg = _add_friedberg(db, fr_number="FR-TEST-D1")
+    attached = client.post(
+        f"/api/inventory/{item.id}/friedberg",
+        json={"friedberg_id": friedberg.id, "status": "proposed"},
+        headers=admin_headers,
+    )
+    assert attached.status_code == 200, attached.text
+
+    body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
+    assert body["friedberg_id"] == friedberg.id
+    assert body["friedberg_number"] == "FR-TEST-D1"
+    assert body["friedberg_status"] == "proposed"
+    assert body["friedberg_verified"] is False
+
+
+def test_clearing_takes_the_number_off_the_note_only(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The note goes back to unknown; the catalogue row stays for the next one."""
+    item = _currency_item(db)
+    friedberg = _add_friedberg(db, fr_number="FR-TEST-D2")
+    client.post(
+        f"/api/inventory/{item.id}/friedberg",
+        json={"friedberg_id": friedberg.id, "status": "confirmed"},
+        headers=admin_headers,
+    )
+
+    resp = client.delete(f"/api/inventory/{item.id}/friedberg", headers=admin_headers)
+    assert resp.status_code == 204, resp.text
+
+    db.expire_all()
+    detail = db.get(CurrencyDetail, item.id)
+    assert detail is not None
+    assert detail.friedberg_id is None
+    assert detail.friedberg_status == "unknown"
+    assert db.get(FriedbergNumber, friedberg.id) is not None
+    body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
+    assert body["friedberg_number"] is None
+    assert body["friedberg_status"] == "unknown"
+
+
+def test_clearing_a_coin_is_404(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A coin has no Friedberg number to clear -- refused, as attaching is."""
+    coin = make_item(db, item_kind_id=code_id(db, ItemKind, "coin"))
+    resp = client.delete(f"/api/inventory/{coin.id}/friedberg", headers=admin_headers)
+    assert resp.status_code == 404, resp.text
+
+
+# ---------------------------------------------------------------------------
 # Authorisation
 # ---------------------------------------------------------------------------
 
