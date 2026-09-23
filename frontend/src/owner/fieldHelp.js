@@ -173,11 +173,11 @@ export const FIELD_HELP = {
   },
   // -- searching and receiving ----------------------------------------------
   search_kind: {
-    title: 'Kind',
+    title: 'Search for',
     text:
-      'Any searches coins and notes together -- one parcel can hold both. Choose ' +
-      'Coins to search by year and mint, or Currency to search by serial number ' +
-      'and series year.',
+      'Any: coins and notes together -- one parcel can hold both. Coins: adds a ' +
+      'search by year and mint. Currency: adds a search by serial number and ' +
+      'series year.',
   },
   order_number: {
     title: 'Order number',

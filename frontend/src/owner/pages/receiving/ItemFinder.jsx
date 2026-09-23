@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { useReference } from '../../../shared/reference-context'
 import { api } from '../../api'
@@ -185,6 +185,7 @@ export default function ItemFinder({
   // set inside that effect.
   const [busy, setBusy] = useState(orderId != null)
   const cancelRef = useRef(null)
+  const kindTitleId = useId()
   const lastQueryRef = useRef(null)
   const statuses = useReference('item_status')
   const denominations = useReference('denomination')
@@ -264,7 +265,13 @@ export default function ItemFinder({
   return (
     <HelpScope>
       <div className="item-finder">
-        <div className="filter-grid" data-help="search_kind">
+        <div
+          className="filter-grid"
+          data-help="search_kind"
+          role="radiogroup"
+          aria-labelledby={kindTitleId}
+        >
+          <span id={kindTitleId}>Search for:</span>
           {KINDS.map(([value, label]) => (
             <label key={value} className="checkbox">
               <input
@@ -273,6 +280,9 @@ export default function ItemFinder({
                 value={value}
                 checked={kind === value}
                 onChange={() => switchKind(value)}
+                // Focus starts here, so the help band explains the page the
+                // moment it opens (owner's request, 2026-09-23).
+                autoFocus={value === 'any'}
               />
               {label}
             </label>

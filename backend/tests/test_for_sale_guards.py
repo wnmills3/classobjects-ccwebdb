@@ -289,6 +289,129 @@ def test_an_acknowledged_missing_ends_the_listing_and_releases_the_claim(
     assert refreshed.status.code == "missing"
 
 
+def _offered_item(db: Session) -> tuple[InventoryItem, Listing]:
+    """A received item offered in the shop, with its claim, committed."""
+    item = build_item(db)
+    venue = db.scalars(select(SalesVenue).where(SalesVenue.is_own_store)).first()
+    assert venue is not None
+    made = offering_writes.offer(
+        db,
+        item=item,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("50.00"),
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
+    db.commit()
+    return item, made
+
+
+def test_editing_the_status_of_an_offered_item_is_refused_until_acknowledged(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    item, made = _offered_item(db)
+    response = client.patch(
+        f"/api/inventory/{item.id}", json={"status": "missing"}, headers=admin_headers
+    )
+    assert response.status_code == 409, response.text
+    assert _listing_status(db, made.id) is ListingStatus.active
+
+
+def _listing_status(db: Session, listing_id: int) -> ListingStatus:
+    db.expire_all()
+    listing = db.get(Listing, listing_id)
+    assert listing is not None
+    return listing.status
+
+
+@pytest.mark.parametrize("autoflush", [True, False])
+def test_an_acknowledged_status_edit_ends_the_offer(
+    client: TestClient, db: Session, admin_headers: dict[str, str], autoflush: bool
+) -> None:
+    """Marking an offered coin missing in the editor takes it off sale.
+
+    It used to change the status and leave the listing active, so the shop
+    went on selling a coin marked missing (code review, 2026-09-23). Run
+    both ways: production's session does not autoflush, and ending an offer
+    re-reads the item, which once threw a pending status change away.
+    """
+    item, made = _offered_item(db)
+    db.autoflush = autoflush
+    try:
+        response = client.patch(
+            f"/api/inventory/{item.id}",
+            json={"status": "missing", "acknowledge_for_sale": True},
+            headers=admin_headers,
+        )
+    finally:
+        db.autoflush = True
+    assert response.status_code == 200, response.text
+
+    db.expire_all()
+    ended = db.get(Listing, made.id)
+    assert ended is not None
+    assert ended.status is ListingStatus.ended
+    claim = db.scalars(select(OfferClaim).where(OfferClaim.listing_id == made.id)).one()
+    assert claim.state is ClaimState.released
+    refreshed = db.get(InventoryItem, item.id)
+    assert refreshed is not None
+    assert refreshed.status.code == "missing"
+
+
+def test_an_acknowledged_edit_that_leaves_status_alone_keeps_the_offer(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """Only a change of status or disposition ends an offer, not any edit."""
+    item, made = _offered_item(db)
+    response = client.patch(
+        f"/api/inventory/{item.id}",
+        json={
+            "description": "A sharper strike than most",
+            "status": "received",  # sent, but unchanged
+            "acknowledge_for_sale": True,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert _listing_status(db, made.id) is ListingStatus.active
+
+
+def test_an_acknowledged_bulk_status_edit_ends_each_offer(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """The bulk bar changes status for many items: the same rule, per item."""
+    first, first_listing = _offered_item(db)
+    second, second_listing = _offered_item(db)
+    response = client.post(
+        "/api/inventory/bulk",
+        json={
+            "ids": [first.id, second.id],
+            "changes": {"status": "missing", "acknowledge_for_sale": True},
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert _listing_status(db, first_listing.id) is ListingStatus.ended
+    assert _listing_status(db, second_listing.id) is ListingStatus.ended
+
+
+def test_an_acknowledged_disposition_edit_ends_the_offer_too(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """A listed coin set back to held would leave a live claim on a held item."""
+    item, made = _offered_item(db)
+    response = client.patch(
+        f"/api/inventory/{item.id}",
+        json={"disposition": "held", "acknowledge_for_sale": True},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert _listing_status(db, made.id) is ListingStatus.ended
+
+
 def test_an_acknowledged_missing_persists_the_status_without_autoflush(
     client: TestClient, db: Session, listing: Listing, admin_headers: dict[str, str]
 ) -> None:
