@@ -758,8 +758,10 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     elsewhere = _offer_on(db, item, ebay)
     db.commit()
 
-    # Exactly what the catalogue API's retired PATCH wrote for is_active=False.
-    listing.status = ListingStatus.ended
+    # Exactly what the catalogue API's retired PATCH wrote for is_active=False,
+    # through `_set_status` so the listing's history records it -- the shape
+    # being simulated is the stale pointer, not a history written around.
+    offering_writes._set_status(db, listing, ListingStatus.ended, "withdrawn")
     listing.ended_at = utcnow()
     db.commit()
 
@@ -1456,7 +1458,9 @@ def test_offered_items_of_a_lot_listing_excludes_a_paused_member_s_own_listing(
     # Not something `offer` would do -- it pauses only listings holding a
     # member -- so the pointer is set directly, which is the whole point:
     # `_affected_items` follows it and `offered_items` must not.
-    bystander_listing.status = ListingStatus.paused
+    offering_writes._set_status(
+        db, bystander_listing, ListingStatus.paused, "paused by hand for this test"
+    )
     bystander_listing.paused_by_listing_id = lot_listing.id
     offering_writes._move_claims(db, bystander_listing, ClaimState.paused)
     db.flush()

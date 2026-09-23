@@ -83,6 +83,7 @@ from .models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    ListingStatusHistory,
     OfferClaim,
     SalesLot,
     SalesLotStatus,
@@ -1156,12 +1157,22 @@ def offer(
     )
     db.add(listing)
     db.flush()
+    db.add(
+        ListingStatusHistory(
+            listing_id=listing.id,
+            from_status=None,
+            to_status=ListingStatus.active,
+            note="offered",
+        )
+    )
 
     # Before the new claims, not after: the store listing's claim is active
     # until it is paused, and two active claims on one item is exactly what
     # the partial unique index refuses.
     for paused in to_pause.values():
-        paused.status = ListingStatus.paused
+        _set_status(
+            db, paused, ListingStatus.paused, f"paused for listing #{listing.id}"
+        )
         paused.paused_by_listing_id = listing.id
         _move_claims(db, paused, ClaimState.paused)
     db.flush()
@@ -1275,8 +1286,35 @@ def _still_offered(db: Session, item_id: int) -> bool:
     return listed is not None
 
 
-def _end(db: Session, listing: Listing, *, sold: bool = False) -> None:
+def _set_status(
+    db: Session, listing: Listing, status: ListingStatus, note: str
+) -> None:
+    """Change a listing's status and record the change, in one place.
+
+    Every status change after the opening one goes through here, so
+    `ListingStatusHistory` cannot fall behind `listing.status`: a writer
+    that set the column directly would be a second path, and the history
+    would silently stop being true -- the same reason `lifecycle_writes`
+    owns an item's status.
+    """
+    db.add(
+        ListingStatusHistory(
+            listing_id=listing.id,
+            from_status=listing.status,
+            to_status=status,
+            note=note,
+        )
+    )
+    listing.status = status
+
+
+def _end(
+    db: Session, listing: Listing, *, sold: bool = False, note: str | None = None
+) -> None:
     """End one listing, release what it held, and settle its lot if it has one.
+
+    `note` is what the status history records for the ending; by default
+    "sold" or "withdrawn" from `sold`.
 
     A lot listing's lot ends with it -- `sold` when the sale path ended this
     offer, `dissolved` otherwise -- and every open membership is released.
@@ -1335,7 +1373,12 @@ def _end(db: Session, listing: Listing, *, sold: bool = False) -> None:
     """
     if listing.status is ListingStatus.ended:
         return
-    listing.status = ListingStatus.ended
+    _set_status(
+        db,
+        listing,
+        ListingStatus.ended,
+        note if note is not None else ("sold" if sold else "withdrawn"),
+    )
     listing.ended_at = utcnow()
     listing.paused_by_listing_id = None
     _move_claims(db, listing, ClaimState.released)
@@ -1458,9 +1501,14 @@ def end_offer(db: Session, listing: Listing, *, sold: bool = False) -> None:
     db.flush()
     for other in paused_by_it:
         if sold:
-            _end(db, other)
+            _end(db, other, note=f"ended: sold through listing #{listing.id}")
         else:
-            other.status = ListingStatus.active
+            _set_status(
+                db,
+                other,
+                ListingStatus.active,
+                f"resumed: listing #{listing.id} ended",
+            )
             other.paused_by_listing_id = None
             _move_claims(db, other, ClaimState.active)
     db.flush()

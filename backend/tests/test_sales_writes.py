@@ -17,6 +17,7 @@ from app.models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    ListingStatusHistory,
     OfferClaim,
     SalesOrder,
     SalesOrderFee,
@@ -38,7 +39,7 @@ from app.sales_writes import (
     record_sale_lines,
 )
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import Session
 
 from tests.conftest import item_of
@@ -554,6 +555,16 @@ def test_a_second_sale_of_the_same_listing_is_refused_as_not_on_offer(
         .where(OfferClaim.listing_id == listing_id)
         .values(state=ClaimState.released)
         .execution_options(synchronize_session=False)
+    )
+    # And the history row, for the same reason: the winner's ending records
+    # one, and the suite's history invariant checks it after every test.
+    db.execute(
+        insert(ListingStatusHistory).values(
+            listing_id=listing_id,
+            from_status=ListingStatus.active,
+            to_status=ListingStatus.ended,
+            note="sold",
+        )
     )
     # The stale read the old code decided on: still `active` in Python.
     assert ebay_listing.status is ListingStatus.active
