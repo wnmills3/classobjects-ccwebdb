@@ -9,6 +9,7 @@ import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
 import FriedbergPanel from './FriedbergPanel'
+import HelpScope from '../../HelpScope'
 import OffersPanel from './OffersPanel'
 import PhotosPanel from './PhotosPanel'
 
@@ -488,261 +489,263 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
 
   return (
     <div className="edit-form">
-      <div className="row">
-        <h2>{item.item_code}</h2>
-        {item.parent_item_code && (
-          <span className="muted">split from {item.parent_item_code}</span>
-        )}
-        {onClose && (
-          <button className="link" onClick={onClose}>
-            Close
-          </button>
-        )}
-      </div>
+      <HelpScope>
+        <div className="row">
+          <h2>{item.item_code}</h2>
+          {item.parent_item_code && (
+            <span className="muted">split from {item.parent_item_code}</span>
+          )}
+          {onClose && (
+            <button className="link" onClick={onClose}>
+              Close
+            </button>
+          )}
+        </div>
 
-      {error && <p className="error">{error}</p>}
+        {error && <p className="error">{error}</p>}
 
-      <ForSaleNotice
-        uses={item.sale_state ?? []}
-        checked={acknowledged}
-        onChange={setAcknowledged}
-        action="Change it anyway"
-      />
+        <ForSaleNotice
+          uses={item.sale_state ?? []}
+          checked={acknowledged}
+          onChange={setAcknowledged}
+          action="Change it anyway"
+        />
 
-      {TEXT_FIELDS.map(([label, key, letter]) => (
-        <label key={key} className="field">
-          <AccessLabel text={label} accessKey={letter} />
-          <input
-            type="text"
-            value={value(key)}
-            onChange={set(key)}
-            {...accel(letter)}
-          />
-          {claim(key)}
-          {review(REVIEWABLE[key])}
-        </label>
-      ))}
+        {TEXT_FIELDS.map(([label, key, letter]) => (
+          <label key={key} className="field">
+            <AccessLabel text={label} accessKey={letter} />
+            <input
+              type="text"
+              value={value(key)}
+              onChange={set(key)}
+              {...accel(letter)}
+            />
+            {claim(key)}
+            {review(REVIEWABLE[key])}
+          </label>
+        ))}
 
-      {/* Divs, not labels: a <label> may not contain the range checkbox's
+        {/* Divs, not labels: a <label> may not contain the range checkbox's
           own label, so each box is named through htmlFor instead.
 
           One row that stays mounted, with the end year added beneath it.
           Two separate layouts replaced the checkbox itself on every tick, and
           a keyboard user's focus went with it. */}
-      <div className="field">
-        <label htmlFor={yearId}>
-          <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
-        </label>
-        <span className="year-input">
-          <input
-            id={yearId}
-            type="number"
-            value={value('year_start')}
-            onChange={
-              ranged
-                ? (e) => setDraft({ ...draft, year_start: yearValue(e.target.value) })
-                : setYear
-            }
-            {...accel('y')}
-          />
-          {rangeToggle}
-        </span>
-        {ranged ? claim('year_start') : yearClaim()}
-        {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
-      </div>
-      {ranged && (
         <div className="field">
-          <label htmlFor={yearEndId}>
-            <AccessLabel text="Year to" accessKey="o" />
+          <label htmlFor={yearId}>
+            <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
           </label>
-          <input
-            id={yearEndId}
-            type="number"
-            // An item stored with a start and no end opens its range at the
-            // start year -- but only until someone types here.
-            value={
-              'year_end' in draft
-                ? (draft.year_end ?? '')
-                : (item.year_end ?? item.year_start ?? '')
-            }
-            onChange={(e) =>
-              setDraft({ ...draft, year_end: yearValue(e.target.value) })
-            }
-            {...accel('o')}
-          />
-          {claim('year_end')}
-          {review('year_end')}
+          <span className="year-input">
+            <input
+              id={yearId}
+              type="number"
+              value={value('year_start')}
+              onChange={
+                ranged
+                  ? (e) => setDraft({ ...draft, year_start: yearValue(e.target.value) })
+                  : setYear
+              }
+              {...accel('y')}
+            />
+            {rangeToggle}
+          </span>
+          {ranged ? claim('year_start') : yearClaim()}
+          {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
         </div>
-      )}
+        {ranged && (
+          <div className="field">
+            <label htmlFor={yearEndId}>
+              <AccessLabel text="Year to" accessKey="o" />
+            </label>
+            <input
+              id={yearEndId}
+              type="number"
+              // An item stored with a start and no end opens its range at the
+              // start year -- but only until someone types here.
+              value={
+                'year_end' in draft
+                  ? (draft.year_end ?? '')
+                  : (item.year_end ?? item.year_start ?? '')
+              }
+              onChange={(e) =>
+                setDraft({ ...draft, year_end: yearValue(e.target.value) })
+              }
+              {...accel('o')}
+            />
+            {claim('year_end')}
+            {review('year_end')}
+          </div>
+        )}
 
-      {NUMBER_FIELDS.map(([label, key, letter]) => (
-        <label key={key} className="field">
-          <AccessLabel text={label} accessKey={letter} />
-          <input
-            type="number"
-            value={value(key)}
-            onChange={set(key)}
-            {...accel(letter)}
-          />
-          {claim(key)}
-          {review(REVIEWABLE[key])}
-        </label>
-      ))}
+        {NUMBER_FIELDS.map(([label, key, letter]) => (
+          <label key={key} className="field">
+            <AccessLabel text={label} accessKey={letter} />
+            <input
+              type="number"
+              value={value(key)}
+              onChange={set(key)}
+              {...accel(letter)}
+            />
+            {claim(key)}
+            {review(REVIEWABLE[key])}
+          </label>
+        ))}
 
-      {MONEY_FIELDS.map(([label, key, letter]) => (
-        <label key={key} className="field">
-          <AccessLabel text={label} accessKey={letter} />
-          {/* Text, not number. Money crosses the API as a string and a number
+        {MONEY_FIELDS.map(([label, key, letter]) => (
+          <label key={key} className="field">
+            <AccessLabel text={label} accessKey={letter} />
+            {/* Text, not number. Money crosses the API as a string and a number
               input would hand back a float, which is the one thing this
               schema is careful never to do. */}
-          <input
-            type="text"
-            inputMode="decimal"
-            value={value(key)}
-            onChange={set(key)}
-            {...accel(letter)}
-          />
-          {/* No lot ever claims a cost -- a piece's cost is allocated at
+            <input
+              type="text"
+              inputMode="decimal"
+              value={value(key)}
+              onChange={set(key)}
+              {...accel(letter)}
+            />
+            {/* No lot ever claims a cost -- a piece's cost is allocated at
               split time, not inherited -- but `.field` is a four-column grid
               and every other row fills this slot, so an empty one is called
               for explicitly rather than left to shift the review box into
               its neighbour's column. */}
-          {claim(key)}
-          {review(REVIEWABLE[key])}
-        </label>
-      ))}
-
-      {item.tax_rate !== undefined && (
-        <div className="field">
-          Sales tax
-          <span title="Recalculated by the database when saved">
-            {`$${item.sales_tax}`}
-          </span>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={untaxed}
-              onChange={toggleTax}
-              {...accel('n')}
-            />
-            {/* */}
-            <AccessLabel text="No sales tax charged" accessKey="n" />
-          </label>
-          <span />
-        </div>
-      )}
-
-      {CLASSIFIERS.filter(([, key]) => fieldFitsKind(key, value('item_kind'))).map(
-        ([label, key, table, letter]) => (
-          <label key={key} className="field">
-            <AccessLabel text={label} accessKey={letter} />
-            <ReferenceSelect
-              table={table}
-              value={value(key)}
-              onChange={set(key)}
-              allowAdd={!FIXED_VOCABULARIES.has(table)}
-              // Status is NOT NULL on the item, so there is no blank to pick:
-              // clearing it would be a 422 the operator cannot act on.
-              allowBlank={key !== 'status'}
-              // Paper money is graded on its own scale: a note is offered only
-              // note grades, and anything else only the coin scales.
-              filter={
-                key === 'grade'
-                  ? (grade) =>
-                      (grade.extra?.grade_scale === 'note') ===
-                      (value('item_kind') === 'currency')
-                  : key === 'denomination'
-                    ? (entry) => fitsKind(entry, value('item_kind'))
-                    : undefined
-              }
-              {...accel(letter)}
-            />
-            {side(key, columnOf(key, true))}
+            {claim(key)}
             {review(REVIEWABLE[key])}
           </label>
-        ),
-      )}
+        ))}
 
-      <AttributesField
-        item={item}
-        kind={value('item_kind')}
-        codes={
-          'attributes' in draft
-            ? draft.attributes
-            : (item.attributes ?? []).map((a) => a.code)
-        }
-        onChange={(codes) => setDraft({ ...draft, attributes: codes })}
-      />
+        {item.tax_rate !== undefined && (
+          <div className="field">
+            Sales tax
+            <span title="Recalculated by the database when saved">
+              {`$${item.sales_tax}`}
+            </span>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={untaxed}
+                onChange={toggleTax}
+                {...accel('n')}
+              />
+              {/* */}
+              <AccessLabel text="No sales tax charged" accessKey="n" />
+            </label>
+            <span />
+          </div>
+        )}
 
-      {/* Self-loading and self-saving: it fetches and PUTs its own set
-          against this item, independent of the Save button above -- an
-          error recorded here is not held back by, or lost to, a discarded
-          edit elsewhere on this form. */}
-      <ErrorsPanel
-        itemId={itemId}
-        kind={value('item_kind')}
-        saleState={item.sale_state ?? []}
-      />
-
-      {/* Self-loading and self-saving, the same as the errors panel above:
-          a photograph attached, re-roled or removed here is independent of
-          the form's own Save. This is the only moment other than receiving
-          that an item can gain a photograph -- see PhotosPanel's docstring. */}
-      <PhotosPanel itemId={itemId} saleState={item.sale_state ?? []} />
-
-      {item.item_kind === 'currency' && (
-        <>
-          {NOTE_CLASSIFIERS.map(([label, key, table, letter]) => (
-            <label key={key} className="field">
-              {letter ? (
-                <AccessLabel text={label} accessKey={letter} />
-              ) : (
-                <span>{label}</span>
-              )}
+        {CLASSIFIERS.filter(([, key]) => fieldFitsKind(key, value('item_kind'))).map(
+          ([label, key, table, letter]) => (
+            <label key={key} className="field" data-help={key}>
+              <AccessLabel text={label} accessKey={letter} />
               <ReferenceSelect
                 table={table}
                 value={value(key)}
                 onChange={set(key)}
-                allowAdd={false}
-                {...keys(letter)}
+                allowAdd={!FIXED_VOCABULARIES.has(table)}
+                // Status is NOT NULL on the item, so there is no blank to pick:
+                // clearing it would be a 422 the operator cannot act on.
+                allowBlank={key !== 'status'}
+                // Paper money is graded on its own scale: a note is offered only
+                // note grades, and anything else only the coin scales.
+                filter={
+                  key === 'grade'
+                    ? (grade) =>
+                        (grade.extra?.grade_scale === 'note') ===
+                        (value('item_kind') === 'currency')
+                    : key === 'denomination'
+                      ? (entry) => fitsKind(entry, value('item_kind'))
+                      : undefined
+                }
+                {...accel(letter)}
               />
               {side(key, columnOf(key, true))}
-              <span />
+              {review(REVIEWABLE[key])}
             </label>
-          ))}
-          {NOTE_TEXT_FIELDS.map(([label, key, type]) => (
-            <label key={key} className="field">
-              <span>{label}</span>
-              <input
-                type={type}
-                value={value(key)}
-                onChange={
-                  type === 'number'
-                    ? (e) => setDraft({ ...draft, [key]: yearValue(e.target.value) })
-                    : set(key)
-                }
-              />
-              {side(key, key)}
-              <span />
-            </label>
-          ))}
-          <FriedbergPanel item={item} onChanged={reloadItem} />
-        </>
-      )}
+          ),
+        )}
 
-      <div className="row">
-        <button disabled={!canSave} onClick={save} {...accel('v')}>
-          <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />
-        </button>
-      </div>
+        <AttributesField
+          item={item}
+          kind={value('item_kind')}
+          codes={
+            'attributes' in draft
+              ? draft.attributes
+              : (item.attributes ?? []).map((a) => a.code)
+          }
+          onChange={(codes) => setDraft({ ...draft, attributes: codes })}
+        />
 
-      {/* What is being asked for the item, beside what it has sold for.
+        {/* Self-loading and self-saving: it fetches and PUTs its own set
+          against this item, independent of the Save button above -- an
+          error recorded here is not held back by, or lost to, a discarded
+          edit elsewhere on this form. */}
+        <ErrorsPanel
+          itemId={itemId}
+          kind={value('item_kind')}
+          saleState={item.sale_state ?? []}
+        />
+
+        {/* Self-loading and self-saving, the same as the errors panel above:
+          a photograph attached, re-roled or removed here is independent of
+          the form's own Save. This is the only moment other than receiving
+          that an item can gain a photograph -- see PhotosPanel's docstring. */}
+        <PhotosPanel itemId={itemId} saleState={item.sale_state ?? []} />
+
+        {item.item_kind === 'currency' && (
+          <>
+            {NOTE_CLASSIFIERS.map(([label, key, table, letter]) => (
+              <label key={key} className="field" data-help={key}>
+                {letter ? (
+                  <AccessLabel text={label} accessKey={letter} />
+                ) : (
+                  <span>{label}</span>
+                )}
+                <ReferenceSelect
+                  table={table}
+                  value={value(key)}
+                  onChange={set(key)}
+                  allowAdd={false}
+                  {...keys(letter)}
+                />
+                {side(key, columnOf(key, true))}
+                <span />
+              </label>
+            ))}
+            {NOTE_TEXT_FIELDS.map(([label, key, type]) => (
+              <label key={key} className="field" data-help={key}>
+                <span>{label}</span>
+                <input
+                  type={type}
+                  value={value(key)}
+                  onChange={
+                    type === 'number'
+                      ? (e) => setDraft({ ...draft, [key]: yearValue(e.target.value) })
+                      : set(key)
+                  }
+                />
+                {side(key, key)}
+                <span />
+              </label>
+            ))}
+            <FriedbergPanel item={item} onChanged={reloadItem} />
+          </>
+        )}
+
+        <div className="row">
+          <button disabled={!canSave} onClick={save} {...accel('v')}>
+            <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />
+          </button>
+        </div>
+
+        {/* What is being asked for the item, beside what it has sold for.
           Self-loading like the errors panel, and it writes nothing itself:
           starting and ending an offer both go through the offers API, which
           is the only thing allowed to set a listing's status. */}
-      <OffersPanel item={item} onChanged={reloadItem} />
+        <OffersPanel item={item} onChanged={reloadItem} />
 
-      <SaleHistory itemId={itemId} />
+        <SaleHistory itemId={itemId} />
+      </HelpScope>
     </div>
   )
 }
