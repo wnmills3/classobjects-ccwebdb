@@ -28,9 +28,10 @@ from app.models import (
 )
 from app.schemas import OfferRefusedOut
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 ItemFactory = Callable[..., InventoryItem]
 
@@ -536,6 +537,116 @@ def test_editing_an_offer_and_a_stale_version(
     unchanged = db.get(Listing, listing["id"])
     assert unchanged is not None
     assert unchanged.price == Decimal("25.00")
+
+
+def test_an_edit_that_loses_a_race_at_commit_is_a_409(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The commit-time half of the version check, not the pre-check.
+
+    No `version` is sent, so the pre-check has nothing to compare: the
+    conflict is found only when the UPDATE's `WHERE version = :v` matches no
+    row, because another writer bumped it after this request loaded it. That
+    `StaleDataError` must be a 409, not a 500.
+    """
+    from app.routers import offers as offers_router
+
+    item = make_item()
+    venue = _venue(db, "ebay-race")
+    listing = _offer(
+        client, admin_headers, venue.code, [{"item_id": item.id, "price": "10.00"}]
+    ).json()["listings"][0]
+
+    real_get = offers_router._get_listing
+
+    def load_then_lose_the_race(session: Session, listing_id: int) -> Listing:
+        loaded = real_get(session, listing_id)
+        # Another writer's commit, behind this session's back.
+        session.execute(
+            update(Listing)
+            .where(Listing.id == listing_id)
+            .values(version=Listing.version + 1)
+            .execution_options(synchronize_session=False)
+        )
+        return loaded
+
+    monkeypatch.setattr(offers_router, "_get_listing", load_then_lose_the_race)
+    response = client.patch(
+        f"/api/listings/{listing['id']}", headers=admin_headers, json={"price": "30.00"}
+    )
+
+    assert response.status_code == 409, response.text
+    assert "changed by someone else" in response.json()["detail"]
+
+
+def test_ending_an_offer_maps_a_stale_write_to_409(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End's handler: `end_offer` re-reads under lock, so this is the mapping.
+
+    `end_offer` takes the listing `FOR UPDATE` with `populate_existing`, so a
+    concurrent writer cannot leave it stale the way PATCH can be -- the
+    handler exists for the lot and item rows it writes alongside. Driven by
+    making `end_offer` raise, which is what proves the 409 and the rollback.
+    """
+    from app.routers import offers as offers_router
+
+    item = make_item()
+    venue = _venue(db, "ebay-end-race")
+    listing = _offer(
+        client, admin_headers, venue.code, [{"item_id": item.id, "price": "10.00"}]
+    ).json()["listings"][0]
+
+    def stale(*_args: object, **_kwargs: object) -> None:
+        raise StaleDataError("simulated")
+
+    monkeypatch.setattr(offers_router.offering_writes, "end_offer", stale)
+    response = client.post(f"/api/listings/{listing['id']}/end", headers=admin_headers)
+
+    assert response.status_code == 409, response.text
+    assert "changed by someone else" in response.json()["detail"]
+
+
+def test_an_ended_offer_s_terms_cannot_be_rewritten(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    make_item: ItemFactory,
+) -> None:
+    """Price, title and description are the record once the offer is over."""
+    item = make_item()
+    venue = _venue(db, "ebay-ended-edit")
+    listing = _offer(
+        client, admin_headers, venue.code, [{"item_id": item.id, "price": "10.00"}]
+    ).json()["listings"][0]
+    client.post(f"/api/listings/{listing['id']}/end", headers=admin_headers)
+
+    refused = client.patch(
+        f"/api/listings/{listing['id']}",
+        headers=admin_headers,
+        json={"price": "99.00", "title": "Rewritten"},
+    )
+    assert refused.status_code == 409, refused.text
+    assert "price, title" in refused.json()["detail"]
+    db.expire_all()
+    assert db.get_one(Listing, listing["id"]).price == Decimal("10.00")
+
+    # The platform's own number is still settable: it is often looked up late.
+    numbered = client.patch(
+        f"/api/listings/{listing['id']}",
+        headers=admin_headers,
+        json={"external_id": "126655443322"},
+    )
+    assert numbered.status_code == 200, numbered.text
+    assert numbered.json()["external_id"] == "126655443322"
 
 
 def test_ending_an_offer(

@@ -184,6 +184,7 @@ describe('Listings', () => {
     const row = await screen.findByRole('row', { name: /^eBay/ })
     expect(within(row).getByText('C-0007')).toBeInTheDocument()
     expect(within(row).getByText('1881-S Morgan Dollar MS64')).toBeInTheDocument()
+    expect(within(row).getByText('Fixed price')).toBeInTheDocument()
     // The price as it arrived, not through a number: money crosses the API as
     // a decimal string and a float cannot hold cents exactly.
     expect(within(row).getByText('189.00 USD')).toBeInTheDocument()
@@ -195,6 +196,13 @@ describe('Listings', () => {
       'href',
       'https://www.ebay.com/itm/1234567',
     )
+  })
+
+  it('names an auction listing as one, so it is not mistaken for a price', async () => {
+    api.listListings.mockResolvedValue([{ ...EBAY, format: 'auction' }])
+    renderPage()
+    const row = await screen.findByRole('row', { name: /^eBay/ })
+    expect(within(row).getByText('Auction')).toBeInTheDocument()
   })
 
   // An item whose cost nobody has recorded has no margin, and saying "0%"
