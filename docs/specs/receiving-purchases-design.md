@@ -123,7 +123,8 @@ Receiving
   CC-000414 $2 1976 FRN · 27-1234 · eBay
 ```
 
-- **Kind** -- Any, Coins or Currency. Any searches both views, since one
+- **Search for:** -- Any, Coins or Currency. Focus starts on Any when the
+  page opens, so the help band explains the choice at once. Any searches both views, since one
   parcel can hold coins and notes. The kind-specific fields appear only once
   that kind is chosen, because the other view would refuse them as unknown
   filters.

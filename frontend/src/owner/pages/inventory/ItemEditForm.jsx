@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../../api'
 import { fieldFitsKind, fitsKind, sideFor } from '../../../shared/kinds'
@@ -8,8 +8,10 @@ import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
+import { baseFor, conflictsOf, fieldValue, rebase } from './fieldMerge'
 import FriedbergPanel from './FriedbergPanel'
 import HelpScope from '../../HelpScope'
+import { FIELD_HELP } from '../../fieldHelp'
 import OffersPanel from './OffersPanel'
 import PhotosPanel from './PhotosPanel'
 
@@ -22,6 +24,20 @@ import PhotosPanel from './PhotosPanel'
  * drift. The confirm box is *asserted*: it says a person looked at this coin.
  * Neither is computable from the other, which is why both are here.
  */
+
+//: How often an open form checks for changes made elsewhere. It also checks
+//: whenever the window gets focus back, which is when it matters most.
+const CHECK_EVERY_MS = 15000
+
+/** A field's name for the conflict list: its help title, else its key. */
+const fieldName = (key) => FIELD_HELP[key]?.title ?? key.replaceAll('_', ' ')
+
+/** A value as the conflict list shows it. */
+function shown(value) {
+  if (value === null || value === undefined || value === '') return '(blank)'
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '(none)'
+  return String(value)
+}
 
 const TEXT_FIELDS = [
   ['Title', 'source_title', 't'],
@@ -276,6 +292,14 @@ const FIXED_VOCABULARIES = new Set(['item_status', 'strike_type'])
 export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const [item, setItem] = useState(null)
   const [draft, setDraft] = useState({})
+  // Where each edited field's edit began (see `fieldMerge.js`): a change made
+  // elsewhere matters only to a field being edited here, and only this says
+  // whether it happened.
+  const [baseItem, setBaseItem] = useState(null)
+  // When the form last took in changes made elsewhere, to say so.
+  const [refreshedAt, setRefreshedAt] = useState(null)
+  const draftRef = useRef(draft)
+  const versionRef = useRef(null)
   const [reviewed, setReviewed] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -294,7 +318,14 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const endsOffer = ['status', 'disposition'].some(
     (key) => key in draft && draft[key] !== item?.[key],
   )
-  const canSave = !saving && Object.keys(draft).length > 0 && (!forSale || acknowledged)
+  // Fields edited here that someone else has changed since: each waits for a
+  // choice before the form can be saved.
+  const conflicts = item && baseItem ? conflictsOf(item, baseItem, draft) : []
+  const canSave =
+    !saving &&
+    Object.keys(draft).length > 0 &&
+    (!forSale || acknowledged) &&
+    conflicts.length === 0
   useSaveShortcut(save, canSave)
 
   useEffect(() => {
@@ -304,6 +335,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       .then((body) => {
         if (cancelled) return
         setItem(body)
+        setBaseItem(body)
         setReviewed(body.reviewed ?? [])
         setRanged(isRange(body.year_start, body.year_end))
         setDraft({})
@@ -315,6 +347,44 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       })
     return () => {
       cancelled = true
+    }
+  }, [itemId])
+
+  // The latest draft and version, for the check below, which runs on a timer.
+  useEffect(() => {
+    draftRef.current = draft
+    versionRef.current = item?.version ?? null
+  })
+
+  // Changes made elsewhere -- another person, another tab -- come in while
+  // this form is open: checked every so often and whenever the window gets
+  // focus back. A field not being edited here takes the new value at once; a
+  // field being edited keeps its base, so a change to it shows as a conflict
+  // to resolve rather than being overwritten or adopted unseen (owner's
+  // request, 2026-09-23).
+  useEffect(() => {
+    let cancelled = false
+    function check() {
+      api
+        .getInventoryItem(itemId)
+        .then((fresh) => {
+          if (cancelled || versionRef.current == null) return
+          if (fresh.version === versionRef.current) return
+          setItem(fresh)
+          setReviewed(fresh.reviewed ?? [])
+          setBaseItem((previous) => rebase(fresh, previous, draftRef.current))
+          setRefreshedAt(new Date())
+        })
+        .catch(() => {
+          // A missed check is caught by the next one, or by the save.
+        })
+    }
+    const timer = setInterval(check, CHECK_EVERY_MS)
+    window.addEventListener('focus', check)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      window.removeEventListener('focus', check)
     }
   }, [itemId])
 
@@ -337,6 +407,11 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       .then((body) => {
         setItem(body)
         setReviewed(body.reviewed ?? [])
+        // Edited fields keep their base: a change made elsewhere to one of
+        // them shows as a conflict, never silently adopted -- which is what
+        // taking the new version wholesale used to do (code review,
+        // 2026-09-23).
+        setBaseItem((previous) => rebase(body, previous, draftRef.current))
       })
       .catch((err) => setError(err.message))
   }
@@ -478,15 +553,23 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   async function save() {
     setSaving(true)
     try {
-      // The version read when the form was opened. A save from a form loaded
-      // before someone else's change is a 409, not a silent overwrite.
-      const payload = { ...draft, version: item.version }
+      // `base` makes the save field by field: a change made elsewhere since
+      // stops it only where it touched a field changed here (409 naming
+      // them). `version` goes too, for any caller without a base.
+      const payload = {
+        ...draft,
+        version: item.version,
+        base: baseFor(baseItem, draft),
+      }
       if (forSale && acknowledged) payload.acknowledge_for_sale = true
       await api.updateInventoryItem(itemId, payload)
       setError('')
     } catch (err) {
       setError(err.message)
       setSaving(false)
+      // Someone changed one of these fields between the last check and this
+      // save: read the item again, and the conflicts show for a choice.
+      if (err.body?.conflicts) reloadItem()
       return
     }
     // Read the item back: the saved values, and the version the save made.
@@ -497,6 +580,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
     try {
       const fresh = await api.getInventoryItem(itemId)
       setItem(fresh)
+      setBaseItem(fresh)
       setReviewed(fresh.reviewed ?? [])
       setRanged(isRange(fresh.year_start, fresh.year_end))
       setDraft({})
@@ -526,11 +610,50 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
 
         {error && <p className="error">{error}</p>}
 
+        {refreshedAt && conflicts.length === 0 && (
+          <p className="muted" role="status">
+            Updated with changes made elsewhere at {refreshedAt.toLocaleTimeString()}.
+          </p>
+        )}
+        {conflicts.length > 0 && (
+          <div className="for-sale" role="alert">
+            <strong>Changed elsewhere while you were editing</strong>
+            <ul>
+              {conflicts.map((key) => (
+                <li key={key}>
+                  {fieldName(key)}: now {shown(fieldValue(item, key))}; yours{' '}
+                  {shown(draft[key])}.{' '}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      // Keep mine: the other change has been seen, so mine is
+                      // now based on it and will replace it.
+                      setBaseItem((base) => ({ ...base, [key]: item[key] }))
+                    }
+                  >
+                    Keep mine
+                  </button>{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraft(({ [key]: _dropped, ...rest }) => rest)
+                      setBaseItem((base) => ({ ...base, [key]: item[key] }))
+                    }}
+                  >
+                    Use theirs
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <ForSaleNotice
           uses={item.sale_state ?? []}
           checked={acknowledged}
           onChange={setAcknowledged}
-          action={endsOffer ? 'Change the status and end the offer' : 'Change it anyway'}
+          action={
+            endsOffer ? 'Change the status and end the offer' : 'Change it anyway'
+          }
         />
         {/* A new status (or disposition) takes an offered item off sale:
             the save ends its offer. Said before the box is ticked, not

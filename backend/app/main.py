@@ -211,6 +211,16 @@ def _server_misconfigured(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+def _field_conflicts(_request: Request, exc: Exception) -> JSONResponse:
+    """Render `FieldConflicts` as a 409 with the per-field list beside the sentence."""
+    assert isinstance(exc, inventory.FieldConflicts)
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": exc.detail, "conflicts": exc.conflicts},
+    )
+
+
+app.add_exception_handler(inventory.FieldConflicts, _field_conflicts)
 app.add_exception_handler(sales_writes.SaleInputInvalid, _bad_input)
 app.add_exception_handler(sales_writes.SaleRefused, _refused)
 app.add_exception_handler(auctions.SettlementInputInvalid, _bad_input)

@@ -95,6 +95,106 @@ describe('ItemEditForm', () => {
   })
 })
 
+describe('Changes made elsewhere while the form is open', () => {
+  // The owner's request (2026-09-23): warn and refresh, field by field --
+  // a change elsewhere to a field not being edited here is simply taken in.
+  const opened = {
+    ...item,
+    version: 1,
+    source_title: 'Dime',
+    description: 'Mercury Dime',
+  }
+
+  async function openAndEditDescription(user) {
+    api.getInventoryItem.mockResolvedValueOnce(opened)
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const description = await screen.findByDisplayValue('Mercury Dime')
+    await user.clear(description)
+    await user.type(description, 'Winged Liberty dime')
+  }
+
+  async function somebodyElseSaves(changes) {
+    api.getInventoryItem.mockResolvedValue({ ...opened, version: 2, ...changes })
+    // What the form does when the window gets focus back.
+    fireEvent.focus(window)
+    await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledTimes(2))
+  }
+
+  it('takes in a change to another field without a word of conflict', async () => {
+    const user = userEvent.setup()
+    await openAndEditDescription(user)
+    await somebodyElseSaves({ source_title: 'Mercury Dime 1943' })
+
+    expect(await screen.findByDisplayValue('Mercury Dime 1943')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Winged Liberty dime')).toBeInTheDocument()
+    expect(screen.queryByText(/changed elsewhere while you were editing/i)).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /updated with changes made elsewhere/i,
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
+  it('stops to ask when the same field was changed, and saves mine on Keep mine', async () => {
+    const user = userEvent.setup()
+    api.updateInventoryItem.mockResolvedValue({})
+    await openAndEditDescription(user)
+    await somebodyElseSaves({ description: 'Mercury dime, cleaned' })
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Description: now Mercury dime, cleaned; yours Winged Liberty dime',
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Keep mine' }))
+    expect(screen.queryByText(/changed elsewhere while you were editing/i)).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    // Based on their value now, so the server takes mine knowingly.
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
+        description: 'Winged Liberty dime',
+        version: 2,
+        base: { description: 'Mercury dime, cleaned' },
+      }),
+    )
+  })
+
+  it('drops my edit on Use theirs', async () => {
+    const user = userEvent.setup()
+    await openAndEditDescription(user)
+    await somebodyElseSaves({ description: 'Mercury dime, cleaned' })
+
+    await user.click(await screen.findByRole('button', { name: 'Use theirs' }))
+    expect(screen.getByDisplayValue('Mercury dime, cleaned')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled() // nothing left to save
+  })
+
+  it('shows the conflict when the server finds it at save time', async () => {
+    const user = userEvent.setup()
+    await openAndEditDescription(user)
+    api.updateInventoryItem.mockRejectedValue(
+      Object.assign(new Error('Dime was changed by someone else'), {
+        status: 409,
+        body: {
+          detail: 'Dime was changed by someone else',
+          conflicts: [{ field: 'description' }],
+        },
+      }),
+    )
+    api.getInventoryItem.mockResolvedValue({
+      ...opened,
+      version: 2,
+      description: 'cleaned',
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(
+      await screen.findByText(/changed elsewhere while you were editing/i),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('No sales tax charged', () => {
   const taxed = {
     ...item,
@@ -747,6 +847,7 @@ describe('Attributes', () => {
       expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
         attributes: ['first_strike'],
         version: 3,
+        base: { attributes: ['cac'] },
       }),
     )
   })
@@ -912,6 +1013,7 @@ describe('An item for sale', () => {
       expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
         description: 'Winged Liberty dime',
         version: 4,
+        base: { description: 'Mercury Dime' },
         acknowledge_for_sale: true,
       }),
     )
@@ -982,6 +1084,7 @@ describe('An item for sale', () => {
       expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
         description: 'Winged Liberty dime',
         version: 5,
+        base: { description: 'Mercury Dime' },
         acknowledge_for_sale: true,
       }),
     )
@@ -1000,6 +1103,7 @@ describe('An item for sale', () => {
       expect(api.updateInventoryItem).toHaveBeenCalledWith(12, {
         description: 'Mercury Dime!',
         version: 4,
+        base: { description: 'Mercury Dime' },
       }),
     )
   })

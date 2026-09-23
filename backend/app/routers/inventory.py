@@ -393,6 +393,82 @@ def _refuse_auction_lots(
     )
 
 
+class FieldConflicts(Exception):
+    """A save refused because someone else changed a field it changes. 409.
+
+    Carries each field with the value the edit began from (`was`), the value
+    stored now (`theirs`) and the one being saved (`yours`), so the editor
+    can show both and let the person choose. Rendered by `main.py` as
+    `{detail, conflicts}` -- the same sentence-plus-list shape the offers
+    refusal uses.
+    """
+
+    def __init__(self, detail: str, conflicts: list[dict[str, Any]]) -> None:
+        """Keep the sentence and the per-field list for the handler."""
+        super().__init__(detail)
+        self.detail = detail
+        self.conflicts = conflicts
+
+
+def _same_value(a: object, b: object) -> bool:
+    """Whether two field values say the same thing.
+
+    Blank and null are the same; numbers compare as numbers, so a cost typed
+    "84" is not a change from a stored "84.00"; lists (attribute codes)
+    compare as sets.
+    """
+    if a in (None, "") and b in (None, ""):
+        return True
+    if isinstance(a, list) and isinstance(b, list):
+        return sorted(map(str, a)) == sorted(map(str, b))
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a == b
+    try:
+        return Decimal(str(a)) == Decimal(str(b))
+    except (ArithmeticError, ValueError):
+        return a == b
+
+
+def _refuse_field_conflicts(
+    db: Session, item: InventoryItem, sent: dict[str, Any], base: dict[str, Any]
+) -> None:
+    """Refuse a save only where someone else changed a field it changes.
+
+    `base` must hold every field sent: a field without one would be saved
+    unchecked, the silent overwrite this exists to prevent (422). A field
+    conflicts when its stored value differs from where the edit began and
+    from the value being saved -- two people making the same change agree.
+    Compared against `item_detail`, the same shape the editor loaded.
+    """
+    unbased = sorted(field for field in sent if field not in base)
+    if unbased:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"base must hold every field sent; missing: {', '.join(unbased)}",
+        )
+    current = item_detail(db, item).model_dump(mode="json")
+    current["attributes"] = [held["code"] for held in current.get("attributes", [])]
+    conflicts = [
+        {
+            "field": field,
+            "was": base[field],
+            "theirs": current.get(field),
+            "yours": yours,
+        }
+        for field, yours in sent.items()
+        if not _same_value(current.get(field), base[field])
+        and not _same_value(current.get(field), yours)
+    ]
+    if conflicts:
+        names = ", ".join(conflict["field"] for conflict in conflicts)
+        raise FieldConflicts(
+            f"{item.item_code} was changed by someone else since you opened it, "
+            f"in the same field{'s' if len(conflicts) > 1 else ''} you changed: "
+            f"{names}. Choose which value to keep.",
+            conflicts,
+        )
+
+
 def _sale_standing_change(
     db: Session, item: InventoryItem, data: dict[str, Any]
 ) -> str | None:
@@ -1509,9 +1585,7 @@ def bulk_edit(
     # As in `update_item`: a new status or disposition on an offered item
     # ends its offer, the guard above having had the caller acknowledge the
     # sale. Locked before the first write, in the canonical order.
-    standing = {
-        item.id: code for item in items if (code := _standing_code(item, data))
-    }
+    standing = {item.id: code for item in items if (code := _standing_code(item, data))}
     changing = sorted(standing)
     held_offers = offering_writes.offers_holding(db, changing) if changing else []
     locked = None
@@ -1571,6 +1645,7 @@ def update_item(
     # exclude_unset so an omitted field is left alone rather than nulled.
     data = payload.model_dump(exclude_unset=True)
     expected = data.pop("version", None)
+    base = data.pop("base", None)
     acknowledged = data.pop("acknowledge_for_sale", False)
     attributes = data.pop("attributes", None)
     if "attributes" in payload.model_fields_set and attributes is None:
@@ -1578,6 +1653,9 @@ def update_item(
             status_code=422,
             detail="attributes may not be null; send [] to clear them.",
         )
+    # What the caller sent, before `_split_grade` below reshapes it: the
+    # field-by-field merge compares these, in the editor's own terms.
+    sent = dict(data) if attributes is None else {**data, "attributes": attributes}
     _refuse_null_scalars(data)
     _refuse_coin_only_fields(data, [item], db)
     _refuse_mismatched_denomination(data, [item], db)
@@ -1589,7 +1667,15 @@ def update_item(
     # nothing later in this function -- including the database's own
     # version_id_col check -- ever sees a token from an earlier request; only
     # this comparison, against the value the caller actually sent, does.
-    if expected is not None and expected != item.version:
+    #
+    # With a `base`, the save is merged field by field instead: a change made
+    # since only stops it where it touched a field this save changes (owner's
+    # ruling, 2026-09-23). The version is then not compared -- the base is
+    # the finer check -- and the version column still guards the narrow
+    # window between this read and the commit, below.
+    if base is not None:
+        _refuse_field_conflicts(db, item, sent, base)
+    elif expected is not None and expected != item.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
