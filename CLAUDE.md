@@ -14,9 +14,11 @@ skill specifies a different path, format, or workflow, this file wins.
 - **No tool-specific subdirectory.** Never `docs/superpowers/`, `docs/claude/`,
   or similar. Project documentation is not filed under the name of whatever
   tool created it.
-- Changes to `docs/data-import-plan.md` are **appended as numbered amendments**
-  (A, B, C…), never edited in place. Superseded sections get a pointer, not a
-  rewrite — the user tracks the original plan against later updates.
+- `docs/data-import-plan.md` **describes the current state**, not a plan plus
+  amendments. It was rewritten that way on 2026-09-23, at the owner's request,
+  from the original plan and Amendments A–K. Keep it current: edit it in place
+  when something changes, and drop what no longer holds. The original plan and
+  every amendment remain in git (`git log -p docs/data-import-plan.md`).
 
 ## Writing files
 

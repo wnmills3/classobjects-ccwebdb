@@ -1,1472 +1,873 @@
-# Data import plan: wnm3_coins.xlsx and vendor PDFs
+# Data import and the collection record: current state
 
-Plan for loading the existing collection spreadsheet into a normalised
-database and validating it against the saved vendor order PDFs.
+Current state as of 2026-09-23. Rewritten from the original plan and
+Amendments A–K; the history is in git (`git log -p docs/data-import-plan.md`).
 
-**Status:** proposal. Nothing here is implemented yet. Amendments are appended
-as numbered sections rather than edited in place, so the baseline stays legible;
-sections they supersede carry a pointer.
+This document says where the collection's data came from, how it got into the
+database, and how the collection record is structured and kept correct now.
+It is edited in place when something changes. Where it and the code disagree,
+the code is right and this document is the bug.
 
-**Guiding principle:** every free-text column in the spreadsheet becomes a
-foreign key to a reference table, so searching and filtering are standardised
-rather than string matching. The original text is always retained alongside.
+Related documents: [database-design.md](database-design.md) (the schema in
+full), [spreadsheet-import-design.md](spreadsheet-import-design.md) (the
+importer's own design), [system-administration.md](system-administration.md)
+(operating procedures), and the specs under `docs/specs/`.
 
----
-
-## 1. What the source data actually contains
-
-Measured from `C:\Users\wnmil\OneDrive\wnm3_coins.xlsx` on 2026-09-05.
-
-- **One sheet** (`wnm3_coins`), **7,581 data rows**, 17 columns.
-- **No formulas anywhere.** `Taxes` is filled on only 20 rows (0.3%);
-  `Total Cost`, `Profit` and `Profit %` are **completely empty**. All four
-  become database-computed fields.
-- Purchases run from **Feb 2024** onward across ten or more vendors.
-
-| # | Column | Filled | Becomes |
-|---|--------|--------|---------|
-| 0 | Ordered | 100% | `purchase_order.ordered_on` |
-| 1 | Order Number | 65.1% (1,000 stored as **int**) | `purchase_order.order_number` (text) |
-| 2 | Denom | 99.6%, 300 distinct | `item_kind` + `denomination` + `bullion_form` + `set_form` |
-| 3 | Year | 95.6%, 834 distinct | `year_start`/`year_end` + `mint` + `series_letter` |
-| 4 | Rating | 77.8%, **1,751 distinct** | `grade` + `grade_designation` + `grading_service` + `note_attribute` |
-| 5 | Price | 100% | `inventory_item.price` |
-| 6 | Link | 99.8% | `inventory_item.listing_url` |
-| 7 | Description | 100% | free text (kept verbatim, full-text indexed) |
-| 8 | Vendor | 99.9% | `vendor` |
-| 9 | Shipping | 98.6% | `inventory_item.shipping` |
-| 10 | Grading# | 32.4% | **kind-dependent** — cert serial *or* note serial (see §4) |
-| 11 | Value | 86.2%, 490 non-numeric | `estimated_value` + `item_status` (overloaded — see §5) |
-| 12 | Comment | 37.9%, 126 distinct | numeric grades + notes |
-| 13–16 | Taxes / Total Cost / Profit / Profit % | ~0% | **generated columns** |
+Other documents cite this one by amendment letter. Amendment I (the `Received`
+column) is now §4.3 and §8.2; Amendment K (the database is the record) is §1;
+Amendment J (item attributes) is §7.6.
 
 ---
 
-## 2. Computed fields
+## 1. The database is the record
 
-```
-taxes      = round((price + shipping) * tax_rate, 2)      tax_rate default 0.0635
-total_cost = price + shipping + taxes
-profit     = estimated_value - total_cost                 (null when no value)
-profit_pct = profit / total_cost                          (null when total_cost = 0)
-```
+Since 2026-09-16 the `ccwebdb` database is the system of record for the
+collection. The workbook `wnm3_coins.xlsx` is a historic reference and is not
+imported again. In the owner's words: "at this point we can think of our
+database as the ground truth and continue to improve the data there. the
+spreadsheet can be a historic reference document." They repeated it on
+2026-09-22: new data and updates go into the database, and the workbook is not
+needed again.
 
-Implemented as PostgreSQL **`GENERATED ALWAYS AS ... STORED`** columns, so they
-cannot drift from their inputs or be written by mistake. `tax_rate` is a
-**column** defaulting to `0.0635`, not a literal in the expression — rates vary
-by jurisdiction and change over time, and generated columns cannot reference
-one another.
+What follows from that:
 
-> Recorded observation: on the 20 rows with a hand-entered `Taxes` value, the
-> figure matches `0.0635 x price` rather than `0.0635 x (price + shipping)`.
-> Built to specification as `(price + shipping)`; those rows will appear as
-> variances in the validation report.
+- **New acquisitions are entered in the owner console** (New purchase, then
+  items on it), not typed into the workbook.
+- **Corrections are made in the console, or by a pass over stored items**
+  (§7.9). A pass fills what is empty, never overwrites what a person set, and
+  records what it filled as derived.
+- **A rebuild from the workbook is never used to fix live data.** It would
+  discard everything corrected or entered since: series assignments, derived
+  attributes, receipts, the zero-tax Whatnot orders, photographs, sales
+  history, user accounts.
+- **Recovery from a data problem is a restore from a verified backup** (§11),
+  not a re-import.
 
----
-
-## 3. Classification: measured results
-
-A prototype rule set was run against all 7,581 rows.
-
-### Kind — 94.3% classified automatically
-
-| Rows | Share | Kind |
-|---|---|---|
-| 4,242 | 56.0% | coin |
-| 1,166 | 15.4% | bullion |
-| 1,091 | 14.4% | currency |
-| 615 | 8.1% | set |
-| 28 | 0.4% | medal |
-| 5 | 0.1% | token |
-| **434** | **5.7%** | **other / unknown — manual review** |
-
-The 434 needing review are only **96 distinct values**, so review is a short
-exercise: `Mint Proof` (65), `Mint Silver` (57), `Mixed` (50),
-`Box Pennies` (50), `Ltd Ed. Silver` (13), `Multi` (7), `Premier Silver` (5),
-`Reverse Proof` (4), `Pirate Money` (4), `Duit` (4), `????` (3), blank (27).
-
-### Currency detection
-
-Ordered rules, first match wins — bullion and sets are tested **before**
-currency, because `1oz Copper Round` would otherwise match "number followed by
-a word":
-
-1. bullion keywords → `bullion`
-2. set keywords → `set`
-3. `medal` / `token` / `meteorite`
-4. contains `Bill` / `Note` (incl. typos `Blll`, `B`) → `currency`
-5. leading `$` → `currency`
-6. **number followed by a word or letter** (`10c`, `5 Rupees`, `20 Pound`) → `currency`
-7. purely numeric (`0.25`, `1`, `2.5`) → `coin`
-8. otherwise → review queue
-
-### Bullion and set forms (become reference rows)
-
-| Rows | Form | | Rows | Form |
-|---|---|---|---|---|
-| 505 | Silver Eagle | | 363 | Mint Set |
-| 302 | Copper Round | | 202 | Proof Set |
-| 223 | Silver Round | | 38 | Coin Set |
-| 48 | Generic Round | | 12 | Prestige Set |
-| 42 | Silver Bar | | | |
-| 23 | Copper Bar | | | |
-| 8 | Libertad | | | |
-| 7 | Gold Maple | | | |
-
-### Storage form — from `Denom` + `Description`
-
-Per your direction, multi-quantity rows stay as single rows with a storage
-quantity rather than being exploded.
-
-| Rows | Storage form |
-|---|---|
-| 6,306 | single |
-| 454 | proof set |
-| 370 | roll |
-| 221 | mint set |
-| 204 | box |
-| 12 | tube |
-| 9 | bag |
-| 5 | album |
-
-`storage_quantity` captures the piece count where stated — e.g.
-`20x 1oz Copper` (12 rows) yields `storage_quantity = 20`.
+`scripts\ccweb_rebuild.cmd` still exists, for a **new** collection only. It
+builds a separate database, `ccwebdb_rebuild`, alongside the live one and never
+touches `ccwebdb`: migrate, load reference data, import the workbook, run
+`series_match`, `classifier_defaults`, `series_classify` and `serial_patterns`,
+then the demo seed last. The importer is kept correct for that use: the rating
+rules it applies (`app/importers/rating.py`) are the same ones the rating pass
+applies to stored items.
 
 ---
 
-## 4. Reference tables
+## 2. Where the data came from
 
-`inventory_item` holds foreign keys, not free text. Every reference table has
-`id`, `code`, `label`, `sort_order`, `is_active`; those inferred from data also
-carry `source` (`seeded | derived | manual`) so machine guesses stay
-distinguishable from curated entries.
+None of these files is in the repository.
 
-| Table | Approx. rows | Seeded from |
-|---|---|---|
-| `item_kind` | 8 | fixed list |
-| `bullion_form` | ~15 | Silver Eagle, Copper Round, Silver Bar, … |
-| `set_form` | 4 | Mint Set, Proof Set, Prestige, Coin Set |
-| `storage_form` | 8 | single, roll, box, tube, bag, album, mint set, proof set |
-| `currency` | ~12 | USD plus Peso, Peseta, Pound, Rupee, Kwacha, Piastre, … |
-| `denomination` | ~80 | `(currency_id, face_value, label, kind)` — `$1 Bill`, `0.25`, `10c` |
-| `country` | ~20 | parsed from Description / denomination |
-| `mint` | 7 | P (2,524), S (1,359), D (554), O (238), W (147), CC (91), C (17) |
-| `grade_scale` | 2 | Sheldon numeric (MS/PR 1–70), adjectival (UNC, AU, BU, …) |
-| `grade` | ~90 | MS63, MS64, MS70, PR69, AU, UNC, GEM BU, VF-20, F-12, … |
-| `grade_designation` | ~10 | DCAM, CAM, RD, RB, BN, FS, FB |
-| `grading_service` | 6 | PCGS (585), NGC (575), ICG (64), ANACS (53), PMG (9), SEGS (3) |
-| `note_attribute` | ~10 | Star Note (83), Blue Seal (82), Red Seal (50), Consecutive, Fancy Serial |
-| `vendor` | ~12 | ebay (5,740), whatnot (931), hibid (369), liveauctioneers (131), … |
-| `item_status` | 5 | ordered, received, canceled, returned, unknown |
-| `authenticity` | 4 | unverified, genuine, counterfeit, questionable |
-| `note_type` | 7 | Federal Reserve Note, Silver Certificate, United States Note, … |
-| `seal_color` | 5 | blue, red, brown, green, gold |
-| `fed_district` | 12 | A Boston … L San Francisco |
-| `signature_combination` | ~60 | Treasurer + Secretary pairs with terms |
-| `friedberg_number` | grows | curated; see below — **currency** |
-| `pcgs_type` | grows | curated; see below — **coins** |
-
-### Certificates, serials and type numbers are three different things
-
-These are routinely conflated, and the spreadsheet conflates two of them in one
-column. They are separated in the schema:
-
-| Concept | Scope | Example | Where it lives |
+| Source | Location | Used for | State |
 |---|---|---|---|
-| **Grading agency** | who slabbed it | PCGS, NGC, PMG | `grading_service` FK |
-| **Cert serial** | unique to one slab | `2179332-006`, `45141114` | `item_certification.cert_number` |
-| **Note serial** | printed on the banknote | `L10861665*` | `currency_detail.serial_number` |
-| **Type number** | shared by all of that type | Fr. 1935-B, PCGS #7328 | `friedberg_number` / `pcgs_type` |
+| Collection workbook | `C:\Users\wnmil\OneDrive\wnm3_coins.xlsx` | every item, purchase and vendor in the collection | imported; now historic |
+| Vendor PDFs | `C:\Users\wnmil\OneDrive\Documents\coins\` (about 1,100: `ebay_*`, `hibid_*`, `liveauction_*`, `probid_*`, `aabid(s)_*`, plus `whatnot_*.csv`) | cross-checking purchases | **not parsed**; see §12 |
+| Whatnot order report | `C:\Users\wnmil\OneDrive\Documents\whatnot-order-report.xlsx` (72 orders; its sheet is misnamed `ebay-order-report`) | which Whatnot orders were charged no sales tax | applied by hand in the database |
+| Safe-deposit photographs | `C:\Users\wnmil\OneDrive\Documents\coins\Classified\SafetyDeposit804` and `...\SafetyDeposit809` (673 JPEGs, about 2.0 GB) | item photographs | **not imported**; see §9.5 |
 
-**`Grading#` holds two different things depending on kind** — measured:
+**The canonical workbook is that exact path.** Seven files on the machine are
+named `wnm3_coins.xlsx`; the others are stale snapshots, some only days older,
+and `OneDrive\` also holds timestamped `wnm3_coins.backup-*.xlsx` copies. Match
+the exact name, never a prefix. `system-administration.md` (*The canonical
+spreadsheet*) has the detail.
 
-| Content | Currency rows (987) | Coin/other rows (1,467) |
-|---|---|---|
-| banknote serial | **821** | — |
-| cert serial (digits or NGC `nnnnnnn-nnn`) | 1 | **679** |
-| junk / unparsed | 165 | 90 |
-| Excel scientific notation (**data lost**) | 0 | 6 |
+**The Whatnot report's `processed date` is the settlement date, not the
+purchase date.** Do not "correct" purchase dates from it.
 
-So the importer routes by `item_kind`: currency → `currency_detail.serial_number`,
-everything else → `item_certification`. A bare 8-digit value is genuinely
-ambiguous on its own; kind is what disambiguates it.
+---
 
-**Star notes come free.** 188 currency serials contain `*` — more than double the
-83 found by reading `Rating` — so the serial is the better source for the
-`Star Note` attribute.
+## 3. What the workbook contained
 
-**The grading agency is not in `Grading#`.** It appears there exactly **once**.
-It lives in `Rating` (1,289 rows, e.g. `MS70 NGC`, `PR69DCAM PCGS`) and
-`Description` (1,141), so `grading_service_id` is parsed from those — which is
-precisely why it needs to be its own field rather than left embedded in a grade
-string.
+One sheet, about 7,600 data rows (the count moved with every edit), purchases
+from February 2024 onward across more than ten vendors. No formulas. Its final
+layout, after the owner restructured it on 2026-09-15:
 
-Certification stays **one-to-many** (`item_certification`): two rows carry
-five-cert lists such as `3000220317, 3000220268, 3000220113, …`, which a single
-column could not hold.
-
-### PCGS type numbers (coins)
-
-The coin counterpart to a Friedberg number. A PCGS # identifies a
-date/mintmark/variety type (e.g. #7328), shared by every coin of that type —
-unlike a cert serial, which is unique to one slab.
-
-Same structure and the same reality: **only one PCGS type number exists anywhere
-in the data** (`PCGS #131`), and PCGS numbers come from PCGS's own proprietary
-catalogue, so there is no bulk source to import. `pcgs_type` is therefore
-curated the same way `friedberg_number` is:
-
-```
-pcgs_type
-  pcgs_number   int unique
-  description   text                -- "1921 Morgan $1 MS"
-  denomination_id, series, variety
-  year, mint_id
-  source        seeded | derived | manual
-```
-
-`coin_detail` mirrors `currency_detail` (1:1 with `inventory_item`), holding
-`year`, `mint_id`, `variety`, `pcgs_type_id` and `pcgs_status`. Both detail
-tables are optional and every field is nullable.
-
-### Friedberg numbers (US currency)
-
-A Friedberg number identifies a **note type**, keyed by denomination, note type,
-series year and letter, signature combination and seal colour — plus a district
-suffix for Federal Reserve Notes (`Fr. 2016-B`, where `B` is New York).
-
-**Is there a public source? Effectively no.** The numbering system comes from
-*Paper Money of the United States* (Robert Friedberg, 1953; now in its 23rd
-edition from the Coin & Currency Institute) — a copyrighted catalogue. There is
-no official machine-readable dataset, and scraping the book is not a licit
-option. Older editions are scanned on the Internet Archive for
-borrowing/reading, which does not make them a data source.
-
-`uspapermoney.info` is an excellent **free** reference for the *inputs* —
-series-to-signature chronology, denominations, serial ranges — and I verified
-its chronology page directly: it lists Treasurer/Secretary, terms and series
-designations (e.g. `Woods | 1/29-2/32 | 28A,28B | …`) but **carries no Friedberg
-numbers**. Those facts (who signed what, which series exist) are not
-copyrightable and are a legitimate seed for `signature_combination`.
-
-**What the current data supports.** Friedberg numbers are essentially absent
-from the spreadsheet: **3 of 1,042** currency rows carry one —
-`FR 1705N`, `FR#2025-G`, `F2033` — and the word "Friedberg" appears **zero**
-times. The fields needed to *derive* one are also sparse:
-
-| Needed input | Present on currency rows |
+| Column | Became |
 |---|---|
-| denomination | ~100% |
-| series year + letter | ~40% (from `Year`: `2017-A` 183, `1957-B` 25, `1935-E` 16, …) |
-| seal colour | 16.3% |
-| note type | 4.6% |
-| district | 2.4% |
-| signature combination | ~0% |
+| `Ordered` | `purchase_order.ordered_on` |
+| `Order Number` | `purchase_order.order_number` (text) |
+| `Denom` | item kind, denomination, bullion or set form, storage form, piece count; kept verbatim in `denom_raw` and `source_title` |
+| `Year` | `year_start`/`year_end`, mint marks (coins) or series year and letter (notes); kept in `year_raw` |
+| `Rating` | grade, strike type, designation, grading service, attributes, authenticity; kept in `grade_raw` |
+| `Price` | `item_cost` |
+| `Shipping` | `shipping_cost` |
+| `Link` | `listing_url`, and the vendor's transaction id where the URL carries one |
+| `Description` | `description` (full-text indexed; no other authority) |
+| `Vendor` | `vendor` |
+| `Grading#` | a note's serial (currency) or a certificate number (everything else) |
+| `Value` | `numismatic_value` — an appraisal, and only that |
+| `My Rating` | `notes_raw` — the owner's own grade in their shorthand |
+| `Received` | `item_status` (§4.3) |
+| `Taxes`, `Total Cost`, `Profit`, `Profit %` | ignored — headers over nearly empty cells |
 
-**Therefore:** `friedberg_number` is a curated reference table that we grow, and
-`inventory_item.friedberg_id` is **nullable** with a `friedberg_raw` text column
-alongside. It is never a required field and never auto-guessed.
-
-```
-friedberg_number
-  fr_number        text unique     -- "1935-B", "2025-G", "1705"
-  base_number      int             -- 1935
-  district_letter  char(1) null    -- B  (FRNs only)
-  note_type_id     -> note_type
-  denomination_id  -> denomination
-  series_year      int
-  series_letter    char(1) null
-  seal_color_id    -> seal_color
-  signature_combination_id -> signature_combination
-  size_class       large | small | fractional
-  source           seeded | derived | manual
-```
-
-#### Capture the attributes, then propose the number
-
-The identifying attributes are recorded whether or not a Friedberg number is
-ever found. They live in a **`currency_detail`** table (1:1 with
-`inventory_item` where `kind = currency`) rather than as six mostly-null columns
-on `inventory_item` — 86% of rows are not currency.
-
-```
-currency_detail
-  inventory_item_id        pk, fk
-  note_type_id             null
-  denomination_id          null
-  series_year              null
-  series_letter            null
-  seal_color_id            null
-  signature_combination_id null
-  fed_district_id          null
-  serial_number            null   -- also feeds star-note / fancy-serial flags
-  friedberg_id             null   -- fk, the resolved answer
-  friedberg_raw            null   -- verbatim "FR#2025-G" if the seller stated one
-  friedberg_status         unknown | proposed | confirmed | conflicting
-```
-
-**Every field is optional.** A note entered with nothing but a denomination is
-valid and simply yields a weaker proposal.
-
-#### Proposal, not derivation
-
-Given whatever subset the user supplied, the lookup returns **ranked
-candidates** rather than an answer:
-
-```sql
-select * from friedberg_number fr
-where (:note_type   is null or fr.note_type_id   is null or fr.note_type_id   = :note_type)
-  and (:denom       is null or fr.denomination_id is null or fr.denomination_id = :denom)
-  and (:series_year is null or fr.series_year    is null or fr.series_year    = :series_year)
-  -- ... one clause per key
-order by matched_keys desc, specificity desc
-```
-
-Both sides tolerate nulls: a supplied field never excludes a catalogue row that
-is silent on it, and vice versa. Outcomes:
-
-| Candidates | Behaviour |
-|---|---|
-| exactly 1 | propose it, `friedberg_status = proposed`, user confirms in one click |
-| 2–20 | show them with the *differentiating* columns highlighted, so the user sees which extra field to fill in |
-| 0 | offer "record a new type" — the entered attributes pre-fill the new row |
-
-Confirmation sets `friedberg_status = confirmed` and stamps
-`verified_by` / `verified_at` on the catalogue row. The table therefore gets
-better with use: the first 1957-B $1 Silver Certificate costs a lookup, every
-later one resolves instantly.
-
-**Uniqueness correction.** My earlier draft proposed a plain unique index on the
-key tuple. That is wrong once partial rows are allowed — it would reject two
-different half-known types. Instead: a **partial** unique index that applies
-only to fully-specified rows,
-
-```sql
-create unique index on friedberg_number
-  (note_type_id, denomination_id, series_year, series_letter,
-   seal_color_id, signature_combination_id, district_letter)
-  where note_type_id is not null and denomination_id is not null
-    and series_year is not null;
-```
-
-plus `unique (fr_number)` unconditionally, so a future bulk import merges on the
-catalogue number rather than duplicating.
-
-#### If an importable source appears later
-
-`fr_number` is the natural key and `source` / `catalog_edition` are already
-columns, so a licensed dataset can be merged in without touching
-`inventory_item`: rows we authored keep `source = manual` and win on conflict
-unless explicitly overwritten.
-
-#### Assignment happens at receipt
-
-Type numbers are **not** assigned during import. They are prompted when the item
-is received, which is the moment the physical note or coin (and its slab label)
-is actually in hand — the only reliable source for seal colour, signature
-combination and district.
-
-The receiving panel therefore does double duty: flip `ordered → received`, and
-while the item is in front of you, capture the identifying attributes and accept
-or decline the proposed Friedberg number (currency) or PCGS type (coins). Every
-field stays optional, so receiving is never blocked by a number you cannot
-determine.
-
-Population in order of yield:
-
-1. **Parse** `Fr.` / `FR#` / `F-` tokens from descriptions and auction PDFs —
-   only 3 rows today, but PMG/PCGS holder labels routinely carry them, so the
-   auction PDFs you plan to add are the richest future source.
-2. **Prompt at receipt** and confirm, which also fills seal, type and signature
-   for the note itself.
-3. **Propose automatically** from the accumulated table.
-
-### Why `Rating` cannot be one lookup table
-
-Its 1,751 distinct values are compound. Decomposition is the core normalisation
-work:
-
-| Raw value | grade | designation | service | note attribute | storage |
-|---|---|---|---|---|---|
-| `PR69DCAM PCGS` | PR69 | DCAM | PCGS | — | — |
-| `MS70 NGC` | MS70 | — | NGC | — | — |
-| `GEM BU` | GEM BU | — | — | — | — |
-| `Star Note` | — | — | — | Star Note | — |
-| `UNC Roll` | UNC | — | — | — | roll |
-| `Morgan Silver Dollar Gem BU` | GEM BU | — | — | — | — |
-
-The last row is description text that leaked into the grade column; the parser
-extracts what it recognises and flags the remainder for review.
-
-Note also that **`Comment` carries bare numeric grades** — `63` (391), `53`
-(235), `58` (143), `64` (134), `45` (116) — alongside notes such as `ebay`
-(610). These resolve into `grade` where a Sheldon number is unambiguous.
-
-### `Year` is two different things
-
-- **Coins:** `1921-P`, `2019-P/D/S` → year plus one or more **mint marks**.
-- **Banknotes:** `2017-A` → year plus a **series letter**, which is *not* a
-  mint mark and must not be stored as one.
-- 723 rows are `????` and 98 are `Mixed`; both map to null years with the raw
-  value retained.
+`My Rating` was called `Comment` before 2026-09-15. The importer reads the new
+name; reading the old one would have dropped about 2,800 of the owner's own
+assessments without a word, because a missing column reads as an empty cell.
 
 ---
 
-## 5. Item lifecycle: ordered → received
+## 4. How the workbook was imported
 
-`Value` in the spreadsheet is overloaded: it holds an appraisal *and* doubles as
-a receipt marker. That becomes a first-class status.
-
-### What the data says
-
-| `Value` | Rows | Ordered date range |
-|---|---|---|
-| numeric | 6,046 | 2024-02-29 → 2026-07-09 |
-| blank | 1,045 | 916 of them 2026-05 onward |
-| `x` | 474 | **2026-06-06 → 2026-08-31 only** |
-| `?` | 7 | |
-| `Canceled` | 4 | |
-| `Returned` | 3 | |
-| `Counterfeit` | 1 | |
-| `XF-40` | 1 | a grade in the wrong column |
-
-The `x` convention began **June 2026** and appears nowhere before it. Prior to
-that, `Value` was purely an appraisal. This dates the convention and lets the
-migration be reasoned about rather than guessed.
-
-### Migration mapping
-
-| Source | `item_status` | Other effect |
-|---|---|---|
-| `x` | `received` | — |
-| numeric | `received` | `estimated_value` set |
-| `Canceled` | `canceled` | — |
-| `Returned` | `returned` | — |
-| `Counterfeit` | `received` | `authenticity = counterfeit` |
-| `?` / `XF-40` | `unknown` | flagged to review queue |
-| blank, ordered **2026-05 or later** (916) | `ordered` | awaiting receipt |
-| blank, ordered **before 2026-05** (129) | `unknown` | flagged — predates the `x` convention |
-
-Only **129 rows** need a human decision. Everything else is determined.
-
-> Assumption worth confirming: a numeric appraisal implies the item is in hand.
-> If you sometimes value things before they arrive, those 6,046 rows should be
-> `unknown` instead — a one-line change in the migration.
-
-### Status model
-
-`item_status` is per **line**, not per order. One order number covers up to 85
-rows here, and split shipments are normal, so receiving must work line by line
-with an order-level bulk action over the top.
+### 4.1 One seam: a durable engine, a disposable profile
 
 ```
-inventory_item
-  status_id      -> item_status     default 'ordered'
-  authenticity_id-> authenticity    default 'unverified'
-  ordered_on     date               -- from purchase_order
-  received_on    date null
-  closed_on      date null          -- canceled / returned
-
-item_status_history
-  inventory_item_id, from_status_id, to_status_id,
-  changed_at, changed_by, note
+backend/app/importers/
+  engine.py, loader.py, sources.py, models.py, profile.py, rating.py   durable
+  profiles/collection_v1.py                                            disposable
 ```
 
-History is a separate table rather than overwritten columns, so "when did this
-actually arrive" survives later corrections.
+Everything specific to this one workbook — its column names, the `Denom`
+typo map, the `Received` markers, `Grading#` routing — lives in
+`profiles/collection_v1.py`. The engine and loader know nothing about coins;
+they stage rows, hand each to the profile, and write what comes back into the
+schema. Replacing the profile does not touch them. That is deliberate: this
+workbook's conventions do not generalise, and a later generic import facility
+(upload, map columns, rules as data) will replace the profile, not the engine.
+A new collection in a different layout therefore needs its own profile, or
+that facility.
 
-### UI
-
-**Two ordered-inventory panels, split by kind** — Coins and Currency are browsed
-and filtered differently (mint mark and grade vs series, seal and Friedberg), so
-they get separate panels rather than one grid with a filter.
-
-**A receiving panel** listing outstanding `ordered` items grouped by purchase
-order and vendor, with:
-
-- per-line **Receive** (defaulting `received_on` to today), **Cancel**, **Return**
-- an order-level **Receive all** for the common case
-- partial receipt leaves the remaining lines `ordered`
-- the 129 undetermined rows surfaced as their own review bucket
-
----
-
-## 6. Core tables
-
-**`import_batch` / `import_row`** — two-stage import. Every row is first stored
-**verbatim**, with `status` (`pending | imported | needs_review | rejected`).
-Normalised records keep `import_row_id`, so any value traces back to its
-original cell. Nothing is silently coerced.
-
-> Amended by **§11 Amendment A**: `import_row` stores the raw row as a single
-> `JSONB` column rather than 17 fixed text columns, so a change to the
-> spreadsheet's shape does not require a migration.
-
-**`import_issue`** — one row per ambiguity: which row, which column, which rule
-failed, what was guessed. This is the manual-review queue.
-
-**`purchase_order`** — `order_number` (**text**, nullable), `vendor_id`,
-`ordered_on`, `source_url`. 624 order numbers repeat across rows (one appears
-**85 times**), so this is a genuine one-to-many.
-
-**`inventory_item`** — one per spreadsheet row:
-
-- FKs: `purchase_order_id`, `item_kind_id`, `denomination_id`, `bullion_form_id`,
-  `set_form_id`, `storage_form_id`, `mint_id`, `grade_id`,
-  `grade_designation_id`, `grading_service_id`, `country_id`, `value_status_id`
-- raw text kept: `denom_raw`, `year_raw`, `rating_raw`, `comment_raw`, `description`
-- parsed: `year_start`, `year_end`, `series_letter`, `storage_quantity`
-- money: `price`, `shipping`, `tax_rate`, `estimated_value`
-- generated: `taxes`, `total_cost`, `profit`, `profit_pct`
-
-**`item_certification`** — one-to-many. `Grading#` holds comma-separated lists
-(`3000220317, 3000220268, …`), so certificates cannot be a single column.
-
-**`item_note_attribute`** — many-to-many join for banknote attributes.
-
-**`source_document` / `document_order` / `document_item`** — parsed PDF content,
-keyed by sha256 so re-parsing is idempotent.
-
-**`validation_finding`** — `field`, `sheet_value`, `document_value`, `severity`
-(`match | variance | mismatch | unmatched`). **Reported, never auto-applied.**
-
----
-
-## 7. The PDFs
-
-**1,096 PDFs** in `C:\Users\wnmil\OneDrive\Documents\coins`, of which **120**
-match `ebay_260831_*`. Other prefixes to support later: `hibid_*`,
-`liveauction_*`, `probid_*`, `aabid(s)_*`, plus `whatnot_*.csv`.
-
-These are saved **eBay purchase-history pages**, not per-order invoices: 9–10
-pages each, ~25 orders per file, with the navigation sidebar interleaved.
+### 4.2 Two stages, dry run by default
 
 ```
-Order date:Aug 31, 2026 - Order total:US $151.50(Auto-
-paid) - Order number:03-15118-54690
-ERROR $1 BILL 1988 A SERIES MISCUT DOLLAR BILL "MINT CONDITION"
-US $151.50
-Sold by:alwoodsworld
+workbook ──► import_row (verbatim, JSONB) ──► inventory_item and friends
+                   │
+                   └──► import_issue  (and issues.csv / corrections.csv /
+                                       unclassified.csv under logs\import\)
 ```
 
-**Measured extraction reliability (8 files):** `Order date` was found 25 times
-per file consistently, but `Order number` only 24, 19, 19, 18, 22, 24, 22 and
-**5** times. Normalising whitespace did **not** recover the missing ones, so
-this is not line wrapping — the text layer itself is lossy on some pages (note
-the doubled glyphs, e.g. `AAllll PPuurrcchhaasseess`). Only 153 distinct order
-numbers were recovered from 8 files against ~200 expected.
-
-**Consequence:** parsing must be layout-aware (word coordinates, filtering the
-sidebar by x-position), and validation is **best-effort with a coverage
-metric** — never a gate that blocks import. An unmatched row means *"not
-confirmed"*, never *"wrong"*.
-
-Matching order: order number → (date + total) → fuzzy description.
-
----
-
-## 8. Delivery phases
-
-| Phase | Deliverable | Verifiable by |
-|---|---|---|
-| 1 | Reference tables + seed data; Alembic migration | drift test; seeded row counts |
-| 2 | Schema for `import_*`, `purchase_order`, `inventory_item`; generated columns | arithmetic tests on taxes/total/profit |
-| 3 | `import-xlsx` CLI → verbatim staging | 7,581 rows loaded; sha256 recorded |
-| 4 | Classifier + normaliser → typed tables + `import_issue` | kind counts reconcile to 7,581; ≤500 review items |
-| 5 | `parse-pdfs` CLI → document tables | coverage % reported per file |
-| 6 | Validator → `validation_finding` + report | findings reconcile; no auto-writes |
-| 7 | Admin UI: review queue, findings, inventory browse | — |
-
-Phases 1–4 stand alone: the full inventory is in the database and queryable
-before any PDF work begins.
-
----
-
-## 9. Risks
-
-**R1 — Leading zeros already lost.** 1,000 `Order Number` cells are stored as
-Excel integers. eBay numbers begin `03-`, `08-`; once Excel typed the cell as a
-number the leading zero is gone *in the file* and cannot be recovered from it.
-The importer preserves what is there and flags non-conforming values — the PDFs
-are the recovery path.
-
-**R2 — Lossy PDF text.** Measured above. Mitigated by layout-aware parsing and
-coverage reporting, not eliminated.
-
-**R3 — Reference tables drifting into free text.** Guarded by `source`
-(`seeded | derived | manual`) on every reference row, so machine guesses never
-masquerade as curated values.
-
-**R4 — Serial numbers destroyed by Excel (already lost).** Six `Grading#` values
-are stored as scientific notation — `5.0157E+14`, `1.92405E+15`,
-`2.00872E+14` — because Excel typed long serials as numbers. The original digits
-are **not recoverable from the file**; only the leading 5–6 significant figures
-survive. A further four (`762070990.05864`) were mangled into decimals. These 10
-rows are flagged for re-entry from the slab or the auction PDF. Storing serials
-as `text` in the database prevents any recurrence.
-
----
-
-## 10. Open questions
-
-1. **`Value = "x"` on 474 rows** — the single most common value in that column.
-   Does it mean "not yet appraised", "sold", or something else? It determines
-   whether those rows get `value_status = unknown` or their own status.
-2. **Historise `estimated_value`?** Market values move. A `value_history` table
-   is cheap now and painful to retrofit. Recommendation: include it.
-3. **Does `inventory_item` supersede the existing `coins` table?** The current
-   `coins` model is a *sales listing*; the spreadsheet is *what you own and
-   paid*. Recommendation: `inventory_item` becomes the core record, with a thin
-   `listing` table marking what is for sale at what price. Best done now, before
-   there is real sales data to migrate.
-
----
-
-## 11. Amendment A — storage architecture
-
-**Added 2026-09-05, after the baseline commit.** Question raised: should this use
-an object store rather than a SQL database, for more flexibility?
-
-**Decision: keep PostgreSQL as the system of record, add `JSONB` where the shape
-genuinely varies, and use an object store for files.** A hybrid, with each part
-doing what it is good at.
-
-### Why not a document store for the records
-
-The flexibility wanted here is real, but it is *attribute* variability — coins
-have mint marks, notes have seals and districts, bullion has weight and purity —
-not schema chaos. PostgreSQL answers that two ways already in this plan: the
-`coin_detail` / `currency_detail` split, and `JSONB` columns with GIN indexes
-for attributes that do not warrant their own table. That is schemaless storage
-*inside* a relational database, still queryable and indexable.
-
-What a document store would cost, specifically:
-
-| Capability | Why it matters here |
-|---|---|
-| Referential integrity | The stated goal is standardised searching via reference tables — that *is* foreign keys. Without them, integrity becomes application code, which is how the sheet acquired `$20 Blll`, `$2Bill` and `$20 B` as three distinct things. |
-| Exact decimal money | `NUMERIC(12,2)` guarantees `2 x 189.00 = 378.00`. Profit across 7,581 rows is the wrong place to accept float rounding. |
-| Generated columns | `taxes`, `total_cost`, `profit` are computed *by the database* and cannot drift from their inputs or be written by mistake. |
-| Constraints | `unique (fr_number)`, the partial unique index on Friedberg keys, `check` constraints on quantities. |
-| Aggregation | "Profit by vendor by year by kind" is one SQL statement. |
-| Transactions | Already relied on for the `SELECT ... FOR UPDATE` oversell guarantee. |
-
-**Scale is not an argument either way.** 7,581 rows is trivial; PostgreSQL would
-not notice a hundred times that.
-
-### Where `JSONB` is the right answer
-
-1. **`import_row.raw`** — the whole spreadsheet row as one `JSONB` document.
-   Genuinely schema-free ingestion: if the sheet gains or reorders a column, the
-   loader does not change and no migration is needed. This supersedes the
-   17-text-column design in §6.
-2. **`inventory_item.attributes`** — kind-specific extras that do not justify a
-   column or a reference table (weight, purity, diameter, error type, packaging
-   notes).
-
-Rule for promotion: **anything filtered, sorted, joined or aggregated on gets a
-real column or a reference table.** `JSONB` is for the long tail, not a way to
-avoid deciding. A field that gets a saved search built on it has earned a column.
-
-### Where an object store genuinely wins
-
-Files — and there are already **1,096 PDFs**, with coin and note images to come.
-These do **not** belong in the database.
-
-```
-source_document
-  id, sha256 (unique), storage_key, media_type, byte_size,
-  vendor_id, doc_kind, captured_on, page_count, parse_status
-
-item_image
-  inventory_item_id, storage_key, kind (obverse|reverse|slab|detail),
-  sha256, sort_order
-```
-
-- **Content-addressed by sha256**, so re-saving the same eBay export is a no-op
-  and re-parsing is idempotent.
-- Accessed through a small `StorageBackend` interface with two implementations:
-  local filesystem now, S3-compatible later. Callers never learn which.
-- The database holds *metadata and parsed content*; the blob store holds bytes.
-
-### What would change this decision
-
-Revisit if any of these become true:
-
-- Users need arbitrary per-item user-defined fields at scale (and even then,
-  `JSONB` likely covers it).
-- The record count grows by several orders of magnitude *and* access becomes
-  key-value rather than analytical.
-- The domain model churns so fast that migrations dominate effort — mitigated
-  today by Alembic plus the drift test.
-
-None hold now, and none look likely for a personal-to-small-business inventory.
-
-### Consequences for the phased delivery
-
-- Phase 2 gains `import_row.raw JSONB` instead of 17 text columns.
-- Phase 5 gains the `StorageBackend` interface; PDFs move under content-addressed
-  keys rather than being read from their OneDrive paths in place, so parsing
-  stops depending on that directory's layout.
-- No change to phases 1, 3, 4 or 6.
-
----
-
-## 12. Amendment B — one inventory table, not two
-
-**Added 2026-09-05.** Question raised: should coins and currency be separate
-inventories, given how differently they are described?
-
-**Decision: one `inventory_item` table**, with `coin_detail` / `currency_detail`
-side tables for the divergent fields and database **views** presenting them as
-separate inventories. Considered and rejected: physically separate tables.
-
-### Evidence
-
-Purchases mix kinds far more than a first look suggested.
-
-An initial measurement grouped by order number and found only 9 orders
-containing both a coin and a note. **That measurement was wrong** — it silently
-excluded the 2,648 rows with no order number, and auction vendors are exactly
-the ones that lack one:
-
-| Vendor | Rows | With an order number |
-|---|---|---|
-| liveauctioneers.com | 131 | **0%** |
-| proxibid.com | 59 | **0%** |
-| hibid.co / www.hibid.com | 97 | **0%** |
-| goldstandardauctions.hibid.com | 108 | 0.9% |
-| hibid.com | 369 | 24.1% |
-| www.ebay.com | 5,740 | 66.5% |
-| www.whatnot.com | 931 | 100% |
-
-Re-measured by vendor + order date (an auction-invoice proxy), over 503
-multi-line purchase events:
-
-- **56.7%** contain more than one kind
-- **68.6% of all rows** sit inside a mixed-kind purchase event
-- coin + currency specifically: 6.2% of events, 8.3% of auction events
-
-### Why not two tables
-
-1. **The split is not two-way.** coin 56% · bullion 15.4% · currency 14.4% ·
-   set 8.1% · medal/token 0.4% · unclassified 5.7%. Two inventories leave ~30%
-   homeless — 1,166 bullion rows, 615 sets, 28 medals. A Silver Eagle is legally
-   a coin and practically bullion. The honest version is six tables.
-2. **The shared surface dominates.** ~27 fields are common (purchase order,
-   vendor, price, shipping, tax_rate, the three generated money columns, status,
-   received_on, authenticity, grade, grading service, certification, estimated
-   value, storage form and quantity, import provenance, images) against ~5
-   coin-specific and ~9 currency-specific. Splitting duplicates the generated
-   arithmetic, the status lifecycle and its history, the receiving workflow and
-   the validation findings — two copies to keep in lockstep.
-3. **Mixed purchases break the receiving panel.** It groups by order and
-   supports partial receipt; with 68.6% of rows in mixed events it would have to
-   union two tables and coordinate partial receipt across both.
-4. **Sales tracking would need a polymorphic foreign key** — two nullable
-   columns plus a check constraint, or a discriminator. One FK to one table is
-   materially cleaner, and sales are the next planned area.
-5. **Unclassified rows would have no home.** 434 rows cannot pick a table at
-   insert time, which is precisely when a split design forces the choice.
-
-### What delivers the separation instead
-
-```
-inventory_item            -- the shared 27 fields, one row per acquisition
-  coin_detail             -- 1:1, coin-only fields, pcgs_type_id
-  currency_detail         -- 1:1, note-only fields, friedberg_id, serial_number
-
-create view coin_inventory     as select ... where item_kind in ('coin','bullion','set')
-create view currency_inventory as select ... where item_kind = 'currency'
-```
-
-The views are what the API and UI consume, so both read as independent
-inventories: separate panels, separate columns, separate type catalogues
-(`pcgs_type` vs `friedberg_number`), separate receiving flows. Nothing shared is
-written twice.
-
-**Field-name consistency comes free.** Because the common fields live in one
-table, `price`, `shipping`, `total_cost` and `status` cannot drift apart between
-the two inventories — with separate tables that consistency would depend on
-discipline.
-
-### Consequences
-
-- No change to any phase. §6 already describes this shape; the views are a small
-  addition to Phase 2.
-- Cross-cutting reporting (total cost basis, profit by vendor or month, PDF
-  order reconciliation) stays a single query, which matters because an eBay or
-  auction document lists every kind together regardless of how we store them.
-
-### What would change this decision
-
-If the two inventories diverge until they share little beyond price and date —
-different lifecycles, different money handling, different sales mechanics — the
-shared table stops earning its keep. Nothing in the current data points that way.
-If physical separation is ever wanted without giving up the single logical table,
-PostgreSQL LIST partitioning on `item_kind` provides it; at 7,581 rows that would
-be ceremony without benefit.
-
----
-
-## 13. Amendment C — receipt status resolved
-
-**Added 2026-09-05.** Supersedes the migration mapping in §5.
-
-**Rule given:** for non-currency, a row existing means the item was received,
-unless the row carries a form of cancellation.
-
-That resolves nearly all of the ambiguity, because the `x` convention turns out
-to be **a currency practice**: 431 of the 474 `x` marks are on currency rows.
-
-### Measured split
-
-| `Value` | Non-currency (6,539) | Currency (1,042) |
-|---|---|---|
-| numeric | **5,971** (91.3%) | 75 (7.2%) |
-| blank | 523 (8.0%) | **522** (50.1%) |
-| `x` | 43 (0.7%) | **431** (41.4%) |
-| `Canceled` | 0 | 4 |
-| `Returned` | 0 | 3 |
-| `?` | 0 | 7 |
-| `Counterfeit` / `XF-40` | 1 / 1 | 0 |
-
-Currency blanks are recent — 2026-05 (102), 2026-06 (327), 2026-07 (47),
-2026-08 (40), 2026-09 (3) — with only **3** older (2026-01). They read as
-awaiting receipt, not as missing data.
-
-### Final mapping
-
-**Non-currency — all `received`** unless a cancellation signal is present.
-Numeric values additionally set `estimated_value`; `Counterfeit` also sets
-`authenticity = counterfeit`; the single `XF-40` is a grade in the wrong column
-and goes to review with status `received`.
-
-**Currency:**
-
-| `Value` | Rows | Status |
-|---|---|---|
-| `x` | 431 | `received` |
-| numeric | 75 | `received` + `estimated_value` |
-| blank, ordered 2026-05 or later | 519 | `ordered` — awaiting receipt |
-| blank, ordered before 2026-05 | **3** | `unknown` — review |
-| `Canceled` | 4 | `canceled` |
-| `Returned` | 3 | `returned` |
-| `?` | **7** | `unknown` — review |
-
-**Rows needing a human decision: 11** (7 `?`, 3 old currency blanks, 1 `XF-40`),
-down from 129 under the previous date-based rule.
-
-### New status: `missing`
-
-Eight rows carry a `Comment` of `Missing`, two with the note's serial —
-`Missing E84256368C`, `Missing I87847860B`. That is neither cancelled nor
-returned: it was paid for and never arrived. `item_status` therefore becomes
-**ordered, received, canceled, returned, missing, unknown**.
-
-### Guardrail: never scan `Description` for cancellation
-
-A regex for `cancel|return|refund|missing|lost` across the row matches **408**
-rows, but **389 of them come from `Description` and are all false positives**:
-
-- `ITEM SEEN ON SCREEN ASK QUESTIONS NO CANCELLATION` — auction boilerplate
-- `2010 Lost Coins Never Released In Circulation` — a product name
-- `COLLECTION of 10 US Mint Uncirculated Sets (MISSING 1991, …)` — set contents
-
-Applying it naively would cancel 389 received items. **Cancellation and missing
-status are read only from `Value` and `Comment`**, never from `Description`,
-which is marketing copy written by sellers.
-
----
-
-## 14. Amendment D — this plan is deliberately bespoke
-
-**Added 2026-09-05.** Recorded intent, not a change of design.
-
-Everything in §1–§13 is fitted to one spreadsheet belonging to one collector.
-The `x`-means-received convention, the `$20 Blll` typo map, the 2026-05 cutoff,
-the overloaded `Value` and `Grading#` columns — none of that generalises, and
-none of it should. A later, generic import facility will let any user map their
-own file to the schema, at which point much of this becomes deprecated.
-
-**This is accepted, not regretted.** Getting real data in and queryable now is
-worth more than a configurable engine built against a hypothetical second user.
-What matters is knowing *which* code is disposable, so effort is not spent
-hardening what will be deleted.
-
-### Durable vs disposable
-
-| Durable — outlives the bespoke import | Disposable — dies with this spreadsheet |
-|---|---|
-| The domain model: `inventory_item`, `coin_detail`, `currency_detail`, reference tables | The 17-column mapping of `wnm3_coins.xlsx` |
-| `friedberg_number`, `pcgs_type` and their propose-and-confirm flow | The `Denom` rule set and its typo corrections |
-| `purchase_order`, `vendor`, certifications, `item_status` lifecycle | `x` = received; the `Value` overload; the 2026-05 cutoff |
-| Generated money columns and the tax model | `Grading#` routing by kind |
-| The two-stage pattern: raw staging → normalise → review queue | The specific `Rating` decomposition patterns |
-| `import_batch` / `import_row` with `JSONB` raw | The eBay purchase-history page parser |
-| `import_issue` and the review UI | The `Description`-is-not-authoritative guardrail |
-| `StorageBackend`, `source_document`, content addressing | |
-| `validation_finding` and the reconciliation model | |
-| The receiving workflow and its UX | |
-
-The durable column is most of the value. The disposable column is mostly
-*rules*, and rules are cheap to rewrite once the tables they populate are right.
-
-### The seam that makes replacement cheap
-
-All spreadsheet-specific logic goes in **one place** and is reached through one
-interface, rather than being spread across the loader:
-
-```
-importers/
-  engine.py          # durable: batch, staging, normalise, issues, provenance
-  profile.py         # durable: the Protocol a profile must satisfy
-  profiles/
-    wnm3_coins.py    # DISPOSABLE: every rule in the right-hand column above
-```
-
-A profile declares column mappings, classification rules, value dictionaries and
-status derivation. The engine knows nothing about coins, `Denom` or `x`. Phase 3
-and 4 build both, but only the engine gets treated as long-lived code.
-
-**Effort allocation follows from this.** Test the engine thoroughly; test the
-profile at the level of "the 7,581 rows land with these counts" rather than
-unit-testing each typo correction. Do not generalise a profile rule before a
-second profile exists to justify it.
-
-### What the generic facility looks like later
-
-A separate architecture document, written without reference to this
-spreadsheet's anomalies. Sketch only:
-
-- **Upload → inspect → map.** User uploads a file; the system infers columns and
-  types; the user maps each to a target field in a UI, saving the result as a
-  reusable named mapping.
-- **Rules as data, not code.** Classification patterns, value dictionaries and
-  typo maps become editable tables, versioned per user, replacing
-  `profiles/wnm3_coins.py` entirely.
-- **Derived-field expressions** defined by the user (a safe expression language,
-  not arbitrary code) so things like "status comes from column K" are configured.
-- **Pluggable document parsers** registered per vendor, replacing the hardcoded
-  eBay parser.
-- **Dry run and diff** before committing an import, with the same
-  `import_issue` review queue.
-
-At that point §1–§13 are superseded for import purposes; the schema, the
-reference tables and the workflows described here remain.
-
-### Consequence now
-
-Only one: the phase 3 and 4 code is organised around the engine/profile seam
-from the start. That costs nothing today and turns the eventual migration into
-deleting a directory rather than untangling a codebase.
-
----
-
-## 15. Amendment E — valuation: melt vs numismatic
-
-**Added 2026-09-05.** Amends §2 (computed fields) and closes the open question in
-§10 about historising `estimated_value`.
-
-A common-date, low-grade 90% silver coin is worth its metal, and that number
-moves daily with spot. A key date in MS64 is worth a collector premium that has
-nothing to do with spot. One stored `estimated_value` column cannot represent
-both, and storing a melt figure guarantees it is stale by tomorrow.
-
-### What the data supports
-
-| Signal | Rows |
-|---|---|
-| mentions silver | 2,895 |
-| mentions gold | 392 |
-| mentions copper | 370 |
-| mentions platinum | 5 |
-| states a fineness (90%, .999, .9999, 40%) | ~540 |
-| states a weight | 753 |
-
-Fineness is rarely written down — but it rarely needs to be. US coinage
-composition is **public fact keyed by denomination and year**, so it is
-derivable for **1,920 rows** without being stated:
-
-| Rows | Rule |
-|---|---|
-| 1,045 | dollar, ≤1964 → 90% Ag |
-| 434 | half, ≤1964 → 90% Ag |
-| 251 | dime, ≤1964 → 90% Ag |
-| 170 | quarter, ≤1964 → 90% Ag |
-| 20 | half, 1965–70 → 40% Ag |
-
-Unlike Friedberg numbers, this is not a proprietary catalogue — it is
-legislation and mint specification, and can be seeded outright.
-
-### Schema
-
-```
-metal              silver | gold | copper | platinum | palladium
-
-composition        -- public-fact lookup, seeded
-  denomination_id, country_id, year_from, year_to
-  metal_id, fineness            -- 0.900, 0.999, 0.400, 0.350
-  fine_weight_ozt               -- actual metal weight, e.g. dime 0.07234
-  source: seeded | manual
-
-inventory_item
-  composition_id   null   -- resolved from denomination + year, overridable
-  metal_id         null   -- for bullion, set directly
-  fineness         null
-  gross_weight_ozt null
-  fine_weight_ozt  null   -- computed or stated; the melt input
-  numismatic_value null   -- manual estimate; the collector premium
-  valuation_basis         -- melt | numismatic | manual
-
-metal_price        -- time series, fetched
-  metal_id, quoted_at, price_per_ozt, source
-```
-
-`fine_weight_ozt` figures are seeded from published mint specifications and
-should be verified against a reference at seed time rather than trusted from
-memory.
-
-### Melt value is reported, not stored
-
-```
-melt_value = fine_weight_ozt * (latest spot for that metal) * storage_quantity
-```
-
-Computed in a view against the most recent `metal_price` row. Never a column —
-a stored melt figure is wrong the moment spot moves.
-
-`reported_value` then follows `valuation_basis`:
-
-- **melt** — common-date, low grade: the metal is the value
-- **numismatic** — `numismatic_value`, entered manually, for anything with a premium
-- **manual** — an explicit override
-
-Default is `melt` where a composition resolves and no `numismatic_value` exists,
-otherwise `numismatic`.
-
-### Consequence: profit stops being a generated column
-
-**This amends §2.** `profit` and `profit_pct` were specified as
-`GENERATED ALWAYS AS ... STORED`. That is no longer sound: one of their inputs —
-spot price — changes daily, and a stored column cannot track it.
-
-| Field | Before | After |
-|---|---|---|
-| `taxes` | generated column | **unchanged** — inputs are static |
-| `total_cost` | generated column | **unchanged** |
-| `profit` | generated column | **moves to the reporting view** |
-| `profit_pct` | generated column | **moves to the reporting view** |
-
-Cost basis is fixed at purchase and stays generated. Only the value side is
-time-varying, so only the value side moves.
-
-### `valuation_snapshot` — closing the §10 question
-
-Yes, historise it, and this is the shape:
-
-```
-valuation_snapshot
-  inventory_item_id, captured_at
-  basis, spot_price_used, fine_weight_ozt
-  melt_value, numismatic_value, reported_value
-```
-
-Recording the spot price *used* makes each snapshot reproducible, which a bare
-value column never would be. Written on a schedule and on demand, giving a real
-portfolio history rather than a single mutable number.
-
-### Open
-
-A spot-price feed is an external dependency not yet chosen. Until one is wired
-in, `metal_price` can be populated by hand and melt values simply carry the date
-of the last quote — the model does not change, only its freshness.
-
----
-
-## 16. Amendment F — images and physical location
-
-**Added 2026-09-05.** Extends the object-store decision in §11 with measured
-facts, and adds a concept the plan was missing entirely: where an item
-physically is.
-
-### What is there
-
-`Documents\coins\Classified\` holds two directories of photographs:
-
-| Directory | Files | Size | Median image | Captured |
-|---|---|---|---|---|
-| `SafetyDeposit804` | 302 jpg | 536 MB | 1.7 MB | 2025-12-31, 2026-01-02 |
-| `SafetyDeposit809` | 371 jpg | 1.5 GB | 4.5 MB | 2025-12-24 to 2025-12-26 |
-
-**673 images, ~2.0 GB**, and this is one snapshot of two boxes. Any argument for
-holding images in the database ends here.
-
-Two naming conventions:
-
-- `20251231_104754.jpg` — camera default. All 302 in 804, and 51 in 809.
-- `N001-20251224-125550.jpg` — **320 files in 809**, a hand-assigned sequence
-  running `N001`–`N324` with gaps (`N012` is absent).
-
-So **809 has been catalogued and 804 has not**. The `N###` sequence is a local
-catalogue number, not a grading or vendor reference.
-
-### There is no automatic link to the spreadsheet
-
-Checked directly: `N###` tokens appear in `Description` **7 times** — incidental
-matches, not a mapping — safety-deposit references appear twice, and there is no
-location column anywhere in the 17.
-
-**Attaching images to inventory items is therefore a manual task**, assisted by
-the UI, not an import step. Any plan that assumes the filenames resolve to rows
-is wrong.
-
-Assists worth building, to be validated before relied on:
-
-- Present unlinked images in capture order beside candidate rows; both the photo
-  session and the `N###` sequence are chronological.
-- Images seconds apart are plausibly obverse/reverse of one item, so offer them
-  as a pair.
-- Once an item is linked, its neighbours narrow the search for the next.
-
-### Schema
-
-```
-storage_location
-  kind        safe_deposit_box | safe | home | in_transit | sold | unknown
-  institution, identifier          -- e.g. "804", "809"
-  notes
-
-inventory_item
-  storage_location_id  null
-  local_catalog_number null          -- the N### where one exists
-
-location_history
-  inventory_item_id, storage_location_id, moved_at, moved_by, note
-
-item_image
-  inventory_item_id null             -- NULL until linked
-  storage_key, sha256 unique, byte_size, media_type
-  captured_at                        -- from filename, verified against EXIF
-  source_directory                   -- provenance: which import it came from
-  kind    obverse | reverse | slab | detail | group | unassigned
-  sort_order
-```
-
-`item_image.inventory_item_id` being nullable is the important part: **353
-images have no catalogue number at all** and must be storable, browsable and
-searchable before anyone decides what they depict. `sha256` is unique so
-re-importing a directory — likely, given OneDrive — is a no-op.
-
-`location_history` exists because items move between boxes, and "where was this
-in March" is a question worth being able to answer.
-
-### Privacy
-
-These are photographs of valuables in identified bank boxes, under a directory
-named `Classified`. Two consequences:
-
-- **Storage location and images must never reach the customer-facing catalogue.**
-  The public views expose the item, never `storage_location`,
-  `local_catalog_number` or `location_history`.
-- Image URLs must not be guessable or publicly served; the object store is
-  private and access is mediated by the application.
-
-This is a hard boundary, not a preference, and belongs in the authorisation
-tests when the sales side is built.
-
-### Consequence
-
-Phase 5 gains an image import: walk a directory, hash, store, record
-`captured_at` and `source_directory`, leave `inventory_item_id` null. Phase 7
-gains the linking UI. Neither blocks phases 1–4.
-
----
-
-## 17. Amendment G — images across the lifecycle, and the sales domain
-
-**Added 2026-09-05.** Extends §16. Forward-looking: none of this is built until
-the sales phase, but the image model must accommodate it now, because retro-
-fitting it later would mean re-keying 673 files.
-
-### Images serve three roles with different visibility
-
-| Role | Example | Visibility |
-|---|---|---|
-| Inventory documentation | the 673 safety-deposit photos | **private, always** |
-| Listing photo | what a customer sees | **public** |
-| Shipment evidence | packed box, label, handoff | **private**, dispute defence |
-
-The same photograph may serve more than one role, so **the file and its use are
-separate things**:
-
-```
-image                      -- the file, stored once
-  sha256 unique, storage_key, byte_size, media_type
-  width, height, captured_at, source_directory
-
-image_derivative           -- generated, public-safe renditions
-  image_id, kind (thumb | web), storage_key, width, height
-
-item_image      (inventory_item_id, image_id, kind, sort_order)
-listing_image   (listing_id,        image_id, sort_order)
-shipment_image  (shipment_id,       image_id, kind: packed | label | handoff)
-```
-
-Three link tables rather than a polymorphic `subject_type`/`subject_id` — the
-same reasoning as Amendment B: real foreign keys, each independently
-constrained.
-
-### EXIF GPS — measured, and a real exposure
-
-Sampled 40 images from each directory:
-
-| Directory | With EXIF | **With GPS coordinates** |
-|---|---|---|
-| SafetyDeposit804 | 40/40 | **40/40** |
-| SafetyDeposit809 | 40/40 | **36/40** |
-
-All Samsung, all 4000x3000. **Every sampled photograph carries the coordinates
-of the bank where the valuables are held.**
-
-Consequently:
-
-- **Originals are never served.** Public requests are answered only from
-  `image_derivative` rows.
-- **Derivatives are generated with all EXIF removed** — not merely GPS. Camera
-  serial and timestamps are also identifying.
-- Derivatives are resized; 4000x3000 is 12 MP, unsuitable for a web listing
-  regardless of privacy.
-- This is a test, not a convention: publishing an image whose derivative retains
-  EXIF should fail the build.
-
-### The sales domain, sketched
-
-```
-customer
-  user_id null            -- links to the existing auth User when registered
-  display_name, email, phone
-
-address
-  customer_id, kind (shipping | billing)
-  line1, line2, city, region, postal_code, country_id
-  is_default, valid_from, valid_to        -- customers move
-
-carrier                   -- reference: USPS, UPS, FedEx, DHL
-
-shipment
-  order_id, carrier_id
-  tracking_number, service_level
-  shipped_at, delivered_at
-  cost, insured_value, weight_oz
-  status  pending | label_created | in_transit | delivered | exception | returned
-```
-
-Shipment sits on the order, not the item, because one parcel carries many lines
-— though a large order may split across parcels, so it is one-to-many and
-partial shipment must work, exactly as partial receipt does on the buying side.
-
-### Acquisition status and disposition are different axes
-
-§14's `item_status` tracks **how the item came in** — ordered, received,
-canceled, returned, missing. Selling is a separate axis, and folding it into the
-same column would make "received and sold" unrepresentable:
-
-```
-inventory_item
-  status_id       -- acquisition: ordered | received | canceled | returned | missing
-  disposition_id  -- held | listed | sold | shipped | delivered | returned_by_buyer
-```
-
-Selling also moves the item physically, so a sale writes `location_history` with
-a location of kind `in_transit`, then `sold`.
-
-### PII
-
-`customer` and `address` hold names, addresses and phone numbers. That is a
-different class of data from anything else in this schema:
-
-- Payment card data is **never stored** — a processor holds it, we keep a token.
-- Customer records need a retention and deletion answer before the sales phase
-  ships, not after.
-- The §16 boundary still applies in reverse: a customer must never see storage
-  location, and staff-facing views must not leak customer PII into listings.
-
-### Consequence now
-
-Only that §16's `item_image` becomes `image` + `item_image`, so the 673 files
-are keyed by content hash from the start and can gain listing or shipment uses
-later without being re-imported. Nothing else is built yet.
-
----
-
-## 18. Amendment H — EXIF cleansing at import, and image roles
-
-**Added 2026-09-05.** Refines §17: metadata is stripped **at import**, so nothing
-dirty is ever stored, rather than only at publish time.
-
-### Generic, not camera-specific
-
-EXIF, XMP and IPTC are **format-level standards**, not vendor formats. Samsung
-maker notes live *inside* the EXIF APP1 segment and disappear with it. So one
-generic filter handles every camera; no per-device filters are needed.
-
-The care required is not about the camera, it is about **which segments** get
-removed. Measured across 120 sampled images:
-
-| JPEG segment | 804 | 809 | Carries |
-|---|---|---|---|
-| APP1 | 60/60 | 60/60 | EXIF (incl. GPS, maker notes), XMP |
-| APP13 | 19/60 | 7/60 | IPTC / Photoshop |
-| APP14 | 20/60 | 13/60 | Adobe colour transform |
-| APP0 | 12/60 | 15/60 | JFIF (harmless, keep) |
-
-A filter that removes only EXIF leaves IPTC behind. The rule is: **drop every
-`APPn` except APP0**, then verify.
-
-### Orientation must be applied before stripping
-
-| Directory | Orientation value |
-|---|---|
-| SafetyDeposit804 | **6 on 60/60** |
-| SafetyDeposit809 | 6 on 50/60, 1 on 9, absent on 1 |
-
-Orientation `6` means *rotate 90° clockwise to display correctly*. Stripping
-metadata without first applying it makes **every one of those photographs
-display sideways** — a self-inflicted bug affecting nearly the whole library.
-
-### Import pipeline
-
-```
-1. read    -> capture DateTimeOriginal, width, height, orientation, make/model
-              into image columns; this is the only chance
-2. rotate  -> apply the orientation transform to the pixels (exif_transpose)
-3. strip   -> drop every APPn except APP0
-4. verify  -> reopen; assert no EXIF, no GPS IFD, no IPTC. Fail the import if not
-5. hash    -> sha256 of the CLEANSED file; that is the identity
-6. store   -> object store; DB records metadata only
-```
-
-Step 4 is the point. The guarantee comes from re-reading the written file, not
-from trusting the library that wrote it. `Galaxy S25 Ultra` and
-`DateTimeOriginal` were present on 120/120 sampled images and must both be gone
-afterwards.
-
-Step 5 matters too: hashing the cleansed file means re-importing the same
-original is still idempotent, because cleansing is deterministic.
-
-> **Trade-off, accepted deliberately.** Stripping at import discards the
-> original metadata permanently, which has some evidentiary value for insurance
-> or a dispute. The facts worth keeping (capture time, device, dimensions) are
-> preserved as database columns; the rest is not. If the raw originals are ever
-> wanted, they stay in OneDrive — the import copies, it does not move.
-
-### One item, many images
-
-Confirmed as a one-to-many relationship, as it already was in §17. Formalised
-with a role vocabulary, since front/back/zoom needs to be queryable rather than
-implied by sort order:
-
-```
-image_role     -- reference: obverse, reverse, edge, detail, slab,
-                  certificate, group, packaging, unassigned
-
-item_image
-  inventory_item_id, image_id
-  image_role_id
-  is_primary        -- exactly one per item, the listing thumbnail
-  sort_order
-  unique (inventory_item_id, image_id)
-```
-
-A partial unique index enforces at most one `is_primary` per item. Current data
-is roughly one photograph per item — 320 numbered files in 809 across `N001` to
-`N324` — so obverse/reverse pairs are the expected direction of growth, not the
-present state, and `image_role` defaults to `unassigned` rather than guessing.
-
-### Consequence
-
-Phase 5's image import gains steps 1–6 above and a test asserting a cleansed
-sample retains no EXIF, GPS or IPTC and is rotated upright.
-
-## 19. Amendment I — the workbook says what has arrived
-
-Superseded by this amendment: §13 (Amendment C, "receipt status resolved"),
-whose rule was that an item's status comes from the `Value` column's markers.
-
-### The problem
-
-`Value` carried two unrelated things: an appraisal amount, and occasionally a
-status marker. The loader's own `DEFAULT_STATUS` is `received`, and the
-markers could only ever *override* it — `x` → received, plus
-canceled/returned/counterfeit. **None of them meant "not here yet."**
-
-So the workbook had no way to say an item had not arrived. Removing an `x`
-from a row changed nothing at all: it fell straight back to the default.
-On 2026-09-15 this showed as 7,651 of 7,658 items sitting in `received`,
-with nothing outstanding anywhere — and therefore nothing that *could* be
-received in the console, because everything already had been.
-
-### The change
-
-The workbook gained a **`Received`** column, which says it directly:
-
-| cell | status |
+- `import_batch` records the file's sha256, row count and mode.
+- `import_row.raw` holds the whole source row as `JSONB`, so a change in the
+  sheet's shape needs no migration. `import_row.inventory_item_id` links each
+  staged row to the item it produced; that join, not arithmetic on item codes,
+  is the authoritative way back to a workbook row.
+- `python -m app.importers.cli --file <path>` is a dry run that touches no
+  database and writes the review CSVs. `--commit` writes.
+- There is no console screen over `import_issue`; the CSVs were the review
+  surface, and the console's named diagnostics (§7.9) are the ongoing one.
+
+### 4.3 Rules that matter
+
+**Classification order.** Bullion keywords, then set keywords, then medal and
+token, then currency (`Bill`/`Note`, a leading `$`, a number followed by a
+word), then a bare number is a coin, else `unknown`. Bullion and sets must come
+first or `1oz Copper Round` matches "number followed by a word" and becomes a
+banknote. A Panda's "10 yuan" and gram or grain weights are caught as bullion
+for the same reason.
+
+**Arrival comes from `Received` only.**
+
+| `Received` cell | Status |
 |---|---|
 | `x` | `received` |
-| blank | `ordered` — the absence of the mark is the point of the column |
-| `canceled` / `returned` / `missing` / `counterfeit` | that |
-| anything else | `ordered`, and warned (`received-not-understood`) |
+| blank | `ordered` — the absence of the mark is what the column says |
+| `canceled` / `returned` / `missing` | that status |
+| `counterfeit` | authenticity `counterfeit`; status left as received |
+| anything else | `ordered`, warned `received-not-understood` |
 
-An unreadable cell reads as **not** arrived on purpose. An item wrongly left
-`ordered` is received in the console in one click; one wrongly marked
-`received` drops silently out of every question about what is outstanding.
+An unreadable cell reads as *not* arrived on purpose: an item wrongly left
+`ordered` is received in the console in one click, while one wrongly marked
+`received` drops silently out of everything that asks what is outstanding.
+A status marker left in `Value` is reported (`status-marker-in-value-column`),
+not obeyed — two columns both setting status is how they come to disagree.
+`Counterfeit` in `Value` still sets authenticity, with a warning.
 
-`Value` is now an appraisal and only that. A marker left behind in it is
-reported (`status-marker-in-value-column`) rather than obeyed — two columns
-both setting the status is how they come to disagree.
+**`Description` has no authority over status, errors or anything else.** It is
+seller copy. Scanning it for `cancel|return|missing|lost` matched hundreds of
+rows, nearly all false: auction boilerplate ("NO CANCELLATIONS"), product names
+("Lost Coins"), set contents ("MISSING 1991"). It feeds full-text search only.
 
-The `Comment` column was renamed **`My Rating`**; it holds the owner's own
-grade, usually a bare number, and still loads as the item's note. The
-importer had to be told, because a column that is not there reads exactly
-like an empty cell: 2,800 assessments would have vanished silently.
+**`Grading#` is routed by kind.** On a banknote it is the note's printed serial
+(`currency_detail.serial_number`); on anything else a certificate number
+(`item_certification`, one row per number, since some cells list several). A
+bare eight-digit value is ambiguous on its own; the kind decides. An arrival
+marker typed there (`x`, `canceled`) is warned and not stored; a word saying
+the identifier is absent (`missing`, `none`) is warned and not stored, because
+a note with no printed serial is an error on the note, not a serial.
 
-### Consequence
+**Identifiers are text, always.** Order numbers, serials and certificate
+numbers are never re-typed as numbers. Damage the workbook already did cannot
+be undone: about 1,000 `Order Number` cells had been stored as Excel integers,
+losing leading zeros, and six `Grading#` values survive only as scientific
+notation (`5.0157E+14` and the like). The importer flags these
+(`identifier-lost-to-scientific-notation`) rather than storing a rounded lie;
+recovery is from the slab or a vendor document.
 
-First import under this rule, 2026-09-15: 7,570 `received`, **80 `ordered`**
-(73 blank, 7 `?`), 4 canceled, 3 returned, 1 missing — and 12 purchase orders
-with something outstanding, where there had been none.
+**`Year` means two different things.** On a coin, `1921-P` or `2019-P/D/S` is
+a year and one or more mint marks. On a note, `2017-A` is a series year and a
+series letter, which is not a mint mark and is stored separately. Decades
+(`1980's`), uncertain years (`2024?`), open ranges (`1953-`) and multi-mint
+sets (`1989-P&D`) are real distinctions, not typos, and are not normalised
+away.
 
-**Item codes are issued in row order.** The workbook was re-sorted before this
-import, so 1,121 codes now name a different purchase record than they did.
-Anything outside the database that quotes a `CC-` number from before
-2026-09-15 no longer refers to what it did. This is the cost of treating the
-workbook as the authority after the database became the system of record, and
-is the last time it should be paid: entry now happens in the console.
+**Compound ratings are decomposed** (`app/importers/rating.py`): `PR69DCAM
+PCGS` is a strike type, a grade, a designation and a grader. Unrecognised text
+stays in `grade_raw` and `attributes.rating_unparsed`. `Mixed` means "known to
+vary", not "unknown", and is never turned into a grade.
 
-## 20. Amendment J — note attributes become item attributes
+**A value outside the vocabulary is declined, not invented.** An early version
+created a new reference row for every unmatched string and produced 185 junk
+grades. Now an unmatched value stays in its `*_raw` column and is reported.
 
-2026-09-16. `note_attribute` and `item_note_attribute`, named in sections 1,
-4 and 6, are now `item_attribute` and `item_attribute_link`
-(docs/specs/item-attributes-design.md, section 2). Coins carry attributes
-too, each attribute has a group and says which kind of item it fits, and a
-link records whether a rule or a person made it. The importer still reads
-the same note features from the rating; each link it writes is `derived`,
-by `import`.
+**Purchase orders are grouped by a real identifier or not at all.** A row with
+an order number joins that vendor's order. Without one, the vendor's own
+transaction id in the item URL identifies the purchase (a HiBid, Proxibid or
+LiveAuctioneers lot, an Etsy receipt). An eBay item number names a *listing*,
+not a purchase, so it groups rows but is never written into `order_number`. A
+row with neither gets no purchase order. An earlier version keyed on
+`order_number or ""`, which collapsed every numberless row from a vendor into
+one fabricated order — 1,922 eBay purchases over two years into a single
+order; that is why "unknown" is never treated as a value.
 
-## 21. Amendment K — the database is the record
+**Composition is filled from the facts at import** (§6.2), and recorded as a
+derived default so a later pass may refresh it.
 
-2026-09-16, the owner: "at this point we can think of our database as the
-ground truth and continue to improve the data there. the spreadsheet can be
-a historic reference document."
+### 4.4 Item codes
 
-From here on the workbook is not re-imported into the live database, and
-`scripts\ccweb_rebuild.cmd` is not how live data is corrected: a rebuild
-would discard everything corrected in the console. Data is improved by
-passes over stored items -- `app.classifier_defaults`,
-`app.series_classify`, `app.serial_patterns` and `app.rating_pass` (below)
--- which fill what is empty and leave what a person set.
+Every item gets a permanent code, `CC-000001` onward, from a database
+sequence: assigned once, never reused, never changed, surviving sale, return
+and relisting. Codes were issued in workbook row order. The workbook was
+re-sorted before the 2026-09-15 import, so **1,121 codes then named a
+different purchase than before**; any `CC-` number quoted outside the database
+from before 2026-09-15 may not mean what it did. That cost is not paid again,
+because the workbook is no longer imported into live.
 
-The importer stays, and learned the same rating rules
-(`app/importers/rating.py`), for a new collection or a new sheet of
-purchases.
+`python -m app.seed` creates demo items. Run before an import it takes
+`CC-000002` onward and offsets every real code, so the rebuild runs it last.
+
+### 4.5 The last import into live
+
+The 2026-09-16 rebuild is the last time the workbook reached the live
+database: 7,660 items, $536,118.82 cost basis, 2,366.253 ozt fine metal. Five
+of those were demo items, deleted on 2026-09-17. Figures have moved since
+through passes and entry; query, don't quote.
+
+---
+
+## 5. The inventory model
+
+### 5.1 One table for every kind of item
+
+Coins, banknotes, bullion, sets, medals and tokens all live in
+`inventory_item`, with 1:1 `coin_detail` and `currency_detail` tables for what
+differs. Separate tables were considered and rejected: the split is not two-way
+(bullion and sets would be homeless), the shared fields dominate (purchase,
+cost, grade, certification, status, location, images), most purchase events
+mix kinds, a sale must reference any item through one foreign key, and an item
+whose kind is not yet known still needs a row. The `coin_inventory` and
+`currency_inventory` views present two inventories, though as built nothing
+reads the views: search queries the base tables for speed
+(`app/inventory_search.py` explains why).
+
+PostgreSQL is the store, with `JSONB` for genuinely variable data
+(`import_row.raw`, `inventory_item.attributes`) and bytes in object storage.
+A document store was considered and rejected: foreign keys, exact decimal
+money, generated columns, constraints and transactions are all relied on.
+**Promotion rule:** anything filtered, sorted, joined or aggregated on earns a
+real column or reference table; `attributes` is for the long tail.
+
+### 5.2 What an item row holds
+
+| Group | Columns |
+|---|---|
+| identity | `item_code`, `version` (optimistic concurrency) |
+| acquisition | `purchase_order_id` (nullable) |
+| classification | `item_kind_id`, `denomination_id`, `country_id`, `series_id`, `bullion_form_id`, `set_form_id`, `storage_form_id`, `piece_count`, `year_start`, `year_end` |
+| condition | `strike_type_id`, `grade_id`, `grade_designation_id`, `grading_service_id`, `authenticity_id` |
+| lifecycle | `status_id`, `disposition_id`, `storage_location_id` |
+| lineage | `parent_item_id`, `split_at`, `deleted_at` |
+| description | `source_title`, `description`, `listing_url`, `local_catalog_number` |
+| verbatim source | `denom_raw`, `year_raw`, `grade_raw`, `notes_raw`, `weight_raw` |
+| cost basis | `item_cost`, `shipping_cost`, `tax_rate`, `tax_includes_shipping`, `sales_tax` (generated), `total_cost` (generated) |
+| value and metal | `numismatic_value`, `valuation_basis_id`, `composition_id`, `metal_id`, `fineness`, `gross_weight_ozt`, `fine_weight_ozt` |
+| long tail | `attributes` (JSONB), `source` (seeded / derived / manual) |
+
+`coin_detail` holds the mint, variety and PCGS type. `currency_detail` holds
+note type, series year and letter (with a generated `series_designation` such
+as `1935A`), seal colour, signatures, Federal Reserve district, serial number,
+Friedberg number and status, and face and back plate numbers and plate
+position (text, because plate designations carry letters). Every detail column
+is nullable.
+
+**`piece_count`, not a storage quantity.** A roll or tube bought as one thing
+stays one row with a piece count, and every weight and valuation multiplies by
+it.
+
+**Lots and pieces.** `POST /api/inventory/{id}/split` breaks a lot into one
+child per piece, dividing cost `equal`ly (identical pieces) or `relative` to a
+value supplied per piece (a mint set's cent and half dollar). The parent is
+kept — it holds the purchase order, the price actually paid and the code a
+receipt names — and marked `split_at`; everything that counts inventory or
+money excludes it, or the collection would appear to cost twice what it did.
+The console has no Split panel yet (§12).
+
+**Soft delete.** `deleted_at` means "this row should never have existed" (a
+typo, a duplicate). It is not how an item leaves the collection. A lot with
+pieces, and any item that has ever been listed, cannot be deleted.
+
+**Purchase lots were not reconstructed.** Grouping rows that share a
+description into parent lots was planned and dropped: shared descriptions come
+from copy-and-paste in the workbook and are being replaced, so they are not a
+signal. The repaired purchase orders (§4.3) are what "bought together" means.
+
+---
+
+## 6. Money
+
+### 6.1 Cost basis is stored, and sales tax is stamped per row
+
+```
+sales_tax  = round((item_cost + CASE WHEN tax_includes_shipping
+                                     THEN shipping_cost ELSE 0 END) * tax_rate, 2)
+total_cost = item_cost + shipping_cost + sales_tax
+```
+
+Both are `GENERATED ALWAYS AS ... STORED`: they cannot drift from their inputs
+or be written by mistake. Money is `NUMERIC(12,2)` and `Decimal` throughout; no
+floats anywhere.
+
+`tax_rate` and `tax_includes_shipping` are **columns on each item, copied from
+the settings `SALES_TAX_RATE` (default 0.0635) and
+`SALES_TAX_INCLUDES_SHIPPING` (default true) when the item is created, and
+never read from the settings again.** Tax paid is a historical fact, so a
+change to a setting governs later purchases and rewrites none before it.
+`tax_rate` has no server default on purpose: a copy of the rate in the schema
+would be a second source of truth. A purchase charged no tax has `tax_rate` 0
+(the **No sales tax charged** box in the item editor, or bulk edit).
+
+The workbook carried no usable tax data, so imported items took the default
+rate. The Whatnot orders that were charged no tax were set to 0 in the
+database afterwards, from the Whatnot report; they exist nowhere else, which
+is one of the things a rebuild would destroy. A rate cannot reproduce a
+marketplace's own rounding (Whatnot charged $0.35 where 6.35% of $5.40 is
+$0.34); those pennies stay as computed.
+
+**Profit is not a column.** It depends on current value, which moves.
+
+### 6.2 Weight, composition and fine metal
+
+Weight is stored in troy ounces as `NUMERIC(12,6)`, never a float, because it
+multiplies into money. `gross_weight_ozt` is the whole piece;
+`fine_weight_ozt` is the precious-metal content **per piece**, the melt input.
+`weight_raw` keeps what was written (grams, kilos, pounds convert on the way
+in). Copper rounds are often sold by the avoirdupois ounce, 9.7% lighter than
+troy; record the unit the source meant rather than assuming.
+
+`composition` holds US coinage composition by denomination, country and year
+range, seeded from published mint specifications (`composition.json`, with
+the published ASW figures). It resolves from what the item already is, so
+nobody types that a 1963 dime is 90% silver. The importer fills metal,
+fineness and weights from it; `app.classifier_defaults` refreshes them when an
+item's facts change; a person's value always stands. Bullion forms carry a
+typical metal, fineness and fine weight of their own.
+
+**Fine metal for the collection is `sum(fine_weight_ozt * piece_count)`**
+over live rows (`split_at IS NULL AND deleted_at IS NULL`). The unweighted sum
+reads about 10% low.
+
+### 6.3 Value is computed: melt versus numismatic
+
+A common-date silver coin is worth its metal, which moves daily; a key date in
+high grade carries a premium unrelated to spot. One stored number cannot be
+both, and a stored melt figure is stale the next morning.
+
+- `numismatic_value` is the owner's appraisal (the workbook's `Value` column,
+  and edits since).
+- `valuation_basis` is `melt`, `numismatic` or `manual`. At import it was set
+  to `melt` where a fine weight resolved and no appraisal was given, otherwise
+  `numismatic`.
+- The `item_valuation` view computes
+  `melt_value = fine_weight_ozt * latest spot * piece_count`, then
+  `reported_value` by basis, `profit` and `profit_pct`, from the latest
+  `metal_price` row per metal.
+- `valuation_snapshot` records a point-in-time value with the spot price used,
+  so a past figure stays reproducible.
+
+**As built, melt value is always empty**: nothing writes `metal_price` (no
+spot-price feed has been chosen), nothing writes `valuation_snapshot`, and no
+endpoint reads `item_valuation`. The model is in place; its inputs are not.
+
+---
+
+## 7. Classification and reference data
+
+### 7.1 Principles
+
+- **Classifiers are foreign keys to reference tables, never free text.**
+  Search and filtering are standardised because of it.
+- **Raw text is kept beside every parsed value** (`*_raw`), so a parser's
+  mistake is always recoverable.
+- **Every reference row says where it came from:** `seeded` (shipped fact or
+  vocabulary), `derived` (learned by a rule), or `manual` (one owner's
+  decision). Machine guesses never pass for curated facts.
+- **Reference data is shipped as versioned JSON** under
+  `backend/data/reference/` and loaded with `python -m app.seeding load`
+  (idempotent). Foreign keys travel as codes, not ids. `export --source ...`
+  writes it back; only `seeded` is exported by default, so one collection's
+  guesses do not leak into another installation's vocabulary. A hand-edited
+  row is never overwritten by a load.
+- **Only facts are seeded, never a publisher's arrangement.** Office holders
+  and their terms, design series and their years, mint specifications and
+  legislated compositions, and common nicknames are safe. Friedberg numbering,
+  Pick numbering, price-guide values and any catalogue's mapping of attributes
+  to its own numbers are not. Seed files carry a `_comment` naming their
+  sources.
+- **Standard terminology first** — the US Mint glossary, then the grading
+  services' published terms, then usage agreed by independent sources.
+
+### 7.2 Vocabularies as built
+
+| File | Tables |
+|---|---|
+| `classification.json` | `item_kind` (coin, currency, bullion, set, medal, token, other, unknown), `bullion_form`, `set_form`, `storage_form` |
+| `issuer.json` | `currency`, `country`, `denomination` (with `kind`: coin or note — the same face value exists as both), `mint` |
+| `condition.json` | `grade_scale`, `strike_type`, `grade`, `grade_designation`, `grading_service`, `authenticity`, aliases |
+| `banknote.json` | `note_type` (BEP's class names), `seal_color`, `fed_district`, aliases |
+| `signatures.json` | `signature_combination` (Treasurer and Secretary, with terms) |
+| `note_issue.json` | `note_issue` (small-size notes, Series 1928–2021) |
+| `series.json` | `series`, `series_alias`, `series_year_range` |
+| `composition.json` | `composition` |
+| `attribute.json` | `item_attribute`, aliases |
+| `error_type.json` | `error_type` |
+| `operations.json` | `metal`, `valuation_basis`, `item_status`, `disposition`, `storage_location_kind`, `image_role`, `vendor_kind`, `sales_venue_kind`, `carrier`, `sales_order_status`, `shipment_status` |
+
+In the console, pickers offer only values that fit the item's kind (a metal is
+never offered for a banknote; coin and note denominations are kept apart, and
+the API refuses a mismatch). Pickers are alphabetical except the scales and
+lifecycles, which keep their natural order. A missing attribute or error type
+is added by typing its name. The **Vocabularies** page renames, retires and
+merges values, and moves a value within a sequenced vocabulary; it does not
+create values -- a new one is added from a field's picker.
+
+**Retire or merge, never delete.** Retiring stops a value being offered.
+Merging (`app.reference_merge`) moves every item that holds a value onto the
+one kept, turns the old label, code and aliases into aliases of the survivor,
+and records the merge so a later seed load does not bring it back. A value
+used by another vocabulary or a facts table refuses to merge. Values the
+application looks up by code (such as the image roles) cannot be retired or
+merged.
+
+**Aliases.** The label is the standard term; what people write — UCAM, Legal
+Tender, Mercury, Godless — is an alias, in `series_alias` for series and
+`reference_alias` for every other vocabulary. Search, the importer and the
+rating pass all read them. A removed seeded alias is retired rather than
+deleted, so a load does not restore it.
+
+### 7.3 Grades are a number and a strike type
+
+`PR69+` is strike type `proof` with grade `69+`; `MS65` is `business` with
+`65`. A strike type is a way of making the coin, not a rank, so it is its own
+column. `grade.grade_rank` (generated) places `64+` between 64 and 65. Note
+grades are their own scale. Adjectival grades are folded into numbers at the
+bottom of their range, with the owner's ladder for BU and UNC: plain 60, one
+plus 63, two pluses 65. `app/grades.py` splits and displays compound grades,
+and the database mirrors the display in `grade_display()`.
+
+### 7.4 Series
+
+A design series (Morgan Dollar, Winged Liberty Head Dime, Funnyback) is a
+foreign key on the item itself, so faceting stays fast and notes can carry one
+too. `series_year_range` holds each run of years at a denomination (the Morgan
+is 1878–1904, 1921 and 2021 on) and, for notes, the letters allowed. Designs
+that share a face value and years with a commoner one (Hawaii and North Africa
+notes, commemoratives) are marked `needs_evidence` and assigned only when the
+text or the seal colour says so; the Series 1929 National Bank Notes are told
+from the Federal Reserve Bank Notes by note class.
+
+Two passes assign series, both report-only unless given `--commit`, and
+neither touches an item that already has one:
+
+- `app.series_match` — coins, by the design their text names;
+- `app.series_classify` — what the text left, and all notes, from
+  denomination and year (and series letter), with text and seal as evidence.
+  Boundary years and conflicts go to a review list.
+
+`docs/specs/series-classification-design.md` has the facts and sources.
+
+### 7.5 Note facts and classifier defaults
+
+`note_issue` records, once, what each small-size issue was: denomination,
+series year and letter, class, seal colour, signatures, variant (Hawaii,
+North Africa) and the serial's series-letter prefix where there is one. Every
+row is backed by at least two independent public sources, named in the file.
+It carries no catalogue numbers and no values.
+
+`app.classifier_defaults` (and the console, as an item is created or saved)
+fills what follows from facts a person entered:
+
+| Filled | From |
+|---|---|
+| note class, seal, signatures | denomination, series year and letter (`note_issue`) |
+| Federal Reserve district | a Federal Reserve Note's serial |
+| composition, metal, fineness, weights | a coin's denomination, country and year |
+| No Motto | a $1 Silver Certificate of Series 1928–1935F (1935G needs evidence) |
+
+A field is written only when the facts allow exactly one value. A value a
+person or the workbook recorded is never replaced, though it narrows the
+facts (a red-seal $1 Series 1928 is a United States Note). Ambiguous,
+disagreeing and unknown-issue cases are reported by item code. Filled values
+show a *suggested* mark in the item editor.
+
+**A series year is the design year, not the signing year.** Lettered series
+carry later signers, so the signatures a note can carry come from
+`note_issue`, never from which Treasurer and Secretary held office in the
+series year.
+
+### 7.6 Item attributes
+
+What an item *is* beyond its grade is an `item_attribute`, linked many-to-many
+through `item_attribute_link`, for coins and notes alike. Each attribute has a
+group — `serial` (Star Note, Radar, Fancy Serial), `variety` (No Motto, Mule),
+`release` (First Strike, Early Releases, First Day of Issue), `verification`
+(CAC), `qualifier` (Details, Genuine, NET) — and says which kind of item it
+fits. Each link says whether a rule or a person made it (`derived` with
+`derived_by`, or `manual`).
+
+**A removed attribute stays removed.** A person removing one sets
+`removed_at`; the row stays so that no rule adds it back.
+
+Sources of derived links: the importer (from the rating), `app.rating_pass`,
+`app.classifier_defaults` (No Motto), and `app.serial_patterns`, which reads
+star, radar, repeater, binary, solid, ladder and low-serial designations from a
+note's serial. Patterns need a full eight-digit serial; a short one is
+reported as incomplete, not read. `consecutive` is never derived, since no
+single serial can show a run.
+
+### 7.7 Errors
+
+Mint and printing errors are rows in `item_error` (error type plus free-form
+details, many per item — a miscut note can also have an offset), with
+`error_type.applies_to` keeping struck and printed errors apart. Errors are
+set by a person, in the item editor, New item or Receiving; they are never
+inferred from description text.
+
+### 7.8 Identification
+
+Four things that are routinely conflated are kept apart:
+
+| Concept | Scope | Where |
+|---|---|---|
+| grading service | who certified it | `inventory_item.grading_service_id` |
+| certificate number | one holder | `item_certification.cert_number` (many per item) |
+| note serial | printed on the note | `currency_detail.serial_number` |
+| type number | every item of a type | `friedberg_number`, `pcgs_type` |
+
+**Certificate numbers are unreliable as identifiers** in this collection: some
+repeat because a seller reused a listing template.
+
+**Friedberg numbers are the owner's own, never a shipped table.** The
+Friedberg numbering is a copyrighted arrangement, so `friedberg_number` holds
+only numbers the owner has read off their own notes and slabs (source
+`manual`). The owner records one from the item editor or Receiving; a lookup
+searches that private catalogue by what is visible on the note (denomination,
+series, class, district, signatures, web press) and proposes candidates;
+attaching one sets `friedberg_status` to proposed or confirmed. The identifying
+tuple is unique only among fully specified rows, `NULLS NOT DISTINCT` (without
+that, a series with no letter could be recorded twice under two numbers), and
+`fr_number` is unique outright so a licensed dataset could be merged later.
+A match is shown as its number with a Copy button into the field. When the
+catalogue has no match, Look up opens a Google AI Mode search for that note in
+a pop-up window; the owner reads the answer and types or pastes the number,
+saving it as proposed until checked. **The software never fetches, parses or
+stores search results** (owner's ruling, 2026-09-23), since that would
+harvest the catalogue's arrangement into a product that is sold.
+
+`pcgs_type` exists with the same shape for coins and is unused: nothing
+captures a PCGS number yet (§12).
+
+### 7.9 Who set a field: provenance per field
+
+| Table | Meaning |
+|---|---|
+| `item_field_source` | this field holds a default a pass derived (`derived_by`: composition, rating, a classifier rule); a pass may refresh it. Saving the field by hand deletes the row. A row marked `held` means a person emptied the field on purpose and no pass may fill it |
+| `item_field_review` | a person confirmed this field by looking at the object |
+
+No `item_field_source` row means the value is a person's or came with the
+data, and no pass touches it. The two tables answer different questions, and
+a derived value can also be confirmed.
+
+**The passes over stored items**, each report-only by default and writing only
+with `--commit`, each respecting the rules above:
+
+| Pass | Does |
+|---|---|
+| `app.classifier_defaults` | note class, seal, signatures, district, composition, No Motto (§7.5) |
+| `app.series_match` | series from text (coins) |
+| `app.series_classify` | series from facts |
+| `app.serial_patterns` | serial designations |
+| `app.rating_pass` | reads stored ratings again with the current rules; fills empty grade, strike, designation, grader and attributes; corrects only two machine misreadings (a strike the rating names outright, FS on anything but a Jefferson nickel) |
+
+Run `classifier_defaults` before `series_classify`: note class is evidence for
+series. Live writes need the owner's go-ahead, a verified backup, and the
+dry-run counts shown first.
+
+**Named diagnostics** (`app/issues.py`) are the ongoing review queue in the
+console: no year, no country, no grade (coins and notes only — bullion has
+none by nature), no denomination, zero cost, `Mixed` marker, unreviewed,
+unknown kind, bullion with no weight, repeated identifiers, star attribute
+without an asterisk, malformed serial, near-duplicate serial. Each is a
+filter, a count and a row badge.
+
+---
+
+## 8. Lifecycle and receipt
+
+### 8.1 Two axes, one writer each
+
+How an item came in (`status`) and how it goes out (`disposition`) are
+separate columns; one column would make "received and sold" unrepresentable.
+
+| Axis | Values |
+|---|---|
+| `item_status` | ordered, received, canceled, returned, missing, unknown |
+| `disposition` | held, listed, sold, shipped, delivered, returned_by_buyer |
+
+`missing` means paid for, not cancelled, never arrived; a missing parcel can
+still be received later. `unknown` exists in the vocabulary; neither the
+importer nor receiving sets it.
+
+Status is **per item**, not per order: one order can hold dozens of items and
+split shipments are normal. Every change is a row in `item_status_history`
+(from, to, who, when, note, and `arrived_on` — a calendar date, not a
+timestamp). **Status and location have exactly three writers**, in
+`app/lifecycle_writes.py`: `record_initial_status` (the opening row, with no
+"from"), `set_status` and `set_location`. Assign `status_id` or
+`storage_location_id` anywhere else and the history silently stops being true.
+Every creation path — import, entry, split, demo seed — records an opening
+row.
+
+Disposition is driven by selling (listings, sales lots, auctions, recorded
+sales), described in `docs/specs/selling-design.md`.
+
+### 8.2 How items are received
+
+- **Imported items** took their status from the workbook's `Received` column
+  (§4.3).
+- **Entered items** are created on a purchase as `ordered`, or `received` for
+  something already in hand. No item is entered outside a purchase.
+- **Receiving** (`POST /api/inventory/receive`; console `/owner/receiving`)
+  records one of four outcomes — received, missing, returned, canceled — with
+  an optional arrival date and, for received, a storage location. The console
+  page is one search form: part of an order number (matched anywhere in it,
+  any case), and/or what the item is; by default it finds only what has not
+  arrived (`ordered` or `missing`), and "Any status" shows a whole order. Each
+  item is received in a dialog that also takes a note, photographs, field
+  reviews and, for a banknote, the Friedberg lookup. Date and location carry
+  to the next item; the note does not, because it describes one object. After
+  each receipt the search repeats, so what arrived drops off the list.
+  Receiving something already received is refused with 409. A link naming one
+  order (`?order=<id>`, from the inventory screens or New purchase) opens with
+  that order's header and its items already found.
+- **Corrections** go through the item editor's status field, which writes a
+  history row like any other transition. Receiving only moves forward.
+
+Receiving is the moment the object is in hand, so it is where attributes the
+workbook never had (seal, signatures, district, plate numbers, errors,
+Friedberg number) are best recorded. Nothing there is required; receipt is
+never blocked by a field nobody can fill.
+
+---
+
+## 9. Photographs
+
+### 9.1 The file and its use are separate
+
+`image` is the file, stored once and identified by the sha256 of its
+**cleansed** bytes. Link tables record use: `item_image` (inventory
+photographs, never public), `listing_image` (what a buyer sees),
+`shipment_image` (dispute evidence). Real foreign keys rather than a
+polymorphic subject. `item_image.inventory_item_id` is nullable: a photograph
+can be stored and browsed before anyone decides what it shows.
+
+Bytes live under `MEDIA_ROOT` (default `<repo>\media`) behind a
+`StorageBackend` interface, never in the database, so a database backup does
+not include them (§11).
+
+### 9.2 Metadata is stripped at ingest
+
+The safe-deposit photographs carry the GPS coordinates of the bank (40 of 40
+sampled in 804, 36 of 40 in 809) and camera identifiers; nearly all have
+Orientation 6. Stripping at publish time would leave the coordinates sitting
+in storage, so `app/imaging.py` does it on the way in:
+
+```
+1. read    capture DateTimeOriginal, dimensions, orientation into columns
+2. rotate  apply the orientation to the pixels
+3. strip   drop every metadata segment
+4. verify  reopen and assert none remains; refuse the file if any does
+5. hash    sha256 of the cleansed file -- its identity
+6. store   object storage; the database records metadata only
+```
+
+Rotation must precede stripping or every phone photograph displays sideways.
+Step 4 re-reads the written bytes rather than trusting the library that wrote
+them. The originals stay where they were; ingest copies. Stripping discards
+the original metadata permanently, which was accepted: the facts worth keeping
+are columns.
+
+### 9.3 Serving
+
+Originals are never served. Requests are answered from `image_derivative`
+renditions (`thumb`, 320 px, and `web`, 1600 px, by default), addressed by
+content hash rather than sequential id so the collection cannot be walked.
+
+### 9.4 Roles and the primary photograph
+
+`image_role`: obverse, reverse, edge, detail, slab, certificate, group,
+packaging, unassigned. At most one photograph per item is primary (a partial
+unique index), and the shop shows only the primary, with no fallback.
+`app/image_links.py` is the only writer of `item_image`: it demotes the
+incumbent before promoting another in one transaction, promotes on attach when
+an item has no primary, and fills the vacancy when a primary is detached or
+deleted. Detaching keeps the photograph; deleting it destroys it and its
+bytes.
+
+### 9.5 Photographs are attached after receipt
+
+Receipts are logged quickly and photographs taken at leisure, so a photograph
+can be added to an item at any time:
+
+- **PhotosPanel** in the item editor: upload, set role, make primary, remove.
+- **`/owner/photos`**: photographs nobody has filed yet, filed by hand.
+- **`python -m app.photo_import`** walks `PHOTO_LIBRARY_ROOT` (default
+  `<repo>\photos`, git-ignored) or `--root`. Dry run by default, and genuinely
+  side-effect free; `--commit` writes. The filename convention is
+  `<item_code>_<nn>.<ext>`, e.g. `CC-000412_01.jpg`: `_01` is obverse and
+  primary, `_02` reverse, `_03` on unassigned. Nothing is repaired (a
+  lowercase `cc-` is a miss). Every file is stored; only the link is withheld,
+  for an unparseable name, an unknown code, a deleted or split item, two files
+  claiming one slot, or an occupied slot. An existing primary is kept.
+
+**The 673 safety-deposit photographs are still unimported.** Nothing links
+their filenames to items: 804's are camera-default timestamps, 809's mostly a
+hand-numbered `N001`–`N324` sequence, which is a local catalogue number, not a
+reference to a workbook row. They need renaming to the `CC-` convention
+first; whatever does not match lands unattached in `/owner/photos`. The first
+real run is a dry run the owner watches.
+
+**Photographs and storage location never reach a customer.** That is an
+authorisation boundary: it is enforced by `routers/catalog.py` building each
+public response field by field, and tested — not by the `public_catalog`
+view, which forbids the columns but which no endpoint reads.
+
+---
+
+## 10. Physical location
+
+`storage_location` (kind, institution, identifier, notes) says where an item
+is; `location_history` records every move, written only by
+`lifecycle_writes.set_location`. Kinds: safe_deposit_box, safe, home,
+in_transit, consigned, sold, unknown. A location is recorded on receipt, and
+consigning items to an auction house moves them to a consigned location
+created on first use.
+
+The application lists storage locations for the receiving picker but has no
+way to create an ordinary one; consignment is the only code that constructs a
+row. The workbook had no location column, so imported items carry none unless
+set since.
+
+`local_catalog_number` exists for an owner's own numbering scheme (such as the
+`N###` sequence in the 809 photographs); the importer does not fill it.
+
+---
+
+## 11. Backups and schema releases
+
+- **Before a migration: `pg_dump`, verified by restoring it** into a scratch
+  database and comparing every table's row count; then rehearse the migration
+  on that restore and compare item count and cost basis before and after; only
+  then migrate live, with the servers stopped, then `app.seeding load`, then
+  restart (uvicorn runs without `--reload`). The full procedure is in
+  `system-administration.md`, *Applying a schema release*. Dumps are kept
+  outside the repository in `C:\Users\wnmil\dev\ccwebdb-backups\`.
+- **`app.backup` is not a pre-migration backup.** It copies the database into
+  another database with the schema built from the *current models* and no
+  `alembic_version`, so once new code is checked out its copy already has the
+  new tables and cannot be migrated. It is portable (another engine is a URL)
+  and useful for a working copy beside live.
+- **`app.backup --list` is not evidence.** A copy that aborted partway lists at
+  a plausible size: on 2026-09-20 the newest copy held no inventory items and
+  no purchase orders. Always `--verify <name>`, which compares row counts per
+  table and reports `OLDER SCHEMA` for a copy that predates a migration. A
+  restore is a copy in the other direction, into a fresh database.
+- **Photograph bytes are not in either kind of backup.** Back up `MEDIA_ROOT`
+  separately.
+- **The workbook is not a backup.** It has not described the collection since
+  the import.
+
+---
+
+## 12. Not built, or still open
+
+Only what the code and the dated notes support.
+
+- **The safe-deposit photographs** (§9.5): renaming, then a watched dry run.
+- **Vendor PDF cross-check.** No `source_document` or `validation_finding`
+  tables exist. The saved eBay pages are purchase-history pages, about 25
+  orders each, with a lossy text layer (order numbers missing on some pages
+  even after whitespace normalisation). When built: layout-aware parsing from
+  word coordinates, a coverage figure per document, matching by order number
+  then date and total then description, and findings reported, never applied.
+  The same "join, report, don't overwrite" rule applies to marketplace order
+  reports (the Whatnot report, an eBay export).
+- **Spot prices and valuation history.** No feed chosen; `metal_price` and
+  `valuation_snapshot` are empty, so melt value and profit are blank (§6.3).
+- **PCGS type numbers.** `pcgs_type` exists; nothing captures one. Whether to
+  record them is the owner's catalogue-numbering call.
+- **Split panel.** The split API works; the console has no screen for it.
+  When last measured (2026-09-08), twelve imported items held more than one
+  piece between them and awaited splitting; query for `piece_count > 1`, and
+  check each against its description before splitting.
+- **Creating storage locations** in the console (§10).
+- **Excel round trip** (export a search, re-import corrections):
+  `docs/specs/excel-roundtrip-design.md` is a design awaiting review, not
+  code.
+- **Generic import facility** for another collector's file: not started; the
+  profile seam (§4.1) is what it will replace.
+- **Vocabularies page**: no creating a value there -- a new value is added from
+  a field's picker ("Add a new value").
+- **Review lists printed by the passes** are the owner's to work: bare-number
+  ratings with nothing to settle the strike, Series 1935G notes needing No
+  Motto evidence, ambiguous note classes, series missing from the note facts,
+  Peace dollars rated "No Motto", notes rated FDOI. The passes' reports list
+  them by item code; rerun a report rather than trusting an old list.
+- **`derived` reference rows** must be reviewed before anyone runs
+  `app.seeding export --source derived`.
+- **Signers against denomination** as well as series, only from a source the
+  owner trusts.
+- **Physical checks** (last confirmed 2026-09-10; re-check before acting):
+  possible duplicate rows across a few lots (`logs/duplicate-rows-review.csv`),
+  and star attributes on notes whose serials show no asterisk (the
+  `star_mismatch` diagnostic finds them).
+
+---
+
+## 13. Standing facts easy to get wrong
+
+- **Never re-import the workbook into live, and never propose
+  `ccweb_rebuild.cmd` to fix live data.** Passes, the console, or a verified
+  restore.
+- **Pass order:** `classifier_defaults` before `series_classify`.
+- **Fine metal is `sum(fine_weight_ozt * piece_count)`**, over rows with
+  `split_at IS NULL AND deleted_at IS NULL`. Cost basis is `sum(total_cost)`
+  over the same rows. Query, don't quote: figures move with every pass and
+  entry.
+- **`sales_tax`, not `taxes`; `item_cost` and `shipping_cost`, not `price` and
+  `shipping`; `piece_count`, not `storage_quantity`.** `listing.price` is the
+  asking price, a different thing.
+- **Tax rate is per row**, stamped at creation. Changing the setting changes
+  nothing already recorded.
+- **Status and location have three writers** (`lifecycle_writes.py`).
+- **`item_image` has one writer** (`image_links.py`), and the shop shows only
+  a primary photograph.
+- **A series letter is not a mint mark**, and a note serial is not a
+  certificate number.
+- **A series year is the design year, not the signing year.**
+- **Certificate numbers repeat** in this data; do not key on them.
+- **Workbook dates:** the Whatnot report's `processed date` is settlement.
+- **`CC-` codes before 2026-09-15** may name a different purchase now.
+- **`python -m app.seed` makes demo items**; never run it on live, and in a
+  rebuild run it last.
+- **Nothing reads the four views**; search uses base tables, and the public
+  boundary is enforced in `routers/catalog.py`.
+- **No Friedberg or Pick mapping, catalogue numbering or price-guide value is
+  ever seeded or fetched.** The owner types numbers for their own notes.
+- **The test suite uses `ccwebdb_test`**, never `ccwebdb`.
