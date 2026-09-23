@@ -231,7 +231,11 @@ class FriedbergNumber(TimestampMixin, Base):
         UniqueConstraint("fr_number", name="uq_friedberg_number_fr_number"),
         # NULLS NOT DISTINCT: most series have no letter, so with NULLs
         # distinct this index never fired for them and the same type could be
-        # recorded twice under two numbers (measured 2026-09-23).
+        # recorded twice under two numbers (measured 2026-09-23). Which makes
+        # every column that tells two types apart a member: the signatures
+        # (many series differ by nothing else) and the seal (a wartime brown
+        # or yellow seal beside the regular blue) were missing, and two real
+        # types were refused as one (code review, 2026-09-23).
         Index(
             "uq_friedberg_number_identity",
             "denomination_id",
@@ -240,6 +244,8 @@ class FriedbergNumber(TimestampMixin, Base):
             "note_type_id",
             "district_letter",
             "web_press",
+            "signature_combination_id",
+            "seal_color_id",
             unique=True,
             postgresql_nulls_not_distinct=True,
             postgresql_where=text(

@@ -338,6 +338,56 @@ def test_the_same_type_and_press_twice_is_still_a_conflict(
     assert again.status_code == 409, again.text
 
 
+def test_the_same_series_under_two_signature_pairs_are_two_types(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Many series carry no letter and differ only by who signed them.
+
+    Once the identity index treated a missing letter as a match, it refused
+    the second of these as a duplicate: signatures were not part of what
+    identifies a type (code review, 2026-09-23). Seal colour is the same
+    case -- a wartime brown or yellow seal beside the regular blue.
+    """
+    base = {
+        "note_type": "silver_certificate",
+        "denomination": "usd_note_1",
+        "series_year": 1935,
+        "seal_color": "blue",
+    }
+    first = client.post(
+        "/api/friedberg",
+        json=base
+        | {"fr_number": "FR-TEST-G1", "signature_combination": "julian_morgenthau"},
+        headers=admin_headers,
+    )
+    other_signers = client.post(
+        "/api/friedberg",
+        json=base
+        | {"fr_number": "FR-TEST-G2", "signature_combination": "julian_vinson"},
+        headers=admin_headers,
+    )
+    other_seal = client.post(
+        "/api/friedberg",
+        json=base
+        | {
+            "fr_number": "FR-TEST-G3",
+            "signature_combination": "julian_morgenthau",
+            "seal_color": "brown",
+        },
+        headers=admin_headers,
+    )
+    again = client.post(
+        "/api/friedberg",
+        json=base
+        | {"fr_number": "FR-TEST-G4", "signature_combination": "julian_morgenthau"},
+        headers=admin_headers,
+    )
+    assert first.status_code == 201, first.text
+    assert other_signers.status_code == 201, other_signers.text
+    assert other_seal.status_code == 201, other_seal.text
+    assert again.status_code == 409, again.text
+
+
 def test_the_web_press_filter_narrows_like_every_other(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

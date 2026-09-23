@@ -153,7 +153,9 @@ describe('ItemFinder', () => {
   })
 
   it('finds an order recorded with no number', async () => {
-    renderWithProviders(<ItemFinder onPick={vi.fn()} orderId={8} initialOrderNumber="" />)
+    renderWithProviders(
+      <ItemFinder onPick={vi.fn()} orderId={8} initialOrderNumber="" />,
+    )
     await waitFor(() => expect(api.searchInventory).toHaveBeenCalledTimes(4))
     expect(calls().every(([, params]) => params.purchase_order_id === 8)).toBe(true)
   })
@@ -225,6 +227,22 @@ describe('ItemFinder', () => {
       pending.forEach((resolve) => resolve({ rows: [MORGAN], total: 1 }))
     })
     expect(screen.queryByText('CC-000412')).not.toBeInTheDocument()
+  })
+
+  it('asks for full pages, and says when more matched than came back', async () => {
+    // The endpoint's default of 50 rows cut a big order short silently
+    // (code review, 2026-09-23).
+    api.searchInventory.mockImplementation((view, params) =>
+      Promise.resolve(
+        view === 'coins' && params.status === 'ordered'
+          ? { rows: [MORGAN], total: 51 }
+          : { rows: [], total: 0 },
+      ),
+    )
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    await find(4)
+    expect(calls().every(([, params]) => params.limit === 200)).toBe(true)
+    expect(await screen.findByText(/50 more match than are shown/)).toBeInTheDocument()
   })
 
   it('explains the order number field when it has focus', async () => {

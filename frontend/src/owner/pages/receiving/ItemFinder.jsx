@@ -18,6 +18,11 @@ const KINDS = [
 //: turns up.
 const OUTSTANDING_STATUSES = ['ordered', 'missing']
 
+//: Rows asked for per request: the endpoint's maximum. The default of 50
+//: cut a large order short with nothing on screen to say so (code review,
+//: 2026-09-23); what is still beyond this is counted and reported.
+const PAGE = 200
+
 //: The status select's value for "no status filter at all" -- the whole of
 //: an order, received lines included, the way the old order view showed it.
 const ANY_STATUS = 'any'
@@ -66,11 +71,16 @@ async function runSearch({ kind, filters, orderId = null }) {
       if (filters.seriesYear) params.series_year = filters.seriesYear
     }
     for (const status of statuses) {
-      requests.push(api.searchInventory(view, status ? { ...params, status } : params))
+      const page = { ...params, limit: PAGE }
+      requests.push(api.searchInventory(view, status ? { ...page, status } : page))
     }
   }
   const bodies = await Promise.all(requests)
-  return bodies.flatMap((body) => body.rows)
+  return {
+    rows: bodies.flatMap((body) => body.rows),
+    // How many matched beyond what came back, summed over the requests.
+    more: bodies.reduce((n, body) => n + Math.max(0, body.total - body.rows.length), 0),
+  }
 }
 
 /**
@@ -83,7 +93,15 @@ async function runSearch({ kind, filters, orderId = null }) {
  */
 function searchInto(
   query,
-  { cancelRef, lastQueryRef, setResults, setSearchedStatus, setError, setBusy },
+  {
+    cancelRef,
+    lastQueryRef,
+    setResults,
+    setMore,
+    setSearchedStatus,
+    setError,
+    setBusy,
+  },
 ) {
   cancelRef.current?.()
   let cancelled = false
@@ -92,9 +110,10 @@ function searchInto(
   }
   lastQueryRef.current = query
   runSearch(query)
-    .then((rows) => {
+    .then(({ rows, more }) => {
       if (cancelled) return
       setResults(rows)
+      setMore(more)
       setSearchedStatus(query.filters.status)
       setError('')
     })
@@ -156,6 +175,8 @@ export default function ItemFinder({
     orderNumber: initialOrderNumber,
   })
   const [results, setResults] = useState(null)
+  //: How many matched beyond what is shown; 0 when the list is complete.
+  const [more, setMore] = useState(0)
   //: The status the displayed results were searched for, so the "nothing
   //: matches" message describes that search, not a status picked since.
   const [searchedStatus, setSearchedStatus] = useState('')
@@ -183,7 +204,15 @@ export default function ItemFinder({
     const linked = orderId != null && filters.orderNumber === initialOrderNumber
     searchInto(
       { kind, filters, orderId: linked ? orderId : null },
-      { cancelRef, lastQueryRef, setResults, setSearchedStatus, setError, setBusy },
+      {
+        cancelRef,
+        lastQueryRef,
+        setResults,
+        setMore,
+        setSearchedStatus,
+        setError,
+        setBusy,
+      },
     )
   }
 
@@ -211,6 +240,7 @@ export default function ItemFinder({
       cancelRef,
       lastQueryRef,
       setResults,
+      setMore,
       setSearchedStatus,
       setError,
       setBusy,
@@ -224,6 +254,7 @@ export default function ItemFinder({
       cancelRef,
       lastQueryRef,
       setResults,
+      setMore,
       setSearchedStatus,
       setError,
       setBusy,
@@ -337,6 +368,13 @@ export default function ItemFinder({
         </button>
 
         {error && <p className="error">{error}</p>}
+
+        {results && more > 0 && (
+          <p className="error">
+            {more} more match than are shown -- narrow the search (an order number, a
+            kind or a denomination) to see them.
+          </p>
+        )}
 
         {results && results.length === 0 && (
           <p className="muted">

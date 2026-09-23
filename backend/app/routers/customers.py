@@ -133,6 +133,13 @@ def update_customer(
         )
 
     fields = update.model_dump(exclude_unset=True)
+    # `display_name` is NOT NULL: an explicit null would reach the database
+    # and come back as a 500 rather than a refusal naming the field.
+    if "display_name" in fields and fields["display_name"] is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="display_name cannot be null",
+        )
     for name, value in fields.items():
         setattr(customer, name, value)
 

@@ -631,7 +631,9 @@ describe('a banknote in the editor', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledTimes(2))
     // The draft is spent: nothing left to save until something changes.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled(),
+    )
 
     await user.clear(screen.getByDisplayValue('A12345678B'))
     await user.type(screen.getByRole('textbox', { name: /serial number/i }), 'B1')

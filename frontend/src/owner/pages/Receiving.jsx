@@ -126,10 +126,7 @@ export default function Receiving() {
       )}
 
       {openLine && (
-        <ModalDialog
-          label={`Receive ${openLine.item_code}`}
-          onClose={closeReceipt}
-        >
+        <ModalDialog label={`Receive ${openLine.item_code}`} onClose={closeReceipt}>
           <h2>
             <span className="mono">{openLine.item_code}</span>{' '}
             {openLine.source_title || openLine.description}
