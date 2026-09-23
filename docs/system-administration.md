@@ -511,12 +511,15 @@ overwrites the first with values loaded before the change.
 **The item editor merges field by field.** Its save also sends `base` -- the
 value each changed field had when the edit began -- and the server then
 refuses only where someone else has changed one of *those* fields since
-(409 with `conflicts`: each field with what it was, theirs and yours). A
-change to any other field does not stop the save. While the form is open it
+(409 with `conflicts`: each field with what it was, theirs and yours, and
+who changed it when). A change to any other field does not stop the save.
+Every field an edit or bulk edit changes is logged in `item_field_change`
+with who and when, which is how a conflict names the other person. While the form is open it
 checks for changes made elsewhere every 15 seconds and whenever the window
 gets focus back: a field not being edited takes the new value, with a note
 saying so; a field being edited that was changed elsewhere is listed with
-both values, **Keep mine** or **Use theirs**, and Save waits for a choice.
+both values and who changed it when, **Keep mine** or **Use theirs**, and
+Save waits for a choice.
 Callers that send no `base` (scripts) keep the whole-item version check.
 
 ### Changing an item that is for sale

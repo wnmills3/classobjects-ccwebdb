@@ -84,14 +84,16 @@ def test_a_change_to_the_same_field_is_refused_naming_both_values(
     assert response.status_code == 409, response.text
     body = response.json()
     assert "description" in body["detail"]
-    assert body["conflicts"] == [
-        {
-            "field": "description",
-            "was": "as bought",
-            "theirs": "cleaned",
-            "yours": "original skin",
-        }
-    ]
+    [conflict] = body["conflicts"]
+    assert {key: conflict[key] for key in ("field", "was", "theirs", "yours")} == {
+        "field": "description",
+        "was": "as bought",
+        "theirs": "cleaned",
+        "yours": "original skin",
+    }
+    # Who made the other change comes from the change log
+    # (test_field_change_log.py covers it).
+    assert conflict["changed_by"] == "Test Admin"
     db.expire_all()
     stored = db.get(InventoryItem, item.id)
     assert stored is not None

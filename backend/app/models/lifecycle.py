@@ -12,6 +12,7 @@ actually arrive" survives a later correction to the status.
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
     Date,
@@ -23,12 +24,14 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, utcnow
 from .reference import StorageLocationKind
 
 __all__ = [
+    "ItemFieldChange",
     "ItemFieldReview",
     "ItemFieldSource",
     "ItemStatusHistory",
@@ -227,6 +230,51 @@ class ItemFieldReview(Base):
     __table_args__ = (
         UniqueConstraint(
             "inventory_item_id", "field_name", name="uq_item_field_review"
+        ),
+    )
+
+
+class ItemFieldChange(Base):
+    """One field of one item changed by a person's edit: who, when, from what.
+
+    Written by `PATCH /inventory/{id}` and the bulk edit, in the same
+    transaction as the change, one row per field whose value actually moved
+    (`app.field_changes.record`). It is what lets the item editor say *who*
+    changed a field it is warning about (owner's request, 2026-09-23), and it
+    is an edit history besides. Values are stored as the item editor sees
+    them -- codes for classifiers, strings for money -- in JSONB.
+
+    Not written by the machine passes (they mark their fields in
+    `ItemFieldSource`) or by status moves outside the editor (receiving has
+    `ItemStatusHistory`): a field changed that way has no row here, and a
+    warning about it says only that it changed.
+    """
+
+    __tablename__ = "item_field_change"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inventory_item_id: Mapped[int] = mapped_column(
+        ForeignKey(_FK_INVENTORY_ITEM, ondelete="CASCADE"), nullable=False
+    )
+    #: The field as the editor and the API name it: `description`,
+    #: `seal_color`, `attributes`.
+    field_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    old_value: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    new_value: Mapped[Any] = mapped_column(JSONB, nullable=True)
+    changed_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey(_FK_USERS, ondelete=_ON_DELETE_SET_NULL), nullable=True
+    )
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        # The editor asks for each field's latest change on one item.
+        Index(
+            "ix_item_field_change_item_field_at",
+            "inventory_item_id",
+            "field_name",
+            "changed_at",
         ),
     )
 

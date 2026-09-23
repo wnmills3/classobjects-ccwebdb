@@ -9,7 +9,7 @@ Staff-only throughout: everything here exposes cost basis.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
@@ -21,7 +21,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.sql.selectable import ScalarSelect
 
-from .. import grades, item_attributes, lot_writes, offering_writes, sale_state
+from .. import (
+    field_changes,
+    grades,
+    item_attributes,
+    lot_writes,
+    offering_writes,
+    sale_state,
+)
 from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
@@ -88,6 +95,7 @@ from ..references import code_to_id, require_code
 from ..schemas import (
     RECEIVE_OUTCOMES,
     BulkEditRequest,
+    FieldChangeOut,
     InventoryItemOut,
     InventoryItemUpdate,
     InventoryPageOut,
@@ -410,35 +418,59 @@ class FieldConflicts(Exception):
         self.conflicts = conflicts
 
 
-def _same_value(a: object, b: object) -> bool:
-    """Whether two field values say the same thing.
+def _field_values(db: Session, item: InventoryItem) -> dict[str, Any]:
+    """The item's fields as the editor holds them: `item_detail`, JSON-shaped.
 
-    Blank and null are the same; numbers compare as numbers, so a cost typed
-    "84" is not a change from a stored "84.00"; lists (attribute codes)
-    compare as sets.
+    Attributes as a list of codes, the form the editor sends them in. What the
+    field-by-field merge compares against, and what the change log records.
     """
-    if a in (None, "") and b in (None, ""):
-        return True
-    if isinstance(a, list) and isinstance(b, list):
-        return sorted(map(str, a)) == sorted(map(str, b))
-    if isinstance(a, bool) or isinstance(b, bool):
-        return a == b
-    try:
-        return Decimal(str(a)) == Decimal(str(b))
-    except (ArithmeticError, ValueError):
-        return a == b
+    values = item_detail(db, item).model_dump(mode="json")
+    values["attributes"] = [held["code"] for held in values.get("attributes", [])]
+    return values
+
+
+def _sent_values(
+    db: Session, item: InventoryItem, fields: Iterable[str]
+) -> dict[str, Any]:
+    """Just these fields of an item, in `_field_values`' terms, read directly.
+
+    For the bulk edit's change log: `_field_values` builds the editor's whole
+    view of an item (sale state, attributes, reviews...), which is several
+    queries per item, and a bulk edit has no limit on how many items it
+    touches. Only the fields a bulk edit can set are needed, so only those are
+    read.
+    """
+    detail = item.currency_detail
+    values: dict[str, Any] = {}
+    for field in fields:
+        if field in ITEM_CLASSIFIERS:
+            fk = getattr(item, f"{field}_id")
+            values[field] = _classifier_code(db, ITEM_CLASSIFIERS[field], fk)
+        elif field in NOTE_CLASSIFIERS:
+            fk = getattr(detail, f"{field}_id") if detail else None
+            values[field] = _classifier_code(db, NOTE_CLASSIFIERS[field], fk)
+        elif field in NOTE_SCALARS:
+            values[field] = plain(getattr(detail, field)) if detail else None
+        else:
+            values[field] = plain(getattr(item, field, None))
+    return values
 
 
 def _refuse_field_conflicts(
-    db: Session, item: InventoryItem, sent: dict[str, Any], base: dict[str, Any]
+    db: Session,
+    item: InventoryItem,
+    current: dict[str, Any],
+    sent: dict[str, Any],
+    base: dict[str, Any],
 ) -> None:
     """Refuse a save only where someone else changed a field it changes.
 
     `base` must hold every field sent: a field without one would be saved
     unchecked, the silent overwrite this exists to prevent (422). A field
-    conflicts when its stored value differs from where the edit began and
-    from the value being saved -- two people making the same change agree.
-    Compared against `item_detail`, the same shape the editor loaded.
+    conflicts when its stored value (`current`, from `_field_values`) differs
+    from where the edit began and from the value being saved -- two people
+    making the same change agree. Each conflict names who made the other
+    change and when, from the change log, where it knows.
     """
     unbased = sorted(field for field in sent if field not in base)
     if unbased:
@@ -446,18 +478,25 @@ def _refuse_field_conflicts(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"base must hold every field sent; missing: {', '.join(unbased)}",
         )
-    current = item_detail(db, item).model_dump(mode="json")
-    current["attributes"] = [held["code"] for held in current.get("attributes", [])]
+    clashing = [
+        field
+        for field, yours in sent.items()
+        if not field_changes.same_value(current.get(field), base[field])
+        and not field_changes.same_value(current.get(field), yours)
+    ]
+    if not clashing:
+        return
+    who = field_changes.latest(db, item.id)
     conflicts = [
         {
             "field": field,
             "was": base[field],
             "theirs": current.get(field),
-            "yours": yours,
+            "yours": sent[field],
+            "changed_by": who[field].by if field in who else None,
+            "changed_at": who[field].at.isoformat() if field in who else None,
         }
-        for field, yours in sent.items()
-        if not _same_value(current.get(field), base[field])
-        and not _same_value(current.get(field), yours)
+        for field in clashing
     ]
     if conflicts:
         names = ", ".join(conflict["field"] for conflict in conflicts)
@@ -1066,6 +1105,10 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
         lot_claims=claims,
         reviewed=_reviewed_fields(db, item.id),
         derived=derived_fields(db, item.id),
+        last_changes={
+            field: FieldChangeOut(by=change.by, at=change.at)
+            for field, change in field_changes.latest(db, item.id).items()
+        },
         attributes=[
             ItemAttributeOut(**vars(held))
             for held in item_attributes.held_attributes(db, item.id)
@@ -1523,6 +1566,9 @@ def bulk_edit(
             detail="attributes are set one item at a time. Nothing was changed.",
         )
     _refuse_null_scalars(data)
+    # The fields as sent, before `_split_grade` reshapes them: the change log
+    # records these, in the editor's own terms.
+    sent = list(data)
     _split_grade(data)
 
     items = db.scalars(
@@ -1535,6 +1581,7 @@ def bulk_edit(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No such item(s): {missing}. Nothing was changed.",
         )
+    before = {item.id: _sent_values(db, item, sent) for item in items}
     _refuse_coin_only_fields(data, list(items), db)
     _refuse_mismatched_denomination(data, list(items), db)
     if data and not acknowledged:
@@ -1622,6 +1669,18 @@ def bulk_edit(
     hold(db, found, _emptied(data))
     refresh_items(db, found)
 
+    # Who changed what, per item, in the same transaction -- see update_item
+    # (`refresh_items` above has flushed).
+    for item in items:
+        field_changes.record(
+            db,
+            item.id,
+            before[item.id],
+            _sent_values(db, item, sent),
+            sent,
+            user_id=admin.id,
+        )
+
     db.commit()
     return {"updated": len(items)}
 
@@ -1656,6 +1715,9 @@ def update_item(
     # What the caller sent, before `_split_grade` below reshapes it: the
     # field-by-field merge compares these, in the editor's own terms.
     sent = dict(data) if attributes is None else {**data, "attributes": attributes}
+    # The item as it stands, in those same terms: the merge compares against
+    # it, and the change log records it as each changed field's old value.
+    before = _field_values(db, item)
     _refuse_null_scalars(data)
     _refuse_coin_only_fields(data, [item], db)
     _refuse_mismatched_denomination(data, [item], db)
@@ -1674,7 +1736,7 @@ def update_item(
     # the finer check -- and the version column still guards the narrow
     # window between this read and the commit, below.
     if base is not None:
-        _refuse_field_conflicts(db, item, sent, base)
+        _refuse_field_conflicts(db, item, before, sent, base)
     elif expected is not None and expected != item.version:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1780,6 +1842,14 @@ def update_item(
         # Inside the try: the refresh flushes, and a version conflict found
         # there is the same 409 as one found at commit.
         refresh_items(db, [item.id])
+        # Who changed what, in the same transaction as the change: one row
+        # per sent field whose value actually moved. The "after" read sees
+        # this edit's own writes (attribute links included) under
+        # production's autoflush=False because `refresh_items` above has
+        # flushed -- measured: an extra flush here changed nothing.
+        field_changes.record(
+            db, item.id, before, _field_values(db, item), sent, user_id=admin.id
+        )
         db.commit()
     except StaleDataError as exc:
         # A narrower race than the check above: another commit landed inside

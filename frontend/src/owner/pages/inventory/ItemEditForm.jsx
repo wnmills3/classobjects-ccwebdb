@@ -32,6 +32,17 @@ const CHECK_EVERY_MS = 15000
 /** A field's name for the conflict list: its help title, else its key. */
 const fieldName = (key) => FIELD_HELP[key]?.title ?? key.replaceAll('_', ' ')
 
+/**
+ * Who made a field's latest change, and when, from the item's change log
+ * (`last_changes`) -- blank when the log has none, as for a change made by
+ * a pass or before the log existed.
+ */
+function changedBy(change) {
+  if (!change) return ''
+  const when = new Date(change.at).toLocaleString()
+  return `, changed by ${change.by ?? 'someone'} at ${when}`
+}
+
 /** A value as the conflict list shows it. */
 function shown(value) {
   if (value === null || value === undefined || value === '') return '(blank)'
@@ -621,8 +632,8 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             <ul>
               {conflicts.map((key) => (
                 <li key={key}>
-                  {fieldName(key)}: now {shown(fieldValue(item, key))}; yours{' '}
-                  {shown(draft[key])}.{' '}
+                  {fieldName(key)}: now {shown(fieldValue(item, key))}
+                  {changedBy(item.last_changes?.[key])}; yours {shown(draft[key])}.{' '}
                   <button
                     type="button"
                     onClick={() =>

@@ -59,6 +59,7 @@ from .images import (
     ShipmentImageKind,
 )
 from .lifecycle import (
+    ItemFieldChange,
     ItemFieldReview,
     ItemFieldSource,
     ItemStatusHistory,
@@ -223,6 +224,7 @@ __all__ = [
     "ItemAttributeLink",
     "ItemCertification",
     "ItemError",
+    "ItemFieldChange",
     "ItemFieldReview",
     "ItemFieldSource",
     "ItemImage",
