@@ -55,7 +55,14 @@ describe('CartProvider', () => {
     mount()
     act(() => cart.add(coin(1, '10.00', 5), 2))
     expect(screen.getByTestId('count')).toHaveTextContent('2')
-    expect(screen.getByTestId('total')).toHaveTextContent('20')
+    expect(screen.getByTestId('total')).toHaveTextContent('20.00')
+  })
+
+  it('totals in cents, never in floats', () => {
+    // Three at 19.99 is 59.97; summed as floats it is 59.970000000000006.
+    mount()
+    act(() => cart.add(coin(1, '19.99', 5), 3))
+    expect(screen.getByTestId('total')).toHaveTextContent(/^59\.97$/)
   })
 
   it('never adds more than the stock on hand', () => {

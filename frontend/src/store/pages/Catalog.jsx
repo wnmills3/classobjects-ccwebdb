@@ -132,7 +132,7 @@ export default function Catalog() {
                     many coins it is, because the price is a group's. */}
                   {summarise(coin)}
                 </p>
-                <p className="price">{money(coin.price)}</p>
+                <p className="price">{money(coin.price, coin.currency)}</p>
                 <p className="muted small">
                   {coin.quantity_available > 0
                     ? `${coin.quantity_available} available`

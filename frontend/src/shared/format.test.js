@@ -18,15 +18,28 @@ describe('money', () => {
     expect(money(undefined)).toBe('--')
   })
 
-  it('treats null and empty string as zero, not as absent', () => {
-    // Documenting real behaviour rather than the intuitive one: Number(null)
-    // and Number('') are both 0, which is finite, so these format as $0.00
-    // while undefined and a non-numeric string give '--'. Callers that can
-    // receive a null price must guard before calling, the way
-    // InventoryTable's cell() does; the other call sites rely on the API
-    // never sending one.
-    expect(money(null)).toBe('$0.00')
-    expect(money('')).toBe('$0.00')
+  it('treats null and empty string as absent, not as zero', () => {
+    // Changed 2026-09-22 (was $0.00, because Number(null) is 0). "Nothing
+    // recorded" and "free" are different facts, the distinction the console
+    // keeps everywhere else, so an absent amount renders as absent.
+    expect(money(null)).toBe('--')
+    expect(money('')).toBe('--')
+  })
+
+  it('formats a decimal string exactly, never through a float', () => {
+    // 0.1 + 0.2 territory: a string with more precision than a double holds
+    // must not come out rounded to a different cent.
+    expect(money('9007199254740993.10')).toBe('$9,007,199,254,740,993.10')
+  })
+
+  it('formats in the currency it is given', () => {
+    expect(money('12.5', 'EUR')).toBe('€12.50')
+    expect(money('12.5', 'CAD')).toBe('CA$12.50')
+  })
+
+  it('falls back to US dollars when no currency is known', () => {
+    expect(money('12.5', undefined)).toBe('$12.50')
+    expect(money('12.5', null)).toBe('$12.50')
   })
 })
 
