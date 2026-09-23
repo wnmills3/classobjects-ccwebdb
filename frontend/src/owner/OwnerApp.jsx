@@ -51,9 +51,18 @@ function Console() {
           <NavLink to="/purchases/new">New purchase</NavLink>
           <NavLink to="/orders">Orders</NavLink>
           <NavLink to="/people">People</NavLink>
-          <NavLink to="/listings">Listings</NavLink>
-          <NavLink to="/lots">Lots</NavLink>
-          <NavLink to="/auctions">Auctions</NavLink>
+          {/* The spec's Selling group (selling-design.md, *Console*): the
+              three pages that put things on sale, together. A labelled
+              group rather than a submenu -- nothing to open, and a screen
+              reader announces the grouping. */}
+          <span className="nav-group" role="group" aria-label="Selling">
+            <span className="nav-group-label" aria-hidden="true">
+              Selling
+            </span>
+            <NavLink to="/listings">Listings</NavLink>
+            <NavLink to="/lots">Lots</NavLink>
+            <NavLink to="/auctions">Auctions</NavLink>
+          </span>
           <NavLink to="/platforms">Platforms</NavLink>
           <NavLink to="/vocabularies">Vocabularies</NavLink>
         </nav>

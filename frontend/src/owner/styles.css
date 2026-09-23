@@ -486,3 +486,20 @@ button.link.danger {
   flex-wrap: wrap;
   gap: 0.5rem;
 }
+
+/* The nav's Selling group: Listings, Lots and Auctions, set apart. */
+.nav-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.nav-group-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
