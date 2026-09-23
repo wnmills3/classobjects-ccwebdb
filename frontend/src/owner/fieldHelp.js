@@ -11,6 +11,33 @@
  * CLAUDE.md's reference-data rule.
  */
 export const FIELD_HELP = {
+  order_number: {
+    title: 'Order number',
+    text:
+      "The seller's order or invoice number, from the receipt, email or packing " +
+      'slip. Part of it is enough: "4452" finds order 114-4452-X, upper or lower ' +
+      'case alike.',
+  },
+  status: {
+    title: 'Status',
+    text:
+      'Where the item is: ordered (bought, not yet arrived), received, missing ' +
+      '(written off as lost in the post), and so on. "Not yet arrived" means ' +
+      'ordered or missing -- a missing parcel sometimes turns up. "Any status" ' +
+      'shows everything, which is how to see a whole order including what ' +
+      'already came.',
+  },
+  year: {
+    title: 'Year',
+    text: 'The date struck on the coin.',
+  },
+  mint: {
+    title: 'Mint',
+    text:
+      'The mint mark on the coin: P Philadelphia, D Denver, S San Francisco, ' +
+      'O New Orleans, CC Carson City, W West Point. Most older Philadelphia ' +
+      'coins carry no mark.',
+  },
   denomination: {
     title: 'Denomination',
     text: 'The face value printed on the note or coin -- $1, $5, a half dollar.',
