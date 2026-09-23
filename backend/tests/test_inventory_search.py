@@ -167,7 +167,9 @@ def test_a_purchase_order_id_finds_exactly_that_order(
     2026-09-23): "1001" also matched "11001" and another vendor's "1001", and
     an order recorded with no number could not be searched for at all.
     """
-    wanted = _order(db, number="1001", vendor_name="ebay.com", ordered_on=date(2025, 4, 1))
+    wanted = _order(
+        db, number="1001", vendor_name="ebay.com", ordered_on=date(2025, 4, 1)
+    )
     lookalike = _order(
         db, number="11001", vendor_name="apmex.com", ordered_on=date(2025, 4, 2)
     )
@@ -180,7 +182,9 @@ def test_a_purchase_order_id_finds_exactly_that_order(
 
     body = search(client, "coins", admin_headers, purchase_order_id=wanted.id).json()
     assert {r["id"] for r in body["rows"]} == {mine.id}
-    body = search(client, "coins", admin_headers, purchase_order_id=unnumbered.id).json()
+    body = search(
+        client, "coins", admin_headers, purchase_order_id=unnumbered.id
+    ).json()
     assert {r["id"] for r in body["rows"]} == {loose.id}
 
 

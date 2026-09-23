@@ -229,7 +229,9 @@ describe('receiving one line at a time', () => {
     // The receipt was recorded, so closing must search again: the item is
     // no longer "not yet arrived" (code review, 2026-09-23).
     const before = api.searchInventory.mock.calls.length
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }),
+    )
     await waitFor(() =>
       expect(api.searchInventory.mock.calls.length).toBeGreaterThan(before),
     )
