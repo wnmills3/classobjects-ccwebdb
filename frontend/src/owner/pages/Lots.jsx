@@ -195,6 +195,8 @@ function DiscardConfirm({ lot, busy, onConfirm, onCancel }) {
 /** The Lots page: what is being assembled, and what has already gone out. */
 export default function Lots() {
   const [lots, setLots] = useState(null)
+  // How many lots exist in all: the list is the newest page of them.
+  const [total, setTotal] = useState(0)
   // A load failed. Kept apart from `refusal` below, which is a *write* the
   // API turned down: returning the error instead of the page unmounted
   // everything the operator needed in order to react to it (872e219).
@@ -219,6 +221,7 @@ export default function Lots() {
       .then((page) => {
         if (cancelled) return
         setLots(page?.lots ?? [])
+        setTotal(page?.total ?? 0)
         setError('')
       })
       .catch((err) => !cancelled && setError(err.message))
@@ -358,6 +361,11 @@ export default function Lots() {
       </div>
 
       {lots === null && !error && <p className="muted">Loading...</p>}
+      {lots !== null && total > lots.length && (
+        <p className="muted">
+          Showing the newest {lots.length} of {total} lots.
+        </p>
+      )}
 
       <h2>Assembling</h2>
       {lots !== null && assembling.length === 0 && (

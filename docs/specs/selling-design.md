@@ -773,12 +773,9 @@ Small, deliberate, and recorded so they read as choices.
   has taken the listing locks). Harmless for the two- or three-coin lots this
   is built for; a very large lot would hold those locks for hundreds of round
   trips while it builds the snapshot.
-- **`GET /api/sales-lots` has no pagination and eager-loads every member of
-  every lot.** `routers/lots.list_sales_lots` defaults to `status=all` and
-  returns the whole table, each lot with its items. Fine at today's numbers
-  and for the console's Lots page, whose useful default is "everything" --
-  but the history list only ever grows, and `SalesLotListOut` is an object
-  rather than a bare list precisely "so a page count can be added".
+- **Closed 2026-09-22:** `GET /api/sales-lots` is paged (`limit`, default
+  200 and at most 500; `offset`) and reports `total`. The Lots page shows
+  the newest page and says so when there are more.
 
 Added with phase 4:
 

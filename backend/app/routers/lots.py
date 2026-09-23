@@ -24,7 +24,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -151,13 +151,23 @@ def list_sales_lots(
     wanted_status: Annotated[
         str | None, Query(alias="status", description="One status, or `all`")
     ] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> SalesLotListOut:
-    """Every lot, newest first. `status=assembling` for the ones still open."""
+    """Lots, newest first, a page at a time. `status=assembling` for open ones.
+
+    Paged because the history only grows: every lot ever offered stays, and
+    each comes back with its members. `total` is how many the filter
+    matched, so the console can say when it is not showing all of them.
+    """
     stmt = select(SalesLot)
     if wanted_status is not None and wanted_status != _ALL:
         stmt = stmt.where(SalesLot.status == _lot_status(wanted_status))
-    rows = db.scalars(_eager(stmt).order_by(SalesLot.id.desc())).all()
-    return SalesLotListOut(lots=[_out(row) for row in rows])
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    rows = db.scalars(
+        _eager(stmt).order_by(SalesLot.id.desc()).limit(limit).offset(offset)
+    ).all()
+    return SalesLotListOut(lots=[_out(row) for row in rows], total=total)
 
 
 @router.get("/{lot_id}")
