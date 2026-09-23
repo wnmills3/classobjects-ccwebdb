@@ -748,16 +748,10 @@ Small, deliberate, and recorded so they read as choices.
   spec's cost-weighted default. Choosing an equal division of a lot's money
   is not reachable from the console today; it has not been asked for, and
   adding the control would put a question in front of every outside sale.
-- **The Orders page's greyed-out cancel does not match the server's rule
-  exactly.** `routers/orders._no_stock_to_return` refuses a cancel when the
-  order is unshipped *and* either its platform is not the store or one of its
-  listings has ended. `Orders.jsx` greys the option out on "not the store and
-  not shipped", which is now right for every outside order -- but a **store
-  order that bought a lot** is still offered the choice and then refused,
-  showing the 409 as an error on the page. Closing that half honestly needs
-  `OrderOut` to carry whether a line's listing has ended, which is a schema
-  change; the 409 is clear and lands on the page, so it waits. The server is
-  right in both directions; only the hint is approximate.
+- **Closed 2026-09-22:** the Orders page's greyed-out cancel now matches the
+  server's rule exactly. Each order line carries `listing_ended`, so a
+  **store** order that bought a lot is no longer offered Cancel and then
+  refused.
 - **`revise_order` cannot correct an outside sale's quantity downward.**
   Shrinking or removing a line whose listing has **ended** is refused
   (`order_writes.revise_order`), and `record_sale` ends the listing when it

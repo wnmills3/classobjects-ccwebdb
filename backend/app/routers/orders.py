@@ -142,6 +142,8 @@ def _order_out(order: SalesOrder, status_code: str, *, for_admin: bool) -> Order
                 "quantity": line.quantity,
                 "unit_price": line.unit_price,
                 "snapshot": line.item_snapshot if for_admin else None,
+                "listing_ended": line.listing is not None
+                and line.listing.status is ListingStatus.ended,
             }
             for line in order.items
         ],

@@ -169,6 +169,33 @@ describe('owner Orders', () => {
     expect(cancelled).toBeDisabled()
   })
 
+  it('does not offer cancel for a shop order whose listing has ended', async () => {
+    // A lot bought in the shop ends its listing at checkout; the server
+    // refuses the cancellation for the same reason as an outside sale.
+    api.listOrders.mockResolvedValue([
+      {
+        ...ORDERS[0],
+        items: ORDERS[0].items.map((line) => ({ ...line, listing_ended: true })),
+      },
+    ])
+    renderWithProviders(<Orders />, {
+      auth: adminAuth(),
+      route: '/orders',
+      strict: true,
+    })
+    await screen.findByText('Ada Lovelace')
+    const select = within(rowFor(12)).getByRole('combobox')
+    const cancelled = within(select).getByRole('option', { name: /cancelled/i })
+    expect(cancelled).toBeDisabled()
+    expect(cancelled).toHaveAttribute('title', expect.stringMatching(/listing has ended/))
+  })
+
+  it('still offers cancel for an ordinary shop order', async () => {
+    await renderPage()
+    const select = within(rowFor(12)).getByRole('combobox')
+    expect(within(select).getByRole('option', { name: /cancelled/i })).toBeEnabled()
+  })
+
   it('does offer cancel for an outside sale that has already shipped', async () => {
     // The refusal the test above covers is the server's, and the server only
     // refuses a cancellation that would really return stock. A shipped order

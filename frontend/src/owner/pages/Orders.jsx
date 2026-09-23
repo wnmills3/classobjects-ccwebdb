@@ -182,27 +182,33 @@ export default function Orders() {
                       // the refund workflow the server deliberately opened
                       // unreachable from the console.
                       //
-                      // The other disagreement is left alone on purpose: a
-                      // *store* order that bought a lot is offered cancel
-                      // and then refused with a 409, because telling that
-                      // case apart needs `OrderOut` to carry whether a
-                      // line's listing has ended. It is written up in the
-                      // spec's *Known limits*, and the 409 is clear and
-                      // lands on this page.
+                      // And a *store* order whose listing has ended -- a lot
+                      // bought in the shop ends its listing at checkout --
+                      // is refused for the same reason: there is no listing
+                      // left to put the stock back on. Each line says so
+                      // (`listing_ended`), so the rule here is the server's
+                      // own, not an approximation of it.
+                      const unshipped = !SHIPPED_STATUSES.includes(order.status)
                       const outsideSale =
+                        s === 'cancelled' && order.sales_venue_code !== 'store' && unshipped
+                      const endedListing =
                         s === 'cancelled' &&
-                        order.sales_venue_code !== 'store' &&
-                        !SHIPPED_STATUSES.includes(order.status)
+                        !outsideSale &&
+                        unshipped &&
+                        order.items.some((line) => line.listing_ended)
                       return (
                         <option
                           key={s}
                           value={s}
-                          disabled={outsideSale}
+                          disabled={outsideSale || endedListing}
                           title={
                             outsideSale
                               ? `Sold on ${order.sales_venue_name}, whose listing ` +
                                 'ended with the sale -- there is no stock to return'
-                              : undefined
+                              : endedListing
+                                ? 'Its listing has ended (a lot ends when it is ' +
+                                  'bought) -- there is no stock to return'
+                                : undefined
                           }
                         >
                           {s}
