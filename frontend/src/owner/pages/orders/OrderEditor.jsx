@@ -276,7 +276,8 @@ export default function OrderEditor({ order, onSaved, onClose }) {
           <span>
             {listing.title}{' '}
             <span className="muted">
-              {money(listing.price, listing.currency)}, {listing.quantity_available} available
+              {money(listing.price, listing.currency)}, {listing.quantity_available}{' '}
+              available
             </span>
           </span>
           <button

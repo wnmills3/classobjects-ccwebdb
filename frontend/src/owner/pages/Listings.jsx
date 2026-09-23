@@ -369,6 +369,7 @@ export default function Listings() {
             <th>Platform</th>
             <th>Item or lot</th>
             <th>Title</th>
+            <th>Format</th>
             <th>Price</th>
             <th>Cost</th>
             <th>Margin</th>
@@ -389,6 +390,7 @@ export default function Listings() {
                     for every one of them. */}
                 <td>{subjectOf(l)}</td>
                 <td>{l.title}</td>
+                <td>{labelFor(FORMATS, l.format)}</td>
                 <td>
                   {l.price} {l.currency}
                 </td>

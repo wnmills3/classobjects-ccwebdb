@@ -551,6 +551,34 @@ def _refuse_null_required(data: dict[str, Any]) -> None:
         )
 
 
+#: What may still change on an offer that has ended: the platform's own
+#: listing number, which is often only looked up afterwards -- the eBay item
+#: number of something that already sold. Everything else is the record.
+_EDITABLE_AFTER_ENDING = frozenset({"external_id"})
+
+
+def _refuse_rewriting_an_ended_offer(listing: Listing, data: dict[str, Any]) -> None:
+    """409 if an edit would change the terms of an offer that has ended.
+
+    An ended listing's price, title and description are what it was offered
+    at and as -- part of the record a sale, or a settlement, reconciles
+    against. The console already hid the edit for an ended row; the API
+    took it anyway, so a stale tab or a script could rewrite history.
+    """
+    if listing.status is not ListingStatus.ended:
+        return
+    frozen = sorted(set(data) - _EDITABLE_AFTER_ENDING)
+    if frozen:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"listing #{listing.id} has ended, so its {', '.join(frozen)} "
+                "cannot change: they are part of the record. Only its listing "
+                "number can still be set."
+            ),
+        )
+
+
 @router.patch("/listings/{listing_id}")
 def update_listing(
     listing_id: int, payload: ListingUpdate, db: DbSession, _admin: AdminUser
@@ -571,6 +599,7 @@ def update_listing(
     if expected is not None and expected != listing.version:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
     _refuse_null_required(data)
+    _refuse_rewriting_an_ended_offer(listing, data)
 
     for field, value in data.items():
         setattr(listing, field, value)
