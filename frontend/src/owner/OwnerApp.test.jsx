@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 // Only the one call the unattached-photographs page makes on mount. Every
@@ -54,6 +54,13 @@ describe('owner console shell', () => {
     expect(screen.getByRole('link', { name: /listings/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /platforms/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /vocabularies/i })).toBeInTheDocument()
+    // The spec's Selling group holds exactly the three selling pages.
+    const selling = screen.getByRole('group', { name: 'Selling' })
+    expect(
+      within(selling)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['Listings', 'Lots', 'Auctions'])
   })
 
   it('routes /photos to the unattached-photographs page', async () => {
