@@ -158,6 +158,32 @@ def test_part_of_an_order_number_finds_that_order_s_items(
         assert {r["id"] for r in body["rows"]} == {mine.id}, fragment
 
 
+def test_a_purchase_order_id_finds_exactly_that_order(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A link naming one order must show that order and no other.
+
+    Matching its number instead was wrong twice over (code review,
+    2026-09-23): "1001" also matched "11001" and another vendor's "1001", and
+    an order recorded with no number could not be searched for at all.
+    """
+    wanted = _order(db, number="1001", vendor_name="ebay.com", ordered_on=date(2025, 4, 1))
+    lookalike = _order(
+        db, number="11001", vendor_name="apmex.com", ordered_on=date(2025, 4, 2)
+    )
+    unnumbered = PurchaseOrder(vendor_id=wanted.vendor_id, ordered_on=date(2025, 4, 3))
+    db.add(unnumbered)
+    db.commit()
+    mine = coin(db, purchase_order_id=wanted.id)
+    coin(db, purchase_order_id=lookalike.id)
+    loose = coin(db, purchase_order_id=unnumbered.id)
+
+    body = search(client, "coins", admin_headers, purchase_order_id=wanted.id).json()
+    assert {r["id"] for r in body["rows"]} == {mine.id}
+    body = search(client, "coins", admin_headers, purchase_order_id=unnumbered.id).json()
+    assert {r["id"] for r in body["rows"]} == {loose.id}
+
+
 def test_an_order_number_finds_notes_too(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

@@ -479,12 +479,29 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       if (forSale && acknowledged) payload.acknowledge_for_sale = true
       await api.updateInventoryItem(itemId, payload)
       setError('')
-      onSaved?.()
     } catch (err) {
       setError(err.message)
+      setSaving(false)
+      return
+    }
+    // Read the item back: the saved values, and the version the save made.
+    // A form that stays open after a save -- the last item of a review, or
+    // Receiving's one-item review -- otherwise kept the old version and the
+    // spent draft, and its next save was refused as a conflict with itself
+    // (code review, 2026-09-23).
+    try {
+      const fresh = await api.getInventoryItem(itemId)
+      setItem(fresh)
+      setReviewed(fresh.reviewed ?? [])
+      setRanged(isRange(fresh.year_start, fresh.year_end))
+      setDraft({})
+      setAcknowledged(false)
+    } catch (err) {
+      setError(`Saved, but could not read it back: ${err.message}`)
     } finally {
       setSaving(false)
     }
+    onSaved?.()
   }
 
   return (

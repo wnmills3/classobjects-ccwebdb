@@ -280,15 +280,25 @@ export default function NewPurchase() {
     }
   }
 
+  // Guarded by the same token a pick takes: a reload landing after "Start
+  // another purchase", another pick, or a later reload must not put an old
+  // answer back on screen (code review, 2026-09-23).
   function reloadPurchase() {
     if (!purchase) return
+    const token = ++pickToken.current
     api
       .getPurchaseOrder(purchase.id)
-      .then(setPurchase)
-      .catch((err) => setReloadError(err.message))
+      .then((body) => {
+        if (pickToken.current === token) setPurchase(body)
+      })
+      .catch((err) => {
+        if (pickToken.current === token) setReloadError(err.message)
+      })
   }
 
   function startAnother() {
+    // Any reload still in flight is for the purchase being left.
+    pickToken.current += 1
     setPurchase(null)
     setPurchaseError('')
     setForm(BLANK_PURCHASE)

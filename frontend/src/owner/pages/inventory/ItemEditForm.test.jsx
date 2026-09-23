@@ -614,6 +614,33 @@ describe('a banknote in the editor', () => {
     )
   })
 
+  it('can save twice in a row: it reads the item back, new version and all', async () => {
+    // A form that stays open after saving -- the last item of a review, or
+    // Receiving's one-item review -- sent its old version the second time
+    // and was refused as a conflict with itself (code review, 2026-09-23).
+    api.getInventoryItem
+      .mockResolvedValueOnce({ ...note, version: 3 })
+      .mockResolvedValue({ ...note, version: 4, seal_color: 'red' })
+    api.updateInventoryItem.mockResolvedValue({})
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('A12345678B')
+
+    await user.clear(screen.getByLabelText('seal_color'))
+    await user.type(screen.getByLabelText('seal_color'), 'red')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(api.getInventoryItem).toHaveBeenCalledTimes(2))
+    // The draft is spent: nothing left to save until something changes.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled())
+
+    await user.clear(screen.getByDisplayValue('A12345678B'))
+    await user.type(screen.getByRole('textbox', { name: /serial number/i }), 'B1')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalledTimes(2))
+    expect(api.updateInventoryItem.mock.calls[0][1].version).toBe(3)
+    expect(api.updateInventoryItem.mock.calls[1][1].version).toBe(4)
+  })
+
   it('keeps the note fields off a coin', async () => {
     api.getInventoryItem.mockResolvedValue({ ...item, item_kind: 'coin' })
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)

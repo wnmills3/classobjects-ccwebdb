@@ -409,6 +409,10 @@ export default function FriedbergLookup({
         fr_number: number,
         ...currentFilters(),
       })
+      // Recorded now, whatever happens to the attach: listed as a match, so
+      // a retry after a failed attach only attaches, instead of recording it
+      // again and being refused as a duplicate (code review, 2026-09-23).
+      setResults((rows) => [...(rows ?? []), created])
       const attached = await attach(created.id, status)
       if (attached) {
         setRecordFrNumber('')
