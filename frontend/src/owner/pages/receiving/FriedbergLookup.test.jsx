@@ -12,7 +12,8 @@ vi.mock('../../api', () => ({
 }))
 
 import { api } from '../../api'
-import FriedbergLookup, { webSearchText } from './FriedbergLookup'
+import FriedbergLookup from './FriedbergLookup'
+import { webSearchText } from './webSearchText'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 
 // Obviously synthetic, per CLAUDE.md's ban on shipping a publisher's

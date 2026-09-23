@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import (
     BaseModel,
@@ -725,6 +726,13 @@ class InventoryItemUpdate(BaseModel):
     #: 409 rather than a silent overwrite; omit it to mean "set this
     #: regardless", which a script may legitimately want.
     version: int | None = None
+    #: The value each field being changed had when the edit began, as
+    #: `GET /inventory/{id}` returned it, keyed like the fields sent. With it
+    #: a save is merged field by field: a change made elsewhere since then
+    #: stops it only if it touched one of these fields (409 naming each, with
+    #: both values), and `version` is not compared. Without it, `version`
+    #: guards the whole item as before.
+    base: dict[str, Any] | None = None
 
     source_title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None

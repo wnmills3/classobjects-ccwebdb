@@ -508,6 +508,17 @@ with 409 if somebody changed the row first. PostgreSQL's MVCC does not give
 this: without it, the second of two people saving the same item silently
 overwrites the first with values loaded before the change.
 
+**The item editor merges field by field.** Its save also sends `base` -- the
+value each changed field had when the edit began -- and the server then
+refuses only where someone else has changed one of *those* fields since
+(409 with `conflicts`: each field with what it was, theirs and yours). A
+change to any other field does not stop the save. While the form is open it
+checks for changes made elsewhere every 15 seconds and whenever the window
+gets focus back: a field not being edited takes the new value, with a note
+saying so; a field being edited that was changed elsewhere is listed with
+both values, **Keep mine** or **Use theirs**, and Save waits for a choice.
+Callers that send no `base` (scripts) keep the whole-item version check.
+
 ### Changing an item that is for sale
 
 An item is *for sale* while an active listing with stock offers it, or an
@@ -517,6 +528,13 @@ says so at the top, naming the listing or order, and Save stays disabled until
 carries `acknowledge_for_sale`; bulk edit refuses the whole selection, naming
 the items, and then offers **Change the items for sale too**. Saving nothing
 needs no confirmation. Once an order ships, the item is ordinary again.
+
+**A new status or disposition takes an offered item off sale.** The editor
+warns before the change is confirmed ("saving ends its offer") and the box
+reads **Change the status and end the offer**; the save then ends every offer
+holding the item, as receiving an item `missing` does. The bulk edit does the
+same for each selected item whose status or disposition changes. An item in
+an auction lot is refused: take the lot out of the auction first.
 
 The same 409-unless-acknowledged rule guards: a receipt whose outcome is not
 `received`; splitting a listed lot (an item already in an order refuses

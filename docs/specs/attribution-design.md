@@ -18,10 +18,16 @@ requirements the design meets:
 ## Editing any item
 
 `PATCH /api/inventory/{id}` edits an item regardless of its sale state.
-Classifiers cross the API as codes; an unknown code is a 422 naming the field;
-the edit is optimistic against `version`, and a conflict is a 409 carrying the
-current state. The inventory API speaks the item's own column names
-(`source_title`, `item_cost`).
+Classifiers cross the API as codes; an unknown code is a 422 naming the field.
+The edit is optimistic: with `base` (each changed field's value where the edit
+began) it is merged field by field and refused only where someone else changed
+one of those fields since -- a 409 whose `conflicts` name each field with
+`was`, `theirs` and `yours`; without `base`, a stale `version` is a 409. The
+editor sends `base`, checks for changes made elsewhere while it is open, and
+shows conflicts for a choice (`owner/pages/inventory/fieldMerge.js`). The
+inventory API speaks the item's own column names (`source_title`,
+`item_cost`). A new status or disposition on an offered item, acknowledged,
+ends its offers (see `for-sale-guards-design.md`).
 
 `POST /api/inventory/bulk` sets the same fields across selected ids in one
 transaction, all or nothing: every id is resolved and every code checked before
