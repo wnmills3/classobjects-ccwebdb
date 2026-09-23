@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../../api'
 import { ReferenceSelect } from '../../../shared/reference'
+import { useReference } from '../../../shared/reference-context'
 
 //: A matched row's classifiers, rendered as one readable line -- only the
 //: attributes the row actually knows are shown, since a half-known row (see
@@ -24,6 +25,41 @@ function describeMatch(row) {
 //: Blank is "not known" and filters nothing -- a note without the Web Press
 //: attribute is not thereby known to be sheet-fed.
 const PRESS = { yes: true, no: false }
+
+/**
+ * What to type into a web search to find this note's Friedberg number.
+ *
+ * Built from the form as it stands, in the words a dealer's listing uses:
+ * "Series 1963-A $1 Federal Reserve Note New York Granahan Fowler
+ * Friedberg". `labels` maps a field's code to its vocabulary label; a code
+ * with no label yet (the vocabulary still loading) is used as it is.
+ *
+ * The owner reads the result and types the number in. Nothing here fetches
+ * or stores what a search finds -- a machine collecting Friedberg numbers
+ * is the harvesting CLAUDE.md's reference-data rule forbids.
+ */
+export function webSearchText(fields, labels = {}) {
+  const label = (table, code) => (code ? (labels[table]?.[code] ?? code) : '')
+  const series = fields.seriesYear
+    ? `Series ${fields.seriesYear}${fields.seriesLetter ? `-${fields.seriesLetter}` : ''}`
+    : ''
+  const parts = [
+    series,
+    label('denomination', fields.denomination).replace(/ Bill$/, ''),
+    label('note_type', fields.noteType),
+    // "B - New York" -> "New York": the city is what listings say.
+    label('fed_district', fields.district).replace(/^[A-L] - /, ''),
+    label('signature_combination', fields.signatureCombination).replace(' / ', ' '),
+    fields.press === 'yes' ? 'web press' : '',
+    'Friedberg',
+  ]
+  return parts.filter(Boolean).join(' ')
+}
+
+/** A vocabulary's values as a code -> label map; empty while it loads. */
+function labelsOf(values) {
+  return Object.fromEntries((values ?? []).map((entry) => [entry.code, entry.label]))
+}
 
 /**
  * The search fields as the note already records them, so the owner starts
@@ -144,6 +180,37 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
       cancelled = true
     }
   }, [denomination, noteType, sealColor, seriesYear, seriesLetter])
+
+  const denominations = useReference('denomination')
+  const noteTypes = useReference('note_type')
+  const districts = useReference('fed_district')
+  const searchText = webSearchText(
+    {
+      denomination,
+      noteType,
+      seriesYear,
+      seriesLetter,
+      signatureCombination,
+      district,
+      press,
+    },
+    {
+      denomination: labelsOf(denominations),
+      note_type: labelsOf(noteTypes),
+      fed_district: labelsOf(districts),
+      signature_combination: labelsOf([...allSignatures, ...signatureOptions]),
+    },
+  )
+  const [copyMessage, setCopyMessage] = useState('')
+
+  async function copySearchText() {
+    try {
+      await navigator.clipboard.writeText(searchText)
+      setCopyMessage('Copied.')
+    } catch {
+      setCopyMessage('Could not copy -- select the text and copy it by hand.')
+    }
+  }
 
   const signatureListed = signatureOptions.some(
     (entry) => entry.code === signatureCombination,
@@ -346,6 +413,30 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
           </button>
         )}
       </div>
+
+      {/* Not in the catalogue yet? Search the web by hand. The owner reads
+          what comes back and types the number below -- nothing is fetched
+          or saved from the search itself (see `webSearchText`). */}
+      <div className="row web-search">
+        <input
+          type="text"
+          readOnly
+          aria-label="Web search text"
+          value={searchText}
+          onFocus={(e) => e.target.select()}
+        />
+        <button type="button" onClick={copySearchText}>
+          Copy
+        </button>
+        <a
+          href={`https://www.google.com/search?q=${encodeURIComponent(searchText)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Search the web
+        </a>
+      </div>
+      {copyMessage && <p className="muted">{copyMessage}</p>}
 
       {searchError && <p className="error">{searchError}</p>}
 

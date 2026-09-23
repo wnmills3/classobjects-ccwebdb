@@ -12,8 +12,8 @@ vi.mock('../../api', () => ({
 }))
 
 import { api } from '../../api'
-import FriedbergLookup from './FriedbergLookup'
-import { renderWithProviders } from '../../../test/helpers'
+import FriedbergLookup, { webSearchText } from './FriedbergLookup'
+import { emptyReference, renderWithProviders } from '../../../test/helpers'
 
 // Obviously synthetic, per CLAUDE.md's ban on shipping a publisher's
 // Friedberg arrangement -- these codes and numbers are not real catalogue
@@ -286,6 +286,59 @@ describe('FriedbergLookup', () => {
     )
   })
 
+  it('offers a web search built from the note, to copy or open', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    const reference = emptyReference({
+      tables: {
+        denomination: [{ code: 'usd_note_1', label: '$1 Bill' }],
+        note_type: [{ code: 'frn', label: 'Federal Reserve Note' }],
+        fed_district: [{ code: 'B', label: 'B - New York' }],
+      },
+    })
+    const item = {
+      id: 412,
+      denomination: 'usd_note_1',
+      note_type: 'frn',
+      series_year: 1963,
+      series_letter: 'A',
+      signature_combination: 'FR-TEST-SIG-A',
+      fed_district: 'B',
+      attributes: [],
+    }
+    renderWithProviders(<FriedbergLookup itemId={412} item={item} />, { reference })
+
+    const expected =
+      'Series 1963-A $1 Federal Reserve Note New York Test Treasurer A Test Secretary A Friedberg'
+    const text = screen.getByLabelText(/web search text/i)
+    await waitFor(() => expect(text).toHaveValue(expected))
+    expect(screen.getByRole('link', { name: /search the web/i })).toHaveAttribute(
+      'href',
+      `https://www.google.com/search?q=${encodeURIComponent(expected)}`,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
+    expect(writeText).toHaveBeenCalledWith(expected)
+    expect(await screen.findByText('Copied.')).toBeInTheDocument()
+    // Searching the web writes nothing: no lookup, record or attach.
+    expect(api.createFriedbergNumber).not.toHaveBeenCalled()
+    expect(api.attachFriedberg).not.toHaveBeenCalled()
+  })
+
+  it('says so when the clipboard refuses, rather than claiming a copy', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+      configurable: true,
+    })
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
+    expect(await screen.findByText(/could not copy/i)).toBeInTheDocument()
+    expect(screen.queryByText('Copied.')).not.toBeInTheDocument()
+  })
+
   it('does not read a missing Web Press attribute as sheet-fed', async () => {
     renderWithProviders(
       <FriedbergLookup itemId={412} item={{ id: 412, attributes: [] }} />,
@@ -344,5 +397,42 @@ describe('FriedbergLookup', () => {
     await waitFor(() => expect(api.searchFriedberg).toHaveBeenCalledTimes(2))
     expect(screen.queryByText('FR-TEST-1')).not.toBeInTheDocument()
     expect(screen.getByText('FR-TEST-2')).toBeInTheDocument()
+  })
+})
+
+describe('webSearchText', () => {
+  const labels = {
+    denomination: { usd_note_1: '$1 Bill' },
+    note_type: { frn: 'Federal Reserve Note' },
+    fed_district: { B: 'B - New York' },
+    signature_combination: { granahan_fowler: 'Granahan / Fowler' },
+  }
+
+  it('reads as a listing does: series, bill, type, city, signers', () => {
+    expect(
+      webSearchText(
+        {
+          seriesYear: '1963',
+          seriesLetter: 'A',
+          denomination: 'usd_note_1',
+          noteType: 'frn',
+          district: 'B',
+          signatureCombination: 'granahan_fowler',
+        },
+        labels,
+      ),
+    ).toBe('Series 1963-A $1 Federal Reserve Note New York Granahan Fowler Friedberg')
+  })
+
+  it('names web press only when it is known, and no letter when there is none', () => {
+    const fields = { seriesYear: '1995', denomination: 'usd_note_1', press: 'yes' }
+    expect(webSearchText(fields, labels)).toBe('Series 1995 $1 web press Friedberg')
+    expect(webSearchText({ ...fields, press: 'no' }, labels)).toBe(
+      'Series 1995 $1 Friedberg',
+    )
+  })
+
+  it('falls back to the code while a vocabulary is still loading', () => {
+    expect(webSearchText({ noteType: 'frn' })).toBe('frn Friedberg')
   })
 })

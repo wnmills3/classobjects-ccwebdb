@@ -476,6 +476,13 @@ button.link.danger {
   background: var(--surface);
 }
 
+/* Friedberg lookup: the web-search text is read and copied whole, so it
+   takes the row's spare width rather than a default input's. */
+.web-search input {
+  flex: 1;
+  min-width: 16rem;
+}
+
 /* Receiving: the receipt panel, now inside the line's own dialog -- the
    arrival date, storage location and note, plus the four outcome buttons. */
 .receipt-panel {
