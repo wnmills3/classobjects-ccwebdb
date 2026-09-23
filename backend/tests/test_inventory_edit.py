@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.models import Denomination, Grade, ItemKind, Metal, StrikeType
+from app.models import Denomination, Grade, ItemKind, Metal, Series, StrikeType
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -480,3 +480,35 @@ def test_nulling_a_required_classifier_is_refused_naming_the_field(
 
     assert response.status_code == 422
     assert "status" in response.json()["detail"]
+
+
+def test_an_item_keeps_a_retired_value_it_already_holds(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Ruling S5: retiring a value must not make its items unsaveable.
+
+    The editor renders a retired value (the reference API serves them with
+    `include_inactive`) and sends it back on every save. Refusing it there
+    would fail every save of the item with "Unknown series" about the value
+    on screen. Only a *new* use of a retired value is refused.
+    """
+    morgan = code_id(db, Series, "morgan_dollar")
+    holder = make_item(db, series_id=morgan)
+    other = make_item(db)
+    db.get_one(Series, morgan).is_active = False
+    db.commit()
+
+    kept = client.patch(
+        f"/api/inventory/{holder.id}",
+        headers=admin_headers,
+        json={"series": "morgan_dollar", "description": "Re-saved"},
+    )
+    assert kept.status_code == 200, kept.text
+
+    refused = client.patch(
+        f"/api/inventory/{other.id}",
+        headers=admin_headers,
+        json={"series": "morgan_dollar"},
+    )
+    assert refused.status_code == 422, refused.text
+    assert "Retired series" in refused.json()["detail"]

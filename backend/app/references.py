@@ -7,17 +7,14 @@ are the stable contract. Two rules make that safe:
 the caller believed in produces an item that is quietly unclassified, and the
 caller is never told. It raises 422 naming the field and the value.
 
-*Unknown* here includes *retired*, and the message says "Unknown" either way.
-That is a known gap rather than a decision: `routers.reference.get_table`
-deliberately serves retired values so a form can render an old record
-(`include_inactive`), but saving that record back resolves the same code
-through `code_to_id`, which filters on `is_active` and refuses it. Nothing is
-retired today, so nothing hits it; the first classifier retired while still
-in use will make every save of an affected item fail with a message saying
-its own rendered value does not exist. Fixing it needs a rule this codebase
-has not chosen -- most likely "a code already stored on this row stays
-acceptable, a new one does not" -- which is a call for the owner, not a
-default to slip in here.
+**A retired code is refused -- unless the row already holds it** (ruling
+S5, 2026-09-22). `routers.reference.get_table` serves retired values so a
+form can render an old record (`include_inactive`), and saving that record
+back sends the same code. Refusing it would make every save of an affected
+item fail once its classifier was retired, with a message saying its own
+rendered value does not exist. So `keep` names the id the row holds now:
+that value stays acceptable, and any *new* use of a retired value is still
+refused, with "Retired" in the message rather than "Unknown".
 
 **The API never creates classifier rows.** The importer may add `derived` rows
 because it is reconciling a real collection against an incomplete vocabulary;
@@ -37,32 +34,45 @@ __all__ = ["code_to_id", "id_to_code", "require_code"]
 
 
 def code_to_id(
-    db: Session, model: type[ReferenceMixin], code: str | None, field: str
+    db: Session,
+    model: type[ReferenceMixin],
+    code: str | None,
+    field: str,
+    *,
+    keep: int | None = None,
 ) -> int | None:
     """Resolve a classifier code, or None when the caller supplied none.
 
-    `None` means only "no code was supplied". A code that does not resolve --
-    including one that exists but is retired -- raises 422 rather than
-    returning None, so a caller must not read None as "not found".
+    `None` means only "no code was supplied". A code that does not resolve
+    raises 422 rather than returning None, so a caller must not read None as
+    "not found". A retired code is refused too, unless it is the value the
+    row already holds (`keep`, the row's current id for this field).
     """
     if code is None or code == "":
         return None
     found = db.execute(
-        select(model.id).where(model.code == code, model.is_active.is_(True))
-    ).scalar_one_or_none()
+        select(model.id, model.is_active).where(model.code == code)
+    ).one_or_none()
     if found is None:
+        raise HTTPException(status_code=422, detail=f"Unknown {field}: {code!r}")
+    if not found.is_active and found.id != keep:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown {field}: {code!r}",
+            detail=f"Retired {field}: {code!r} can no longer be chosen",
         )
-    return found
+    return int(found.id)
 
 
 def require_code(
-    db: Session, model: type[ReferenceMixin], code: str, field: str
+    db: Session,
+    model: type[ReferenceMixin],
+    code: str,
+    field: str,
+    *,
+    keep: int | None = None,
 ) -> int:
     """Same, for a classifier the schema cannot do without."""
-    resolved = code_to_id(db, model, code, field)
+    resolved = code_to_id(db, model, code, field, keep=keep)
     if resolved is None:
         raise HTTPException(
             status_code=422,
