@@ -27,12 +27,14 @@ function describeMatch(row) {
 const PRESS = { yes: true, no: false }
 
 /**
- * What to type into a web search to find this note's Friedberg number.
+ * The question to ask Google's AI Mode for this note's Friedberg number.
  *
  * Built from the form as it stands, in the words a dealer's listing uses:
- * "Series 1963-A $1 Federal Reserve Note New York Granahan Fowler
- * Friedberg". `labels` maps a field's code to its vocabulary label; a code
- * with no label yet (the vocabulary still loading) is used as it is.
+ * "What is the Friedberg number for Series 1963-A $1 Federal Reserve Note
+ * New York Granahan Fowler?" -- a question, because AI Mode answers one
+ * directly where a keyword list gets pages of results. `labels` maps a
+ * field's code to its vocabulary label; a code with no label yet (the
+ * vocabulary still loading) is used as it is.
  *
  * The owner reads the result and types the number in. Nothing here fetches
  * or stores what a search finds -- a machine collecting Friedberg numbers
@@ -51,10 +53,15 @@ export function webSearchText(fields, labels = {}) {
     label('fed_district', fields.district).replace(/^[A-L] - /, ''),
     label('signature_combination', fields.signatureCombination).replace(' / ', ' '),
     fields.press === 'yes' ? 'web press' : '',
-    'Friedberg',
   ]
-  return parts.filter(Boolean).join(' ')
+  const note = parts.filter(Boolean).join(' ')
+  return `What is the Friedberg number for ${note || 'this US banknote'}?`
 }
+
+//: Google's AI Mode shortcut. It keeps `q` through its redirect (measured
+//: 2026-09-23: /ai?q= -> /aimode?q=), where `/search?udm=50` was stripped
+//: for a request without a browser session.
+const AI_SEARCH = 'https://www.google.com/ai?q='
 
 /** A vocabulary's values as a code -> label map; empty while it loads. */
 function labelsOf(values) {
@@ -201,15 +208,14 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
       signature_combination: labelsOf([...allSignatures, ...signatureOptions]),
     },
   )
-  const [copyMessage, setCopyMessage] = useState('')
-
-  async function copySearchText() {
-    try {
-      await navigator.clipboard.writeText(searchText)
-      setCopyMessage('Copied.')
-    } catch {
-      setCopyMessage('Could not copy -- select the text and copy it by hand.')
-    }
+  // A pop-up window, not a tab, so the results sit beside this form; the
+  // name makes a second search reuse that window rather than open another.
+  function searchWeb() {
+    window.open(
+      `${AI_SEARCH}${encodeURIComponent(searchText)}`,
+      'friedberg-web-search',
+      'popup,width=1000,height=800',
+    )
   }
 
   const signatureListed = signatureOptions.some(
@@ -287,12 +293,31 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
     }
   }
 
-  async function recordAndAttach(status) {
+  /**
+   * Save the number in the field onto this note.
+   *
+   * A number copied from a match is that catalogue row, so it is attached
+   * as it is; recording it again would be a 409. Anything else -- typed or
+   * pasted from a web search -- is recorded with what the form describes,
+   * then attached.
+   */
+  async function save(status) {
+    const number = recordFrNumber.trim()
+    const known = (results ?? []).find((row) => row.fr_number === number)
+    if (known) {
+      setRecordError('')
+      if (await attach(known.id, status)) setRecordFrNumber('')
+      return
+    }
+    await recordAndAttach(number, status)
+  }
+
+  async function recordAndAttach(number, status) {
     setRecording(true)
     setRecordError('')
     try {
       const created = await api.createFriedbergNumber({
-        fr_number: recordFrNumber,
+        fr_number: number,
         ...currentFilters(),
       })
       const attached = await attach(created.id, status)
@@ -414,91 +439,75 @@ export default function FriedbergLookup({ itemId, item, onClose, onAttached }) {
         )}
       </div>
 
-      {/* Not in the catalogue yet? Search the web by hand. The owner reads
-          what comes back and types the number below -- nothing is fetched
-          or saved from the search itself (see `webSearchText`). */}
-      <div className="row web-search">
-        <input
-          type="text"
-          readOnly
-          aria-label="Web search text"
-          value={searchText}
-          onFocus={(e) => e.target.select()}
-        />
-        <button type="button" onClick={copySearchText}>
-          Copy
-        </button>
-        <a
-          href={`https://www.google.com/search?q=${encodeURIComponent(searchText)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Search the web
-        </a>
-      </div>
-      {copyMessage && <p className="muted">{copyMessage}</p>}
-
       {searchError && <p className="error">{searchError}</p>}
 
-      {results && results.length > 0 && (
-        <ul className="order-picker">
-          {results.map((row) => (
-            <li key={row.id} className="order-row">
-              <span className="mono">{row.fr_number}</span> {describeMatch(row)}
-              {' -- '}
-              {row.verified ? (
-                <strong>Verified</strong>
-              ) : (
-                <span className="muted">Unverified proposal</span>
-              )}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => attach(row.id, 'proposed')}
-              >
-                Attach as proposed
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => attach(row.id, 'confirmed')}
-              >
-                Attach as confirmed
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {results && results.length === 0 && (
+      {/* One field, one pair of Save buttons. Found in the catalogue: each
+          match has a Copy button that puts its number in the field. Not
+          found: the field stays blank and Search the web takes Copy's place
+          -- the owner reads the number off the results window and types or
+          pastes it here. Nothing is fetched or saved from the search itself
+          (see `webSearchText`). */}
+      {results && (
         <div className="admin-form">
-          <p className="muted">
-            No match in the catalogue yet -- record the number read off the note or
-            slab.
-          </p>
-          <label>
-            Fr. number
-            <input
-              type="text"
-              value={recordFrNumber}
-              onChange={(e) => setRecordFrNumber(e.target.value)}
-            />
-          </label>
+          {results.length > 0 ? (
+            <ul className="order-picker">
+              {results.map((row) => (
+                <li key={row.id} className="order-row">
+                  <span className="mono">{row.fr_number}</span> {describeMatch(row)}
+                  {' -- '}
+                  {row.verified ? (
+                    <strong>Verified</strong>
+                  ) : (
+                    <span className="muted">Unverified proposal</span>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-label={`Copy ${row.fr_number}`}
+                    onClick={() => setRecordFrNumber(row.fr_number)}
+                  >
+                    Copy
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">
+              No match in the catalogue yet -- search the web, then type or paste the
+              number here. An AI answer can be wrong: save it as proposed until you have
+              checked it against the note or a reference.
+            </p>
+          )}
+          <div className="row">
+            <label>
+              Fr. number
+              <input
+                type="text"
+                value={recordFrNumber}
+                onChange={(e) => setRecordFrNumber(e.target.value)}
+              />
+            </label>
+            {results.length === 0 && (
+              <button type="button" onClick={searchWeb} title={searchText}>
+                Search the web
+              </button>
+            )}
+          </div>
           {recordError && <p className="error">{recordError}</p>}
           <div className="row">
             <button
               type="button"
-              disabled={!recordFrNumber || busy}
-              onClick={() => recordAndAttach('proposed')}
+              disabled={!recordFrNumber.trim() || busy}
+              onClick={() => save('proposed')}
             >
-              Record &amp; attach as proposed
+              Save as proposed
             </button>
             <button
               type="button"
-              disabled={!recordFrNumber || busy}
-              onClick={() => recordAndAttach('confirmed')}
+              disabled={!recordFrNumber.trim() || busy}
+              onClick={() => save('confirmed')}
             >
-              Record &amp; attach as confirmed
+              Save as confirmed
             </button>
           </div>
         </div>
