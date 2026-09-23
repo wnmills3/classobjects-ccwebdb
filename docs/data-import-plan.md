@@ -1,7 +1,7 @@
 # Data import and the collection record: current state
 
-Current state as of 2026-09-23. Rewritten from the original plan and
-Amendments A–K; the history is in git (`git log -p docs/data-import-plan.md`).
+Current state as of 2026-09-23. The history is in git
+(`git log -p docs/data-import-plan.md`).
 
 This document says where the collection's data came from, how it got into the
 database, and how the collection record is structured and kept correct now.
@@ -12,10 +12,6 @@ Related documents: [database-design.md](database-design.md) (the schema in
 full), [spreadsheet-import-design.md](spreadsheet-import-design.md) (the
 importer's own design), [system-administration.md](system-administration.md)
 (operating procedures), and the specs under `docs/specs/`.
-
-Other documents cite this one by amendment letter. Amendment I (the `Received`
-column) is now §4.3 and §8.2; Amendment K (the database is the record) is §1;
-Amendment J (item attributes) is §7.6.
 
 ---
 
@@ -147,11 +143,12 @@ workbook ──► import_row (verbatim, JSONB) ──► inventory_item and fri
 ### 4.3 Rules that matter
 
 **Classification order.** Bullion keywords, then set keywords, then medal and
-token, then currency (`Bill`/`Note`, a leading `$`, a number followed by a
-word), then a bare number is a coin, else `unknown`. Bullion and sets must come
-first or `1oz Copper Round` matches "number followed by a word" and becomes a
-banknote. A Panda's "10 yuan" and gram or grain weights are caught as bullion
-for the same reason.
+token, then currency (`Bill`/`Note`/`Fractional`, or a leading `$`), then a
+bare number or a number in a coin-only unit is a coin, else `unknown` for
+review -- including a number followed by a word none of those rules know. The
+full list is in [spreadsheet-import-design.md](spreadsheet-import-design.md).
+Bullion and sets come first so `1oz Copper Round` or a Panda's "10 yuan" is
+never read as currency.
 
 **Arrival comes from `Received` only.**
 
@@ -560,9 +557,12 @@ only numbers the owner has read off their own notes and slabs (source
 searches that private catalogue by what is visible on the note (denomination,
 series, class, district, signatures, web press) and proposes candidates;
 attaching one sets `friedberg_status` to proposed or confirmed. The identifying
-tuple is unique only among fully specified rows, `NULLS NOT DISTINCT` (without
-that, a series with no letter could be recorded twice under two numbers), and
-`fr_number` is unique outright so a licensed dataset could be merged later.
+tuple -- denomination, series year and letter, note type, district, web press,
+signatures and seal -- is unique among rows whose denomination, year and note
+type are known, `NULLS NOT DISTINCT` (without that, a series with no letter
+could be recorded twice under two numbers). Signatures and seal belong to it
+because many series differ by nothing else. `fr_number` is unique outright so
+a licensed dataset could be merged later.
 A match is shown as its number with a Copy button into the field. When the
 catalogue has no match, Look up opens a Google AI Mode search for that note in
 a pop-up window; the owner reads the answer and types or pastes the number,
@@ -651,11 +651,14 @@ sales), described in `docs/specs/selling-design.md`.
   arrived (`ordered` or `missing`), and "Any status" shows a whole order. Each
   item is received in a dialog that also takes a note, photographs, field
   reviews and, for a banknote, the Friedberg lookup. Date and location carry
-  to the next item; the note does not, because it describes one object. After
-  each receipt the search repeats, so what arrived drops off the list.
-  Receiving something already received is refused with 409. A link naming one
-  order (`?order=<id>`, from the inventory screens or New purchase) opens with
-  that order's header and its items already found.
+  to the next item; the note does not, because it describes one object.
+  Whenever the dialog closes the search repeats, so what arrived drops off
+  the list. Results come 200 at a time per kind and status, and anything
+  beyond that is counted on screen. Receiving something already received is
+  refused with 409. A link naming one order (`?order=<id>`, from the
+  inventory screens or New purchase) opens with that order's header and its
+  items already found -- searched by the order's id, since a number is not
+  unique across vendors and is sometimes not recorded.
 - **Corrections** go through the item editor's status field, which writes a
   history row like any other transition. Receiving only moves forward.
 

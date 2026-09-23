@@ -1,132 +1,131 @@
-# Starting a collection from an empty database
+# Acquiring, cataloguing and selling an item
 
-How someone with a fresh installation goes from nothing to a catalogue they can
-sell from. This is also the path **every future acquisition takes**, once the
-imported collection has been cleaned up -- so it is the normal workflow, not an
-onboarding special case.
+How an item goes from a purchase to a sale in the owner console
+(`http://127.0.0.1:5173/owner`). This is the path **every acquisition
+takes**, and the path a new installation starts on from an empty inventory.
+[workflow-import-and-cleanup.md](workflow-import-and-cleanup.md) covers the
+one-off job of loading an existing workbook instead.
 
-Read `docs/project-purpose.md` first for why any of this matters.
-`docs/workflow-import-and-cleanup.md` covers the one-off job of getting an
-existing spreadsheet in.
-
-Status: the schema and the import engine exist. **New purchase, New item and
-New lot now exist in the console** (route `/purchases/new`; see
-`docs/specs/entry-panels-design.md`) -- a lot is entered the same way as any
-other item, with a piece count above 1. **The Split panel, the Attribute walk
-and Group still do not.** This document specifies what all of them need to do.
+Read [project-purpose.md](project-purpose.md) first for why any of this
+matters, and [system-administration.md](system-administration.md) for the
+full operating detail of each screen.
 
 ## The starting state
 
-A new installation is not empty. `python -m app.seeding load` populates the
-reference tables from versioned JSON in `backend/data/reference/` -- **29
-vocabularies across 7 themed files**: `issuer.json` carries currency, country,
-denomination and mint; `condition.json` carries the grade scale, grades,
-designations and grading services; and so on. What it does not populate is
-inventory.
-
-```
-reference data     seeded, ~29 vocabularies
-inventory_item     0
-listing            0
-customer           0
-```
+A new installation is not empty. `python -m app.seeding load` fills the
+reference vocabularies from versioned JSON in `backend/data/reference/`:
+grades, denominations, mints, series, note facts, compositions and the rest.
+It does not create inventory.
 
 That split is deliberate. Vocabularies are knowledge about numismatics and are
-worth sharing between installations; inventory is what *you* own and is not.
-Foreign keys travel between installations as codes rather than ids, so one
-installation's catalogue can be inherited by another.
+shared between installations; inventory is what *you* own. Foreign keys travel
+between installations as codes, not ids.
 
-**Vocabularies grow with use.** A grade or a mint missing from a picker is
-added from the picker and marked `manual`, which keeps your additions out of a
-catalogue shared with someone else. You are never blocked by a missing
-vocabulary entry, and you never have to leave the form to add one.
-
-## Two ways an item enters
-
-Everything acquired arrives as one of two shapes, and the difference is
-decided by what you bought, not by how you feel about it.
-
-### A purchase lot, decomposed
-
-You bought a container: a roll of 20 Morgan dollars, a dealer's box, an auction
-lot of mixed silver. One transaction, one price, many coins, and the details of
-the individual coins are unknown at purchase.
-
-```
-1. Create the lot
-     what it is, what it cost, shipping, tax rate, vendor,
-     purchase order, how many pieces it holds
-
-2. Receive it
-     status: ordered -> received
-
-3. Decompose it
-     split into N pieces; cost divides `equal` for identical
-     pieces, or `relative` when they differ in value
-
-4. Attribute each piece
-     year, mint mark, grade, variety -- the work that could
-     not be done before the coins were in hand
-```
-
-The lot row is kept after splitting, not deleted. It holds the purchase order,
-the price actually paid and the item code an invoice refers to. It is marked
-`split_at` and excluded from every inventory and valuation view, so a lot and
-its pieces are never both counted.
-
-Cost division is exact. `price` and `shipping` reconcile to the penny by
-largest-remainder allocation; `taxes` is a generated column per row, so the
-pieces' rounded taxes can total a cent or two away from the lot's, and that
-difference is **reported rather than absorbed**.
-
-### A standalone item
-
-You bought one thing and you know what it is: a graded 1881-S Morgan in a PCGS
-slab. There is no parent, no decomposition, and nothing to attribute later.
-
-```
-1. Create the item
-     kind, denomination, country, year, mint, grade,
-     grading service, cost, vendor
-2. Receive it
-```
-
-Most single purchases are this. Do not create a purchase lot of one -- it adds
-a row that must then be excluded from everything, for no benefit.
-
-## Panels needed
-
-| Panel | Does | Notes |
-|---|---|---|
-| **New purchase** | vendor, order number, date, shipping, tax rate | one purchase may contain many items |
-| **New item** | the full item form, standalone or inside a purchase | vocabularies are pickers that can add |
-| **New lot** | as above plus piece count | the lot is an item with `storage_quantity > 1` |
-| **Split** | divide a lot into pieces, `equal` or `relative` | endpoint exists; the panel does not |
-| **Attribute** | walk the pieces one at a time, fill in details | see the attribution design |
-| **Group** | assemble existing items under a new parent | cleanup tool, mainly for imported data |
+**Vocabularies grow with use.** A value missing from a picker is added from the
+picker ("Add a new value") and marked `manual`, which keeps one owner's
+additions out of what is shipped. The **Vocabularies** page renames, retires,
+merges and adds aliases; it does not create values.
 
 ## The rhythm
 
 ```
-acquire -> receive -> [split] -> attribute -> list -> sell
+purchase -> receive -> [split] -> attribute -> photograph -> offer -> sell
 ```
 
-Only purchase lots take the bracketed step. A standalone item goes from
-received to listable immediately.
+Only a purchase lot you mean to break up takes the bracketed step.
 
-**Listing is gated on the catalogue being trustworthy.** An item whose year and
-grade are still the lot's guess is not ready to be described to a buyer, and
-the store is where a misdescription becomes a refund. The attribution design
-makes that gate a query rather than a checkbox: an item still carrying its
-parent's values has not been looked at.
+### 1. Enter the purchase
+
+**New purchase** (`/owner/purchases/new`): vendor, order number, date,
+shipping and tax. Then add its items with the **New item** form, one after
+another ("Save and add another" keeps what items on one order share). No item
+is entered outside a purchase.
+
+Each item is `ordered`, or `received` if it is already in hand. The sales-tax
+rate is stamped onto each item when it is created: the configured default,
+a rate typed on the purchase, or zero when **No sales tax charged** is ticked.
+A later change to the setting rewrites nothing already recorded. Facts that follow from what
+you entered -- a note's class, seal and signatures from its denomination and
+series, a coin's composition and metal from its denomination and year -- are
+filled in as *suggested* values, and never replace a value you typed.
+
+Two shapes of purchase:
+
+- **A standalone item** -- one thing you can describe now: a graded 1881-S
+  Morgan in a PCGS slab. Most purchases are this. Do not create a lot of one.
+- **A purchase lot** -- a container bought for one price: a roll of 20 Morgan
+  dollars, a dealer's box. Enter it as one item with **Pieces** above 1. It can
+  stay that way (a tube of identical rounds is fine as one row with a piece
+  count; weight and value multiply by it), or be split later.
+
+### 2. Receive it
+
+**Receive** (`/owner/receiving`) finds what has not arrived, by any part of an
+order number or by what the item is, and records one of received, missing,
+returned or canceled, with an arrival date and a storage location. The
+receipt dialog also takes a note, photographs, field reviews and, for a
+banknote, its Friedberg number (the owner's own, read off the note; nothing is
+fetched). Receipt is the best moment to record what only the object shows --
+seal, signatures, district, plate numbers, errors -- but nothing there is
+required.
+
+### 3. Split a lot (optional)
+
+`POST /api/inventory/{id}/split` divides a lot into one child per piece,
+dividing cost `equal`ly for identical pieces or `relative` to a value per piece
+when they differ (a mint set's cent and half dollar). `item_cost` and
+`shipping_cost` reconcile to the penny; `sales_tax` is generated per row, so
+the pieces' rounded tax can differ from the lot's by a cent or two, and that
+difference is reported, not absorbed. The lot is kept, marked `split_at`, and
+excluded from every count, so a lot and its pieces are never both counted.
+
+**Not built:** a Split panel in the console. The API works; the screen does
+not exist.
+
+### 4. Attribute
+
+Establish what each item actually is: year, mint mark, grade, variety,
+serial. The inventory pages (**Coins**, **Currency**) are the tools:
+
+- **Search and diagnostics.** Named diagnostics (no year, no grade, no
+  country, `Mixed` marker, unreviewed, and others) are filters with counts and
+  row badges.
+- **Bulk edit.** Select rows and set what they share in one action.
+- **Review.** Walk a result one item at a time. The queue is frozen at entry,
+  so fixing an item does not shift the positions and skip the next one.
+- **Field reviews** record that a person confirmed a field against the object.
+
+Bulk-set what a run of similar items shares, then review the exceptions.
+
+### 5. Photograph
+
+Photographs can be added at any time after receipt: in the item editor's
+photos panel, from **Photos** (`/owner/photos`, for photographs not yet filed
+to an item), or in bulk with `python -m app.photo_import` using the
+`CC-000412_01.jpg` naming convention. Metadata, including GPS, is stripped on
+the way in. The shop shows only an item's primary photograph.
+
+### 6. Offer and sell
+
+An item must be `received` to be offered. From the item editor or
+**Listings**, offer it on a platform (the store, eBay, Whatnot, an auction
+house) at a price; group items into a **sales lot** on **Lots**; assemble and
+settle auctions on **Auctions**. Store sales arrive as orders; a sale on an
+outside platform is recorded against its listing. An item has at most one
+active offer at a time. [specs/selling-design.md](specs/selling-design.md)
+has the full model.
+
+Changing an item that is on offer warns first, since the buyer sees what was
+listed ([specs/for-sale-guards-design.md](specs/for-sale-guards-design.md)).
 
 ## What does not happen here
 
-- **No bidding.** Auctions run on eBay Live, Whatnot, Heritage or HiBid. This
-  system assembles the auction and records the result. See
-  `docs/project-purpose.md`.
-- **No deletion.** A mistaken row is soft deleted and leaves search; it is not
-  removed. A row that ever appeared in an order cannot be deleted at all.
-- **No photographs yet.** Image ingest, EXIF stripping and derivative
-  generation are built and tested; the panel for attaching a photograph to an
-  item while you have it in hand is not.
+- **No bidding.** Auction platforms run the bidding; this system assembles the
+  auction and records the result.
+- **No deletion of history.** A row entered by mistake is soft deleted and
+  leaves search. An item that has ever been offered, or a lot with pieces,
+  cannot be deleted.
+- **No grouping tool.** Existing separate items cannot be gathered under a
+  new parent in the console.
+- **No creating storage locations** in the console; the receiving picker
+  lists existing ones.

@@ -1,262 +1,195 @@
-# From spreadsheet to a catalogue you can sell from
+# From a workbook to a catalogue you can sell from
 
-The one-off job of getting an existing collection out of a spreadsheet and into
-a state where items can be listed. Distinct from
-`docs/workflow-new-collection.md`, which covers everything acquired afterwards.
+Two jobs: loading an existing collection from a workbook into a **new**
+database, and the clean-up that makes an imported collection trustworthy
+enough to list. Everything acquired afterwards follows
+[workflow-new-collection.md](workflow-new-collection.md).
 
-`docs/spreadsheet-import-design.md` describes the import machinery and is
-deliberately disposable -- it serves one spreadsheet. This document describes
-the **workflow around it**, most of which is not disposable, because the review
-and repair tools outlive the import that motivated them.
+[data-import-plan.md](data-import-plan.md) is the account of how this
+collection was imported and how its record is structured and kept correct;
+[spreadsheet-import-design.md](spreadsheet-import-design.md) describes the
+importer itself. This document is the procedure around them.
 
-## Where things stand
+## For this collection: import is finished
 
-The import has run. The collection is loaded.
+The workbook reached the live database for the last time on 2026-09-16. Since
+then `ccwebdb` is the system of record and the workbook is historic. **Never
+re-import it into live, and never rebuild to fix live data**: a rebuild
+discards everything corrected or entered since -- series assignments, derived
+attributes, receipts, tax corrections, photographs, sales, accounts. Fix data
+in the console or with a pass over stored items (below); recover from a
+problem by restoring a verified backup
+([system-administration.md](system-administration.md), *Backing up and
+restoring*).
 
-**Rebuilt 2026-09-07** after seven duplicate rows were removed from the
-spreadsheet: four Morgan dollars from one HiBid batch entered on both 9 and 12
-January 2025, and a three-note Red Seal set entered on 20 and 23 December. The
-rebuild was verified against the prior database restored from a dump -- cost
-basis fell by exactly $1,258.70 and fine metal by exactly 3.093760 ozt, which
-is four Morgan dollars to six decimal places.
+What remains for this collection is clean-up, which is ongoing.
 
-| | |
-|---|---|
-| Items | 7,591 |
-| Cost basis | $534,177.89 |
-| Fine metal | 2,358.05 troy oz |
-| Classification | 99.6% (the 33 unknowns are blanks and `????`) |
-| Every staging row linked to its item | yes |
+## Loading a workbook into a new database
 
-What the import could do, it did. What remains is the part no importer could
-have done, because the information was never in the spreadsheet.
+Only for a collection that is not yet in any database.
 
-## The four stages
+### 1. Dry run and review
 
-```
-1. extract     spreadsheet -> staging          done
-2. normalise   staging -> inventory + refs     done
-3. reconstruct rebuild the purchase lots       next
-4. attribute   describe the individual coins   the long tail
+```cmd
+cd backend
+uv run python -m app.importers.cli --file <workbook.xlsx>
 ```
 
-### 1 and 2: what the importer already handled
+The dry run touches no database and writes review files to `logs\import\`
+([runtime-operations.md](runtime-operations.md) lists them). Fix what the
+workbook can fix -- typos, a status marker in the wrong column -- and run it
+again until the report says what you expect. The importer reads one layout,
+through the `collection_v1` profile; a workbook laid out differently needs its
+own profile in `backend/app/importers/profiles/`.
 
-**Categorical references were resolved by code, not by guessing.** Grades,
-denominations, countries, metals and mints were matched against the seeded
-vocabularies. Where a value did not match, it was **not** invented as a new
-vocabulary entry -- an early version did that and produced 185 junk "grades"
-including `ACADIANP`. Condition strings are decomposed instead: grade,
-designation, grading service and catalogue number come out as separate fields,
-and note attributes and seal colours route to their own tables rather than
-being stuffed into the grade column.
+Before entering anything more in a workbook, **format identifier columns as
+Text** (order numbers, serials, certificate numbers). Excel keeps 15
+significant digits and shows long numbers in scientific notation, and once
+that display is saved the digits are gone; the importer flags such values
+(`identifier-lost-to-scientific-notation`) rather than storing a rounded one.
+An apostrophe prefix (`'501570000000000`) forces text in a General cell.
 
-Unresolvable values survive verbatim in `grade_raw` and
-`attributes.rating_unparsed` rather than being dropped. `Mixed` is the
-important case -- see below.
+### 2. Build the database
 
-**Every run is reversible and reviewable.** A dry run touches no database and
-writes review files to `logs/import/`.
-
-> ### The database is now the system of record
->
-> Decided 2026-09-08. Rebuilding from the spreadsheet **destroys work that
-> exists nowhere else**: 3,273 series assignments, 891 derived note
-> designations, 3,879 reconstructed purchase orders, a corrected serial, and
-> the user accounts. The spreadsheet is a historical source, not a backup.
->
-> A rebuild was safe up to the point where the only content was what the
-> importer had put there. That stopped being true the moment anything was
-> derived or corrected in place.
->
-> Restore from a `pg_dump` instead. Re-import only into an empty database, and
-> only when starting again deliberately.
-
-### 3: reconstruct the purchase lots
-
-This is the next piece of work and the attribution design specifies it.
-
-The spreadsheet had no way to say "twenty of these", so a roll of 20 Morgan
-dollars became 20 rows with an identical description and order number. Half the
-collection is like this:
-
-| Population | Count |
-|---|---|
-| Flattened purchase lots | 769 groups / **3,777 items** |
-| Unsplit conglomerates (`storage_quantity > 1`) | 12 items / **240 pieces** |
-| Bought individually | 3,809 items |
-
-The first two overlap: **7 of the 12 conglomerates are also inside a flattened
-group** -- rows like `20x 1oz Copper Round Mixed` repeated nine times, each row
-holding twenty rounds. Lots of lots. They need reconstructing *and* splitting,
-and any tool that assumes the populations are disjoint will mishandle them.
-
-Reconstruction creates the parent the spreadsheet flattened away: one
-`inventory_item` per group holding the shared order and description, with
-`price` and `shipping` summed and `split_at` set, and the members pointed at it
-by `parent_item_id`.
-
-**The grouping rule is a heuristic and will be wrong somewhere.** Two genuinely
-separate purchases of the same item on one order merge into one lot. The 44
-groups where a description says "LOT OF *n*" but *n* does not match the row
-count are direct evidence. So:
-
-- the backfill writes a report naming every group it created and its members,
-  and that report exists to be read
-- the repair tools -- detach a child, delete a childless parent, group items
-  manually -- ship *with* the backfill, not after it
-
-Running a backfill you cannot undo, over 769 guesses, is how a catalogue
-becomes untrustworthy in one transaction.
-
-**Verification is the step that matters.** After reconstruction, cost basis
-across non-split, non-deleted items must still be exactly $534,177.89. The
-backfill creates 769 rows that hold money; if any is counted alongside its
-children, the collection's value silently inflates.
-
-### 4: attribute the individual coins
-
-The long tail, and the only stage with no shortcut. Each of the 3,777 coins in
-a reconstructed lot carries its parent's description and nothing of its own.
-
-Measured, over 7,591 items excluding split parents:
-
-| Anomaly | Count |
-|---|---|
-| No grade (coins and currency only) | 2,965 |
-| No country | 2,394 |
-| No year | 1,230 |
-| Bullion with no weight | 712 |
-| No denomination (coins and currency) | 262 |
-| `Mixed` marker in grade or description | 186 rows, 43 groups |
-| Zero or missing price | 51 |
-| "LOT OF *n*" disagreeing with the row count | 44 |
-| Kind still `unknown` | 33 |
-| Repeated currency serial numbers | 18 notes, 9 groups |
-| Repeated certification numbers | 108 rows, 48 numbers |
-| Star notes not marked as star notes | 28 |
-
-**`Mixed` deserves separate treatment.** It was used for lot attributes where
-the individuals vary, and it means something different from a blank: not
-"unknown" but "known to vary". It is a positive statement that the row stands
-for several different coins, so the remedy is to decompose the purchase lot,
-not to fill in a field. The import correctly refused to turn it into a grade.
-
-**Not every anomaly is an error.** 712 bullion rounds have no weight and 713
-have no grade, because a generic silver round has neither. This is why the
-anomaly checks are kind-aware: `no_grade` means *a coin or banknote with no
-grade*, so the 2,965 real cases are not buried under rounds that will never
-have one.
-
-## Finding the spreadsheet row behind an item
-
-For the imported collection only:
-
-```
-spreadsheet row = item code number + 1
+```cmd
+scripts\ccweb_rebuild.cmd <workbook.xlsx>
 ```
 
-`CC-000001` is row 2; `CC-007591` is row 7592. The
-offset is the header row and it is exactly 1 for every one of the 7,591 items
--- verified, not sampled. It holds because `item_code`, `inventory_item.id` and
-`import_row.id` were all assigned in the same pass.
+It drops and recreates `ccwebdb_rebuild` -- never `ccwebdb` -- then migrates,
+loads reference data, imports with `--commit`, runs `series_match`,
+`classifier_defaults`, `series_classify` and `serial_patterns`, and runs
+`app.seed` **last** to create the administrator. That order is the only safe
+one: before the import, `app.seed`'s five demo items would take `CC-000002`
+onward and offset every real item code.
 
-This makes cleanup much faster, since an anomaly found in the database can be
-checked against the original cell. But it is a **historical accident, not a
-guarantee**:
+### 3. Remove the demo items
 
-- It applies only to `CC-000001` through `CC-007591`. Anything created
-  afterwards -- including the 769 reconstructed purchase-lot parents --
-  corresponds to no spreadsheet row.
-- Nothing maintains it. Insert or delete a spreadsheet row and it is gone.
+`app.seed` also creates five demo items with shop listings. Delete them from
+the new database (`set PGDATABASE=ccwebdb_rebuild`, then
+`scripts\ccweb_psql.cmd`):
 
-The authoritative link is `import_row.inventory_item_id`, which survives all of
-that. Use the arithmetic to find a row by eye; use the join in code.
+```sql
+BEGIN;
 
-After the 2026-09-07 rebuild there are **no gaps**: `CC-000001` through
-`CC-007591`, with the sequence at 7,591.
+-- The five demo items, by the titles app.seed matches on.
+CREATE TEMP VIEW demo_items AS
+  SELECT id FROM inventory_item WHERE source_title IN (
+    '1881-S Morgan Silver Dollar',
+    '1916-D Mercury Dime',
+    '2021 American Silver Eagle',
+    '1957-B $1 Silver Certificate',
+    '1964 Kennedy Half Dollar'
+  );
 
-Gaps can still appear later and never mean a missing item, because a code is
-issued once and never reused. They are not caused by the test suite, though --
-`conftest.py` creates a **separate `ccwebdb_test` database**, drops it
-afterwards, and never touches the real one or its sequence. The gaps in the
-previous database came from the five `app.seed` demo items and from local
-experiments.
+-- Check before deleting: five rows, all five demo titles.
+SELECT item_code, source_title FROM inventory_item
+  WHERE id IN (SELECT id FROM demo_items) ORDER BY item_code;
 
-## Excel destroys long identifiers, silently
+-- Claims and listings restrict the delete, so they go first; the item's
+-- details, history and photographs cascade.
+DELETE FROM offer_claim    WHERE inventory_item_id IN (SELECT id FROM demo_items);
+DELETE FROM listing        WHERE inventory_item_id IN (SELECT id FROM demo_items);
+DELETE FROM inventory_item WHERE id IN (SELECT id FROM demo_items);
 
-Six `Grading#` values are gone and cannot be recovered from any file:
-
-```
-5.0157E+14   1.92405E+15   2.00872E+14   5.01791E+14   5.02087E+14 (x2)
-```
-
-The cell contains that as **literal text** -- six significant digits where
-fifteen used to be. The TSV export carries the same, so the damage predates it.
-They need re-reading from the slabs or the vendor's order confirmation, and the
-importer flags them as errors rather than storing a rounded lie, which is why a
-run containing them exits non-zero.
-
-Two separate mechanisms cause this:
-
-- **Excel holds 15 significant digits.** `1.92405E+15` was a 16-digit number,
-  so it lost precision *even stored as a number*. The tail is zeroed silently.
-- **General format displays long numbers as scientific notation**, and that
-  display becomes the stored value once the sheet round-trips through CSV or is
-  pasted as values.
-
-**Format identifier columns as Text before entering anything** -- `Grading#`,
-`Order Number`, serial numbers. A certificate number is an identifier, not a
-quantity; nothing sensible ever adds two of them. For a value already in a
-General cell, prefix it with an apostrophe (`'501570000000000`), which forces
-text and is not itself stored.
-
-Currently no value is at risk: the longest identifiers are 11 digits and
-nothing of 12 or more is stored as a number. The exposure is prospective.
-
-## Working through it
-
-The tools are search and edit, not a wizard.
-
-```
-search for an anomaly     ?issue=no_year          1,230 items
-narrow to one purchase    &lot=CC-004120          23 Morgans
-bulk-set what they share  year 1921, mint P       23 updated
-review the exceptions     one at a time           2 differ
+-- COMMIT when the counts above were what you expected; ROLLBACK otherwise.
+ROLLBACK;
 ```
 
-Bulk-set first, then walk the exceptions. A run of similar coins is mostly
-alike with a few standouts, and setting the common values in one action leaves
-only the interesting ones to handle individually.
+The transaction is deliberate: the `SELECT` in the middle is the chance to see
+what is about to go.
 
-The queue freezes when you enter it. Fixing an item's missing year would
-otherwise remove it from `?issue=no_year` mid-walk, shrinking the set and
-shifting every position after it -- silently skipping a coin.
+### 4. Check the totals
 
-## Order of operations, and why
+Over live rows (`split_at IS NULL AND deleted_at IS NULL`): the item count,
+the cost basis `sum(total_cost)`, and fine metal
+`sum(fine_weight_ozt * piece_count)`. Compare them with the workbook before
+trusting anything downstream. Multiply by `piece_count`: a row holding twenty
+coins carries twenty coins' metal, and the unweighted sum reads about 10% low.
 
-1. **Reconstruct lots before attributing.** Attributing 3,777 loose rows first
-   means doing it again once they are grouped, because bulk-set only helps when
-   the system knows which coins belong together.
-2. **Split the 12 conglomerates before attributing them.** They hold 240 coins
-   between them and cannot be described individually until they are individual
-   rows. Check `storage_quantity` against the descriptions first -- those
-   counts were themselves parsed from the spreadsheet.
-3. **Attribute before listing.** An item still carrying its parent's guessed
-   grade is not ready to be described to a buyer.
-4. **List before designing the storefront.** The public catalogue currently has
-   zero rows, and a card layout cannot be judged against no data.
+### 5. Switch over
 
-## What is deliberately left alone
+Point `DATABASE_URL` in `.env` at the new database and restart the servers
+(`scripts\ccweb_shutdown.cmd /keepdb`, then `scripts\ccweb_startup.cmd`). Any
+previous database stays untouched until the new one has been checked, and
+switching back is one line. From here the database is the record.
 
-- **2,046 declined ratings** kept verbatim in `grade_raw`. Common ones are
-  `Silver`, `Funny Back`, and bare numbers like `65 PCGS` where the grade prefix
-  is implied but not written. These need a decision per pattern, not a rule.
-- **The 33 `derived` classifiers** must be reviewed before anyone runs
+## Clean-up: attribution
+
+Establishing what each item actually is. The workbook recorded purchases, not
+coins: many rows share a copied description, grades and years are missing,
+and a `Mixed` rating means "known to vary", not "unknown". No importer can
+supply what was never written down.
+
+### The tools
+
+- **Named diagnostics** in the inventory pages (`app/issues.py`): no year, no
+  country, no grade (coins and notes only -- bullion has none by nature), no
+  denomination, zero cost, `Mixed` marker, unreviewed, unknown kind, bullion
+  with no weight, repeated identifiers, star attribute without an asterisk,
+  malformed serial, near-duplicate serial. Each is a filter, a count and a row
+  badge. Query the counts; do not quote old ones.
+- **Bulk edit** a selection, then **review** the exceptions one at a time.
+  The review queue is frozen when you enter it, so fixing an item's missing
+  year does not drop it from the set and silently skip the next one.
+- **Passes over stored items**, each a dry-run report unless given
+  `--commit`. A pass fills only what is empty, never overwrites a value a
+  person set, and records what it filled as derived:
+
+  | Pass | Fills |
+  |---|---|
+  | `app.classifier_defaults` | note class, seal, signatures, district, composition and metal, No Motto |
+  | `app.series_match` | a coin's series from the design its text names |
+  | `app.series_classify` | series from denomination, year and letter; boundary cases to a review list |
+  | `app.serial_patterns` | star, radar, repeater and other serial designations |
+  | `app.rating_pass` | grade, strike, designation, grader and attributes from the stored rating |
+
+  Run `classifier_defaults` before `series_classify` (note class is evidence
+  for series). A live `--commit` needs the owner's go-ahead, a verified
+  backup, and the dry-run counts shown first. The review lists the passes
+  print are the owner's to work; rerun the report rather than trusting an old
+  list.
+
+### Finding the workbook row behind an item
+
+`import_row.inventory_item_id` links every staged row to the item it produced,
+and `import_row.row_number` is the row as the workbook shows it (header is row
+1):
+
+```sql
+select r.row_number, r.raw
+from import_row r join inventory_item i on i.id = r.inventory_item_id
+where i.item_code = 'CC-000412';
+```
+
+Use the join, not arithmetic on item codes. Items entered since the import
+have no workbook row.
+
+### Order of work, and why
+
+1. **Attribute before listing.** An item still carrying a copied description
+   and a guessed grade is not ready to be described to a buyer.
+2. **Split a multi-piece row before attributing its pieces**, when the pieces
+   differ -- they cannot be described individually until they are individual
+   rows. Query `piece_count > 1` and check each count against the description
+   first; the counts were themselves parsed from the workbook. (The console
+   has no Split panel; the API does it.)
+3. **Photograph as items are handled.** The shop shows only a primary
+   photograph.
+
+## Deliberately left alone
+
+- **Ratings the importer declined** stay verbatim in `grade_raw`
+  (`Silver`, `Funny Back`, `65 PCGS` with the prefix implied). They need a
+  decision per pattern, not a rule; `app.rating_pass` applies the rules as
+  they grow.
+- **`derived` reference rows** must be reviewed before anyone runs
   `python -m app.seeding export --source derived`, or one installation's
-  guesses become another's seeded vocabulary.
-- **~673 photographs** in `OneDrive/Documents/coins/Classified/SafetyDeposit804`
-  and `809` are unlinked. Bulk-matching them to items is its own job.
-- **`fed_district_letter` is empty for every note**, because the spreadsheet
-  never carried it. It gets filled during attribution, from the notes
-  themselves.
+  guesses become another's vocabulary.
+- **Purchase lots were not reconstructed.** Rows sharing a description came
+  from copy-and-paste, not a shared purchase, so they are not a grouping
+  signal; purchase orders are what "bought together" means.
+- **The safe-deposit photographs** are not imported yet: their filenames do
+  not name items and must be renamed to the `CC-` convention first
+  ([data-import-plan.md](data-import-plan.md) §9.5).
+- **Federal Reserve districts** the workbook never carried are filled from a
+  note's serial by `classifier_defaults`, or at receipt from the note itself.

@@ -1,272 +1,160 @@
 # Photographs on an item: importing them, and putting them right
 
-Design. Status: **agreed with the owner 2026-09-18**; built.
+How photographs get onto items: a command-line pass that files a library of
+photographs by filename, and console surfaces for attaching, correcting and
+filing them by hand. The shop serves an item's **primary** photograph
+(`routers/catalog.py`), so every rule here is ultimately about what a buyer
+sees.
 
-## The problem
+## Model
 
-The collection has no photographs in it. `image`, `item_image` and the
-unattached count are all **0** against 7,656 items, and the shop serves an
-item's primary image (`routers/catalog.py`) -- so every listing the owner makes
-today is a listing with no picture.
+- `image` is a stored photograph, content-addressed (`image.sha256` unique),
+  with derivatives in `image_derivative`. `imaging.cleanse` strips all
+  metadata at ingest and re-reads the written bytes to prove it is gone --
+  photographs of valuables carry the GPS position of where they are kept.
+  `captured_at` is the one field kept, because capture order helps match
+  photographs to items. Originals are never served publicly; public requests
+  are answered from derivatives.
+- `item_image` links a photograph to an item, with an `image_role`
+  (obverse, reverse, edge, detail, slab, certificate, group, packaging,
+  unassigned), `is_primary` and `sort_order`. `inventory_item_id` is
+  **nullable on purpose**: a photograph exists before anyone has decided what
+  it shows, and must be storable and browsable in that state.
+  `uq_item_image_primary` (partial unique) allows at most one primary per
+  item; `uq_item_image_pair` one link per image and item.
+- `image_store.ingest` stores a photograph -- original and both derivatives
+  -- and is shared by the upload endpoint and the import pass.
 
-Two separate reasons, and the design has to answer both.
+## `image_links.py` -- the only writer of `item_image`
 
-- **There is no way to add a photograph after receiving.** `api.uploadImage`
-  has exactly one caller, `ReceiptPanel`. The receiving screen is the only
-  moment a photograph can ever be attached to an item. The owner logs receipts
-  quickly and photographs at leisure afterwards, so the one moment the console
-  allows is the one moment they are not taking pictures.
-- **The existing photographs are outside the system.** Roughly 673 files,
-  taken in safe deposit boxes over time, never imported. There is no bulk
-  ingest, and no console surface that lists images at all -- the API offers
-  upload, serve-bytes and delete, and nothing else.
+The same single-writer rule `offering_writes` keeps for listings, so the
+console and the import pass cannot drift about what a link means.
 
-The schema was built for this and then never used. `ItemImage.inventory_item_id`
-is **nullable on purpose**, and its docstring says why: photographs "exist
-before anyone has decided what they depict, and must be storable, browsable and
-searchable in that state".
+- **The primary swap.** Promoting a photograph demotes the incumbent first,
+  in the same transaction; the partial unique index would reject a second
+  primary outright.
+- **Filling the vacancy.** `attach` makes a new link primary when the item
+  has none, even if the caller did not ask: the shop has no fallback to "the
+  first photograph", so an item with photographs and no primary shows a
+  buyer nothing. Filling a vacancy never demotes anyone; an incumbent is
+  displaced only when the caller asks for `is_primary`.
+- **Keeping it filled.** `fill_primary_vacancy` promotes the next photograph
+  (lowest `sort_order`, then id) when `detach` removes the primary, and when
+  `DELETE /api/images/{id}` cascades links away.
+- `attach` refuses (`LinkRefused`) a photograph already linked to that item.
 
-## Decisions
-
-Made by the owner during design, 2026-09-18.
-
-1. **One spec covers both halves** -- photographs on an item, and importing the
-   backlog -- rather than two sub-projects. They share a model, a writer and a
-   review surface, and splitting them would mean designing the same link twice.
-2. **The photograph library is a directory, configured by environment
-   variable**, defaulting to `photos/` at the repository root and git-ignored.
-3. **Filenames carry the item.** `<item_code>_<nn>.<ext>`, e.g.
-   `CC-000412_01.jpg`. This is what turns linking 673 photographs from a search
-   problem into a parse problem.
-4. **`item_code`, not the numeric id.** The code appears throughout the console
-   and on holders; a folder of `412_01.jpg` is unreadable to a person, and a
-   mistyped numeric id silently names a different coin.
-5. **The sequence carries role as well as order.** `_01` is the **obverse**,
-   `_02` the **reverse**, `_03` and beyond **unassigned**. `_01` is also the
-   **primary**, because the obverse is what the shop should show.
-6. **A CLI pass imports, the console reviews.** `python -m app.photo_import`
-   walks the library, parses, ingests and links; the console owns judgement on
-   whatever the pass could not resolve.
-
-### Rejected
-
-- **Uploading the backlog through the browser.** No filesystem assumptions, and
-  it works from any machine -- but the files are already on this one, 673
-  through a file picker is a long sitting, and it discards the filename
-  convention that makes the import cheap.
-- **A watched folder that ingests continuously.** More moving parts than one
-  import plus occasional additions justifies, and it turns "what happened to
-  that photograph?" into a question about a background process rather than
-  about a command someone ran.
-- **Skipping files that do not match the convention.** A typo in a code would
-  silently drop a photograph. Every file is ingested; only the *link* is
-  withheld.
-- **Storing the GPS coordinates.** Not considered, and recorded here so it is
-  not revisited: `imaging.py` strips all metadata at ingest and re-reads the
-  written bytes to prove it is gone, precisely because "photographs of
-  valuables routinely carry the GPS coordinates of where they were taken --
-  which is to say, of where the valuables are kept". `captured_at` is the one
-  field kept, and the existing comment already says why: capture order helps
-  link photographs to items.
-
-## The filename contract
+## The filename convention
 
 ```
 <item_code>_<nn>.<ext>          CC-000412_01.jpg
 ```
 
-- **`item_code`** matches `CC-\d{6}` exactly, case-sensitive. `item_code` is
-  generated as `'CC-' || lpad(nextval('item_code_seq'), 6, '0')`, so the shape
-  is not a guess. A lowercase `cc-` is a miss, not a correction: a parser that
-  repairs input teaches the operator that the convention does not matter.
-- **`_<nn>`** is a zero-padded sequence of at least two digits. `_1` is a miss.
-- **Role and primary follow from the sequence**: `_01` obverse and primary,
-  `_02` reverse, `_03`+ `unassigned`. Both `obverse` and `reverse` are seeded
-  `image_role` values, along with edge, detail, slab, certificate, group,
-  packaging and unassigned.
-- **The extension** is whatever `imaging.cleanse` already accepts. The pass does
-  not keep a second list of formats that can drift from the real one.
+Parsed by `photo_names.parse`, a pure function.
 
-### The five ways a file can fail, and what happens
+- **`item_code`** matches `CC-\d{6}` exactly, case-sensitive -- the shape the
+  database generates. A lowercase `cc-` is a miss, not a correction: a parser
+  that repairs input teaches the operator the convention does not matter.
+  The code rather than the numeric id, because it is what appears in the
+  console and on holders, and a mistyped id silently names a different coin.
+- **`_<nn>`** is at least two digits, 1 or more. `_1` is a miss.
+- **The sequence carries the role**: `_01` obverse and primary, `_02`
+  reverse, `_03` and beyond `unassigned`.
+- **The extension** is whatever `imaging.cleanse` accepts; the pass keeps no
+  second list of formats.
 
-Nothing is ever dropped. An unlinked photograph is still a stored, browsable
-image -- which is exactly the state `ItemImage`'s nullable link exists for.
+## The import pass
 
-| Case | Ingested | Linked | Reported |
+```
+python -m app.photo_import [--root PATH] [--commit]
+```
+
+`--root` defaults to `settings.photo_library_root` (`photos/` at the
+repository root, environment-configurable, git-ignored). **Dry run by
+default**: it writes no rows *and no bytes to media storage* -- it runs
+`imaging.cleanse` to validate and hash each file, but not `ingest`, which
+would store files no rollback can remove. `--commit` writes. The report
+prints each exception by name and the counts.
+
+**Nothing is dropped.** In a committing run every file `imaging` accepts is
+stored; only the *link* is withheld.
+
+| Case | Stored | Linked | Reported as |
 |---|---|---|---|
-| Name does not match the pattern | yes, unattached | no | filename |
-| Well-formed code, no such item | yes, unattached | no | filename and code |
-| The item is deleted or split | yes, unattached | no | filename, code and which |
-| Two files claim the same code and sequence | both | **neither** | both filenames |
-| Item already has a photograph at that sequence | yes, unattached | no | filename and what holds the slot |
+| `imaging` refuses the file | no | no | `REJECTED`, with the reason |
+| Name does not match the convention | yes, unattached | no | `unmatched` |
+| No item has the code | yes, unattached | no | `unmatched` |
+| The item is deleted or split | yes, unattached | no | `unmatched`, saying which |
+| Two files claim the same code and sequence | both | **neither** | `collision`, both names |
+| The item already has a link at that `sort_order` | yes, unattached | no | `occupied`, naming the holder |
+| A `_01` for an item that already has a primary | yes | yes, not primary | `primary`, naming what kept it |
+| This photograph is already linked to the item | already stored | already linked | counted as `already` |
 
-**Linking neither of two colliding files is deliberate**: with two candidates
-and no way to choose, linking one of them is a coin flip presented as a fact.
-And **an occupied sequence is never replaced silently** -- a re-shoot is a
-decision, and the console is where decisions are made.
-
-**An existing primary is not taken away silently either.** A `_01` would be
-promoted, and every console upload files at `sort_order` 0, so a
-hand-attached photograph is invisible to the occupied check above. The pass
-therefore looks for an existing primary before promoting: if the item has one,
-the file is still linked at sequence 1 but stays non-primary, and the report
-names it alongside what kept the primary. `is_primary` decides what a buyer
-sees, so changing it is the same kind of decision as replacing a sequence.
-
-## The pass
-
-`python -m app.photo_import`, following `app.vendor_cleanup`'s shape exactly:
-**dry run by default**, printing counts and naming every exception; `--commit`
-to write.
-
-- **Root** from `settings.photo_library_root`, environment-configurable,
-  defaulting to `REPO_ROOT / "photos"` -- mirroring `media_root`, which is the
-  existing precedent for a filesystem path in settings. `photos/` is added to
-  `.gitignore`.
-- **`ingest` moves out of `routers/images.py`** into a domain module that the
-  router and the pass both call. A CLI pass importing a router is backwards,
-  and `ingest` is not an HTTP concern. The router keeps request handling.
-- **Idempotent twice over.** `image.sha256` is unique and content-addressed, so
-  a second run re-finds the same image rather than storing it again; and
-  `uq_item_image_pair` means the pass must check before linking rather than
-  rely on the insert failing.
-- **`sort_order` is the sequence number**, so the console shows photographs in
-  the order they were taken rather than in whatever order the rows were
-  written.
-- **An item that is deleted or split is not linked to**, and is reported like
-  any other exception. Both states mean the code names something that is no
-  longer a thing anyone holds -- `offering_writes.offer` refuses the same two
-  for the same reason -- and a photograph filed against one is a photograph
-  nobody will find.
-- **It reports for-sale items before `--commit` and does not refuse them.** A
-  CLI pass has nobody to acknowledge a warning, and threading a flag through it
-  would produce a batch job that auto-acknowledges -- worse than no guard,
-  because it looks safe. The pass instead names how many affected items are for
-  sale, and the operator decides. This is consistent with
-  `docs/specs/for-sale-guards-design.md`, which rejected guards inside writer
-  modules for the same reason.
+- **A collision links neither file**: with two candidates and nothing to
+  choose between them, linking one is a coin flip presented as a fact.
+- **An occupied slot is never replaced silently**, and **an existing primary
+  is never taken away**: a re-shoot or a change to what a buyer sees is a
+  decision, and the console is where decisions are made. Console uploads
+  file at `sort_order` 0, so the primary check is separate from the slot
+  check.
+- **Idempotent**: a second run re-finds images by hash and existing links,
+  and changes nothing.
+- `sort_order` is the sequence number, so the console lists photographs in
+  shooting order.
+- **For-sale items are reported, not refused.** A CLI pass has nobody to
+  acknowledge a warning, and a batch job that auto-acknowledges is worse
+  than no guard. The report lists the linked items that are for sale.
 
 ## The console
 
-### `PhotosPanel`, in the item editor
+- **`PhotosPanel`**, in the item editor beside `OffersPanel` and
+  `ErrorsPanel`: thumbnails in `sort_order` with role and primary shown;
+  upload, change role, make primary, and **Remove**, which detaches and
+  never deletes the photograph. It reads from the server after every write,
+  never from the editor's draft.
+- **`/owner/photos`**: unattached photographs, most recent capture first
+  (nulls last), each with an item picker that searches by item code across
+  coins and currency. Where the pass's leftovers are filed, and where a
+  photograph detached from the wrong item waits.
+- **Receiving**: `ReceiptPanel` uploads photographs for the one item being
+  received; the first is primary. A failed upload never rolls back the
+  receipt.
 
-Beside `OffersPanel` and `ErrorsPanel`, and built like them: it reads from the
-server rather than from the editor's draft, and never writes a link itself.
-Thumbnails in `sort_order`, each showing its role and which one is primary,
-with upload, set-primary, change-role and remove.
+All of these go through `ForSaleNotice` / the for-sale refusal: every link
+change is guarded by `sale_state.guard` (`for-sale-guards-design.md`).
 
-This is the surface the owner asked for: an item can gain a photograph at any
-time, not only in the seconds after its receipt was recorded.
-
-### `/owner/photos`, for what the pass could not resolve
-
-The unattached images, most recent capture first, each with an item picker.
-Where the leftovers from the import get settled, and where a photograph
-detached from the wrong item waits to be re-filed.
-
-### The API cannot express any of this today
-
-There is no list endpoint at all -- only upload, serve-bytes and delete.
+## API
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/images` | filtered by `inventory_item_id`, or `unattached=true` |
+| `POST /api/images` | upload (multipart); optionally attach with `inventory_item_id`, `image_role`, `is_primary` |
+| `GET /api/images` | links for `inventory_item_id`, or `unattached=true`; **exactly one** is required, otherwise 422 |
+| `GET /api/images/{sha256}/{kind}` | serve a derivative |
 | `POST /api/images/{image_id}/links` | attach to an item, with role and primary |
-| `PATCH /api/image-links/{link_id}` | change role, or make this one primary |
+| `PATCH /api/image-links/{link_id}` | change role, or make primary |
 | `DELETE /api/image-links/{link_id}` | **detach**; the photograph survives |
+| `DELETE /api/images/{image_id}` | destroy the photograph, its derivatives and its stored bytes |
 
-`GET /api/images` **requires one of the two filters** and refuses with 422 when
-given neither. An unfiltered list of every photograph in the collection is a
-page nobody asked for and a query that grows without bound; making the caller
-say which set it wants costs one parameter and removes the question.
+`GET /api/images` requires a filter because an unfiltered list of every
+photograph is a page nobody wants and a query that grows without bound.
 
-The link routes live under **`/api/image-links`**, not under
-`/api/images/links/...`. The images router already serves
-`GET /api/images/{image_id}/{kind}` with an integer `image_id`, and a literal
-`links` segment in that position is a path that only avoids collision by
-FastAPI failing to parse `"links"` as an integer. Depending on declaration
-order for correctness is a trap; a separate prefix has no ordering to get
-wrong.
+The link routes live under **`/api/image-links`** rather than
+`/api/images/links/...`, because `/api/images/{sha256}/{kind}` would
+otherwise be separated from them only by route declaration order.
 
-The last row is the distinction the current API lacks. `DELETE
-/api/images/{image_id}` destroys the photograph and its stored bytes; detaching
-a mis-filed photograph must not, or a filing error becomes data loss.
+Detach and delete are separate endpoints so that correcting a filing error
+can never destroy a photograph.
 
-### `image_links.py`, the only writer of `ItemImage`
+## Tests
 
-Mirroring `offering_writes` and `lifecycle_writes`. It owns the **primary
-swap** -- clearing the existing primary before setting the new one, within one
-transaction -- because `uq_item_image_primary` is a partial unique index and
-will reject a second primary outright. It is also the single place the pass and
-the console share, so the two cannot drift about what a link means.
-
-It also **fills the vacancy**: attaching to an item that has no primary yet
-makes the new link primary even when the caller did not ask. `routers/catalog`
-serves an item's primary link and has no fallback to "the first photograph",
-so a photograph filed without one is a photograph the shop will never show --
-and `/owner/photos` is precisely where photographs of items with no other
-photograph are filed. Filling a vacancy is never a demotion; an incumbent is
-displaced only when the caller asked for `is_primary`. Putting it here rather
-than in each caller is what keeps the unattached page, the item editor's
-upload and the receiving screen from disagreeing about it.
-
-### All four paths go through `sale_state.guard`
-
-Attaching, detaching, changing the primary and deleting a photograph all change
-what a buyer sees, because the shop serves the primary image. The guard exists
-(`docs/specs/for-sale-guards-design.md`), `POST /api/images` and `DELETE
-/api/images/{id}` already carry an acknowledgement, and the console already has
-`ForSaleNotice` for exactly this.
-
-## Testing
-
-**The filename parser is a pure function and is tested as a table**: valid,
-lowercase `cc-`, five digits, seven digits, missing sequence, single-digit
-sequence, unknown extension, and the `_01`/`_02`/`_03+` role mapping. Pure
-because a convention rots quietly, and a table puts every rule in one readable
-place.
-
-**The pass**, against a temporary library root: a dry run writes nothing --
-**no rows and no bytes in media storage**, asserted separately, because
-`ingest` stores the original and both derivatives before any rollback could
-undo them and a database-only assertion cannot see that; `--commit` links what
-it said it would; a second run changes nothing; unmatched files land unattached
-and are named; a duplicate code-and-sequence links neither; an occupied
-sequence is skipped rather than replaced; an item that already has a primary
-keeps it, and the `_01` that would have taken it is reported.
-
-**The primary swap gets a mutation test.** Remove the clear-the-old-primary
-step and `uq_item_image_primary` must reject the write -- which proves the
-index is load-bearing rather than decorative.
-
-**Every new guard call site gets the treatment from the previous branch**: each
-test must fail when its guard is deleted, confirmed by a mutation pass. Four of
-that branch's defects were tests that could not fail, and the cheapest time to
-prevent the fifth is now.
-
-**Frontend**: `PhotosPanel` and the unattached page, rendered with
-`strict: true`.
-
-## What this does not do
-
-- **No live import.** The pass ships tested against temporary libraries. Its
-  first run against the real photographs is a dry run the owner watches.
-- **No migration.** `image`, `image_derivative`, `item_image` and `image_role`
-  all already exist with the columns this needs.
-- **No renaming helper.** The convention is applied to the files by whoever
-  takes the photographs; the system reads it and never rewrites it.
-- **No EXIF beyond `captured_at`.** Unchanged from today, deliberately.
-- **No change to how images are served.** Originals stay unreachable; public
-  requests are answered from derivatives, as now.
-
-## Consequences worth knowing
-
-- `ItemImage`'s docstring says "camera filenames carry only a timestamp, so
-  linking is a manual, UI-assisted task rather than an import step". Decision 3
-  supersedes that: filenames will carry the item. The docstring is updated as
-  part of this work, because a comment that describes an abandoned assumption
-  is worse than no comment.
-- Moving `ingest` out of the router is the second time this feature family has
-  pulled a writer into its own module. That is the pattern the codebase is
-  converging on, and `image_links.py` follows it deliberately rather than by
-  accident.
+- `tests/test_photo_names.py`: the parser as a table -- valid names,
+  lowercase `cc-`, five and seven digits, missing and single-digit
+  sequences, and the role mapping.
+- `tests/test_photo_import.py`, against libraries under `tmp_path` (never the
+  real one): a dry run writes no rows and no bytes, asserted separately;
+  `--commit` links what it reported; a second run changes nothing; every row
+  of the table above.
+- `tests/test_image_links.py`: the primary swap, vacancy filling on attach,
+  detach and delete. The demotion is load-bearing: remove it and
+  `uq_item_image_primary` rejects the write.
+- Each guard call site fails a named test when deleted.
+- Frontend: `PhotosPanel` and the Photos page, rendered with `strict: true`.

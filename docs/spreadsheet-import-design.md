@@ -1,297 +1,289 @@
 # Spreadsheet import design
 
-> **This describes temporary code.** It exists to load an existing collection —
-> currently maintained in a spreadsheet, with supporting vendor documents and
-> photographs — into the schema described in
-> [database-design.md](database-design.md). Once the database and admin UI are
-> the working system of record, this code is **deleted**, not maintained.
->
-> Nothing here should influence the schema. If a rule in this document seems to
-> want a column, that is a signal to re-read the schema, not to add one.
+The design of the importer in `backend/app/importers/`, as built. It loads a
+collector's spreadsheet into the schema described in
+[database-design.md](database-design.md), with a review report for everything
+its rules cannot decide.
+
+**It is used for a new collection only.** The existing collection was loaded
+from `wnm3_coins.xlsx`; since then the `ccwebdb` database is the record, and
+the workbook is never imported into it again -- a re-import would discard
+every correction made since. Data in `ccwebdb` is improved by the passes and
+the console ([system-administration.md](system-administration.md)).
+`scripts\ccweb_rebuild.cmd` runs the importer into a separate database,
+`ccwebdb_rebuild`. [data-import-plan.md](data-import-plan.md) records what the
+workbook contained and how the import went.
+
+Nothing here should influence the schema. If a rule seems to want a column,
+re-read the schema rather than adding one.
 
 ---
 
-## 1. Scope and lifetime
+## 1. Architecture: one seam
 
-**In scope:** a one-time (repeatable while iterating) load of an owner's
-existing records into the database, with a review queue for everything the
-rules cannot decide, and best-effort cross-checking against saved vendor
-documents.
-
-**Out of scope:** anything reusable. No configurable mappings, no rule editor,
-no second data source. Generalising before a second source exists would be
-building for a hypothetical.
-
-**Exit criteria — when this code is deleted:**
-
-1. All rows are loaded and the review queue is empty or accepted.
-2. The admin UI can create, edit and receive items directly.
-3. The owner has stopped updating the spreadsheet.
-
-At that point a **generic import facility** — upload, inspect, map columns to
-fields, rules as editable data, dry-run with diff — becomes a real feature,
-designed without reference to any one file's quirks. This document is not its
-precursor; it is its predecessor.
-
----
-
-## 2. Architecture: one seam
-
-All source-specific knowledge lives in exactly one place, reached through one
+All knowledge of one source's layout lives in one module, reached through one
 interface.
 
 ```
 importers/
-  engine.py            DURABLE   batching, staging, normalisation, issue queue,
-                                 provenance, dry-run, reporting
-  profile.py           DURABLE   the Protocol a profile must satisfy
+  engine.py      DURABLE     runs a source through a profile: staging, report, commit
+  profile.py     DURABLE     the contract a profile satisfies (RawRow, Issue, RowResult)
+  sources.py     DURABLE     reads .xlsx rows as verbatim text; sha256 of the file
+  loader.py      DURABLE     normalised fields -> schema rows (SchemaLoader)
+  models.py      DURABLE     import_batch, import_row, import_issue
+  rating.py      DURABLE     decomposes a condition string; shared with app.rating_pass
+  reporting.py   DURABLE     the review files
+  profiling.py   DIAGNOSTIC  column profiling and variant detection
+  cli.py                     python -m app.importers.cli
   profiles/
-    collection_v1.py   DISPOSABLE  every rule in this document
+    collection_v1.py  DISPOSABLE  every rule specific to wnm3_coins.xlsx
 ```
 
-The engine knows nothing about coins, denominations or receipt conventions. It
-knows how to read a tabular source into staging, hand each row to a profile, and
-record what came back.
-
-A profile supplies:
+The engine and loader know nothing about coins, denominations or one
+workbook's conventions. A profile implements one method:
 
 ```python
 class ImportProfile(Protocol):
-    def columns(self) -> Mapping[str, str]: ...  # source header -> field
-    def classify(self, row: RawRow) -> Classification: ...  # kind + subtype
-    def normalise(self, row: RawRow) -> Normalised: ...  # typed values
-    def issues(self, row: RawRow) -> list[Issue]: ...  # anything ambiguous
+    name: str
+    def inspect(self, row: RawRow) -> RowResult: ...
 ```
 
-**Effort follows the seam.** The engine is tested thoroughly. The profile is
-tested at the level of *"the whole source loads and the kind counts reconcile"*,
-not unit tests per correction rule — those rules are being deleted.
+`RowResult` carries a `Classification` (kind, subtype, and the rule that
+decided it), a list of `Issue`s (rule, severity `info`/`warning`/`error`,
+column, raw and proposed value, note) and a loose `fields` dict. Mapping
+`fields` onto real columns is the loader's job, not the profile's. A row
+needs review when its kind is `unknown` or any issue is an `error`.
+
+The rules that matter -- classification order, `Grading#` routing, the
+`Received` column, identifier damage, rating decomposition -- are tested in
+`tests/test_importer.py` and `tests/test_rating_rules.py`. A collection in a
+different layout gets a new profile; the engine and loader do not change. A generic import facility -- upload, map columns, rules as
+editable data -- would replace profiles, not the engine, and is not built.
 
 ---
 
-## 3. Two-stage load
+## 2. Two-stage load
 
 ```
-source file ──► import_row (verbatim)  ──► normalised tables
-                      │
-                      └──► import_issue (review queue)
+source file --> import_row (verbatim)  --> inventory_item and its detail rows
+                      |
+                      +--> import_issue
 ```
 
-Nothing is coerced on the way in. Every value is preserved exactly as read, and
-every normalised record keeps `import_row_id` so any field traces back to its
-origin.
+Nothing is coerced on the way in. `sources.XlsxSource` renders every cell as
+text: dates as ISO, whole-number floats without a spurious `.0`.
 
 ```
-import_batch
-  id, source_path, sha256, source_kind, row_count
-  started_at, finished_at, mode (dry_run | commit), notes
-
-import_row
-  id, batch_id, row_number
-  raw jsonb                    -- the entire source row, verbatim
-  status                       -- pending | imported | needs_review | rejected
-  inventory_item_id null       -- set once normalised
-
-import_issue
-  id, import_row_id, column_name, rule, severity
-  raw_value, proposed_value, resolved_by, resolved_at, note
+import_batch   id, source_path, source_kind, sha256, profile_name, mode,
+               row_count, started_at, finished_at, notes
+import_row     id, batch_id, row_number, raw (JSONB, the whole row),
+               status (classified | needs_review | imported),
+               item_kind, subtype, classified_by_rule, inventory_item_id
+import_issue   id, import_row_id, rule, severity, column_name, raw_value,
+               proposed, note, resolved_by, resolved_at
 ```
 
-`raw` is `JSONB` rather than fixed columns: a source whose shape changes needs no
-migration, and the engine stays source-agnostic.
+`raw` is JSONB so a change in the source's shape needs no migration.
+`import_row.inventory_item_id` links each staged row to the item it produced;
+that join, not arithmetic on item codes, is the way back to a source row.
 
-**Dry-run is the default.** A run reports what it *would* create, with counts by
-kind and a full issue list, and writes nothing until asked to commit. Re-running
-is idempotent — `import_batch.sha256` plus `row_number` identifies work already
-done.
+### Running it
+
+```cmd
+python -m app.importers.cli --file <path.xlsx>              dry run, no database
+python -m app.importers.cli --file <path.xlsx> --commit     stage and load
+```
+
+Other options: `--sheet`, `--profile` (only `collection_v1`), `--limit N`,
+`--top N` (entries per report section), `--out-dir`, `--no-files`, `--quiet`.
+
+**The dry run is the default and touches no database at all**, so a
+profile's rules can be iterated on with nothing running. It prints the report
+and writes the review files to `logs\import\` (under `CCWEB_LOG_DIR` when
+set): `report.txt`, `summary.json`, `issues.csv` (each issue with its full
+source row), `corrections.csv` (a known typo and the rows to fix it in),
+`unclassified.csv` (distinct unclassified values with their rows),
+`columns.csv` and `variants.csv` (column profiling). Reviewing distinct values
+rather than rows is what makes the queue tractable. The exit code is 1 when
+any issue is an `error`.
+
+`--commit` opens a batch, stages every row, and loads each through one
+`SchemaLoader`, whose reference lookups are cached for the run. **It is not
+idempotent**: the file's sha256 is recorded but not checked, so committing the
+same file twice loads it twice. Import into an empty database, as the rebuild
+script does.
+
+There is no console screen over `import_issue`; the review files are the
+review surface, and the console's named diagnostics (`app/issues.py`) are the
+ongoing one.
 
 ---
 
-## 4. Classification
+## 3. Classification
 
-Ordered rules, first match wins. Order matters more than the rules themselves.
+`collection_v1` classifies a row by its `Denom` cell. First match wins, and
+the order matters more than the rules:
 
-1. **bullion** keywords — Eagle, Round, Bar, oz, Libertad, Maple, Krugerrand
-2. **set** keywords — Mint Set, Proof Set, Prestige, Coin Set
-3. **medal**, **token**, other named object types
-4. **currency** — contains Bill or Note
-5. **currency** — leading currency symbol
-6. **currency** — a number followed by a word or letter (`10c`, `5 Rupees`)
-7. **coin** — purely numeric
-8. otherwise **unknown**, and into the review queue
+1. **known values** -- an explicit map of exact cells (`mint proof`,
+   `silver mint`, ...) to a kind and subtype
+2. **bullion** keywords -- Silver/Gold Eagle, rounds, bars, Maple, Libertad,
+   Krugerrand, Britannia, Philharmonic, Buffalo, Panda, `oz`, gram or grain
+   weights
+3. **set** keywords -- Proof Set, Mint Set, Prestige, Coin Set
+4. **medal**, **token**, and named other objects (meteorite)
+5. **currency** -- `Bill`, `Note`, `Fractional` (and two recorded misspellings)
+6. **currency** -- a leading `$`
+7. **coin** -- a bare number
+8. **coin** -- a number in a unit this collection holds only as coins (pence,
+   yen, francs, pesos, ...)
+9. otherwise **unknown**, into review -- including a number followed by a word
+   that is none of the above
 
-Rules 1–3 must precede 6, or `1oz Copper Round` matches "number followed by a
-word" and becomes currency. This ordering is the single most important thing in
-the profile.
+Bullion and sets come before the currency rules or `1oz Copper Round` would be
+read as a banknote. A number followed by an unrecognised word is left
+`unknown` rather than guessed as currency.
 
-A **correction map** handles known misspellings and spacing variants. Every
-correction is logged as an `import_issue` with severity `info`, so the map stays
-visible rather than becoming invisible magic. It is not a general-purpose fuzzy
-matcher.
-
-Expected outcome: the large majority classified automatically, with the
-remainder concentrated in a small number of distinct values — reviewing distinct
-values rather than rows is what makes the queue tractable.
+A **correction map** fixes known misspellings (`$20 blll`, `silvereagle`).
+Every correction is logged as an `info` issue, so the map stays visible. It is
+not a fuzzy matcher.
 
 ---
 
-## 5. Field-level rules
+## 4. Field-level rules
 
-These exist because a hand-maintained spreadsheet accumulates conventions that a
-schema does not have.
+**Columns that mean different things by row.** `Grading#` is a banknote's
+printed serial (`currency_detail.serial_number`) and anything else's
+certificate number (`item_certification`, one row per number, since some
+cells list several). The classified kind decides. An arrival marker typed
+there (`x`, `canceled`) is warned and not stored; a word saying the identifier
+is absent (`missing`, `none`) is warned and not stored.
 
-**Columns that mean different things depending on the row.** A single column may
-hold a grading certificate serial for one kind of item and the item's own printed
-serial for another. Routing is by classified kind; a value that is ambiguous in
-isolation is decided by what the row turned out to be.
+**Arrival comes from `Received` only.** `x` is received; a blank is `ordered`,
+since the absence of the mark is what the column says; `canceled`,
+`returned` and `missing` set that status; `counterfeit` sets authenticity and
+leaves status alone; anything else is `ordered` with a
+`received-not-understood` warning. An unreadable cell reads as *not* arrived
+on purpose: an item wrongly left `ordered` is received in the console in one
+click, while one wrongly marked `received` drops silently out of everything
+that asks what is outstanding.
 
-**Columns doing double duty.** A value column may carry either an appraisal or a
-status marker. Numeric values become the estimate; known markers map to status;
-anything else goes to review rather than being guessed at.
+**`Value` is an appraisal.** A number becomes `numismatic_value`. A status
+marker found there is reported (`status-marker-in-value-column`), not obeyed:
+two columns both setting status is how they come to disagree.
 
-**Conventions that started partway through.** Where a marker only appears after
-some date, that date is established from the data and used to interpret absence:
-before it, absence means "the convention did not exist"; after it, absence is
-meaningful. Rows on the wrong side of that boundary go to review.
-
-**Compound values are decomposed, never stored whole.** A condition string may
-carry a grade, a designation, a grading service and — for notes — attributes that
-are not grades. Each is extracted into its own field, the original is retained,
-and anything unrecognised is flagged.
+**Compound values are decomposed, never stored whole.** `rating.py` splits
+`PR69DCAM PCGS` into strike type, grade, designation and grader, and reads
+attributes (CAC, First Strike, No Motto) and authenticity. The original stays
+in `grade_raw`; unrecognised text goes to `attributes.rating_unparsed`. A bare
+number (`69 PCGS`) is graded only once something settles the strike.
 
 **Ranges and multi-value cells.** Year ranges become `year_start`/`year_end`.
-Comma-separated certificate lists become multiple `item_certification` rows.
-Multiplier prefixes (`20x …`) become `storage_quantity`.
+A coin's `1921-P` or `2019-P/D/S` is a year and mint marks; a note's `2017-A`
+is a series year and series letter, stored separately. A multiplier prefix
+(`20x ...`) becomes `piece_count`. Weights in grams, kilos or pounds convert
+to troy ounces, with `weight_raw` kept.
 
-**Identifiers are text, always.** Order numbers, certificate serials and note
-serials are read as strings and never re-typed. Values that a spreadsheet has
-already coerced to numbers — losing leading zeros or, worse, becoming scientific
-notation — are flagged for manual recovery. **That damage is not repairable by
-the importer**, only detectable.
+**Identifiers are text, always.** Order numbers, serials and certificate
+numbers are never re-typed. A value the spreadsheet already coerced to a
+number -- leading zeros lost, or scientific notation -- is flagged
+(`identifier-lost-to-scientific-notation`). **That damage is detectable, not
+repairable**; recovery is from the item or a vendor document.
+
+**Purchase orders are grouped by a real identifier or not at all.** A row
+with an order number joins that vendor's order. Without one, the vendor's
+transaction id in the item URL identifies the purchase (a HiBid, Proxibid or
+LiveAuctioneers lot, an Etsy receipt). An eBay item number names a listing, so
+it groups rows but is never written into `order_number`. A row with neither
+gets no purchase order: keying on `order_number or ""` once collapsed every
+numberless row from a vendor into one fabricated order.
+
+**Composition is filled from the facts** (`composition.json`) where the row
+states no weight or metal, and recorded as a derived default so
+`app.classifier_defaults` may refresh it. A stated value always wins.
 
 ### Domain facts that look like errors
 
-A variant detector proposes corrections by collapsing case, spacing and
-punctuation, then pointing rare spellings at dominant ones. It is a **proposal
-engine, not an authority** — several of its highest-confidence suggestions would
-destroy real information. Confirmed with the collection owner:
+The column profiler proposes corrections by collapsing case, spacing and
+punctuation. It is a **proposal engine, not an authority**; the profile's
+`KNOWN_GOOD` lists values confirmed correct as written:
 
-| Value | Looks like | Actually means |
+| Value | Looks like | Means |
 |---|---|---|
-| `1980's`, `1970s` | a typo for mint mark `S` | a **decade** — e.g. a roll of pennies spanning the 1980s |
-| `1989-P&D`, `1988-P/D` | inconsistent separators | a **mint set containing both mints**, Philadelphia and Denver, not broken out as separate items |
+| `1980's`, `1970's` | a typo for mint mark `S` | a **decade**, e.g. a roll spanning the 1980s |
+| `1989-P&D`, `1988-P/D` | inconsistent separators | a **mint set holding both mints** |
 | `2024?` | a stray character | the year is **uncertain** |
-| `1953` vs `1953-` | a missing suffix | a bare year and an **open range** are different claims |
-| `-2024` | a transposition | may denote a **range** |
-| `UNC+`, `MS64+`, `BU++` | inconsistent grades | **real grading distinctions**, never normalised away |
+| `1953` vs `1953-` | a missing suffix | a year and an **open range** are different claims |
+| `UNC+`, `MS64+`, `BU++` | inconsistent grades | **real grading distinctions** |
+| `25`, `Silver Round .5 oz` | `2.5`, `5oz` | a $25 gold eagle; a half ounce |
 
-A year may be a single year, a range, a decade, or uncertain. **Normalising year
-formatting is safe only for case, stray whitespace and the separator between
-year and mint mark.** Anything that adds, removes or reinterprets a character
-carrying meaning is left for a human.
+Normalising is safe only for case, stray whitespace and the separator between
+year and mint mark. Anything that adds, removes or reinterprets a meaningful
+character is left for a person.
 
-`P&D` to `P/D` was accepted as a separator normalisation because it preserves
-the multi-mint meaning; the parser reads both marks out of either form.
+### Authority
 
-### Authority rules
-
-**Status is read only from fields the owner controls deliberately.** Free-text
-description fields are seller-supplied marketing copy and carry no authority over
-status. A naive search for cancellation words across a whole row matches
-boilerplate (`NO CANCELLATIONS`), product names (`Lost Coins`) and set contents
-(`MISSING 1991`) — and would cancel a large number of items the owner actually
-holds. Description contributes to full-text search and nothing else.
+**`Description` has no authority over status, errors or anything else.** It
+is seller copy. Scanning it for cancellation words matches auction
+boilerplate (`NO CANCELLATIONS`), product names (`Lost Coins`) and set
+contents (`MISSING 1991`). It feeds full-text search only.
 
 ---
 
-## 6. Vendor document cross-check
+## 5. Reference resolution and provenance
 
-Saved order pages and auction invoices are used to **corroborate** the loaded
-records. They are never authoritative and never block the import.
+The loader resolves every classifier to a reference row by code, then by
+label or alias (`app.aliases`), before doing anything else. What it cannot
+resolve:
 
-```
-source_document   id, sha256 unique, storage_key, vendor_id, doc_kind
-                  captured_on, page_count, parse_status, extraction_coverage
-document_order    id, source_document_id, order_number, order_date,
-                  order_total, seller, page_number
-document_item     id, document_order_id, title, price
-validation_finding
-                  id, inventory_item_id null, purchase_order_id null,
-                  document_order_id null, field, sheet_value, document_value,
-                  severity   -- match | variance | mismatch | unmatched
-```
+- **Most vocabularies** get a new row marked `source = derived`, counted in
+  the report (`derived  : grade 2, mint 1`). A large count means the seeded
+  vocabulary is missing something real. `SchemaLoader(create_missing=False)`
+  raises instead, for a strict re-run.
+- **Grades** are stricter. A number grade the seed lacks (`61+`) is added as
+  derived, since it is a real point on the scale, but text that is not a
+  condition (`5-Coin Mint Set`) is declined and kept in `grade_raw`. A
+  banknote's grade is found on the note scale or left for a person.
+- **An alias shared by two values** resolves to neither.
+- A value read through an alias is reported
+  (`aliased  : note_type: Legal Tender -> us_note (3 rows)`).
 
-**Parsing is layout-aware, not regex-over-text.** Saved marketplace pages
-interleave navigation furniture with content, and their text layer can be lossy —
-some records simply do not survive text extraction. Extraction works from word
-coordinates, filtering by position, and records
-`extraction_coverage` per document so under-reporting is visible rather than
-silent.
-
-**Matching order:** order number → (date + total) → fuzzy description.
-
-**Findings are reported, never applied.** An unmatched record means *"not
-confirmed"*, never *"wrong"*. Auto-correcting records from a lossy source would
-be worse than not checking at all.
+Every item gets its opening status row through
+`lifecycle_writes.record_initial_status`; attributes read from the rating are
+linked as derived with `derived_by = import`. `derived` rows stay
+distinguishable from curated ones, and `app.seeding export` leaves them out
+unless asked.
 
 ---
 
-## 7. Photograph import
+## 6. What the importer does not do
 
-Directories of photographs are ingested through the same pipeline the
-application uses, described in [database-design.md](database-design.md) §8: read
-metadata into columns, apply orientation, strip all metadata, verify by
-re-reading, hash the cleansed file, store.
-
-Two import-specific points:
-
-**There is generally no reliable link from filename to item.** Camera-default
-names carry only a timestamp. Owner-assigned catalogue numbers, where present,
-are recorded in `local_catalog_number` but do not resolve to rows on their own.
-`item_image.inventory_item_id` stays null and **linking is a manual, UI-assisted
-task**, not an import step. Any design that assumes filenames resolve to records
-is wrong.
-
-**Assists worth offering, to be validated before relied on:** present unlinked
-images in capture order beside candidate items, since both photo sessions and
-hand-numbering tend to be chronological; offer images taken seconds apart as
-obverse/reverse pairs; narrow subsequent candidates once neighbours are linked.
-
-The import **copies**; it does not move. Original files stay where they are.
+- **Series.** The rebuild runs `app.series_match`, `app.classifier_defaults`,
+  `app.series_classify` and `app.serial_patterns` after the import; skipped,
+  their work is simply absent.
+- **Photographs.** Linked afterwards by `app.photo_import`, by the
+  `<item_code>_<nn>` filename convention, or by hand on `/owner/photos`
+  ([data-import-plan.md](data-import-plan.md) §9).
+- **Vendor document cross-check.** Not built: no tables exist for it. If
+  built, saved order pages would be parsed from word coordinates rather than
+  text (their text layer is lossy), with a coverage figure per document,
+  matched by order number, then date and total, then description, and
+  findings reported, never applied -- an unmatched record means "not
+  confirmed", not "wrong".
+- **Demo data.** `python -m app.seed` runs last in the rebuild; run earlier,
+  its demo items take the first item codes and offset every real one.
 
 ---
 
-## 8. Delivery order
+## 7. Risks
 
-| Step | Deliverable | Done when |
-|---|---|---|
-| 1 | Reference tables and seed data | seeded counts match the catalogue |
-| 2 | Core schema, generated columns | arithmetic tests pass on cost basis |
-| 3 | Engine: batch, staging, dry-run | source loads verbatim, sha256 recorded |
-| 4 | Profile: classify and normalise | kind counts reconcile to the row total |
-| 5 | Review UI for the issue queue | queue can be worked to empty |
-| 6 | Document parsing and validation | coverage reported per document |
-| 7 | Photograph ingest | metadata verified absent post-ingest |
-
-Steps 1–5 stand alone: the collection is in the database and queryable before any
-document or photograph work begins.
-
----
-
-## 9. Risks
-
-**Damage already present in the source cannot be undone.** Identifiers coerced to
-numbers have lost information at rest. The importer detects and flags; recovery
-is manual, from the physical item or a vendor document.
-
-**Lossy document text.** Mitigated by coordinate-based extraction and coverage
-reporting, not eliminated. Validation is advisory.
+**Damage already in the source cannot be undone.** Identifiers coerced to
+numbers have lost information. The importer detects and flags; recovery is
+manual.
 
 **Rules drifting into the schema.** Guarded by the engine/profile seam and by
-`source` on every reference row, so a value invented by a rule is never
-indistinguishable from a curated one.
+`source` on every reference row, so a value a rule invented never passes for
+a curated one.
 
-**Over-investment.** The most likely failure is treating this code as permanent —
-polishing correction maps, generalising the profile, writing unit tests for rules
-that will be deleted. The measure of success is how quickly it becomes
-unnecessary.
+**Over-investment in the profile.** Its rules describe one file. Polishing
+them or generalising the profile is the wrong work; a second layout gets its
+own profile.

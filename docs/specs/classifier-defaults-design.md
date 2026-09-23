@@ -1,374 +1,195 @@
-# Classifier defaults from known facts -- currency first
+# Classifier defaults from known facts
 
-Design. Status: **approved by the owner 2026-09-16**; the decisions are
-gathered at the end.
+Most classifiers are not independent observations; they follow from a few facts
+recorded about the object:
 
-## The idea
-
-The owner, 2026-09-16: *"consider the basic input data and some automated
-suggestions for classifiers based on denomination, series, mint, etc. based on
-known facts about coins and currency. These could be overridden, but the
-default values would be applied to help with classification."*
-
-Most classifiers are not independent observations. They follow from a few
-facts recorded about the object:
-
-- A $1 note of Series 1957 **is** a Silver Certificate. That is not a guess;
-  the Treasury issued no other $1 note of that series.
-- A Silver Certificate of Series 1957 carries a **blue** seal and the
-  signatures of **Priest and Anderson**.
+- A $1 note of Series 1957 **is** a Silver Certificate -- the Treasury issued
+  no other $1 note of that series -- with a blue seal and the signatures of
+  Priest and Anderson.
 - A Federal Reserve Note with serial `B12345678A` was issued by the Federal
-  Reserve Bank of **New York**.
+  Reserve Bank of New York.
+- A dime struck in 1963 is 90% silver because the law said so.
 
-The project already works this way in two places, which set the pattern:
-
-- **Composition** resolves from denomination, country and year
-  (`composition.json`: "a dime struck in 1963 is 90% silver because the law
-  said so, not because anyone typed it in").
-- **Series** is assigned from denomination and year by `app.series_classify`
-  (docs/specs/series-classification-design.md). It reports before it writes,
-  never touches a value a person set, and records what it wrote as `derived`.
-
-This spec generalises that into **classifier defaults**: the basic facts are
-entered, the rest is filled in from published facts, and a person can always
-override. Currency comes first, because it has the most to gain -- see below.
-It also brings the currency **vocabulary** in line with official terminology,
-since the defaults can only be as good as the names they fill in.
-
-## What the notes record today
-
-Measured on the live database, 2026-09-16 (1,114 notes):
-
-| Field | Recorded on | Derivable from |
-|---|---|---|
-| denomination | nearly all | -- (input) |
-| series year (and letter) | **1,039** | -- (input) |
-| serial number | **1,053** | -- (input) |
-| seal colour | 219 | note type and series |
-| note type | **0** | denomination, series, seal |
-| signature combination | **0** | note type, denomination, series with letter |
-| Federal Reserve district | **0** | serial number, for Federal Reserve Notes |
-
-The last four rows follow from the three inputs above them, and three of the
-four are empty today. That is the size of the win.
-
-**Estimated coverage of note type**, from the published series tables (below)
-against the live notes:
-
-| | Notes |
-|---|---|
-| decided by denomination + series alone | **907** |
-| decided once the recorded seal is used | 19 |
-| still ambiguous (seal missing where it would decide) | 16 -- e.g. $1 Series 1928: United States Note or Silver Certificate |
-| large-size notes (before Series 1928), not covered by this version | 32 |
-| series not in the facts table (a parse gap to close, or a data error) | 49 |
-| no denomination or series year | 91 |
-
-About **83%** of notes get a note type with no one typing it.
+A person enters the facts; `app.classifier_defaults` fills in the rest from
+published facts, and a person can always override. Series assignment
+(`series-classification-design.md`) works the same way and records its
+results in the same table.
 
 ## Principles
 
 1. **Facts, not guesses.** A default is written only when the facts allow
-   exactly one value. Two possible values is a case for a person, reported
-   like `series_classify`'s boundary list.
+   exactly one value. Two possible values is a case for a person, reported.
 2. **A person always wins.** A default never replaces a value a person set.
-3. **Visible provenance.** A default is recorded as derived, so it can be
-   told apart from what someone typed -- see the decision below.
-4. **Report before writing.** Every pass has a dry run that prints the counts,
-   and the owner sees them before the live database is written.
+   A person's value still narrows the facts: a note recorded with a red seal
+   is not the blue-seal issue of its series.
+3. **Visible provenance.** A default is recorded as derived, per field, so it
+   can be told apart from what someone typed.
+4. **Report before writing.** The pass prints what it would do; `--commit`
+   writes.
 5. **Official names.** Vocabulary follows the issuing agency first (BEP for
    notes, US Mint for coins), then the grading services, then collector usage
-   that independent sources agree on. Dealer lists are evidence, not
-   authority.
+   independent sources agree on. Dealer lists are evidence, not authority.
 
-## Currency vocabulary, aligned to BEP
+## Per-field provenance: `item_field_source`
 
-The Bureau of Engraving and Printing names the classes of US paper money on
-its History page (bep.gov/currency/history) and FAQ. Compared with
-`note_type` today:
+One row per (item, field) holding a derived default, with `derived_by` naming
+the rule (`app/field_sources.py`): `note_issue`, `serial_district`,
+`composition`, `series_match`, `series_classify`, `series_backfill`,
+`suggestion`, `rating`, or `held`. Field names are column names
+(`note_type_id`, `fineness`), as in `item_field_review`, whether the column is
+on the item or its currency detail.
 
-| Today (`code` -- label) | BEP's name | Change |
+- A pass may refresh a field recorded here and never touches one that is not.
+- Saving a field by hand removes its row: from then on it is the person's.
+- **Emptying is a choice.** A person emptying a field a pass fills records it
+  as `held`; it stays empty through refreshes and batch runs until someone
+  sets it again. Emptying a field no pass fills records nothing.
+- **The machine takes back its own guesses.** A derived value the facts no
+  longer support -- a series corrected to a large-size year, a class that is
+  no longer a Federal Reserve Note (so has no Bank), a coin whose year range
+  now spans two compositions -- is cleared with its record and counted as
+  *retracted*. A person's value is never cleared; one the facts contradict is
+  reported instead.
+
+## Currency vocabulary
+
+`note_type`, aligned to the classes BEP names on its history page and FAQ:
+
+| Code | Label | Nicknames (`reference_alias`) |
 |---|---|---|
-| `frn` -- Federal Reserve Note | Federal Reserve Notes | none |
-| `frbn` -- Federal Reserve Bank Note | Federal Reserve Bank Notes | none |
-| `silver_certificate` -- Silver Certificate | Silver Certificates | none |
-| `gold_certificate` -- Gold Certificate | Gold Certificates | none |
-| `us_note` -- United States Note | United States Notes ("characterized by a red seal", FAQ) | none |
-| `legal_tender` -- Legal Tender Note | -- | **merge into `us_note`**; keep "Legal Tender Note" as a nickname. BEP uses *legal tender* in its statutory sense (31 USC 5103), which covers every class, so as a class name it is misleading |
-| `national_currency` -- National Currency | National Bank Notes (National Banknotes) | **relabel "National Bank Note"**; keep "National Currency", the wording printed on the notes, as a nickname. The code becomes `national_bank_note` |
-| `fractional` -- Fractional Currency | Fractional Currency | none |
-| -- | Demand Notes (1861) | **add** `demand_note` |
-| -- | Treasury Notes, also Treasury Coin Notes (1890) | **add** `treasury_note`; nickname "Coin Note" |
+| `frn` | Federal Reserve Note | FRN |
+| `frbn` | Federal Reserve Bank Note | FRBN, Federal Reserve Bank, Fed Res, National Currency |
+| `silver_certificate` | Silver Certificate | Silver Cert |
+| `gold_certificate` | Gold Certificate | Gold Cert |
+| `us_note` | United States Note | Legal Tender Note, Legal Tender |
+| `national_bank_note` | National Bank Note | National Currency, National Banknote, National, Natl |
+| `fractional` | Fractional Currency | |
+| `demand_note` | Demand Note | |
+| `treasury_note` | Treasury Note | Coin Note, Treasury Coin Note |
 
-**This is the cheapest moment to change codes.** No note, Friedberg row or
-saved URL uses a note-type code yet (measured: all eight have zero
-references). The frontend reads the list from the API; it names no code.
+"Legal Tender Note" is a nickname, not a class: BEP uses *legal tender* in its
+statutory sense (31 USC 5103), which covers every class. "National Currency" is
+the wording printed on National Bank Notes (and on Series 1929 Federal Reserve
+Bank Notes).
 
-Note types need **nicknames**, as series do, so text such as "Legal Tender"
-or "Coin Note" is recognised on import and in search. They live in a general
-`reference_alias` table (decision 2).
+Nicknames live in the general `reference_alias` table (table, code, alias), so
+they are recognised on import and in search; search matches a note class by
+name or nickname. Seal colours (blue, red, brown, green, gold, yellow) and the
+twelve Federal Reserve districts (A Boston through L San Francisco) match
+BEP's serial-number page.
 
-Seal colours (blue, red, brown, green, gold, yellow) and the twelve Federal
-Reserve districts already match BEP's serial-number page exactly: A Boston
-through L San Francisco, numbered 1-12.
+## The facts
 
-## The facts to seed
+`backend/data/reference/note_issue.json` seeds `note_issue`: one row per
+small-size issue (Series 1928-2021, $1 through $1000) with denomination,
+series year and letter, class, seal, signature combination, `serial_prefix`,
+an optional `variant` (Hawaii, North Africa, experimental and similar), and the
+sources it rests on. Every row names at least two independent sources:
+Wikipedia's per-denomination series tables, USPaperMoney.info's chronology,
+BEP's serial-number table for Series 1996 on, and the SPMC wiki for the
+Series 1929 National Bank Notes. The six rows sourced `web` (the $500 and
+$1000 Federal Reserve Notes) rest on search-result summaries and are the
+weakest.
 
-### Small-size series (Series 1928 on)
+`signatures.json` holds the signer pairs. BEP writes pairs
+Secretary/Treasurer; our codes are `treasurer_secretary`.
 
-For each denomination, series (year and letter): the class, the seal colour,
-and the Treasurer and Secretary who signed it. For example:
+More than one seal per class occurs only in the WWII emergency issues -- brown
+(Hawaii) and yellow (North Africa) beside the ordinary seal, Series
+1934-1935A -- so a note from those series needs its seal to decide it.
 
-| $ | Class | Seal | Series |
-|---|---|---|---|
-| 1 | United States Note | red | 1928 |
-| 1 | Silver Certificate | blue | 1928-1928E, 1934, 1935-1935H, 1957-1957B |
-| 1 | Silver Certificate (Hawaii) | brown | 1935A |
-| 1 | Silver Certificate (North Africa) | yellow | 1935A |
-| 1 | Federal Reserve Note | green | 1963 on |
-| 2 | United States Note | red | 1928-1963A |
-| 2 | Federal Reserve Note | green | 1976 on |
-| 5 | United States Note | red | 1928-1963 |
-| 5 | Silver Certificate | blue / yellow | 1934-1953C / 1934A |
-| 5 | Federal Reserve Note | green / brown (Hawaii) | 1928 on / 1934, 1934A |
-| 5-100 | National Bank Note, Federal Reserve Bank Note | brown | 1929 |
-| 10-100 | Gold Certificate | gold | 1928 (1928A for some denominations: to verify) |
-| 100 | United States Note | red | 1966 (1966A: to verify) |
-
-Sources and their standing:
-
-- **Wikipedia's per-denomination articles** ("United States one-dollar bill"
-  and siblings) carry a "Series dates / Small size" table with exactly these
-  columns. The section is flagged as possibly original research, so it is
-  evidence, not authority.
-- **BEP's serial-number page** (bep.gov/currency/serial-numbers) gives
-  denomination, Secretary/Treasurer and series for Series 1996-2021.
-  **Cross-checked 2026-09-16: all 37 overlapping rows agree** on the signers.
-- The parse is not yet complete: the $10 and $100 tables yielded only four
-  rows each, and the $2 table mixes in large-size notes. Every row is to be
-  checked before it is seeded, and the 49 live notes whose series the table
-  lacks are the test of completeness.
-
-These are historical facts -- who signed, which class, which seal -- and are
-safe to seed. No Friedberg numbers are involved or implied.
-
-The facts live in a new `note_issue` table (denomination, series year,
-series letter, class, seal, signature combination): one row per issue, from
-which every note default is looked up (decision 3).
-
-### Signature combinations
-
-`signature_combination` holds 11 pairs, Series 1934-1971, and its seed
-comment explains why it stopped: an earlier attempt at a full chronology
-produced corrupt rows. The table above supplies every pair from Series 1928
-to 2021 in structured form, and BEP confirms 1996 on. Complete the list from
-it. BEP writes pairs Secretary/Treasurer; our codes are
-`treasurer_secretary`, so each is turned round on entry.
+These are historical facts (who signed, which class, which seal) and are safe
+to seed. No Friedberg number is involved or implied.
 
 ### Serial numbers (BEP)
-
-From bep.gov/currency/serial-numbers:
 
 - Through Series 1995, and for $1 and $2 notes still, a serial is one letter,
   eight digits, one letter. **The first letter is the issuing Federal Reserve
   Bank** (A-L).
-- From Series 1996, $5 and higher carry two leading letters: **the first is
-  the series** (A = 1996, B = 1999, ... Q = 2021) and **the second is the
-  Bank**.
-- O is never used (confused with 0), Z is reserved for test printings, and a
-  star replaces the last letter on a replacement note.
+- From Series 1996, $5 and higher carry two leading letters: **the series**
+  (A = 1996, B = 1999, ...) then **the Bank**. `note_issue.serial_prefix`
+  records the series letter.
+- A star in place of a prefix letter hides the Bank.
 
-The Bank letter applies to **Federal Reserve Notes only**; a Silver
-Certificate's prefix letter means nothing about a district.
+The Bank letter means something only on a **Federal Reserve Note**; a Silver
+Certificate's prefix letter says nothing about a district.
 
-BEP's own table contradicts its footnote in two rows (it gives $1 Series 2021
-the prefix Q and $2 Series 2017A the prefix P, while the footnote says $1 and
-$2 carry no series letter), and it repeats two rows. The footnote is taken as
-the rule; the notes in hand will settle it.
+## The pass
 
-## The passes
-
-One module, like `series_classify`: report by default, `--commit` to write,
-fill only what is empty, record what it wrote.
+```
+python -m app.classifier_defaults            report, touching nothing
+python -m app.classifier_defaults --commit   write the defaults
+```
 
 | Default | From | Only when |
 |---|---|---|
-| note type | denomination, series year and letter, seal | the issues table leaves one class |
-| seal colour | note type, denomination, series | the issue has one seal |
-| signature combination | note type, denomination, series with letter | one pair signed it |
-| Federal Reserve district | serial number | note type is Federal Reserve Note and the serial is well formed |
+| note type | denomination, series year and letter, seal | one class remains |
+| seal colour | the issue | the issue has one seal |
+| signature combination | the issue | one pair signed it |
+| Federal Reserve district | serial number | the class is Federal Reserve Note and the serial is well formed |
+| composition, metal, fineness, gross and fine weight | denomination, country, year (`composition.json`) | one composition covers every year of the item's range |
 
-And one check, reported and never written:
+**Text as evidence.** Where a series was issued in several classes, a note's
+**rating** (the grade text in the owner's words) that names exactly one of
+them decides it -- "Legal Tender" picks United States Note. Titles and
+descriptions are not read: on notes they are too often a lot's listing.
 
-| Check | Finds |
+**Attributes** that follow from a note's facts -- No Motto on a $1 Silver
+Certificate of Series 1928-1935F (`app.attribute_rules`) -- are added the same
+way: only where the note has no link for that attribute at all, a removed one
+included, and taken back only where the pass added it.
+
+Reported and never written:
+
+| Case | Finds |
 |---|---|
-| series prefix | a $5-or-higher Federal Reserve Note of Series 1996 on whose first serial letter is not its series' letter -- a mistyped series or serial |
-| recorded vs derived | a recorded seal, note type or signature that the facts rule out, as `series_classify`'s "disagrees" list does |
+| serial prefix | a $5-or-higher Federal Reserve Note of Series 1996 on whose first serial letter is not its series' letter, or whose Bank letter is not a Bank |
+| disagreement | a recorded class, seal or signature the facts rule out |
+| retracted | a derived value cleared because the facts no longer support it |
 
 Order matters: note type first, because seal and signatures depend on it.
-`scripts\ccweb_rebuild.cmd` runs the pass after `series_classify`.
+`scripts\ccweb_rebuild.cmd` runs this pass after `series_match` and before
+`series_classify`, which reads a note's class as evidence.
 
-**At entry time**, the same lookups fill the New item form as its facts are
-typed: choose $1 and Series 1957 and the note type, seal and signatures appear,
-marked as suggestions and editable. This ships in the first version.
+## When defaults are applied
 
-## How a default is told apart from a person's value
+- **On every write.** Creating an item, a single edit and a bulk edit each call
+  `refresh_items` in the same transaction, so a corrected series year corrects
+  the class derived from it.
+- **In batch**, by the command above.
+- **At entry.** The New item form asks `GET /api/defaults/note` (denomination,
+  series year and letter, serial, rating, plus any class, seal, signatures or
+  Bank the person chose) or `GET /api/defaults/coin` (denomination, country,
+  year, answering the metal) after a 250 ms pause. It sends only the person's
+  own picks -- a value sent narrows the answer and is never suggested back --
+  and marks what it filled as *suggested*. Picking a value, even the suggested
+  one, makes it the person's; clearing the denomination withdraws the
+  suggestions.
 
-Provenance today is per row (`inventory_item.source`), not per field, and
-`item_field_review` records only that a person *confirmed* a field. Two ways:
+## The editor
 
-- **A. Fill blanks only.** No schema change. A pass writes a field only when it
-  is empty and never touches it again. Simple, and safe. But once written, a
-  default looks like a typed value: the UI cannot mark it as a suggestion, and
-  a corrected fact (a row fixed in the issues table) cannot be re-applied.
-- **B. Per-field provenance.** A small `item_field_source` table (item, field,
-  source), shaped like `item_field_review`. A pass may refresh fields whose
-  source is `derived` and never touches `manual` ones. The editor can show
-  "suggested" beside a derived value, and saving a field by hand turns it
-  `manual`.
-
-**Chosen: B** (decision 4). It is what "these could be overridden, but the default
-values would be applied" asks for, and it is the only way the defaults can
-improve when the facts do.
-
-## Coins, next
-
-The same mechanism, with the coin facts the project already has or has
-researched:
-
-- **Series** -- done (`series_classify`).
-- **Composition and metal** -- already resolved from denomination and year;
-  under this design they would be recorded as derived defaults rather than
-  looked up only at valuation time (decision 6).
-- **Key date** -- a flag from series, year and mint, researched on 2026-09-16
-  and to be its own spec: about 60 dates two independent sources agree on;
-  varieties need text evidence; tier disputes are the owner's call, with US
-  Mint mintages as the tie-breaker.
-- **Mint** cannot be derived (it is what is struck on the coin), but a mint
-  that did not strike that denomination in that year can be flagged.
-
-## Testing
-
-- Each default: written when the facts allow one value; not written when they
-  allow two; never written over a value a person set.
-- Note type: $1 1957 is a Silver Certificate; $1 1963 a Federal Reserve Note;
-  $1 1928 needs the seal (red: United States Note, blue: Silver Certificate).
-- Seal and signatures follow the note type; $1 1935B is Julian/Vinson.
-- District: `B12345678A` on a Federal Reserve Note is New York; on a Silver
-  Certificate, nothing.
-- Series prefix: a $20 Series 2004 with serial `CA...` is reported.
-- Vocabulary: `legal_tender` merged into `us_note`, "Legal Tender Note" still
-  recognised; `national_bank_note` labelled "National Bank Note".
-- Provenance (option B): a hand edit turns a field manual; a re-run refreshes
-  derived fields only.
-- Coverage: every live note's series is present in the issues table, or
-  reported.
+For a banknote the item editor shows the note's own fields -- Note class, Seal,
+Signatures, Reserve Bank, series year and letter, serial -- with a *suggested*
+mark beside a derived value whose tooltip names the rule. Only "Note class"
+(Alt+A) and "Reserve Bank" (Alt+B) have accelerators: no other free letter is
+in their labels.
 
 ## Out of scope
 
-- Large-size notes (before Series 1928): 32 notes. Their classes overlap far
-  more (Series 1875 and 1882 were used by several classes at once) and need
-  text evidence; a later version.
-- Friedberg numbers: never seeded.
-- Note designs by nickname (Big Head, Educational, Black Eagle...): researched
-  on 2026-09-16 and to follow as series additions, now that note type exists as
+- **Large-size notes** (before Series 1928). Their classes overlap far more
+  (Series 1875 and 1882 served several classes at once) and need text
   evidence.
-
-## As built (2026-09-16)
-
-- **The facts.** `note_issue.json` holds 332 issues ($1 through $1000,
-  Series 1928-2021) and `signatures.json` is now the complete list of 39
-  signer pairs. Every row names two independent sources: Wikipedia's series
-  tables, USPaperMoney.info's chronology and delivery dates, BEP's serial
-  table for 1996 on (agreeing on all 58 rows it covers), and the SPMC wiki
-  for the Series 1929 National Bank Notes. The six $500/$1000 Federal Reserve
-  Note rows rest on search-result summaries and are the weakest. The build
-  corrected Wikipedia where a second source disagreed: its Federal Reserve
-  Bank Notes are Series 1929, not 1928A; the $10 Hawaii note is 1934A only,
-  with a brown seal; the $100 1969A is Kabis/Connally; there is no $100 1969B.
-  Two rows outlast an officer's term on real notes (Woods/Woodin on the $1
-  1928 United States Note, Granahan/Barr on the $1 1963B).
-- **More than one seal per class** occurs only in the WWII emergency issues:
-  brown (Hawaii) and yellow (North Africa) beside the ordinary seal, Series
-  1934-1935A. A note from those series needs its seal to be decided.
-- **`serial_prefix`** joined `note_issue`: the first serial letter of a $5-or-
-  higher Federal Reserve Note from 1996, from BEP's table only.
-- **Text as evidence.** Where a series was issued in several classes, a
-  note's **rating** that names exactly one of them decides it ("Legal
-  Tender"). Titles and descriptions are not read: on notes they are too often
-  a lot's listing (see the series-classification spec).
-- **Defaults are refreshed as items change.** Creating an item, a single edit
-  and a bulk edit each bring that item's defaults up to date in the same
-  transaction, so a corrected series year corrects the class derived from it.
-- **The editor** shows the note's own fields for a banknote -- Note class,
-  Seal, Signatures, Reserve Bank, series year and letter, serial -- with a
-  *suggested* mark beside derived values. Only "Note class" (Alt+A) and
-  "Reserve Bank" (Alt+B) have accelerators: no other free letter is in their
-  labels.
-- **The New item form** asks `GET /api/defaults/note` or `/coin` as facts are
-  entered (after a 250 ms pause), sends only the person's own picks with the
-  facts, and reports the suggestions left untouched in `suggested`.
-- **Search** matches a note class by name or nickname, as it matches series.
-- **After review** (a code review of the branch, 2026-09-16):
-  - *The machine takes back its own guesses.* A derived value the facts no
-    longer support -- a series corrected to a large-size year, a class that
-    is no longer a Federal Reserve Note (and so has no Bank), a signature an
-    issue does not have, a coin whose years now span two compositions (a
-    range keeps one only if it covers every year: a 1999-2008 quarter set is
-    clad throughout, a 1909-2022 cent lot is not) -- is cleared with
-    its record, and counted as *retracted* in the report. A person's value
-    is never cleared; one the facts contradict is reported.
-  - *Emptying is a choice.* A person who empties a field the pass fills
-    records it as `held` in `item_field_source`: it stays empty through
-    refreshes and batch runs until someone sets it again. Emptying a field no
-    pass fills records nothing.
-  - *The migration marks less.* It records `composition_id` (no edit path
-    sets it) and series, skipping any series a person has confirmed, labelled
-    `series_backfill` rather than naming a pass it cannot prove. Metal,
-    fineness and weights on existing items are not marked: the importer's
-    values and later edits cannot be told apart. A recorded one the
-    composition contradicts is reported instead.
-  - *A save reads only its own items' provenance.*
-  - *The New item form* withdraws its suggestions when the denomination is
-    cleared.
-
-## Decisions (owner, 2026-09-16: "yes to all, go with option B")
-
-1. **Codes:** `national_currency` is renamed `national_bank_note` (label
-   "National Bank Note") and `legal_tender` is merged into `us_note`, both in
-   place by migration -- no row references either. The old names become
-   nicknames.
-2. **Nicknames: one general alias table**, `reference_alias` (table, code,
-   alias), for note types and every vocabulary after them. "Yes to all" did
-   not choose between the two options, so this was decided in the build:
-   the grade vocabulary that follows needs nicknames too (UCAM for DCAM, DPL
-   for DMPL), and one table serves both. `series_alias` stays as it is.
-3. **`note_issue`** holds the small-size facts: denomination, series year,
-   series letter, class, seal, signature combination.
-4. **Provenance: option B**, per-field. `item_field_source` records which
-   fields of an item hold a derived default. A pass may refresh those and
-   never touches any other; saving a field by hand removes its row, which
-   makes it the person's. `series_classify` records the series it assigns
-   the same way.
-5. **Entry-time suggestions ship in the first version**: the New item form
-   fills note type, seal and signatures as the facts are chosen, marked as
-   suggestions.
-6. **Coin composition is a derived default too.** The importer already fills
-   composition, metal, fineness and fine weight for 3,188 of 4,387 coins
-   (measured 2026-09-16); those fields are recorded as derived, and the pass
-   fills the coins that lack them.
+- **Friedberg numbers**: never seeded.
+- **Mint** cannot be derived -- it is what is struck on the coin -- though a
+  mint that did not strike a denomination in a year could be flagged.
+- **Key dates**: not built.
 
 ## Sources
 
-- BEP, currency hub and subpages, fetched 2026-09-16 (public domain):
-  https://www.bep.gov/currency,
+- BEP, public domain: https://www.bep.gov/currency,
   https://www.bep.gov/currency/serial-numbers/,
-  https://www.bep.gov/currency/history,
-  https://www.bep.gov/currency/faqs,
-  https://www.bep.gov/currency/production-figures/annual-production-reports
-- Wikipedia, "United States one-dollar bill" and the $2, $5, $10, $20, $50
-  and $100 articles, section "Series dates / Small size", fetched 2026-09-16
-- US Mint glossary and anatomy-of-a-coin pages
-  (https://www.usmint.gov/learn/collecting-basics/glossary,
-  .../anatomy-of-a-coin): the preferred source for coin terms, not yet read --
-  the site refuses automated fetches.
+  https://www.bep.gov/currency/history, https://www.bep.gov/currency/faqs
+- Wikipedia, "United States one-dollar bill" and the $2 through $100 articles,
+  section "Series dates / Small size" (evidence, not authority)
+- USPaperMoney.info; SPMC wiki (Series 1929 National Bank Notes)
+- US Mint glossary: the preferred source for coin terms

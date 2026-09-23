@@ -1,15 +1,13 @@
 # Development environment setup
 
-How to recreate the `ccwebdb` development environment from a clean Windows
-machine. Every tool below is installed **per-user or per-environment** — none
-of it needs administrator rights, and nothing is installed machine-wide except
-Miniforge and uv themselves.
+How to build the `ccwebdb` development environment on a clean Windows machine.
+Everything is installed **per-user or per-environment**; nothing needs
+administrator rights.
 
 All commands are **cmd**, not PowerShell. For day-to-day starting and stopping
 once set up, see [runtime-operations.md](runtime-operations.md).
 
-Recorded from the actual setup on Windows 11 Pro (26100). Versions are the ones
-verified working; newer patch releases should be fine.
+Versions in use; newer patch releases should be fine:
 
 | Component  | Version   | Provided by                     |
 | ---------- | --------- | ------------------------------- |
@@ -18,20 +16,21 @@ verified working; newer patch releases should be fine.
 | uv         | 0.12.9    | winget                          |
 | Node.js    | 24.19.0   | conda env `ccwebdb`             |
 | PostgreSQL | 18.6      | conda env `ccwebdb`             |
+| GitHub CLI | 2.100.0   | conda env `ccwebdb`             |
 
 ---
 
 ## 1. Miniforge3
 
-Miniforge is Anaconda-free conda, configured for the `conda-forge` channel only,
-so there are no Anaconda Terms-of-Service prompts.
+Miniforge is conda configured for the `conda-forge` channel only, so there are
+no Anaconda Terms-of-Service prompts.
 
 ```cmd
 winget install --id CondaForge.Miniforge3 --source winget --scope user ^
   --accept-package-agreements --accept-source-agreements
 ```
 
-Installs to `%USERPROFILE%\miniforge3`. Then make `conda` available to your
+It installs to `%USERPROFILE%\miniforge3`. Make `conda` available to your
 shells:
 
 ```cmd
@@ -39,11 +38,9 @@ shells:
 ```
 
 For cmd this adds an AutoRun entry under
-`HKCU\Software\Microsoft\Command Processor`, which loads conda's hook in every
-new `cmd` session. Reverse it any time with `conda init --reverse cmd.exe bash`.
-
-**Open a new terminal** before continuing — the change does not affect
-already-running shells.
+`HKCU\Software\Microsoft\Command Processor` that loads conda's hook in every
+new cmd window. Reverse it with `conda init --reverse cmd.exe bash`. **Open a
+new terminal** before continuing.
 
 ## 2. The `ccwebdb` conda environment
 
@@ -52,9 +49,9 @@ conda create -n ccwebdb python=3.13
 conda activate ccwebdb
 ```
 
-> Activate this environment **before** starting work (including before
-> launching Claude Code, if you use it — the status line reads
-> `CONDA_DEFAULT_ENV`).
+The project scripts activate it themselves (see
+[runtime-operations.md](runtime-operations.md)); activate it by hand only for
+commands you type yourself.
 
 ## 3. uv
 
@@ -65,16 +62,13 @@ winget install --id astral-sh.uv --source winget ^
   --accept-package-agreements --accept-source-agreements
 ```
 
-> Astral's own installer is a PowerShell script, so winget is the cmd-native
-> route. Update it the same way — `winget upgrade astral-sh.uv` — rather than
-> `uv self update`, which is for the standalone build.
+Astral's own installer is a PowerShell script, so winget is the cmd-native
+route. Update the same way, `winget upgrade astral-sh.uv`.
 
-### Two environment variables make uv behave the way this project expects
+### Two environment variables
 
-Run these in **cmd**, with `ccwebdb` active, so the paths come from the
-activated environment rather than from `%USERPROFILE%` -- which is not set in
-every shell, and which PowerShell does not expand at all (there it is
-`$env:USERPROFILE`):
+Run these in **cmd** with `ccwebdb` active, so the paths come from the
+activated environment:
 
 ```cmd
 conda activate ccwebdb
@@ -82,65 +76,54 @@ setx UV_PROJECT_ENVIRONMENT "%CONDA_PREFIX%"
 for %I in ("%CONDA_PREFIX%\..\..\..") do setx UV_CACHE_DIR "%~fI\dev\uv\cache"
 ```
 
-`setx` stores the expanded value, so check what landed with
-`reg query HKCU\Environment /v UV_PROJECT_ENVIRONMENT` -- it should name the
-`ccwebdb` folder, not contain `%`.
-
-- `UV_CACHE_DIR` — keeps uv's package and interpreter cache somewhere you chose
-  rather than `%LOCALAPPDATA%`.
-- `UV_PROJECT_ENVIRONMENT` — **the important one.** It makes `uv sync` /
-  `uv add` / `uv run` operate on the conda `ccwebdb` environment instead of
+- `UV_PROJECT_ENVIRONMENT` -- **the important one.** It makes `uv sync`,
+  `uv add` and `uv run` operate on the conda `ccwebdb` environment instead of
   creating a project-local `.venv`.
+- `UV_CACHE_DIR` -- keeps uv's cache somewhere you chose rather than
+  `%LOCALAPPDATA%`.
 
-`setx` writes to the user environment and takes effect in **new** shells, not
-the one you typed it in.
+`setx` stores the expanded value and takes effect in **new** shells. Check it
+with `reg query HKCU\Environment /v UV_PROJECT_ENVIRONMENT`: it should name the
+`ccwebdb` folder and contain no `%`.
 
-> **This variable is machine-wide.** Any *other* uv project on the same machine
-> will also target the `ccwebdb` conda env unless you override it. When you
-> start an unrelated uv project, run `set "UV_PROJECT_ENVIRONMENT=.venv"` in
-> that shell first. There is no `pyproject.toml` equivalent — uv rejects
-> `project-environment` as a `[tool.uv]` key, so an environment variable is the
-> only mechanism.
+> **`UV_PROJECT_ENVIRONMENT` applies to every uv project on the machine.** For
+> an unrelated uv project, run `set "UV_PROJECT_ENVIRONMENT=.venv"` in that
+> shell first. There is no `pyproject.toml` equivalent -- uv rejects
+> `project-environment` as a `[tool.uv]` key.
 
-> **Do not use `setx` on `PATH`.** It truncates at 1024 characters and would
-> flatten the `%USERPROFILE%` token this machine's `PATH` relies on. Edit `PATH`
-> through *System Properties → Environment Variables* instead.
+> **Never `setx` the `PATH`.** It truncates at 1024 characters and flattens
+> the `%USERPROFILE%` references `PATH` relies on. Edit `PATH` through *System
+> Properties -> Environment Variables*.
 
-## 4. Node.js, PostgreSQL and the GitHub CLI (all inside the conda env)
+## 4. Node.js, PostgreSQL and the GitHub CLI (inside the conda env)
 
-None of these is a Python package, so `uv sync` will never prune them. This
-list is the record of what conda owns in `ccwebdb` -- Python packages are
-recorded in `pyproject.toml` and `uv.lock` instead, and must never be
-installed with conda (see *Gotchas* below).
+None of these is a Python package, so `uv sync` never prunes them. This line
+is the record of what conda owns in `ccwebdb`; Python packages are recorded in
+`pyproject.toml` and `uv.lock` and are never installed with conda.
 
 ```cmd
 conda install -n ccwebdb -c conda-forge nodejs=24.19.0 postgresql gh=2.100.0
 ```
 
-Preview with `--dry-run` first when the environment is already in use: a
-conda solve can update or downgrade packages the running servers have
-loaded, and the plan should show only what you asked for.
+On an environment already in use, preview with `--dry-run` first: a conda
+solve can change packages the running servers have loaded, and the plan
+should show only what you asked for.
 
-> `gh` lands in `envs\ccwebdb\Library\bin`, so it is only on `PATH` with the
-> environment active -- which the project scripts arrange themselves. Sign in
-> once with `gh auth login`.
->
-> Pin `nodejs=24.19.0`. conda-forge's newest `nodejs` at time of writing was
-> `26.8.0`, which reports itself as `v26.8.0-alpha.0.0.0` — a pre-release. The
-> 24.x line is the current LTS.
+Pin `nodejs` to the 24.x LTS line; conda-forge's newest `nodejs` builds have
+been pre-releases. `gh` lands in `envs\ccwebdb\Library\bin`, so it is on
+`PATH` only with the environment active. Sign in once with `gh auth login`.
 
-Verify, with the environment activated:
+Verify, with the environment active:
 
 ```
 node --version     -> v24.19.0
-npm --version      -> 11.17.0
 psql --version     -> psql (PostgreSQL) 18.6
 gh --version       -> gh version 2.100.0
 ```
 
 ## 5. Create the local database cluster
 
-Postgres runs directly from the conda environment — **no Docker required.**
+PostgreSQL runs directly from the conda environment -- no Docker.
 
 ```cmd
 cd /d <repo root>
@@ -149,38 +132,24 @@ initdb -D .pgdata -U postgres --pwfile="%TEMP%\initpw.txt" --auth-host=scram-sha
 del "%TEMP%\initpw.txt"
 ```
 
-> Write the password file with **no space before the `>`**. `echo devpassword >file`
-> would put a trailing space in the password.
+Write the password file with **no space before the `>`**, or the password
+gains a trailing space. `.pgdata\` is gitignored. The "enabling trust
+authentication for local connections" warning is harmless on Windows: there
+are no Unix domain sockets, so only the `host` rules apply.
 
-`.pgdata\` is gitignored. The "enabling trust authentication for local
-connections" warning is harmless on Windows: there are no Unix domain sockets,
-so only the `host` rules (`scram-sha-256`) apply.
-
-### Start and stop the server
-
-```cmd
-pg_ctl -D .pgdata -l logs\postgres-by-hand.log start
-pg_ctl -D .pgdata -m fast stop
-pg_isready -h localhost -p 5432
-```
-
-> In an automated or non-interactive shell, `pg_ctl start` can appear to hang
-> because the postmaster inherits stdout. The server *is* running — check with
-> `pg_isready` rather than waiting.
-
-`scripts\ccweb_startup.cmd` starts it differently, into `logs\postgres.log`
-with rotation; see [logs/README.md](../logs/README.md). A log written by hand
-as above is not rotated.
-
-Day to day, `scripts\ccweb_startup.cmd` handles this for you.
-
-### Create the application role and database
+Start the server with `scripts\ccweb_startup.cmd` (or by hand, see
+[runtime-operations.md](runtime-operations.md)), then create the application
+role and database:
 
 ```cmd
 set "PGPASSWORD=devpassword"
-psql -h localhost -U postgres -d postgres -c "CREATE ROLE ccwebdb WITH LOGIN PASSWORD 'devpassword';"
+psql -h localhost -U postgres -d postgres -c "CREATE ROLE ccwebdb WITH LOGIN PASSWORD 'devpassword' CREATEDB;"
 psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwebdb ENCODING 'UTF8';"
 ```
+
+`CREATEDB` is for the test suite, which creates and drops its own
+`ccwebdb_test` database, and for `scripts\ccweb_rebuild.cmd`. On an existing
+role: `ALTER ROLE ccwebdb CREATEDB;`.
 
 ## 6. Configure the application
 
@@ -190,7 +159,10 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 Paste that value into `JWT_SECRET` in `.env`. `.env` is gitignored;
-`.env.example` is committed and documents every key.
+`.env.example` is committed and documents every key, including the sales-tax
+settings stamped onto each new item.
+[system-administration.md](system-administration.md) (*Settings*) says which
+must change before anything outside this machine can reach the system.
 
 ## 7. Install dependencies
 
@@ -201,10 +173,17 @@ cd frontend
 npm install
 ```
 
-## 8. Create the schema and seed data
+## 8. Fill the database
 
-There are two paths and they are **not interchangeable**. Choose by whether a
-real collection is going into this database.
+Three cases, and they are **not interchangeable**.
+
+### This collection, on a new machine
+
+Restore the latest verified `pg_dump` of `ccwebdb` into the empty database.
+The dumps live outside the repository; the procedure is in
+[system-administration.md](system-administration.md) (*Backing up and
+restoring*). Do not import the workbook: the database holds work that exists
+nowhere else.
 
 ### A trial installation, with demo data
 
@@ -215,66 +194,22 @@ uv run python -m app.seeding load
 uv run python -m app.seed
 ```
 
-`app.seeding load` populates the 29 reference vocabularies. `app.seed` then
-creates the administrator from `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`
-**plus five demo inventory items with listings**. Both are idempotent.
+`app.seeding load` loads the reference vocabularies from
+`backend/data/reference/`. `app.seed` creates the administrator from
+`FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD` **plus five demo items with shop
+listings**. Both are idempotent. Never run `app.seed` against a real
+collection's database.
 
-### A real collection
+### A new collection from a workbook
 
-```cmd
-cd backend
-uv run alembic upgrade head
-uv run python -m app.seeding load
-uv run python -m app.importers.cli --file <spreadsheet.xlsx> --commit
-uv run python -m app.seed
-```
-
-**`app.seed` must come after the import, and its demo items then deleted.**
-Run before, its five demo coins consume `CC-000002` through `CC-000006`, so
-every real item is permanently offset by five and five coins that do not exist
-sit in the collection. Nothing warns you; the import simply starts at
-`CC-000007`.
-
-To remove them after seeding the administrator:
-
-```sql
-BEGIN;
-
--- The five demo items, named by the titles `app.seed` itself matches on.
--- Not "price = 0": `inventory_item` has no `price` column -- price belongs
--- to a listing -- so the version of this that tested one failed outright.
-CREATE TEMP VIEW demo_items AS
-  SELECT id FROM inventory_item WHERE source_title IN (
-    '1881-S Morgan Silver Dollar',
-    '1916-D Mercury Dime',
-    '2021 American Silver Eagle',
-    '1957-B $1 Silver Certificate',
-    '1964 Kennedy Half Dollar'
-  );
-
--- Check before deleting. Five rows, and all five demo titles.
-SELECT item_code, source_title FROM inventory_item
-  WHERE id IN (SELECT id FROM demo_items) ORDER BY item_code;
-
--- Claims and listings first: both restrict on delete, so the item will not
--- go while either holds it. Everything else (details, history, photographs,
--- errors) cascades.
-DELETE FROM offer_claim    WHERE inventory_item_id IN (SELECT id FROM demo_items);
-DELETE FROM listing        WHERE inventory_item_id IN (SELECT id FROM demo_items);
-DELETE FROM inventory_item WHERE id IN (SELECT id FROM demo_items);
-
--- COMMIT when the counts above were what you expected; ROLLBACK otherwise.
-ROLLBACK;
-```
-
-Wrapped in a transaction deliberately: the `SELECT` in the middle is the only
-chance to see what is about to go, and a collection is not something to delete
-rows from on the strength of a query nobody read the output of.
-
-Then verify the collection totals before trusting anything downstream: the item
-count, the cost basis and `sum(fine_weight_ozt * storage_quantity)`. **Multiply
-by `storage_quantity`** — a row holding twenty coins carries twenty coins'
-worth of metal, and the unweighted sum understates the holding by about 10%.
+Use `scripts\ccweb_rebuild.cmd <workbook.xlsx>`, which builds a separate
+database, `ccwebdb_rebuild`, and never touches `ccwebdb`. It runs the steps in
+the only safe order -- migrate, reference data, import, the passes, and the
+demo seed **last** (run before the import, the five demo items take
+`CC-000002` onward and offset every real code). The importer reads one
+workbook layout; a different one needs its own profile.
+[workflow-import-and-cleanup.md](workflow-import-and-cleanup.md) covers
+removing the demo items, checking the totals and switching over.
 
 ---
 
@@ -284,50 +219,39 @@ worth of metal, and the unweighted sum understates the holding by about 10%.
 scripts\ccweb_startup.cmd
 ```
 
-That starts the database, the API and the UI, and waits for each to answer. See
-[runtime-operations.md](runtime-operations.md) for what it does, how to stop it,
-and how to run a service by hand with `--reload`.
-
 | | |
 |---|---|
-| UI | http://127.0.0.1:5173 |
+| Shop | http://127.0.0.1:5173 |
+| Owner console | http://127.0.0.1:5173/owner |
 | API docs | http://127.0.0.1:8000/docs |
-| Sign in | `admin@example.com` / `adminpassword` |
 
-Vite proxies `/api` to port 8000, so the browser only ever talks to one origin
-and CORS is not involved during development.
-
----
+Sign in with the administrator from `.env`. Vite proxies `/api` to port 8000,
+so the browser talks to one origin and CORS is not involved during
+development.
 
 ## Running the tests
 
 ```cmd
 uv run pytest
+cd frontend
+npm test
 ```
 
-The suite creates its own database (`ccwebdb_test`), builds the schema, and
-drops it again afterwards, so it never touches development data. Each test runs
-inside a transaction that is rolled back, which keeps tests independent.
+Or run every gate at once with `scripts\ccweb_check.cmd`
+([code-quality.md](code-quality.md)). The Python suite creates `ccwebdb_test`,
+builds the schema, runs each test in a rolled-back transaction, and drops the
+database afterwards; point it elsewhere with `TEST_DATABASE_URL`. Never run
+two pytest sessions at once: they share `ccwebdb_test`, and the resulting
+failures look like real bugs.
 
-This requires the application role to be able to create databases — a one-time
-grant:
+Two suites worth knowing about:
 
-```cmd
-set "PGPASSWORD=devpassword"
-psql -h localhost -U postgres -d postgres -c "ALTER ROLE ccwebdb CREATEDB;"
-```
-
-Point the suite somewhere else with `TEST_DATABASE_URL` if you prefer.
-
-Two of the suites are worth knowing about:
-
-- `test_migrations.py` builds a throwaway database purely by running
-  `alembic upgrade head`, then asserts that autogenerate finds no difference
-  against the models. It fails if a model changes without a migration.
-- `test_concurrency.py` deliberately bypasses `TestClient` and drives the order
-  handler from real threads. `TestClient` serialises requests through a single
-  portal, so a race written against it passes even when the row lock is
-  removed — which makes it worthless as a concurrency test.
+- `test_migrations.py` builds a database purely by `alembic upgrade head` and
+  asserts autogenerate finds no difference from the models, so a model change
+  without a migration fails.
+- `test_concurrency.py` drives the order handler from real threads rather
+  than `TestClient`, which serialises requests -- a race written against it
+  passes even with the row lock removed.
 
 ---
 
@@ -338,50 +262,47 @@ Two of the suites are worth knowing about:
 | See what is running         | `scripts\ccweb_status.cmd`                       |
 | Start everything            | `scripts\ccweb_startup.cmd`                      |
 | Stop everything             | `scripts\ccweb_shutdown.cmd`                     |
+| Run every quality gate      | `scripts\ccweb_check.cmd`                        |
 | Add a Python dependency     | `uv add <pkg>` (from repo root)                  |
 | Add a dev-only dependency   | `uv add --dev <pkg>`                             |
-| Run a Python command        | `uv run <cmd>`                                   |
 | Add a JS dependency         | `npm install <pkg>` (from `frontend\`)           |
 | New migration               | `cd backend && uv run alembic revision --autogenerate -m "..."` |
-| Apply migrations            | `cd backend && uv run alembic upgrade head`      |
-| Run the tests               | `uv run pytest`                                  |
 
-Note `&&` rather than `;` — cmd uses `&&` to chain on success, `&` to chain
-unconditionally.
+A migration reaches the live database only through the release procedure in
+[system-administration.md](system-administration.md) (*Applying a schema
+release*): verified `pg_dump`, rehearsal on the restore, then
+`alembic upgrade head` and `app.seeding load` with the servers stopped. Never
+`alembic upgrade` `ccwebdb` casually.
 
 ---
 
-## Gotchas worth knowing
+## Gotchas
 
 **Never install Python packages into the conda env with `conda` or `pip`.**
-uv and conda share the same `site-packages` because of
-`UV_PROJECT_ENVIRONMENT`. A `conda install <python-package>` followed by
-`uv sync` will have uv *uninstall* it, because it is not in `uv.lock`. `pip`
-itself is exempt (uv treats it as a seed package), but nothing else is. Python
-dependencies go in `pyproject.toml`; use conda only for non-Python tools like
-Node and Postgres.
+uv and conda share `site-packages` through `UV_PROJECT_ENVIRONMENT`, and
+`uv sync` uninstalls anything not in `uv.lock`. Use conda only for non-Python
+tools.
 
-**A bare script name is not found, even in its own directory.** This machine has
-`NoDefaultCurrentDirectoryInExePath=1`, so `cmd /c ccweb_startup.cmd` fails with
-*"not recognized"*. Always include a path separator: `scripts\ccweb_startup.cmd`,
-or `.\name.cmd` when standing in the folder.
+**A bare script name is not found, even in its own directory.** This machine
+sets `NoDefaultCurrentDirectoryInExePath=1`, so `ccweb_startup.cmd` alone
+fails with *"not recognized"*. Include a path: `scripts\ccweb_startup.cmd`, or
+`.\ccweb_startup.cmd` inside `scripts\`.
+
+**From Git Bash, run a `.cmd` as `cmd //c scripts\\ccweb_check.cmd`.** A
+single `/c` is rewritten into a path and cmd silently does nothing, which
+reads as success. Git Bash also rewrites leading-slash arguments generally
+(use `--keepdb` rather than `/keepdb`) and eats unquoted backslashes.
+
+**Git Bash can leave a stale conda claim.** It rebuilds `PATH` and drops the
+environment while `CONDA_DEFAULT_ENV` survives; check which `python` is first
+on `PATH`. The project scripts check this themselves.
 
 **Do not build Windows paths with `sed`.** Backslash is an escape in the
-replacement text, so `sed "s|x|scripts\ccweb|"` silently writes a control
-character instead of `\c`. Edit files directly, or use Python with `chr(92)`.
+replacement. Edit files directly, or use Python with `chr(92)`.
 
-**Git Bash rewrites leading slashes and eats backslashes.** `conda /info`
-becomes `conda "C:/Program Files/Git/info"`, and `.pgdata\server.log` becomes
-`.pgdataserver.log`. Prefix with `MSYS_NO_PATHCONV=1`, use `//flag`, or just
-use forward slashes — Windows accepts them in most paths.
+**Python on Windows writes CRLF in text mode.** `print()` feeding a shell
+variable leaves a trailing `\r` (use `sys.stdout.reconfigure(newline="\n")`),
+and `Path.write_text` produces CRLF files that prettier rejects while
+`git status` looks clean (pass `newline="\n"`).
 
-**`jq` is not available on conda-forge for win-64.** Only `xstatic-jquery`
-matches a search, which is an unrelated Python package. Parse JSON with Python
-in scripts rather than depending on jq.
-
-**Python on Windows writes CRLF to stdout.** If a Python helper feeds a shell
-script, `print()` emits `\r\n` and the trailing `\r` silently corrupts the
-consuming shell variables. Use `sys.stdout.reconfigure(newline="\n")`.
-
-**Money is `NUMERIC(12, 2)` and maps to `Decimal`.** Never let a price become a
-float anywhere in the stack.
+**`jq` is not available on conda-forge for win-64.** Parse JSON with Python.
