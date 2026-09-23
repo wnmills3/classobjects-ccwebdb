@@ -1566,9 +1566,11 @@ class SalesLotOut(BaseModel):
 
 
 class SalesLotListOut(BaseModel):
-    """Every lot the filter matched. An object, so a page count can be added."""
+    """One page of the lots the filter matched, and how many it matched."""
 
     lots: list[SalesLotOut]
+    #: Every lot the filter matched, not only this page's.
+    total: int
 
 
 class FeeLineIn(BaseModel):

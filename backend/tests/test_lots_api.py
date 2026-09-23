@@ -30,6 +30,30 @@ def test_a_lot_can_be_created_and_read_back(
     assert [row["id"] for row in listed["lots"]] == [body["id"]]
 
 
+def test_the_lot_list_is_paged_newest_first_with_a_total(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The history only grows, so the list is a page plus how many there are."""
+    ids = [
+        client.post(
+            "/api/sales-lots", headers=admin_headers, json={"title": f"Lot {n}"}
+        ).json()["id"]
+        for n in range(3)
+    ]
+
+    page = client.get(
+        "/api/sales-lots", headers=admin_headers, params={"limit": 2}
+    ).json()
+    assert [row["id"] for row in page["lots"]] == [ids[2], ids[1]]
+    assert page["total"] == 3
+
+    rest = client.get(
+        "/api/sales-lots", headers=admin_headers, params={"limit": 2, "offset": 2}
+    ).json()
+    assert [row["id"] for row in rest["lots"]] == [ids[0]]
+    assert rest["total"] == 3
+
+
 def test_membership_changes_need_the_current_version(
     client: TestClient,
     admin_headers: dict[str, str],

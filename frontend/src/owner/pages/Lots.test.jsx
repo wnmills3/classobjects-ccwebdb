@@ -93,6 +93,19 @@ describe('Lots', () => {
     expect(screen.getByText('1000.00')).toBeVisible()
   })
 
+  it('says when it is showing only the newest lots', async () => {
+    api.listLots.mockResolvedValue({ lots: [assembling], total: 250 })
+    renderWithProviders(<Lots />, { strict: true })
+    expect(await screen.findByText('Showing the newest 1 of 250 lots.')).toBeVisible()
+  })
+
+  it('says nothing about paging when every lot is shown', async () => {
+    api.listLots.mockResolvedValue({ lots: [assembling], total: 1 })
+    renderWithProviders(<Lots />, { strict: true })
+    await screen.findByText(assembling.title)
+    expect(screen.queryByText(/Showing the newest/)).not.toBeInTheDocument()
+  })
+
   it('sends the version token when membership changes', async () => {
     const user = userEvent.setup()
     api.listLots.mockResolvedValue({ lots: [assembling] })
