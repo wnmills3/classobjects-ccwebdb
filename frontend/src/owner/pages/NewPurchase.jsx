@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { api } from '../api'
 import NewItemForm from './entry/NewItemForm'
+import HelpScope from '../HelpScope'
 import { ReferenceSelect } from '../../shared/reference'
 import { date } from '../../shared/format'
 
@@ -333,112 +334,118 @@ export default function NewPurchase() {
     return (
       <section>
         <h1>New purchase</h1>
-        <div className="admin-form">
-          <h2>
-            {purchase.order_number || <span className="muted">no order number</span>}
-            {' · '}
-            {purchase.vendor}
-            {' · '}
-            {date(purchase.ordered_on)}
-            {purchase.source_url && (
-              <>
-                {' · '}
-                <a href={purchase.source_url} target="_blank" rel="noopener noreferrer">
-                  Vendor page
-                </a>
-              </>
-            )}
-          </h2>
-          {reloadError && <p className="error">{reloadError}</p>}
-
-          <div className="filter-grid">
-            <div>
-              <label htmlFor={rateId}>Tax rate</label>
-              <input
-                id={rateId}
-                type="text"
-                inputMode="decimal"
-                value={rateText}
-                onChange={(e) => setRateText(e.target.value)}
-                disabled={noTax}
-                placeholder="leave blank for the configured rate"
-              />
-              <p className="muted">
-                Leave blank to use the configured default rate. Enter a decimal such as
-                0.0635 for 6.35%.
-              </p>
-              {rateError && <p className="error">{rateError}</p>}
-            </div>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={noTax}
-                onChange={(e) => setNoTax(e.target.checked)}
-              />
-              {/* */}
-              No sales tax charged
-            </label>
-            <label>
-              Tax on shipping{/* */}
-              <select
-                value={taxIncludesShipping}
-                onChange={(e) => setTaxIncludesShipping(e.target.value)}
-              >
-                <option value="">As configured</option>
-                <option value="true">Taxed</option>
-                <option value="false">Not taxed</option>
-              </select>
-            </label>
-          </div>
-
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Item code</th>
-                <th>Title</th>
-                <th>Kind</th>
-                <th>Cost</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(purchase.lines ?? []).map((line) => (
-                <tr key={line.id}>
-                  <td className="mono">{line.item_code}</td>
-                  <td>{line.source_title}</td>
-                  <td>{line.item_kind}</td>
-                  <td>{line.item_cost}</td>
-                  <td>{line.status}</td>
-                </tr>
-              ))}
-              {(purchase.lines ?? []).length === 0 && (
-                <tr>
-                  <td colSpan={5} className="muted">
-                    No items entered yet.
-                  </td>
-                </tr>
+        <HelpScope>
+          <div className="admin-form">
+            <h2>
+              {purchase.order_number || <span className="muted">no order number</span>}
+              {' · '}
+              {purchase.vendor}
+              {' · '}
+              {date(purchase.ordered_on)}
+              {purchase.source_url && (
+                <>
+                  {' · '}
+                  <a
+                    href={purchase.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Vendor page
+                  </a>
+                </>
               )}
-            </tbody>
-          </table>
+            </h2>
+            {reloadError && <p className="error">{reloadError}</p>}
 
-          <NewItemForm
-            purchaseOrderId={purchase.id}
-            defaults={itemDefaults}
-            onSaved={reloadPurchase}
-            disabledReason={itemDisabledReason}
-          />
+            <div className="filter-grid">
+              <div data-help="tax_rate">
+                <label htmlFor={rateId}>Tax rate</label>
+                <input
+                  id={rateId}
+                  type="text"
+                  inputMode="decimal"
+                  value={rateText}
+                  onChange={(e) => setRateText(e.target.value)}
+                  disabled={noTax}
+                  placeholder="leave blank for the configured rate"
+                />
+                <p className="muted">
+                  Leave blank to use the configured default rate. Enter a decimal such
+                  as 0.0635 for 6.35%.
+                </p>
+                {rateError && <p className="error">{rateError}</p>}
+              </div>
+              <label data-help="no_sales_tax" className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={noTax}
+                  onChange={(e) => setNoTax(e.target.checked)}
+                />
+                {/* */}
+                No sales tax charged
+              </label>
+              <label data-help="tax_includes_shipping">
+                Tax on shipping{/* */}
+                <select
+                  value={taxIncludesShipping}
+                  onChange={(e) => setTaxIncludesShipping(e.target.value)}
+                >
+                  <option value="">As configured</option>
+                  <option value="true">Taxed</option>
+                  <option value="false">Not taxed</option>
+                </select>
+              </label>
+            </div>
 
-          <p className="row">
-            {/* A routed link, not a hard-coded shop path: the console mounts
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Item code</th>
+                  <th>Title</th>
+                  <th>Kind</th>
+                  <th>Cost</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(purchase.lines ?? []).map((line) => (
+                  <tr key={line.id}>
+                    <td className="mono">{line.item_code}</td>
+                    <td>{line.source_title}</td>
+                    <td>{line.item_kind}</td>
+                    <td>{line.item_cost}</td>
+                    <td>{line.status}</td>
+                  </tr>
+                ))}
+                {(purchase.lines ?? []).length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="muted">
+                      No items entered yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
+            <NewItemForm
+              purchaseOrderId={purchase.id}
+              defaults={itemDefaults}
+              onSaved={reloadPurchase}
+              disabledReason={itemDisabledReason}
+            />
+
+            <p className="row">
+              {/* A routed link, not a hard-coded shop path: the console mounts
                 under basename "/owner" (owner/main.jsx), and a plain
                 `href="/receiving?..."` would send the browser to the shop at
                 the site root instead. */}
-            <Link to={`/receiving?order=${purchase.id}`}>Receive these</Link>
-            <button type="button" className="link" onClick={startAnother}>
-              Start another purchase
-            </button>
-          </p>
-        </div>
+              <Link to={`/receiving?order=${purchase.id}`}>Receive these</Link>
+              <button type="button" className="link" onClick={startAnother}>
+                Start another purchase
+              </button>
+            </p>
+          </div>
+        </HelpScope>
       </section>
     )
   }
@@ -446,109 +453,114 @@ export default function NewPurchase() {
   return (
     <section>
       <h1>New purchase</h1>
-
-      <div className="filter-grid">
-        <label className="checkbox">
-          <input
-            type="radio"
-            name="purchase-mode"
-            value="existing"
-            checked={mode === 'existing'}
-            onChange={() => setMode('existing')}
-          />
-          {/* */}
-          Add to an existing purchase
-        </label>
-        <label className="checkbox">
-          <input
-            type="radio"
-            name="purchase-mode"
-            value="new"
-            checked={mode === 'new'}
-            onChange={() => setMode('new')}
-          />
-          {/* */}
-          Start a new purchase
-        </label>
-      </div>
-
-      {mode === 'existing' && (
-        <div className="admin-form">
-          {ordersError && <p className="error">{ordersError}</p>}
-          {pickError && <p className="error">{pickError}</p>}
-          {!ordersError && !orders && <p className="muted">Loading...</p>}
-          {orders && orders.length > 0 && (
-            <label>
-              Filter{/* */}
-              <input
-                type="text"
-                value={orderFilter}
-                onChange={(e) => setOrderFilter(e.target.value)}
-                placeholder="Order number or vendor"
-              />
-            </label>
-          )}
-          {orders && (
-            <ExistingPurchasePicker
-              orders={orders}
-              filterText={orderFilter}
-              onPick={pickExisting}
+      <HelpScope>
+        <div className="filter-grid">
+          <label className="checkbox">
+            <input
+              type="radio"
+              name="purchase-mode"
+              value="existing"
+              checked={mode === 'existing'}
+              onChange={() => setMode('existing')}
             />
-          )}
-        </div>
-      )}
-
-      {mode === 'new' && (
-        <form className="admin-form" onSubmit={createPurchase}>
-          {purchaseError && <p className="error">{purchaseError}</p>}
-          {vendorsError && <p className="error">{vendorsError}</p>}
-          <div className="form-grid">
-            <label>
-              Vendor{/* */}
-              {vendors ? (
-                <VendorField
-                  vendors={vendors}
-                  value={form.vendor_id}
-                  onChange={(id) => setForm({ ...form, vendor_id: id })}
-                  onVendorAdded={(created) =>
-                    setVendors((v) =>
-                      [...v, created].sort((a, b) => a.name.localeCompare(b.name)),
-                    )
-                  }
-                />
-              ) : (
-                <span className="muted">Loading...</span>
-              )}
-            </label>
-            <label>
-              Order number{/* */}
-              <input value={form.order_number} onChange={set('order_number')} />
-            </label>
-            <label>
-              Order date{/* */}
-              <input type="date" value={form.ordered_on} onChange={set('ordered_on')} />
-            </label>
-            <label>
-              Web address{/* */}
-              <input
-                type="url"
-                placeholder="https://"
-                value={form.source_url}
-                onChange={set('source_url')}
-              />
-            </label>
-          </div>
-          <label>
-            Notes{/* */}
-            <textarea rows={2} value={form.notes} onChange={set('notes')} />
+            {/* */}
+            Add to an existing purchase
           </label>
-          <div className="row">
-            <button type="submit" disabled={creating || !form.vendor_id}>
-              {creating ? 'Creating...' : 'Create purchase'}
-            </button>
+          <label className="checkbox">
+            <input
+              type="radio"
+              name="purchase-mode"
+              value="new"
+              checked={mode === 'new'}
+              onChange={() => setMode('new')}
+            />
+            {/* */}
+            Start a new purchase
+          </label>
+        </div>
+
+        {mode === 'existing' && (
+          <div className="admin-form">
+            {ordersError && <p className="error">{ordersError}</p>}
+            {pickError && <p className="error">{pickError}</p>}
+            {!ordersError && !orders && <p className="muted">Loading...</p>}
+            {orders && orders.length > 0 && (
+              <label data-help="purchase_filter">
+                Filter{/* */}
+                <input
+                  type="text"
+                  value={orderFilter}
+                  onChange={(e) => setOrderFilter(e.target.value)}
+                  placeholder="Order number or vendor"
+                />
+              </label>
+            )}
+            {orders && (
+              <ExistingPurchasePicker
+                orders={orders}
+                filterText={orderFilter}
+                onPick={pickExisting}
+              />
+            )}
           </div>
-        </form>
-      )}
+        )}
+
+        {mode === 'new' && (
+          <form className="admin-form" onSubmit={createPurchase}>
+            {purchaseError && <p className="error">{purchaseError}</p>}
+            {vendorsError && <p className="error">{vendorsError}</p>}
+            <div className="form-grid">
+              <label data-help="vendor">
+                Vendor{/* */}
+                {vendors ? (
+                  <VendorField
+                    vendors={vendors}
+                    value={form.vendor_id}
+                    onChange={(id) => setForm({ ...form, vendor_id: id })}
+                    onVendorAdded={(created) =>
+                      setVendors((v) =>
+                        [...v, created].sort((a, b) => a.name.localeCompare(b.name)),
+                      )
+                    }
+                  />
+                ) : (
+                  <span className="muted">Loading...</span>
+                )}
+              </label>
+              <label data-help="order_number">
+                Order number{/* */}
+                <input value={form.order_number} onChange={set('order_number')} />
+              </label>
+              <label data-help="ordered_on">
+                Order date{/* */}
+                <input
+                  type="date"
+                  value={form.ordered_on}
+                  onChange={set('ordered_on')}
+                />
+              </label>
+              <label data-help="source_url">
+                Web address{/* */}
+                <input
+                  type="url"
+                  placeholder="https://"
+                  value={form.source_url}
+                  onChange={set('source_url')}
+                />
+              </label>
+            </div>
+            <label data-help="purchase_notes">
+              Notes{/* */}
+              <textarea rows={2} value={form.notes} onChange={set('notes')} />
+            </label>
+            <div className="row">
+              <button type="submit" disabled={creating || !form.vendor_id}>
+                {creating ? 'Creating...' : 'Create purchase'}
+              </button>
+            </div>
+          </form>
+        )}
+      </HelpScope>
     </section>
   )
 }

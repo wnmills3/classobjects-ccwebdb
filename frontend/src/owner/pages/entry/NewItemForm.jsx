@@ -408,7 +408,7 @@ export default function NewItemForm({
       {disabledReason && <p className="error">{disabledReason}</p>}
 
       <div className="form-grid">
-        <label>
+        <label data-help="item_kind">
           <AccessLabel text="Kind" accessKey="k" />
           <ReferenceSelect
             table="item_kind"
@@ -419,7 +419,7 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="source_title">
           <AccessLabel text="Title" accessKey="t" />
           <input
             ref={titleRef}
@@ -430,7 +430,7 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="piece_count">
           <AccessLabel text="Pieces" accessKey="p" />
           <input
             type="number"
@@ -441,7 +441,7 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="item_cost">
           <AccessLabel text="Item cost" accessKey="i" />
           <input
             type="text"
@@ -452,7 +452,7 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="shipping_cost">
           <AccessLabel text="Shipping" accessKey="h" />
           <input
             type="text"
@@ -463,7 +463,7 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="country">
           <AccessLabel text="Country" accessKey="u" />
           <ReferenceSelect
             table="country"
@@ -474,7 +474,7 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="denomination">
           <AccessLabel text="Denomination" accessKey="m" />
           <ReferenceSelect
             table="denomination"
@@ -496,7 +496,7 @@ export default function NewItemForm({
             (`COIN_ONLY_FIELDS`). The editor keeping a metal box this form had
             already dropped is what that shared list exists to stop. */}
         {fieldFitsKind('strike_type', form.item_kind) && (
-          <label>
+          <label data-help="strike_type">
             Strike type
             <ReferenceSelect
               table="strike_type"
@@ -507,7 +507,7 @@ export default function NewItemForm({
           </label>
         )}
 
-        <label>
+        <label data-help="grade">
           <AccessLabel text="Grade" accessKey="g" />
           <ReferenceSelect
             table="grade"
@@ -521,7 +521,7 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="grade_designation">
           Grade designation
           <ReferenceSelect
             table="grade_designation"
@@ -530,7 +530,7 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="grading_service">
           Grading service
           <ReferenceSelect
             table="grading_service"
@@ -539,13 +539,13 @@ export default function NewItemForm({
           />
         </label>
 
-        <label>
+        <label data-help="cert_number">
           Certificate number
           <input type="text" value={form.cert_number} onChange={set('cert_number')} />
         </label>
 
         {fieldFitsKind('metal', form.item_kind) && (
-          <label>
+          <label data-help="metal">
             <AccessLabel text="Metal" accessKey="l" />
             <ReferenceSelect
               table="metal"
@@ -557,7 +557,7 @@ export default function NewItemForm({
           </label>
         )}
 
-        <label>
+        <label data-help="series">
           <AccessLabel text="Series" accessKey="s" />
           <ReferenceSelect
             table="series"
@@ -573,11 +573,11 @@ export default function NewItemForm({
             it is a change to the form, not to this fix. */}
         {fieldFitsKind('mint', form.item_kind) && (
           <>
-            <label>
+            <label data-help="mint">
               Mint
               <ReferenceSelect table="mint" value={form.mint} onChange={set('mint')} />
             </label>
-            <label>
+            <label data-help="variety">
               Variety
               <input type="text" value={form.variety} onChange={set('variety')} />
             </label>
@@ -586,7 +586,7 @@ export default function NewItemForm({
 
         {isCurrency && (
           <>
-            <label>
+            <label data-help="serial_number">
               Serial number
               <input
                 type="text"
@@ -594,7 +594,7 @@ export default function NewItemForm({
                 onChange={set('serial_number')}
               />
             </label>
-            <label>
+            <label data-help="series_year">
               Series year
               <input
                 type="number"
@@ -602,7 +602,7 @@ export default function NewItemForm({
                 onChange={set('series_year')}
               />
             </label>
-            <label>
+            <label data-help="series_letter">
               Series letter
               <input
                 type="text"
@@ -611,7 +611,7 @@ export default function NewItemForm({
                 onChange={set('series_letter')}
               />
             </label>
-            <label>
+            <label data-help="note_type">
               <AccessLabel text="Note class" accessKey="a" />
               <ReferenceSelect
                 table="note_type"
@@ -621,7 +621,7 @@ export default function NewItemForm({
               />
               {mark('note_type')}
             </label>
-            <label>
+            <label data-help="seal_color">
               Seal colour
               <ReferenceSelect
                 table="seal_color"
@@ -630,7 +630,7 @@ export default function NewItemForm({
               />
               {mark('seal_color')}
             </label>
-            <label>
+            <label data-help="signature_combination">
               Signatures
               <ReferenceSelect
                 table="signature_combination"
@@ -639,7 +639,7 @@ export default function NewItemForm({
               />
               {mark('signature_combination')}
             </label>
-            <label>
+            <label data-help="fed_district">
               <AccessLabel text="Reserve Bank" accessKey="b" />
               <ReferenceSelect
                 table="fed_district"
@@ -656,7 +656,7 @@ export default function NewItemForm({
       {/* Divs, not a wrapping label: the range checkbox needs its own label,
           which a <label> may not contain, so each box is named through
           htmlFor instead -- the same layout the item editor uses. */}
-      <div>
+      <div data-help="year_start">
         <label htmlFor={yearId}>
           <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
         </label>
@@ -681,7 +681,7 @@ export default function NewItemForm({
         </span>
       </div>
       {ranged && (
-        <div>
+        <div data-help="year_end">
           <label htmlFor={yearEndId}>
             <AccessLabel text="Year to" accessKey="o" />
           </label>
@@ -695,7 +695,7 @@ export default function NewItemForm({
         </div>
       )}
 
-      <fieldset>
+      <fieldset data-help="new_item_status">
         <legend>Status</legend>
         <label className="checkbox">
           <input
@@ -721,7 +721,7 @@ export default function NewItemForm({
         </label>
       </fieldset>
 
-      <label>
+      <label data-help="description">
         Description{/* */}
         <textarea rows={3} value={form.description} onChange={set('description')} />
       </label>

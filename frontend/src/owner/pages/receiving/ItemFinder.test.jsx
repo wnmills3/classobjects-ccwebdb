@@ -205,6 +205,6 @@ describe('ItemFinder', () => {
   it('explains the order number field when it has focus', async () => {
     renderWithProviders(<ItemFinder onPick={vi.fn()} />)
     await userEvent.click(screen.getByLabelText(/order number/i))
-    expect(screen.getByText(/Part of it is enough/)).toBeInTheDocument()
+    expect(screen.getByText(/part of it is enough/i)).toBeInTheDocument()
   })
 })

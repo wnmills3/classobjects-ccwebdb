@@ -77,6 +77,24 @@ describe('HelpScope', () => {
     expect(screen.getAllByText(/letter in the black seal/)).toHaveLength(1)
   })
 
+  it('has help for every data-help key written in the console source', () => {
+    // A misspelt key shows nothing, silently: the area just keeps whatever
+    // it last said. Every literal key in the source must have its text.
+    const sources = import.meta.glob(['./**/*.jsx', '!./**/*.test.jsx'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    })
+    const keys = new Set()
+    for (const text of Object.values(sources)) {
+      for (const match of text.matchAll(/data-help="(\w+)"/g)) keys.add(match[1])
+    }
+    // Enough keys that the scan is plainly reading the forms, not nothing.
+    expect(keys.size).toBeGreaterThan(30)
+    const missing = [...keys].filter((key) => !FIELD_HELP[key])
+    expect(missing).toEqual([])
+  })
+
   it('has help for every banknote field the editor and lookup show', () => {
     for (const field of [
       'denomination',

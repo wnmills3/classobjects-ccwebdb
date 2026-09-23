@@ -135,6 +135,26 @@ describe('NewPurchase: creating a purchase', () => {
     expect(screen.getByText(/no items entered yet/i)).toBeInTheDocument()
   })
 
+  it('explains each purchase and item field when it has focus', async () => {
+    const user = userEvent.setup()
+    api.createPurchaseOrder.mockResolvedValue(FRESH_PURCHASE)
+    renderWithProviders(<NewPurchase />)
+
+    await user.click(screen.getByLabelText(/order date/i))
+    expect(screen.getByText(/not the date it arrived/)).toBeInTheDocument()
+
+    const vendorSelect = await screen.findByRole('combobox', { name: 'Vendor' })
+    await user.selectOptions(vendorSelect, '3')
+    await user.click(screen.getByRole('button', { name: /create purchase/i }))
+    await screen.findByText(/no items entered yet/i)
+
+    // The New item form inside the page shares the page's help area.
+    await user.click(screen.getByRole('textbox', { name: /title/i }))
+    expect(screen.getByText(/kept as the seller's words/)).toBeInTheDocument()
+    await user.click(screen.getByLabelText(/tax rate/i))
+    expect(screen.getByText(/Every item entered below is stamped/)).toBeInTheDocument()
+  })
+
   it('keeps what was typed when the order is refused as a duplicate', async () => {
     const user = userEvent.setup()
     api.createPurchaseOrder.mockRejectedValue(
