@@ -163,23 +163,21 @@ describe('FriedbergLookup', () => {
 
     const frInput = await screen.findByLabelText(/fr\. number/i)
     await userEvent.type(frInput, 'FR-TEST-1')
-    await userEvent.click(
-      screen.getByRole('button', { name: /record & attach as proposed/i }),
-    )
+    await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
 
     expect(await screen.findByText(/already recorded as row 7/i)).toBeInTheDocument()
     // The 409 must stop the flow, not be swallowed and attached anyway.
     expect(api.attachFriedberg).not.toHaveBeenCalled()
   })
 
-  it('attaches a chosen result with the status the operator picked', async () => {
+  it('copies a match into the field, then saves it with the status picked', async () => {
     api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: /attach as confirmed/i }),
-    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Copy FR-TEST-2' }))
+    expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('FR-TEST-2')
+    await userEvent.click(screen.getByRole('button', { name: /save as confirmed/i }))
 
     // Would fail a component that always attached as 'proposed' -- the
     // status sent must be the one the operator's button named.
@@ -189,6 +187,9 @@ describe('FriedbergLookup', () => {
         status: 'confirmed',
       }),
     )
+    // The copied number is that catalogue row: attached as it is, never
+    // recorded a second time (which would be a 409).
+    expect(api.createFriedbergNumber).not.toHaveBeenCalled()
   })
 
   it('starts from what the note records, district and web press included', async () => {
@@ -286,12 +287,8 @@ describe('FriedbergLookup', () => {
     )
   })
 
-  it('offers a web search built from the note, to copy or open', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    })
+  it('with no match, offers Search the web instead of Copy, in a pop-up', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     const reference = emptyReference({
       tables: {
         denomination: [{ code: 'usd_note_1', label: '$1 Bill' }],
@@ -310,33 +307,40 @@ describe('FriedbergLookup', () => {
       attributes: [],
     }
     renderWithProviders(<FriedbergLookup itemId={412} item={item} />, { reference })
+    // Nothing to search the web about until the catalogue has said no.
+    expect(screen.queryByRole('button', { name: /search the web/i })).toBeNull()
 
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    const searchButton = await screen.findByRole('button', { name: /search the web/i })
+    expect(screen.queryByRole('button', { name: /^copy/i })).toBeNull()
+    expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('')
+
+    await userEvent.click(searchButton)
     const expected =
-      'Series 1963-A $1 Federal Reserve Note New York Test Treasurer A Test Secretary A Friedberg'
-    const text = screen.getByLabelText(/web search text/i)
-    await waitFor(() => expect(text).toHaveValue(expected))
-    expect(screen.getByRole('link', { name: /search the web/i })).toHaveAttribute(
-      'href',
-      `https://www.google.com/search?q=${encodeURIComponent(expected)}`,
+      'What is the Friedberg number for Series 1963-A $1 Federal Reserve Note New York Test Treasurer A Test Secretary A?'
+    // A named pop-up window, not a tab: the results sit beside the form, and
+    // a second search reuses the same window.
+    expect(open).toHaveBeenCalledWith(
+      `https://www.google.com/ai?q=${encodeURIComponent(expected)}`,
+      'friedberg-web-search',
+      expect.stringContaining('popup'),
     )
-
-    await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
-    expect(writeText).toHaveBeenCalledWith(expected)
-    expect(await screen.findByText('Copied.')).toBeInTheDocument()
-    // Searching the web writes nothing: no lookup, record or attach.
+    // Searching the web writes nothing: no record, no attach.
     expect(api.createFriedbergNumber).not.toHaveBeenCalled()
     expect(api.attachFriedberg).not.toHaveBeenCalled()
+    open.mockRestore()
   })
 
-  it('says so when the clipboard refuses, rather than claiming a copy', async () => {
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
-      configurable: true,
-    })
+  it('with a match, offers Copy instead of Search the web', async () => {
+    api.searchFriedberg.mockResolvedValue([ROW_VERIFIED])
     renderWithProviders(<FriedbergLookup itemId={412} />)
-    await userEvent.click(screen.getByRole('button', { name: /^copy$/i }))
-    expect(await screen.findByText(/could not copy/i)).toBeInTheDocument()
-    expect(screen.queryByText('Copied.')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+
+    expect(await screen.findByRole('button', { name: 'Copy FR-TEST-1' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /search the web/i })).toBeNull()
+    // The field stays blank until Copy is pressed.
+    expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('')
+    expect(screen.getByRole('button', { name: /save as proposed/i })).toBeDisabled()
   })
 
   it('does not read a missing Web Press attribute as sheet-fed', async () => {
@@ -355,9 +359,7 @@ describe('FriedbergLookup', () => {
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
     await userEvent.type(await screen.findByLabelText(/fr\. number/i), 'FR-TEST-1')
-    await userEvent.click(
-      screen.getByRole('button', { name: /record & attach as proposed/i }),
-    )
+    await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
 
     await waitFor(() =>
       expect(api.createFriedbergNumber).toHaveBeenCalledWith({
@@ -421,18 +423,28 @@ describe('webSearchText', () => {
         },
         labels,
       ),
-    ).toBe('Series 1963-A $1 Federal Reserve Note New York Granahan Fowler Friedberg')
+    ).toBe(
+      'What is the Friedberg number for Series 1963-A $1 Federal Reserve Note New York Granahan Fowler?',
+    )
   })
 
   it('names web press only when it is known, and no letter when there is none', () => {
     const fields = { seriesYear: '1995', denomination: 'usd_note_1', press: 'yes' }
-    expect(webSearchText(fields, labels)).toBe('Series 1995 $1 web press Friedberg')
+    expect(webSearchText(fields, labels)).toBe(
+      'What is the Friedberg number for Series 1995 $1 web press?',
+    )
     expect(webSearchText({ ...fields, press: 'no' }, labels)).toBe(
-      'Series 1995 $1 Friedberg',
+      'What is the Friedberg number for Series 1995 $1?',
     )
   })
 
   it('falls back to the code while a vocabulary is still loading', () => {
-    expect(webSearchText({ noteType: 'frn' })).toBe('frn Friedberg')
+    expect(webSearchText({ noteType: 'frn' })).toBe(
+      'What is the Friedberg number for frn?',
+    )
+  })
+
+  it('still asks a question when nothing is known yet', () => {
+    expect(webSearchText({})).toBe('What is the Friedberg number for this US banknote?')
   })
 })
