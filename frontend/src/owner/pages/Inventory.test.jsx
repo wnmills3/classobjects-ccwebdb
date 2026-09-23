@@ -16,6 +16,7 @@ vi.mock('../api', () => ({
     listListings: vi.fn(),
     endListing: vi.fn(),
     listSalesVenues: vi.fn(),
+    getOfferTitles: vi.fn(),
     createOffers: vi.fn(),
     // PhotosPanel, in the item editor.
     listItemImages: vi.fn(),
@@ -37,6 +38,7 @@ const rows = Array.from({ length: 50 }, (_, i) => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.getOfferTitles.mockResolvedValue({ titles: {} })
   api.getItemSales.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
   api.listSalesVenues.mockResolvedValue([])

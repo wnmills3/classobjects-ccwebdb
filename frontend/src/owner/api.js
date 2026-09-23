@@ -167,6 +167,15 @@ export const api = {
   // `detail`, so `OfferDialog` reads `err.body?.refused` to list every
   // refused item with its reason.
   createOffers: (payload) => send('/api/offers', { method: 'POST', body: payload }),
+  // A suggested public title per item id, composed from the item's facts
+  // (`app/offer_titles.py`) -- what `OfferDialog` pre-fills instead of the
+  // seller's `source_title`. Answers {titles: {id: title}}; unknown ids are
+  // simply absent.
+  getOfferTitles: (itemIds) => {
+    const qs = new URLSearchParams()
+    itemIds.forEach((id) => qs.append('item_ids', id))
+    return send(`/api/offers/titles?${qs}`)
+  },
   listListings: (params = {}) => {
     const qs = query(params)
     return send(`/api/listings${qs ? `?${qs}` : ''}`)

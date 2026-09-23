@@ -287,3 +287,16 @@ describe('sales lots', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/api/sales-lots')
   })
 })
+
+describe('getOfferTitles', () => {
+  // FastAPI reads a list query parameter from a repeated key; a single
+  // comma-joined value would be one unparseable id and a 422.
+  it('repeats item_ids once per item', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.getOfferTitles([7, 9])
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/offers/titles?item_ids=7&item_ids=9')
+  })
+})

@@ -93,10 +93,17 @@ function subjectsFor(items, lot) {
   }))
 }
 
-/** What the form holds for one subject before anything is typed. */
+/**
+ * What the form holds for one subject before anything is typed.
+ *
+ * `startedAs` is the title the row opened with, kept so a suggested title
+ * that arrives later replaces only a title nobody has edited. It is never
+ * sent: the request body is built field by field below.
+ */
 const draftFor = (subject) => ({
   price: '',
   title: subject.title,
+  startedAs: subject.title,
   description: subject.description,
   external_id: '',
 })
@@ -147,6 +154,38 @@ export default function OfferDialog({
       cancelled = true
     }
   }, [])
+
+  // The public title each item starts from, composed from what the record
+  // says it is (`app/offer_titles.py`) -- not `source_title`, the seller's
+  // wording from the purchase, which is often "1" or "$1 Bill" and would
+  // otherwise go onto eBay as typed. Only a title nobody has touched yet is
+  // replaced: the answer can land after the operator started typing. A lot
+  // keeps its own title, which the owner wrote when assembling it.
+  const [titlesFailed, setTitlesFailed] = useState(false)
+  const itemIds = lot ? '' : items.map((item) => item.id).join(',')
+  useEffect(() => {
+    if (itemIds === '') return undefined
+    let cancelled = false
+    api
+      .getOfferTitles(itemIds.split(',').map(Number))
+      .then(({ titles }) => {
+        if (cancelled) return
+        setRows((current) => {
+          const next = { ...current }
+          Object.entries(titles).forEach(([id, title]) => {
+            const draft = next[id]
+            if (draft && draft.title === draft.startedAs) {
+              next[id] = { ...draft, title }
+            }
+          })
+          return next
+        })
+      })
+      .catch(() => !cancelled && setTitlesFailed(true))
+    return () => {
+      cancelled = true
+    }
+  }, [itemIds])
 
   // `offer` is a function declaration below, hoisted for the whole component
   // scope. Disabled while a batch is in flight, so holding Ctrl+S cannot send
@@ -265,6 +304,12 @@ export default function OfferDialog({
             </li>
           ))}
         </ul>
+      )}
+      {titlesFailed && (
+        <p className="muted">
+          Suggested titles could not be loaded, so each title is the wording from the
+          purchase. Check it before offering.
+        </p>
       )}
       {skipped > 0 && (
         <p className="muted">

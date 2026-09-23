@@ -7,6 +7,7 @@ vi.mock('../../api', () => ({
     listListings: vi.fn(),
     endListing: vi.fn(),
     listSalesVenues: vi.fn(),
+    getOfferTitles: vi.fn(),
     createOffers: vi.fn(),
   },
 }))
@@ -134,6 +135,7 @@ function withHeldBackVenues() {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  api.getOfferTitles.mockResolvedValue({ titles: {} })
   api.listListings.mockResolvedValue([EBAY, STORE, ENDED])
   api.listSalesVenues.mockResolvedValue(VENUES)
   api.endListing.mockResolvedValue({ ...EBAY, status: 'ended' })

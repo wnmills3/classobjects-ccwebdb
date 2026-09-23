@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../api', () => ({
   api: {
     listSalesVenues: vi.fn(),
+    getOfferTitles: vi.fn(),
     createOffers: vi.fn(),
   },
 }))
@@ -123,6 +124,7 @@ const offerButton = () => screen.getByRole('button', { name: /^Offer 2 for sale$
 
 beforeEach(() => {
   vi.resetAllMocks()
+  api.getOfferTitles.mockResolvedValue({ titles: {} })
   api.listSalesVenues.mockResolvedValue(VENUES)
   api.createOffers.mockResolvedValue({ listings: [LISTING] })
 })
@@ -191,6 +193,56 @@ describe('OfferDialog', () => {
         },
       ],
     })
+  })
+
+  it('starts each title from the suggested title, not the purchase wording', async () => {
+    api.getOfferTitles.mockResolvedValue({
+      titles: { 7: '1881-S Morgan Dollar PCGS MS64' },
+    })
+    renderDialog()
+
+    expect(api.getOfferTitles).toHaveBeenCalledWith([7, 9])
+    await waitFor(() =>
+      expect(screen.getByLabelText('Title for CC-000007')).toHaveValue(
+        '1881-S Morgan Dollar PCGS MS64',
+      ),
+    )
+    // No suggestion for this one: it keeps what it had.
+    expect(screen.getByLabelText('Title for CC-000009')).toHaveValue(
+      '1923 Peace Dollar',
+    )
+  })
+
+  it('never overwrites a title the operator has already edited', async () => {
+    let answer
+    api.getOfferTitles.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve
+      }),
+    )
+    const user = userEvent.setup()
+    renderDialog()
+    const title = screen.getByLabelText('Title for CC-000007')
+    await user.clear(title)
+    await user.type(title, 'My own wording')
+
+    await act(async () => answer({ titles: { 7: 'Suggested', 9: 'Also suggested' } }))
+
+    expect(title).toHaveValue('My own wording')
+    // The untouched row still takes its suggestion.
+    expect(screen.getByLabelText('Title for CC-000009')).toHaveValue('Also suggested')
+  })
+
+  it('says so when the suggested titles cannot be loaded', async () => {
+    api.getOfferTitles.mockRejectedValue(new Error('offline'))
+    renderDialog()
+
+    expect(
+      await screen.findByText(/Suggested titles could not be loaded/),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Title for CC-000007')).toHaveValue(
+      '1881-S Morgan Dollar',
+    )
   })
 
   it('offers by auction when that format is chosen', async () => {

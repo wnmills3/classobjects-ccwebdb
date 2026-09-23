@@ -1456,6 +1456,16 @@ class OfferBatchOut(BaseModel):
     listings: list[ListingOut]
 
 
+class OfferTitlesOut(BaseModel):
+    """A suggested public title per item id (`app.offer_titles`).
+
+    Ids that do not exist are absent rather than an error: the dialog asking
+    is only filling in defaults, and keeps the wording it already has.
+    """
+
+    titles: dict[int, str]
+
+
 class OfferRefusedOut(BaseModel):
     """The 409 body when a batch is refused: nothing was written."""
 

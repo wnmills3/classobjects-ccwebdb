@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 
 from .. import lot_writes, offering_writes, sales_writes
+from .. import offer_titles as offer_titles_module
 from ..deps import AdminUser, DbSession
 from ..models import (
     AuctionLot,
@@ -52,6 +53,7 @@ from ..schemas import (
     OfferIn,
     OfferRefusalOut,
     OfferRefusedOut,
+    OfferTitlesOut,
     RecordSaleIn,
     SaleRecordedOut,
 )
@@ -318,6 +320,21 @@ def _offer_lot(
         description=payload.description,
         external_id=payload.external_id,
     )
+
+
+@router.get("/offers/titles", response_model=OfferTitlesOut)
+def offer_titles(
+    db: DbSession,
+    _admin: AdminUser,
+    item_ids: Annotated[list[int], Query(max_length=500)],
+) -> OfferTitlesOut:
+    """Suggested public titles for items about to be offered.
+
+    What the offer dialog pre-fills each title with, instead of the seller's
+    `source_title` -- see `app.offer_titles` for how one is composed. Read
+    only; nothing about an item or a listing changes.
+    """
+    return OfferTitlesOut(titles=offer_titles_module.suggested_titles(db, item_ids))
 
 
 @router.post(

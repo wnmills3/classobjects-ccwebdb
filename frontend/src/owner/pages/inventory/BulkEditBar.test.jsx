@@ -7,6 +7,7 @@ vi.mock('../../api', () => ({
     bulkEditInventory: vi.fn(),
     // OfferDialog's own calls, reachable once "Offer for sale..." is pressed.
     listSalesVenues: vi.fn(),
+    getOfferTitles: vi.fn(),
     createOffers: vi.fn(),
     // And the lot calls, reachable once "Group into lot..." is pressed.
     listLots: vi.fn(),
@@ -53,6 +54,7 @@ const VENUES = [
 
 beforeEach(() => {
   vi.resetAllMocks()
+  api.getOfferTitles.mockResolvedValue({ titles: {} })
   api.listSalesVenues.mockResolvedValue(VENUES)
   api.listLots.mockResolvedValue({ lots: [] })
 })

@@ -15,6 +15,7 @@ vi.mock('../../api', () => ({
     listListings: vi.fn(),
     endListing: vi.fn(),
     listSalesVenues: vi.fn(),
+    getOfferTitles: vi.fn(),
     createOffers: vi.fn(),
     // PhotosPanel's own calls: it reads the item's photographs on mount.
     listItemImages: vi.fn(),
@@ -44,6 +45,7 @@ const item = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.getOfferTitles.mockResolvedValue({ titles: {} })
   api.getItemSales.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
   // The offers panel reads the platforms too, to tell the shop from the rest.
