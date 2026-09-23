@@ -917,6 +917,23 @@ describe('An item for sale', () => {
     )
   })
 
+  it('warns that a new status ends the offer before it is confirmed', async () => {
+    // The owner's ruling (2026-09-23): warn, and end the offer once the
+    // change is accepted -- the server does the ending.
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue({ ...forSale, status: 'received' })
+    render(<ItemEditForm itemId={12} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    expect(screen.queryByText(/saving ends its offer/)).toBeNull()
+
+    await user.clear(screen.getByLabelText('item_status'))
+    await user.type(screen.getByLabelText('item_status'), 'missing')
+    expect(screen.getByText(/saving ends its offer/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: 'Change the status and end the offer' }),
+    ).toBeInTheDocument()
+  })
+
   // Offering the item from the panel makes it for sale, and the server then
   // refuses any save that does not acknowledge that. Nothing on this form
   // could explain such a refusal, so the form reads the item again.

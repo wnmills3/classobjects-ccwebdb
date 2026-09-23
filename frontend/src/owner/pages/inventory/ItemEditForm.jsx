@@ -289,6 +289,11 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   // scope, so it is safe to reference here even though it is defined later --
   // this hook must sit above every early return.
   const forSale = (item?.sale_state ?? []).length > 0
+  // What the server ends an offer for: a status or disposition that differs
+  // from the one the item holds.
+  const endsOffer = ['status', 'disposition'].some(
+    (key) => key in draft && draft[key] !== item?.[key],
+  )
   const canSave = !saving && Object.keys(draft).length > 0 && (!forSale || acknowledged)
   useSaveShortcut(save, canSave)
 
@@ -525,8 +530,17 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           uses={item.sale_state ?? []}
           checked={acknowledged}
           onChange={setAcknowledged}
-          action="Change it anyway"
+          action={endsOffer ? 'Change the status and end the offer' : 'Change it anyway'}
         />
+        {/* A new status (or disposition) takes an offered item off sale:
+            the save ends its offer. Said before the box is ticked, not
+            discovered afterwards. */}
+        {forSale && endsOffer && (
+          <p className="error">
+            Changing its status takes it off sale: saving ends its offer, and the
+            listing will no longer be shown to buyers.
+          </p>
+        )}
 
         {TEXT_FIELDS.map(([label, key, letter]) => (
           <label key={key} className="field">

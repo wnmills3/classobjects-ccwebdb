@@ -251,6 +251,16 @@ describe('ItemFinder', () => {
     expect(screen.getByText(/part of it is enough/i)).toBeInTheDocument()
   })
 
+  it('opens with focus on Any, so the help shows at once', () => {
+    // The owner's request (2026-09-23): the page should explain itself
+    // before anything is clicked.
+    renderWithProviders(<ItemFinder onPick={vi.fn()} />)
+    expect(screen.getByRole('radio', { name: 'Any' })).toHaveFocus()
+    expect(screen.getByRole('radiogroup', { name: 'Search for:' })).toBeInTheDocument()
+    expect(screen.getByText('Search for')).toBeInTheDocument()
+    expect(screen.getByText(/Any: coins and notes together/)).toBeInTheDocument()
+  })
+
   it('explains the kind radio buttons when one is chosen', async () => {
     // The owner found the radios left the help area unchanged (2026-09-23).
     renderWithProviders(<ItemFinder onPick={vi.fn()} />)

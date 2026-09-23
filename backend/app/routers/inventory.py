@@ -393,6 +393,34 @@ def _refuse_auction_lots(
     )
 
 
+def _sale_standing_change(
+    db: Session, item: InventoryItem, data: dict[str, Any]
+) -> str | None:
+    """The new status or disposition code, when an edit changes one of an offered item.
+
+    None when neither is sent, when what is sent is what the item already
+    holds, or when nothing offers the item -- an edit that leaves an item's
+    standing alone, or an item not on sale, ends nothing. Status wins when
+    both change: it is the one a buyer is protected from (a coin missing,
+    returned or canceled cannot be delivered).
+    """
+    code = _standing_code(item, data)
+    if code is None or not offering_writes.offers_holding(db, [item.id]):
+        return None
+    return code
+
+
+def _standing_code(item: InventoryItem, data: dict[str, Any]) -> str | None:
+    """The status (else disposition) code an edit gives `item`, if it differs."""
+    for field in ("status", "disposition"):
+        if field not in data or data[field] is None:
+            continue
+        held = getattr(item, field)
+        if held is None or held.code != data[field]:
+            return str(data[field])
+    return None
+
+
 @router.post("/receive")
 def receive_items(
     payload: ReceiveRequest, db: DbSession, admin: AdminUser
@@ -1478,6 +1506,23 @@ def bulk_edit(
             "Nothing was changed.",
         )
 
+    # As in `update_item`: a new status or disposition on an offered item
+    # ends its offer, the guard above having had the caller acknowledge the
+    # sale. Locked before the first write, in the canonical order.
+    standing = {
+        item.id: code for item in items if (code := _standing_code(item, data))
+    }
+    changing = sorted(standing)
+    held_offers = offering_writes.offers_holding(db, changing) if changing else []
+    locked = None
+    if held_offers:
+        locked = offering_writes.lock_for_sale(
+            db,
+            listing_ids=[live.id for live in held_offers],
+            item_ids=changing,
+            including_paused=True,
+        )
+
     _apply_note_changes(list(items), note_changes)
     for item in items:
         for column, value in resolved.items():
@@ -1486,6 +1531,17 @@ def bulk_edit(
             item.year_start, item.year_end = pair
         if status_id is not None:
             set_status(db, item, status_id, user_id=admin.id)
+
+    if locked is not None:
+        # Flushed first, then re-read under the locks -- see `update_item`.
+        db.flush()
+        live_offers = list(offering_writes.offers_holding(db, changing))
+        offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
+        code = next(iter(standing.values()))
+        _refuse_auction_lots(db, live_offers, code)
+        for live in live_offers:
+            offering_writes.end_offer(db, live, note=f"item edited to {code}")
+
     # What a person sets is theirs from now on: no pass refreshes it. What
     # follows from the new facts is refreshed now.
     forget(db, found, [_column(field) for field in data])
@@ -1552,6 +1608,25 @@ def update_item(
     years = resolve_years((item.year_start, item.year_end), data)
     if years is not None:
         refuse_backwards(years, item.item_code)
+
+    # A new status or disposition on an item that is offered takes it off
+    # sale: the guard above has already had the caller acknowledge that it is
+    # for sale. Left alone, marking an offered coin missing kept its listing
+    # active and the shop went on selling it (code review, 2026-09-23). The
+    # rows are locked here, before the first write, in the canonical order --
+    # the same discipline and for the same reasons as `receive_items`.
+    standing = _sale_standing_change(db, item, data)
+    locked = None
+    if standing is not None:
+        locked = offering_writes.lock_for_sale(
+            db,
+            listing_ids=[
+                live.id for live in offering_writes.offers_holding(db, [item.id])
+            ],
+            item_ids=[item.id],
+            including_paused=True,
+        )
+
     _apply_note_changes([item], _note_changes(db, data, item.currency_detail))
 
     for field, model in ITEM_CLASSIFIERS.items():
@@ -1596,6 +1671,22 @@ def update_item(
             # its version, so a form opened before this save gets a 409
             # rather than putting the old set back.
             item.updated_at = datetime.now(UTC)
+
+    if standing is not None:
+        # As in `receive_items`: flushed first, because `end_offer` re-reads
+        # this row with `populate_existing` and production does not
+        # autoflush -- the new status would otherwise be thrown away. Then
+        # the authoritative read of what still holds the item, under the
+        # locks taken above, and the refusals checked over the whole set
+        # before the first offer is ended.
+        assert locked is not None
+        db.flush()
+        live_offers = list(offering_writes.offers_holding(db, [item.id]))
+        offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
+        _refuse_auction_lots(db, live_offers, standing)
+        for live in live_offers:
+            offering_writes.end_offer(db, live, note=f"item edited to {standing}")
+
     forget(db, [item.id], [_column(field) for field in data])
     hold(db, [item.id], _emptied(data))
 
