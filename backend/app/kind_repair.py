@@ -94,6 +94,13 @@ NAMED_NOTES: tuple[str, ...] = (
     "CC-006804",
 )
 
+#: Notes whose face value was typed wrong, with the one the owner gave.
+DENOMINATION_FIXES: dict[str, str] = {
+    # "1976 Gem Unc FDOI w/ Stamp", typed as $1: a first-day-of-issue $2
+    # Bicentennial note -- there was no 1976 series of $1 notes. 2026-09-23.
+    "CC-006026": "usd_note_2",
+}
+
 #: Items that are sets, not single coins: a 1978-S proof set, and a National
 #: Parks $2 note and quarter collection. Only the kind changes.
 SETS: tuple[str, ...] = ("CC-000102", "CC-005817")
@@ -302,7 +309,9 @@ def run(
             forget(db, [item.id], ["item_kind_id"])
         else:
             face = item.denomination.face_value if item.denomination else None
-            code_of_note = note_denomination(face, item.denom_raw)
+            code_of_note = DENOMINATION_FIXES.get(code) or note_denomination(
+                face, item.denom_raw
+            )
             note_id = (
                 db.scalar(
                     select(Denomination.id).where(Denomination.code == code_of_note)
