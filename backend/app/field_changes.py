@@ -18,9 +18,16 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import ItemFieldChange, User
+from .models import ErrorType, ItemError, ItemFieldChange, User
 
-__all__ = ["LatestChange", "latest", "record", "same_value"]
+__all__ = [
+    "LatestChange",
+    "error_set",
+    "latest",
+    "record",
+    "same_value",
+    "sorted_errors",
+]
 
 
 @dataclass(frozen=True)
@@ -49,6 +56,28 @@ def same_value(a: object, b: object) -> bool:
         return Decimal(str(a)) == Decimal(str(b))
     except (ArithmeticError, ValueError):
         return a == b
+
+
+def sorted_errors(errors: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """An error set in a fixed order, so two equal sets log as equal."""
+    return sorted(
+        ({"error_type": e["error_type"], "details": e.get("details")} for e in errors),
+        key=lambda e: (e["error_type"], e["details"] or ""),
+    )
+
+
+def error_set(db: Session, item_id: int) -> list[dict[str, Any]]:
+    """The item's recorded errors as the change log holds them: code and details.
+
+    `errors` is logged as the whole set, before and after, because the
+    errors endpoint replaces the whole set; the History shows each entry.
+    """
+    rows = db.execute(
+        select(ErrorType.code, ItemError.details)
+        .join(ErrorType, ErrorType.id == ItemError.error_type_id)
+        .where(ItemError.inventory_item_id == item_id)
+    ).tuples()
+    return sorted_errors({"error_type": code, "details": d} for code, d in rows)
 
 
 def record(

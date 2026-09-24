@@ -92,6 +92,12 @@ export const FIELD_HELP = {
     title: 'Country',
     text: 'The country that issued it.',
   },
+  errors: {
+    title: 'Errors',
+    text:
+      'Printing or minting errors recorded on the item, each with a note of ' +
+      "where and how -- an offset's direction, a miscut's size.",
+  },
   cert_numbers: {
     title: 'Certificate no.',
     text:
