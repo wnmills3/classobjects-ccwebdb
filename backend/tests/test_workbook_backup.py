@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from app import backup
 from app import workbook_backup as wb
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -277,6 +277,65 @@ def test_app_backup_finds_the_tables_no_model_describes(
     # And the copy's table list is the models' followed by these.
     names = [table.name for table in backup.all_tables(source)]
     assert names[-len(found) :] == found
+
+
+def test_remembered_widths_follow_their_column_by_name(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    """Widths are keyed by column name, so they land on the right letter.
+
+    `note` is child's third column; its width must reach column C whatever
+    position a width file lists it in, and a computed column is sized too.
+    """
+    source, _ = pair
+    path = tmp_path / "sized.xlsx"
+    widths = {"child": {"note": 40.5}, "parent": {"doubled (computed)": 13.0}}
+    wb.export_workbook(source, path, widths)
+    book = load_workbook(path)
+    assert book["child"].column_dimensions["C"].width == 40.5
+    header = [c.value for c in book["parent"][1]]
+    letter = "ABCDEFGHIJ"[header.index("doubled (computed)")]
+    assert book["parent"].column_dimensions[letter].width == 13.0
+    assert wb.capture_widths(path) == widths
+
+
+def test_remembering_replaces_a_sized_sheet_and_keeps_the_rest(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    source, _ = pair
+    store = tmp_path / "widths.json"
+    store.write_text(
+        '{"child": {"note": 9.0}, "parent": {"name": 9.0, "amount": 9.0}}',
+        encoding="utf-8",
+    )
+    path = tmp_path / "sized.xlsx"
+    wb.export_workbook(source, path, {"parent": {"name": 33.0}})
+    merged = wb.remember_widths(path, store)
+    # parent was resized in the workbook: its entry is the workbook's now.
+    assert merged == {"child": {"note": 9.0}, "parent": {"name": 33.0}}
+    assert wb.load_widths(store) == merged
+
+
+def test_a_width_excel_saved_for_a_run_of_columns_reaches_each(
+    tmp_path: Path,
+) -> None:
+    """Excel may store one width for adjacent columns (min=1, max=3)."""
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    sheet.title = "child"
+    sheet.append(["id", "parent_id", "note"])
+    run = sheet.column_dimensions["A"]
+    run.min, run.max, run.width = 1, 3, 17.5
+    path = tmp_path / "run.xlsx"
+    book.save(path)
+    assert wb.capture_widths(path) == {
+        "child": {"id": 17.5, "note": 17.5, "parent_id": 17.5}
+    }
+
+
+def test_no_width_file_means_default_widths(tmp_path: Path) -> None:
+    assert wb.load_widths(tmp_path / "absent.json") == {}
 
 
 # -- one cell -------------------------------------------------------------------
