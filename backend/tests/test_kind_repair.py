@@ -18,10 +18,13 @@ from app import kind_repair
 from app.models import (
     CoinDetail,
     Composition,
+    Country,
     CurrencyDetail,
     Denomination,
+    ErrorType,
     InventoryItem,
     ItemCertification,
+    ItemError,
     ItemFieldChange,
     ItemKind,
     Metal,
@@ -253,6 +256,67 @@ def test_a_face_value_the_owner_corrected_wins(
     assert db.get_one(InventoryItem, item.id).denomination_id == code_id(
         db, Denomination, "usd_note_2"
     )
+
+
+def test_a_named_set_becomes_a_note_with_its_error(
+    db: Session, admin_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One of three consecutive $1 notes with ink smears, recorded as a set."""
+    item = make_item(
+        db,
+        item_code="CC-900007",
+        item_kind_id=code_id(db, ItemKind, "set"),
+        denom_raw="3-Bill Set",
+        year_raw="1995-",
+    )
+    db.add(CoinDetail(inventory_item_id=item.id))
+    db.add(ItemCertification(inventory_item_id=item.id, cert_number="E15997464E"))
+    db.commit()
+    monkeypatch.setitem(kind_repair.DENOMINATION_FIXES, "CC-900007", "usd_note_1")
+    monkeypatch.setitem(kind_repair.ERRORS, "CC-900007", "ink_smear")
+
+    _run(db, commit=True, user=admin_user, named=("CC-900007",))
+    # Run again: the error is not recorded twice.
+    _run(db, commit=True, user=admin_user, named=("CC-900007",))
+
+    db.expire_all()
+    stored = db.get_one(InventoryItem, item.id)
+    assert stored.item_kind_id == code_id(db, ItemKind, "currency")
+    assert stored.denomination_id == code_id(db, Denomination, "usd_note_1")
+    assert db.get(CoinDetail, item.id) is None
+    note = db.get_one(CurrencyDetail, item.id)
+    assert (note.series_year, note.serial_number) == (1995, "E15997464E")
+    [error] = db.scalars(
+        select(ItemError).where(ItemError.inventory_item_id == item.id)
+    ).all()
+    assert error.error_type_id == code_id(db, ErrorType, "ink_smear")
+    assert error.noted_by_id == admin_user.id
+
+
+def test_a_foreign_note_takes_its_country(
+    db: Session, admin_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Mexican 5 peso note, recorded as a coin of no country."""
+    item = make_item(db, item_code="CC-900008", country_id=None, denom_raw="5 Pesos")
+    db.add(ItemCertification(inventory_item_id=item.id, cert_number="ET888973"))
+    db.commit()
+    monkeypatch.setitem(kind_repair.DENOMINATION_FIXES, "CC-900008", "mxn_note_5")
+    monkeypatch.setitem(kind_repair.COUNTRY_FIXES, "CC-900008", "MX")
+
+    _run(db, commit=True, user=admin_user, named=("CC-900008",))
+
+    db.expire_all()
+    stored = db.get_one(InventoryItem, item.id)
+    assert stored.denomination_id == code_id(db, Denomination, "mxn_note_5")
+    assert stored.country_id == code_id(db, Country, "MX")
+    assert db.get_one(CurrencyDetail, item.id).serial_number == "ET888973"
+    logged = db.scalar(
+        select(ItemFieldChange.new_value).where(
+            ItemFieldChange.inventory_item_id == item.id,
+            ItemFieldChange.field_name == "country",
+        )
+    )
+    assert logged == "MX"
 
 
 def test_a_face_value_that_is_no_note_is_skipped(db: Session) -> None:
