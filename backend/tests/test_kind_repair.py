@@ -234,6 +234,27 @@ def test_a_named_note_without_a_serial_takes_the_face_value_typed(
     )
 
 
+def test_a_face_value_the_owner_corrected_wins(
+    db: Session, admin_user: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Typed as $1, and the owner says it is a $2 note."""
+    item = make_item(
+        db,
+        item_code="CC-900006",
+        denomination_id=code_id(db, Denomination, "usd_coin_1_00"),
+        denom_raw="1",
+        year_raw="1976-",
+    )
+    monkeypatch.setitem(kind_repair.DENOMINATION_FIXES, "CC-900006", "usd_note_2")
+
+    _run(db, commit=True, user=admin_user, named=("CC-900006",))
+
+    db.expire_all()
+    assert db.get_one(InventoryItem, item.id).denomination_id == code_id(
+        db, Denomination, "usd_note_2"
+    )
+
+
 def test_a_face_value_that_is_no_note_is_skipped(db: Session) -> None:
     make_item(db, item_code="CC-900005", denom_raw="Mint Set")
 
