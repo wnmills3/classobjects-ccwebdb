@@ -92,6 +92,13 @@ export const FIELD_HELP = {
     title: 'Country',
     text: 'The country that issued it.',
   },
+  cert_numbers: {
+    title: 'Certificate no.',
+    text:
+      "The certification number printed on the holder's label, used to look it up " +
+      "on the grader's site. Separate several with commas. A number added here is " +
+      'recorded as graded by the grading service above.',
+  },
   strike_type: {
     title: 'Strike type',
     text:
@@ -109,7 +116,8 @@ export const FIELD_HELP = {
     title: 'Grade designation',
     text:
       'A qualifier the grader adds to the grade, such as DCAM (Deep Cameo) on a ' +
-      'proof, RD (Red) on copper, or EPQ (Exceptional Paper Quality) on a note.',
+      'proof, RD (Red) on copper, or EPQ (Exceptional Paper Quality) on a note. ' +
+      "Only the ones that fit the item's kind are offered.",
   },
   grading_service: {
     title: 'Grading service',

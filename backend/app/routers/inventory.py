@@ -51,6 +51,7 @@ from ..inventory_search import (
 from ..item_history import timeline
 from ..lifecycle_writes import record_initial_status, set_location, set_status
 from ..models import (
+    AppliesTo,
     AuctionLot,
     Authenticity,
     BullionForm,
@@ -1104,6 +1105,7 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
         },
         **classifiers,
         **note,
+        cert_numbers=_cert_numbers(db, item.id),
         grade_display=grades.display_item(item),
         default_tax_rate=settings.sales_tax_rate,
         parent_item_code=parent_code,
@@ -1123,6 +1125,52 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
             for use in sale_state.for_sale(db, [item.id]).get(item.id, [])
         ],
     )
+
+
+def _cert_numbers(db: Session, item_id: int) -> list[str]:
+    """The item's certificate numbers, in the order they were recorded."""
+    return list(
+        db.scalars(
+            select(ItemCertification.cert_number)
+            .where(ItemCertification.inventory_item_id == item_id)
+            .order_by(ItemCertification.id)
+        )
+    )
+
+
+def _set_certifications(db: Session, item: InventoryItem, numbers: list[str]) -> bool:
+    """Make the item's certificates exactly `numbers`; whether anything changed.
+
+    A number already held keeps its row, and with it the grading service and
+    raw text it was recorded with. One no longer listed is deleted. A new one
+    is recorded as graded by the item's own grading service -- the grader
+    lives on the item, and a certificate added in the editor belongs to it.
+    """
+    held = {
+        row.cert_number: row
+        for row in db.scalars(
+            select(ItemCertification).where(
+                ItemCertification.inventory_item_id == item.id
+            )
+        )
+    }
+    changed = False
+    for number, row in held.items():
+        if number not in numbers:
+            db.delete(row)
+            changed = True
+    for number in numbers:
+        if number not in held:
+            db.add(
+                ItemCertification(
+                    inventory_item_id=item.id,
+                    grading_service_id=item.grading_service_id,
+                    cert_number=number,
+                    raw=number,
+                )
+            )
+            changed = True
+    return changed
 
 
 def _share_of(item_id: int) -> ScalarSelect[Decimal]:
@@ -1515,6 +1563,52 @@ def _refuse_coin_only_fields(
         )
 
 
+def _refuse_mismatched_designation(
+    data: dict[str, object], items: Sequence[InventoryItem], db: Session
+) -> None:
+    """Raise a 422 if the edit leaves an item with the other kind's designation.
+
+    EPQ and PPQ are a note's paper quality; DCAM, FBL, RD ... describe a
+    coin's strike (`grade_designation.applies_to`). Checked against the
+    item's state after the edit, like the denomination guard: sending one,
+    or changing the kind of an item that holds one, is refused alike.
+    """
+    if "item_kind" not in data and "grade_designation" not in data:
+        return
+    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    # Comprehensions, not dict(result): a result has `.keys()`, so dict()
+    # takes it for a mapping and indexes it by column name.
+    rows = db.execute(
+        select(GradeDesignation.id, GradeDesignation.code, GradeDesignation.applies_to)
+    ).tuples()
+    sides: dict[str, AppliesTo] = {}
+    codes: dict[int, str] = {}
+    for designation_id, designation_code, applies_to in rows:
+        sides[designation_code] = applies_to
+        codes[designation_id] = designation_code
+    wrong: list[str] = []
+    for item in items:
+        sent = data.get("grade_designation", codes.get(item.grade_designation_id or 0))
+        code = sent if isinstance(sent, str) else None
+        side = sides.get(code) if code else None
+        # A blank clears it; an unknown code is code_to_id's 422 to raise.
+        if side is None or side == AppliesTo.any:
+            continue
+        if (side == AppliesTo.currency) != _effective_is_currency(
+            data, item, currency_id
+        ):
+            owner = "banknotes" if side == AppliesTo.currency else "coins"
+            wrong.append(f"{item.item_code} ({code} belongs to {owner})")
+    if wrong:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "designation of the other kind: "
+                f"{', '.join(sorted(set(wrong)))}. Nothing was changed."
+            ),
+        )
+
+
 def _refuse_mismatched_denomination(
     data: dict[str, object], items: Sequence[InventoryItem], db: Session
 ) -> None:
@@ -1650,6 +1744,7 @@ def bulk_edit(
     before = {item.id: _sent_values(db, item, sent) for item in items}
     _refuse_coin_only_fields(data, list(items), db)
     _refuse_mismatched_denomination(data, list(items), db)
+    _refuse_mismatched_designation(data, list(items), db)
     if data and not acknowledged:
         sale_state.guard(db, list(items), acknowledged=False)
 
@@ -1781,15 +1876,26 @@ def update_item(
             status_code=422,
             detail="attributes may not be null; send [] to clear them.",
         )
+    certs = data.pop("cert_numbers", None)
+    if "cert_numbers" in payload.model_fields_set and certs is None:
+        raise HTTPException(
+            status_code=422,
+            detail="cert_numbers may not be null; send [] to clear them.",
+        )
     # What the caller sent, before `_split_grade` below reshapes it: the
     # field-by-field merge compares these, in the editor's own terms.
-    sent = dict(data) if attributes is None else {**data, "attributes": attributes}
+    sent = dict(data)
+    if attributes is not None:
+        sent["attributes"] = attributes
+    if certs is not None:
+        sent["cert_numbers"] = certs
     # The item as it stands, in those same terms: the merge compares against
     # it, and the change log records it as each changed field's old value.
     before = field_values(db, item)
     _refuse_null_scalars(data)
     _refuse_coin_only_fields(data, [item], db)
     _refuse_mismatched_denomination(data, [item], db)
+    _refuse_mismatched_designation(data, [item], db)
     _split_grade(data)
 
     # This is what catches the ordinary lost-update case: two staff, each with
@@ -1818,7 +1924,7 @@ def update_item(
 
     # A change to an item on offer, or in an order that has not shipped,
     # shows to a buyer at once: the caller must say it knows.
-    if (data or attributes is not None) and not acknowledged:
+    if (data or attributes is not None or certs is not None) and not acknowledged:
         sale_state.guard(db, [item], acknowledged=False)
 
     # Before anything is set: a refused year leaves the item untouched.
@@ -1890,6 +1996,10 @@ def update_item(
             # its version, so a form opened before this save gets a 409
             # rather than putting the old set back.
             item.updated_at = datetime.now(UTC)
+    # After the classifiers, so a new certificate takes the grading service
+    # this same save sets; another table, so touched like the links above.
+    if certs is not None and _set_certifications(db, item, certs):
+        item.updated_at = datetime.now(UTC)
 
     if standing is not None:
         # As in `receive_items`: flushed first, because `end_offer` re-reads

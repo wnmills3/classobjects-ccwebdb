@@ -93,7 +93,7 @@ One row per acquired item or lot (`models/core.py`).
 | `series_id` | fk null | design series (Morgan Dollar); on the item so facets group on an indexed column of the scanned table |
 | `strike_type_id` | fk null | business, proof, specimen, … — the "PR" of PR69 |
 | `grade_id` | fk null | the number (`65`, `64+`), or a non-numeric grade |
-| `grade_designation_id` | fk null | DCAM, CAM, RD, RB, BN, FS, FB |
+| `grade_designation_id` | fk null | DCAM, CAM, RD, RB, BN, FS, FB on a coin; EPQ, PPQ on a note -- one per grade, part of it |
 | `grading_service_id` | fk null | who graded it |
 | `authenticity_id` | fk | unverified, genuine, counterfeit, questionable |
 | `status_id` | fk | acquisition axis (§7) |
@@ -216,7 +216,7 @@ RESTRICT`, so a classifier in use cannot vanish.
 | `grade_scale` | Sheldon, adjectival, note scale | |
 | `strike_type` | business, proof, specimen, reverse proof, … | `prefix`, `suffix` |
 | `grade` | condition | `grade_scale_id`, `numeric_value`, `is_plus`, `grade_rank` (**generated**: number + 0.5 for plus) |
-| `grade_designation` | DCAM, CAM, RD, RB, BN, FS, FB | |
+| `grade_designation` | DCAM, CAM, RD, RB, BN, FS, FB, ... ; EPQ, PPQ | `applies_to` (`coin` \| `currency`): the API refuses the other kind's |
 | `grading_service` | PCGS, NGC, ANACS, ICG, PMG, SEGS | |
 | `authenticity` | unverified, genuine, counterfeit, questionable | |
 | `item_attribute` | Star Note, No Motto, First Strike, CAC, Details, … | `applies_to`, `attribute_group` (`serial` \| `variety` \| `release` \| `verification` \| `qualifier`) |

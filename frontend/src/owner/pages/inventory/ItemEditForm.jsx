@@ -94,6 +94,10 @@ const CLASSIFIERS = [
   // PR65. A note has no strike type, so the box is not shown for one.
   ['Strike type', 'strike_type', 'strike_type', 'k'],
   ['Grade', 'grade', 'grade', 'g'],
+  // One per grade and part of it -- PMG's "64 EPQ", a coin's "65 DCAM" --
+  // offered only for the item's kind. No letters left for these two.
+  ['Grade designation', 'grade_designation', 'grade_designation', null],
+  ['Grading service', 'grading_service', 'grading_service', null],
   ['Denomination', 'denomination', 'denomination', 'm'],
   ['Country', 'country', 'country', 'u'],
   ['Metal', 'metal', 'metal', 'l'],
@@ -296,7 +300,21 @@ const keys = (letter) => (letter ? accel(letter) : {})
 //: Vocabularies this form must not let anyone extend. `item_status` is a
 //: lifecycle the code branches on, not a descriptive list that grows with
 //: use -- see `ReferenceSelect`'s `allowAdd`.
-const FIXED_VOCABULARIES = new Set(['item_status', 'strike_type'])
+//: Designations and grading services are the graders' own lists, seeded
+//: with the coin/note side each belongs to; a typed-in one would have none.
+const FIXED_VOCABULARIES = new Set([
+  'item_status',
+  'strike_type',
+  'grade_designation',
+  'grading_service',
+])
+
+/**
+ * Certificate numbers as typed: comma-separated. Split as the user types,
+ * keeping a trailing empty entry so the comma just typed stays on screen;
+ * empties are dropped when the save is sent.
+ */
+const certsFrom = (text) => text.split(',').map((part) => part.trim())
 
 export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const [item, setItem] = useState(null)
@@ -323,6 +341,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
     denomination: useReference('denomination'),
     series: useReference('series'),
     grade: useReference('grade'),
+    grade_designation: useReference('grade_designation'),
     item_attribute: useReference('item_attribute'),
   }
   const yearId = useId()
@@ -621,6 +640,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         version: item.version,
         base: baseFor(baseItem, draft),
       }
+      if (Array.isArray(payload.cert_numbers)) {
+        payload.cert_numbers = payload.cert_numbers.filter(Boolean)
+      }
       if (forSale && acknowledged) payload.acknowledge_for_sale = true
       await api.updateInventoryItem(itemId, payload)
       setError('')
@@ -882,7 +904,11 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         {CLASSIFIERS.filter(([, key]) => fieldFitsKind(key, value('item_kind'))).map(
           ([label, key, table, letter]) => (
             <label key={key} className="field" data-help={key}>
-              <AccessLabel text={label} accessKey={letter} />
+              {letter ? (
+                <AccessLabel text={label} accessKey={letter} />
+              ) : (
+                <span>{label}</span>
+              )}
               <ReferenceSelect
                 table={table}
                 value={value(key)}
@@ -898,17 +924,29 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
                     ? (grade) =>
                         (grade.extra?.grade_scale === 'note') ===
                         (value('item_kind') === 'currency')
-                    : key === 'denomination'
+                    : key === 'denomination' || key === 'grade_designation'
                       ? (entry) => fitsKind(entry, value('item_kind'))
                       : undefined
                 }
-                {...accel(letter)}
+                {...keys(letter)}
               />
               {side(key, columnOf(key, true))}
               {review(REVIEWABLE[key])}
             </label>
           ),
         )}
+
+        <label className="field" data-help="cert_numbers">
+          <span>Certificate no.</span>
+          <input
+            value={(value('cert_numbers') || []).join(', ')}
+            onChange={(e) =>
+              setDraft({ ...draft, cert_numbers: certsFrom(e.target.value) })
+            }
+          />
+          {side('cert_numbers', 'cert_numbers')}
+          <span />
+        </label>
 
         <AttributesField
           item={item}

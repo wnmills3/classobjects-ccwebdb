@@ -34,6 +34,7 @@ const COIN_MEASURES = ['fineness', 'gross_weight_ozt', 'fine_weight_ozt']
 const SIDED_VALUES = [
   ['denomination', 'denomination'],
   ['series', 'series'],
+  ['grade_designation', 'grade_designation'],
 ]
 
 const isSet = (value) => value !== null && value !== undefined && value !== ''
