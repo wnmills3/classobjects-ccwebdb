@@ -217,7 +217,7 @@ class SchemaLoader:
     ) -> int | None:
         """The row a value names by its label or an alias, before inventing one.
 
-        "UCAM" is DCAM and "Legal Tender" a United States Note
+        "Ultra Cameo" is UCAM and "Legal Tender" a United States Note
         (app.aliases). A value found by alias is counted for the report, so
         the owner can see which of their words were read as which term.
         """

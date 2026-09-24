@@ -22,9 +22,10 @@
     "are PCGS Banknote's About Good, Fair and Poor.",
     "",
     "Designations follow the services' own terms (item-attributes design,",
-    "section 3). NGC's Ultra Cameo is generally synonymous with Deep Cameo and",
-    "its DPL equivalent to DMPL, so both are aliases rather than rows; UCAM is",
-    "the informal form. FT is NGC's Full Torch (PCGS calls it FB); 5FS and 6FS",
+    "section 3). UCAM (Ultra Cameo) is NGC's top cameo and DCAM (Deep Cameo)",
+    "PCGS's: a row each, since the holder says one or the other and the record",
+    "keeps what it says (owner, 2026-09-24). NGC's DPL stays an alias of DMPL.",
+    "FT is NGC's Full Torch (PCGS calls it FB); 5FS and 6FS",
     "are NGC's Jefferson nickel steps, where PCGS's FS means five or more."
   ],
   "grade_scale": [
@@ -629,6 +630,12 @@
       "sort_order": 10
     },
     {
+      "code": "UCAM",
+      "label": "UCAM (Ultra Cameo)",
+      "applies_to": "coin",
+      "sort_order": 15
+    },
+    {
       "code": "CAM",
       "label": "CAM (Cameo)",
       "applies_to": "coin",
@@ -831,18 +838,13 @@
     },
     {
       "table": "grade_designation",
-      "code": "DCAM",
+      "code": "UCAM",
       "alias": "Ultra Cameo"
     },
     {
       "table": "grade_designation",
-      "code": "DCAM",
+      "code": "UCAM",
       "alias": "UC"
-    },
-    {
-      "table": "grade_designation",
-      "code": "DCAM",
-      "alias": "UCAM"
     },
     {
       "table": "grade_designation",

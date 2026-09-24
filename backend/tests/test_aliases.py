@@ -407,14 +407,14 @@ def test_the_console_adds_and_removes_an_alias(
     url = "/api/reference/grade_designation/DCAM/aliases"
     added = client.post(url, json={"alias": "Black Cameo"}, headers=admin_headers)
     assert added.status_code == 201
-    assert added.json()["aliases"] == ["Black Cameo", "UC", "UCAM", "Ultra Cameo"]
+    assert added.json()["aliases"] == ["Black Cameo"]
 
     again = client.post(url, json={"alias": "black cameo"}, headers=admin_headers)
     assert again.status_code == 409
 
     removed = client.delete(url, params={"alias": "Black Cameo"}, headers=admin_headers)
     assert removed.status_code == 200
-    assert removed.json()["aliases"] == ["UC", "UCAM", "Ultra Cameo"]
+    assert removed.json()["aliases"] == []
     # Added here, so deleted rather than kept as retired.
     assert removed.json()["retired_aliases"] == []
 
@@ -487,17 +487,19 @@ def test_an_alias_for_an_unknown_value_is_404(
 
 @pytest.mark.parametrize(
     ("word", "code"),
-    [("UCAM", "DCAM"), ("ultra cameo", "DCAM"), ("UC", "DCAM"), ("dpl", "DMPL")],
+    [("ultra cameo", "UCAM"), ("UC", "UCAM"), ("dpl", "DMPL")],
 )
-def test_the_services_equivalent_designations_are_aliases(
-    db: Session, word: str, code: str
-) -> None:
-    """NGC's Ultra Cameo is Deep Cameo and its DPL is DMPL: aliases, not rows."""
+def test_the_services_other_words_resolve(db: Session, word: str, code: str) -> None:
+    """Ultra Cameo and UC are UCAM's; NGC's DPL is still DMPL's alias.
+
+    UCAM is a row of its own, not DCAM's alias: the holder says one or the
+    other and the record keeps what it says (owner, 2026-09-24).
+    """
     found = aliases.resolve(db, GradeDesignation, word)
     assert found is not None
     assert db.get_one(GradeDesignation, found.row_id).code == code
 
 
 def test_the_newer_designations_are_rows(db: Session) -> None:
-    for code in ("FT", "5FS", "6FS"):
+    for code in ("FT", "5FS", "6FS", "UCAM"):
         assert _id(db, GradeDesignation, code)

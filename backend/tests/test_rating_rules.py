@@ -230,8 +230,8 @@ def test_the_importer_grades_a_bare_number_and_reads_the_designation(
     item = _import(db, Denom="1", Year="2019", Rating="69UCAM NGC")
     assert item.grade is not None and item.grade.code == "69"
     assert _code(db, StrikeType, item.strike_type_id) == "proof"
-    # UCAM is an alias of DCAM.
-    assert _code(db, GradeDesignation, item.grade_designation_id) == "DCAM"
+    # UCAM is NGC's own designation, kept as written -- not DCAM.
+    assert _code(db, GradeDesignation, item.grade_designation_id) == "UCAM"
     assert _code(db, GradingService, item.grading_service_id) == "NGC"
 
 
