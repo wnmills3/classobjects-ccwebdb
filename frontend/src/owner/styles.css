@@ -363,9 +363,21 @@ button.link.danger {
   color: var(--text);
   max-height: 90vh;
   max-width: min(60rem, 95vw);
+  overflow: hidden;
+  padding: 0;
+  width: 100%;
+}
+/* Open only: a closed <dialog> must stay hidden. The body scrolls and the
+   help band stays at the bottom, as in the console itself. */
+.edit-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.edit-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 1rem 1.2rem;
-  width: 100%;
 }
 .edit-dialog::backdrop {
   background: rgb(0 0 0 / 45%);

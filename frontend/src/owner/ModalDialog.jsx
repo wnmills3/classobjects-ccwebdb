@@ -1,4 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+import { HelpBar } from './HelpBar'
+import { HelpContext } from './help-context'
 
 /**
  * The console's one modal shell: a native `<dialog>` opened over whatever is
@@ -18,9 +21,18 @@ import { useEffect, useRef } from 'react'
  * reason -- left to the browser, the element closes itself while the parent
  * still thinks it is open, and clicking the same row again changes no state
  * and so reopens nothing.
+ *
+ * **It has a help band of its own** at its bottom (owner, 2026-09-24). A
+ * modal covers the console's band, so the forms inside -- the item editor
+ * above all -- explained their fields to a band nobody could see. The
+ * dialog provides its own help context, the nearest one to every
+ * `HelpScope` inside it, and renders the same `HelpBar` below a body that
+ * scrolls on its own, so the explanation never scrolls out of sight.
  */
 export default function ModalDialog({ label, onClose, children }) {
   const ref = useRef(null)
+  const [field, setField] = useState(null)
+  const help = useMemo(() => ({ field, setField }), [field])
 
   useEffect(() => {
     const dialog = ref.current
@@ -38,7 +50,10 @@ export default function ModalDialog({ label, onClose, children }) {
         onClose()
       }}
     >
-      {children}
+      <HelpContext.Provider value={help}>
+        <div className="edit-dialog-body">{children}</div>
+        <HelpBar />
+      </HelpContext.Provider>
     </dialog>
   )
 }
