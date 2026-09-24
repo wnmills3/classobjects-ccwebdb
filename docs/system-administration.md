@@ -169,6 +169,7 @@ backup (*Backing up and restoring*).
 | `python -m app.rating_pass` | reads stored ratings again with the current rules |
 | `python -m app.photo_import` | links photographs to items by filename |
 | `python -m app.vendor_cleanup` | merges, renames, re-kinds or deletes purchase sources, by explicit instruction |
+| `python -m app.kind_repair` | re-kinds banknotes imported as coins -- found by the note serial filed as a grading certificate -- moving the serial, clearing the coin's metal and series; `--commit` needs `--by EMAIL` for the change log |
 
 Run `classifier_defaults` before `series_classify`: note class is evidence for
 series. Before running any pass with `--commit` on the live database, take a
@@ -411,6 +412,13 @@ NULL, and a null for either is refused naming the field.
 `grading_service`, `metal`, `series`, `storage_form`, `authenticity`,
 `status`, `disposition`. Five are NOT NULL (`item_kind`, `storage_form`,
 `authenticity`, `status`, `disposition`) and refuse a null or empty code.
+
+**A kind change moves the detail row** (`app.item_kinds`). An item made a
+banknote loses its coin row (mint, variety, PCGS type) and gains an empty note
+row, so its serial number and other note fields can be sent in the same
+request. An item made anything else is refused while its note row still holds
+a value -- the serial above all -- until the request clears it. The console
+does not offer the kind for editing; the API and `app.kind_repair` do.
 
 **A grade is a number and a strike type.** `grade` takes `65` or `64+`; a
 compound grade such as `MS65` or `PR69+` is split into the number and

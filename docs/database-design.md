@@ -146,7 +146,10 @@ item; they are the link tables in §5.
 ### `coin_detail` and `currency_detail`
 
 1:1 with `inventory_item` (primary key = `inventory_item_id`, cascade on
-delete), present only for the relevant kind, every classifier nullable.
+delete), present only for the relevant kind, every classifier nullable:
+`currency_detail` for a banknote, `coin_detail` for every other kind. A kind
+change swaps the row (`app.item_kinds.match_detail_to_kind`); leaving
+banknote is refused while the note row holds a value.
 
 | `coin_detail` | Notes |
 |---|---|

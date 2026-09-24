@@ -40,7 +40,8 @@ correction.
 ## Splitting creates detail rows
 
 Every item has exactly one detail row: `coin_detail` or `currency_detail`
-according to its `item_kind`. `POST /api/inventory/{id}/split` creates an empty
+according to its `item_kind`, and a change of kind swaps it
+(`app.item_kinds`). `POST /api/inventory/{id}/split` creates an empty
 detail row for each piece rather than copying the lot's, because the lot's
 detail row describes the lot, not any one piece. Cost is divided so the pieces
 sum exactly to the lot.
