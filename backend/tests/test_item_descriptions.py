@@ -103,7 +103,7 @@ def test_no_district_signatures_service_or_labels(db: Session) -> None:
         assert left_out not in text
 
 
-def test_several_attributes_are_separated_and_errors_come_last(db: Session) -> None:
+def test_errors_are_promoted_beside_the_attributes(db: Session) -> None:
     item = _note(db)
     star = _link(db, item, "star")
     radar = _link(db, item, "radar").removesuffix(" Serial")
@@ -112,8 +112,16 @@ def test_several_attributes_are_separated_and_errors_come_last(db: Session) -> N
     db.add(ItemError(inventory_item_id=item.id, error_type_id=error.id, details="left"))
     db.flush()
     text = suggested_description(db, item)
-    assert f"EPQ {star}, {radar} 1999" in text or f"EPQ {radar}, {star} 1999" in text
-    assert text.endswith(f"Error: {error.label} (left).")
+    grade = _short(_label(db, Grade, "N67"))
+    # Right after the grade, before what the note is: the attributes, then
+    # the error with its details.
+    assert text.startswith(f"{grade} EPQ ")
+    features = text.removeprefix(f"{grade} EPQ ").split(" 1999 $1")[0]
+    assert features in (
+        f"{star}, {radar}, {error.label} (left)",
+        f"{radar}, {star}, {error.label} (left)",
+    )
+    assert text.endswith("Green Seal.")
 
 
 def test_a_coin_leads_with_its_name_then_its_metal(db: Session) -> None:

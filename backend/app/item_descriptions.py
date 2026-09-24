@@ -14,7 +14,9 @@ then what it is, with no field labels (owner, 2026-09-24):
 
 The district and signatures are left out -- they follow from the serial and
 series, and a buyer does not search by them -- and so is the grading
-service, which the holder shows. Errors come last, as a selling point.
+service, which the holder shows. Errors are promoted beside the
+attributes, right after the grade: they are what an error note sells on
+(owner, 2026-09-24) -- "Error Note, Misaligned Print (Reverse) 1963A $1".
 
 It is a suggestion only: nothing here writes, and the editor puts it in the
 draft, where the owner's Save is what keeps it. It reads the *saved* item,
@@ -64,31 +66,24 @@ def _grade(item: InventoryItem) -> str | None:
     return grade
 
 
-def _attributes(db: Session, item: InventoryItem) -> list[str]:
-    """The item's attributes as one part, short: ``Radar``, ``Star Note, Binary``.
+def _features(db: Session, item: InventoryItem) -> list[str]:
+    """Attributes then errors, as one part: ``Radar, Misaligned Print (Reverse)``.
 
-    Comma-separated when there are several, so "Low Serial Number, Binary,
-    Double Quad" does not run together into one phrase.
+    Attributes short ("Radar", not "Radar Serial"); an error with its
+    details in brackets. Comma-separated, so several do not run together.
     """
     labels = [
         _SERIAL_SUFFIX.sub("", held.label)
         for held in item_attributes.held_attributes(db, item.id)
     ]
-    return [", ".join(labels)] if labels else []
-
-
-def _errors(db: Session, item: InventoryItem) -> str | None:
-    """``Error: Ink Smear (left margin)``, or several after ``Errors:``."""
     rows = db.execute(
         select(ErrorType.label, ItemError.details)
         .join(ErrorType, ErrorType.id == ItemError.error_type_id)
         .where(ItemError.inventory_item_id == item.id)
         .order_by(ErrorType.sort_order, ErrorType.label)
     ).tuples()
-    named = [f"{label} ({details})" if details else label for label, details in rows]
-    if not named:
-        return None
-    return ("Error: " if len(named) == 1 else "Errors: ") + ", ".join(named)
+    labels += [f"{label} ({details})" if details else label for label, details in rows]
+    return [", ".join(labels)] if labels else []
 
 
 def _note(db: Session, item: InventoryItem) -> list[str]:
@@ -98,7 +93,7 @@ def _note(db: Session, item: InventoryItem) -> list[str]:
     first: list[str] = []
     if grade := _grade(item):
         first.append(grade)
-    first.extend(_attributes(db, item))
+    first.extend(_features(db, item))
     year = detail.series_designation or (
         str(item.year_start) if item.year_start is not None else None
     )
@@ -126,7 +121,7 @@ def _coin(db: Session, item: InventoryItem) -> list[str]:
     first: list[str] = []
     if grade := _grade(item):
         first.append(grade)
-    first.extend(_attributes(db, item))
+    first.extend(_features(db, item))
     if (name := name_of(db, item)) is not None:
         first.append(name)
     sentences = [" ".join(first)] if first else []
@@ -149,6 +144,4 @@ def suggested_description(db: Session, item: InventoryItem) -> str:
     """
     note = item.currency_detail is not None
     sentences = _note(db, item) if note else _coin(db, item)
-    if errors := _errors(db, item):
-        sentences.append(errors)
     return " ".join(f"{s}." for s in sentences)
