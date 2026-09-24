@@ -189,9 +189,11 @@ _DESIGNATION = re.compile(
 #: not 6FS.
 _STEPS = re.compile(r"(?<![A-Za-z0-9])([56]FS)\b", re.I)
 _ULTRA_CAMEO = re.compile(r"ULTRA\s*CAMEO", re.I)
-#: A grader, also where it follows a number or a designation with no space.
+#: A grader, also where it follows a number or a designation with no space,
+#: or runs straight into its grade: "PMG55", "PCGS66 PPQ". Not followed by
+#: a letter, so it is not found inside a longer word.
 _SERVICE = re.compile(
-    rf"(?:(?<![A-Za-z])|(?<=CAM)|(?<=DPL)|(?<=PL))((?i:{_SERVICES}))\b"
+    rf"(?:(?<![A-Za-z])|(?<=CAM)|(?<=DPL)|(?<=PL))((?i:{_SERVICES}))(?![A-Za-z])"
 )
 
 #: A Sheldon number with no prefix, standing directly before a designation
@@ -217,6 +219,17 @@ _NOTE_NUMBERS = frozenset(
 #: A number set against a paper-quality designation or a grader, the way PMG
 #: and PCGS labels write it: "64 EPQ", "50 PPQ", "12 PCGS".
 _NOTE_NUMBER_BEFORE = re.compile(r"(?<![\d$.])(\d{1,2})\s*(?:EPQ|PPQ|PMG|PCGS)\b", re.I)
+#: A number following a paper grader, as a holder written into one field
+#: reads: "PMG55", "PCGS 66".
+_NOTE_NUMBER_AFTER_SERVICE = re.compile(
+    r"(?<![A-Za-z])(?:PMG|PCGS)\s*(\d{1,2})(?!\d)", re.I
+)
+#: A number standing before a grade word: "30 Very Fine", "64 Choice Unc".
+_NOTE_NUMBER_BEFORE_WORD = re.compile(
+    r"(?<![\d$.#])(\d{1,2})\s+(?:GEM|CHOICE|UNC|UNCIRCULATED|ABOUT|AU|XF|EF|"
+    r"EXTREMELY|VF|VERY|VG|FINE|GOOD)\b",
+    re.I,
+)
 #: A number following a grade word: "UNC 64", "Gem Unc 65", "Very Fine 30".
 _NOTE_NUMBER_AFTER = re.compile(
     r"\b(?:UNC|UNCIRCULATED|GEM|CHOICE|AU|XF|EF|VF|VG|FINE|GOOD)\s*(?:-\s*)?(\d{1,2})\b",
@@ -247,7 +260,9 @@ def note_grade_code(text: str, sheldon: str | None) -> str | None:
     """
     candidates = re.findall(r"\d{1,2}", sheldon) if sheldon else []
     candidates += _NOTE_NUMBER_BEFORE.findall(text)
+    candidates += _NOTE_NUMBER_AFTER_SERVICE.findall(text)
     candidates += _NOTE_NUMBER_AFTER.findall(text)
+    candidates += _NOTE_NUMBER_BEFORE_WORD.findall(text)
     for number in candidates:
         if int(number) in _NOTE_NUMBERS:
             return f"N{int(number)}"

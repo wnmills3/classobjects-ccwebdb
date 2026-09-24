@@ -17,6 +17,7 @@ from app.importers.profiles.collection_v1 import CollectionV1Profile
 from app.importers.rating import bare_grade, designation_for, parse_condition
 from app.models import (
     Authenticity,
+    Grade,
     GradeDesignation,
     GradingService,
     InventoryItem,
@@ -481,13 +482,57 @@ def test_the_pass_marks_genuine_only_over_the_default(
 def test_the_pass_leaves_a_notes_grade_to_the_note_scale(
     db: Session, make_item: ItemFactory
 ) -> None:
+    """A note is given the note scale's 65, never the coin grade, and no strike.
+
+    As the importer reads it (PCGS writes a note "MS65 PPQ"). The pass used
+    to leave every note's grade alone, assuming the importer had read it --
+    untrue for a note imported as a coin and re-kinded since.
+    """
     note = make_item(
         kind="currency", grade_raw="MS65 PCGS", grade_id=None, strike_type_id=None
     )
     run(db, commit=True)
     db.refresh(note)
-    assert note.grade_id is None
+    assert _code(db, Grade, note.grade_id) == "N65"
     assert note.strike_type_id is None
+
+
+def test_the_pass_reads_a_re_kinded_notes_rating(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A re-kinded note rated 67 EPQ Radar gets N67, EPQ, and PMG implied."""
+    note = make_item(
+        kind="currency",
+        grade_raw="67 EPQ Radar",
+        grade_id=None,
+        grade_designation_id=None,
+        grading_service_id=None,
+    )
+    run(db, commit=True)
+    db.refresh(note)
+    assert _code(db, Grade, note.grade_id) == "N67"
+    assert _code(db, GradeDesignation, note.grade_designation_id) == "EPQ"
+    assert _code(db, GradingService, note.grading_service_id) == "PMG"
+
+
+def test_ppq_implies_pcgs_and_a_named_grader_wins(
+    db: Session, make_item: ItemFactory
+) -> None:
+    ppq = make_item(
+        kind="currency", grade_raw="65 PPQ", grade_id=None, grading_service_id=None
+    )
+    glued = make_item(
+        kind="currency",
+        grade_raw="B-A Narrow (Misprint) PMG55",
+        grade_id=None,
+        grading_service_id=None,
+    )
+    run(db, commit=True)
+    db.refresh(ppq)
+    db.refresh(glued)
+    assert _code(db, GradingService, ppq.grading_service_id) == "PCGS"
+    assert _code(db, GradingService, glued.grading_service_id) == "PMG"
+    assert _code(db, Grade, glued.grade_id) == "N55"
 
 
 def test_the_report_is_written_for_review(
