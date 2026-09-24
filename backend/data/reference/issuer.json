@@ -46,7 +46,9 @@
     {"code": "usd_note_50", "label": "$50 Bill", "currency": "USD", "face_value": "50.0000", "kind": "note", "sort_order": 260},
     {"code": "usd_note_100", "label": "$100 Bill", "currency": "USD", "face_value": "100.0000", "kind": "note", "sort_order": 270},
     {"code": "usd_note_500", "label": "$500 Bill", "currency": "USD", "face_value": "500.0000", "kind": "note", "sort_order": 280},
-    {"code": "usd_note_1000", "label": "$1000 Bill", "currency": "USD", "face_value": "1000.0000", "kind": "note", "sort_order": 290}
+    {"code": "usd_note_1000", "label": "$1000 Bill", "currency": "USD", "face_value": "1000.0000", "kind": "note", "sort_order": 290},
+
+    {"code": "mxn_note_5", "label": "5 Peso Note", "currency": "MXN", "face_value": "5.0000", "kind": "note", "sort_order": 400}
   ],
   "mint": [
     {"code": "P", "label": "Philadelphia", "mark": "P", "country": "US", "sort_order": 10,

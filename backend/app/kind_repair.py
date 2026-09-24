@@ -16,8 +16,8 @@ banknote serial is a letter or two, eight digits and a letter or star --
 `F06566560R`, `*01935354A`. So an item recorded as a coin that holds a
 certificate of that shape is a banknote. The owner gave the hint
 (2026-09-23): "currency typically has the 8 character serial number from the
-old Grading# column". Only kind `coin` is searched: three 1995 notes recorded
-as a set (CC-005781..783) are left for the owner rather than guessed at.
+old Grading# column". Only kind `coin` is searched; notes recorded as
+another kind are named.
 
 `NAMED_NOTES` adds the notes the shape cannot find -- those with no serial
 recorded, or one of an older format -- each read before being listed.
@@ -58,11 +58,15 @@ from .database import SessionLocal
 from .field_sources import RATING, forget, record_derived
 from .item_kinds import match_detail_to_kind
 from .models import (
+    Country,
     Denomination,
+    ErrorType,
     InventoryItem,
     ItemCertification,
+    ItemError,
     ItemKind,
     Mint,
+    ProvenanceSource,
     SealColor,
     User,
 )
@@ -92,13 +96,36 @@ NAMED_NOTES: tuple[str, ...] = (
     # 1929 notes with six-digit serials: $5 New York, $10 Hartford
     "CC-006802",
     "CC-006804",
+    # Three consecutive $1 notes, series 1995, with ink smears, recorded as a
+    # set; only coins are searched, so they are named. Owner, 2026-09-23.
+    "CC-005781",
+    "CC-005782",
+    "CC-005783",
+    # A Mexican 5 peso note, serial ET888973. Owner, 2026-09-23.
+    "CC-007256",
 )
+
+#: Notes of another country, recorded with none.
+COUNTRY_FIXES: dict[str, str] = {"CC-007256": "MX"}
+
+#: Printing errors each note carries, by error type, recorded as the owner's.
+ERRORS: dict[str, str] = {
+    "CC-005781": "ink_smear",
+    "CC-005782": "ink_smear",
+    "CC-005783": "ink_smear",
+}
 
 #: Notes whose face value was typed wrong, with the one the owner gave.
 DENOMINATION_FIXES: dict[str, str] = {
     # "1976 Gem Unc FDOI w/ Stamp", typed as $1: a first-day-of-issue $2
     # Bicentennial note -- there was no 1976 series of $1 notes. 2026-09-23.
     "CC-006026": "usd_note_2",
+    # Typed "3-Bill Set": three $1 notes, one per row. 2026-09-23.
+    "CC-005781": "usd_note_1",
+    "CC-005782": "usd_note_1",
+    "CC-005783": "usd_note_1",
+    # Typed "5 Pesos".
+    "CC-007256": "mxn_note_5",
 }
 
 #: Items that are sets, not single coins: a 1978-S proof set, and a National
@@ -108,6 +135,7 @@ SETS: tuple[str, ...] = ("CC-000102", "CC-005817")
 #: The fields the change log records, in the editor's own terms.
 LOGGED: tuple[str, ...] = (
     "item_kind",
+    "country",
     "denomination",
     "series",
     "metal",
@@ -244,6 +272,35 @@ def _to_note(
     forget(db, [item.id], [*_COIN_COLUMNS, "item_kind_id", "denomination_id"])
 
 
+def _record_error(
+    db: Session, item: InventoryItem, error: str, repair: Repair, *, user_id: int | None
+) -> None:
+    """Record a printing error the owner named, unless it is already there.
+
+    As the item editor's errors panel records one: manual, noted by the person
+    the change log names. It could not be recorded before -- the errors panel
+    offers a note's error types only to a note.
+    """
+    error_type_id = _code_id(db, ErrorType, error)
+    held = db.scalar(
+        select(ItemError.id).where(
+            ItemError.inventory_item_id == item.id,
+            ItemError.error_type_id == error_type_id,
+        )
+    )
+    if held is not None:
+        return
+    db.add(
+        ItemError(
+            inventory_item_id=item.id,
+            error_type_id=error_type_id,
+            source=ProvenanceSource.manual,
+            noted_by_id=user_id,
+        )
+    )
+    repair.changes.append(("error", None, error))
+
+
 def serial_bearing(db: Session) -> list[str]:
     """Every item recorded as a coin that holds a banknote serial."""
     return list(
@@ -323,6 +380,11 @@ def run(
                 repair.skipped = f"no note denomination for {item.denom_raw!r}"
                 continue
             _to_note(db, item, note_id, repair)
+            if (country := COUNTRY_FIXES.get(code)) is not None:
+                item.country_id = _code_id(db, Country, country)
+                forget(db, [item.id], ["country_id"])
+            if (error := ERRORS.get(code)) is not None:
+                _record_error(db, item, error, repair, user_id=user_id)
         touched.append((item, repair, before))
 
     refresh_items(db, [item.id for item, _, _ in touched])
