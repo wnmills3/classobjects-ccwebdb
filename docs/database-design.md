@@ -485,7 +485,14 @@ house would otherwise each create a location.
 whose value actually moved. Values are stored as the item editor sees them
 (codes for classifiers, strings for money). It is what the editor reads to say
 *who* changed a field it warns about; the passes, receiving and offering do
-not write it, so a field changed that way has no entry.
+not write it, so a field changed that way has no entry (`app.kind_repair` is
+the exception: it logs its changes under the login given with `--by`).
+
+The item editor's **History** panel reads it together with
+`item_status_history` and `location_history` (`app.item_history`,
+`GET /api/inventory/{id}/history`, admin-only): one list, newest first, with
+classifier codes shown by their labels and a move's origin taken from the
+previous move's destination.
 
 Per field, because attribution works field by field and a half-done item is
 the normal state. No `item_field_source` row means the value is a person's or

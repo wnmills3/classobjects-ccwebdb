@@ -8,11 +8,18 @@ import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
-import { baseFor, conflictsOf, fieldValue, rebase } from './fieldMerge'
+import {
+  baseFor,
+  conflictsOf,
+  fieldName,
+  fieldValue,
+  rebase,
+  shown,
+} from './fieldMerge'
 import { clearedByKind } from './kindChange'
 import FriedbergPanel from './FriedbergPanel'
 import HelpScope from '../../HelpScope'
-import { FIELD_HELP } from '../../fieldHelp'
+import HistoryPanel from './HistoryPanel'
 import OffersPanel from './OffersPanel'
 import PhotosPanel from './PhotosPanel'
 
@@ -30,9 +37,6 @@ import PhotosPanel from './PhotosPanel'
 //: whenever the window gets focus back, which is when it matters most.
 const CHECK_EVERY_MS = 15000
 
-/** A field's name for the conflict list: its help title, else its key. */
-const fieldName = (key) => FIELD_HELP[key]?.title ?? key.replaceAll('_', ' ')
-
 /**
  * Who made a field's latest change, and when, from the item's change log
  * (`last_changes`) -- blank when the log has none, as for a change made by
@@ -42,13 +46,6 @@ function changedBy(change) {
   if (!change) return ''
   const when = new Date(change.at).toLocaleString()
   return `, changed by ${change.by ?? 'someone'} at ${when}`
-}
-
-/** A value as the conflict list shows it. */
-function shown(value) {
-  if (value === null || value === undefined || value === '') return '(blank)'
-  if (Array.isArray(value)) return value.length ? value.join(', ') : '(none)'
-  return String(value)
 }
 
 const TEXT_FIELDS = [
@@ -1001,6 +998,10 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         <OffersPanel item={item} onChanged={reloadItem} />
 
         <SaleHistory itemId={itemId} />
+
+        {/* Read-only; re-read whenever the item's version moves, so a save
+            made above appears here at once. */}
+        <HistoryPanel itemId={itemId} version={item.version} />
       </HelpScope>
     </div>
   )

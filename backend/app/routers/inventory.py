@@ -48,6 +48,7 @@ from ..inventory_search import (
     plain,
     search,
 )
+from ..item_history import timeline
 from ..lifecycle_writes import record_initial_status, set_location, set_status
 from ..models import (
     AuctionLot,
@@ -67,6 +68,7 @@ from ..models import (
     GradeDesignation,
     GradingService,
     InventoryItem,
+    ItemAttribute,
     ItemCertification,
     ItemError,
     ItemFieldReview,
@@ -92,6 +94,7 @@ from ..models import (
     StrikeType,
     ValuationBasis,
 )
+from ..models.base import ReferenceMixin
 from ..references import code_to_id, require_code
 from ..schemas import (
     RECEIVE_OUTCOMES,
@@ -106,6 +109,7 @@ from ..schemas import (
     ItemErrorOut,
     ItemErrorsOut,
     ItemErrorsRequest,
+    ItemHistoryEventOut,
     ItemReviewOut,
     ItemSaleOut,
     ReceiveRequest,
@@ -1204,12 +1208,29 @@ def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemS
     ]
 
 
+@router.get("/{item_id}/history")
+def get_item_history(
+    item_id: int, db: DbSession, _admin: AdminUser
+) -> list[ItemHistoryEventOut]:
+    """Everything logged about this item, newest first.
+
+    Field edits, status moves and location moves in one list
+    (`app.item_history`). A classifier is shown by its label; the location
+    is admin-only like every other read of it, and so is this route.
+    """
+    item = _get_item(db, item_id)
+    return [
+        ItemHistoryEventOut(**vars(event))
+        for event in timeline(db, item.id, HISTORY_CLASSIFIERS)
+    ]
+
+
 #: Editable classifiers on an item, and where each code resolves.
 #:
 #: Wider than PIECE_CLASSIFIERS above, which covers only what a split may
 #: override per piece. Everything here is a correction someone makes while
 #: attributing an item in hand.
-ITEM_CLASSIFIERS: dict[str, type] = {
+ITEM_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
     "item_kind": ItemKind,
     "country": Country,
     "denomination": Denomination,
@@ -1266,11 +1287,19 @@ EDITABLE_SCALARS: tuple[str, ...] = (
 REQUIRED_SCALARS: frozenset[str] = frozenset({"tax_rate", "tax_includes_shipping"})
 
 #: Classifiers on a note's currency detail, and where each code resolves.
-NOTE_CLASSIFIERS: dict[str, type] = {
+NOTE_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
     "note_type": NoteType,
     "seal_color": SealColor,
     "fed_district": FedDistrict,
     "signature_combination": SignatureCombination,
+}
+
+#: Every field whose logged codes the history shows by label: the item's and
+#: the note's classifiers, and attributes (logged as a list of codes).
+HISTORY_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
+    **ITEM_CLASSIFIERS,
+    **NOTE_CLASSIFIERS,
+    "attributes": ItemAttribute,
 }
 
 #: Plain columns on a note's currency detail a client may set.

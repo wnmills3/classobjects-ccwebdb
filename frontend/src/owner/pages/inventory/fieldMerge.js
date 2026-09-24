@@ -9,6 +9,19 @@
  * these comparisons mirror `_same_value` there.
  */
 
+import { FIELD_HELP } from '../../fieldHelp'
+
+/** A field's name as a person reads it: its help title, else its key. */
+export const fieldName = (key) => FIELD_HELP[key]?.title ?? key.replaceAll('_', ' ')
+
+/** A field's value as the conflict list and the history show it. */
+export function shown(value) {
+  if (value === null || value === undefined || value === '') return '(blank)'
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '(none)'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  return String(value)
+}
+
 /** A field's value on an item as the editor holds it; attributes as codes. */
 export function fieldValue(item, key) {
   if (!item) return undefined

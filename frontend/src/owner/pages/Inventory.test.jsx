@@ -7,6 +7,7 @@ vi.mock('../api', () => ({
     searchInventory: vi.fn(),
     getInventoryItem: vi.fn(),
     getItemSales: vi.fn(),
+    getItemHistory: vi.fn(),
     updateInventoryItem: vi.fn(),
     setItemReview: vi.fn(),
     bulkEditInventory: vi.fn(),
@@ -40,6 +41,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.getOfferTitles.mockResolvedValue({ titles: {} })
   api.getItemSales.mockResolvedValue([])
+  api.getItemHistory.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
   api.listSalesVenues.mockResolvedValue([])
   api.searchInventory.mockResolvedValue({

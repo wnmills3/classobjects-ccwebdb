@@ -31,6 +31,8 @@ vi.mock('../../api', () => ({
     createOffers: vi.fn(),
     // PhotosPanel's, through the same ItemEditForm.
     listItemImages: vi.fn(),
+    // HistoryPanel's, through the same ItemEditForm.
+    getItemHistory: vi.fn(),
   },
 }))
 
@@ -69,6 +71,7 @@ function SelectionOwner({ initialIds }) {
 beforeEach(() => {
   vi.clearAllMocks()
   api.getItemSales.mockResolvedValue([])
+  api.getItemHistory.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
   api.listSalesVenues.mockResolvedValue([])
   api.listStorageLocations.mockResolvedValue(LOCATIONS)

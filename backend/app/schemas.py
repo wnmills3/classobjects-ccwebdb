@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -624,6 +624,26 @@ class FieldChangeOut(BaseModel):
 
     by: str | None
     at: datetime
+
+
+class ItemHistoryEventOut(BaseModel):
+    """One entry in an item's history (`app.item_history`).
+
+    `kind` says which log it came from: `field` (an edit, `field` naming the
+    field as the editor does), `status` or `location`. Values are shown as a
+    person reads them -- a classifier's label, a location's name -- and may
+    be a list, for `attributes`. `old_value` is null on an item's first
+    status and first location.
+    """
+
+    kind: Literal["field", "status", "location"]
+    field: str
+    old_value: Any = None
+    new_value: Any = None
+    by: str | None
+    at: datetime
+    note: str | None = None
+    arrived_on: date | None = None
 
 
 class ItemDetailOut(InventoryItemOut):
