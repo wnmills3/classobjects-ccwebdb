@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..deps import AdminUser, DbSession
+from ..item_history import location_label
 from ..models import (
     InventoryItem,
     ItemStatus,
@@ -331,17 +332,6 @@ def create_purchase_order(
     return get_purchase_order(order.id, db, admin)
 
 
-def _location_label(location: StorageLocation) -> str:
-    """A human-readable identity for a storage location.
-
-    `institution` and `identifier` are the only free-text fields that tell
-    one location apart from another of the same kind; a location with
-    neither set falls back to naming its kind.
-    """
-    parts = [part for part in (location.institution, location.identifier) if part]
-    return " ".join(parts) if parts else location.kind.label
-
-
 @storage_locations_router.get("")
 def list_storage_locations(
     db: DbSession, _admin: AdminUser
@@ -359,7 +349,7 @@ def list_storage_locations(
     return [
         StorageLocationOut(
             id=location.id,
-            label=_location_label(location),
+            label=location_label(location),
             kind=location.kind.code,
         )
         for location in locations

@@ -6,6 +6,7 @@ vi.mock('../../api', () => ({
   api: {
     getInventoryItem: vi.fn(),
     getItemSales: vi.fn(),
+    getItemHistory: vi.fn(),
     updateInventoryItem: vi.fn(),
     setItemReview: vi.fn(),
     getItemErrors: vi.fn(),
@@ -47,6 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.getOfferTitles.mockResolvedValue({ titles: {} })
   api.getItemSales.mockResolvedValue([])
+  api.getItemHistory.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
   // The offers panel reads the platforms too, to tell the shop from the rest.
   api.listSalesVenues.mockResolvedValue([])
@@ -1237,6 +1239,23 @@ describe('An item for sale', () => {
       screen.getByText(/Order #9, 2026-09-17, shipped: 1 at 189.00 to Ada/),
     ).toBeVisible()
     expect(screen.getByText(/sold as 1881-S Morgan, MS64/)).toBeVisible()
+  })
+
+  it('shows the item history and reads it again after a save', async () => {
+    const user = userEvent.setup()
+    const saved = { ...item, version: 5, sale_state: [], description: 'Mercury Dime!' }
+    api.getInventoryItem
+      .mockResolvedValueOnce({ ...item, version: 4, sale_state: [] })
+      .mockResolvedValue(saved)
+    api.updateInventoryItem.mockResolvedValue(saved)
+    render(<ItemEditForm itemId={12} />)
+    expect(await screen.findByRole('heading', { name: 'History' })).toBeVisible()
+    expect(api.getItemHistory).toHaveBeenCalledWith(12)
+    expect(api.getItemHistory).toHaveBeenCalledTimes(1)
+
+    await user.type(screen.getByDisplayValue('Mercury Dime'), '!')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(api.getItemHistory).toHaveBeenCalledTimes(2))
   })
 
   // A lot line's `quantity` and `unit_price` describe the whole group, so
