@@ -292,4 +292,108 @@ export const FIELD_HELP = {
       'letter. Read it off the slab or holder or a reference, or copy it from a ' +
       'match in your own catalogue.',
   },
+  // -- more of an item --------------------------------------------------------
+  disposition: {
+    title: 'Disposition',
+    text:
+      'What has become of the item once it is yours: held, listed, sold, shipped, ' +
+      'delivered, returned. Status says whether it has arrived; disposition says ' +
+      'where it stands in selling.',
+  },
+  reviewed: {
+    title: 'Confirmed',
+    text:
+      'Tick once you have checked this field against the item itself, not the ' +
+      "seller's listing. It records that a person looked; the rating pass leaves " +
+      'a confirmed field alone.',
+  },
+  year_range: {
+    title: 'Range of years',
+    text:
+      'Tick when the item covers several years -- a set, a roll, a lot of mixed ' +
+      'dates -- to give a first and last year instead of one.',
+  },
+  attributes: {
+    title: 'Attributes',
+    text:
+      'What makes this piece special beyond its grade: Star Note, Radar, First ' +
+      'Strike, CAC and the like. Type in Find to narrow the list, choose one to add ' +
+      "it, and use its x to remove it. Only those that fit the item's kind are " +
+      'offered.',
+  },
+  error_details: {
+    title: 'Error details',
+    text:
+      'A note on this error: where and how -- "Back to Front", "left margin", ' +
+      '"3 o\'clock, 4mm". Clearing it removes only the note; to remove the error, ' +
+      'use its Remove button.',
+  },
+  photos: {
+    title: 'Photographs',
+    text:
+      "The item's pictures. Choose a file to add one, set each one's role " +
+      '(obverse, reverse, slab ...), make one the primary -- the one the shop shows ' +
+      "first -- or remove one. Photographs are filed straight away; the form's Save " +
+      'is not needed.',
+  },
+  // -- the search panel -------------------------------------------------------
+  search_text: {
+    title: 'Search',
+    text:
+      'Finds items whose title, description, rating or item code contain what you ' +
+      'type, ignoring case. Several words are one phrase, in that order. % stands ' +
+      'for any run of characters and _ for exactly one. Press Enter or leave the ' +
+      'box to search.',
+  },
+  search_tips: {
+    title: 'Search tips',
+    text: 'Worked examples of the search box; click one to run it.',
+  },
+  grade_filter: {
+    title: 'Grade',
+    text:
+      'A grade or a pattern: 65, 64+, PR69, UNC, or 55% for 55 and every grade ' +
+      'written starting with 55. Coins and notes each use their own scale.',
+  },
+  serial_filter: {
+    title: 'Serial number',
+    text:
+      'All or part of a serial, anywhere in it. _ stands for exactly one ' +
+      'character, so B0808450_ finds a run of consecutive notes; % for any run.',
+  },
+  item_code_filter: {
+    title: 'Item code',
+    text: 'All or part of an item code: CC-006140, or 6140.',
+  },
+  year_from: {
+    title: 'Year from',
+    text: 'Only items dated this year or later. Leave blank for no lower limit.',
+  },
+  year_to: {
+    title: 'Year to',
+    text: 'Only items dated this year or earlier. Leave blank for no upper limit.',
+  },
+  issue_checks: {
+    title: 'Checks',
+    text:
+      'Ready-made lists of items needing attention, with how many each finds: no ' +
+      'grade, not yet reviewed, and so on. Click one to show only those items; ' +
+      'click it again to go back. Only checks with something to find are shown.',
+  },
+  clear_filters: {
+    title: 'Clear filters',
+    text: 'Empties the search box and every filter, showing everything in this view.',
+  },
+  select_page: {
+    title: 'Select all shown',
+    text:
+      'Ticks every item on this page -- this page only, not every match -- to act ' +
+      'on them together: review them, edit them in bulk, or offer them for sale.',
+  },
+  select_row: {
+    title: 'Select',
+    text:
+      'Tick items to act on them together: review them one after another, edit ' +
+      'them in bulk, or offer them for sale.',
+  },
 }
