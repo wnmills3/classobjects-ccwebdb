@@ -417,8 +417,13 @@ NULL, and a null for either is refused naming the field.
 banknote loses its coin row (mint, variety, PCGS type) and gains an empty note
 row, so its serial number and other note fields can be sent in the same
 request. An item made anything else is refused while its note row still holds
-a value -- the serial above all -- until the request clears it. The console
-does not offer the kind for editing; the API and `app.kind_repair` do.
+a value -- the serial above all, or an attached Friedberg number -- until the
+request clears it. The item editor's **Kind** picker does that clearing in the
+draft: choosing a kind empties every field that does not fit it (a coin's
+metal, strike type, weights and coin-side denomination, series, grade and
+attributes; a note's own fields), names each one on screen, and puts them all
+back if the original kind is chosen again. A note's fields appear as soon as
+Currency is chosen; its Friedberg panel appears once the note is saved.
 
 **A grade is a number and a strike type.** `grade` takes `65` or `64+`; a
 compound grade such as `MS65` or `PR69+` is split into the number and

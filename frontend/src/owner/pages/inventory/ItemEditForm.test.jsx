@@ -421,6 +421,99 @@ describe('Denomination choices', () => {
   })
 })
 
+describe('Changing the kind', () => {
+  const vocabularies = emptyReference({
+    tables: {
+      item_kind: [
+        { code: 'coin', label: 'Coin', source: 'seeded', extra: {} },
+        { code: 'currency', label: 'Currency', source: 'seeded', extra: {} },
+      ],
+      metal: [{ code: 'silver', label: 'Silver', source: 'seeded', extra: {} }],
+      denomination: [
+        {
+          code: 'usd_coin_1_00',
+          label: 'Dollar',
+          source: 'seeded',
+          extra: { kind: 'coin' },
+        },
+        {
+          code: 'usd_note_1',
+          label: '$1 Bill',
+          source: 'seeded',
+          extra: { kind: 'note' },
+        },
+      ],
+    },
+  })
+
+  function open(fields) {
+    api.getInventoryItem.mockResolvedValue({ ...item, ...fields })
+    api.updateInventoryItem.mockResolvedValue({})
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    return screen.findByDisplayValue('Mercury Dime')
+  }
+
+  const kindBox = () => screen.getByRole('combobox', { name: 'item_kind' })
+
+  it("shows a note's fields at once, and saves the coin's metal cleared", async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'coin', metal: 'silver', denomination: 'usd_coin_1_00' })
+    expect(screen.queryByRole('textbox', { name: 'Serial number' })).toBeNull()
+
+    await user.selectOptions(kindBox(), 'currency')
+
+    // Before any save: the note's fields are here, the coin's metal is not,
+    // and the notice names what the note cannot keep.
+    expect(screen.getByRole('textbox', { name: 'Serial number' })).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'metal' })).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent('silver')
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Serial number' }),
+      'F06566560R',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    const [, payload] = api.updateInventoryItem.mock.calls[0]
+    expect(payload).toMatchObject({
+      item_kind: 'currency',
+      metal: null,
+      denomination: null,
+      serial_number: 'F06566560R',
+    })
+  })
+
+  it('puts everything back when the kind is changed back', async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'coin', metal: 'silver' })
+
+    await user.selectOptions(kindBox(), 'currency')
+    await user.selectOptions(kindBox(), 'coin')
+
+    expect(screen.getByRole('combobox', { name: 'metal' })).toHaveValue('silver')
+    expect(screen.queryByRole('status')).toBeNull()
+    // Nothing left to save: the round trip is no change at all.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it("clears a note's serial number when it stops being a note, and says so", async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'currency', serial_number: 'F06566560R' })
+
+    await user.selectOptions(kindBox(), 'coin')
+
+    expect(screen.getByRole('status')).toHaveTextContent('F06566560R')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    const [, payload] = api.updateInventoryItem.mock.calls[0]
+    expect(payload).toMatchObject({ item_kind: 'coin', serial_number: null })
+  })
+})
+
 describe('ItemEditForm years', () => {
   // A single year is stored as start == end; a range is for a multi-year set
   // or a coin dated only to an era. 13 items in the collection have a range,

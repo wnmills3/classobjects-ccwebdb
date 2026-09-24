@@ -22,6 +22,7 @@ from app.models import (
     CurrencyDetail,
     Denomination,
     ErrorType,
+    FriedbergNumber,
     InventoryItem,
     ItemCertification,
     ItemError,
@@ -443,6 +444,23 @@ def test_a_note_keeps_its_serial_unless_it_is_cleared_first(
     assert db.get_one(InventoryItem, item.id).item_kind_id == code_id(
         db, ItemKind, "currency"
     )
+
+    # A Friedberg number is the note's too: it goes by its own endpoint first.
+    friedberg = FriedbergNumber(fr_number="FR-TEST-1")
+    db.add(friedberg)
+    db.flush()
+    db.get_one(CurrencyDetail, item.id).friedberg_id = friedberg.id
+    db.commit()
+    with_friedberg = client.patch(
+        f"/api/inventory/{item.id}",
+        json={**to_coin, "serial_number": None},
+        headers=admin_headers,
+    )
+    assert with_friedberg.status_code == 422, with_friedberg.text
+    assert "friedberg" in with_friedberg.json()["detail"]
+    db.expire_all()
+    db.get_one(CurrencyDetail, item.id).friedberg_id = None
+    db.commit()
 
     # Cleared in the same request, the change goes through.
     cleared = client.patch(
