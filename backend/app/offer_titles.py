@@ -60,7 +60,11 @@ def _years(item: InventoryItem) -> str | None:
 
 
 def _graded(item: InventoryItem) -> list[str]:
-    """``["PCGS", "MS64"]``: the service a buyer recognises, then the grade."""
+    """``["PMG", "64", "EPQ"]``: service, grade, then designation.
+
+    The designation is printed after the grade -- on a note's holder
+    "64 EPQ" is the grade, and a title without the EPQ undersells it.
+    """
     parts: list[str] = []
     service = item.grading_service
     if service is not None and service.code != _SELF_GRADED:
@@ -68,6 +72,8 @@ def _graded(item: InventoryItem) -> list[str]:
     grade = grades.display_item(item)
     if grade:
         parts.append(grade)
+        if item.grade_designation is not None:
+            parts.append(item.grade_designation.code)
     return parts
 
 
@@ -156,6 +162,18 @@ def _note_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
     return parts, named
 
 
+def name_of(db: Session, item: InventoryItem) -> str | None:
+    """What the item is, without its grade; None when no fact names it.
+
+    ``1921-S Morgan Dollar``, ``Series 1935A $1 Silver Certificate``.
+    """
+    if item.item_kind.code == _CURRENCY_KIND:
+        described, named = _note_title(db, item)
+    else:
+        described, named = _coin_title(db, item)
+    return " ".join(described) if named else None
+
+
 def suggested_title(db: Session, item: InventoryItem) -> str:
     """The title a listing of this item should start from.
 
@@ -166,13 +184,10 @@ def suggested_title(db: Session, item: InventoryItem) -> str:
     Empty only when that is empty too, and the dialog then shows an empty
     title for the operator to write.
     """
-    if item.item_kind.code == _CURRENCY_KIND:
-        described, named = _note_title(db, item)
-    else:
-        described, named = _coin_title(db, item)
-    if not named:
+    name = name_of(db, item)
+    if name is None:
         return item.source_title
-    return " ".join([*described, *_graded(item)])
+    return " ".join([name, *_graded(item)])
 
 
 def suggested_titles(db: Session, item_ids: Sequence[int]) -> dict[int, str]:

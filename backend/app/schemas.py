@@ -627,6 +627,15 @@ class FieldChangeOut(BaseModel):
     at: datetime
 
 
+class SuggestedDescriptionOut(BaseModel):
+    """A description composed from an item's saved record (`app.item_descriptions`).
+
+    Empty when the record holds nothing to describe.
+    """
+
+    description: str
+
+
 class ItemHistoryEventOut(BaseModel):
     """One entry in an item's history (`app.item_history`).
 

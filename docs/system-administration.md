@@ -423,6 +423,16 @@ is deleted, a new one is recorded as graded by the item's grading service.
 **Grade designation**, **Grading service** and **Certificate no.** (comma
 separated) beside the grade; each change is logged in `item_field_change`.
 
+**Suggest description** under the Description box fills the draft with a
+description written from the item's saved record
+(`GET /api/inventory/{id}/suggested-description`, `app.item_descriptions`):
+the item's name as its listing title names it, the note's district, seal,
+signatures and serial or the coin's metal and fine weight, the grade with
+its service, designation and certificate, then attributes and errors. It
+writes nothing; Save keeps it. It is disabled while other edits are unsaved,
+since it reads the saved item. A listing's suggested title now carries the
+designation too ("PMG 64 EPQ").
+
 **A kind change moves the detail row** (`app.item_kinds`). An item made a
 banknote loses its coin row (mint, variety, PCGS type) and gains an empty note
 row, so its serial number and other note fields can be sent in the same

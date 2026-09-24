@@ -401,6 +401,62 @@ describe('Grading: designation, service and certificate', () => {
   })
 })
 
+describe('Suggest description', () => {
+  beforeEach(() => {
+    api.getSuggestedDescription = vi.fn()
+  })
+
+  it('puts the suggestion into the draft for the owner to edit and save', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue({ ...item, version: 4 })
+    api.getSuggestedDescription.mockResolvedValue({
+      description: 'Series 1999 $1 Federal Reserve Note. Graded PMG 67 EPQ.',
+    })
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+
+    await user.click(screen.getByRole('button', { name: 'Suggest description' }))
+    const box = await screen.findByDisplayValue(/Graded PMG 67 EPQ/)
+    expect(api.getSuggestedDescription).toHaveBeenCalledWith(12)
+    // Nothing is saved until Save.
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+    await user.type(box, ' Radar.')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({
+          description: 'Series 1999 $1 Federal Reserve Note. Graded PMG 67 EPQ. Radar.',
+        }),
+      ),
+    )
+  })
+
+  it('waits for other edits to be saved, since it reads the saved record', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue({
+      ...item,
+      version: 4,
+      source_title: 'Dime',
+    })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await user.type(await screen.findByDisplayValue('Dime'), '!')
+    expect(screen.getByRole('button', { name: 'Suggest description' })).toBeDisabled()
+    expect(screen.getByText(/Save your other changes first/)).toBeInTheDocument()
+  })
+
+  it('keeps the description when there is nothing to suggest', async () => {
+    const user = userEvent.setup()
+    api.getSuggestedDescription.mockResolvedValue({ description: '' })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    await user.click(screen.getByRole('button', { name: 'Suggest description' }))
+    expect(await screen.findByText(/Nothing recorded yet/)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Mercury Dime')).toBeInTheDocument()
+  })
+})
+
 describe('Grade choices', () => {
   // One grade from each scale, as the reference context holds them.
   const vocabularies = emptyReference({

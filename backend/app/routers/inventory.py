@@ -48,6 +48,7 @@ from ..inventory_search import (
     plain,
     search,
 )
+from ..item_descriptions import suggested_description
 from ..item_history import timeline
 from ..lifecycle_writes import record_initial_status, set_location, set_status
 from ..models import (
@@ -119,6 +120,7 @@ from ..schemas import (
     SplitPieceIn,
     SplitRequest,
     SplitResultOut,
+    SuggestedDescriptionOut,
 )
 from ..splitting import SplitError, SplitPiece, split_item
 from ..years import YEAR_FIELDS, backwards, refuse_backwards, resolve_years
@@ -1254,6 +1256,19 @@ def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemS
         )
         for line, order, status_code, customer_name, sales_lot_id, share_amount in rows
     ]
+
+
+@router.get("/{item_id}/suggested-description")
+def get_suggested_description(
+    item_id: int, db: DbSession, _admin: AdminUser
+) -> SuggestedDescriptionOut:
+    """A description written from the item's saved record, for the editor.
+
+    Writes nothing: the editor puts it in its draft, and the owner's save is
+    what keeps it (`app.item_descriptions`).
+    """
+    item = _get_item(db, item_id)
+    return SuggestedDescriptionOut(description=suggested_description(db, item))
 
 
 @router.get("/{item_id}/history")

@@ -336,6 +336,8 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   // What the last change of kind emptied, so it can be named on screen and
   // put back if the kind is changed back: key -> {had, prev, was}.
   const [kindCleared, setKindCleared] = useState({})
+  // What the Suggest button last said: a note under the description.
+  const [suggestNote, setSuggestNote] = useState('')
   const kinds = useReference('item_kind')
   const vocab = {
     denomination: useReference('denomination'),
@@ -629,6 +631,27 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
     </label>
   )
 
+  // The suggestion reads the saved item, so it is offered only while
+  // nothing but the description itself is waiting to be saved.
+  const unsavedOtherThanDescription = Object.keys(draft).some(
+    (key) => key !== 'description',
+  )
+
+  async function suggestDescription() {
+    try {
+      const { description } = await api.getSuggestedDescription(itemId)
+      if (!description) {
+        setSuggestNote('Nothing recorded yet to describe it from.')
+        return
+      }
+      // Into the draft only: the owner edits it, and Save keeps it.
+      setDraft({ ...draft, description })
+      setSuggestNote('Suggested from the record -- edit it, then Save to keep it.')
+    } catch (err) {
+      setSuggestNote(err.message)
+    }
+  }
+
   async function save() {
     setSaving(true)
     try {
@@ -761,6 +784,23 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             {review(REVIEWABLE[key])}
           </label>
         ))}
+        {/* Outside the label: a button inside a label with no `for`
+            takes the label from its input. */}
+        <div className="row">
+          <button
+            type="button"
+            className="link"
+            disabled={unsavedOtherThanDescription}
+            onClick={suggestDescription}
+          >
+            Suggest description
+          </button>
+          <span className="muted">
+            {unsavedOtherThanDescription
+              ? 'Save your other changes first: the suggestion is written from the saved record.'
+              : suggestNote}
+          </span>
+        </div>
 
         {/* Divs, not labels: a <label> may not contain the range checkbox's
           own label, so each box is named through htmlFor instead.
