@@ -1,8 +1,7 @@
 """The New purchase panel's backend: vendors and purchase-order creation.
 
-Until now `vendor` and `purchase_order` were import-only tables -- see
-`test_acquisitions.py`, which reads them back. This is what lets an owner
-start a purchase from the console instead of from the importer.
+This is what lets an owner start a purchase from the console;
+`test_acquisitions.py` reads `vendor` and `purchase_order` back.
 """
 
 from __future__ import annotations

@@ -206,7 +206,7 @@ def _items(db: Session) -> Sequence[tuple[Any, ...]]:
 
     The last column says whether the title and description are **lot text**:
     shared, word for word, with another piece of the same order. A lot's
-    pieces are imported as rows carrying the lot's listing, so "Large Cents,
+    pieces carry the lot's listing, so "Large Cents,
     Morgans, Mercury dimes" on a 1943 cent describes the lot, not the cent,
     and is evidence neither for nor against it. The rating is always the
     piece's own.
@@ -234,7 +234,7 @@ def _items(db: Session) -> Sequence[tuple[Any, ...]]:
                 CurrencyDetail.seal_color_id,
                 InventoryItem.source_title,
                 InventoryItem.description,
-                InventoryItem.grade_raw,
+                InventoryItem.rating,
                 lot_text,
                 CurrencyDetail.note_type_id,
             )

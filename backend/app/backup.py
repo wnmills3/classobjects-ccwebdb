@@ -1,7 +1,7 @@
 """Copy the whole database into another one, schema and all.
 
-The database is the system of record, so this is the fallback -- the
-spreadsheet no longer is. `pg_dump` remains the fastest way to take a file off
+The database is the system of record, so this is a fallback copy of it.
+`pg_dump` remains the fastest way to take a file off
 the machine, but this exists because it is **portable**: the schema comes from
 the SQLAlchemy models rather than from PostgreSQL, and the destination is a
 URL. Pointing it at another engine is a change of URL, not of code.
@@ -16,7 +16,7 @@ order, and `Base.metadata.create_all` builds the schema on any dialect
 SQLAlchemy supports. Three things do not survive a move off PostgreSQL
 unchanged, and the report says so rather than leaving it to be discovered:
 
-- `JSONB` columns (`inventory_item.attributes`, `import_row.raw`) become the
+- `JSONB` columns (`inventory_item.attributes`, the change log's values) become the
   target's JSON type, or text where it has none.
 - Generated columns are recomputed by the target from their expressions rather
   than copied, so a dialect without them needs the arithmetic doing elsewhere.
@@ -25,12 +25,11 @@ unchanged, and the report says so rather than leaving it to be discovered:
 
 None of that loses data. It changes how the target enforces it.
 
-**Every table, not only the modelled ones.** Three import-provenance
-tables (`import_batch`, `import_issue`, `import_row`) have no model, and
-`alembic_version` is Alembic's own; a copy driven by the models alone
-silently left all four out, so a restored copy had no import history and
-could not be migrated. They are read from the source database itself
-(`unmodelled_tables`), created in the copy and copied after the rest.
+**Every table, not only the modelled ones.** `alembic_version` is
+Alembic's own, with no model; a copy driven by the models alone left it
+out, and the copy could not be migrated. Such tables are read from the
+source database itself (`unmodelled_tables`), created in the copy and
+copied after the rest.
 """
 
 from __future__ import annotations

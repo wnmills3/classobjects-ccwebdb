@@ -58,8 +58,8 @@ the design's.
 
 Rules that keep it honest:
 
-- **Lot text is not evidence about a piece.** A lot's pieces are imported
-  carrying the lot's listing, so for a piece whose title and description are
+- **Lot text is not evidence about a piece.** A lot's pieces carry the
+  lot's listing, so for a piece whose title and description are
   shared with another item of the same order, only its rating counts as
   text. Lot text can still send a piece to review -- "Lot of 3
   Washington/Carver Commemorative Half Dollars" sends a 1952 half to review
@@ -80,9 +80,8 @@ conflict with its item code, and a read-only **disagrees** list: items whose
 series is already set but which the facts (or the recorded note class) rule
 out. The pass changes none of those.
 
-`scripts\ccweb_rebuild.cmd` runs `series_match`, then `classifier_defaults`
-(which decides a note's class, evidence for the Series 1929 designs), then
-`series_classify`.
+Run `series_match`, then `classifier_defaults` (which decides a note's class,
+evidence for the Series 1929 designs), then `series_classify`.
 
 **Boundary years** make most of the review list: 1856-57 cents, 1873 and
 1878-85 dollars, 1883 and 1913 and 1938 nickels, 1909 cents, 1916 dimes and

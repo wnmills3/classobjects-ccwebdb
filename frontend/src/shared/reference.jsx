@@ -285,7 +285,7 @@ export function ReferenceSelect({
             {entry.label}
             {match.alias ? ` (${match.alias})` : ''}
             {entry.is_active === false ? ' (retired)' : ''}
-            {/* Values an import invented are marked, so a curated vocabulary
+            {/* Values not shipped are marked, so a curated vocabulary
               can be told apart from one collection's guesses. */}
             {entry.source === 'seeded' ? '' : ' *'}
           </option>

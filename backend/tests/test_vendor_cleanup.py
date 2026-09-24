@@ -208,11 +208,10 @@ def test_a_vendor_can_be_renamed(db: Session) -> None:
 
 
 def test_a_rename_carries_the_host_and_url_with_it(db: Session) -> None:
-    """A misspelt source misspells its host too, and the importer matches on host.
+    """A misspelt source misspells its host too, so both are rewritten.
 
-    `ampex.com` was really apmex.com: the row's host and URL repeated the
-    typo, so a later purchase from the real site would have made a second
-    vendor rather than matching this one.
+    `ampex.com` is really apmex.com: the row's host and URL repeat the typo,
+    and a rename that left them would keep naming a site that does not exist.
     """
     vendor = Vendor(name="ampex.com", host="www.ampex.com", url="https://www.ampex.com")
     db.add(vendor)

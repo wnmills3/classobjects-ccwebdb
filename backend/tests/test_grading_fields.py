@@ -100,8 +100,8 @@ def test_certificate_numbers_are_edited_as_a_set(
 ) -> None:
     pmg = code_id(db, GradingService, "PMG")
     item = make_item(db, grading_service_id=pmg)
-    db.add(ItemCertification(inventory_item_id=item.id, cert_number="111", raw="111"))
-    db.add(ItemCertification(inventory_item_id=item.id, cert_number="222", raw="222"))
+    db.add(ItemCertification(inventory_item_id=item.id, cert_number="111"))
+    db.add(ItemCertification(inventory_item_id=item.id, cert_number="222"))
     db.commit()
     kept_id = _certs(db, item.id)[0].id
 

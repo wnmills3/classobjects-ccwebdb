@@ -1,4 +1,4 @@
-"""Other names for classifier values: lookup, search, import and the console.
+"""Other names for classifier values: lookup, search and the console.
 
 docs/specs/item-attributes-design.md, section 1. The seeded note-class and
 strike-type aliases are read rather than invented, so a mistake in the seed
@@ -13,8 +13,6 @@ from collections.abc import Callable
 import pytest
 from app import aliases
 from app.classifier_defaults import load_facts
-from app.importers.engine import ImportReport
-from app.importers.loader import SchemaLoader
 from app.inventory_search import COIN_VIEW, CURRENCY_VIEW, ViewSpec, search
 from app.models import (
     CoinDetail,
@@ -163,7 +161,7 @@ def test_the_same_alias_twice_on_one_value_is_refused(db: Session) -> None:
 
 
 def test_two_values_may_share_an_alias(db: Session) -> None:
-    """Search finds both; the importer, which cannot choose, uses neither."""
+    """Search finds both; `resolve`, which cannot choose, names neither."""
     silver = _id(db, NoteType, "silver_certificate")
     gold = _id(db, NoteType, "gold_certificate")
     aliases.add_alias(db, NoteType, silver, "Certificate")
@@ -335,57 +333,6 @@ def test_a_note_matching_two_ways_is_listed_once(
     db.commit()
     rows, total = search(db, CURRENCY_VIEW, params={}, query="star")
     assert (total, [r["item_code"] for r in rows]) == (1, [note.item_code])
-
-
-# --- import ------------------------------------------------------------------------
-
-
-def test_the_importer_reads_an_alias_and_counts_every_row(db: Session) -> None:
-    loader = SchemaLoader(db)
-    us_note = _id(db, NoteType, "us_note")
-
-    assert loader.by_label(NoteType, "Legal Tender") == us_note
-    assert loader.by_label(NoteType, "Legal Tender") == us_note
-    assert loader.aliased == {("note_type", "Legal Tender", "us_note"): 2}
-    assert loader.derived == {}
-
-
-def test_the_importer_uses_a_label_without_calling_it_an_alias(db: Session) -> None:
-    loader = SchemaLoader(db)
-    assert loader.by_label(StrikeType, "Business Strike") == _id(
-        db, StrikeType, "business"
-    )
-    assert loader.aliased == {}
-    assert loader.derived == {}
-
-
-def test_the_importer_invents_a_row_rather_than_guess_a_shared_alias(
-    db: Session,
-) -> None:
-    loader = SchemaLoader(db)
-    found = loader.by_label(NoteType, "National Currency")
-
-    assert found not in {
-        _id(db, NoteType, "frbn"),
-        _id(db, NoteType, "national_bank_note"),
-    }
-    assert loader.derived == {"note_type": 1}
-    assert loader.aliased == {}
-
-
-def test_the_report_names_each_aliased_value() -> None:
-    report = ImportReport(
-        source_path="x.xlsx",
-        source_kind="xlsx",
-        sha256="0" * 64,
-        profile_name="p",
-        mode="commit",
-        aliased_reference_values={"note_type: Legal Tender -> us_note": 3},
-    )
-    assert (
-        "aliased  : note_type: Legal Tender -> us_note  (3 rows)"
-        in report._summary_lines()
-    )
 
 
 # --- the API -------------------------------------------------------------------------

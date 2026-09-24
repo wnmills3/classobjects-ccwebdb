@@ -810,12 +810,12 @@ def receive_items(
 def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDetailOut:
     """Add an item to an existing purchase: a coin, banknote or other object.
 
-    Mirrors `SchemaLoader.load()`: every classifier code is resolved first,
-    so a typo in the last field never leaves the earlier ones already
-    written; only then is the item built, flushed, given exactly one detail
-    row (`CurrencyDetail` for `currency`, `CoinDetail` otherwise), certified
-    if a certificate number was given, and handed its opening status-history
-    row -- all inside one transaction.
+    Every classifier code is resolved first, so a typo in the last field
+    never leaves the earlier ones already written; only then is the item
+    built, flushed, given exactly one detail row (`CurrencyDetail` for
+    `currency`, `CoinDetail` otherwise), certified if a certificate number
+    was given, and handed its opening status-history row -- all inside one
+    transaction.
 
     Returns the same shape `GET /api/inventory/{id}` does, built by calling
     that route's own function, so a freshly entered item is described no
@@ -984,7 +984,6 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
                 inventory_item_id=item.id,
                 grading_service_id=grading_service_id,
                 cert_number=payload.cert_number,
-                raw=payload.cert_number,
             )
         )
 
@@ -1175,7 +1174,6 @@ def _set_certifications(db: Session, item: InventoryItem, numbers: list[str]) ->
                     inventory_item_id=item.id,
                     grading_service_id=item.grading_service_id,
                     cert_number=number,
-                    raw=number,
                 )
             )
             changed = True
@@ -1330,7 +1328,7 @@ REQUIRED_CLASSIFIERS: frozenset[str] = frozenset(
 
 #: Plain columns a client may set. Named identically on the wire and in the
 #: database: this surface speaks the item's own vocabulary throughout, the
-#: same names the Excel round trip uses, so no translation is needed and a
+#: same names the workbook backup uses, so no translation is needed and a
 #: tuple is enough. Contrast the shop's vocabulary -- `ListingUpdate`
 #: (`app.routers.offers`) speaks in `title` and `price`, because what the
 #: shop calls a listing and what it is offered for are not the item's

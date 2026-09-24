@@ -60,7 +60,7 @@ def test_the_three_logs_are_merged_newest_first(
     client: TestClient, admin_headers: dict[str, str], admin_user: User, db: Session
 ) -> None:
     item = make_item(db, status_id=code_id(db, ItemStatus, "ordered"))
-    record_initial_status(db, item, user_id=admin_user.id, note="imported")
+    record_initial_status(db, item, user_id=admin_user.id, note="entered")
     set_status(
         db,
         item,
@@ -129,7 +129,7 @@ def test_the_three_logs_are_merged_newest_first(
     assert (opened["old_value"], opened["new_value"], opened["note"]) == (
         None,
         "Ordered",
-        "imported",
+        "entered",
     )
 
 

@@ -64,7 +64,7 @@ item_field_review
 ```
 
 One row per field a person has confirmed by examining the object; absent means
-unconfirmed, the correct default for every imported item. Per field, not per
+unconfirmed, the correct default for an item nobody has examined. Per field, not per
 item, because attributing fifty coins means confirming grade on all fifty, then
 year on all fifty, and a half-done coin is the normal state. It is a table,
 not a key in the `attributes` JSONB, because that column holds the long tail
@@ -138,7 +138,7 @@ available ones for that view.
 | `zero_cost` | both | cost missing or zero |
 | `mixed_marker` | both | `mixed` in the grade text or description |
 | `unreviewed` | both | no field confirmed by anyone |
-| `kind_unknown` | coin | the import could not classify it |
+| `kind_unknown` | coin | its kind is not recorded (`unknown`) |
 | `no_weight_bullion` | coin | bullion with no fine weight |
 | `repeated_identity` | coin | a certification number on more than one row |
 | `repeated_identity` | currency | a serial on more than one note |

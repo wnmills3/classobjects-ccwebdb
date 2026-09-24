@@ -120,46 +120,19 @@
     "id": 4.27,
     "label": 13.33
   },
-  "import_batch": {
-    "finished_at": 32.46,
-    "id": 4.33,
-    "profile_name": 14.0,
-    "sha256": 15.27,
-    "source_kind": 11.73,
-    "source_path": 35.73,
-    "started_at": 30.73
-  },
-  "import_issue": {
-    "column_name": 14.2,
-    "import_row_id": 12.93,
-    "note": 28.86,
-    "raw_value": 12.13,
-    "resolved_at": 37.53,
-    "resolved_by": 11.8,
-    "rule": 19.53,
-    "severity": 10.66
-  },
-  "import_row": {
-    "classified_by_rule": 21.66,
-    "inventory_item_id": 16.07,
-    "raw": 128.46,
-    "status": 12.2,
-    "subtype": 12.4
-  },
   "inventory_item": {
     "attributes": 32.86,
     "composition_id": 13.07,
     "created_at": 30.53,
     "deleted_at": 10.53,
-    "denom_raw": 17.8,
     "description": 68.86,
     "fine_weight_ozt": 14.33,
-    "grade_raw": 22.27,
     "gross_weight_ozt": 15.27,
     "item_code": 11.86,
     "listing_url": 84.73,
     "numismatic_value": 15.4,
     "parent_item_id": 13.33,
+    "rating": 22.27,
     "sales_tax (computed)": 18.0,
     "shipping_cost": 12.8,
     "source_title": 18.73,
@@ -168,8 +141,7 @@
     "total_cost (computed)": 18.13,
     "updated_at": 31.73,
     "valuation_basis_id": 15.73,
-    "weight_raw": 11.53,
-    "year_raw": 12.86
+    "weight_note": 11.53
   },
   "item_attribute": {
     "code": 21.0,
@@ -186,7 +158,6 @@
     "grading_service_id": 16.27,
     "id": 4.07,
     "inventory_item_id": 16.46,
-    "raw": 14.4,
     "updated_at": 30.27
   },
   "item_error": {

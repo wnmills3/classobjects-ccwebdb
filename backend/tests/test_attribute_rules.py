@@ -295,7 +295,7 @@ def test_a_link_someone_else_made_is_never_taken_back(
             inventory_item_id=note.id,
             item_attribute_id=_id(db, ItemAttribute, "no_motto"),
             source=ProvenanceSource.derived,
-            derived_by="import",
+            derived_by="rating",
         )
     )
     db.commit()

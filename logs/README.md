@@ -1,7 +1,6 @@
 # logs
 
-What the development runtime writes while it runs, and the importer's review
-files. Everything in this directory except this README is gitignored
+What the development runtime writes while it runs. Everything in this directory except this README is gitignored
 (`logs/*` and `!logs/README.md` in `.gitignore`), so nothing written here
 reaches GitHub.
 
@@ -20,7 +19,6 @@ logs\
   frontend.log  .1  .2    Vite: dev server output and build errors
   postgres.log  .1  .2    PostgreSQL: pg_ctl's start messages, then the server's own log
   pg_stop.log   .1  .2    pg_ctl stop: "server stopped"
-  import\                 importer review files (docs\runtime-operations.md)
 ```
 
 `.runtime\ccweb.pids` is not a log: it holds the running processes' PIDs for
@@ -34,7 +32,6 @@ shutdown, and it stays in `.runtime\`.
 | `frontend.log` | the site will not load, or startup says the frontend FAILED |
 | `postgres.log` | PostgreSQL will not start (a bad setting or a stale `postmaster.pid` is explained here), a query fails or a connection is refused, or you want to see a shutdown finish (`database system is shut down`) |
 | `pg_stop.log` | shutdown says PostgreSQL is still running |
-| `import\` | reviewing what an import dry run would do |
 
 ## How the files rotate
 
@@ -52,7 +49,6 @@ shutdown, and it stays in `.runtime\`.
   files it leaves behind.
 - `pg_stop.log` holds a few lines from each stop. Shutdown rotates it before
   each stop and never measures it.
-- `import\` is not rotated: each dry run overwrites its files.
 
 ## Settings
 
@@ -81,8 +77,7 @@ full shutdown: `ccweb_shutdown.cmd --keepdb` leaves it running and logging
 as before.
 
 Shutdown must see the same `CCWEB_LOG_DIR` as startup, or its `pg_stop.log`
-lands in a different directory. The importer also honours `CCWEB_LOG_DIR` for
-its `import\` files. The logic that resolves the directory is in
+lands in a different directory. The logic that resolves the directory is in
 `scripts\ccweb_logdir.cmd`.
 
 ## Deleting logs

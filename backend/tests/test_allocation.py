@@ -105,8 +105,8 @@ def test_all_zero_weights_fall_back_to_an_equal_split() -> None:
 def test_the_result_is_deterministic() -> None:
     """The same input must always produce the same output.
 
-    An allocation that shuffled pennies between runs would give a re-import a
-    different cost basis from the original.
+    An allocation that shuffled pennies between runs would give the same
+    split a different cost basis each time it was computed.
     """
     first = allocate(D("100.00"), [D(1), D(1), D(1)])
     for _ in range(20):

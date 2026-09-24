@@ -96,7 +96,7 @@ def test_record_initial_status_writes_an_opening_row(db: Session) -> None:
     """The opening row has no `from`: there was no status before this one."""
     item = make_item(db, status_id=_status_id(db, "ordered"))
     db.flush()
-    record_initial_status(db, item, note="set at import")
+    record_initial_status(db, item, note="entered on a purchase")
     db.commit()
 
     rows = db.scalars(
@@ -105,7 +105,7 @@ def test_record_initial_status_writes_an_opening_row(db: Session) -> None:
     assert len(rows) == 1
     assert rows[0].from_status_id is None
     assert rows[0].to_status_id == item.status_id
-    assert rows[0].note == "set at import"
+    assert rows[0].note == "entered on a purchase"
 
 
 def test_a_location_change_records_where_it_went(db: Session) -> None:
@@ -182,16 +182,14 @@ def test_no_item_lacks_history_across_every_creation_path_a_test_can_drive(
 ) -> None:
     """The invariant itself, not one endpoint's obedience to it.
 
-    Four code paths build an `InventoryItem`: the importer, `splitting.py`,
+    Three code paths build an `InventoryItem`: `splitting.py`,
     `POST /api/inventory` (entering what was bought on a purchase), and
-    `seed.py`. The catalogue API used to be a fifth; it is retired, because it
-    created an item outside a purchase. A test process cannot drive the
-    importer or the demo seed script without a great deal of unrelated setup,
-    but it can drive the two live endpoints -- entering an item and splitting
-    -- which is enough to check the invariant at the table level rather than
-    re-asserting what a single code path does: after exercising both, no
-    `inventory_item` row anywhere is missing its opening `item_status_history`
-    row.
+    `seed.py`. A test process cannot drive the demo seed script without a
+    great deal of unrelated setup, but it can drive the two live endpoints
+    -- entering an item and splitting -- which is enough to check the
+    invariant at the table level rather than re-asserting what a single code
+    path does: after exercising both, no `inventory_item` row anywhere is
+    missing its opening `item_status_history` row.
     """
     vendor = Vendor(name="Lifecycle Test Vendor")
     db.add(vendor)

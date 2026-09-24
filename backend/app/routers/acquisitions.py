@@ -1,7 +1,5 @@
 """The acquisition side: purchase orders and where items physically sit.
 
-Until now this side of the schema was import-only -- the importer wrote
-`purchase_order` and `storage_location` rows, and nothing read them back.
 This is what a receiving page reads: which orders still have items on the
 way, what is on each one, and where a received item could be put.
 
@@ -54,16 +52,15 @@ _ITEM_IS_LIVE = and_(
     InventoryItem.deleted_at.is_(None), InventoryItem.split_at.is_(None)
 )
 
-#: `purchase_order.source_url` is imported spreadsheet text, not necessarily
-#: a URL -- an eBay listing page, an eBay order page, or the literal word
+#: `purchase_order.source_url` is free text, not necessarily a URL -- an
+#: eBay listing page, an eBay order page, or the literal word
 #: "Gift". Only a value that looks like a web address is ever offered as a
 #: link; anything else, `javascript:` included, is withheld.
 _WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 
-#: Mirrors `_host_of` in `app/importers/loader.py`: the same rule for turning
-#: a vendor's web address into the plain hostname stored in `Vendor.host`, so
-#: a vendor added inline here is indistinguishable from one the importer
-#: created from the same URL.
+#: The rule for turning a vendor's web address into the plain hostname
+#: stored in `Vendor.host`, so every vendor with the same URL has the same
+#: host.
 _HOST = re.compile(r"https?://([^/]+)")
 
 

@@ -18,15 +18,14 @@ import { findEntries } from '../../shared/reference-match'
  * moves to the value kept, its names become that value's aliases, and it is
  * removed. The page shows what would move before it asks.
  *
- * The standard term stays the label -- DCAM, United States Note -- and what
- * people actually write becomes an alias: UCAM, Legal Tender. Search, the
- * importer and the pickers all recognise an alias the moment it is added.
+ * The standard term stays the label -- UCAM, United States Note -- and what
+ * people actually write becomes an alias: Ultra Cameo, Legal Tender. Search and the
+ * pickers recognise an alias the moment it is added.
  *
  * Removing a shipped alias retires it, so the next seed load does not bring
  * it back; it stays listed, struck through, and can be restored. One added
  * here is simply deleted. Two values may share an alias ("Cartwheel" is any
- * large silver dollar): search finds both, but the importer, which cannot
- * choose, uses neither -- so a shared alias is marked.
+ * large silver dollar): search finds both, and a shared alias is marked.
  */
 
 //: Opened first: the vocabularies whose aliases matter most for search.
@@ -445,9 +444,9 @@ export default function Vocabularies() {
       <h1>Vocabularies</h1>
       <p className="muted">
         Rename a value, retire one that should no longer be offered, and give values
-        other names. Search, the importer and the pickers all recognise an alias. A
-        shared alias still finds every value in a search, but the importer will not
-        guess between them. Retiring leaves every record that uses the value as it is.
+        other names. Search and the pickers both recognise an alias, and a shared alias
+        finds every value that has it. Retiring leaves every record that uses the value
+        as it is.
       </p>
       {error && <p className="error">{error}</p>}
       {notice && <p className="notice">{notice}</p>}

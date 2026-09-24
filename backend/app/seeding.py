@@ -8,8 +8,9 @@ never hardcoded in Python. Two reasons:
    settled vocabulary, not one collection's opinions. Shipping them as data
    means a fresh install starts useful instead of empty.
 
-2. **What we learn flows back out.** Classifiers discovered while importing a
-   real collection are written with ``source='derived'``. ``export`` can then
+2. **What we learn flows back out.** Classifiers learned from a real
+   collection carry ``source='derived'``, those a person adds
+   ``source='manual'``. ``export`` can then
    dump the vocabulary back to JSON, and the ``--source`` filter is what keeps
    one collection's guesses out of the shared catalogue.
 

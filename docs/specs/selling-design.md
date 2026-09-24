@@ -22,7 +22,7 @@ from being sold twice.
 Rejected, with reasons that still hold:
 
 - *Renaming `vendor` to a partner table with both roles* -- it renames a table
-  used by purchases, receiving, the importer, search and tests for no gain.
+  used by purchases, receiving, search and tests for no gain.
 - *A platform list with no link to `vendor`* -- eBay, Whatnot and HiBid
   would exist twice, spelled differently.
 - *A parallel "offering" table beside `listing`* -- checkout, the public

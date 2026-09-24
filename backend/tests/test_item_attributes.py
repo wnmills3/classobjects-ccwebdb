@@ -9,24 +9,18 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from app import aliases
-from app.importers.engine import COMMIT, ImportEngine
-from app.importers.models import ImportRow
-from app.importers.profiles.collection_v1 import CollectionV1Profile
 from app.inventory_search import COIN_VIEW, CURRENCY_VIEW, search
 from app.models import (
     CurrencyDetail,
     InventoryItem,
     ItemAttribute,
     ItemAttributeLink,
-    ProvenanceSource,
 )
 from app.serial_patterns import run as run_serial_patterns
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from tests.test_importer import FakeSource, make_row
 
 ItemFactory = Callable[..., InventoryItem]
 
@@ -142,21 +136,6 @@ def test_the_detail_lists_attributes_with_where_they_came_from(
             "derived_by": "serial_pattern",
         }
     ]
-
-
-def test_the_importer_records_what_it_read_as_derived(db: Session) -> None:
-    row = make_row(2, Denom="$1 Bill", Year="1957", Rating="Blue Seal Star Note")
-    report = ImportEngine(CollectionV1Profile(), session=db).run(
-        FakeSource([row]), mode=COMMIT
-    )
-    staged = db.query(ImportRow).filter(ImportRow.batch_id == report.batch_id).one()
-    link = db.scalar(
-        select(ItemAttributeLink).where(
-            ItemAttributeLink.inventory_item_id == staged.inventory_item_id
-        )
-    )
-    assert link is not None
-    assert (link.source, link.derived_by) == (ProvenanceSource.derived, "import")
 
 
 # --- setting ----------------------------------------------------------------------

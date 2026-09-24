@@ -16,8 +16,8 @@ kept, and deletes it:
   order's status) is left alone and the merge is refused, naming the uses:
   those rows have rules of their own that a blind remap could break.
 - **The old names stay findable.** The old label, code and aliases become
-  aliases of the kept value, so a rating, a search or an import that uses
-  the old word still finds it.
+  aliases of the kept value, so a rating or a search that uses the old word
+  still finds it.
 - **It stays merged.** `reference_merge` records it; a seed load skips the
   old code and reads a seed row naming it as naming the kept one.
 

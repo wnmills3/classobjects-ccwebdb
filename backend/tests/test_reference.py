@@ -108,8 +108,8 @@ def test_grades_carry_the_number_that_makes_them_sortable(
 def test_provenance_is_visible(client: TestClient, db: Session) -> None:
     """Provenance is visible on every value.
 
-    A picker can distinguish shipped vocabulary from values a local import
-    invented, which is the same distinction that gates exporting.
+    A picker can distinguish shipped vocabulary from values derived locally,
+    which is the same distinction that gates exporting.
     """
     db.add(Grade(code="LOCAL_X", label="Local", source=ProvenanceSource.derived))
     db.commit()

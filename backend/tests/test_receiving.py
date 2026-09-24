@@ -1,7 +1,7 @@
 """Recording what actually arrived.
 
-Receiving does not create inventory -- the import did that at the moment of
-purchase. It is a transition on a row that already exists, which is why every
+Receiving does not create inventory -- entering the purchase did that. It is
+a transition on a row that already exists, which is why every
 test here starts from an item that is already `ordered`.
 """
 

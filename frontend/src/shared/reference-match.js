@@ -2,7 +2,7 @@
  * Finding a vocabulary value by what someone types.
  *
  * A value is found by its label, its code or any of its aliases -- the names
- * people actually use ("Walker", "Legal Tender", "UCAM") for the standard
+ * people actually use ("Walker", "Legal Tender", "Ultra Cameo") for the standard
  * term the label holds. The alias is reported back so a picker can show why
  * a value it offers matched.
  */

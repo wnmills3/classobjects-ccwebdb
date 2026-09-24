@@ -472,7 +472,7 @@ class ReferenceValueOut(BaseModel):
     retirable: bool = True
     extra: dict[str, object] = Field(default_factory=dict)
     #: Other names people use for it ("Mercury", "Legal Tender"), which
-    #: search, import and the pickers also recognise.
+    #: search and the pickers also recognise.
     aliases: list[str] = Field(default_factory=list)
     #: Shipped aliases someone removed, listed only with include_inactive so
     #: the console can offer them back.
@@ -574,9 +574,9 @@ class ItemAttributeOut(BaseModel):
     label: str
     #: serial, variety, release, verification or qualifier.
     group: str
-    #: `derived` (read by a rule or the importer) or `manual`.
+    #: `derived` (read by a rule) or `manual`.
     source: str
-    #: The rule that read it: `serial_pattern`, `import`.
+    #: The rule that read it: `serial_pattern`, `attribute_rule`.
     derived_by: str | None = None
 
 
@@ -771,9 +771,9 @@ class InventoryItemUpdate(BaseModel):
     Not `ListingUpdate` (`app.routers.offers`). That one speaks the shop's
     language -- a listing has a `title` and a `price`, meaning what the shop
     calls the item and what it is offered for. This one speaks the item's:
-    `source_title` is what the row was called where it came from, and
-    `item_cost` is what was paid for it. The Excel round trip uses these names
-    too, so there is one vocabulary at this boundary rather than two.
+    `source_title` is what the seller called the item, and `item_cost` is
+    what was paid for it. The workbook backup uses these names too, so there
+    is one vocabulary at this boundary rather than two.
 
     Every field optional, and applied with `exclude_unset`, so an omitted
     field is left alone rather than nulled.
@@ -1261,8 +1261,7 @@ class ReferenceAliasIn(BaseModel):
 #: A web address is only ever `http://` or `https://` -- the same rule
 #: `PurchaseOrderDetailOut.source_url` is filtered by before it is offered as
 #: a link. Refused at entry rather than silently stored and withheld later,
-#: since a value entered by hand (unlike imported spreadsheet text) is worth
-#: telling the caller is wrong.
+#: since a value being entered is worth telling the caller is wrong.
 _HTTP_URL = re.compile(r"^https?://", re.IGNORECASE)
 
 
@@ -1298,8 +1297,8 @@ class VendorCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=255)
     url: str | None = Field(default=None, max_length=500)
-    #: A `vendor_kind` code. Null becomes `unknown`, the same fallback the
-    #: importer uses for a vendor named with nothing else known about it.
+    #: A `vendor_kind` code. Null becomes `unknown`: a vendor named with
+    #: nothing else known about it.
     vendor_kind: str | None = Field(default=None, max_length=64)
 
     @field_validator("name")
@@ -2041,7 +2040,7 @@ class PurchaseOrderLineOut(BaseModel):
     item_code: str
     #: The item's own title -- what `NewPurchase`'s items table shows, and
     #: what an entry form's Title box wrote. `description` is kept alongside
-    #: it because older, imported lines can have a title-less description.
+    #: it because a line can have a description and no title.
     source_title: str
     description: str
     #: An `item_kind` code: coin, currency, bullion, set, medal, token, other.
@@ -2061,8 +2060,8 @@ class PurchaseOrderDetailOut(BaseModel):
     vendor: str
     ordered_on: date | None
     #: The vendor's page for the order or listing, when it is a web address.
-    #: Imported spreadsheet text, so anything else -- "Gift" -- is withheld
-    #: rather than offered as a link.
+    #: Free text, so anything else -- "Gift" -- is withheld rather than
+    #: offered as a link.
     source_url: str | None = None
     lines: list[PurchaseOrderLineOut]
 

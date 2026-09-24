@@ -5,9 +5,6 @@ PostgreSQL, mapped by SQLAlchemy 2 in `backend/app/models/`, migrated by
 Alembic. The models are the source of truth; this document explains their
 shape and the reasons behind the constraints that are easy to break.
 
-How the collection was imported, and the provenance of its data, is in
-[data-import-plan.md](data-import-plan.md).
-
 ---
 
 ## 1. Principles
@@ -20,8 +17,9 @@ takes effect everywhere the moment it commits. Search speed comes from
 reading the base tables with only the joins a query needs, plus partial
 indexes on the facet columns (§11), not from denormalising.
 
-**Raw text is kept beside every parsed value.** `*_raw` columns preserve what
-a person or an importer supplied, so a wrong parse is always recoverable.
+**The owner's own words are kept.** `rating` holds the owner's rating as
+written and `weight_note` a weight that is not a single number, beside the
+classified values; the passes and search read them as evidence.
 
 **Money is `NUMERIC(12,2)` mapped to `Decimal`.** No floats anywhere in the
 stack. Weights, which multiply into money, are `NUMERIC(12,6)`.
@@ -103,10 +101,11 @@ One row per acquired item or lot (`models/core.py`).
 | `split_at` | timestamptz null | set on a lot when it is broken into pieces |
 | `deleted_at` | timestamptz null | soft delete: the row should never have existed |
 | `local_catalog_number` | varchar null | the owner's own earlier numbering; not unique |
-| `source_title` | varchar(500) | what the source called the row, kept verbatim |
+| `source_title` | varchar(500) | what the seller called the item, kept verbatim |
 | `description` | text | what a person recognises the item by |
 | `listing_url` | varchar null | where it was bought |
-| `notes_raw`, `denom_raw`, `year_raw`, `grade_raw`, `weight_raw` | text null | verbatim source text |
+| `rating` | text null | the owner's rating in their own words ("66EPQ Double Quad"); searched and read as evidence, never shown to a buyer |
+| `weight_note` | text null | a weight as written where it is not a single number ("1 oz each") |
 | `item_cost`, `shipping_cost` | numeric(12,2) | cost basis inputs (§6) |
 | `tax_rate` | numeric(6,4) | stamped on insert (§6) |
 | `tax_includes_shipping` | boolean | stamped on insert (§6) |
@@ -305,7 +304,7 @@ All serials and numbers are text.
 
 | Table | Key and columns | Notes |
 |---|---|---|
-| `item_certification` | `id`; `inventory_item_id`, `grading_service_id`, `cert_number`, `raw` | one to many: a lot may hold several certified pieces |
+| `item_certification` | `id`; `inventory_item_id`, `grading_service_id`, `cert_number` | one to many: a lot may hold several certified pieces |
 | `item_error` | `id`; `inventory_item_id`, `error_type_id`, `details`, `source`, `noted_by_id`, `noted_at` | unique `(inventory_item_id, error_type_id)`: a miscut and an overprint on one bill are two rows, the same error twice is one |
 | `item_attribute_link` | pk `(inventory_item_id, item_attribute_id)`; `source`, `derived_by`, `noted_by_id`, `noted_at`, `removed_at` | many to many |
 
@@ -384,8 +383,8 @@ Weight is on the item because it is an input to a calculation. It is
 `NUMERIC(12,6)` troy ounces, never a float: six places represent every real
 figure exactly, down to a silver dime at `0.072338`. **Gross and fine differ**
 — a Morgan dollar weighs `0.859370` ozt and contains `0.773440` ozt of silver
-— and melt uses fine weight. `weight_raw` keeps what was written (grams, kilos,
-pounds convert on the way in). Check constraints keep fineness in `(0, 1]`,
+— and melt uses fine weight. `weight_note` keeps a weight written as something
+other than a single number. Check constraints keep fineness in `(0, 1]`,
 weights non-negative, and fine within gross.
 
 Precious metals are sold by the troy ounce (31.1035 g), copper rounds often by
@@ -485,8 +484,7 @@ house would otherwise each create a location.
 whose value actually moved. Values are stored as the item editor sees them
 (codes for classifiers, strings for money). It is what the editor reads to say
 *who* changed a field it warns about; the passes, receiving and offering do
-not write it, so a field changed that way has no entry (`app.kind_repair` is
-the exception: it logs its changes under the login given with `--by`).
+not write it, so a field changed that way has no entry.
 
 `PUT /api/inventory/{id}/errors` logs the item's error set too, as one
 `errors` row holding the whole set before and after (`[{error_type,
@@ -500,11 +498,12 @@ classifier codes shown by their labels and a move's origin taken from the
 previous move's destination.
 
 Per field, because attribution works field by field and a half-done item is
-the normal state. No `item_field_source` row means the value is a person's or
-came with the data, and no pass touches it; saving a field by hand deletes
-its row. `field_name` is checked against a whitelist in the API, not a
-constraint, since which fields matter will change. See
-[data-import-plan.md](data-import-plan.md) §7.9 for the passes.
+the normal state. No `item_field_source` row means the value was recorded
+rather than filled by a pass, and no pass touches it; saving a field by hand
+deletes its row. `field_name` is checked against a whitelist in the API, not a
+constraint, since which fields matter will change. The passes are listed in
+[system-administration.md](system-administration.md), *The passes over stored
+items*.
 
 ---
 
@@ -829,14 +828,11 @@ references, so a new classifier needs no loader change.
 | source | meaning | exported by default |
 |---|---|---|
 | `seeded` | shipped vocabulary or confirmed public fact | yes |
-| `derived` | learned from real data by a rule or importer | only if asked for |
+| `derived` | learned from real data by a rule | only if asked for |
 | `manual` | one operator's own decision | only if asked for |
 
 A load never overwrites a `manual` row — a person's correction outranks a
-shipped default — and a merged code (`reference_merge`) is skipped. Because
-derived rows can be exported, an importer declines a value it cannot classify
-confidently, keeping the text in its `*_raw` column rather than inventing a
-classifier.
+shipped default — and a merged code (`reference_merge`) is skipped.
 
 Closed vocabularies the product defines rather than the world —
 `sales_venue_kind`, `sales_fee_kind` — are seeded by the migration that

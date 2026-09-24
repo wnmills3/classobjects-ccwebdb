@@ -1,9 +1,6 @@
 """`POST /api/inventory`: entering a coin, banknote or lot on a purchase.
 
-Before this endpoint the only creation paths were the importer, the demo
-seed and `POST /api/catalog` (which always creates a shop listing). This is
-the console's own path, mirroring `SchemaLoader.load()` -- see
-`docs/specs/entry-panels-design.md`.
+The console's own creation path -- see `docs/specs/entry-panels-design.md`.
 """
 
 from __future__ import annotations

@@ -142,7 +142,6 @@ const DERIVED_FROM = {
 //: Where a derived attribute was read, as its mark's tooltip says it.
 const ATTRIBUTE_FROM = {
   serial_pattern: 'Read from the serial number',
-  import: 'Read from the spreadsheet',
   rating: 'Read from the rating',
   attribute_rule: "Follows from the note's class and series",
 }

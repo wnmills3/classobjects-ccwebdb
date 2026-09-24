@@ -2,8 +2,7 @@
 
 docs/specs/item-attributes-design.md, section 2. Attributes are a
 many-to-many link (`item_attribute_link`), and each link says where it came
-from: `derived` when a rule or the importer read it, `manual` when a person
-set it.
+from: `derived` when a rule read it, `manual` when a person set it.
 
 **A removed attribute stays removed.** The serial patterns, and the
 attribute rules after them, would put a deleted link straight back, so a

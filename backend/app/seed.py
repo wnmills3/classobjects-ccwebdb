@@ -138,8 +138,9 @@ def _build(db: Session, row: dict) -> None:
         description=row.get("description", ""),
         year_start=row.get("year_start"),
         # A demo item names one year, which is stored as a single year --
-        # start and end equal, the same shape the importer writes. Leaving the
-        # end unset made these five the only items in a second shape.
+        # start and end equal, the shape every item uses (`app.years`).
+        # Leaving the end unset would make these five the only items in a
+        # second shape.
         year_end=row.get("year_end", row.get("year_start")),
         fineness=row.get("fineness"),
         gross_weight_ozt=row.get("gross_weight_ozt"),

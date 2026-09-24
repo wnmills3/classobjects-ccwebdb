@@ -48,8 +48,7 @@ class ItemCertification(TimestampMixin, Base):
     """A grading certificate.
 
     One to many, not one to one: a lot may contain several certified pieces,
-    and a comma-separated list of certificate numbers in a source becomes
-    several rows here rather than one unparsed string.
+    and each certificate number is its own row.
     """
 
     __tablename__ = "item_certification"
@@ -67,8 +66,6 @@ class ItemCertification(TimestampMixin, Base):
     )
     #: Text, always -- certificate serials carry leading zeros and letters.
     cert_number: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    #: The certification string exactly as supplied, before it was split.
-    raw: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ItemError(Base):
@@ -149,15 +146,14 @@ class ItemAttributeLink(Base):
         primary_key=True,
         index=True,
     )
-    #: `derived` for a rule's or the importer's reading, `manual` for a
-    #: person's.
+    #: `derived` for a rule's reading, `manual` for a person's.
     source: Mapped[ProvenanceSource] = mapped_column(
         enum_column(ProvenanceSource, "provenance_source"),
         default=ProvenanceSource.manual,
         nullable=False,
     )
-    #: Which rule derived it (`serial_pattern`, `import`); None for a person's
-    #: and for links older than the column.
+    #: Which rule derived it (`serial_pattern`, `attribute_rule`); None for a
+    #: person's and for links older than the column.
     derived_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     noted_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

@@ -1,4 +1,4 @@
-"""Reading the acquisition side, which until now was import-only."""
+"""Reading the acquisition side: purchase orders and storage locations."""
 
 from __future__ import annotations
 
@@ -227,7 +227,7 @@ def test_a_web_address_source_url_is_returned_unchanged(
 def test_non_web_address_source_url_is_withheld(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """Imported spreadsheet text that is not a web address is not offered as a link.
+    """Source text that is not a web address is not offered as a link.
 
     "Gift" is the literal value stored for some rows -- not a URL at all.
     """
@@ -241,9 +241,9 @@ def test_non_web_address_source_url_is_withheld(
 def test_a_javascript_url_is_withheld(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The http(s) guard is what stops imported text becoming a clickable link.
+    """The http(s) guard is what stops stored text becoming a clickable link.
 
-    Without it, a `javascript:` value in the imported source text would
+    Without it, a `javascript:` value in the stored source text would
     become an executable link on the receiving page.
     """
     order = _order_with_source_url(db, "javascript:alert(1)")

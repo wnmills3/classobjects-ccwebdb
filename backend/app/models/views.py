@@ -68,7 +68,7 @@ PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
         "numismatic_value",
         "purchase_order_id",
         "vendor_id",
-        "notes_raw",
+        "rating",
         "parent_item_id",
     }
 )
@@ -131,7 +131,7 @@ SELECT
     i.fineness,
     i.gross_weight_ozt,
     i.fine_weight_ozt,
-    i.weight_raw,
+    i.weight_note,
     i.attributes,
     i.created_at,
     i.updated_at
@@ -435,6 +435,12 @@ _RENAMED_COLUMNS = (
     "source_title",
 )
 
+#: `weight_raw` became `weight_note` later, so a view created by an earlier
+#: revision names the old column.
+_PRE_NOTE_RENAME_FRAGMENTS: tuple[tuple[str, str], ...] = (
+    ("    i.weight_note,\n", "    i.weight_raw,\n"),
+)
+
 #: Soft delete came later than the views, so a view created by an earlier
 #: revision must not name the column. Without this a fresh `upgrade head`
 #: fails partway: the view is created before the column is added.
@@ -479,12 +485,15 @@ def _removal_fragments(
     soft_delete: bool,
     strike_type: bool = True,
     selling: bool = True,
+    renamed_notes: bool = True,
 ) -> list[tuple[str, str]]:
     """The (fragment, replacement) pairs that strip the features not wanted.
 
     Order matters, which is why this is a list rather than a set.
     """
     removals: list[tuple[str, str]] = []
+    if not renamed_notes:
+        removals.extend(_PRE_NOTE_RENAME_FRAGMENTS)
     if not selling:
         removals.extend(_SELLING_FRAGMENTS)
     if not strike_type:
@@ -517,6 +526,7 @@ def _assert_stripped(
     soft_delete: bool,
     strike_type: bool = True,
     selling: bool = True,
+    renamed_notes: bool = True,
 ) -> None:
     """Fail loudly if a fragment stopped matching the view SQL.
 
@@ -550,6 +560,10 @@ def _assert_stripped(
             "the selling-stripping fragments no longer match the view SQL"
         )
         assert "l.format" not in statement
+    if not renamed_notes:
+        assert "weight_note" not in statement, (
+            "the note-rename fragment no longer matches the view SQL"
+        )
     if not soft_delete:
         assert "deleted_at" not in statement, (
             "the soft-delete-stripping fragments no longer match the view "
@@ -566,6 +580,7 @@ def create_views(
     soft_delete: bool = True,
     strike_type: bool = True,
     selling: bool = True,
+    renamed_notes: bool = True,
 ) -> tuple[str, ...]:
     """The view SQL as it stood before the named columns were introduced.
 
@@ -577,7 +592,8 @@ def create_views(
     all four views; ``strike_type`` covers the strike type column and the
     composed grade (`grade_display()`), which replaced the grade code.
     ``selling`` covers the sales platform join and the store/fixed-price
-    filter on `public_catalog`. All default to True, the current definitions,
+    filter on `public_catalog`. ``renamed_notes`` covers `weight_note`,
+    earlier `weight_raw`. All default to True, the current definitions,
     so a migration strips only what it names.
     """
     removals = _removal_fragments(
@@ -587,6 +603,7 @@ def create_views(
         soft_delete=soft_delete,
         strike_type=strike_type,
         selling=selling,
+        renamed_notes=renamed_notes,
     )
 
     statements = []
@@ -601,6 +618,7 @@ def create_views(
             soft_delete=soft_delete,
             strike_type=strike_type,
             selling=selling,
+            renamed_notes=renamed_notes,
         )
         statements.append(statement)
     return tuple(statements)
@@ -614,6 +632,7 @@ CREATE_VIEWS_WITHOUT_LINEAGE: tuple[str, ...] = create_views(
     soft_delete=False,
     strike_type=False,
     selling=False,
+    renamed_notes=False,
 )
 
 #: What they looked like when first created, before either addition.
@@ -624,4 +643,5 @@ CREATE_VIEWS_ORIGINAL: tuple[str, ...] = create_views(
     soft_delete=False,
     strike_type=False,
     selling=False,
+    renamed_notes=False,
 )

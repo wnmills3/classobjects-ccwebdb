@@ -7,12 +7,10 @@ Everything else in `docs/` describes *how* something works; this describes
 
 Turn a personal coin and currency collection into a running business.
 
-The collection is real and loaded -- several thousand items, kept for years in
-a spreadsheet. The spreadsheet could record what was bought; it could not
-support selling from it, and it could not answer the questions a tax return
-asks. (For current totals, query the database; the figures move with every
-entry and pass. [data-import-plan.md](data-import-plan.md) §13 gives the
-queries.)
+The collection is real -- several thousand items, kept for years. Recording
+what was bought is not enough: the business has to sell from the record, and
+the record has to answer the questions a tax return asks. (For current
+totals, query the database; the figures move with every entry and pass.)
 
 Three things have to be true for a sale:
 
@@ -91,25 +89,22 @@ one of each at once and they say nothing about each other.
 catalogue  ->  clean up  ->  list  ->  sell
 ```
 
-Cataloguing (the import) is done. Clean-up -- attribution: establishing what
-each item actually is -- is ongoing and has no shortcut. Listing and selling
-are built: offers, sales lots, auctions and recorded sales. An item is ready to
+The collection is catalogued. Clean-up -- attribution: establishing what each
+item actually is -- is ongoing and has no shortcut. Listing and selling are
+built: offers, sales lots, auctions and recorded sales. An item is ready to
 list when it is described well enough to sell; the console's diagnostics show
 what is still missing.
 
-[workflow-import-and-cleanup.md](workflow-import-and-cleanup.md) covers
-getting an imported collection into that state.
 [workflow-new-collection.md](workflow-new-collection.md) covers every
-acquisition after it, which is the normal path from now on.
+acquisition, from purchase to sale.
 
 ## The database is the system of record
 
-Since 2026-09-16 the `ccwebdb` database is the record. The spreadsheet is a
-historic source. Corrections, derived classifications, receipts, photographs
-and sales exist only in the database, so it is what gets backed up, and data
-is fixed with passes over stored items or in the console -- never by
-re-importing. [data-import-plan.md](data-import-plan.md) §1 has the
-consequences.
+The `ccwebdb` database is the record. Corrections, derived classifications,
+receipts, photographs and sales exist only in the database, so it is what gets
+backed up -- by `pg_dump`, `app.backup` and the workbook backup
+(`app.workbook_backup`) -- and data is fixed in the console or with passes over
+stored items.
 
 ## Constraints that apply everywhere
 

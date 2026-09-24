@@ -12,19 +12,14 @@ from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
-from typing import Any
 
 import pytest
 from app import grades
-from app.importers.engine import COMMIT, ImportEngine
-from app.importers.models import ImportRow
-from app.importers.profiles.collection_v1 import CollectionV1Profile
 from app.models import Grade, GradeScale, ItemKind, Listing, StrikeType
 from fastapi.testclient import TestClient
-from sqlalchemy import Row, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from tests.test_importer import FakeSource, make_row
 from tests.test_schema import code_id, make_item
 
 MIGRATION = (
@@ -260,55 +255,6 @@ def test_an_unknown_strike_type_is_refused(
     )
     assert response.status_code == 422
     assert "strike_type" in response.text
-
-
-# ---------------------------------------------------------------------------
-# Importing it
-# ---------------------------------------------------------------------------
-
-
-def _imported(db: Session, rating: str) -> Row[Any]:
-    report = ImportEngine(CollectionV1Profile(), session=db).run(
-        FakeSource([make_row(2, Denom="0.25", Rating=rating)]), mode=COMMIT
-    )
-    staged = db.query(ImportRow).filter(ImportRow.batch_id == report.batch_id).one()
-    return db.execute(
-        text(
-            "SELECT g.code AS grade, stk.code AS strike FROM inventory_item i "
-            "LEFT JOIN grade g ON g.id = i.grade_id "
-            "LEFT JOIN strike_type stk ON stk.id = i.strike_type_id "
-            "WHERE i.id = :id"
-        ),
-        {"id": staged.inventory_item_id},
-    ).one()
-
-
-@pytest.mark.parametrize(
-    ("rating", "grade", "strike"),
-    [
-        ("PR69+", "69+", "proof"),
-        ("MS65", "65", "business"),
-        ("BU++", "65", "business"),
-        ("AU+", "55+", "business"),
-        ("PROOF", "63", "proof"),
-    ],
-)
-def test_an_imported_rating_is_split(
-    db: Session, rating: str, grade: str, strike: str
-) -> None:
-    row = _imported(db, rating)
-    assert (row.grade, row.strike) == (grade, strike)
-
-
-def test_an_unlisted_number_grade_is_added_as_derived(db: Session) -> None:
-    """61+ is a real point on the scale even though no grader uses it."""
-    row = _imported(db, "MS61+")
-    added = db.scalar(select(Grade).where(Grade.code == "61+"))
-    assert row.grade == "61+"
-    assert added is not None
-    assert (added.numeric_value, added.is_plus) == (61, True)
-    assert added.source.value == "derived"
-    assert added.grade_scale is not None and added.grade_scale.code == "sheldon"
 
 
 # ---------------------------------------------------------------------------

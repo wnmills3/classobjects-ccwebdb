@@ -33,7 +33,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_inventory_item_deleted_at", "inventory_item", ["deleted_at"])
 
-    for statement in create_views(strike_type=False, selling=False):
+    for statement in create_views(renamed_notes=False, strike_type=False, selling=False):
         op.execute(statement)
 
 
@@ -46,7 +46,7 @@ def downgrade() -> None:
 
     # The pre-soft-delete view text, so the downgrade leaves a consistent
     # database rather than four views naming a dropped column.
-    for statement in create_views(
+    for statement in create_views(renamed_notes=False, 
         soft_delete=False, strike_type=False, selling=False
     ):
         op.execute(statement)
