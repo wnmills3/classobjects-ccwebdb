@@ -24,6 +24,13 @@ unchanged, and the report says so rather than leaving it to be discovered:
 - Partial indexes and enum types degrade to whatever the dialect offers.
 
 None of that loses data. It changes how the target enforces it.
+
+**Every table, not only the modelled ones.** Three import-provenance
+tables (`import_batch`, `import_issue`, `import_row`) have no model, and
+`alembic_version` is Alembic's own; a copy driven by the models alone
+silently left all four out, so a restored copy had no import history and
+could not be migrated. They are read from the source database itself
+(`unmodelled_tables`), created in the copy and copied after the rest.
 """
 
 from __future__ import annotations
@@ -33,7 +40,16 @@ import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
-from sqlalchemy import Table, create_engine, func, insert, inspect, select, text
+from sqlalchemy import (
+    MetaData,
+    Table,
+    create_engine,
+    func,
+    insert,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session
 
@@ -60,6 +76,22 @@ def generated_columns(table: Table) -> set[str]:
     return {c.name for c in table.columns if c.computed is not None}
 
 
+def unmodelled_tables(source: Engine) -> list[Table]:
+    """The source's tables that no model describes, in foreign-key order.
+
+    Reflected from the database itself, so a table added by a migration and
+    never given a model is copied too rather than silently dropped.
+    """
+    reflected = MetaData()
+    reflected.reflect(source)
+    return [t for t in reflected.sorted_tables if t.name not in Base.metadata.tables]
+
+
+def all_tables(source: Engine) -> list[Table]:
+    """The modelled tables in foreign-key order, then the unmodelled ones."""
+    return [*Base.metadata.sorted_tables, *unmodelled_tables(source)]
+
+
 def timestamped_name(prefix: str = "ccwebdb_bak") -> str:
     """A backup name that sorts chronologically."""
     return f"{prefix}_{datetime.now(UTC):%Y%m%d_%H%M%S}"
@@ -83,15 +115,18 @@ def create_database(source_url: str, name: str) -> str:
     return make_url(source_url).set(database=name).render_as_string(hide_password=False)
 
 
-def copy_rows(source: Engine, target: Engine) -> Iterator[tuple[str, int]]:
+def copy_rows(
+    source: Engine, target: Engine, tables: list[Table] | None = None
+) -> Iterator[tuple[str, int]]:
     """Every table, in foreign-key order, yielding what was written.
 
     `sorted_tables` is the topological order, so a row never arrives before
     the row it references. Copying alphabetically would fail on the first
-    foreign key.
+    foreign key. The unmodelled tables come last: they reference modelled
+    ones, never the reverse.
     """
     with Session(source) as read, Session(target) as write:
-        for table in Base.metadata.sorted_tables:
+        for table in tables if tables is not None else all_tables(source):
             columns = [c for c in table.columns if c.computed is None]
             names = [c.name for c in columns]
             total = 0
@@ -178,7 +213,7 @@ def compare(source: Engine, target: Engine) -> list[tuple[str, int, int]]:
     inspector = inspect(target)
     present = set(inspector.get_table_names())
     with Session(source) as a, Session(target) as b:
-        for table in Base.metadata.sorted_tables:
+        for table in all_tables(source):
             left = a.execute(select(func.count()).select_from(table)).scalar() or 0
             if table.name not in present:
                 out.append((table.name, left, MISSING))
@@ -197,9 +232,16 @@ def run(target_url: str | None, *, name: str | None = None) -> tuple[str, int]:
     source = create_engine(source_url)
     target = create_engine(target_url)
     Base.metadata.create_all(target)
+    extra = unmodelled_tables(source)
+    if extra:
+        # Their own reflected definitions; the modelled tables they point at
+        # exist now, so their foreign keys resolve.
+        extra[0].metadata.create_all(target, tables=extra)
 
     written = 0
-    for table_name, count in copy_rows(source, target):
+    for table_name, count in copy_rows(
+        source, target, [*Base.metadata.sorted_tables, *extra]
+    ):
         if count:
             print(f"  {table_name:<28}{count:>8,}")
         written += count

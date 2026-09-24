@@ -781,11 +781,15 @@ set since.
   restart (uvicorn runs without `--reload`). The full procedure is in
   `system-administration.md`, *Applying a schema release*. Dumps are kept
   outside the repository in `C:\Users\wnmil\dev\ccwebdb-backups\`.
-- **`app.backup` is not a pre-migration backup.** It copies the database into
-  another database with the schema built from the *current models* and no
-  `alembic_version`, so once new code is checked out its copy already has the
-  new tables and cannot be migrated. It is portable (another engine is a URL)
-  and useful for a working copy beside live.
+- **`app.backup` is not a pre-migration backup.** It copies every table,
+  `alembic_version` and the model-less import tables included, into another
+  database whose schema is built from the *current models*; with new code
+  checked out before live is migrated, the copy holds the new schema under the
+  old revision. It is portable (another engine is a URL) and useful for a
+  working copy beside live.
+- **`app.workbook_backup`** writes the whole database to one Excel workbook
+  and rebuilds a database from one (`system-administration.md`, *The workbook
+  backup*): the editable backup that replaces the obsolete workbook.
 - **`app.backup --list` is not evidence.** A copy that aborted partway lists at
   a plausible size: on 2026-09-20 the newest copy held no inventory items and
   no purchase orders. Always `--verify <name>`, which compares row counts per
