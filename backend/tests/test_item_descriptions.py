@@ -1,8 +1,8 @@
 """The description the item editor's Suggest button offers (`app.item_descriptions`).
 
-Composed from the saved record for the owner to edit: the item's name as
-the listing title names it, the note's or coin's own details, the grade
-with its service, designation and certificate, then attributes and errors.
+In the owner's style (2026-09-24): grade, designation and attributes first,
+then year, face value and serial, then the note type and seal -- no field
+labels, no district, signatures or grading service.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from app.models import (
     InventoryItem,
     ItemAttribute,
     ItemAttributeLink,
-    ItemCertification,
     ItemError,
     Metal,
     NoteType,
@@ -46,11 +45,15 @@ def _label(db: Session, model: type[ReferenceMixin], code: str) -> str:
     return db.execute(select(model.label).where(model.code == code)).scalar_one()
 
 
-def _note(db: Session, **overrides: object) -> int:
+def _short(grade_label: str) -> str:
+    return grade_label.replace("Uncirculated", "Unc")
+
+
+def _note(db: Session, **overrides: object) -> InventoryItem:
     fields: dict[str, object] = {
         "kind": "currency",
         "denomination_id": _id(db, Denomination, "usd_note_1"),
-        "grade_id": _id(db, Grade, "N64"),
+        "grade_id": _id(db, Grade, "N67"),
         "grade_designation_id": _id(db, GradeDesignation, "EPQ"),
         "grading_service_id": _id(db, GradingService, "PMG"),
         "year_start": None,
@@ -69,50 +72,51 @@ def _note(db: Session, **overrides: object) -> int:
             serial_number="F06566560R",
         )
     )
-    db.add(ItemCertification(inventory_item_id=item.id, cert_number="8061234-005"))
     db.flush()
     db.refresh(item)
-    return item.id
+    return item
 
 
-def test_a_graded_note_is_described_in_full(db: Session) -> None:
-    item = db.get(InventoryItem, _note(db))
-    assert item is not None
-    signers = db.scalars(select(SignatureCombination)).first()
-    assert signers is not None
-    grade = _label(db, Grade, "N64")
+def _link(db: Session, item: InventoryItem, code: str) -> str:
+    attribute = db.scalars(
+        select(ItemAttribute).where(ItemAttribute.code == code)
+    ).one()
+    db.add(ItemAttributeLink(inventory_item_id=item.id, item_attribute_id=attribute.id))
+    db.flush()
+    return attribute.label
+
+
+def test_a_note_reads_as_the_owner_writes_it(db: Session) -> None:
+    """The owner's own example, CC-006140."""
+    item = _note(db)
+    radar = _link(db, item, "radar")
+    assert radar.endswith(" Serial")
     assert suggested_description(db, item) == (
-        "Series 1999 $1 Federal Reserve Note. "
-        f"District {_label(db, FedDistrict, 'F')}, "
-        f"{_label(db, SealColor, 'green')}, signatures {signers.label}. "
-        "Serial number F06566560R. "
-        f"Graded PMG {grade} EPQ, certificate 8061234-005."
+        f"{_short(_label(db, Grade, 'N67'))} EPQ Radar 1999 $1 S/N F06566560R. "
+        f"{_label(db, NoteType, 'frn')} {_label(db, SealColor, 'green')}."
     )
 
 
-def test_attributes_and_errors_follow_the_grade(db: Session) -> None:
-    item = db.get(InventoryItem, _note(db))
-    assert item is not None
-    star = db.scalars(select(ItemAttribute).where(ItemAttribute.code == "star")).one()
-    db.add(ItemAttributeLink(inventory_item_id=item.id, item_attribute_id=star.id))
+def test_no_district_signatures_service_or_labels(db: Session) -> None:
+    text = suggested_description(db, _note(db))
+    for left_out in ("District", "signatures", "PMG", "Serial number", "Graded"):
+        assert left_out not in text
+
+
+def test_several_attributes_are_separated_and_errors_come_last(db: Session) -> None:
+    item = _note(db)
+    star = _link(db, item, "star")
+    radar = _link(db, item, "radar").removesuffix(" Serial")
     error = db.scalars(select(ErrorType).order_by(ErrorType.id)).first()
     assert error is not None
     db.add(ItemError(inventory_item_id=item.id, error_type_id=error.id, details="left"))
     db.flush()
-
     text = suggested_description(db, item)
-    assert text.endswith(f"{star.label}. Error: {error.label} (left).")
+    assert f"EPQ {star}, {radar} 1999" in text or f"EPQ {radar}, {star} 1999" in text
+    assert text.endswith(f"Error: {error.label} (left).")
 
 
-def test_a_grade_with_no_service_recorded_is_not_called_raw(db: Session) -> None:
-    item = db.get(InventoryItem, _note(db, grading_service_id=None))
-    assert item is not None
-    text = suggested_description(db, item)
-    assert f"Grade {_label(db, Grade, 'N64')} EPQ, certificate" in text
-    assert "Ungraded" not in text and "raw" not in text
-
-
-def test_a_coin_names_its_metal_and_fine_weight(db: Session) -> None:
+def test_a_coin_leads_with_its_name_then_its_metal(db: Session) -> None:
     item = build_item(
         db,
         year_start=1947,
@@ -141,15 +145,14 @@ def test_an_item_with_nothing_recorded_gets_an_empty_suggestion(db: Session) -> 
 
 
 def test_the_listing_title_carries_the_designation(db: Session) -> None:
-    item = db.get(InventoryItem, _note(db))
-    assert item is not None
-    assert suggested_title(db, item).endswith(f"PMG {_label(db, Grade, 'N64')} EPQ")
+    item = _note(db)
+    assert suggested_title(db, item).endswith(f"PMG {_label(db, Grade, 'N67')} EPQ")
 
 
 def test_the_route_writes_nothing(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item_id = _note(db)
+    item_id = _note(db).id
     db.commit()
     item = db.get(InventoryItem, item_id)
     assert item is not None
@@ -158,7 +161,7 @@ def test_the_route_writes_nothing(
         f"/api/inventory/{item_id}/suggested-description", headers=admin_headers
     )
     assert response.status_code == 200, response.text
-    assert response.json()["description"].startswith("Series 1999 $1")
+    assert "1999 $1 S/N F06566560R" in response.json()["description"]
     db.expire_all()
     item = db.get(InventoryItem, item_id)
     assert item is not None
