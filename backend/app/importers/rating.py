@@ -168,8 +168,8 @@ _ADJECTIVAL: tuple[tuple[re.Pattern[str], str], ...] = (
 _SERVICES = "PCGS|NGC|ANACS|ICG|PMG|SEGS|CACG"
 
 #: Designations. Longest first, so DCAM is not read as CAM and FBL not as
-#: FB. Ultra Cameo, UCAM and DPL are NGC's words, which the vocabulary holds
-#: as aliases (of DCAM and DMPL).
+#: FB. UCAM and Ultra Cameo are NGC's top cameo, a designation of its own;
+#: DPL is NGC's word for DMPL, which the vocabulary holds as its alias.
 _DESIGNATION_WORDS = (
     r"DCAM|DMPL|UCAM|ULTRA\s*CAMEO|CAM|DPL|RD|RB|BN|FBL|FS|FB|FH|FT|PL|EPQ|PPQ"
 )

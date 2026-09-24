@@ -88,15 +88,14 @@ def test_a_merge_moves_items_keeps_the_names_and_removes_the_value(
 def test_the_old_values_aliases_move_with_it(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """DCAM's UCAM and Ultra Cameo become CAM's."""
-    response = _merge(client, admin_headers, "grade_designation", "DCAM", "CAM")
+    """UCAM's Ultra Cameo and UC become CAM's, with its code and label."""
+    response = _merge(client, admin_headers, "grade_designation", "UCAM", "CAM")
     assert response.status_code == 200, response.text
     cam = _id(db, GradeDesignation, "CAM")
     assert set(aliases.aliases_by_row(db, GradeDesignation)[cam]) == {
-        "DCAM",
-        "DCAM (Deep Cameo)",
-        "UC",
         "UCAM",
+        "UCAM (Ultra Cameo)",
+        "UC",
         "Ultra Cameo",
     }
     # None left pointing at a row that is gone.
