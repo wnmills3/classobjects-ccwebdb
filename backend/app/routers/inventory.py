@@ -25,6 +25,7 @@ from .. import (
     field_changes,
     grades,
     item_attributes,
+    item_kinds,
     lot_writes,
     offering_writes,
     sale_state,
@@ -418,7 +419,7 @@ class FieldConflicts(Exception):
         self.conflicts = conflicts
 
 
-def _field_values(db: Session, item: InventoryItem) -> dict[str, Any]:
+def field_values(db: Session, item: InventoryItem) -> dict[str, Any]:
     """The item's fields as the editor holds them: `item_detail`, JSON-shaped.
 
     Attributes as a list of codes, the form the editor sends them in. What the
@@ -432,9 +433,9 @@ def _field_values(db: Session, item: InventoryItem) -> dict[str, Any]:
 def _sent_values(
     db: Session, item: InventoryItem, fields: Iterable[str]
 ) -> dict[str, Any]:
-    """Just these fields of an item, in `_field_values`' terms, read directly.
+    """Just these fields of an item, in `field_values`' terms, read directly.
 
-    For the bulk edit's change log: `_field_values` builds the editor's whole
+    For the bulk edit's change log: `field_values` builds the editor's whole
     view of an item (sale state, attributes, reviews...), which is several
     queries per item, and a bulk edit has no limit on how many items it
     touches. Only the fields a bulk edit can set are needed, so only those are
@@ -467,7 +468,7 @@ def _refuse_field_conflicts(
 
     `base` must hold every field sent: a field without one would be saved
     unchecked, the silent overwrite this exists to prevent (422). A field
-    conflicts when its stored value (`current`, from `_field_values`) differs
+    conflicts when its stored value (`current`, from `field_values`) differs
     from where the edit began and from the value being saved -- two people
     making the same change agree. Each conflict names who made the other
     change and when, from the change log, where it knows.
@@ -1374,6 +1375,42 @@ def _apply_note_changes(items: list[InventoryItem], changes: dict[str, object]) 
             setattr(item.currency_detail, column, value)
 
 
+def _set_notes_and_detail(
+    db: Session,
+    items: list[InventoryItem],
+    changes: dict[str, object],
+    *,
+    kind_changed: bool,
+) -> None:
+    """Apply a request's note fields, and swap detail rows if the kind moved.
+
+    Called after the kind is set, and in this order for one reason: a request
+    may change the kind and the note fields together. Becoming a banknote, the
+    note row must exist before its serial number can be written -- hence the
+    first swap. Ceasing to be one, the note's fields must be cleared before
+    its row can go -- hence the second, which `item_kinds` refuses while any
+    remain. The second call leaves a banknote made by the first as it is.
+    """
+    if kind_changed:
+        currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+        for item in items:
+            if item.item_kind_id == currency_id:
+                _match_detail(db, item)
+    _apply_note_changes(items, changes)
+    if kind_changed:
+        for item in items:
+            _match_detail(db, item)
+
+
+def _match_detail(db: Session, item: InventoryItem) -> None:
+    """`item_kinds.match_detail_to_kind`, its refusal as a 422."""
+    try:
+        item_kinds.match_detail_to_kind(db, item)
+    except item_kinds.KindChangeRefused as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 #: Fields a banknote does not have. `metal` is a coin-view column and filter
 #: in `inventory_search` and has no meaning on paper, so writing one onto a
 #: note would make a row no view can show and no search can find.
@@ -1644,10 +1681,13 @@ def bulk_edit(
             including_paused=True,
         )
 
-    _apply_note_changes(list(items), note_changes)
     for item in items:
         for column, value in resolved.items():
             setattr(item, column, value)
+    _set_notes_and_detail(
+        db, list(items), note_changes, kind_changed="item_kind" in data
+    )
+    for item in items:
         if (pair := years[item.id]) is not None:
             item.year_start, item.year_end = pair
         if status_id is not None:
@@ -1717,7 +1757,7 @@ def update_item(
     sent = dict(data) if attributes is None else {**data, "attributes": attributes}
     # The item as it stands, in those same terms: the merge compares against
     # it, and the change log records it as each changed field's old value.
-    before = _field_values(db, item)
+    before = field_values(db, item)
     _refuse_null_scalars(data)
     _refuse_coin_only_fields(data, [item], db)
     _refuse_mismatched_denomination(data, [item], db)
@@ -1775,7 +1815,7 @@ def update_item(
             including_paused=True,
         )
 
-    _apply_note_changes([item], _note_changes(db, data, item.currency_detail))
+    note_changes = _note_changes(db, data, item.currency_detail)
 
     for field, model in ITEM_CLASSIFIERS.items():
         if field in data:
@@ -1798,6 +1838,8 @@ def update_item(
                 set_status(db, item, resolved, user_id=admin.id)
             else:
                 setattr(item, f"{field}_id", resolved)
+
+    _set_notes_and_detail(db, [item], note_changes, kind_changed="item_kind" in data)
 
     for field in EDITABLE_SCALARS:
         if field in data and field not in YEAR_FIELDS:
@@ -1848,7 +1890,7 @@ def update_item(
         # production's autoflush=False because `refresh_items` above has
         # flushed -- measured: an extra flush here changed nothing.
         field_changes.record(
-            db, item.id, before, _field_values(db, item), sent, user_id=admin.id
+            db, item.id, before, field_values(db, item), sent, user_id=admin.id
         )
         db.commit()
     except StaleDataError as exc:
