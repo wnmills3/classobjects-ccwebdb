@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
 from .models import (
+    ErrorType,
     ItemFieldChange,
     ItemStatus,
     ItemStatusHistory,
@@ -116,10 +117,49 @@ def _shown(value: object, field: str, labels: Mapping[tuple[str, str], str]) -> 
     return value
 
 
+def _error_labels(db: Session, changes: list[ItemFieldChange]) -> dict[str, str]:
+    """Each error type's label, for the codes the logged error sets name."""
+    codes = {
+        entry["error_type"]
+        for change in changes
+        if change.field_name == "errors"
+        for value in (change.old_value, change.new_value)
+        if isinstance(value, list)
+        for entry in value
+        if isinstance(entry, dict) and "error_type" in entry
+    }
+    if not codes:
+        return {}
+    # `.all()` first: a result has `.keys()`, so dict() of the result itself
+    # takes it for a mapping and indexes it by column name.
+    return dict(
+        db.execute(
+            select(ErrorType.code, ErrorType.label).where(ErrorType.code.in_(codes))
+        )
+        .tuples()
+        .all()
+    )
+
+
+def _shown_errors(value: object, labels: Mapping[str, str]) -> object:
+    """A logged error set as people read it: ``["Offset Printing (Back to Front)"]``."""
+    if not isinstance(value, list):
+        return value
+    shown: list[object] = []
+    for entry in value:
+        if isinstance(entry, dict) and "error_type" in entry:
+            label = labels.get(entry["error_type"], entry["error_type"])
+            details = entry.get("details")
+            shown.append(f"{label} ({details})" if details else label)
+        else:
+            shown.append(entry)
+    return shown
+
+
 def _field_events(
     db: Session, item_id: int, classifiers: Mapping[str, type[ReferenceMixin]]
 ) -> list[HistoryEvent]:
-    """The item's logged field edits."""
+    """The item's logged field edits; an error set shown entry by entry."""
     rows = list(
         db.execute(
             select(ItemFieldChange, User.full_name, User.email)
@@ -128,12 +168,19 @@ def _field_events(
         ).tuples()
     )
     labels = _labels(db, [change for change, _, _ in rows], classifiers)
+    errors = _error_labels(db, [change for change, _, _ in rows])
+
+    def shown(change: ItemFieldChange, value: object) -> object:
+        if change.field_name == "errors":
+            return _shown_errors(value, errors)
+        return _shown(value, change.field_name, labels)
+
     return [
         HistoryEvent(
             kind="field",
             field=change.field_name,
-            old_value=_shown(change.old_value, change.field_name, labels),
-            new_value=_shown(change.new_value, change.field_name, labels),
+            old_value=shown(change, change.old_value),
+            new_value=shown(change, change.new_value),
             by=_person(full_name, email),
             at=change.changed_at,
         )

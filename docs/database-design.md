@@ -488,6 +488,11 @@ whose value actually moved. Values are stored as the item editor sees them
 not write it, so a field changed that way has no entry (`app.kind_repair` is
 the exception: it logs its changes under the login given with `--by`).
 
+`PUT /api/inventory/{id}/errors` logs the item's error set too, as one
+`errors` row holding the whole set before and after (`[{error_type,
+details}]`), since that endpoint replaces the set; saving an unchanged set
+logs nothing.
+
 The item editor's **History** panel reads it together with
 `item_status_history` and `location_history` (`app.item_history`,
 `GET /api/inventory/{id}/history`, admin-only): one list, newest first, with

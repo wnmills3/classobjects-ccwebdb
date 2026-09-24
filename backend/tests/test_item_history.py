@@ -12,8 +12,10 @@ from typing import Any
 from app.lifecycle_writes import record_initial_status, set_location, set_status
 from app.models import (
     Country,
+    ErrorType,
     ItemAttribute,
     ItemFieldChange,
+    ItemKind,
     ItemStatus,
     ItemStatusHistory,
     LocationHistory,
@@ -37,7 +39,9 @@ def _history(
     return body
 
 
-def _label(db: Session, model: type[Country] | type[ItemAttribute], code: str) -> str:
+def _label(
+    db: Session, model: type[Country | ItemAttribute | ErrorType], code: str
+) -> str:
     return db.execute(select(model.label).where(model.code == code)).scalar_one()
 
 
@@ -159,6 +163,29 @@ def test_attributes_are_shown_by_label_and_a_vanished_code_as_logged(
     assert attributes["new_value"] == [_label(db, ItemAttribute, "first_strike")]
     assert attributes["by"] is None
     assert denomination["old_value"] == "no_such_denomination"
+
+
+def test_error_changes_are_in_the_history(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Errors are another table, so the errors endpoint logs the whole set."""
+    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    url = f"/api/inventory/{note.id}/errors"
+    offset = {"error_type": "offset_printing", "details": "Back to Front"}
+    assert client.put(url, json={"errors": [offset]}, headers=admin_headers).is_success
+    # The same set again is not a change.
+    assert client.put(url, json={"errors": [offset]}, headers=admin_headers).is_success
+    assert client.put(url, json={"errors": []}, headers=admin_headers).is_success
+
+    events = [
+        e for e in _history(client, admin_headers, note.id) if e["field"] == "errors"
+    ]
+    offset_label = _label(db, ErrorType, "offset_printing")
+    assert [(e["old_value"], e["new_value"]) for e in events] == [
+        ([f"{offset_label} (Back to Front)"], []),
+        ([], [f"{offset_label} (Back to Front)"]),
+    ]
+    assert events[0]["by"] == "Test Admin"
 
 
 def test_another_item_s_history_is_not_shown(

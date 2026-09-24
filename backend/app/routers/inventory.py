@@ -2279,6 +2279,9 @@ def set_item_errors(
     item = _get_item(db, item_id)
     sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
 
+    # The set before and after, in the change log like any field an edit
+    # changes, so the item's History shows errors recorded and removed.
+    before = field_changes.error_set(db, item.id)
     db.execute(delete(ItemError).where(ItemError.inventory_item_id == item.id))
     for entry in payload.errors:
         db.add(
@@ -2292,6 +2295,18 @@ def set_item_errors(
                 noted_by_id=admin.id,
             )
         )
+    after = [
+        {"error_type": entry.error_type, "details": entry.details}
+        for entry in payload.errors
+    ]
+    field_changes.record(
+        db,
+        item.id,
+        {"errors": before},
+        {"errors": field_changes.sorted_errors(after)},
+        ["errors"],
+        user_id=admin.id,
+    )
     db.commit()
 
     return ItemErrorsOut(inventory_item_id=item.id, errors=_item_errors(db, item.id))
