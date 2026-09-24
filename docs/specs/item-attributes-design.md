@@ -3,15 +3,14 @@
 Three related pieces:
 
 1. **Aliases for every classifier.** "Legal Tender" is a United States Note,
-   "UCAM" is DCAM, "No God" is No Motto, "Walker" is a Walking Liberty Half.
+   "Ultra Cameo" is UCAM, "No God" is No Motto, "Walker" is a Walking Liberty Half.
 2. **Many attributes per item, coins as well as notes.** A coin can be DCAM
    *and* First Strike *and* CAC-approved; a note a star note *and* a fancy
    serial *and* No Motto.
-3. **A grade vocabulary aligned with PCGS, NGC, PMG and CAC**, and a rating
-   parser that reads what the owner's ratings actually say.
+3. **A grade vocabulary aligned with PCGS, NGC, PMG and CAC.**
 
-**Standard terms are the labels; the owner's words are aliases.** DCAM, not
-UCAM; No Motto, not No God; United States Note, not Legal Tender.
+**Standard terms are the labels; the owner's words are aliases.** UCAM, not
+Ultra Cameo; No Motto, not No God; United States Note, not Legal Tender.
 
 ## 1. Aliases
 
@@ -24,8 +23,8 @@ alias) for every other vocabulary. Both carry `is_active` and a `source`.
   label ignoring case and extra spaces, then an active alias. An alias shared
   by two rows resolves to neither -- a guess between them would be silent.
 - **Sharing is allowed.** "Cartwheel" is any large silver dollar; "National
-  Currency" is on two note classes. Search finds both; the importer, which
-  cannot choose, uses neither.
+  Currency" is on two note classes. Search finds both; `resolve`, which
+  cannot choose, names neither.
 - **`add_alias`** refuses empty or over-long text, a name that is already any
   value's label or code (`resolve` would never reach it), and an alias the row
   already has. A retired alias added again is brought back.
@@ -40,7 +39,6 @@ Where aliases are read:
 
 | Where | Behaviour |
 |---|---|
-| **Import** | `SchemaLoader.code_id` tries `resolve` before inventing a `derived` row; rows read through an alias are counted and reported as `aliased`. |
 | **Search** | Each inventory view names the vocabularies it searches by name (`Named` in `inventory_search`): series, strike type, grade designation and attribute in both; mint for coins; note class for currency. A value on a detail or link table is matched with `i.id IN (subquery)`, which PostgreSQL hashes once. |
 | **Pickers** | `ReferenceSelect` shows a Find box on a vocabulary of more than ten values (`FIND_FROM`), matching label, code or alias and showing the alias that matched; Enter picks the first. |
 | **Console** | The Vocabularies page lists each value's aliases, adds and removes them, shows a retired shipped alias struck through with a Restore, and marks a shared one. |
@@ -133,20 +131,21 @@ MS65 is business strike + 65; SP68 is specimen + 68; PR69+ is proof + 69+.
   UNC and BU climb with pluses (BU+ is 63, BU++ 65); AU+ is 55+. Note
   adjectivals map the same way onto the note scale (Gem Unc N65 ... G N4).
   Only CIRC and UNGRADED stay unnumbered. The rating as written stays in
-  `grade_raw`.
+  `rating`.
 - **Paper money** labels match PMG; N1-N3 cover PCGS Banknote's Poor, Fair
   and About Good. EPQ and PPQ are designations.
 
-`app/grades.py` holds the rules: `split` takes a compound grade apart (the
-importer, and any API client sending `MS65`), `display` composes it, mirrored
+`app/grades.py` holds the rules: `split` takes a compound grade apart (for
+any API client sending `MS65`), `display` composes it, mirrored
 by the database's `grade_display()` used by the views and search. The API
 returns `grade` (the code, `65`), `strike_type` and `grade_display` (`MS65`); a
 strike type the client names wins over one a compound grade implies. The item
 editor, New item form and shop console offer a strike type for anything but a
 note.
 
-**Equivalences are aliases, not rows**: Ultra Cameo, UC and UCAM are DCAM
-(NGC: Ultra Cameo "is generally synonymous with Deep Cameo"); DPL is DMPL.
+**Equivalences are aliases, not rows**: Ultra Cameo and UC are UCAM; DPL is
+DMPL. UCAM and DCAM are separate rows, not aliases of one another: each is
+one grading service's designation, and the holder names one or the other.
 PF, EF and PO need no rows: grades are numbers and `app.grades` reads those
 prefixes.
 
@@ -155,9 +154,9 @@ FBL, FH, PL, DMPL, EPQ, PPQ. FT is NGC's Full Torch (PCGS calls it FB); 5FS and
 6FS are NGC's Jefferson nickel steps.
 
 **CAC is not a grading service.** A CAC sticker verifies another service's
-grade and is the `cac` attribute; CACG, which grades, is a grading service. A
-rating saying CACG, or carrying a CACG-only label (First Delivery, First Day of
-Delivery), records grader CACG; otherwise "CAC" is the green sticker.
+grade and is the `cac` attribute; CACG, which grades, is a grading service.
+First Delivery (First Day of Delivery) is a CACG-only label; "CAC" alone is
+the green sticker.
 
 ### Searching a grade
 
@@ -174,49 +173,6 @@ Delivery), records grader CACG; otherwise "CAC" is the green sticker.
   `grade_max=64` stops below 64+ and `64%` includes it.
 - A term that is not a grade (`MS55`, `BU+++`) is refused, not matched against
   nothing.
-
-## 4. Reading ratings
-
-The rating parser is `app/importers/rating.py`, shared by the importer and
-`app.rating_pass`. The database is the system of record, so the pass over
-stored items is what changes live data; the importer rules matter for new
-rows.
-
-```
-python -m app.rating_pass            report, write nothing
-python -m app.rating_pass --commit   apply
-```
-
-Every proposal is also written to `rating_pass.csv` in the log directory.
-
-What the parser reads:
-
-- A bare Sheldon number beside a grader or designation ("69 PCGS", "70DCAM
-  PCGS"), with the strike from a P/SP prefix, a cameo designation (proof), the
-  same grade written in the description, or "proof" / "uncirculated" in it. A
-  description naming a different number settles nothing. A missing prefix is
-  never guessed.
-- Run-together ratings (`PR70DCAMPCGS`, `SP68PCGS`): a designation may run into
-  a grader, and a grader follow a number or designation.
-- `P70` is PCGS's proof shorthand; `P` alone stays Poor at 1.
-- Aliases: UCAM, Ultra Cameo, DPL; release pedigrees, CAC, Genuine, No Motto,
-  Reverse Proof as attributes. FDOI is First Day of Issue.
-- `FS` is Full Steps only on a Jefferson nickel (on PCGS labels it can also
-  mean First Strike or a Fivaz-Stanton variety); 5FS and 6FS always.
-- A named strike beats a prefix ("MS69 NGC Rev Proof" is a reverse proof).
-- A colour designation after a number below 60 is an ordinal ("3RD").
-- A match only inside the service's published range: a grade of 73 is prose.
-- **Genuine** (PCGS no-grade holder) records `authenticity = genuine` as well
-  as the qualifier.
-
-**The pass fills what is empty and leaves what is not.** A recorded grade,
-strike, designation or grader stays, as does anything a person confirmed
-(`item_field_review`) or emptied on purpose (`held`). Two machine readings are
-*corrected* rather than filled, each listed in the report: a strike the rating
-names outright but stored as a plain proof, and FS read as Full Steps on
-something that is not a Jefferson nickel. What it fills is recorded as derived
-by `rating`; attribute links are added only where none exists, removed ones
-included.
 
 ## Sources
 

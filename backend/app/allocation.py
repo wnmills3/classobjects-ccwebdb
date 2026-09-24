@@ -38,8 +38,8 @@ def allocate(total: Decimal, weights: list[Decimal]) -> list[Decimal]:
 
     Ties in the remainder are broken by position, so the same input always
     produces the same output. That matters more than fairness between equal
-    claimants: an allocation that shuffled pennies between runs would make a
-    re-import produce different cost bases.
+    claimants: an allocation that shuffled pennies between runs would give
+    the same split different cost bases each time it was computed.
     """
     if not weights:
         raise AllocationError("nothing to allocate to")

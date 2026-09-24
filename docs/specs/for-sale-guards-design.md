@@ -90,8 +90,8 @@ and a DELETE has no reliable body, so its flag is a query parameter.
 
 **In the routers, not the writer modules.** `lifecycle_writes.set_status`,
 `splitting.split_item`, `image_links` and `reference_merge` are also called by
-CLI passes (`app.rating_pass`, `app.classifier_defaults`, `app.vendor_cleanup`,
-`app.seed`, `app.photo_import`) that have nobody to acknowledge a warning. A
+CLI passes (`app.classifier_defaults`, `app.vendor_cleanup`, `app.seed`,
+`app.photo_import`) that have nobody to acknowledge a warning. A
 batch pass that auto-acknowledges is worse than no guard, because it looks
 safe. `app.photo_import` instead reports which linked items are for sale.
 

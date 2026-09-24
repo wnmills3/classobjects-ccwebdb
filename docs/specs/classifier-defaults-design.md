@@ -73,7 +73,7 @@ the wording printed on National Bank Notes (and on Series 1929 Federal Reserve
 Bank Notes).
 
 Nicknames live in the general `reference_alias` table (table, code, alias), so
-they are recognised on import and in search; search matches a note class by
+they are recognised in search and in the pickers; search matches a note class by
 name or nickname. Seal colours (blue, red, brown, green, gold, yellow) and the
 twelve Federal Reserve districts (A Boston through L San Francisco) match
 BEP's serial-number page.
@@ -148,8 +148,8 @@ Reported and never written:
 | retracted | a derived value cleared because the facts no longer support it |
 
 Order matters: note type first, because seal and signatures depend on it.
-`scripts\ccweb_rebuild.cmd` runs this pass after `series_match` and before
-`series_classify`, which reads a note's class as evidence.
+Run this pass after `series_match` and before `series_classify`, which reads a
+note's class as evidence.
 
 ## When defaults are applied
 

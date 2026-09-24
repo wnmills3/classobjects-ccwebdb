@@ -562,7 +562,7 @@ def test_the_rating_can_name_the_class(db: Session, make_item: ItemFactory) -> N
     _issue(db, "usd_note_1", 1928, "us_note", "red")
     _issue(db, "usd_note_1", 1928, "silver_certificate", "blue")
     note = _note(db, make_item, "usd_note_1", 1928)
-    note.grade_raw = "VF Legal Tender funnyback"
+    note.rating = "VF Legal Tender funnyback"
     db.commit()
 
     run(db, commit=True)

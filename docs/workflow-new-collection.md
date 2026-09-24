@@ -3,8 +3,6 @@
 How an item goes from a purchase to a sale in the owner console
 (`http://127.0.0.1:5173/owner`). This is the path **every acquisition
 takes**, and the path a new installation starts on from an empty inventory.
-[workflow-import-and-cleanup.md](workflow-import-and-cleanup.md) covers the
-one-off job of loading an existing workbook instead.
 
 Read [project-purpose.md](project-purpose.md) first for why any of this
 matters, and [system-administration.md](system-administration.md) for the

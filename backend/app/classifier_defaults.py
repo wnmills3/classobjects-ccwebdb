@@ -562,7 +562,7 @@ def _note_facts(
         series_year=detail.series_year,
         series_letter=detail.series_letter,
         serial_number=detail.serial_number,
-        rating=item.grade_raw,
+        rating=item.rating,
         current={column: getattr(detail, column) for column in columns},
     )
 

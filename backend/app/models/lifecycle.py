@@ -140,7 +140,7 @@ class ItemStatusHistory(Base):
     #: the Friday and was logged on the Monday, and `changed_at` is the wrong
     #: answer to "what arrived last week". Null on every status change that is
     #: not an arrival -- a cancellation has no arrival date, and neither does
-    #: the opening row written at import.
+    #: an item's opening row.
     arrived_on: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     __table_args__ = (
@@ -196,8 +196,8 @@ class ItemFieldReview(Base):
     item-level flag cannot express a half-done coin, and a half-done coin is
     the normal state.
 
-    Absent means unconfirmed, which is the correct default for every one of
-    the 7,591 imported items and needs no backfill.
+    Absent means unconfirmed, which is the correct default for any item
+    nobody has examined and needs no backfill.
 
     Distinct from comparing a split child to its parent, which answers what
     the *lot claimed*. That comparison is derived and cannot drift out of

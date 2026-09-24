@@ -261,18 +261,18 @@ def test_free_text_searches_title_and_item_code(
 def test_free_text_searches_the_rating_as_recorded(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The spreadsheet's Rating column is often the only descriptive text.
+    """The owner's rating is often the only descriptive text.
 
-    On 2026-09-16 all 48 "funnyback" notes carried the word only there --
-    their titles and descriptions were auction lot numbers -- so every
-    spelling of it found nothing. The collection also spells it two ways,
-    which is what `%` is for.
+    A "funnyback" note may carry the word only there -- its title and
+    description auction lot numbers -- so a search that skipped the rating
+    would find nothing. The collection also spells it two ways, which is what
+    `%` is for.
     """
-    one_word = note(db, source_title="1", description="Lot #15", grade_raw="Funnyback")
+    one_word = note(db, source_title="1", description="Lot #15", rating="Funnyback")
     two_words = note(
-        db, source_title="1", description="Lot #16", grade_raw="AU Funny Back"
+        db, source_title="1", description="Lot #16", rating="AU Funny Back"
     )
-    note(db, source_title="1", description="Lot #17", grade_raw="Blue Seal")
+    note(db, source_title="1", description="Lot #17", rating="Blue Seal")
 
     def found(q: str) -> set[int]:
         body = search(client, "currency", admin_headers, q=q).json()
@@ -282,13 +282,13 @@ def test_free_text_searches_the_rating_as_recorded(
     assert found("funny%back") == {one_word.id, two_words.id}
     assert found("funny") == {one_word.id, two_words.id}
 
-    # The coin view searches it too: a Whatnot row's only readable text is
-    # its rating, e.g. "Morgan Silver Dollar AU-55" above a lot number.
+    # The coin view searches it too: a Whatnot purchase's only readable text
+    # is often its rating, e.g. "Morgan Silver Dollar AU-55" above a lot number.
     wanted = coin(
         db,
         source_title="1",
         description="Auction #652",
-        grade_raw="Morgan Silver Dollar AU-55",
+        rating="Morgan Silver Dollar AU-55",
     )
     body = search(client, "coins", admin_headers, q="silver dollar").json()
     assert {r["id"] for r in body["rows"]} == {wanted.id}

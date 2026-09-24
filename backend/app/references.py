@@ -16,10 +16,9 @@ rendered value does not exist. So `keep` names the id the row holds now:
 that value stays acceptable, and any *new* use of a retired value is still
 refused, with "Retired" in the message rather than "Unknown".
 
-**The API never creates classifier rows.** The importer may add `derived` rows
-because it is reconciling a real collection against an incomplete vocabulary;
-a web request has no such standing, and letting one invent classifiers is how
-a reference table fills up with typos.
+**The API never creates classifier rows while resolving a code.** Letting a
+request invent classifiers that way is how a reference table fills up with
+typos.
 """
 
 from __future__ import annotations

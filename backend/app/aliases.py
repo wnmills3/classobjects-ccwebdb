@@ -1,7 +1,7 @@
 """Other names for classifier rows: reading, matching and editing them.
 
 docs/specs/item-attributes-design.md, section 1. The standard term is the
-label; what people actually write -- UCAM, Legal Tender, No God, Mercury --
+label; what people actually write -- Ultra Cameo, Legal Tender, No God, Mercury --
 is an alias. Two tables hold them: `series_alias`, which predates the general
 one and keeps its own shape, and `reference_alias` for every other
 vocabulary. This module hides that split from its callers.
@@ -173,8 +173,8 @@ def add_alias(
     """Give a row another name; bring back a retired one rather than copy it.
 
     Two rows may share an alias -- "Cartwheel" is any large silver dollar,
-    "National Currency" two note classes. Search finds both; `resolve`, and
-    so the importer, finds neither rather than guess.
+    "National Currency" two note classes. Search finds both; `resolve` finds
+    neither rather than guess.
 
     Refused when the name is empty, too long, or already a row's own label
     or code: `resolve` tries those first, so as another row's alias it could

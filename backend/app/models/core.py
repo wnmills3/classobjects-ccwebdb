@@ -377,11 +377,9 @@ class InventoryItem(TimestampMixin, Base):
     local_catalog_number: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True
     )
-    #: Whatever the source called this row. The spreadsheet's leftmost
-    #: column was the denomination, so this holds "Rolls .25", "$20 Bill",
-    #: "Duit" and "2" -- not a name. `description` is what a person
-    #: recognises an item by; this is kept because it is what the source
-    #: said, and discarding a source value is not this project's habit.
+    #: What the seller called the item, as written in the listing or
+    #: invoice -- often not a name at all ("Rolls .25", "$20 Bill", "2").
+    #: `description` is what a person recognises an item by.
     source_title: Mapped[str] = mapped_column(
         String(500), default="", server_default=text("''"), nullable=False
     )
@@ -390,12 +388,10 @@ class InventoryItem(TimestampMixin, Base):
     )
     listing_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
-    # -- verbatim source text ---------------------------------------------
-    # A parser can be wrong or incomplete, so nothing it read is discarded.
-    notes_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
-    denom_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
-    year_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
-    grade_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The owner's rating, in their own words: condition, grade and what
+    #: makes the piece special ("66EPQ Double Quad", "Blue Seal"). Read as
+    #: evidence by the search and the clean-up passes; never shown to a buyer.
+    rating: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # -- cost basis, fixed at purchase ------------------------------------
     #: What was paid for the item itself. Named `item_cost` rather than
@@ -467,7 +463,8 @@ class InventoryItem(TimestampMixin, Base):
     fine_weight_ozt: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 6), nullable=True
     )
-    weight_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: A weight as written, where it is not a single number ("1 oz each").
+    weight_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # -- long tail --------------------------------------------------------
     #: Anything filtered, sorted, joined or aggregated on earns a real column.

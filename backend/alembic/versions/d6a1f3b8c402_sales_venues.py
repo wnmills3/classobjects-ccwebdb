@@ -222,7 +222,7 @@ def upgrade() -> None:
         sa.Column("external_order_id", sa.String(length=128), nullable=True),
     )
 
-    for statement in create_views():
+    for statement in create_views(renamed_notes=False):
         op.execute(statement)
 
 
@@ -272,5 +272,5 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS listing_status")
     op.execute("DROP TYPE IF EXISTS listing_format")
 
-    for statement in create_views(selling=False):
+    for statement in create_views(renamed_notes=False, selling=False):
         op.execute(statement)

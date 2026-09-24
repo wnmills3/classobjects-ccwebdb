@@ -238,12 +238,12 @@ _J_VENDOR = "LEFT JOIN vendor v ON v.id = po.vendor_id"
 _C_ITEM_CODE = "i.item_code"
 _C_SOURCE_TITLE = "i.source_title"
 _C_DESCRIPTION = "i.description"
-#: The spreadsheet's Rating column, as written. Often the only descriptive
-#: text an item has: a Whatnot row's title is its denomination and its
-#: description a lot number, while Rating reads "Morgan Silver Dollar
-#: AU-55" -- and on 2026-09-16 all 48 "funnyback" notes carried the word
-#: only here, so no search could find one.
-_C_GRADE_RAW = "i.grade_raw"
+#: The owner's rating, as written. Often the only descriptive text an item
+#: has: many an item's title is its denomination and its description a lot
+#: number, while the rating reads "Morgan Silver Dollar AU-55". A
+#: "funnyback" note may carry that word only here, so a search that skipped
+#: the rating could not find it.
+_C_RATING = "i.rating"
 _C_YEAR_START = "i.year_start"
 _C_GRADE_VALUE = "g.numeric_value"
 #: MS65, PR69+ -- composed the same way the inventory views compose it.
@@ -271,8 +271,8 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "id": Col("i.id"),
     "item_code": Col(_C_ITEM_CODE),
     "source_title": Col(_C_SOURCE_TITLE),
-    # The spreadsheet's leftmost column was the denomination, so `title` holds
-    # "0.25", "Mint Set", "5" -- not a name. What a person recognises the item
+    # `title` often holds only a denomination -- "0.25", "Mint Set", "5" --
+    # not a name. What a person recognises the item
     # by lives in `description`, which is why it is returned as well and is
     # what the browse screens show.
     "description": Col(_C_DESCRIPTION),
@@ -388,7 +388,7 @@ COIN_VIEW = ViewSpec(
         "fineness": Col("i.fineness"),
         "gross_weight_ozt": Col("i.gross_weight_ozt"),
         "fine_weight_ozt": Col("i.fine_weight_ozt"),
-        "weight_raw": Col("i.weight_raw"),
+        "weight_note": Col("i.weight_note"),
     },
     filters={
         **_SHARED_FILTERS,
@@ -398,7 +398,7 @@ COIN_VIEW = ViewSpec(
         "bullion_form": Filt("bf.code", join=(_J_BULLION,)),
         "set_form": Filt("sf.code", join=(_J_SET,)),
     },
-    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_GRADE_RAW, _C_ITEM_CODE),
+    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_RATING, _C_ITEM_CODE),
     named=(
         *_NAMED_SHARED,
         Named("mint", Mint, _held_in("coin_detail", "mint_id")),
@@ -448,7 +448,7 @@ CURRENCY_VIEW = ViewSpec(
         "friedberg_status": Filt("cud.friedberg_status", join=(_J_CUR_DETAIL,)),
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
     },
-    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_GRADE_RAW, _C_ITEM_CODE),
+    search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_RATING, _C_ITEM_CODE),
     named=(
         *_NAMED_SHARED,
         Named("note_type", NoteType, _held_in("currency_detail", "note_type_id")),

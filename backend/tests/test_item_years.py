@@ -1,13 +1,13 @@
 """An item's years: one year, or a range of them.
 
-A single year is stored as year_start == year_end -- the importer's shape, and
-6,406 of the collection's items. A range is for a multi-year set or a coin
-whose date is only known to an era; 13 items have one.
+A single year is stored as year_start == year_end -- nearly every item's
+shape. A range is for a multi-year set or a coin whose date is only known to
+an era; a handful of items have one.
 
-Every write path used to set year_start on its own. On a single year that
-either broke it apart or, when the new start was later than the old year, hit
+Setting year_start on its own, on a single year, would either break it apart
+or, when the new start was later than the old year, hit
 ck_inventory_item_year_range as an unhandled IntegrityError: bulk-editing Year
-on any imported item to a later year was a 500.
+on such an item to a later year would be a 500.
 """
 
 from __future__ import annotations

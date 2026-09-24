@@ -70,7 +70,7 @@ SHARED_ISSUES: dict[str, Issue] = {
         description="No cost recorded, or zero",
     ),
     "mixed_marker": Issue(
-        "i.grade_raw ILIKE '%mixed%' OR i.description ILIKE '%mixed%'",
+        "i.rating ILIKE '%mixed%' OR i.description ILIKE '%mixed%'",
         # Deliberately not folded into no_grade. `Mixed` means "known to
         # vary", which is a positive statement that the row stands for several
         # different coins -- so the remedy is to decompose the lot, not to
@@ -95,7 +95,7 @@ COIN_ISSUES: dict[str, Issue] = {
     # and read as a clean bill of health while never actually running.
     "kind_unknown": Issue(
         "k.code = 'unknown'",
-        description="The import could not classify it",
+        description="Its kind is not recorded",
     ),
     "no_weight_bullion": Issue(
         "i.fine_weight_ozt IS NULL AND k.code = 'bullion'",

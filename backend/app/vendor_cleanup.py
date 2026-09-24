@@ -1,8 +1,8 @@
 """Tidy the purchase-source list before sales platforms link to it.
 
-The importer made one vendor per spelling it met, so the list holds typos
-(`builionsharks.com`, `usming.gov`), two HiBid hosts, a vendor named `.`, and
-no kind on anything. Sales platforms link to a vendor (selling design), so the
+The list can hold one vendor per spelling of the same business -- typos
+(`builionsharks.com`, `usming.gov`), two HiBid hosts, a vendor named `.` --
+and vendors with no kind. Sales platforms link to a vendor (selling design), so the
 list is cleaned first.
 
 Every change is named on the command line -- which vendors are the same
@@ -179,9 +179,9 @@ def run(
             report.renamed.append((old_name, new_name))
             vendor.name = new_name
             # A misspelt source misspells its web address too (`ampex.com` for
-            # apmex.com), and the importer matches a vendor by `host`, so a
-            # name fixed on its own would let the real site arrive as a second
-            # vendor. Only text that repeated the old name is rewritten;
+            # apmex.com), so a name fixed on its own would leave the vendor's
+            # `host` naming a site that does not exist. Only text that
+            # repeated the old name is rewritten;
             # anything else is the source's address, not the typo.
             if vendor.host:
                 vendor.host = vendor.host.replace(old_name, new_name)

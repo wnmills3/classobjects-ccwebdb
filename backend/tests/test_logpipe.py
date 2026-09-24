@@ -9,8 +9,6 @@ from pathlib import Path
 
 import pytest
 from app import logpipe
-from app.config import REPO_ROOT
-from app.importers import cli
 from app.logpipe import RollingWriter, numbered, pipe, rotate
 
 SCRIPT = Path(logpipe.__file__)
@@ -106,29 +104,6 @@ def test_a_nonsense_setting_is_refused(
     monkeypatch.setenv("CCWEB_LOG_KEEP", value)
     with pytest.raises(SystemExit):
         logpipe.keep_setting()
-
-
-@pytest.mark.parametrize(
-    ("setting", "expected"),
-    [
-        (None, REPO_ROOT / "logs" / "import"),
-        ("", REPO_ROOT / "logs" / "import"),
-        ("var/log", REPO_ROOT / "var" / "log" / "import"),
-        (
-            str(Path("/srv/ccweb-logs").resolve()),
-            Path("/srv/ccweb-logs").resolve() / "import",
-        ),
-    ],
-)
-def test_import_review_files_follow_the_log_directory(
-    monkeypatch: pytest.MonkeyPatch, setting: str | None, expected: Path
-) -> None:
-    """The importer finds the log directory as ccweb_logdir.cmd does."""
-    if setting is None:
-        monkeypatch.delenv("CCWEB_LOG_DIR", raising=False)
-    else:
-        monkeypatch.setenv("CCWEB_LOG_DIR", setting)
-    assert cli.default_out_dir() == expected
 
 
 def test_the_defaults_are_three_files_of_one_gigabyte(

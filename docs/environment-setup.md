@@ -148,8 +148,7 @@ psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ccwebdb OWNER ccwe
 ```
 
 `CREATEDB` is for the test suite, which creates and drops its own
-`ccwebdb_test` database, and for `scripts\ccweb_rebuild.cmd`. On an existing
-role: `ALTER ROLE ccwebdb CREATEDB;`.
+`ccwebdb_test` database. On an existing role: `ALTER ROLE ccwebdb CREATEDB;`.
 
 ## 6. Configure the application
 
@@ -175,15 +174,14 @@ npm install
 
 ## 8. Fill the database
 
-Three cases, and they are **not interchangeable**.
+Two cases, and they are **not interchangeable**.
 
 ### This collection, on a new machine
 
-Restore the latest verified `pg_dump` of `ccwebdb` into the empty database.
-The dumps live outside the repository; the procedure is in
-[system-administration.md](system-administration.md) (*Backing up and
-restoring*). Do not import the workbook: the database holds work that exists
-nowhere else.
+Restore the latest verified backup of `ccwebdb` -- a `pg_dump` or a workbook
+backup -- into the empty database. The backups live outside the repository;
+the procedure is in [system-administration.md](system-administration.md)
+(*Backing up and restoring*).
 
 ### A trial installation, with demo data
 
@@ -199,18 +197,6 @@ uv run python -m app.seed
 `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD` **plus five demo items with shop
 listings**. Both are idempotent. Never run `app.seed` against a real
 collection's database.
-
-### A new collection from a workbook
-
-Use `scripts\ccweb_rebuild.cmd <workbook.xlsx>`, which builds a separate
-database, `ccwebdb_rebuild`, and never touches `ccwebdb`. It runs the steps in
-the only safe order -- migrate, reference data, import, the passes, and the
-demo seed **last** (run before the import, the five demo items take
-`CC-000002` onward and offset every real code). The importer reads one
-workbook layout; a different one needs its own profile.
-[workflow-import-and-cleanup.md](workflow-import-and-cleanup.md) covers
-removing the demo items, checking the totals and switching over.
-
 ---
 
 ## Running the application

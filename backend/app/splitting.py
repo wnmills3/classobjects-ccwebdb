@@ -85,7 +85,7 @@ INHERITED = (
     "fineness",
     "gross_weight_ozt",
     "fine_weight_ozt",
-    "weight_raw",
+    "weight_note",
     "purchase_order_id",
     "tax_rate",
     "tax_includes_shipping",

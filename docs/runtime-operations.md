@@ -171,7 +171,6 @@ logs\backend.log               uvicorn output
 logs\frontend.log              Vite output
 logs\postgres.log              pg_ctl start output, then the server log
 logs\pg_stop.log               pg_ctl stop output
-logs\import\                   importer review files (below)
 ```
 
 The log directory is `CCWEB_LOG_DIR`, `.\logs` when unset; a relative path is
@@ -181,31 +180,6 @@ taken from the repo root. Each type keeps its last three files
 `CCWEB_LOG_KEEP` and `CCWEB_LOG_MAX_BYTES` settings. `.runtime\`, `.pgdata\`
 and everything in `logs\` but its README are gitignored. When something fails
 to start, the scripts print the log to read first.
-
-## Importer review files
-
-```cmd
-cd backend
-uv run python -m app.importers.cli --file <workbook.xlsx>
-```
-
-A dry run: it touches no database and writes review files to `import\` in the
-log directory. `--out-dir` writes elsewhere, `--no-files` writes nothing,
-`--commit` writes to the database (only ever into a new database; see
-[workflow-import-and-cleanup.md](workflow-import-and-cleanup.md)).
-
-| File | Contents |
-|---|---|
-| `corrections.csv` | distinct typos, their suggested fix, and every source row carrying them |
-| `unclassified.csv` | values no rule could place, with their rows |
-| `variants.csv` | rare spellings that collapse onto a dominant one, per column |
-| `columns.csv` | per column: reference table, free text, numeric or drop |
-| `issues.csv` | one line per issue, with the whole source row |
-| `summary.json` | counts, for tooling |
-| `report.txt` | the console report |
-
-Row numbers are the workbook's own, header as row 1, so they can be typed into
-a Go To dialog.
 
 ---
 

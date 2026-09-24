@@ -530,9 +530,9 @@ class ReferenceAlias(Base):
     """Another name for a row of any classifier table.
 
     "Legal Tender Note" is a United States Note; "National Currency" is a
-    National Bank Note. Text uses the other names, so import and search must
-    recognise them. One table serves every vocabulary (note types now, grade
-    designations next: UCAM for DCAM) rather than one alias table per
+    National Bank Note. Text uses the other names, so search and the pickers
+    must recognise them. One table serves every vocabulary (note types now, grade
+    designations next: Ultra Cameo for UCAM) rather than one alias table per
     classifier. `series_alias` predates it and stays.
 
     The row is named by table and id, not by a foreign key -- a key cannot
@@ -595,7 +595,7 @@ class AttributeGroup(enum.StrEnum):
     """What kind of fact an item attribute records.
 
     docs/specs/item-attributes-design.md, section 2. The editor groups them
-    by this, and the importer knows which may appear together.
+    by this.
     """
 
     #: Star Note, Fancy Serial, Radar: read from a note's serial.

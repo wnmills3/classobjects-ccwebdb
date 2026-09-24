@@ -88,7 +88,7 @@ def test_zero_cost_catches_null_and_zero_alike(
 def test_unreviewed_is_the_default_state(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """Absent means unconfirmed, which is right for every imported item."""
+    """Absent means unconfirmed, which is right for an item nobody examined."""
     item = make_item(db)
     assert search(client, admin_headers, "issue=unreviewed")["total"] == 1
 

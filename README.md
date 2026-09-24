@@ -8,10 +8,10 @@ and banknote collection, and a **shop** where customers browse and order. Why
 it exists and what it deliberately does not do is in
 [docs/project-purpose.md](docs/project-purpose.md).
 
-The `ccwebdb` database is the system of record for the collection. The
-spreadsheet it was imported from is historic; data is corrected in the console
-or by passes over stored items, never by re-importing
-([docs/data-import-plan.md](docs/data-import-plan.md)).
+The `ccwebdb` database is the system of record for the collection. Data is
+corrected in the console or by passes over stored items, and the whole
+database is backed up and restored as a workbook by `app.workbook_backup`
+([docs/system-administration.md](docs/system-administration.md)).
 
 ## Stack
 
@@ -59,12 +59,12 @@ backend/
     inventory_search.py  owner search and facets over the base tables
     issues.py            named diagnostics (no year, no grade, ...)
     classifier_defaults.py, series_match.py, series_classify.py,
-    serial_patterns.py, rating_pass.py, photo_import.py
+    serial_patterns.py, photo_import.py, vendor_cleanup.py
                          passes over stored items; dry run unless --commit
     seeding.py           load and export reference data (backend/data/reference/)
     seed.py              first administrator plus demo items (never on live)
     backup.py            database-to-database copy with --verify
-    importers/           workbook import: durable engine, disposable profile
+    workbook_backup.py   the whole database to and from one Excel workbook
   alembic/               migrations
   data/reference/        shipped vocabularies as versioned JSON
   tests/                 pytest, against its own ccwebdb_test database
@@ -74,7 +74,7 @@ frontend/
   src/owner/             the owner console
   src/shared/            API client, auth, formatting, vocabularies
 scripts/                 ccweb_*.cmd: startup, shutdown, status, check, psql,
-                         pgadmin, claude, rebuild, sonar
+                         pgadmin, claude, sonar
 docs/                    project, operations and design documents; designs
                          for individual features are in docs/specs/
 ```
@@ -149,7 +149,7 @@ The views `coin_inventory`, `currency_inventory`, `item_valuation` and
 deleted rows, which makes them the easy place to query by hand. The
 application itself does not read them.
 
-One trap: `source_title` holds the workbook's denomination text (`0.25`,
+One trap: `source_title` often holds only denomination text (`0.25`,
 `Mint Set`), not a name. The words a person searches for are in
 `description`. Search both:
 

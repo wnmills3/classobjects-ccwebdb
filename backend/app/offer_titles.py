@@ -1,10 +1,9 @@
 """A public title for an item, composed from what the record says it is.
 
-The offer dialog used to default a listing's title to `source_title` -- the
-*seller's* wording from the purchase, which goes onto eBay unedited if the
-operator does not stop to rewrite it. That wording is often not a name at
-all: the workbook's leftmost column was the denomination, so thousands of
-items are titled "1", "0.25" or "$1 Bill", and a Whatnot purchase carries
+`source_title` is the *seller's* wording from the purchase, which would go
+onto eBay unedited if the operator did not stop to rewrite it. That wording
+is often not a name at all: thousands of items are titled only by their
+denomination -- "1", "0.25" or "$1 Bill" -- and a Whatnot purchase carries
 lines such as "ITEM SEEN ON SCREEN ASK QUESTIONS NO CANCELLATIONS".
 
 `suggested_title` builds the title from the item's own classified facts

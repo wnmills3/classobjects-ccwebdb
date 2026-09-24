@@ -6,8 +6,8 @@ docs/specs/item-attributes-design.md, decisions 1-3. A coin's grade is split:
 range, with the owner's ladder for UNC and BU: plain is Uncirculated (60),
 one plus is Choice (63), two pluses are Gem (65).
 
-Everything that reads a compound grade -- the importer, and an API client
-sending ``MS65`` -- goes through :func:`split`; everything that shows one goes
+Everything that reads a compound grade -- an API client sending ``MS65``,
+for one -- goes through :func:`split`; everything that shows one goes
 through :func:`display`, which the database mirrors in ``grade_display()``.
 """
 

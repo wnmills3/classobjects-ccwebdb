@@ -1,7 +1,7 @@
 """An item's years: one year, or a range of them.
 
-A single year is stored as ``year_start == year_end``. That is the importer's
-shape and nearly the whole collection's. A range is for a multi-year set, or a
+A single year is stored as ``year_start == year_end``. That is nearly the
+whole collection's shape. A range is for a multi-year set, or a
 coin whose date is only known to an era; a handful of items have one.
 
 Callers set ``year_start`` alone -- the edit form's single Year box, bulk edit,

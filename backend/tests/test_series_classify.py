@@ -186,7 +186,7 @@ def test_text_naming_an_impossible_design_is_a_conflict(
     # Measured in the collection: $1 notes rated "funnyback" but recorded as
     # Series 1923, a large-size note. The rating or the year is wrong; the
     # pass must say so rather than pick one.
-    note = _note(db, make_item, NOTE_1, 1923, grade_raw="VF funnyback")
+    note = _note(db, make_item, NOTE_1, 1923, rating="VF funnyback")
 
     assert _case(db, note) == ("conflict", ("funnyback",))
     run(db, commit=True)
@@ -490,12 +490,12 @@ def test_a_1929_national_needs_its_bank_named_or_its_class(
         "usd_note_10",
         1929,
         seal="brown",
-        grade_raw="T1 National City Bank of New York 1461",
+        rating="T1 National City Bank of New York 1461",
     )
     classed = _note(db, make_item, "usd_note_20", 1929, seal="brown")
     _class(db, classed, "national_bank_note")
     reserve = _note(
-        db, make_item, "usd_note_10", 1929, seal="brown", grade_raw="Fed Res Boston"
+        db, make_item, "usd_note_10", 1929, seal="brown", rating="Fed Res Boston"
     )
 
     run(db, commit=True)
@@ -510,9 +510,7 @@ def test_a_federal_reserve_bank_note_is_never_a_national(
     db: Session, make_item: ItemFactory
 ) -> None:
     # Even when its text says "Brown Seal", the owner's own nickname.
-    note = _note(
-        db, make_item, "usd_note_10", 1929, seal="brown", grade_raw="Brown Seal"
-    )
+    note = _note(db, make_item, "usd_note_10", 1929, seal="brown", rating="Brown Seal")
     _class(db, note, "frbn")
 
     run(db, commit=True)

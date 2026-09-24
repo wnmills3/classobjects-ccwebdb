@@ -8,10 +8,10 @@ kind: `_apply_note_changes` refuses a serial number for an item with no
 `currency_detail`, the offer title reads whichever row is there.
 
 So a change of kind must change the row with it. Left alone, a coin re-kinded
-as a banknote had no `currency_detail`, and every banknote field the editor
-then offered was refused as "not a banknote". `match_detail_to_kind` is the
-one place that swaps them; the item edit, the bulk edit and
-`app.kind_repair` all call it after setting the kind.
+as a banknote would have no `currency_detail`, and every banknote field the
+editor then offered would be refused as "not a banknote".
+`match_detail_to_kind` is the one place that swaps them; the item edit and
+the bulk edit both call it after setting the kind.
 """
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ def match_detail_to_kind(db: Session, item: InventoryItem) -> None:
     """Give `item` the detail row its (possibly just changed) kind calls for.
 
     To a banknote: the coin row goes and an empty note row takes its place. A
-    mint, variety or PCGS type cannot describe a banknote -- on the items this
-    was written for, the "mint" was a series letter the importer misread
+    mint, variety or PCGS type cannot describe a banknote -- on a note filed
+    as a coin, the "mint" is typically a series letter read as a mint mark
     (1935-D) -- so there is nothing on it to keep.
 
     From a banknote: refused while the note row still holds anything. A

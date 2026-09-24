@@ -7,8 +7,7 @@ backups and schema releases are done.
 
 `docs/runtime-operations.md` covers starting and stopping the services;
 `docs/environment-setup.md` covers installing them;
-`docs/data-import-plan.md` covers where the collection's data came from and
-how the record is structured.
+`docs/database-design.md` covers how the record is structured.
 
 Everything below is administered through the **owner console** at `/owner`, a
 separate application from the shop (`docs/specs/owner-console-separation-design.md`).
@@ -147,16 +146,10 @@ Changing the rendition sizes does not regenerate existing images.
 
 ## The collection record
 
-**The `ccwebdb` database is the record.** The workbook it was first loaded
-from is a historic reference and is not imported again. Data is improved in
-the console or by the passes below, which fill what is empty and never
-overwrite what a person set. A rebuild from the workbook would discard every
-correction, receipt, photograph and sale made since, so it is never used to
-fix live data; recovery from a data problem is a restore from a verified
-backup (*Backing up and restoring*).
-
-`scripts\ccweb_rebuild.cmd` exists for loading a **new** collection -- see
-*A new collection* at the end.
+**The `ccwebdb` database is the record.** Data is improved in the console or
+by the passes below, which fill what is empty and never overwrite what a
+person set. Recovery from a data problem is a restore from a verified backup
+(*Backing up and restoring*).
 
 ### The passes over stored items
 
@@ -166,10 +159,8 @@ backup (*Backing up and restoring*).
 | `python -m app.series_match` | assigns a coin's series from the design its title or description names |
 | `python -m app.series_classify` | assigns series from denomination and year, for coins the text left and all notes |
 | `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial |
-| `python -m app.rating_pass` | reads stored ratings again with the current rules |
 | `python -m app.photo_import` | links photographs to items by filename |
 | `python -m app.vendor_cleanup` | merges, renames, re-kinds or deletes purchase sources, by explicit instruction |
-| `python -m app.kind_repair` | re-kinds banknotes imported as coins -- found by the note serial filed as a grading certificate -- moving the serial, clearing the coin's metal and series; `--commit` needs `--by EMAIL` for the change log |
 
 Run `classifier_defaults` before `series_classify`: note class is evidence for
 series. Before running any pass with `--commit` on the live database, take a
@@ -236,8 +227,8 @@ later note marked No Motto is listed as **disagrees**.
 
 **A person always wins.** A filled-in value shows a *suggested* mark in the
 item editor, with a tooltip saying where it came from. Change the field and
-save, and the value is yours: nothing fills that field again. A value a person
-or the import recorded is never replaced, but it narrows the facts: a $1
+save, and the value is yours: nothing fills that field again. A recorded
+value is never replaced, but it narrows the facts: a $1
 Series 1928 note recorded with a red seal is a United States Note.
 
 Defaults are brought up to date as an item is created or saved (correct a
@@ -259,41 +250,6 @@ A filled-in value the facts no longer support is withdrawn.
 Note classes use BEP's names: United States Note ("Legal Tender Note" is an
 alias), National Bank Note, Federal Reserve Note, Federal Reserve Bank Note,
 Silver and Gold Certificate, Fractional Currency, Demand Note, Treasury Note.
-
-### The rating pass
-
-The rating -- the owner's own text, `grade_raw` -- often says more than was
-first read. `app.rating_pass` reads it again with the current rules
-(`app/importers/rating.py`, which the importer uses too):
-
-| The rating says | Recorded |
-|---|---|
-| `69 PCGS`, `70DCAM PCGS` -- a number with no prefix | the grade, once something settles the strike: a P or SP prefix, a cameo (proof) or prooflike (business) designation, the same grade written in the description, or the description saying proof or uncirculated and not both |
-| `SP68PCGS`, `P70DCAM`, `PR70DCAMPCGS` | a specimen; P70 as proof; a designation and grader run together |
-| `UCAM`, `Ultra Cameo`, `DPL`, `FT`, `6FS` | DCAM, DMPL, Full Torch, six full steps |
-| `Reverse PF70`, `Rev Proof` | strike type reverse proof |
-| `First Strike`, `Early Release`, `First Release`, `FDI`/`FDOI` | release attributes |
-| `CAC` | the CAC attribute; `CAC Gold` the gold one |
-| `CACG`, or CAC with `First Delivery` | grader CACG, and First Delivery |
-| `Genuine` | authenticity genuine, and the Genuine attribute |
-| `No Motto`, `No God`, `Godless` | No Motto |
-| on a note: `67 EPQ`, `PMG55`, `PCGS66 PPQ`, `30 Very Fine` | the grade on the note scale (N67, N55, N66, N30) -- including for a note imported as a coin and re-kinded since, whose rating the importer never read as a note's |
-| a grader run into its number: `PMG55`, `PCGS66` | the grader |
-| `EPQ` or `PPQ` with no grader named | PMG for EPQ, PCGS for PPQ: each is that grader's own designation |
-
-`FS` is Full Steps only on a Jefferson nickel.
-
-**It fills what is empty.** A grade, strike, designation or grader already
-recorded stays, as does anything confirmed in the editor or emptied on
-purpose. What it fills carries the *suggested* mark ("Read from the rating"),
-and an attribute it adds shows *read*. Two things it corrects rather than
-fills, each listed: a strike the rating names outright (a stored proof the
-rating calls a reverse proof), and FS on anything but a Jefferson nickel.
-
-The report also lists **bare numbers with nothing to settle the strike** (a 67
-is not MS67 by default) and **attributes for the other kind of item** (a note
-rated FDOI). Every proposal is written to `rating_pass.csv` in the log
-directory (`CCWEB_LOG_DIR`, default `logs`); `--csv` writes it elsewhere.
 
 ### Filing photographs: the photo import pass
 
@@ -336,9 +292,9 @@ be a whole name: `PR` finds proofs and `D` Denver, but `s` does not match
 every strike containing an s. **Search tips**, under the box, lists examples;
 clicking one runs it.
 
-The rating is searched because it is often the only descriptive text an item
-has: a Whatnot row's title is its denomination and its description a lot
-number.
+The rating -- the owner's own rating text, `rating` -- is searched because it
+is often the only descriptive text an item has: many items' titles are only a
+denomination and their descriptions a lot number.
 
 | Type | Finds |
 |---|---|
@@ -384,7 +340,6 @@ shortcut on a disabled dropdown does nothing.
 |---|---|---|
 | **Entering an item on a purchase** (`POST /api/inventory`) | every new acquisition | requires a purchase order; see *Entering a purchase* |
 | **Splitting a lot** (`POST /api/inventory/{id}/split`) | a bought lot becomes individual pieces | children inherit the parent's claims and a share of its cost (`equal`, or `relative` to a value per piece); the parent gets `split_at` and drops out of every count. There is no console screen for it yet |
-| **The importer** (`app.importers`) | loading a new collection only | creates the item, its purchase order and its vendor together |
 | **`python -m app.seed`** | a new, empty database | five demo items; never on real data |
 
 Every path records an opening `item_status_history` row, so every item has a
@@ -731,8 +686,9 @@ as `0%` or `$0.00`; a blank means nobody has looked the terms up.
 
 ### Cleaning up purchase sources
 
-A platform links to a `vendor` row as its purchase source, and the importer
-created one vendor per spelling it met. `app.vendor_cleanup` tidies them, each
+A platform links to a `vendor` row as its purchase source, and the vendor
+list can hold one business under several spellings. `app.vendor_cleanup`
+tidies them, each
 change named on the command line -- which vendors are the same business is
 the owner's call:
 
@@ -905,8 +861,8 @@ they are needed, and renamed, retired, merged or reordered on the
   (`routers/reference.py`).
 - **Merge into...** replaces a value with another for good. The page previews
   the effect: every item holding the old value moves to the kept one, the old
-  label, code and aliases become aliases of the kept value (so ratings,
-  searches and imports using the old word still find it), and the old value is
+  label, code and aliases become aliases of the kept value (so ratings and
+  searches using the old word still find it), and the old value is
   deleted. The merge is remembered (`reference_merge`), so a seed load does
   not bring it back. A merge is refused when another vocabulary or a facts
   table uses the value; change those first, or retire instead. Values that
@@ -961,7 +917,8 @@ shipped catalogue and out of an export by default
 ### Provenance and reference data
 
 Every reference row records how it came to exist: `seeded` (shipped),
-`derived` (inferred by the importer), or `manual` (typed by a person). A
+`derived` (inferred from the collection's data), or `manual` (typed by a
+person). A
 machine guess must never be indistinguishable from a curated fact. Review
 `derived` rows before anyone exports them.
 
@@ -975,20 +932,18 @@ numbers. See the Reference data section of `CLAUDE.md`.
 
 ### Other names (aliases)
 
-A value's label is the standard term -- DCAM, United States Note, Walking
-Liberty Half Dollar. What people write is an **alias**: UCAM, Legal Tender,
+A value's label is the standard term -- UCAM, United States Note, Walking
+Liberty Half Dollar. What people write is an **alias**: Ultra Cameo, Legal Tender,
 Walker. The Vocabularies page lists and edits every vocabulary's aliases, and
 an alias works at once:
 
 | Where | What it does |
 |---|---|
 | The search box | finds items of that value |
-| The importer and rating pass | read the alias as the value, and the importer reports each (`aliased  : note_type: Legal Tender -> us_note (3 rows)`) |
 | Dropdowns | a long list has a **Find** box; typing an alias offers the value with the alias in brackets, and Enter picks the first |
 
 **Two values may share an alias** ("Cartwheel" is any large silver dollar).
-Search finds both; the importer, which cannot choose, uses neither. The
-console marks a shared alias. **An alias may not be a value's own label or
+Search finds both, and the console marks a shared alias. **An alias may not be a value's own label or
 code**, since those are matched first.
 
 **Removing a shipped alias retires it**, because seed loads only add and a
@@ -1034,9 +989,7 @@ cannot be entered twice.
 
 ## Backing up and restoring
 
-The database is the record. The workbook is not a backup; it has not
-described the collection since the import. **Photograph bytes are in no
-database backup** -- back up `MEDIA_ROOT` separately.
+The database is the record. **Photograph bytes are in no database backup** -- back up `MEDIA_ROOT` separately.
 
 There are three kinds of backup:
 
@@ -1046,8 +999,8 @@ There are three kinds of backup:
   repository.
 - **`python -m app.backup`** copies the whole database into another database,
   building the schema from the SQLAlchemy models. Every table is copied --
-  the three with no model (`import_batch`, `import_issue`, `import_row`) and
-  `alembic_version` too, read from the database itself. It is portable
+  `alembic_version`, which has no model, too, read from the database itself.
+  It is portable
   (another engine is a different `--to` URL) and suits a working copy beside
   live. It is **not** a pre-migration backup: its schema comes from the
   *current models*, so with new code checked out before live is migrated the
@@ -1233,38 +1186,6 @@ password in each window you use.
    The backend runs uvicorn without `--reload`, so until it restarts it serves
    the code that was running before, whatever the database's schema. Restart
    only once the release's branch is merged into `main` and checked out.
-
-## A new collection
-
-`scripts\ccweb_rebuild.cmd [<workbook>]` builds a separate database,
-`ccwebdb_rebuild`, and never touches `ccwebdb`. In order: drop and create
-`ccwebdb_rebuild`, `alembic upgrade head`, `app.seeding load`, the importer
-(`app.importers.cli --commit`), `series_match`, `classifier_defaults`,
-`series_classify`, `serial_patterns`, then `app.seed` last -- run earlier, its
-demo items would take the first item codes and offset every real one. The
-workbook defaults to `%USERPROFILE%\OneDrive\wnm3_coins.xlsx`.
-
-The importer's rules are specific to that workbook's layout
-(`docs/spreadsheet-import-design.md`); a collection in a different layout needs
-its own profile. The importer can be run on its own as a dry run that touches
-no database: `python -m app.importers.cli --file <path>` writes review CSVs to
-`logs\import\`. For the existing collection none of this is a way to fix data
--- see *The collection record*.
-
-### The canonical spreadsheet
-
-The historic workbook is exactly `C:\Users\wnmil\OneDrive\wnm3_coins.xlsx`.
-**Other files on this machine have the same name** -- under
-`OneDrive\Documents\`, `OneDrive\Documents\coins\`, `OldDocuments\`,
-`OldDocuments\coins\` and a phone download under `CrossDevice\`, among others
--- and all of them are stale snapshots, some only weeks older. `OneDrive\` also holds timestamped `wnm3_coins.backup-<date>-<time>.xlsx`
-copies, so a glob such as `wnm3_coins*.xlsx` matches several files. Match the
-exact name, never a prefix. If the path is ever in doubt, confirm modification
-dates rather than assuming: OneDrive sync can restat a file it did not change.
-
-The workbook has no plate numbers and no structured errors, and its `Taxes`,
-`Total Cost`, `Profit` and `Profit %` columns are headers over nearly empty
-cells; the importer reads only `Price` and `Shipping`.
 
 ## Things that are deliberately not configurable
 

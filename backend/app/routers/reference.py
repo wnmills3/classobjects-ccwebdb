@@ -49,7 +49,7 @@ TABLES: dict[str, type[ReferenceMixin]] = {
 #: Vocabularies the application branches on value by value -- a status, a
 #: kind, a strike -- and single values it looks up by code. Any of them may be
 #: renamed, since a label is only what a person reads, but retiring one would
-#: make the lookup fail: receiving, the importer or a sale would stop.
+#: make the lookup fail: receiving, a pass or a sale would stop.
 _CODE_KEYED_TABLES = frozenset(
     {
         "item_status",
@@ -298,9 +298,8 @@ def create_value(
     Marked `manual`, so one installation's additions stay distinguishable from
     the shipped catalogue and do not leave in an export unless asked for.
 
-    Staff only. The *importer* may also invent values, because it is
-    reconciling a real collection against an incomplete vocabulary; an
-    anonymous request has no such standing.
+    Staff only: an anonymous request has no standing to extend a
+    vocabulary.
     """
     model = _model_or_404(table)
 
@@ -427,11 +426,12 @@ def add_alias(
     """Give a value another name: what people write instead of its label.
 
     The standard term stays the label; the owner's word becomes an alias
-    ("UCAM" for DCAM). Search, the importer and the pickers recognise it at
-    once. A retired shipped alias is brought back rather than copied.
+    ("Ultra Cameo" for UCAM). Search and the pickers recognise it at once. A
+    retired shipped alias is brought back rather than copied.
 
     Two values may share an alias ("Cartwheel" is any large silver dollar):
-    search finds both, and the importer, which cannot choose, uses neither.
+    search finds both, and `aliases.resolve`, which cannot choose, names
+    neither.
     Refused when the alias is another value's own label or code, which would
     always win over it.
     """

@@ -8,7 +8,7 @@ Receiving page (`/owner/receiving`) and `POST /api/inventory/receive` are how.
 
 Receiving does not create inventory. An item already exists from the moment
 it was bought -- entered on New purchase (`POST /api/inventory` defaults
-`status` to `ordered`) or loaded by the spreadsheet importer -- and an item
+`status` to `ordered`) -- and an item
 awaiting arrival has `status = ordered`. Receiving is a **state transition on
 a row that already exists**, so the design problem is *finding the right
 row*, not typing anything in.

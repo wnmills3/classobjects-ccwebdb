@@ -1,7 +1,7 @@
 """The whole database as one Excel workbook, and back again.
 
-A backup a person can open, read and correct (owner, 2026-09-24): the old
-`wnm3_coins.xlsx` is obsolete, and the database is the record. One sheet per
+A backup a person can open, read and correct (owner, 2026-09-24): the
+database is the record. One sheet per
 table, every stored column, the ids and foreign keys exactly as stored, so an
 import rebuilds the same database -- relationships and all.
 
@@ -11,9 +11,8 @@ import rebuilds the same database -- relationships and all.
     python -m app.workbook_backup widths FILE              remember FILE's column widths
 
 **The tables come from the database itself**, by reflection, not from the
-models: three import-provenance tables (`import_batch`, `import_issue`,
-`import_row`) have no model, and a model-driven backup would lose them
-silently.
+models: a table that has no model would be lost silently by a model-driven
+backup.
 
 **What a cell holds.** Numbers and dates as Excel numbers and dates;
 timestamps as ISO text, so their time zone survives; JSON as JSON text;

@@ -1,8 +1,8 @@
 """What a coin is made of, from its denomination, country and year.
 
 A public fact, not an observation: a dime struck in 1963 is 90% silver
-because the law said so. Used by the importer when an item is created and by
-`app.classifier_defaults` when its facts change afterwards.
+because the law said so. Used by the defaults endpoint (`routers.defaults`)
+to suggest a composition while an item is being entered.
 """
 
 from __future__ import annotations
