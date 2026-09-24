@@ -155,7 +155,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   // in play, it lays out as a plain block -- still labelled, which is the
   // part that was missing everywhere.
   return (
-    <div className="field errors-panel">
+    <div className="field errors-panel" data-help="errors">
       <span>Errors</span>
       <div className="error-body">
         <ForSaleNotice
@@ -175,6 +175,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
                   <span>{label}</span>
                   <input
                     aria-label={`${label} details`}
+                    data-help="error_details"
                     value={row.details ?? ''}
                     onChange={(e) => editDetails(row.error_type, e.target.value)}
                     onBlur={() => save(list)}
@@ -213,6 +214,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
                 belongs to. */}
             <input
               aria-label="details for the error being added"
+              data-help="error_details"
               placeholder="details"
               value={details}
               onChange={(e) => setDetails(e.target.value)}

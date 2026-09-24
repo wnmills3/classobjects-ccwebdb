@@ -1,6 +1,8 @@
 import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
 
+import HelpScope from '../../HelpScope'
+
 import { date, money } from '../../../shared/format'
 
 function cell(row, key, kind) {
@@ -73,83 +75,86 @@ export default function InventoryTable({
   }
 
   return (
-    <table className="table inventory-table">
-      <thead>
-        <tr>
-          <th className="select-cell">
-            {/* Selects the current page, not the whole result set.
+    <HelpScope>
+      <table className="table inventory-table">
+        <thead>
+          <tr>
+            <th className="select-cell" data-help="select_page">
+              {/* Selects the current page, not the whole result set.
                 "Apply to 7,591" from one click on a 50-row page is not
                 something anyone means. */}
-            <input
-              type="checkbox"
-              checked={allShown}
-              onChange={() =>
-                onSelect(
-                  allShown
-                    ? selected.filter((id) => !ids.includes(id))
-                    : [...new Set([...selected, ...ids])],
-                )
-              }
-            />
-          </th>
-          {config.columns.map(([label, key]) =>
-            sortable.includes(key) ? (
-              <th
-                key={key}
-                className="sortable"
-                onClick={() =>
-                  apply({
-                    sort: key,
-                    desc: current.sort === key && current.desc !== 'true' ? 'true' : '',
-                  })
+              <input
+                type="checkbox"
+                checked={allShown}
+                onChange={() =>
+                  onSelect(
+                    allShown
+                      ? selected.filter((id) => !ids.includes(id))
+                      : [...new Set([...selected, ...ids])],
+                  )
                 }
-              >
-                {label}
-                {sortMarker(current, key)}
-              </th>
-            ) : (
-              <th key={key}>{label}</th>
-            ),
-          )}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => {
-          const detail = config.detail ? row[config.detail] : null
-          return (
-            <Fragment key={row.id}>
-              <tr className={detail ? 'has-detail' : undefined}>
-                <td className="select-cell">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(row.id)}
-                    onChange={() => toggle(row.id)}
-                  />
-                </td>
-                {config.columns.map(([, key, kind]) => (
-                  <td key={key} className={kind === 'money' ? undefined : kind}>
-                    {key === 'item_code' ? (
-                      <button className="link mono" onClick={() => onOpen(row.id)}>
-                        {row.item_code}
-                      </button>
-                    ) : key === 'order_number' ? (
-                      orderCell(row)
-                    ) : (
-                      cell(row, key, kind)
-                    )}
+              />
+            </th>
+            {config.columns.map(([label, key]) =>
+              sortable.includes(key) ? (
+                <th
+                  key={key}
+                  className="sortable"
+                  onClick={() =>
+                    apply({
+                      sort: key,
+                      desc:
+                        current.sort === key && current.desc !== 'true' ? 'true' : '',
+                    })
+                  }
+                >
+                  {label}
+                  {sortMarker(current, key)}
+                </th>
+              ) : (
+                <th key={key}>{label}</th>
+              ),
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const detail = config.detail ? row[config.detail] : null
+            return (
+              <Fragment key={row.id}>
+                <tr className={detail ? 'has-detail' : undefined}>
+                  <td className="select-cell" data-help="select_row">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(row.id)}
+                      onChange={() => toggle(row.id)}
+                    />
                   </td>
-                ))}
-              </tr>
-              {detail && (
-                <tr className="item-detail">
-                  <td className="select-cell" />
-                  <td colSpan={config.columns.length}>{detail}</td>
+                  {config.columns.map(([, key, kind]) => (
+                    <td key={key} className={kind === 'money' ? undefined : kind}>
+                      {key === 'item_code' ? (
+                        <button className="link mono" onClick={() => onOpen(row.id)}>
+                          {row.item_code}
+                        </button>
+                      ) : key === 'order_number' ? (
+                        orderCell(row)
+                      ) : (
+                        cell(row, key, kind)
+                      )}
+                    </td>
+                  ))}
                 </tr>
-              )}
-            </Fragment>
-          )
-        })}
-      </tbody>
-    </table>
+                {detail && (
+                  <tr className="item-detail">
+                    <td className="select-cell" />
+                    <td colSpan={config.columns.length}>{detail}</td>
+                  </tr>
+                )}
+              </Fragment>
+            )
+          })}
+        </tbody>
+      </table>
+    </HelpScope>
   )
 }

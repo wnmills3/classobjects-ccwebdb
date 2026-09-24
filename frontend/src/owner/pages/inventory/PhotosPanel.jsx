@@ -132,7 +132,7 @@ export default function PhotosPanel({ itemId, saleState }) {
   const loading = links === null
 
   return (
-    <div className="photos-panel">
+    <div className="photos-panel" data-help="photos">
       <h3>Photographs</h3>
       <ForSaleNotice
         uses={saleState ?? []}

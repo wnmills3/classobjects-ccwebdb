@@ -174,7 +174,7 @@ function AttributesField({ item, codes, onChange, kind }) {
   const held = new Map((item.attributes ?? []).map((a) => [a.code, a]))
 
   return (
-    <div className="field">
+    <div className="field" data-help="attributes">
       <span>Attributes</span>
       <div className="attribute-list">
         {codes.map((code) => {
@@ -614,7 +614,11 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
     if (!columns) return <span />
     const cols = [].concat(columns)
     return (
-      <label className="review-mark" title="I have confirmed this by examination">
+      <label
+        className="review-mark"
+        title="I have confirmed this by examination"
+        data-help="reviewed"
+      >
         <input
           type="checkbox"
           checked={cols.every((c) => reviewed.includes(c))}
@@ -627,7 +631,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   }
 
   const rangeToggle = (
-    <label className="checkbox">
+    <label className="checkbox" data-help="year_range">
       <input type="checkbox" checked={ranged} onChange={toggleRange} {...accel('r')} />
       {/* */}
       <AccessLabel text="Range of years" accessKey="r" />
@@ -775,7 +779,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         )}
 
         {TEXT_FIELDS.map(([label, key, letter]) => (
-          <label key={key} className="field">
+          <label key={key} className="field" data-help={key}>
             <AccessLabel text={label} accessKey={letter} />
             <input
               type="text"
@@ -811,7 +815,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           One row that stays mounted, with the end year added beneath it.
           Two separate layouts replaced the checkbox itself on every tick, and
           a keyboard user's focus went with it. */}
-        <div className="field">
+        <div className="field" data-help={ranged ? 'year_start' : 'year'}>
           <label htmlFor={yearId}>
             <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
           </label>
@@ -833,7 +837,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
         </div>
         {ranged && (
-          <div className="field">
+          <div className="field" data-help="year_end">
             <label htmlFor={yearEndId}>
               <AccessLabel text="Year to" accessKey="o" />
             </label>
@@ -858,7 +862,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         )}
 
         {NUMBER_FIELDS.map(([label, key, letter]) => (
-          <label key={key} className="field">
+          <label key={key} className="field" data-help={key}>
             <AccessLabel text={label} accessKey={letter} />
             <input
               type="number"
@@ -872,7 +876,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         ))}
 
         {MONEY_FIELDS.map(([label, key, letter]) => (
-          <label key={key} className="field">
+          <label key={key} className="field" data-help={key}>
             <AccessLabel text={label} accessKey={letter} />
             {/* Text, not number. Money crosses the API as a string and a number
               input would hand back a float, which is the one thing this
@@ -900,7 +904,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             <span title="Recalculated by the database when saved">
               {`$${item.sales_tax}`}
             </span>
-            <label className="checkbox">
+            <label className="checkbox" data-help="no_sales_tax">
               <input
                 type="checkbox"
                 checked={untaxed}
