@@ -1,0 +1,345 @@
+{
+  "About": {
+    "ccwebdb-workbook-1": 48.93,
+    "format": 22.6
+  },
+  "Columns": {
+    "column": 19.13,
+    "references": 22.27,
+    "table": 12.0,
+    "type": 13.13
+  },
+  "authenticity": {
+    "code": 12.93,
+    "label": 12.53
+  },
+  "bullion_form": {
+    "code": 20.2,
+    "label": 20.0,
+    "typical_fine_weight_ozt": 20.4,
+    "typical_fineness": 14.0
+  },
+  "carrier": {
+    "tracking_url_template": 53.53
+  },
+  "coin_detail": {
+    "pcgs_status": 12.53,
+    "pcgs_type_id": 14.53
+  },
+  "composition": {
+    "created_at": 31.2,
+    "denomination_id": 14.6,
+    "fine_weight_ozt": 13.46,
+    "gross_weight_ozt": 14.46,
+    "id": 4.27,
+    "note": 57.6,
+    "updated_at": 30.13
+  },
+  "country": {
+    "id": 5.33,
+    "iso_alpha2": 9.66,
+    "label": 13.0
+  },
+  "currency": {
+    "code": 6.46,
+    "id": 4.93,
+    "label": 15.6,
+    "symbol": 7.0
+  },
+  "currency_detail": {
+    "back_plate_number": 17.33,
+    "face_plate_number": 16.93,
+    "fed_district_id": 12.86,
+    "friedberg_id": 12.8,
+    "friedberg_status": 14.2,
+    "inventory_item_id": 15.46,
+    "note_type_id": 11.66,
+    "plate_position": 13.0,
+    "seal_color_id": 11.66,
+    "serial_number": 18.27,
+    "series_designation (computed)": 25.27,
+    "series_letter": 11.73,
+    "series_year": 10.07,
+    "signature_combination_id": 21.0
+  },
+  "denomination": {
+    "code": 17.66,
+    "label": 20.4
+  },
+  "disposition": {
+    "code": 16.33,
+    "id": 3.53,
+    "label": 16.66
+  },
+  "error_type": {
+    "code": 18.27,
+    "id": 4.4,
+    "label": 24.27
+  },
+  "fed_district": {
+    "city": 13.2,
+    "code": 5.13,
+    "id": 4.66,
+    "label": 17.93,
+    "letter": 4.86
+  },
+  "friedberg_number": {
+    "base_number": 14.86,
+    "created_at": 30.07,
+    "denomination_id": 14.8,
+    "description": 10.53,
+    "district_letter": 13.07,
+    "fr_number": 11.2,
+    "id": 4.4,
+    "note_type_id": 11.07,
+    "seal_color_id": 11.4,
+    "series_letter": 11.13,
+    "series_year": 9.93,
+    "signature_combination_id": 21.66,
+    "updated_at": 29.86,
+    "verified_at": 30.86,
+    "verified_by_id": 12.33
+  },
+  "grade": {
+    "code": 13.73,
+    "label": 21.0
+  },
+  "grade_designation": {
+    "id": 3.66
+  },
+  "grade_scale": {
+    "id": 4.6,
+    "label": 20.2
+  },
+  "grading_service": {
+    "id": 4.07,
+    "label": 11.0
+  },
+  "image_role": {
+    "code": 10.86,
+    "id": 4.27,
+    "label": 13.33
+  },
+  "import_batch": {
+    "finished_at": 32.46,
+    "id": 4.33,
+    "profile_name": 14.0,
+    "sha256": 15.27,
+    "source_kind": 11.73,
+    "source_path": 35.73,
+    "started_at": 30.73
+  },
+  "import_issue": {
+    "column_name": 14.2,
+    "import_row_id": 12.93,
+    "note": 28.86,
+    "raw_value": 12.13,
+    "resolved_at": 37.53,
+    "resolved_by": 11.8,
+    "rule": 19.53,
+    "severity": 10.66
+  },
+  "import_row": {
+    "classified_by_rule": 21.66,
+    "inventory_item_id": 16.07,
+    "raw": 128.46,
+    "status": 12.2,
+    "subtype": 12.4
+  },
+  "inventory_item": {
+    "attributes": 32.86,
+    "composition_id": 13.07,
+    "created_at": 30.53,
+    "deleted_at": 10.53,
+    "denom_raw": 17.8,
+    "description": 68.86,
+    "fine_weight_ozt": 14.33,
+    "grade_raw": 22.27,
+    "gross_weight_ozt": 15.27,
+    "item_code": 11.86,
+    "listing_url": 84.73,
+    "numismatic_value": 15.4,
+    "parent_item_id": 13.33,
+    "sales_tax (computed)": 18.0,
+    "shipping_cost": 12.8,
+    "source_title": 18.73,
+    "strike_type_id": 12.73,
+    "tax_includes_shipping": 19.46,
+    "total_cost (computed)": 18.13,
+    "updated_at": 31.73,
+    "valuation_basis_id": 15.73,
+    "weight_raw": 11.53,
+    "year_raw": 12.86
+  },
+  "item_attribute": {
+    "code": 21.0,
+    "id": 4.6,
+    "label": 21.86
+  },
+  "item_attribute_link": {
+    "noted_at": 30.13,
+    "removed_at": 29.4
+  },
+  "item_certification": {
+    "cert_number": 16.93,
+    "created_at": 32.8,
+    "grading_service_id": 16.27,
+    "id": 4.07,
+    "inventory_item_id": 16.46,
+    "raw": 14.4,
+    "updated_at": 30.27
+  },
+  "item_error": {
+    "details": 17.86,
+    "noted_at": 32.73
+  },
+  "item_field_change": {
+    "changed_at": 31.8,
+    "changed_by_id": 12.4,
+    "field_name": 22.53,
+    "inventory_item_id": 15.53,
+    "new_value": 25.27,
+    "old_value": 22.86
+  },
+  "item_field_review": {
+    "field_name": 15.0,
+    "inventory_item_id": 15.8,
+    "reviewed_at": 31.13,
+    "reviewed_by_id": 13.6
+  },
+  "item_kind": {
+    "code": 10.6,
+    "id": 4.4,
+    "label": 11.0
+  },
+  "item_status_history": {
+    "arrived_on": 16.0,
+    "changed_at": 31.93,
+    "changed_by_id": 32.0,
+    "from_status_id": 14.13,
+    "inventory_item_id": 16.66,
+    "note": 22.73,
+    "to_status_id": 11.27
+  },
+  "metal": {
+    "label": 16.73
+  },
+  "mint": {
+    "label": 20.6
+  },
+  "note_issue": {
+    "denomination_id": 14.66,
+    "id": 3.86,
+    "note_type_id": 11.53,
+    "seal_color_id": 11.4,
+    "series_letter": 11.93,
+    "series_year": 9.8,
+    "signature_combination_id": 22.0,
+    "variant": 26.53
+  },
+  "note_type": {
+    "code": 17.93,
+    "id": 4.86,
+    "label": 22.2
+  },
+  "offer_claim": {
+    "created_at": 27.27,
+    "inventory_item_id": 15.73,
+    "listing_id": 15.4,
+    "updated_at": 32.07
+  },
+  "purchase_order": {
+    "created_at": 31.8,
+    "notes": 32.27,
+    "order_number": 16.0,
+    "ordered_on": 13.53,
+    "source_url": 255.53,
+    "updated_at": 31.0,
+    "vendor_id": 9.2
+  },
+  "reference_alias": {
+    "alias": 22.13,
+    "table_name": 19.46
+  },
+  "sales_fee_kind": {
+    "code": 16.8,
+    "id": 3.6,
+    "label": 19.53
+  },
+  "sales_order_item_share": {
+    "fee_amount": 10.86,
+    "inventory_item_id": 17.33,
+    "sales_order_item_id": 17.93
+  },
+  "sales_venue": {
+    "created_at": 29.73,
+    "updated_at": 31.33
+  },
+  "sales_venue_kind": {
+    "code": 15.2,
+    "label": 18.46
+  },
+  "seal_color": {
+    "label": 11.0
+  },
+  "series": {
+    "code": 25.07,
+    "label": 31.53
+  },
+  "series_alias": {
+    "alias": 24.6,
+    "id": 3.93
+  },
+  "set_form": {
+    "code": 20.53,
+    "label": 20.4
+  },
+  "shipment_image": {
+    "shipment_id": 12.2
+  },
+  "shipment_status": {
+    "code": 16.07,
+    "label": 17.86
+  },
+  "signature_combination": {
+    "code": 22.13,
+    "label": 23.0,
+    "secretary": 29.8,
+    "treasurer": 24.53
+  },
+  "storage_form": {
+    "default_quantity": 15.86
+  },
+  "storage_location_kind": {
+    "code": 15.4,
+    "label": 25.13
+  },
+  "strike_type": {
+    "code": 23.27,
+    "label": 21.0,
+    "suffix": 22.07
+  },
+  "users": {
+    "created_at": 31.73,
+    "email": 20.4,
+    "full_name": 17.86,
+    "hashed_password": 96.13
+  },
+  "valuation_basis": {
+    "code": 11.6,
+    "id": 4.33,
+    "label": 18.0
+  },
+  "vendor": {
+    "created_at": 35.53,
+    "host": 27.27,
+    "name": 27.46,
+    "updated_at": 31.73,
+    "url": 54.8
+  },
+  "vendor_kind": {
+    "code": 15.46,
+    "id": 4.27,
+    "label": 15.0
+  }
+}

@@ -1117,6 +1117,18 @@ an empty value. Columns headed `(computed)` -- `total_cost`, `sales_tax`, ...
 -- are for reading; the import ignores them and the database recomputes them.
 Change values freely; keep the header row and the id columns as they are.
 
+**Column widths are remembered.** Each export sizes its columns from
+`backend\data\workbook_widths.json`, by sheet and column name, so a width stays
+with its column when a migration adds or moves one. To change them, resize the
+columns in an export, save it, and run:
+
+```cmd
+python -m app.workbook_backup widths <file.xlsx>
+```
+
+A sheet you resized replaces that sheet's remembered widths; the others stay.
+Commit the widths file so the next export uses them.
+
 **Restoring from it.** Always into a new database, from `backend\`:
 
 ```cmd

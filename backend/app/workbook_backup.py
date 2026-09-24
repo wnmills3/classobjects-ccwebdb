@@ -8,6 +8,7 @@ import rebuilds the same database -- relationships and all.
     python -m app.workbook_backup export [--out FILE]      live -> workbook
     python -m app.workbook_backup import FILE --to URL     workbook -> database
     python -m app.workbook_backup compare URL              live vs URL, row by row
+    python -m app.workbook_backup widths FILE              remember FILE's column widths
 
 **The tables come from the database itself**, by reflection, not from the
 models: three import-provenance tables (`import_batch`, `import_issue`,
@@ -29,6 +30,12 @@ foreign-key order (a column that points at its own table, or at one loaded
 later, is filled in a second pass), and every id sequence is moved past the
 highest id. It refuses the live database: restore into a new one, compare
 it, then switch to it.
+
+**Column widths are remembered** (owner, 2026-09-24): each export sizes its
+columns from `data/workbook_widths.json`, keyed by sheet and column *name*
+rather than letter, so a width follows its column when a migration adds or
+moves one. Resize columns in an export, save it, and `widths FILE` records
+them; a sheet it finds widths on replaces that sheet's entry, the rest stay.
 """
 
 from __future__ import annotations
@@ -45,6 +52,7 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell import WriteOnlyCell
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import (
     JSON,
@@ -73,11 +81,15 @@ from .config import REPO_ROOT, settings
 
 __all__ = [
     "EMPTY_STRING",
+    "WIDTHS_FILE",
     "Difference",
+    "capture_widths",
     "compare",
     "export_workbook",
     "from_cell",
     "import_workbook",
+    "load_widths",
+    "remember_widths",
     "to_cell",
 ]
 
@@ -87,8 +99,12 @@ EMPTY_STRING = '""'
 COMPUTED = " (computed)"
 #: Sheets that describe the workbook rather than hold a table.
 ABOUT, COLUMNS = "About", "Columns"
+#: The remembered column widths: {sheet: {column name: width}}.
+WIDTHS_FILE = Path(__file__).resolve().parents[1] / "data" / "workbook_widths.json"
 #: Changed when the layout changes, so an old workbook is recognised.
 FORMAT = "ccwebdb-workbook-1"
+#: The About sheet's first row, which its widths are keyed by.
+ABOUT_HEADER = ("format", FORMAT)
 #: The migration table: recorded on the About sheet, never loaded.
 VERSION_TABLE = "alembic_version"
 #: Rows written per insert round trip.
@@ -240,8 +256,82 @@ def _text_cell(sheet: Worksheet, value: object) -> object:
     return value
 
 
-def export_workbook(engine: Engine, path: Path) -> dict[str, int]:
-    """Write every table to `path`; the rows written, per table."""
+Widths = dict[str, dict[str, float]]
+
+
+def load_widths(path: Path = WIDTHS_FILE) -> Widths:
+    """The remembered widths, or none if nothing has been remembered yet."""
+    if not path.exists():
+        return {}
+    loaded: Widths = json.loads(path.read_text(encoding="utf-8"))
+    return loaded
+
+
+def capture_widths(workbook: Path) -> Widths:
+    """The widths a person set in `workbook`, by sheet and column-heading name.
+
+    Only widths set by hand (Excel's custom width); a column left at the
+    default is not recorded. Excel may save one width for a run of adjacent
+    columns, so each run is expanded to every column it covers.
+    """
+    book = load_workbook(workbook)
+    out: Widths = {}
+    for sheet in book.worksheets:
+        names = {
+            cell.column: str(cell.value)
+            for cell in next(sheet.iter_rows(min_row=1, max_row=1), ())
+            if cell.value is not None
+        }
+        found: dict[str, float] = {}
+        for dimension in sheet.column_dimensions.values():
+            if not dimension.customWidth or not dimension.width:
+                continue
+            for index in range(dimension.min or 0, (dimension.max or 0) + 1):
+                if index in names:
+                    found[names[index]] = round(float(dimension.width), 2)
+        if found:
+            out[sheet.title] = dict(sorted(found.items()))
+    book.close()
+    return out
+
+
+def remember_widths(workbook: Path, path: Path = WIDTHS_FILE) -> Widths:
+    """Merge `workbook`'s widths into the remembered ones; what is stored now.
+
+    A sheet with widths in `workbook` replaces that sheet's entry outright --
+    the owner's latest sizing of it -- and sheets it has no widths on keep
+    theirs.
+    """
+    merged = load_widths(path)
+    merged.update(capture_widths(workbook))
+    ordered = dict(sorted(merged.items()))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(ordered, indent=2) + "\n", encoding="utf-8", newline="\n"
+    )
+    return ordered
+
+
+def _size(sheet: Worksheet, header: Sequence[object], widths: dict[str, float]) -> None:
+    """Size a sheet's columns from the remembered widths, before its first row.
+
+    A write-only sheet writes its column widths ahead of the rows, so this must
+    run before the header is appended.
+    """
+    for index, name in enumerate(header, start=1):
+        width = widths.get(str(name))
+        if width:
+            sheet.column_dimensions[get_column_letter(index)].width = width
+
+
+def export_workbook(
+    engine: Engine, path: Path, widths: Widths | None = None
+) -> dict[str, int]:
+    """Write every table to `path`; the rows written, per table.
+
+    `widths` sizes the columns; by default the remembered ones.
+    """
+    sizes = load_widths() if widths is None else widths
     meta = reflect(engine)
     tables = _tables(meta)
     book = Workbook(write_only=True)
@@ -249,10 +339,18 @@ def export_workbook(engine: Engine, path: Path) -> dict[str, int]:
     with engine.connect() as conn:
         revision = _revision(conn)
         about = book.create_sheet(ABOUT)
+        _size(about, ABOUT_HEADER, sizes.get(ABOUT, {}))
         columns = book.create_sheet(COLUMNS)
-        columns.append(
-            ["table", "column", "type", "nullable", "computed", "references"]
-        )
+        column_header = [
+            "table",
+            "column",
+            "type",
+            "nullable",
+            "computed",
+            "references",
+        ]
+        _size(columns, column_header, sizes.get(COLUMNS, {}))
+        columns.append(column_header)
         for table in tables:
             for column in table.columns:
                 refs = ", ".join(
@@ -272,9 +370,9 @@ def export_workbook(engine: Engine, path: Path) -> dict[str, int]:
         for table in tables:
             sheet = book.create_sheet(table.name)
             stored, computed = _stored(table), _computed(table)
-            sheet.append(
-                [c.name for c in stored] + [c.name + COMPUTED for c in computed]
-            )
+            header = [c.name for c in stored] + [c.name + COMPUTED for c in computed]
+            _size(sheet, header, sizes.get(table.name, {}))
+            sheet.append(header)
             n = 0
             everything = [*stored, *computed]
             result = conn.execution_options(yield_per=CHUNK).execute(
@@ -288,7 +386,7 @@ def export_workbook(engine: Engine, path: Path) -> dict[str, int]:
                 sheet.append(cells)
                 n += 1
             counts[table.name] = n
-        about.append(["format", FORMAT])
+        about.append(list(ABOUT_HEADER))
         about.append(["exported", datetime.now(UTC).astimezone().isoformat()])
         about.append(["database", make_url(str(engine.url)).database])
         about.append(["migration revision", revision])
@@ -569,10 +667,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     imp.add_argument("--to", required=True, help="the database URL to load into")
     cmp_ = sub.add_parser("compare", help="compare the live database with another")
     cmp_.add_argument("url")
+    wid = sub.add_parser("widths", help="remember a workbook's column widths")
+    wid.add_argument("file", type=Path)
     args = parser.parse_args(argv)
 
     live = create_engine(settings.database_url)
     try:
+        if args.command == "widths":
+            stored = remember_widths(args.file)
+            columns = sum(len(v) for v in stored.values())
+            print(
+                f"remembered {columns} column widths on {len(stored)} sheets "
+                f"in {WIDTHS_FILE}"
+            )
+            return 0
         if args.command == "export":
             path = args.out or default_path()
             counts = export_workbook(live, path)
