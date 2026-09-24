@@ -98,6 +98,8 @@ const CLASSIFIERS = [
   // offered only for the item's kind. No letters left for these two.
   ['Grade designation', 'grade_designation', 'grade_designation', null],
   ['Grading service', 'grading_service', 'grading_service', null],
+  // A coin's own detail. `P` is Philadelphia; blank is not recorded.
+  ['Mint', 'mint', 'mint', null],
   ['Denomination', 'denomination', 'denomination', 'm'],
   ['Country', 'country', 'country', 'u'],
   ['Metal', 'metal', 'metal', 'l'],
@@ -307,6 +309,7 @@ const FIXED_VOCABULARIES = new Set([
   'strike_type',
   'grade_designation',
   'grading_service',
+  'mint',
 ])
 
 /**
@@ -974,6 +977,15 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
               {review(REVIEWABLE[key])}
             </label>
           ),
+        )}
+
+        {fieldFitsKind('variety', value('item_kind')) && (
+          <label className="field" data-help="variety">
+            <span>Variety</span>
+            <input value={value('variety')} onChange={set('variety')} />
+            {side('variety', 'variety')}
+            <span />
+          </label>
         )}
 
         <label className="field" data-help="cert_numbers">

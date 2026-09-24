@@ -401,6 +401,67 @@ describe('Grading: designation, service and certificate', () => {
   })
 })
 
+describe('Mint and variety', () => {
+  const vocabularies = emptyReference({
+    tables: {
+      mint: [
+        { code: 'O', label: 'New Orleans', source: 'seeded', extra: {} },
+        { code: 'S', label: 'San Francisco', source: 'seeded', extra: {} },
+      ],
+      item_kind: [
+        { code: 'coin', label: 'Coin', source: 'seeded', extra: {} },
+        { code: 'currency', label: 'Currency', source: 'seeded', extra: {} },
+      ],
+    },
+  })
+
+  async function open(overrides) {
+    api.getInventoryItem.mockResolvedValue({ ...item, version: 3, ...overrides })
+    api.updateInventoryItem.mockResolvedValue({})
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+  }
+
+  it('lets a coin record its mint and variety', async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'coin', mint: null, variety: null })
+    await user.selectOptions(screen.getByRole('combobox', { name: 'mint' }), 'O')
+    await user.type(screen.getByRole('textbox', { name: 'Variety' }), 'VAM-3')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({
+          mint: 'O',
+          variety: 'VAM-3',
+          base: expect.objectContaining({ mint: null, variety: null }),
+        }),
+      ),
+    )
+  })
+
+  it('does not offer a note a mint or variety', async () => {
+    await open({ item_kind: 'currency' })
+    expect(screen.queryByRole('combobox', { name: 'mint' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Variety' })).toBeNull()
+  })
+
+  it('clears the mint when a coin becomes a note', async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'coin', mint: 'S', variety: 'Micro O' })
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'item_kind' }),
+      'currency',
+    )
+    const said = screen.getByRole('status')
+    expect(said).toHaveTextContent('Mint (S)')
+    expect(said).toHaveTextContent('Variety (Micro O)')
+  })
+})
+
 describe('Suggest description', () => {
   beforeEach(() => {
     api.getSuggestedDescription = vi.fn()

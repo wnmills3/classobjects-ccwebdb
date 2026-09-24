@@ -34,6 +34,7 @@ export const COIN_ONLY_FIELDS = new Set([
   'metal',
   'mint',
   'bullion_form',
+  'variety',
 ])
 
 //: Fields only paper money has.
