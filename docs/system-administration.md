@@ -413,7 +413,7 @@ NULL, and a null for either is refused naming the field.
 **Editable classifiers**, set by code rather than id: `item_kind`, `country`,
 `denomination`, `bullion_form`, `strike_type`, `grade`, `grade_designation`,
 `grading_service`, `metal`, `series`, `storage_form`, `authenticity`,
-`status`, `disposition`. Five are NOT NULL (`item_kind`, `storage_form`,
+`status`, `disposition` -- and a coin's `mint` (by code) and `variety`, on its coin detail, created if it has none and refused for a banknote. Five are NOT NULL (`item_kind`, `storage_form`,
 `authenticity`, `status`, `disposition`) and refuse a null or empty code.
 A designation of the other kind is refused naming the item -- EPQ or PPQ on
 anything but a note, DCAM, FBL and the rest on a note -- including by a bare

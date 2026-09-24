@@ -723,6 +723,11 @@ class ItemDetailOut(InventoryItemOut):
     status: str | None = None
     disposition: str | None = None
 
+    # -- the coin's own detail; null for a note, or where not recorded.
+    #: The mint mark's code (`S`, `CC`); `P` is Philadelphia.
+    mint: str | None = None
+    variety: str | None = None
+
     # -- the note's currency detail; all null for anything but a note.
     note_type: str | None = None
     seal_color: str | None = None
@@ -825,6 +830,10 @@ class InventoryItemUpdate(BaseModel):
     authenticity: str | None = Field(default=None, max_length=64)
     status: str | None = Field(default=None, max_length=64)
     disposition: str | None = Field(default=None, max_length=64)
+
+    # Coin fields, on the coin's own detail. Refused for a banknote.
+    mint: str | None = Field(default=None, max_length=64)
+    variety: str | None = Field(default=None, max_length=128)
 
     # Banknote fields, on the note's currency detail. Refused by name for an
     # item that is not a note, as `ItemCreate` refuses them.

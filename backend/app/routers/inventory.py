@@ -1058,6 +1058,12 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
         field: _classifier_code(db, model, getattr(item, f"{field}_id"))
         for field, model in ITEM_CLASSIFIERS.items()
     }
+    coin: dict[str, object] = {}
+    if (struck := item.coin_detail) is not None:
+        coin = {
+            "mint": _classifier_code(db, Mint, struck.mint_id),
+            "variety": struck.variety,
+        }
     note: dict[str, object] = {}
     if (detail := item.currency_detail) is not None:
         note = {
@@ -1106,6 +1112,7 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
             )
         },
         **classifiers,
+        **coin,
         **note,
         cert_numbers=_cert_numbers(db, item.id),
         grade_display=grades.display_item(item),
@@ -1362,6 +1369,7 @@ NOTE_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
 HISTORY_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
     **ITEM_CLASSIFIERS,
     **NOTE_CLASSIFIERS,
+    "mint": Mint,
     "attributes": ItemAttribute,
 }
 
@@ -1576,6 +1584,61 @@ def _refuse_coin_only_fields(
                 "Nothing was changed."
             ),
         )
+
+
+#: A coin's own fields, on `coin_detail` rather than the item.
+COIN_DETAIL_FIELDS: tuple[str, ...] = ("mint", "variety")
+
+
+def _refuse_coin_detail_on_a_note(
+    data: dict[str, object],
+    item: InventoryItem,
+    coin_changes: dict[str, object],
+    db: Session,
+) -> None:
+    """Raise a 422 if a mint or variety is sent for what will be a banknote.
+
+    A kind change to currency already drops the coin's row with its mint
+    (`app.item_kinds`), so only a value actually sent needs refusing.
+    """
+    sent = [field for field, value in coin_changes.items() if value not in (None, "")]
+    if not sent:
+        return
+    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    if _effective_is_currency(data, item, currency_id):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{', '.join(sent)} belongs to coins, not banknotes: "
+                f"{item.item_code}. Nothing was changed."
+            ),
+        )
+
+
+def _set_coin_detail(
+    db: Session, item: InventoryItem, changes: dict[str, object]
+) -> None:
+    """Write a coin's mint and variety, creating its detail row if it has none."""
+    detail = db.get(CoinDetail, item.id)
+    if detail is None:
+        # Through the relationship, not only the session: the change log's
+        # "after" reads `item.coin_detail`, which would otherwise stay None.
+        detail = CoinDetail(inventory_item_id=item.id)
+        item.coin_detail = detail
+    if "mint" in changes:
+        code = changes["mint"]
+        detail.mint_id = code_to_id(
+            db,
+            Mint,
+            code if isinstance(code, str) else None,
+            "mint",
+            keep=detail.mint_id,
+        )
+    if "variety" in changes:
+        variety = changes["variety"]
+        detail.variety = (variety.strip() or None) if isinstance(variety, str) else None
+    # Another table: touching the item moves its version, as with attributes.
+    item.updated_at = datetime.now(UTC)
 
 
 def _refuse_mismatched_designation(
@@ -1907,6 +1970,9 @@ def update_item(
     # The item as it stands, in those same terms: the merge compares against
     # it, and the change log records it as each changed field's old value.
     before = field_values(db, item)
+    # The coin's own fields live on its detail row, not on the item.
+    coin_changes = {f: data.pop(f) for f in COIN_DETAIL_FIELDS if f in data}
+    _refuse_coin_detail_on_a_note(data, item, coin_changes, db)
     _refuse_null_scalars(data)
     _refuse_coin_only_fields(data, [item], db)
     _refuse_mismatched_denomination(data, [item], db)
@@ -1990,6 +2056,8 @@ def update_item(
                 setattr(item, f"{field}_id", resolved)
 
     _set_notes_and_detail(db, [item], note_changes, kind_changed="item_kind" in data)
+    if coin_changes:
+        _set_coin_detail(db, item, coin_changes)
 
     for field in EDITABLE_SCALARS:
         if field in data and field not in YEAR_FIELDS:
