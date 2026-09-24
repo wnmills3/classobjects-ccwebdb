@@ -175,12 +175,12 @@ describe('ReceiptPanel', () => {
 
   it('keeps the confirm-and-correct section out of the way until asked', async () => {
     renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
-    expect(screen.queryByLabelText(/grade/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^grade$/i)).not.toBeInTheDocument()
 
     await userEvent.click(
       await screen.findByRole('button', { name: /confirm or correct/i }),
     )
-    expect(await screen.findByLabelText(/grade/i)).toBeInTheDocument()
+    expect(await screen.findByLabelText(/^grade$/i)).toBeInTheDocument()
   })
 
   it('uploads a photograph against the one item it was taken of', async () => {

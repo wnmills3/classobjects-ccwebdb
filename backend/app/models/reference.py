@@ -79,7 +79,7 @@ __all__ = [
 
 
 class AppliesTo(enum.StrEnum):
-    """Which kind of item an error type or an attribute is relevant to."""
+    """Which kind of item an error type, attribute or designation is relevant to."""
 
     coin = "coin"
     currency = "currency"
@@ -428,9 +428,21 @@ class Grade(ReferenceMixin, Base):
 
 
 class GradeDesignation(ReferenceMixin, Base):
-    """Grade suffix: DCAM, CAM, RD, RB, BN, FS, FB."""
+    """Grade suffix: DCAM, CAM, RD, RB, BN, FS, FB on a coin; EPQ, PPQ on a note.
+
+    One per grade, and part of it -- PMG writes "Choice Uncirculated 64 EPQ"
+    -- which is why it is a column on the item rather than an attribute.
+    `applies_to` says which side of the coin/note split each belongs to, so
+    a note is offered only paper qualities and a coin only strike ones.
+    """
 
     __tablename__ = "grade_designation"
+
+    applies_to: Mapped[AppliesTo] = mapped_column(
+        enum_column(AppliesTo, "applies_to"),
+        default=AppliesTo.coin,
+        nullable=False,
+    )
 
 
 class GradingService(ReferenceMixin, Base):

@@ -412,6 +412,16 @@ NULL, and a null for either is refused naming the field.
 `grading_service`, `metal`, `series`, `storage_form`, `authenticity`,
 `status`, `disposition`. Five are NOT NULL (`item_kind`, `storage_form`,
 `authenticity`, `status`, `disposition`) and refuse a null or empty code.
+A designation of the other kind is refused naming the item -- EPQ or PPQ on
+anything but a note, DCAM, FBL and the rest on a note -- including by a bare
+`item_kind` change to an item that holds one.
+
+**Certificate numbers** (`cert_numbers`, a list) replace the item's
+`item_certification` rows as a set: a number kept keeps its row, one omitted
+is deleted, a new one is recorded as graded by the item's grading service.
+`[]` clears them; null, a blank or a repeat is refused. The item editor has
+**Grade designation**, **Grading service** and **Certificate no.** (comma
+separated) beside the grade; each change is logged in `item_field_change`.
 
 **A kind change moves the detail row** (`app.item_kinds`). An item made a
 banknote loses its coin row (mint, variety, PCGS type) and gains an empty note
@@ -903,7 +913,8 @@ order is decided once, in the API, so the shop, console and entry panels
 agree.
 
 **Fit.** `denomination.kind` (`coin` or `note`) and `applies_to` (`coin`,
-`currency` or `any`) on `series`, `error_type` and `item_attribute` tell a
+`currency` or `any`) on `series`, `error_type`, `item_attribute` and
+`grade_designation` tell a
 picker which values apply. `frontend/src/shared/kinds.js`'s
 `fitsKind(entry, itemKind)` is the one place that mapping is written; every
 picker that needs it passes it as its `filter`. A banknote's denomination

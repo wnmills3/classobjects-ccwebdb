@@ -15,13 +15,14 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     EmailStr,
     Field,
+    StringConstraints,
     field_validator,
     model_validator,
 )
@@ -703,6 +704,9 @@ class ItemDetailOut(InventoryItemOut):
     grade_display: str | None = None
     grade_designation: str | None = None
     grading_service: str | None = None
+    #: The holder's certificate numbers, oldest first. Usually one; a lot
+    #: of certified pieces carries several.
+    cert_numbers: list[str] = Field(default_factory=list)
     metal: str | None = None
     series: str | None = None
     storage_form: str | None = None
@@ -738,6 +742,13 @@ class ItemDetailOut(InventoryItemOut):
     #: Why the item is up for sale, if it is: a save then needs
     #: `acknowledge_for_sale` (app.sale_state).
     sale_state: list[SaleUseOut] = Field(default_factory=list)
+
+
+#: One certificate number: text, since serials carry leading zeros and
+#: letters; surrounding spaces dropped, and never blank.
+CertNumber = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)
+]
 
 
 class InventoryItemUpdate(BaseModel):
@@ -824,6 +835,18 @@ class InventoryItemUpdate(BaseModel):
     #: One the item had and this omits is marked removed, so no rule adds it
     #: back (app.item_attributes). Single-item edits only.
     attributes: list[str] | None = Field(default=None, max_length=64)
+    #: The item's whole set of certificate numbers, replacing what it holds:
+    #: one kept is left as it is, one omitted is removed, a new one is
+    #: recorded as graded by the item's grading service. `[]` clears them.
+    cert_numbers: list[CertNumber] | None = Field(default=None, max_length=64)
+
+    @field_validator("cert_numbers")
+    @classmethod
+    def _no_repeated_cert(cls, numbers: list[str] | None) -> list[str] | None:
+        """The same certificate twice is a typing slip, not two holders."""
+        if numbers is not None and len(set(numbers)) != len(numbers):
+            raise ValueError("each certificate number may appear at most once")
+        return numbers
 
     @field_validator("attributes")
     @classmethod

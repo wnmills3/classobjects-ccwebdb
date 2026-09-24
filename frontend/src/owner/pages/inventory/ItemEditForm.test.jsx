@@ -287,6 +287,120 @@ describe('No sales tax charged', () => {
   })
 })
 
+describe('Grading: designation, service and certificate', () => {
+  const designation = (code, applies_to) => ({
+    code,
+    label: code,
+    source: 'seeded',
+    extra: { applies_to },
+  })
+  const vocabularies = emptyReference({
+    tables: {
+      grade_designation: [
+        designation('DCAM', 'coin'),
+        designation('FBL', 'coin'),
+        designation('EPQ', 'currency'),
+        designation('PPQ', 'currency'),
+      ],
+      grading_service: [
+        { code: 'PCGS', label: 'PCGS', source: 'seeded', extra: {} },
+        { code: 'PMG', label: 'PMG', source: 'seeded', extra: {} },
+      ],
+    },
+  })
+
+  async function open(overrides) {
+    api.getInventoryItem.mockResolvedValue({ ...item, version: 3, ...overrides })
+    api.updateInventoryItem.mockResolvedValue({})
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+  }
+
+  const optionsOf = (name) =>
+    Array.from(screen.getByRole('combobox', { name }).querySelectorAll('option')).map(
+      (o) => o.textContent,
+    )
+
+  it('offers a note only paper designations, and a coin only strike ones', async () => {
+    await open({ item_kind: 'currency' })
+    expect(optionsOf('grade_designation')).toEqual(
+      expect.arrayContaining(['EPQ', 'PPQ']),
+    )
+    expect(optionsOf('grade_designation')).not.toContain('DCAM')
+  })
+
+  it('offers a coin only strike designations', async () => {
+    await open({ item_kind: 'coin' })
+    expect(optionsOf('grade_designation')).toEqual(
+      expect.arrayContaining(['DCAM', 'FBL']),
+    )
+    expect(optionsOf('grade_designation')).not.toContain('EPQ')
+  })
+
+  it('saves a designation, a grading service and certificate numbers', async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'currency', cert_numbers: ['111'] })
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'grade_designation' }),
+      'EPQ',
+    )
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'grading_service' }),
+      'PMG',
+    )
+    const certs = screen.getByDisplayValue('111')
+    await user.type(certs, ', 8061234-005,')
+    expect(certs).toHaveValue('111, 8061234-005, ')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({
+          grade_designation: 'EPQ',
+          grading_service: 'PMG',
+          // The trailing comma's empty entry is not sent.
+          cert_numbers: ['111', '8061234-005'],
+          base: expect.objectContaining({ cert_numbers: ['111'] }),
+        }),
+      ),
+    )
+  })
+
+  it('clears a coin designation when the item becomes a note', async () => {
+    const user = userEvent.setup()
+    const kinds = emptyReference({
+      tables: {
+        ...vocabularies.tables,
+        item_kind: [
+          { code: 'coin', label: 'Coin', source: 'seeded', extra: {} },
+          { code: 'currency', label: 'Currency', source: 'seeded', extra: {} },
+        ],
+      },
+    })
+    api.getInventoryItem.mockResolvedValue({
+      ...item,
+      version: 3,
+      item_kind: 'coin',
+      grade_designation: 'DCAM',
+    })
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: kinds },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'item_kind' }),
+      'currency',
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('Grade designation (DCAM)')
+  })
+})
+
 describe('Grade choices', () => {
   // One grade from each scale, as the reference context holds them.
   const vocabularies = emptyReference({

@@ -625,81 +625,97 @@
     {
       "code": "DCAM",
       "label": "DCAM (Deep Cameo)",
+      "applies_to": "coin",
       "sort_order": 10
     },
     {
       "code": "CAM",
       "label": "CAM (Cameo)",
+      "applies_to": "coin",
       "sort_order": 20
     },
     {
       "code": "RD",
       "label": "RD (Red)",
+      "applies_to": "coin",
       "sort_order": 30
     },
     {
       "code": "RB",
       "label": "RB (Red-Brown)",
+      "applies_to": "coin",
       "sort_order": 40
     },
     {
       "code": "BN",
       "label": "BN (Brown)",
+      "applies_to": "coin",
       "sort_order": 50
     },
     {
       "code": "FS",
       "label": "FS (Full Steps)",
+      "applies_to": "coin",
       "sort_order": 60
     },
     {
       "code": "5FS",
       "label": "5FS (Five Full Steps)",
+      "applies_to": "coin",
       "sort_order": 62
     },
     {
       "code": "6FS",
       "label": "6FS (Six Full Steps)",
+      "applies_to": "coin",
       "sort_order": 64
     },
     {
       "code": "FB",
       "label": "FB (Full Bands)",
+      "applies_to": "coin",
       "sort_order": 70
     },
     {
       "code": "FT",
       "label": "FT (Full Torch)",
+      "applies_to": "coin",
       "sort_order": 75
     },
     {
       "code": "FBL",
       "label": "FBL (Full Bell Lines)",
+      "applies_to": "coin",
       "sort_order": 80
     },
     {
       "code": "FH",
       "label": "FH (Full Head)",
+      "applies_to": "coin",
       "sort_order": 90
     },
     {
       "code": "PL",
       "label": "PL (Prooflike)",
+      "applies_to": "coin",
       "sort_order": 100
     },
     {
       "code": "DMPL",
       "label": "DMPL (Deep Mirror Prooflike)",
+      "applies_to": "coin",
       "sort_order": 110
     },
     {
       "code": "EPQ",
       "label": "EPQ (Exceptional Paper Quality)",
+      "applies_to": "currency",
       "sort_order": 120
     },
     {
       "code": "PPQ",
       "label": "PPQ (Premium Paper Quality)",
+      "applies_to": "currency",
       "sort_order": 130
     }
   ],
