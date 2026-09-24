@@ -1038,18 +1038,23 @@ The database is the record. The workbook is not a backup; it has not
 described the collection since the import. **Photograph bytes are in no
 database backup** -- back up `MEDIA_ROOT` separately.
 
-There are two kinds of backup:
+There are three kinds of backup:
 
 - **`pg_dump`** copies the database as it is, `alembic_version` included, to
   a file that can leave the machine. It is **the** backup before a migration.
   Dumps are kept in `%USERPROFILE%\dev\ccwebdb-backups\`, outside the
   repository.
 - **`python -m app.backup`** copies the whole database into another database,
-  building the schema from the SQLAlchemy models. It is portable (another
-  engine is a different `--to` URL) and suits a working copy beside live. It
-  is **not** a pre-migration backup: its schema comes from the *current
-  models* and it carries no `alembic_version`, so once new code is checked out
-  its copy already has the new tables and cannot be migrated.
+  building the schema from the SQLAlchemy models. Every table is copied --
+  the three with no model (`import_batch`, `import_issue`, `import_row`) and
+  `alembic_version` too, read from the database itself. It is portable
+  (another engine is a different `--to` URL) and suits a working copy beside
+  live. It is **not** a pre-migration backup: its schema comes from the
+  *current models*, so with new code checked out before live is migrated the
+  copy holds the new schema under the old revision.
+- **`python -m app.workbook_backup export`** writes the whole database to one
+  Excel workbook in `ccwebdb-backups\` -- a backup a person can open, read and
+  correct, then rebuild a database from. See *The workbook backup* below.
 
 ```cmd
 python -m app.backup                      copy to a timestamped ccwebdb_bak_* database
@@ -1085,8 +1090,52 @@ python -m app.backup --name ccwebdb_restored
 ```
 
 From a `pg_dump` file, create a database and `pg_restore` into it as in step 1
-below. Either way, check the result, then set `DATABASE_URL` in `.env` to the
-new database and restart the servers.
+below. From a workbook, see *The workbook backup*. Either way, check the
+result, then set `DATABASE_URL` in `.env` to the new database and restart the
+servers.
+
+### The workbook backup
+
+`app.workbook_backup` writes every table to one `.xlsx`: an **About** sheet
+(format, time, migration revision, rows per table), a **Columns** sheet
+(each column's type, whether it may be empty, what it references), then one
+sheet per table in foreign-key order. Ids and foreign keys are exactly as
+stored, so relationships survive. The tables are read from the database
+itself, not the models, so none is missed.
+
+```cmd
+python -m app.workbook_backup export                        live -> ccwebdb-backups\ccwebdb_<time>.xlsx
+python -m app.workbook_backup export --out <file.xlsx>      ... to a file you name
+python -m app.workbook_backup import <file.xlsx> --to <url> workbook -> an empty database
+python -m app.workbook_backup compare <url>                 live vs <url>, every row of every table
+```
+
+**Reading and editing it.** An empty cell is NULL; an empty string is written
+`""`. Timestamps are ISO text with their time zone (one typed with no zone is
+read as local time). JSON is JSON text, and `null` there is JSON's null, not
+an empty value. Columns headed `(computed)` -- `total_cost`, `sales_tax`, ...
+-- are for reading; the import ignores them and the database recomputes them.
+Change values freely; keep the header row and the id columns as they are.
+
+**Restoring from it.** Always into a new database, from `backend\`:
+
+```cmd
+set PGDATABASE=postgres
+..\scripts\ccweb_psql.cmd -c "create database ccwebdb_restored"
+set PGDATABASE=
+set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_restored"
+python -m alembic upgrade head
+set "DATABASE_URL="
+python -m app.workbook_backup import <file.xlsx> --to postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_restored
+python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_restored
+```
+
+The import refuses a database at a different migration revision than the
+workbook's, refuses the live database, clears any rows the migrations put
+there, and loads everything in one transaction: a refused row (a link to an
+id that does not exist, a value that does not fit its column) names its table
+and reason and loads nothing. `compare` then says `identical`, or names each
+table that differs -- after edits, exactly the tables edited.
 
 ## Applying a schema release
 
