@@ -277,6 +277,9 @@ first read. `app.rating_pass` reads it again with the current rules
 | `CACG`, or CAC with `First Delivery` | grader CACG, and First Delivery |
 | `Genuine` | authenticity genuine, and the Genuine attribute |
 | `No Motto`, `No God`, `Godless` | No Motto |
+| on a note: `67 EPQ`, `PMG55`, `PCGS66 PPQ`, `30 Very Fine` | the grade on the note scale (N67, N55, N66, N30) -- including for a note imported as a coin and re-kinded since, whose rating the importer never read as a note's |
+| a grader run into its number: `PMG55`, `PCGS66` | the grader |
+| `EPQ` or `PPQ` with no grader named | PMG for EPQ, PCGS for PPQ: each is that grader's own designation |
 
 `FS` is Full Steps only on a Jefferson nickel.
 

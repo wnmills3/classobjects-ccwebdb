@@ -49,11 +49,13 @@ from .importers.rating import (
     ParsedCondition,
     bare_grade,
     designation_for,
+    note_grade_code,
     parse_condition,
 )
 from .models import (
     AppliesTo,
     Authenticity,
+    Grade,
     GradeDesignation,
     GradingService,
     InventoryItem,
@@ -76,6 +78,10 @@ _PLAIN_STRIKES = frozenset({"proof", "business"})
 
 #: Why a value was not filled although the rating names it.
 LOCKED = "held or confirmed"
+
+
+#: The service a paper-quality designation belongs to: each grader has its own.
+_GRADER_OF: dict[str, str] = {"EPQ": "PMG", "PPQ": "PCGS"}
 
 
 @dataclass(frozen=True)
@@ -189,8 +195,12 @@ class _Pass:
         context = f"{item.description or ''} {item.source_title or ''}"
         kind = self.kinds.get(item.item_kind_id)
 
-        # A note keeps its own scale, which the importer already read.
-        if kind != "currency":
+        # A note is graded on its own scale. The importer read it for the
+        # notes it knew were notes; one imported as a coin and re-kinded
+        # since (app.kind_repair) never had it read, so it is read here.
+        if kind == "currency":
+            self.note_grade(parsed, rating)
+        else:
             self.grade_and_strike(parsed, context)
         self.designation(parsed, f"{rating} {context}")
         self.service(parsed)
@@ -261,6 +271,22 @@ class _Pass:
         ):
             item.strike_type_id = strike_id
 
+    def note_grade(self, parsed: ParsedCondition, rating: str) -> None:
+        """Fill a note's missing grade from the note scale, as the importer does."""
+        item = self.current
+        if item.grade_id is not None:
+            return
+        code = note_grade_code(rating, parsed.grade)
+        if code is None:
+            return
+        # An adjectival note grade is the bottom of its range (N_UNC is 60).
+        split = grades.split(code)
+        found = self.named(Grade, split.grade if split else code)
+        if found is not None and self.note(
+            "grade_id", "", self.code(Grade, found), "fill", "rating"
+        ):
+            item.grade_id = found
+
     def designation(self, parsed: ParsedCondition, text: str) -> None:
         """Fill a missing designation; clear an FS that is not Full Steps."""
         item = self.current
@@ -286,13 +312,27 @@ class _Pass:
             item.grade_designation_id = None
 
     def service(self, parsed: ParsedCondition) -> None:
-        """Fill a missing grader."""
+        """Fill a missing grader: named in the rating, else implied by EPQ or PPQ.
+
+        EPQ is PMG's designation and PPQ is PCGS Banknote's (owner, 2026-09-23),
+        so a note carrying one was graded by that service even where the rating
+        never names it -- "66EPQ Double Quad" is a PMG 66 EPQ.
+        """
         item = self.current
-        if item.grading_service_id is not None or not parsed.service:
+        if item.grading_service_id is not None:
             return
-        found = self.named(GradingService, parsed.service)
+        service, how = parsed.service, "rating"
+        if not service:
+            designation = parsed.designation or self.code(
+                GradeDesignation, item.grade_designation_id
+            )
+            service = _GRADER_OF.get(designation)
+            how = f"{designation} is {service}'s" if service else how
+        if not service:
+            return
+        found = self.named(GradingService, service)
         if found is not None and self.note(
-            "grading_service_id", "", parsed.service, "fill", "rating"
+            "grading_service_id", "", service, "fill", how
         ):
             item.grading_service_id = found
 
