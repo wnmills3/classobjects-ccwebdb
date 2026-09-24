@@ -81,6 +81,8 @@ export const api = {
   getItemSales: (id) => send(`/api/inventory/${id}/sales`),
   // Everything logged about an item, newest first: edits, status, location.
   getItemHistory: (id) => send(`/api/inventory/${id}/history`),
+  // A description written from the item's saved record; writes nothing.
+  getSuggestedDescription: (id) => send(`/api/inventory/${id}/suggested-description`),
   updateInventoryItem: (id, payload) =>
     send(`/api/inventory/${id}`, { method: 'PATCH', body: payload }),
   bulkEditInventory: (ids, changes) =>
