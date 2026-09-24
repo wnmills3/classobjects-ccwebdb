@@ -9,6 +9,7 @@ import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
 import { baseFor, conflictsOf, fieldValue, rebase } from './fieldMerge'
+import { clearedByKind } from './kindChange'
 import FriedbergPanel from './FriedbergPanel'
 import HelpScope from '../../HelpScope'
 import { FIELD_HELP } from '../../fieldHelp'
@@ -317,6 +318,16 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const [ranged, setRanged] = useState(false)
   // Ticked to change an item that is for sale; reset whenever it is loaded.
   const [acknowledged, setAcknowledged] = useState(false)
+  // What the last change of kind emptied, so it can be named on screen and
+  // put back if the kind is changed back: key -> {had, prev, was}.
+  const [kindCleared, setKindCleared] = useState({})
+  const kinds = useReference('item_kind')
+  const vocab = {
+    denomination: useReference('denomination'),
+    series: useReference('series'),
+    grade: useReference('grade'),
+    item_attribute: useReference('item_attribute'),
+  }
   const yearId = useId()
   const yearEndId = useId()
 
@@ -350,6 +361,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         setReviewed(body.reviewed ?? [])
         setRanged(isRange(body.year_start, body.year_end))
         setDraft({})
+        setKindCleared({})
         setAcknowledged(false)
         setError('')
       })
@@ -434,6 +446,46 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   // back to showing the stored year it is about to replace.
   const value = (key) => (key in draft ? draft[key] : item[key]) ?? ''
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
+
+  // A new kind empties what the item can no longer have (`kindChange.js`).
+  // The previous change's clearing is undone first, so going Coin -> Currency
+  // -> Coin ends where it began, with nothing left to save.
+  function changeKind(e) {
+    const kind = e.target.value
+    const next = { ...draft }
+    for (const [key, { had, prev }] of Object.entries(kindCleared)) {
+      if (had) next[key] = prev
+      else delete next[key]
+    }
+    if (kind === item.item_kind) delete next.item_kind
+    else next.item_kind = kind
+
+    const current = (key) =>
+      key in next
+        ? next[key]
+        : key === 'attributes'
+          ? (item.attributes ?? []).map((a) => a.code)
+          : item[key]
+    const { fields, attributes } = clearedByKind(kind, current, vocab)
+    const cleared = {}
+    for (const [key, was] of Object.entries(fields)) {
+      cleared[key] = { had: key in next, prev: next[key], was }
+      next[key] = null
+    }
+    if (attributes) {
+      cleared.attributes = {
+        had: 'attributes' in next,
+        prev: next.attributes,
+        was: attributes.dropped,
+      }
+      next.attributes = attributes.keep
+    }
+    setDraft(next)
+    setKindCleared(cleared)
+  }
+
+  const kindLabel = (code) => kinds?.find((k) => k.code === code)?.label ?? code
+  const leavingNote = item.item_kind === 'currency' && value('item_kind') !== 'currency'
 
   // One year is both ends. Sending both, rather than the start alone, is what
   // turns an item stored with a start and no end into one year as well.
@@ -595,6 +647,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
       setReviewed(fresh.reviewed ?? [])
       setRanged(isRange(fresh.year_start, fresh.year_end))
       setDraft({})
+      setKindCleared({})
       setAcknowledged(false)
     } catch (err) {
       setError(`Saved, but could not read it back: ${err.message}`)
@@ -799,6 +852,36 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           </div>
         )}
 
+        {/* The kind decides which fields follow: choosing another shows its
+            fields at once, and empties the ones it cannot have. */}
+        <label className="field" data-help="item_kind">
+          <span>Kind</span>
+          <ReferenceSelect
+            table="item_kind"
+            value={value('item_kind')}
+            onChange={changeKind}
+            allowAdd={false}
+            allowBlank={false}
+          />
+          {side('item_kind', 'item_kind_id')}
+          <span />
+        </label>
+        {Object.keys(kindCleared).length > 0 && (
+          <p className="for-sale" role="status">
+            As {kindLabel(value('item_kind'))} it cannot keep{' '}
+            {Object.entries(kindCleared)
+              .map(([key, { was }]) => `${fieldName(key)} (${shown(was)})`)
+              .join(', ')}
+            : saving clears them. Choose {kindLabel(item.item_kind)} again to keep them.
+          </p>
+        )}
+        {leavingNote && item.friedberg_id && (
+          <p className="error">
+            It has a Friedberg number: clear it below before saving, or the save is
+            refused.
+          </p>
+        )}
+
         {CLASSIFIERS.filter(([, key]) => fieldFitsKind(key, value('item_kind'))).map(
           ([label, key, table, letter]) => (
             <label key={key} className="field" data-help={key}>
@@ -857,7 +940,10 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           that an item can gain a photograph -- see PhotosPanel's docstring. */}
         <PhotosPanel itemId={itemId} saleState={item.sale_state ?? []} />
 
-        {item.item_kind === 'currency' && (
+        {/* The draft's kind, not the saved one: a coin being made a note
+            shows its note fields now, and the save creates the note's row
+            before writing them. */}
+        {value('item_kind') === 'currency' && (
           <>
             {NOTE_CLASSIFIERS.map(([label, key, table, letter]) => (
               <label key={key} className="field" data-help={key}>
@@ -893,8 +979,13 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
                 <span />
               </label>
             ))}
-            <FriedbergPanel item={item} onChanged={reloadItem} />
           </>
+        )}
+        {/* The saved kind: a Friedberg number hangs on the note's stored row,
+            so it can be looked up only once that row exists -- and cleared
+            before the note stops being one. */}
+        {item.item_kind === 'currency' && (
+          <FriedbergPanel item={item} onChanged={reloadItem} />
         )}
 
         <div className="row">
