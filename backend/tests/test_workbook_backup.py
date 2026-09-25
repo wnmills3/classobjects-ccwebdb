@@ -34,7 +34,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.types import Enum, TypeEngine
 
 from tests.conftest import TEST_URL
@@ -108,6 +108,24 @@ def _url(name: str) -> str:
     return TEST_URL.set(database=name).render_as_string(hide_password=False)
 
 
+def _drop(conn: Connection, name: str) -> None:
+    """Drop a scratch database, ending only client sessions on it first.
+
+    Not `WITH (FORCE)`: that also signals an autovacuum worker, which the
+    application's role may not do, and the drop then fails at random. The
+    worker exits by itself when the database goes (conftest does the same).
+    """
+    conn.execute(
+        text(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = :name AND pid <> pg_backend_pid() "
+            "AND backend_type = 'client backend'"
+        ),
+        {"name": name},
+    )
+    conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+
+
 @pytest.fixture
 def pair(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Engine, str]]:
     """A filled source database and an empty target with the same schema."""
@@ -117,7 +135,7 @@ def pair(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Engine, str]]:
     names = ("ccwebdb_test_wb_source", "ccwebdb_test_wb_target")
     with admin.connect() as conn:
         for name in names:
-            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+            _drop(conn, name)
             conn.execute(text(f'CREATE DATABASE "{name}"'))
     source = create_engine(_url(names[0]))
     target = create_engine(_url(names[1]))
@@ -138,7 +156,7 @@ def pair(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Engine, str]]:
         target.dispose()
         with admin.connect() as conn:
             for name in names:
-                conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+                _drop(conn, name)
         admin.dispose()
 
 
