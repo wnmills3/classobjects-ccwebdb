@@ -3,7 +3,7 @@
 Numismatic and Currency Web Platform for Inventory and Sales.
 
 A FastAPI backend and two React applications over one PostgreSQL database: an
-**management console** for cataloguing, receiving, photographing and selling a coin
+**management console** for cataloging, receiving, photographing and selling a coin
 and banknote collection, and a **shop** where customers browse and order. Why
 it exists and what it deliberately does not do is in
 [docs/project-purpose.md](docs/project-purpose.md).
@@ -87,7 +87,7 @@ reference. By area:
 | Area | Prefix | Access |
 |---|---|---|
 | Accounts | `/auth`, `/users`, `/customers` | sign-in public; administration admin |
-| Shop catalogue | `/catalog` | public, read only |
+| Shop catalog | `/catalog` | public, read only |
 | Customer orders | `/orders` | customers their own; admins all |
 | Inventory | `/inventory` (search, create, bulk, edit, receive, split, errors, reviews, delete) | admin |
 | Purchases | `/vendors`, `/purchase-orders`, `/storage-locations` | admin |

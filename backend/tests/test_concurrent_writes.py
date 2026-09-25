@@ -237,9 +237,9 @@ def test_two_people_cannot_split_the_same_lot_at_once(
     assert children == 4, f"the lot was split twice: {children} pieces"
 
 
-# The optimistic-locking behaviour this file used to check "through the API"
+# The optimistic-locking behavior this file used to check "through the API"
 # was `PATCH /api/catalog/{id}` -- retired along with the rest of the
-# catalogue's write endpoints (see `test_catalog.py`). Its replacement,
+# catalog's write endpoints (see `test_catalog.py`). Its replacement,
 # `PATCH /api/listings/{id}` (`app.routers.offers`), has its own version
 # field and its own conflict test: `test_offers_api.py::
 # test_editing_an_offer_and_a_stale_version`. It has nothing analogous to

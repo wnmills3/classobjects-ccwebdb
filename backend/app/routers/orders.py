@@ -66,7 +66,7 @@ def _sold_as(line: SalesOrderItem) -> str:
     is shown one name on the page and another on their order.
 
     For a lot the difference is not cosmetic. `sales_lot.title` is the
-    group's working name, chosen for the office -- the catalogue deliberately
+    group's working name, chosen for the office -- the catalog deliberately
     keeps it out of the shop, which
     `test_a_lot_entry_shows_the_offer_wording_not_the_lots` pins -- and this
     function used to prefer it over the listing wording sitting beside it in
@@ -199,7 +199,7 @@ def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> Orde
     SELECT ... FOR UPDATE and takes them in a stable id order, so two
     concurrent buyers can neither oversell the same listing nor deadlock
     against each other. This is verified by tests that drive the handler from
-    real threads -- a test that serialises its requests would pass even with
+    real threads -- a test that serializes its requests would pass even with
     the lock removed.
     """
     customer = customer_for_user(db, user)
@@ -424,7 +424,7 @@ def update_order_status(
     # clause a live path and a false conflict. `return_stock` now takes its
     # rows through `order_writes._lock_listings` and so through
     # `offering_writes.lock_for_sale`, which locks and re-reads every item it
-    # will write, so this is defence in depth
+    # will write, so this is defense in depth
     # (`test_a_concurrently_edited_item_no_longer_refuses_a_cancellation`).
     # The clause itself is still covered, by
     # `test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500`,
@@ -441,7 +441,7 @@ def update_order_status(
         record_status_change(db, order, previous, payload.status, admin)
 
         # Cancelling an order that had not shipped returns stock to the
-        # catalogue.
+        # catalog.
         if payload.status == "cancelled" and previous not in SHIPPED_STATUSES | {
             "cancelled"
         }:

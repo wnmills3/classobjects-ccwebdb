@@ -114,7 +114,7 @@ describe('FilterPanel search tips', () => {
   })
 
   it('explains that several words are one phrase, in order', () => {
-    // The behaviour nobody guesses: "morgan 1921" found nothing while
+    // The behavior nobody guesses: "morgan 1921" found nothing while
     // "1921 morgan" found 27.
     setup({ config: { ...config, ...COIN_VIEW } })
     expect(screen.getByText(/one phrase, in that order/i)).toBeInTheDocument()

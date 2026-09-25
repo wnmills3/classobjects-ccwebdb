@@ -73,8 +73,8 @@ the wording printed on National Bank Notes (and on Series 1929 Federal Reserve
 Bank Notes).
 
 Nicknames live in the general `reference_alias` table (table, code, alias), so
-they are recognised in search and in the pickers; search matches a note class by
-name or nickname. Seal colours (blue, red, brown, green, gold, yellow) and the
+they are recognized in search and in the pickers; search matches a note class by
+name or nickname. Seal colors (blue, red, brown, green, gold, yellow) and the
 twelve Federal Reserve districts (A Boston through L San Francisco) match
 BEP's serial-number page.
 
@@ -124,7 +124,7 @@ python -m app.classifier_defaults --commit   write the defaults
 | Default | From | Only when |
 |---|---|---|
 | note type | denomination, series year and letter, seal | one class remains |
-| seal colour | the issue | the issue has one seal |
+| seal color | the issue | the issue has one seal |
 | signature combination | the issue | one pair signed it |
 | Federal Reserve district | serial number | the class is Federal Reserve Note and the serial is well formed |
 | composition, metal, fineness, gross and fine weight | denomination, country, year (`composition.json`) | one composition covers every year of the item's range |

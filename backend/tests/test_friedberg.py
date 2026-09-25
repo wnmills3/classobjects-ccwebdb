@@ -1,7 +1,7 @@
-"""The owner's own Friedberg catalogue: search, record, attach.
+"""The owner's own Friedberg catalog: search, record, attach.
 
 Every `fr_number` used here is obviously synthetic (`FR-TEST-*`) -- never a
-real catalogue number, per `CLAUDE.md`'s ban on shipping a publisher's
+real catalog number, per `CLAUDE.md`'s ban on shipping a publisher's
 arrangement.
 """
 
@@ -53,7 +53,7 @@ def _ids(body: list[dict[str, Any]]) -> set[int]:
 def test_half_known_row_is_found_by_a_filter_it_does_not_know(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """A row missing its seal colour still surfaces when seal_color is asked.
+    """A row missing its seal color still surfaces when seal_color is asked.
 
     Would NOT pass against a hardcoded response: the assertions require the
     row to appear for a query naming an attribute it lacks, and to disappear
@@ -135,7 +135,7 @@ def test_unknown_classifier_code_is_422_not_ignored(
 def test_no_filters_returns_everything(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """Browsing the whole catalogue is a valid call with zero filters."""
+    """Browsing the whole catalog is a valid call with zero filters."""
     row = _add_friedberg(db, fr_number="FR-TEST-4")
     resp = client.get("/api/friedberg", headers=admin_headers)
     assert resp.status_code == 200, resp.text
@@ -242,7 +242,7 @@ def test_confirming_stamps_verifier_and_timestamp(
     admin_headers: dict[str, str],
     admin_user: User,
 ) -> None:
-    """Confirming stamps verified_by_id and verified_at on the catalogue row.
+    """Confirming stamps verified_by_id and verified_at on the catalog row.
 
     That is what turns a proposal into a fact -- on the row itself, not just
     the item.
@@ -312,7 +312,7 @@ def test_a_web_press_and_a_sheet_fed_printing_are_different_types(
     """Same denomination, series, note type and district; different press.
 
     Before the press was part of the identity, the second of these was a 409
-    -- the catalogue could hold only one of two real, distinct types.
+    -- the catalog could hold only one of two real, distinct types.
     """
     web = client.post(
         "/api/friedberg", json=_typed("FR-TEST-W2", True), headers=admin_headers
@@ -345,7 +345,7 @@ def test_the_same_series_under_two_signature_pairs_are_two_types(
 
     Once the identity index treated a missing letter as a match, it refused
     the second of these as a duplicate: signatures were not part of what
-    identifies a type (code review, 2026-09-23). Seal colour is the same
+    identifies a type (code review, 2026-09-23). Seal color is the same
     case -- a wartime brown or yellow seal beside the regular blue.
     """
     base = {
@@ -437,7 +437,7 @@ def test_the_item_detail_says_which_number_is_attached(
 def test_clearing_takes_the_number_off_the_note_only(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """The note goes back to unknown; the catalogue row stays for the next one."""
+    """The note goes back to unknown; the catalog row stays for the next one."""
     item = _currency_item(db)
     friedberg = _add_friedberg(db, fr_number="FR-TEST-D2")
     client.post(
@@ -560,7 +560,7 @@ def test_an_unknown_code_narrowing_signatures_is_422(
 
 
 # ---------------------------------------------------------------------------
-# Authorisation
+# Authorization
 # ---------------------------------------------------------------------------
 
 

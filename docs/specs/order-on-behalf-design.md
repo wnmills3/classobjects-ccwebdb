@@ -105,7 +105,7 @@ cancelled order cannot be moved to another status.
 
 ## Endpoints
 
-| Endpoint | Access | Behaviour |
+| Endpoint | Access | Behavior |
 |---|---|---|
 | `POST /api/orders` | signed in | Shop checkout: `place_order` for the caller's own customer record, listing prices only. |
 | `POST /api/customers/{id}/orders` | admin | Place an order for that customer: `items` of `{listing_id, quantity, unit_price?}`, optional `notes`. Unknown customer: 404. |
@@ -136,7 +136,7 @@ for **Edit** on a `pending` or `paid` order:
   `POST /api/users/{id}/customer`.
 - **Lines**: title, quantity, unit price, available stock, remove. An
   overridden price is marked "listing price $189.00".
-- **Add item**: searches the shop catalogue (`listCatalog` with `q` and
+- **Add item**: searches the shop catalog (`listCatalog` with `q` and
   `in_stock`).
 - **Notes**, and a running **total** computed in integer cents
   (`orders/cents.js`), never floating point; the server's total is the real
@@ -171,6 +171,6 @@ exactly where the server would refuse it (`listing_ended`).
 
 ## Not built
 
-- Finding an item to add by inventory code (the catalogue search covers
+- Finding an item to add by inventory code (the catalog search covers
   title and description).
 - Shipping or billing addresses on an order.

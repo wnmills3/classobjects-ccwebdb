@@ -77,7 +77,7 @@ def test_the_denomination_names_a_coin_with_no_series(db: Session) -> None:
 def test_a_self_graded_coin_does_not_name_the_owner_as_a_service(
     db: Session,
 ) -> None:
-    """`SELF` is the owner's own opinion, not a service a buyer recognises."""
+    """`SELF` is the owner's own opinion, not a service a buyer recognizes."""
     item = build_item(
         db,
         year_start=1921,

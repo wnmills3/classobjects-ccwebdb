@@ -37,7 +37,7 @@ export default function StoreApp() {
         </Link>
 
         <nav className="nav">
-          <NavLink to="/">Catalogue</NavLink>
+          <NavLink to="/">Catalog</NavLink>
           <NavLink to="/cart">Cart{count > 0 ? ` (${count})` : ''}</NavLink>
           {user && <NavLink to="/orders">Orders</NavLink>}
         </nav>

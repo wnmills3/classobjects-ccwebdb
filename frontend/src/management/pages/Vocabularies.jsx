@@ -20,7 +20,7 @@ import { findEntries } from '../../shared/reference-match'
  *
  * The standard term stays the label -- UCAM, United States Note -- and what
  * people actually write becomes an alias: Ultra Cameo, Legal Tender. Search and the
- * pickers recognise an alias the moment it is added.
+ * pickers recognize an alias the moment it is added.
  *
  * Removing a shipped alias retires it, so the next seed load does not bring
  * it back; it stays listed, struck through, and can be restored. One added
@@ -444,7 +444,7 @@ export default function Vocabularies() {
       <h1>Vocabularies</h1>
       <p className="muted">
         Rename a value, retire one that should no longer be offered, and give values
-        other names. Search and the pickers both recognise an alias, and a shared alias
+        other names. Search and the pickers both recognize an alias, and a shared alias
         finds every value that has it. Retiring leaves every record that uses the value
         as it is.
       </p>

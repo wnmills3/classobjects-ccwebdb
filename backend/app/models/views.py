@@ -10,8 +10,8 @@ why it queries the base tables instead -- the joins cost about thirty times
 the time -- and the shop's responses are built by
 `routers.catalog.to_catalog_item`, field by field, in Python.
 
-``public_catalog`` therefore **describes** an authorisation boundary rather
-than enforcing one. It must never expose storage location, local catalogue
+``public_catalog`` therefore **describes** an authorization boundary rather
+than enforcing one. It must never expose storage location, local catalog
 numbers, cost basis, or inventory photographs, and a test asserts that
 against `PUBLIC_CATALOG_FORBIDDEN_COLUMNS` so a later ``select *`` cannot
 quietly widen the view. But no request passes through it, so what actually
@@ -274,8 +274,8 @@ FROM computed c
 """
 
 
-# The authorisation boundary. Every column here is deliberate; nothing about
-# where an item is stored, what it cost, or what it is catalogued as internally
+# The authorization boundary. Every column here is deliberate; nothing about
+# where an item is stored, what it cost, or what it is cataloged as internally
 # may appear. See PUBLIC_CATALOG_FORBIDDEN_COLUMNS and its test.
 #
 # Its WHERE clause states the shop's rule -- own store, fixed price, active --
@@ -286,7 +286,7 @@ FROM computed c
 # with them -- do not delete the extra guards to "keep it in sync", they are
 # not part of that rule:
 #   - `quantity_available > 0` is deliberate, not drift: this view is the
-#     authorisation boundary and never shows a sold-out entry, while
+#     authorization boundary and never shows a sold-out entry, while
 #     `GET /api/catalog` exposes `in_stock` so the shop can choose to. Checkout
 #     enforces stock itself.
 #   - `split_at IS NULL` and `deleted_at IS NULL` guard states the rest of the

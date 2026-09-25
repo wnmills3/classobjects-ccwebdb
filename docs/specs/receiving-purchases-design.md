@@ -102,7 +102,7 @@ for coins `year_min`/`year_max` and `mint` (the mint mark); for currency
 `vendor` and `purchase_order_id`.
 
 **Storage locations are never customer-visible.** `storage_location` is an
-authorisation boundary enforced by the `public_catalog` view and by tests:
+authorization boundary enforced by the `public_catalog` view and by tests:
 a public listing that leaked the safe-deposit box holding an item would be a
 security failure.
 
@@ -163,7 +163,7 @@ error belongs to that order and clears when the address changes.
   writes `PATCH`. While it is closed, `ErrorsPanel` records mint or printing
   errors; only one of the two is mounted at a time, because both save the
   item's whole error set.
-- For a banknote, a collapsed catalogue-number lookup (`FriedbergLookup`) is
+- For a banknote, a collapsed catalog-number lookup (`FriedbergLookup`) is
   offered.
 - Photographs upload after the receipt, the first as primary. **A failed
   upload never rolls back the receipt**: the arrival is the fact, the

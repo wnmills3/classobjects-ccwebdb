@@ -10,7 +10,7 @@ Layout follows `docs/database-design.md`:
     base            column conventions shared by everything
     reference       the classifier tables (design section 4)
     core            inventory_item and the acquisition side (section 3)
-    identification  certificates, serials and type catalogues (section 5)
+    identification  certificates, serials and type catalogs (section 5)
     valuation       composition, spot prices, snapshots (section 6)
     lifecycle       status and location history (section 7)
     images          files, derivatives and their uses (section 8)
@@ -156,7 +156,7 @@ REFERENCE_MODELS: tuple[type[ReferenceMixin], ...] = (
     Metal,
     BullionForm,
     Mint,
-    # Before Series: a note design names the seal colour that is evidence
+    # Before Series: a note design names the seal color that is evidence
     # for it, and the note class it belongs to.
     SealColor,
     NoteType,

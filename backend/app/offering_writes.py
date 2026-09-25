@@ -60,7 +60,7 @@ record of the decision.
 **It owns the rule for what the shop may sell** -- our own store, fixed price,
 active -- in both the Python form (`sellable_in_shop`) and the SQL form
 (`shop_listing_filters`). Phase 1 left that rule written out in three places:
-checkout, the catalogue's detail endpoint and the catalogue's list query. They
+checkout, the catalog's detail endpoint and the catalog's list query. They
 now all ask here.
 
 Functions flush and never commit; the caller's request owns the transaction.
@@ -183,7 +183,7 @@ def sellable_in_shop(listing: Listing, *, active_only: bool = True) -> bool:
     this shop's at all, whatever state it is in. Two callers need that and
     say so: checkout, which refuses an inactive listing with its own message
     ("not currently for sale", which is not the same news as "not sold in
-    this shop"), and the catalogue's detail endpoint, which serves a
+    this shop"), and the catalog's detail endpoint, which serves a
     withdrawn listing so a page someone bookmarked can say it has ended.
     """
     ours = (
@@ -195,9 +195,9 @@ def sellable_in_shop(listing: Listing, *, active_only: bool = True) -> bool:
 
 
 def shop_listing_filters(*, active_only: bool = True) -> list[ColumnElement[bool]]:
-    """The same rule as SQL, for the catalogue query.
+    """The same rule as SQL, for the catalog query.
 
-    `active_only=False` is the catalogue's admin preview of withdrawn
+    `active_only=False` is the catalog's admin preview of withdrawn
     listings (`include_inactive`), the SQL twin of `sellable_in_shop`'s.
     """
     filters: list[ColumnElement[bool]] = [
@@ -220,7 +220,7 @@ def _holding_claims() -> Select[tuple[OfferClaim]]:
     Two conditions, and both are needed. The claim is `active` or `paused`,
     never `released`. And the listing behind it is still on offer: a claim's
     state follows its listing's status (see `OfferClaim`), but this module was
-    not always the only writer of that status -- the catalogue API's retired
+    not always the only writer of that status -- the catalog API's retired
     `PATCH .../is_active` withdrew a listing without touching its claims -- so
     a claim left reading `paused` on a listing an older write ended holds
     nothing. Everything that asks whether a claim holds its item *now* asks
@@ -1464,14 +1464,14 @@ def end_offer(
     # between when the caller loaded it and when the item locks were granted.
     # Without that, `_end` below writes through the caller's stale version and
     # raises `StaleDataError` even though nothing is actually wrong: the item
-    # lock already serialised the two writers, and this listing's *current*
+    # lock already serialized the two writers, and this listing's *current*
     # row is exactly what this function is entitled to act on.
     locked = lock_for_sale(db, listing_ids=[listing.id], including_paused=True)
     item_ids = list(locked.item_ids)
     listing = locked.listings[listing.id]
 
     # Still paused, not merely pointing here. A listing ended while it was
-    # paused keeps the pointer -- the catalogue API's retired
+    # paused keeps the pointer -- the catalog API's retired
     # `PATCH .../is_active` ended one without clearing it -- and resuming
     # that would put a listing an administrator deliberately withdrew back
     # into the public shop, re-claiming the item with it.
@@ -1540,7 +1540,7 @@ def end_offer(
             # every item `_still_offered` excluded. `_still_offered`
             # returning False means every `HELD_BY` claim on this item, if
             # any remain, is on a listing it did not count -- one an older
-            # write ended without releasing its claim (the retired catalogue
+            # write ended without releasing its claim (the retired catalog
             # `PATCH .../is_active` is the one still-live example; see
             # `_holding_claims` and
             # `test_a_withdrawn_store_listing_is_not_resurrected`). Nothing

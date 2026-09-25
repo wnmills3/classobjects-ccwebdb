@@ -4,10 +4,10 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../../shared/api'
 import { useCart } from '../cart-context'
 import { money } from '../../shared/format'
-import { coverImage, describeMember, isLot, summarise } from './lot-entry'
+import { coverImage, describeMember, isLot, summarize } from './lot-entry'
 
 /**
- * One catalogue entry: a coin, or a LOT of coins sold as one thing.
+ * One catalog entry: a coin, or a LOT of coins sold as one thing.
  *
  * A lot carries none of the fields below -- no code, no kind, no grade, no
  * year -- because no single value of any of them describes a group, and no
@@ -67,7 +67,7 @@ export default function CoinDetail() {
   return (
     <section className="detail">
       <p>
-        <Link to="/">&larr; Back to catalogue</Link>
+        <Link to="/">&larr; Back to catalog</Link>
       </p>
       <h1>{coin.title}</h1>
       {cover && <img className="detail-image" src={cover.url} alt={cover.alt} />}
@@ -78,7 +78,7 @@ export default function CoinDetail() {
           : 'Sold out'}
       </p>
       {/* How many things this is, before the price is read as one coin's. */}
-      {isLot(coin) && <p className="muted">{summarise(coin)}</p>}
+      {isLot(coin) && <p className="muted">{summarize(coin)}</p>}
 
       {coin.description && <p>{coin.description}</p>}
 

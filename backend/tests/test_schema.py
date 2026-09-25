@@ -2,7 +2,7 @@
 
 These cover the properties the schema is *for*, rather than that SQLAlchemy
 can insert a row: arithmetic that must never drift, constraints that must
-actually refuse bad data, and the authorisation boundary that must not leak.
+actually refuse bad data, and the authorization boundary that must not leak.
 """
 
 from __future__ import annotations
@@ -293,7 +293,7 @@ def test_item_valuation_computes_melt_from_the_latest_spot_price(db: Session) ->
 
 
 def test_public_catalog_never_exposes_private_columns(db: Session) -> None:
-    """The authorisation boundary, asserted against the column list itself.
+    """The authorization boundary, asserted against the column list itself.
 
     A later `select *` in the view would widen it silently; this fails first.
     """
@@ -405,7 +405,7 @@ def test_reference_codes_are_unique(db: Session) -> None:
 def test_seeded_and_derived_rows_are_distinguishable(db: Session) -> None:
     """Seeded and derived rows stay distinguishable.
 
-    The distinction that makes exporting a catalogue to another
+    The distinction that makes exporting a catalog to another
     installation safe: one collection's guesses are not shipped as facts.
     """
     # scalar_one(), like the view assertions above: a count query returns

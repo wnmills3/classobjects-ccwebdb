@@ -118,6 +118,30 @@ describe('NewItemForm: a banknote', () => {
     expect(sent).not.toHaveProperty('year_end')
   })
 
+  it("sends a note's plates and where it was printed", async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 4, item_code: 'CC-000004' })
+    render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+    await user.type(screen.getByRole('textbox', { name: /face plate/i }), 'FW E82')
+    await user.type(screen.getByRole('textbox', { name: /back plate/i }), '1234')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /printed at/i }),
+      'fw',
+    )
+    await fillTitle(user, 'A Fort Worth note')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(api.createInventoryItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        face_plate_number: 'FW E82',
+        back_plate_number: '1234',
+        printing_facility: 'fw',
+      }),
+    )
+  })
+
   it('submits the currency block and omits coin detail', async () => {
     const user = userEvent.setup()
     api.createInventoryItem.mockResolvedValue({ id: 2, item_code: 'CC-000002' })

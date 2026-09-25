@@ -2,7 +2,7 @@
 
 Admin only, and deliberately so: an auction lot carries what its coins cost,
 same as an offer, and a house's fees and hammer prices are staff-only figures
-the shop's own catalogue endpoints never touch.
+the shop's own catalog endpoints never touch.
 
 Every write here goes through `app.auctions`, the sole writer of `auction`
 and `auction_lot`, or -- for `lot_number` and `reserve`, administrative

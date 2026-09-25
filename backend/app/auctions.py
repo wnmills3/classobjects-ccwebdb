@@ -910,7 +910,7 @@ def _lock_auction(db: Session, auction: Auction) -> Auction:
     Why it is needed: `settle` decides what to write from the auction's
     status and its lot table, and then writes both. Two settlements of one
     auction that each read `closed` would each go on to record every lot's
-    sale, and `lock_for_sale` cannot serialise them -- it takes the *items*,
+    sale, and `lock_for_sale` cannot serialize them -- it takes the *items*,
     and the second settlement would simply wait for them and then do its
     work on a lot table the first had already settled. The auction row is the
     only thing both passes are guaranteed to want. The loser waits here,
@@ -1196,7 +1196,7 @@ def settle(
        then listings -- and reaching past it, or reaching it a lot at a time,
        is what reproduces the deadlock `docs/specs/lock-order-design.md`
        exists to prevent. Two lots sharing no coins still share this auction,
-       which step 1 already serialised; this call is what serialises them
+       which step 1 already serialized; this call is what serializes them
        against a checkout, an offer or a sale elsewhere.
     4. Sold lots, grouped by buyer: one `sales_writes.record_sale_lines` per
        buyer, which ends each listing as **sold** -- the lot `sold`, its

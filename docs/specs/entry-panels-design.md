@@ -147,4 +147,4 @@ Receiving's search form and the Friedberg lookup. A test scans the console
 source and fails on any `data-help` key with no text.
 
 Help text is public numismatic fact only -- what is printed where on a note
-and what it means -- never a catalogue's numbering or a price guide's values.
+and what it means -- never a catalog's numbering or a price guide's values.

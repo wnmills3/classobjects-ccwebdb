@@ -112,7 +112,7 @@ item_code_sequence = Sequence("item_code_seq", start=1, metadata=Base.metadata)
 #: that guarantees it without a lock.
 #:
 #: Written exactly as PostgreSQL stores it, casts and parentheses included --
-#: the same reason as the full-text index below. PostgreSQL normalises a
+#: the same reason as the full-text index below. PostgreSQL normalizes a
 #: default expression on creation, so the shorter form reflects back
 #: differently and autogenerate reports the column as changed on every run.
 ITEM_CODE_DEFAULT = (
@@ -379,7 +379,7 @@ class InventoryItem(TimestampMixin, Base):
     )
     #: What the seller called the item, as written in the listing or
     #: invoice -- often not a name at all ("Rolls .25", "$20 Bill", "2").
-    #: `description` is what a person recognises an item by.
+    #: `description` is what a person recognizes an item by.
     source_title: Mapped[str] = mapped_column(
         String(500), default="", server_default=text("''"), nullable=False
     )
@@ -420,7 +420,7 @@ class InventoryItem(TimestampMixin, Base):
         Boolean, default=_configured_tax_includes_shipping, nullable=False
     )
     #: Sales tax paid on the purchase. Specifically that, not "taxes" --
-    #: income tax on a realised gain is a different thing entirely and this
+    #: income tax on a realized gain is a different thing entirely and this
     #: system will eventually have to speak about both.
     sales_tax: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), Computed(_TAX_EXPR, persisted=True), nullable=False
@@ -564,7 +564,7 @@ class InventoryItem(TimestampMixin, Base):
         # only indexable -- in its two-argument form.
         #
         # Written exactly as PostgreSQL stores it, casts and all. PostgreSQL
-        # normalises an index expression on creation, so the shorter form
+        # normalizes an index expression on creation, so the shorter form
         # `to_tsvector('english', source_title || ' ' || description)` reflects
         # differently from how it was written and autogenerate reports the
         # index as changed on every single run -- a permanent false positive
@@ -730,13 +730,18 @@ class CurrencyDetail(Base):
     # information irreversibly. A face plate designation carries a check
     # letter (`E82`), a plate position is a check letter plus a quadrant
     # number, and formats vary by era.
-    #: The plate that printed the face, e.g. `E82`.
+    #: The plate that printed the face: `E82`, `153`, or `FW E82` for a note
+    #: printed in Fort Worth (`app.plates`).
     face_plate_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    #: The plate that printed the back, e.g. `E82`.
+    #: The plate that printed the back: digits, e.g. `1234`.
     back_plate_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
     #: Where on the printing sheet this note sat: a check letter plus a
     #: quadrant number.
     plate_position: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: Where it was printed: `dc` (Washington) or `fw` (Fort Worth). Read
+    #: from the face plate when there is one -- FW before it is Fort Worth --
+    #: and it tells two Friedberg numbers apart (2017-A $1: 3005-A, 3006-A).
+    printing_facility: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
     item: Mapped[InventoryItem] = relationship(back_populates="currency_detail")
 
@@ -744,5 +749,9 @@ class CurrencyDetail(Base):
         CheckConstraint(
             "friedberg_status IN ('unknown', 'proposed', 'confirmed', 'conflicting')",
             name="ck_currency_detail_friedberg_status",
+        ),
+        CheckConstraint(
+            "printing_facility IS NULL OR printing_facility IN ('dc', 'fw')",
+            name="ck_currency_detail_printing_facility",
         ),
     )

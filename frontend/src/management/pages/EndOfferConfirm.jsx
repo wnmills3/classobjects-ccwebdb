@@ -27,7 +27,7 @@ import { isLot, subjectOf } from './listing-labels'
  * code, so this asked "End listing #7 for null on eBay?" and then reported
  * "null is withdrawn from eBay at 1000.00" -- which defeats the whole reason
  * the wording names anything, at the moment it matters. A lot is named the
- * way the catalogue names it: its own title, with how many coins are in it.
+ * way the catalog names it: its own title, with how many coins are in it.
  *
  * A lot also ends differently, and the difference is worth a sentence.
  * `offering_writes._end` dissolves the lot along with the listing and

@@ -37,7 +37,7 @@ alias) for every other vocabulary. Both carry `is_active` and a `source`.
 
 Where aliases are read:
 
-| Where | Behaviour |
+| Where | Behavior |
 |---|---|
 | **Search** | Each inventory view names the vocabularies it searches by name (`Named` in `inventory_search`): series, strike type, grade designation and attribute in both; mint for coins; note class for currency. A value on a detail or link table is matched with `i.id IN (subquery)`, which PostgreSQL hashes once. |
 | **Pickers** | `ReferenceSelect` shows a Find box on a vocabulary of more than ten values (`FIND_FROM`), matching label, code or alias and showing the alias that matched; Enter picks the first. |

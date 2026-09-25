@@ -603,7 +603,7 @@ Status is changed from the order's row (`PATCH /api/orders/{id}`) through
 pending, paid, packed, shipped, delivered, cancelled, refunded.
 
 **Cancelling is one way.** Cancelling an unshipped order returns its stock to
-the catalogue, after which the order cannot move to any other status (409):
+the catalog, after which the order cannot move to any other status (409):
 allowing it would leave an order standing on stock already offered to the
 next buyer. Place a new order instead. Cancelling after packing or shipping
 returns no stock; re-sending `cancelled` is harmless.
@@ -611,7 +611,7 @@ returns no stock; re-sending `cancelled` is harmless.
 Two kinds of unshipped order **cannot be cancelled**, because the listing they
 sold has already ended and there is nothing to put the stock back on: a sale
 recorded from an outside platform, and an order that bought a **sales lot**.
-The API refuses with a 409 naming what is in the way; the Sales page greys
+The API refuses with a 409 naming what is in the way; the Sales page grays
 out **cancelled** on an outside-platform order. Once such an order has shipped
 it can be cancelled normally (no stock returns), which is how a refund is
 recorded. There is no "undo an outside sale" path: if one falls through,
@@ -619,7 +619,7 @@ restore the item's status and disposition by hand and offer it again.
 
 **Placing an order for a customer.** **New order** opens an editor that
 searches customers (and accounts with no customer record yet) and the
-catalogue, and saves with `POST /api/customers/{id}/orders`. Prices default to
+catalog, and saves with `POST /api/customers/{id}/orders`. Prices default to
 the listing's current price and can be overridden line by line.
 
 **Revising a pending or paid order.** The same editor, from the order's
@@ -672,7 +672,7 @@ listing-link template and default fees.
 
 The **web store platform** is created by the migration and every store listing
 and order names it. Its kind cannot be changed and it cannot be retired --
-checkout and the public catalogue are defined by it -- so the console hides
+checkout and the public catalog are defined by it -- so the console hides
 those controls and the API refuses both with 422. Every other platform is
 added here and may be retired.
 
@@ -731,7 +731,7 @@ number (`PATCH /api/listings/{id}`) and nothing else. The item editor's
 
 **A paused listing** is a store listing set aside because its item was offered
 elsewhere. It keeps its price, is not for sale and does not appear in the
-public catalogue; the Listings page names the offer that caused the pause. It
+public catalog; the Listings page names the offer that caused the pause. It
 resumes on its own, at its old price, when that offer ends.
 
 **Ending an offer.** **End** (Listings page, active and paused rows; the
@@ -910,7 +910,7 @@ Where the label is enough:
   owner chose to be asked rather than have one picked.
 
 A value added this way is marked `manual`, which keeps it distinct from the
-shipped catalogue and out of an export by default
+shipped catalog and out of an export by default
 (`python -m app.seeding export --out <dir>`, whose `--source` defaults to
 `seeded`).
 
@@ -922,12 +922,12 @@ person). A
 machine guess must never be indistinguishable from a curated fact. Review
 `derived` rows before anyone exports them.
 
-**Before adding reference data, check it is free to use.** The catalogue is
+**Before adding reference data, check it is free to use.** The catalog is
 sold, so reference data shipped inside it is redistributed. Facts are safe --
 who held an office and when, design series names and year spans, mint
 specifications, legislated compositions, common collector nicknames. A
 publisher's *arrangement* is not: Friedberg numbering, Pick numbering,
-price-guide values, or any catalogue's mapping of attributes to its own
+price-guide values, or any catalog's mapping of attributes to its own
 numbers. See the Reference data section of `CLAUDE.md`.
 
 ### Other names (aliases)
@@ -1117,7 +1117,7 @@ at that vocabulary's **Unknown** row, and each substitution is printed:
 
 The Unknown row is the vocabulary's own `unknown` row if its sheet has one
 (item status does). Otherwise it is added with id 0 -- real ids start at 1 --
-labelled Unknown, sorted last, marked `manual` so a seed load leaves it
+labeled Unknown, sorted last, marked `manual` so a seed load leaves it
 alone. Find the items that point at it and correct them in the console. A
 vocabulary whose rows need more than a code and a label -- a denomination's
 currency and face value, a mint's mark -- gets no invented row: the import
@@ -1197,7 +1197,7 @@ password in each window you use.
 
 5. **Check:** `alembic_version` reads the new head; the item count and cost
    basis match step 2's; every table the migration added is empty; the shop
-   catalogue (`GET /api/catalog`) and the console answer once restarted.
+   catalog (`GET /api/catalog`) and the console answer once restarted.
 
 6. **Restart** from a shell nothing else depends on:
 
@@ -1219,7 +1219,7 @@ password in each window you use.
   id, and `ON DELETE SET NULL` on those columns exists so that removing a user
   never erases the record that the work was done.
 - **A storage location customers can see.** This is an
-  authorisation boundary: a public listing that leaked the safe-deposit box
+  authorization boundary: a public listing that leaked the safe-deposit box
   holding an item would be a security failure. It is enforced by
   `routers/catalog.py`, which builds every public response field by field, and
   by the test asserting the result carries no location -- not by the

@@ -14,7 +14,7 @@ totals, query the database; the figures move with every entry and pass.)
 
 Three things have to be true for a sale:
 
-1. **The catalogue is accurate.** An item offered for sale must be described
+1. **The catalog is accurate.** An item offered for sale must be described
    correctly, because a numismatic buyer knows the difference between AU58 and
    MS63 and a misdescription is a refund and a reputation.
 2. **Cost basis is defensible.** Every item traces to what was actually paid
@@ -25,7 +25,7 @@ Three things have to be true for a sale:
 
 ## Where items are sold
 
-**The web store** (the shop). Buyers browse the catalogue, add to a cart and
+**The web store** (the shop). Buyers browse the catalog, add to a cart and
 order, as registered customers.
 
 **Outside platforms** -- eBay, Whatnot, auction houses such as Heritage and
@@ -49,7 +49,7 @@ planned. The venue does all of it. What this system does is:
 - settle it afterwards: what sold, to whom, for how much, and what came back
 
 A bidding engine is a concurrency-critical, money-handling, dispute-generating
-subsystem. Auction *assembly and settlement* is a catalogue, a status rule and
+subsystem. Auction *assembly and settlement* is a catalog, a status rule and
 a record of results.
 
 ### The rule that connects the channels
@@ -86,10 +86,10 @@ one of each at once and they say nothing about each other.
 ## The order of work
 
 ```
-catalogue  ->  clean up  ->  list  ->  sell
+catalog  ->  clean up  ->  list  ->  sell
 ```
 
-The collection is catalogued. Clean-up -- attribution: establishing what each
+The collection is cataloged. Clean-up -- attribution: establishing what each
 item actually is -- is ongoing and has no shortcut. Listing and selling are
 built: offers, sales lots, auctions and recorded sales. An item is ready to
 list when it is described well enough to sell; the console's diagnostics show
@@ -117,7 +117,7 @@ stored items.
   history and an audit reference is never ambiguous.
 - **Nothing is deleted.** Rows are withdrawn, split, ended, retired, merged or
   soft deleted; the record of what happened stays.
-- **Only facts are shipped as reference data.** The catalogue is sold, so
+- **Only facts are shipped as reference data.** The catalog is sold, so
   anything seeded is redistributed with it: design series, office holders and
   mint specifications may be; a publisher's numbering or price guide may not.
 - **The owner is not a customer.** The console shows cost basis, margin,

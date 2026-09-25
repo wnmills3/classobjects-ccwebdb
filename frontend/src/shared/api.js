@@ -159,9 +159,9 @@ export const api = {
     send('/api/auth/register', { method: 'POST', body: payload, auth: false }),
   me: () => send('/api/auth/me'),
 
-  // catalogue
+  // catalog
   //
-  // A catalogue entry is a listing plus the inventory item behind it. The
+  // A catalog entry is a listing plus the inventory item behind it. The
   // id in these paths is the LISTING id -- the item id is carried alongside
   // as inventory_item_id, for the admin views that need it.
   listCatalog: (params = {}) => {

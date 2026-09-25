@@ -148,8 +148,8 @@ def analyse(serial: str) -> set[str]:
 
     # `fancy_serial` is the umbrella over *digit patterns* only. A star note is
     # a replacement note, which is a different question on a grading form and
-    # a different suffix on the catalogue number -- sweeping it in here would
-    # have labelled all 189 stars as fancy serials.
+    # a different suffix on the catalog number -- sweeping it in here would
+    # have labeled all 189 stars as fancy serials.
     if found - {"star", "low_serial", "high_serial"}:
         found.add("fancy_serial")
     return found

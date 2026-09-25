@@ -26,7 +26,7 @@ Rejected, with reasons that still hold:
 - *A platform list with no link to `vendor`* -- eBay, Whatnot and HiBid
   would exist twice, spelled differently.
 - *A parallel "offering" table beside `listing`* -- checkout, the public
-  catalogue, sale snapshots and the for-sale warning all read `listing`;
+  catalog, sale snapshots and the for-sale warning all read `listing`;
   widening it keeps them working.
 - *A sales lot as an inventory item* -- it would be counted in inventory and
   cost basis beside its own members.
@@ -185,7 +185,7 @@ the date once every coin is back.
   weight is zero. Fees divide the same way. **Every line gets shares, a
   single-item store sale included**: that makes this table the one permanent
   answer to "which items did this order carry", which `sale_state` and
-  realised-gain reporting depend on.
+  realized-gain reporting depend on.
 - **Sale snapshots** (`app/sale_snapshot.py`) have two shapes, by
   `snapshot_version`:
 
@@ -316,7 +316,7 @@ Admin-only unless noted; the console's calls live in `management/api.js`.
 | `POST /api/auctions/{id}/{schedule\|consign\|close\|cancel\|settle}` | transitions |
 
 `GET /api/catalog` (public) returns store lots as one entry with their
-members' public descriptions. The catalogue has no write endpoints.
+members' public descriptions. The catalog has no write endpoints.
 
 **Errors.** 409 for conflicts with other work, naming what is in the way or
 reporting a stale version. 422 for bad input: unknown platform, format or
@@ -364,7 +364,7 @@ unit marks the item `sold` while its store listing stays active.
 ## Other tests
 
 - **Races** on real threads behind a barrier, a session each
-  (`TestClient` serialises requests and cannot show a race):
+  (`TestClient` serializes requests and cannot show a race):
   `tests/test_offer_races.py`, `tests/test_settlement_race.py`,
   `tests/test_order_revision_race.py`.
 - **Settlement**: shares sum to the line to the cent; resumed store listings
@@ -372,7 +372,7 @@ unit marks the item `sold` while its store listing stays active.
   a sold lot's paused store listings end rather than resume.
 - **Migrations**: `test_migrations_match_models` and
   `test_the_baseline_views_and_functions_are_the_apps`.
-- **Shop boundary**: the public catalogue never exposes cost, storage
+- **Shop boundary**: the public catalog never exposes cost, storage
   location or non-store listings; the bundle-isolation check stays green.
 
 ## Known limits
@@ -406,7 +406,7 @@ unit marks the item `sold` while its store listing stays active.
 
 - Importing platform sales reports (the Whatnot CSV, an eBay export) into the
   same order, fee and customer rows.
-- Realised-gain reporting. The shares make it possible; it needs the owner's
+- Realized-gain reporting. The shares make it possible; it needs the owner's
   accounting decisions (specific identification or FIFO, how fees and
   outbound shipping count).
 - Customers registering interest in an item held by an auction; needs email.

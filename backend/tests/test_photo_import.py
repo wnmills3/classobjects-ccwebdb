@@ -20,9 +20,9 @@ from sqlalchemy.orm import Session
 from tests.conftest import build_item
 
 
-def _jpeg(colour: tuple[int, int, int] = (10, 20, 30)) -> bytes:
+def _jpeg(color: tuple[int, int, int] = (10, 20, 30)) -> bytes:
     buffer = io.BytesIO()
-    PILImage.new("RGB", (8, 8), colour).save(buffer, format="JPEG")
+    PILImage.new("RGB", (8, 8), color).save(buffer, format="JPEG")
     return buffer.getvalue()
 
 
@@ -115,7 +115,7 @@ def test_a_dry_run_reports_what_a_committing_run_does(
     """The counts are the point of a dry run, so they must match the real one.
 
     The same library is reported and then applied: every bucket has to agree,
-    or the report the owner watches is not the run they then authorise.
+    or the report the owner watches is not the run they then authorize.
     """
     monkeypatch.setattr(settings, "media_root", tmp_path / "media")
     item = build_item(db)

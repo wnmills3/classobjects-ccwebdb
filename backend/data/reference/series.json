@@ -2,7 +2,7 @@
   "_comment": [
     "Design series, and the colloquial names people search by.",
     "",
-    "'Series' is the industry's word, not one invented here: PCGS organises its",
+    "'Series' is the industry's word, not one invented here: PCGS organizes its",
     "price guide, population report and CoinFacts by series, so using the same",
     "term is what lets a coin be looked up against a published value.",
     "",
@@ -13,7 +13,7 @@
     "130 against 'Walker' 2. Neither the formal names nor the nicknames alone",
     "would find everything.",
     "",
-    "Coin series came first. Paper money is catalogued by Friedberg number, and",
+    "Coin series came first. Paper money is cataloged by Friedberg number, and",
     "its classes are already in note_type, so no parallel vocabulary of note",
     "classes belongs here. What does: the handful of established collector",
     "names for specific issues -- Funnyback, Barr Note, Hawaii, North Africa --",

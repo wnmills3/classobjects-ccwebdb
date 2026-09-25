@@ -1,6 +1,6 @@
 """Contention around revising an order: a stale read must not go unnoticed.
 
-Real, committing sessions rather than ``TestClient``: a client call serialises
+Real, committing sessions rather than ``TestClient``: a client call serializes
 through one connection and would look correct even with the fix reverted --
 see test_concurrency.py for the pattern this borrows.
 
@@ -180,7 +180,7 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
     barrier -- as in test_concurrency.py -- contend for the last unit of a
     listing an order already holds one of. Only one may take it; the loser
     gets a 409, not a lost update or an oversell. A TestClient-based version
-    of this test would serialise both requests through one connection and
+    of this test would serialize both requests through one connection and
     pass even with the lock removed.
     """
     listing_id, (buyer_id, holder_id, admin_id) = _seed(committed, stock=2, buyers=3)
@@ -252,7 +252,7 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     `update_order_status` (the PATCH path) and `revise_order` (the PUT path)
     both lock and re-read the `sales_order` row before touching listings --
     order first, listings second -- so two admins racing a cancel and an edit
-    on the very same order must serialise on that lock rather than deadlock.
+    on the very same order must serialize on that lock rather than deadlock.
 
     `OrderStatusUpdate` carries no version, so a cancel is not refused merely
     because an edit changed the order since a caller last read it: whichever
@@ -378,7 +378,7 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_revision(
     `_after_stock_change` will write -- `offered_items` for the lines'
     listings -- and re-reads them with `populate_existing`, so the version
     the disposition write uses is the one the lock granted rather than one
-    read before the wait. The two writers are serialised instead of one of
+    read before the wait. The two writers are serialized instead of one of
     them losing.
 
     Fails for its stated reason if that re-read goes: remove
@@ -460,7 +460,7 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_cancellation(
 
     The `except StaleDataError` clauses in `order_writes.revise_order` and
     `routers.orders.update_order_status` are left in place deliberately, and
-    are now defence in depth rather than a live path: every version-tracked
+    are now defense in depth rather than a live path: every version-tracked
     row these two functions write -- `sales_order`, `listing`,
     `inventory_item`, `sales_lot` -- is locked and re-read first. Removing an
     error handler from a money path on the strength of that argument is the
@@ -580,7 +580,7 @@ def test_a_stale_data_error_inside_revise_order_is_a_409_not_a_500(
     `StaleDataError` in place of the `HTTPException` it expects. **Not**
     deleting the clause, which is a `SyntaxError` -- the `try` needs a
     handler -- so what is mutated is the 409 conversion, which is the
-    behaviour under test anyway.
+    behavior under test anyway.
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=2, buyers=2)
 

@@ -387,7 +387,7 @@ def test_two_settlements_of_one_auction_leave_one_set_of_orders(
     Survives: removing `.with_for_update()` from `auctions._lock_auction`
     (`app/auctions.py`) makes this fail. Measured, ten runs of ten:
     `AssertionError: ['sale_refused', 'settled']`. Both settlements then read
-    `closed` and both go on to record the sale; they serialise on the *items*
+    `closed` and both go on to record the sale; they serialize on the *items*
     instead, in `offering_writes.lock_for_sale`, and the loser reaches
     `sales_writes.record_sale_lines` to be told
     `Listing 1 on settle-race-house is not on offer (ended)` -- observed
@@ -412,7 +412,7 @@ def test_two_settlements_of_one_auction_leave_one_set_of_orders(
 
     Does **not** survive removing the `offering_writes.lock_for_sale` pass
     from `settle`, and that is stated rather than left as a gap: measured ten
-    runs of ten, still green. The auction lock serialises two settlements on
+    runs of ten, still green. The auction lock serializes two settlements on
     its own, so the item pass cannot be reached by *this* race at all -- it
     is there for a settlement racing some **other** writer, which is what
     `test_settling_a_consigned_auction_races_a_coin_going_missing` measures.
@@ -650,7 +650,7 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
     The race that measures ruling **R1** -- the single
     `offering_writes.lock_for_sale` pass covering every coin in the whole
     auction -- which the two-settlement race above cannot reach at all,
-    because the `auction` row lock serialises two settlements before either
+    because the `auction` row lock serializes two settlements before either
     of them takes a coin.
 
     Both operations are legitimate, both take their rows, and **neither is a
@@ -938,7 +938,7 @@ def test_cancelling_an_auction_races_settling_it(
     - `AssertionError: ['settled', 'stale']`, three of ten. `settle` got all
       the way through without contending and `cancel`'s final `UPDATE
       auction ... WHERE version = :v` matched no rows. That one is the
-      *clean* 409 described below -- correct behaviour for the unlocked
+      *clean* 409 described below -- correct behavior for the unlocked
       code, and the reason the mutation has to be judged on both assertions
       rather than on the deadlock alone. Neither shape is reachable once the
       lock is back, which is why the test forbids both.

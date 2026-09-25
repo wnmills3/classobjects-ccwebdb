@@ -1,7 +1,7 @@
 """Offering items for sale: the HTTP face of `offering_writes`.
 
 Admin only, and deliberately so: an offer row carries what the item cost, and
-the shop's own catalogue endpoints are what a customer reads.
+the shop's own catalog endpoints are what a customer reads.
 
 Every write here goes through `app.offering_writes`, which is the only writer
 of `listing.status` and `offer_claim`. This module resolves codes to rows,

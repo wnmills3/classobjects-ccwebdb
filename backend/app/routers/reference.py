@@ -5,7 +5,7 @@ useless for a human filling in a form -- nobody knows that a Morgan dollar's
 denomination is `usd_coin_1_00`. This endpoint is what turns those free-text
 boxes into pickers.
 
-Public, because the catalogue's own filters need it and a vocabulary is not
+Public, because the catalog's own filters need it and a vocabulary is not
 data: knowing that `MS64` exists reveals nothing about what anyone owns.
 
 Each table's extra columns come through in `extra` rather than being flattened,
@@ -296,7 +296,7 @@ def create_value(
     invisible afterwards.
 
     Marked `manual`, so one installation's additions stay distinguishable from
-    the shipped catalogue and do not leave in an export unless asked for.
+    the shipped catalog and do not leave in an export unless asked for.
 
     Staff only: an anonymous request has no standing to extend a
     vocabulary.
@@ -426,7 +426,7 @@ def add_alias(
     """Give a value another name: what people write instead of its label.
 
     The standard term stays the label; the owner's word becomes an alias
-    ("Ultra Cameo" for UCAM). Search and the pickers recognise it at once. A
+    ("Ultra Cameo" for UCAM). Search and the pickers recognize it at once. A
     retired shipped alias is brought back rather than copied.
 
     Two values may share an alias ("Cartwheel" is any large silver dollar):

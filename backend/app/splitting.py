@@ -16,7 +16,7 @@ same cost basis would make the cent look like a catastrophic loss and the half
 a windfall, and both figures would be wrong on a return.
 
 The relative basis is the caller's to choose -- face value, melt value, a
-catalogue price. This module takes the numbers and does not opine on where they
+catalog price. This module takes the numbers and does not opine on where they
 came from, except to record them. It is worth being explicit that proportional
 value is a convention, not a measurement: it does not know that one coin in the
 set is the key date and the rest are common. It is a defensible way to divide a
@@ -214,7 +214,7 @@ def split_item(
         # on a lot listing, so a lot sale never matched and a coin sold inside
         # a lot was split without a word: the line's share still credits the
         # whole cost to this parent while `allocate` below hands that same
-        # cost to the children, and the realised gain and the cost basis both
+        # cost to the children, and the realized gain and the cost basis both
         # double-count. Neither guard covered it -- `routers.inventory.split`
         # narrows `sale_state.guard` to `kinds={"listing"}` precisely because
         # this check is the unconditional one, and after a lot sale the claims

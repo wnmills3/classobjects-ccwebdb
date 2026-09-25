@@ -103,7 +103,7 @@ describe('Platforms', () => {
   // the same as a fee nobody has looked up yet, which shows an empty cell.
   // The summary must therefore ask whether a fee is *present*, not whether it
   // is truthy. Both shapes are covered because only one of them is broken by
-  // a truthiness test: the API serialises Decimal as a string today, and
+  // a truthiness test: the API serializes Decimal as a string today, and
   // "0.0000" is truthy, so that case happens to work. A JSON number 0 is
   // falsy and vanishes -- a silent default, which is the failure this
   // codebase treats as a bug wherever it appears.

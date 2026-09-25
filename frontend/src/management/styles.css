@@ -45,7 +45,7 @@ button.link.danger {
 
 /* Inventory search panel and results grid.
 
-   Every colour here comes from the theme variables. Hardcoded near-white
+   Every color here comes from the theme variables. Hardcoded near-white
    values were used originally, which looked right in light mode and rendered
    the panel's labels as white text on a white background under
    `prefers-color-scheme: dark` -- `--text` flips to #ece9e4 while a literal
@@ -118,7 +118,7 @@ button.link.danger {
   flex-direction: row;
 }
 /* A filter with no values left is disabled rather than hidden: a control
-   that vanishes as you narrow is more confusing than one that greys out. */
+   that vanishes as you narrow is more confusing than one that grays out. */
 .filter-grid select:disabled {
   opacity: 0.45;
 }

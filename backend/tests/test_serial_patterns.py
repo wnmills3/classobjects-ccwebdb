@@ -50,7 +50,7 @@ def test_designations(serial: str, expected: set[str]) -> None:
 def test_a_star_is_not_a_fancy_serial() -> None:
     """Two different questions on a grading form, and two different suffixes.
 
-    Sweeping stars into `fancy_serial` labelled all 189 of this collection's
+    Sweeping stars into `fancy_serial` labeled all 189 of this collection's
     star notes as fancy serials, which is a claim about their digits that
     their digits do not support.
     """

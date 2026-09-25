@@ -314,7 +314,7 @@ def test_adding_a_single_item_lot(
     assert lot["lot_number"] == "1"
     # The exact string, not a Decimal comparison: money crosses this API as a
     # string and `Decimal(25.0) == Decimal("25.00")` would hide a regression
-    # to float serialisation.
+    # to float serialization.
     assert lot["listing"]["price"] == "25.00"
     assert lot["reserve"] == "20.00"
     assert lot["listing"]["format"] == "auction"

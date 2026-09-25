@@ -80,7 +80,7 @@ def test_each_view_returns_the_columns_that_matter_to_it(
     """Each view carries the columns its own kind needs.
 
     The reason for two views: a coin has a mint mark, a note has a seal
-    colour and its own serial. One grid would leave most columns empty.
+    color and its own serial. One grid would leave most columns empty.
     """
     coin(db)
     note(db, seal="blue", serial="A12345678B")
@@ -559,7 +559,7 @@ def test_browsing_inventory_requires_an_administrator(
 ) -> None:
     """Browsing inventory is staff-only.
 
-    These rows carry cost basis, storage quantity and local catalogue
+    These rows carry cost basis, storage quantity and local catalog
     numbers -- none of which is customer-facing.
     """
     response = client.get("/api/inventory/coins/search", headers=customer_headers)

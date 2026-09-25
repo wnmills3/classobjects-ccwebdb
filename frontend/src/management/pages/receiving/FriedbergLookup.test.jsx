@@ -17,7 +17,7 @@ import { webSearchText } from './webSearchText'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 
 // Obviously synthetic, per CLAUDE.md's ban on shipping a publisher's
-// Friedberg arrangement -- these codes and numbers are not real catalogue
+// Friedberg arrangement -- these codes and numbers are not real catalog
 // entries, not even in a fixture pretending to be one.
 const SIGNATURES_ALL = [
   { code: 'FR-TEST-SIG-A', label: 'Test Treasurer A / Test Secretary A' },
@@ -216,7 +216,7 @@ describe('FriedbergLookup', () => {
         status: 'confirmed',
       }),
     )
-    // The copied number is that catalogue row: attached as it is, never
+    // The copied number is that catalog row: attached as it is, never
     // recorded a second time (which would be a 409).
     expect(api.createFriedbergNumber).not.toHaveBeenCalled()
   })
@@ -253,6 +253,36 @@ describe('FriedbergLookup', () => {
         signature_combination: 'FR-TEST-SIG-A',
         district_letter: 'B',
         web_press: true,
+      }),
+    )
+  })
+
+  it('searches by where the note was printed, from what it records', async () => {
+    // A 2017-A $1 is one number from Washington and another from Fort Worth.
+    const item = {
+      id: 412,
+      denomination: 'usd_note_1',
+      note_type: 'frn',
+      series_year: 2017,
+      series_letter: 'A',
+      printing_facility: 'fw',
+      face_plate_number: 'FW E82',
+      back_plate_number: '1234',
+      attributes: [],
+    }
+    renderWithProviders(<FriedbergLookup itemId={412} item={item} />)
+    expect(screen.getByLabelText(/printed at/i)).toHaveValue('fw')
+    expect(screen.getByLabelText(/face plate/i)).toHaveValue('FW E82')
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await waitFor(() =>
+      expect(api.searchFriedberg).toHaveBeenCalledWith({
+        denomination: 'usd_note_1',
+        note_type: 'frn',
+        series_year: 2017,
+        series_letter: 'A',
+        // The plates go only into the web search's question: they are not
+        // catalog fields.
+        printing_facility: 'fw',
       }),
     )
   })
@@ -298,7 +328,7 @@ describe('FriedbergLookup', () => {
     renderWithProviders(<FriedbergLookup itemId={412} item={item} />)
 
     const select = await screen.findByLabelText(/signature combination/i)
-    // Would fail the old behaviour, which cleared a choice the narrowed list
+    // Would fail the old behavior, which cleared a choice the narrowed list
     // did not hold -- silently, and it was usually the right one.
     await waitFor(() =>
       expect(select).toHaveTextContent(
@@ -336,13 +366,13 @@ describe('FriedbergLookup', () => {
       attributes: [],
     }
     renderWithProviders(<FriedbergLookup itemId={412} item={item} />, { reference })
-    // Nothing to search the web about until the catalogue has said no.
+    // Nothing to search the web about until the catalog has said no.
     expect(screen.queryByRole('button', { name: /search the web/i })).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
     const expected =
       'What is the Friedberg number for Series 1963-A $1 Federal Reserve Note New York Test Treasurer A Test Secretary A?'
-    // Pressing Look up alone ends in the web search when the catalogue has
+    // Pressing Look up alone ends in the web search when the catalog has
     // nothing -- in a named pop-up window, not a tab, so the answer sits
     // beside the form and a second search reuses the same window.
     await waitFor(() =>

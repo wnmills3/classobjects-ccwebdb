@@ -169,7 +169,7 @@ export default function Orders() {
                     {STATUSES.map((s) => {
                       // A sale recorded from another platform ended its
                       // listing already; the server refuses "cancelled" for
-                      // it with a 409, so the option is greyed out here
+                      // it with a 409, so the option is grayed out here
                       // instead of offered and then refused.
                       //
                       // **Unless it has shipped**, which is the half this

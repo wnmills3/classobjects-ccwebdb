@@ -27,6 +27,7 @@ from pydantic import (
     model_validator,
 )
 
+from . import plates
 from .models import UserRole
 
 # --------------------------------------------------------------------------
@@ -70,11 +71,11 @@ class RefreshRequest(BaseModel):
 
 
 # --------------------------------------------------------------------------
-# Catalogue
+# Catalog
 #
-# A catalogue entry is a `listing` joined to the `inventory_item` behind it.
+# A catalog entry is a `listing` joined to the `inventory_item` behind it.
 # The two are separate tables because an item may be listed, delisted and
-# relisted at different prices, and because the public catalogue must be able
+# relisted at different prices, and because the public catalog must be able
 # to show a listing without exposing the item's cost basis or location. The
 # API presents them as one resource, since that is how a shop is operated.
 # --------------------------------------------------------------------------
@@ -152,7 +153,7 @@ class CatalogMemberOut(BaseModel):
 
     The descriptive half of `CatalogItemOut` and nothing else: a member has
     no price, no stock and no listing of its own, because the lot is the one
-    thing for sale. Every field here is one a single-item catalogue entry
+    thing for sale. Every field here is one a single-item catalog entry
     already shows a customer, so nothing becomes public by being a member --
     and cost basis and storage location are absent for the same reason they
     are absent there.
@@ -194,7 +195,7 @@ class CatalogMemberOut(BaseModel):
 class CatalogItemOut(BaseModel):
     """What a buyer sees: one coin, or one lot of them.
 
-    Deliberately carries no cost basis, storage location or internal catalogue
+    Deliberately carries no cost basis, storage location or internal catalog
     number -- see `public_catalog` in the database design. The admin views read
     the same shape, so a field cannot be added here for staff and leak to
     customers.
@@ -273,7 +274,7 @@ class CatalogItemOut(BaseModel):
 
 
 class CatalogPage(BaseModel):
-    """A page of catalogue results plus the total matching count."""
+    """A page of catalog results plus the total matching count."""
 
     items: list[CatalogItemOut]
     total: int
@@ -363,7 +364,7 @@ class OrderItemOut(BaseModel):
     #: Whether the listing this line bought from has ended -- a lot bought in
     #: the shop, or any outside sale. Cancelling an unshipped order with such
     #: a line is refused (`routers.orders._no_stock_to_return`); the console
-    #: reads this to grey the option out instead of offering it and failing.
+    #: reads this to gray the option out instead of offering it and failing.
     listing_ended: bool = False
 
 
@@ -472,7 +473,7 @@ class ReferenceValueOut(BaseModel):
     retirable: bool = True
     extra: dict[str, object] = Field(default_factory=dict)
     #: Other names people use for it ("Mercury", "Legal Tender"), which
-    #: search and the pickers also recognise.
+    #: search and the pickers also recognize.
     aliases: list[str] = Field(default_factory=list)
     #: Shipped aliases someone removed, listed only with include_inactive so
     #: the console can offer them back.
@@ -501,7 +502,7 @@ class SplitPieceIn(BaseModel):
     source_title: str = Field(min_length=1, max_length=500)
     piece_count: int = Field(default=1, ge=1)
     #: The value of ONE piece, on whatever basis the caller chose -- face
-    #: value, melt, a catalogue price. Required in `relative` mode, ignored in
+    #: value, melt, a catalog price. Required in `relative` mode, ignored in
     #: `equal`. What it measures is the caller's decision; this only divides
     #: the cost in proportion to it.
     relative_value: Decimal | None = Field(default=None, ge=0)
@@ -741,13 +742,17 @@ class ItemDetailOut(InventoryItemOut):
     series_year: int | None = None
     series_letter: str | None = None
     serial_number: str | None = None
+    face_plate_number: str | None = None
+    back_plate_number: str | None = None
+    #: `dc` (Washington) or `fw` (Fort Worth); None when not known.
+    printing_facility: str | None = None
     #: The Friedberg number attached to the note, if any. Set through
     #: `POST`/`DELETE /inventory/{id}/friedberg`, never by a PATCH.
     friedberg_id: int | None = None
     friedberg_number: str | None = None
     #: unknown, proposed, confirmed or conflicting; None for anything but a note.
     friedberg_status: str | None = None
-    #: Whether the attached catalogue row has been confirmed by anyone.
+    #: Whether the attached catalog row has been confirmed by anyone.
     friedberg_verified: bool | None = None
 
     #: Each field's most recent change by an edit, keyed by field: who made
@@ -849,6 +854,24 @@ class InventoryItemUpdate(BaseModel):
     series_year: int | None = Field(default=None, ge=1861, le=2200)
     series_letter: str | None = Field(default=None, max_length=4)
     serial_number: str | None = Field(default=None, max_length=64)
+    #: `E82`, `153`, or `FW E82` for a Fort Worth note (`app.plates`).
+    face_plate_number: str | None = Field(default=None, max_length=16)
+    #: Digits, as printed on the back.
+    back_plate_number: str | None = Field(default=None, max_length=16)
+    #: `dc` or `fw`; read from the face plate when that is sent.
+    printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
+
+    @field_validator("face_plate_number")
+    @classmethod
+    def _face_plate(cls, value: str | None) -> str | None:
+        """A face plate in its stored form (`app.plates.face_plate`)."""
+        return plates.face_plate(value)
+
+    @field_validator("back_plate_number")
+    @classmethod
+    def _back_plate(cls, value: str | None) -> str | None:
+        """Digits only (`app.plates.back_plate`)."""
+        return plates.back_plate(value)
 
     #: Required, as true, to change an item that is up for sale: a listing
     #: offers it or an unshipped order holds it (app.sale_state).
@@ -908,6 +931,9 @@ _CURRENCY_ONLY_FIELDS: tuple[str, ...] = (
     "fed_district",
     "note_type",
     "signature_combination",
+    "face_plate_number",
+    "back_plate_number",
+    "printing_facility",
 )
 
 
@@ -991,6 +1017,24 @@ class ItemCreate(BaseModel):
     fed_district: str | None = Field(default=None, max_length=64)
     note_type: str | None = Field(default=None, max_length=64)
     signature_combination: str | None = Field(default=None, max_length=64)
+    #: `E82`, `153`, or `FW E82` for a Fort Worth note (`app.plates`).
+    face_plate_number: str | None = Field(default=None, max_length=16)
+    #: Digits, as printed on the back.
+    back_plate_number: str | None = Field(default=None, max_length=16)
+    #: `dc` or `fw`; read from the face plate when that is sent.
+    printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
+
+    @field_validator("face_plate_number")
+    @classmethod
+    def _face_plate(cls, value: str | None) -> str | None:
+        """A face plate in its stored form (`app.plates.face_plate`)."""
+        return plates.face_plate(value)
+
+    @field_validator("back_plate_number")
+    @classmethod
+    def _back_plate(cls, value: str | None) -> str | None:
+        """Digits only (`app.plates.back_plate`)."""
+        return plates.back_plate(value)
 
     #: Fields whose value is a suggestion the form filled from the facts and
     #: the person left as it was, by field name. They are recorded as derived
@@ -1226,7 +1270,7 @@ class ReferenceValueCreate(BaseModel):
     than abandoning the entry or forcing it into an approximate one.
 
     Created rows are marked `manual`, so they stay distinguishable from the
-    shipped catalogue and are excluded from an export by default.
+    shipped catalog and are excluded from an export by default.
     """
 
     code: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_+./-]+$")
@@ -2154,12 +2198,12 @@ class StorageLocationOut(BaseModel):
 
 
 # --------------------------------------------------------------------------
-# Friedberg numbers: the owner's own catalogue, not a licensed dataset
+# Friedberg numbers: the owner's own catalog, not a licensed dataset
 # --------------------------------------------------------------------------
 
 
 class FriedbergNumberOut(BaseModel):
-    """One row of the owner's Friedberg catalogue.
+    """One row of the owner's Friedberg catalog.
 
     `verified` mirrors whether `verified_at` is set -- a confirmed row is a
     fact the next lookup can trust, a proposal is not.
@@ -2177,6 +2221,8 @@ class FriedbergNumberOut(BaseModel):
     size_class: str | None
     #: Printed on a web press; None when not known.
     web_press: bool | None
+    #: `dc` (Washington) or `fw` (Fort Worth); None when not known.
+    printing_facility: str | None = None
     description: str | None
     #: A `provenance_source` value: seeded, derived, manual. Every row here is
     #: `manual` today -- there is no licensed dataset to seed from -- but the
@@ -2191,7 +2237,7 @@ class FriedbergNumberCreate(BaseModel):
 
     The attribute tuple is the same one `GET /friedberg` filters on, and every
     field but `fr_number` is optional -- a half-known type is a normal state
-    for a catalogue built by hand as notes arrive.
+    for a catalog built by hand as notes arrive.
     """
 
     fr_number: str = Field(min_length=1, max_length=32)
@@ -2204,6 +2250,7 @@ class FriedbergNumberCreate(BaseModel):
     district_letter: str | None = Field(default=None, min_length=1, max_length=1)
     size_class: str | None = Field(default=None, pattern="^(large|small|fractional)$")
     web_press: bool | None = None
+    printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
     description: str | None = None
 
 
@@ -2228,7 +2275,7 @@ class SignatureChoicesOut(BaseModel):
 
 
 class FriedbergAttachIn(BaseModel):
-    """Attach a catalogue row to a currency item's `currency_detail`."""
+    """Attach a catalog row to a currency item's `currency_detail`."""
 
     friedberg_id: int
     #: A `friedberg_status` value: unknown, proposed, confirmed, conflicting.

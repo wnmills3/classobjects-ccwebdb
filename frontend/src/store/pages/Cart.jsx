@@ -55,7 +55,7 @@ export default function Cart() {
       <section>
         <h1>Cart</h1>
         <p className="muted">
-          Your cart is empty. <Link to="/">Browse the catalogue</Link>.
+          Your cart is empty. <Link to="/">Browse the catalog</Link>.
         </p>
       </section>
     )

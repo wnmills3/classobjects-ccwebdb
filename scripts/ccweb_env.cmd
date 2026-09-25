@@ -81,7 +81,7 @@ if defined CCWEB_ENV_STATE goto :ccweb_env_ready
 
 rem --- find conda -----------------------------------------------------------
 rem  CONDA_EXE is set by `conda init` and names conda.exe in <root>\Scripts, so
-rem  condabin sits two levels up. %%~f normalises the "..\.." away.
+rem  condabin sits two levels up. %%~f normalizes the "..\.." away.
 set "CCWEB_CONDABAT="
 if defined CONDA_EXE for %%I in ("%CONDA_EXE%\..\..\condabin\conda.bat") do if exist "%%~fI" set "CCWEB_CONDABAT=%%~fI"
 if not defined CCWEB_CONDABAT for /f "delims=" %%I in ('where conda.bat 2^>nul') do if not defined CCWEB_CONDABAT set "CCWEB_CONDABAT=%%I"

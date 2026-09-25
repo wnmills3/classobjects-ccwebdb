@@ -53,7 +53,7 @@ _ON_DELETE_SET_NULL = "SET NULL"
 class StorageLocation(TimestampMixin, Base):
     """Where items physically are.
 
-    Never customer-visible. This is an authorisation boundary, not a
+    Never customer-visible. This is an authorization boundary, not a
     convention -- a public listing that leaked the safe-deposit box holding
     the item would be a security failure, not a cosmetic one.
 

@@ -9,7 +9,7 @@ only be a Winged Liberty Head.
 **Candidates** are the designs for the item's inventory (coin or currency)
 whose ranges cover its denomination and year, and its letter for a note.
 **Evidence** is the text -- title, description and rating, read with
-`series_match`'s vocabulary -- or, for a note, a seal colour matching the
+`series_match`'s vocabulary -- or, for a note, a seal color matching the
 design's. A title and description shared with other pieces of the same order
 are the lot's, not the piece's, so for those only the rating counts. Then:
 

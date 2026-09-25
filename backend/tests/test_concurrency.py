@@ -184,10 +184,10 @@ def test_all_buyers_succeed_when_stock_is_sufficient(
 def test_each_winner_gets_exactly_one_order_line(
     committed: sessionmaker[Session],
 ) -> None:
-    """Units sold must equal units gone from the catalogue.
+    """Units sold must equal units gone from the catalog.
 
     The count that actually matters commercially: units sold must equal
-    units gone from the catalogue.
+    units gone from the catalog.
     """
     listing_id, user_ids = _seed(committed, stock=3, buyers=6)
 

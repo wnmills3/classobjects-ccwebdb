@@ -322,7 +322,7 @@ def test_the_baseline_views_and_functions_are_the_apps(
     """
     _upgrade(migrated_url)
     # `engine` is the session's test database, built from the app's own
-    # definitions by conftest. Both sides are normalised in the migrated
+    # definitions by conftest. Both sides are normalized in the migrated
     # database, whose tables are the same.
     built = _normalised(migrated_url, _definitions(migrated_url))
     expected = _normalised(

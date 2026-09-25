@@ -218,7 +218,7 @@ describe('Lots', () => {
   it('starts a new lot from its wording alone', async () => {
     // `SalesLotIn` takes a title and a description and nothing else, and the
     // page then says what the API called it -- not what was typed -- so a
-    // title the server normalised is the one shown.
+    // title the server normalized is the one shown.
     const user = userEvent.setup()
     api.listLots.mockResolvedValue({ lots: [] })
     api.createLot.mockResolvedValue({

@@ -302,7 +302,7 @@ def test_unit_price_is_frozen_at_purchase_time(
     customer_headers: dict[str, str],
     admin_headers: dict[str, str],
 ) -> None:
-    """Editing the catalogue must not rewrite order history."""
+    """Editing the catalog must not rewrite order history."""
     order = place(client, customer_headers, listing.id, 1).json()
     assert order["items"][0]["unit_price"] == "189.00"
 
@@ -408,7 +408,7 @@ def test_an_order_says_which_platform_it_was_sold_on(
     Its status dropdown offers `cancelled` behind a confirmation promising
     the stock goes back on sale -- which `routers/orders.py` then refuses
     with a 409. A confusing prompt, not a broken action, and the platform is
-    what lets the page grey the option out instead.
+    what lets the page gray the option out instead.
     """
     order = record_sale(
         db,
@@ -595,7 +595,7 @@ def test_cancelling_after_shipping_does_not_return_stock(
     """Cancelling after shipping does not return stock.
 
     Stock that has already been posted is gone; returning it to the
-    catalogue would oversell the next buyer.
+    catalog would oversell the next buyer.
     """
     order = place(client, customer_headers, listing.id, 2).json()
     for state in ("paid", "shipped", "cancelled"):

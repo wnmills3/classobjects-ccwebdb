@@ -1,4 +1,4 @@
-"""The demo catalogue obeys the same rules as every other offer.
+"""The demo catalog obeys the same rules as every other offer.
 
 `_build` is exercised directly, the same way `test_item_years.py` already
 does, rather than through `seed.seed()`: that function opens its own

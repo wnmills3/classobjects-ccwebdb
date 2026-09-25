@@ -37,7 +37,7 @@ refusal lists each row that points at nothing. With `--unknown-for-missing`
 (owner, 2026-09-24) a link into a *vocabulary* -- a table with a code and a
 label, such as `grade` or `mint` -- is pointed at that vocabulary's Unknown
 row instead, and every substitution is reported. The Unknown row is the one
-coded `unknown` (or labelled Unknown) if the sheet has one; otherwise it is
+coded `unknown` (or labeled Unknown) if the sheet has one; otherwise it is
 added, with id 0 -- ids start at 1, so 0 is never a real row's -- and
 `source` manual, so a seed load leaves it alone. A vocabulary whose rows need
 more than a code and a label (a denomination's face value, a mint's mark) is
@@ -118,7 +118,7 @@ COMPUTED = " (computed)"
 ABOUT, COLUMNS = "About", "Columns"
 #: The remembered column widths: {sheet: {column name: width}}.
 WIDTHS_FILE = Path(__file__).resolve().parents[1] / "data" / "workbook_widths.json"
-#: Changed when the layout changes, so an old workbook is recognised.
+#: Changed when the layout changes, so an old workbook is recognized.
 FORMAT = "ccwebdb-workbook-1"
 #: The About sheet's first row, which its widths are keyed by.
 ABOUT_HEADER = ("format", FORMAT)

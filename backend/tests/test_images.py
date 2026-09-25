@@ -24,10 +24,10 @@ from sqlalchemy.orm import Session
 
 def make_jpeg(
     size: tuple[int, int] = (800, 600),
-    colour: tuple[int, int, int] = (180, 140, 40),
+    color: tuple[int, int, int] = (180, 140, 40),
 ) -> bytes:
     buffer = io.BytesIO()
-    PILImage.new("RGB", size, colour).save(buffer, format="JPEG", quality=90)
+    PILImage.new("RGB", size, color).save(buffer, format="JPEG", quality=90)
     return buffer.getvalue()
 
 
@@ -191,13 +191,13 @@ def test_surviving_gps_is_reported_as_gps(
 
 
 # ---------------------------------------------------------------------------
-# Ingest behaviour
+# Ingest behavior
 # ---------------------------------------------------------------------------
 
 
 def test_identity_is_the_hash_of_the_cleansed_bytes() -> None:
     """Two files differing only in metadata are the same photograph."""
-    plain = cleanse(make_jpeg(colour=(1, 2, 3)))
+    plain = cleanse(make_jpeg(color=(1, 2, 3)))
     tagged_buffer = io.BytesIO()
     exif = {
         "0th": {piexif.ImageIFD.Make: b"Other"},
@@ -265,7 +265,7 @@ def test_upload_stores_the_image_and_both_renditions(
 def test_uploading_the_same_photograph_twice_stores_one_copy(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    raw = make_jpeg(colour=(7, 8, 9))
+    raw = make_jpeg(color=(7, 8, 9))
     first = client.post(
         "/api/images",
         files={"file": ("a.jpg", raw, "image/jpeg")},
@@ -318,7 +318,7 @@ def test_a_thumbnail_is_publicly_servable(
         headers=admin_headers,
     ).json()
 
-    # No auth header: the catalogue is public, so its images must be too.
+    # No auth header: the catalog is public, so its images must be too.
     served = client.get(body["thumbnail_url"])
     assert served.status_code == 200
     assert served.headers["content-type"].startswith("image/")
@@ -383,7 +383,7 @@ def test_uploading_against_an_item_makes_it_the_catalogue_thumbnail(
 
     # The `listing` fixture makes the item for sale, so this attach needs
     # the same acknowledgement `test_for_sale_guards.py` covers -- this test
-    # is about the catalogue thumbnail, not the guard, so it just clears it.
+    # is about the catalog thumbnail, not the guard, so it just clears it.
     client.post(
         "/api/images",
         files={"file": ("coin.jpg", make_jpeg(), "image/jpeg")},
@@ -409,12 +409,12 @@ def test_only_one_photograph_can_be_primary(
     A partial unique index enforces it; the handler must clear the previous
     one in the same transaction rather than collide with it.
     """
-    for colour in ((10, 10, 10), (20, 20, 20)):
+    for color in ((10, 10, 10), (20, 20, 20)):
         # The `listing` fixture makes the item for sale, so each attach
         # needs the acknowledgement `test_for_sale_guards.py` covers.
         response = client.post(
             "/api/images",
-            files={"file": ("c.jpg", make_jpeg(colour=colour), "image/jpeg")},
+            files={"file": ("c.jpg", make_jpeg(color=color), "image/jpeg")},
             data={
                 "inventory_item_id": str(listing.inventory_item_id),
                 "is_primary": "true",
@@ -444,7 +444,7 @@ def test_re_uploading_the_same_photograph_keeps_its_role_and_primacy(
     `test_uploading_the_same_photograph_twice_stores_one_copy` posts without
     an item, so `attach` is never called; `test_only_one_photograph_can_be_
     primary` posts two *different* images. Only the same bytes against the
-    same item take the `LinkRefused` path -- the one behaviour the mid-branch
+    same item take the `LinkRefused` path -- the one behavior the mid-branch
     migration onto `image_links` could have changed.
 
     The second post is what a file picker sends: no `image_role`, no
@@ -455,7 +455,7 @@ def test_re_uploading_the_same_photograph_keeps_its_role_and_primacy(
 
     item = build_item(db)
     db.commit()
-    raw = make_jpeg(colour=(21, 22, 23))
+    raw = make_jpeg(color=(21, 22, 23))
 
     first = client.post(
         "/api/images",
@@ -496,7 +496,7 @@ def test_a_photograph_can_exist_before_anyone_knows_what_it_shows(
     """
     body = client.post(
         "/api/images",
-        files={"file": ("DSC00417.JPG", make_jpeg(colour=(3, 3, 3)), "image/jpeg")},
+        files={"file": ("DSC00417.JPG", make_jpeg(color=(3, 3, 3)), "image/jpeg")},
         headers=admin_headers,
     ).json()
 

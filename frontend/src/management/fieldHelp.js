@@ -7,7 +7,7 @@
  * field opts in with `data-help="<key>"` on its label.
  *
  * Public numismatic fact only -- what is printed where on a note, and what
- * it means. Never a catalogue's numbering or a price guide's values, per
+ * it means. Never a catalog's numbering or a price guide's values, per
  * CLAUDE.md's reference-data rule.
  */
 export const FIELD_HELP = {
@@ -250,9 +250,9 @@ export const FIELD_HELP = {
       'Silver Certificate, United States Note, and so on.',
   },
   seal_color: {
-    title: 'Seal colour',
+    title: 'Seal color',
     text:
-      'The colour of the Treasury seal, right of centre on the face: green on a ' +
+      'The color of the Treasury seal, right of center on the face: green on a ' +
       'Federal Reserve Note, blue on a Silver Certificate, red on a United States ' +
       'Note; brown, gold and yellow on some older and wartime issues.',
   },
@@ -262,6 +262,29 @@ export const FIELD_HELP = {
       'The year after the word SERIES on the face, near the signatures -- "SERIES ' +
       '1963 A" is 1963. It is the year the design was adopted, not the year the ' +
       'note was printed: notes of one series are often printed for years afterwards.',
+  },
+  face_plate_number: {
+    title: 'Face plate',
+    text:
+      'The small plate number on the front, beside the check letter: a letter and ' +
+      'digits (E82), or digits alone on older notes (153). A note printed in Fort ' +
+      'Worth has FW before it (FW E82) -- that is what sets Printed at. With the ' +
+      'back plate, it is how a mule is found.',
+  },
+  back_plate_number: {
+    title: 'Back plate',
+    text:
+      'The plate number printed on the back, digits only (1234). A face and back ' +
+      'plate from different eras make a mule; the Friedberg web search asks about ' +
+      'both and answers with an m suffix when it is one.',
+  },
+  printing_facility: {
+    title: 'Printed at',
+    text:
+      'Where the note was printed: Washington, DC or Fort Worth, TX. Read from the ' +
+      'face plate when there is one (FW before it is Fort Worth); choose it here ' +
+      'only for a note whose face plate is not recorded. It tells some Friedberg ' +
+      'numbers apart -- a 2017-A $1 is 3005-A from Washington, 3006-A from Fort Worth.',
   },
   series_letter: {
     title: 'Series letter',
@@ -308,10 +331,10 @@ export const FIELD_HELP = {
   fr_number: {
     title: 'Friedberg number',
     text:
-      'The Friedberg catalogue number for this type of note, such as 1901-B: a ' +
+      'The Friedberg catalog number for this type of note, such as 1901-B: a ' +
       'number for the type and, on a Federal Reserve Note, the Reserve Bank ' +
       'letter. Read it off the slab or holder or a reference, or copy it from a ' +
-      'match in your own catalogue.',
+      'match in your own catalog.',
   },
   // -- more of an item --------------------------------------------------------
   disposition: {

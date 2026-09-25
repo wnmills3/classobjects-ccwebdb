@@ -28,6 +28,7 @@ from .. import (
     item_kinds,
     lot_writes,
     offering_writes,
+    plates,
     sale_state,
     serial_patterns,
 )
@@ -198,7 +199,7 @@ def search_inventory(
 
     Two views rather than one grid with a kind filter, because the columns
     that matter differ: a coin has a mint mark and a variety, a banknote has a
-    series letter, a seal colour and its own printed serial. Sharing one grid
+    series letter, a seal color and its own printed serial. Sharing one grid
     would leave most columns blank most of the time.
 
     Filters are whatever the view's specification names -- anything else is a
@@ -977,6 +978,13 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
                 fed_district_id=fed_district_id,
                 signature_combination_id=signature_combination_id,
                 serial_number=payload.serial_number,
+                face_plate_number=payload.face_plate_number,
+                back_plate_number=payload.back_plate_number,
+                printing_facility=(
+                    _facility(payload.face_plate_number, payload.printing_facility)
+                    if payload.face_plate_number
+                    else payload.printing_facility
+                ),
             )
         )
     else:
@@ -1541,7 +1549,14 @@ HISTORY_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
 }
 
 #: Plain columns on a note's currency detail a client may set.
-NOTE_SCALARS: tuple[str, ...] = ("series_year", "series_letter", "serial_number")
+NOTE_SCALARS: tuple[str, ...] = (
+    "series_year",
+    "series_letter",
+    "serial_number",
+    "face_plate_number",
+    "back_plate_number",
+    "printing_facility",
+)
 
 #: Columns `app.classifier_defaults` fills, and so may hold empty.
 DEFAULTED_COLUMNS: frozenset[str] = frozenset(
@@ -1601,7 +1616,7 @@ def _note_changes(
     """The currency-detail columns a request sets, with codes resolved.
 
     Resolved before anything is written, like every other code here, so an
-    unknown seal colour is a 422 that leaves the item untouched. `held` is
+    unknown seal color is a 422 that leaves the item untouched. `held` is
     the one note being edited, when there is one: a retired value it already
     holds stays saveable (ruling S5). A bulk edit passes none.
     """
@@ -1618,7 +1633,29 @@ def _note_changes(
             if field == "series_letter" and isinstance(value, str):
                 value = value.strip().upper() or None
             changes[field] = value
+    face = changes.get("face_plate_number")
+    if isinstance(face, str):
+        changes["printing_facility"] = _facility(face, data.get("printing_facility"))
     return changes
+
+
+def _facility(face: str, sent: object) -> str:
+    """The printing location a face plate names, refusing one that disagrees.
+
+    FW before the face plate is Fort Worth, none is Washington
+    (`app.plates`): sent beside a face plate that says otherwise, the
+    location is refused by name rather than one of the two winning quietly.
+    """
+    facility = plates.facility_of(face)
+    if sent is not None and sent != facility:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"printing_facility {sent}: face plate {face} was printed in "
+                f"{plates.FACILITIES[facility]}"
+            ),
+        )
+    return facility
 
 
 def _apply_note_changes(items: list[InventoryItem], changes: dict[str, object]) -> None:
@@ -2405,6 +2442,9 @@ REVIEWABLE_FIELDS: frozenset[str] = frozenset(
         "seal_color_id",
         "fed_district_id",
         "friedberg_id",
+        "face_plate_number",
+        "back_plate_number",
+        "printing_facility",
     }
 )
 
@@ -2570,7 +2610,7 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
     offering something no view can find.
 
     The offer guard is permanent, not a "do this first": any offer refuses,
-    ended ones included, and nothing removes a listing row (the catalogue's
+    ended ones included, and nothing removes a listing row (the catalog's
     `DELETE /api/catalog/{listing_id}` was retired in phase 2, and
     `offer_claim` references the row `ON DELETE RESTRICT` anyway). That is the
     intended rule -- once a coin has been offered, the offer is part of the

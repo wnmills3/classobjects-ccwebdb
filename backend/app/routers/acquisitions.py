@@ -414,7 +414,7 @@ def list_storage_locations(
 ) -> list[StorageLocationOut]:
     """Every storage location, for choosing where a received item goes.
 
-    Admin-only. `storage_location` is an authorisation boundary, not a
+    Admin-only. `storage_location` is an authorization boundary, not a
     convention -- a public listing that leaked the safe-deposit box holding
     an item would be a security failure, not a cosmetic one.
     """

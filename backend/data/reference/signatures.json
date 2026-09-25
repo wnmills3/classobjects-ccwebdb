@@ -26,7 +26,7 @@
     "",
     "A pair added by hand is marked `manual`, and a later reload never",
     "overwrites it. Check it against the note itself before trusting it for a",
-    "catalogue lookup.",
+    "catalog lookup.",
     "",
     "Naming: `code` is treasurer_secretary in lower case, which is how dealers",
     "write it (Julian/Morgenthau). `label` is the same pair as displayed."

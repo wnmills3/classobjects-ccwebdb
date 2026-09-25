@@ -1,6 +1,6 @@
 """Signature combinations, and narrowing a picker by a note's series year.
 
-Signatures are what separate one catalogue variant of a note from another, so
+Signatures are what separate one catalog variant of a note from another, so
 offering the wrong one is a wrong lookup rather than a cosmetic slip. The year
 filter exists to make the wrong choice unavailable.
 """
@@ -34,7 +34,7 @@ def test_a_year_narrows_to_the_possible_pairs(client: TestClient) -> None:
     """The point of the filter.
 
     A 1935A note was printed in 1936 and can only carry Julian/Morgenthau.
-    Offering the other pairs invites a wrong catalogue lookup.
+    Offering the other pairs invites a wrong catalog lookup.
     """
     assert _labels(client, "?year=1936") == ["Julian / Morgenthau"]
     assert _labels(client, "?year=1954") == ["Priest / Humphrey"]

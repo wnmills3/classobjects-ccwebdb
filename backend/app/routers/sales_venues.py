@@ -1,7 +1,7 @@
 """Sales platforms: the web store, marketplaces, live shows, auction houses.
 
 Admin only. The web store exists from the start and is the one platform that
-cannot change kind or be retired -- checkout and the public catalogue are
+cannot change kind or be retired -- checkout and the public catalog are
 defined by it. Default fees are for estimating a sale's net; a sale records
 what was actually charged (selling design).
 """

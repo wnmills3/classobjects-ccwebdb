@@ -968,7 +968,7 @@ def test_cancelling_relists_an_item_that_had_sold_out(
     admin_headers: dict[str, str],
     db: Session,
 ) -> None:
-    """Fix round 1, ruling-1 behaviour: `return_stock` must relist on its own.
+    """Fix round 1, ruling-1 behavior: `return_stock` must relist on its own.
 
     `place_order` marks the item `sold` once its listing hits zero;
     `return_stock` must reverse that when a cancellation puts the last unit

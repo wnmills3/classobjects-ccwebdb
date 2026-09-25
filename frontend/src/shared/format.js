@@ -25,10 +25,10 @@ function formatterFor(currencyCode) {
  * too precise for a float is never rounded on the way to the screen.
  * Anything that is not a plain decimal renders as `--`, not as `$NaN`.
  *
- * `currencyCode` is the ISO code the amount is in. Listings and catalogue
+ * `currencyCode` is the ISO code the amount is in. Listings and catalog
  * items carry one (`currency`); pass it where the data has it. USD is only
  * the default for shapes that carry none -- orders today. A code `Intl`
- * does not recognise is shown as written beside the amount.
+ * does not recognize is shown as written beside the amount.
  */
 export function money(value, currencyCode = 'USD') {
   const text = typeof value === 'number' ? String(value) : String(value ?? '').trim()
