@@ -80,8 +80,8 @@ def _test_database_url() -> URL:
 
 TEST_URL = _test_database_url()
 
-#: Matches the INSERT the migration seeds `sales_fee_kind` with -- see
-#: `<generated>_sales_fees_and_shares.py`.
+#: Matches the rows the baseline migration seeds `sales_fee_kind` with -- see
+#: `backend/alembic/baseline.sql`.
 _FEE_KINDS: tuple[tuple[str, str, int], ...] = (
     ("commission", "Commission", 10),
     ("processing", "Payment processing", 20),
@@ -135,8 +135,8 @@ def engine() -> Iterator[Engine]:
     # Also outside Base.metadata: an extension lives in the database's own
     # catalog, not in anything the ORM tracks. levenshtein() is needed for
     # near_duplicate_serial, and this test database is built fresh from the
-    # models rather than by running the migrations, so the migration that
-    # installs it on a real deployment never runs here.
+    # models rather than by running the migrations, so the baseline migration
+    # that installs it on a real deployment never runs here.
     with test_engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS fuzzystrmatch"))
 
@@ -146,10 +146,11 @@ def engine() -> Iterator[Engine]:
     # around this, leaving the vocabulary in place.
     with Session(test_engine) as session:
         seed_all(session)
-        # The migration creates the web store platform on a real database;
+        # The baseline migration creates the web store platform on a real
+        # database;
         # this one is built from the models, so it is created here.
         ensure_store_venue(session)
-        # Likewise the fee kind vocabulary: the migration seeds it with an
+        # Likewise the fee kind vocabulary: the baseline seeds it with an
         # INSERT because it is a closed vocabulary the product defines, not
         # data from backend/data/reference/ that seed_all would pick up.
         session.add_all(

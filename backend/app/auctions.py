@@ -247,8 +247,8 @@ _LOTS_REMOVABLE = (
 
 #: The vocabulary code `consign` needs. Seeded from
 #: `data/reference/operations.json` by `app.seeding.seed_all`, not by this
-#: module or by any migration -- see the migration `e267ec3aedc1`'s
-#: docstring for why an INSERT here would be the wrong fix.
+#: module or by a migration: vocabulary is seed data, loaded and kept
+#: current by `app.seeding`, so an INSERT here would be the wrong fix.
 _CONSIGNED_KIND_CODE = "consigned"
 
 #: The one platform kind `consign` accepts. A live or marketplace auction
@@ -575,12 +575,11 @@ def consign(
     Raises `AuctionRefused` if the platform is not an auction house, or if
     the auction is not `scheduled`. Raises `errors.ReferenceDataMissing` (a
     narrow `RuntimeError`, ruling R24, Task 5 fix round 1) if the `consigned`
-    storage-location kind is not seeded: a live database that has run the
-    migration but not `python -m app.seeding load` is a real, expected state
-    (migration `e267ec3aedc1`'s own docstring), and this is the message that
-    tells the owner what to do. Nothing here creates the kind on the fly or
-    falls back to a different one -- the same shape as
-    `app.sales_venues.ensure_store_venue`'s `ReferenceDataMissing` for a
+    storage-location kind is not seeded: a database that has been migrated
+    but not loaded with `python -m app.seeding load` is a real, expected
+    state, and this is the message that tells the owner what to do. Nothing
+    here creates the kind on the fly or falls back to a different one -- the
+    same shape as `app.sales_venues.ensure_store_venue`'s `ReferenceDataMissing` for a
     missing `own_store` platform kind.
 
     Takes the `auction` row first (`_lock_auction`), like every transition
@@ -633,8 +632,8 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
     concurrent first consignments to one house, from two different
     auctions, could each find nothing and insert a duplicate location --
     coins split across two "Consigned: Heritage" entries (auctions fix round
-    1, Minor #6). `uq_storage_location_identity_no_identifier` (migration
-    `cb1bb956f50b`) closes that for the `identifier IS NULL` case, and the
+    1, Minor #6). `uq_storage_location_identity_no_identifier` closes that
+    for the `identifier IS NULL` case, and the
     upsert is what turns the loser of that race into a reader of the
     winner's row instead of an `IntegrityError` and a 500: it waits for the
     first insert to commit, does nothing, and the `SELECT` below finds the

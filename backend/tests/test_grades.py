@@ -7,11 +7,8 @@ BU+ at 63 and BU++ at 65. A plus ranks half a point above its number.
 
 from __future__ import annotations
 
-import importlib.util
 from collections.abc import Callable
 from decimal import Decimal
-from pathlib import Path
-from types import ModuleType
 
 import pytest
 from app import grades
@@ -21,14 +18,6 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from tests.test_schema import code_id, make_item
-
-MIGRATION = (
-    Path(__file__).resolve().parent.parent
-    / "alembic"
-    / "versions"
-    / "e4b8c1d27f63_strike_type_and_number_grades.py"
-)
-
 
 # ---------------------------------------------------------------------------
 # Taking a grade apart
@@ -87,37 +76,6 @@ def test_a_strike_type_the_client_names_wins() -> None:
     assert grades.split_fields("MS65", None) == ("65", "business")
     # Unknown grades pass through for the code lookup to refuse.
     assert grades.split_fields("MS64PL", None) == ("MS64PL", None)
-
-
-def _load_migration() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("grade_migration", MIGRATION)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_the_migration_splits_old_codes_the_way_the_app_does() -> None:
-    """The migration keeps its own frozen copy; today the two must agree."""
-    migration = _load_migration()
-    old_codes = [
-        "MS65", "PR69+", "PF70", "SP64", "AU58", "BU", "BU+", "BU++", "UNC",
-        "UNC+", "CHOICE_BU", "GEM_BU", "GEM_UNC", "PROOF", "CHOICE_PROOF",
-        "GEM_PROOF", "AU", "AU+", "XF", "VF", "F", "VG", "G", "N_UNC", "N_AU",
-    ]  # fmt: skip
-    for code in old_codes:
-        parts = migration._split(code)
-        expected = grades.split(code)
-        assert parts is not None and expected is not None, code
-        strike, number, plus, note_code = parts
-        if note_code:
-            assert (None, note_code) == (expected.strike_type, expected.grade), code
-        else:
-            got = grades.Split(strike, grades.number_code(number, plus))
-            assert got == expected, code
-    # The test database is built with the app's function, the real one by the
-    # migration's.
-    assert migration._grade_display_sql() == grades.GRADE_DISPLAY_SQL
 
 
 # ---------------------------------------------------------------------------
