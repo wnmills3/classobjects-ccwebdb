@@ -83,6 +83,9 @@ export const api = {
   getItemHistory: (id) => send(`/api/inventory/${id}/history`),
   // A description written from the item's saved record; writes nothing.
   getSuggestedDescription: (id) => send(`/api/inventory/${id}/suggested-description`),
+  // The same wording for an item not saved yet, from the New item form.
+  suggestDraftDescription: (draft) =>
+    send('/api/inventory/suggested-description', { method: 'POST', body: draft }),
   updateInventoryItem: (id, payload) =>
     send(`/api/inventory/${id}`, { method: 'PATCH', body: payload }),
   bulkEditInventory: (ids, changes) =>

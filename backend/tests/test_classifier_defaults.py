@@ -649,6 +649,7 @@ def test_the_form_is_told_what_a_note_would_be(
         "seal_color": None,  # the person's own choice is not suggested back
         "signature_combination": "woods_woodin",
         "fed_district": None,
+        "warning": None,  # Series 1928 is on record for $1
     }
     frn = ask(denomination="usd_note_1", series_year=1969, serial_number="L12345678A")
     assert (frn["note_type"], frn["fed_district"]) == ("frn", "L")

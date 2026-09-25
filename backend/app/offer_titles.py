@@ -32,8 +32,6 @@ from sqlalchemy.orm import Session
 
 from . import grades
 from .models import (
-    CoinDetail,
-    CurrencyDetail,
     InventoryItem,
     Mint,
     NoteType,
@@ -90,9 +88,9 @@ def _coin_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
     A year and a mint mark ("1921-S") date a coin but do not say what it is;
     only a set form, series, denomination or variety does.
     """
-    detail = db.scalar(
-        select(CoinDetail).where(CoinDetail.inventory_item_id == item.id)
-    )
+    # Through the relationship, not a query by id: the New item form's
+    # suggestion describes an item that is not saved and has no id.
+    detail = item.coin_detail
     mint = (
         db.get(Mint, detail.mint_id)
         if detail is not None and detail.mint_id is not None
@@ -130,9 +128,7 @@ def _note_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
     A series or a year dates a note; its face value, type or series label
     say what it is.
     """
-    detail = db.scalar(
-        select(CurrencyDetail).where(CurrencyDetail.inventory_item_id == item.id)
-    )
+    detail = item.currency_detail
     note_type = (
         db.get(NoteType, detail.note_type_id)
         if detail is not None and detail.note_type_id is not None

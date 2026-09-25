@@ -19,8 +19,12 @@ attributes, right after the grade: they are what an error note sells on
 (owner, 2026-09-24) -- "Error Note, Misaligned Print (Reverse) 1963A $1".
 
 It is a suggestion only: nothing here writes, and the editor puts it in the
-draft, where the owner's Save is what keeps it. It reads the *saved* item,
-so the editor asks for other edits to be saved first.
+draft, where the owner's Save is what keeps it. The editor's reads the
+*saved* item, so it asks for other edits to be saved first. The New item
+form's reads an unsaved one (`routers.inventory._draft_item`): an item
+built in memory from the form's fields, never added to the session, with
+the attributes its serial earns (`app.serial_patterns`) and the errors the
+form holds.
 
 Facts, not a catalogue's arrangement: every part is a label from this
 database's own vocabularies or the item's own values (CLAUDE.md,
@@ -30,6 +34,7 @@ database's own vocabularies or the item's own values (CLAUDE.md,
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -44,7 +49,20 @@ from .models import (
 )
 from .offer_titles import name_of
 
-__all__ = ["suggested_description"]
+__all__ = ["Features", "suggested_description"]
+
+
+@dataclass(frozen=True)
+class Features:
+    """An unsaved item's attributes and errors, which no table holds yet.
+
+    `attributes` are labels in vocabulary order; `errors` are (label,
+    details) pairs in vocabulary order.
+    """
+
+    attributes: list[str] = field(default_factory=list)
+    errors: list[tuple[str, str | None]] = field(default_factory=list)
+
 
 #: Words a note grade is written shorter in: "Superb Gem Unc 67".
 _SHORT_GRADE_WORDS = ((re.compile(r"\bUncirculated\b"), "Unc"),)
@@ -66,35 +84,50 @@ def _grade(item: InventoryItem) -> str | None:
     return grade
 
 
-def _features(db: Session, item: InventoryItem) -> list[str]:
+def _features(db: Session, item: InventoryItem, given: Features | None) -> list[str]:
     """Attributes then errors, as one part: ``Radar, Misaligned Print (Reverse)``.
 
     Attributes short ("Radar", not "Radar Serial"); an error with its
     details in brackets. Comma-separated, so several do not run together.
+    `given` stands in for the tables when the item is not saved.
     """
-    labels = [
-        _SERIAL_SUFFIX.sub("", held.label)
-        for held in item_attributes.held_attributes(db, item.id)
+    if given is not None:
+        attributes, errors = given.attributes, given.errors
+    else:
+        attributes = [
+            held.label for held in item_attributes.held_attributes(db, item.id)
+        ]
+        errors = list(
+            db.execute(
+                select(ErrorType.label, ItemError.details)
+                .join(ErrorType, ErrorType.id == ItemError.error_type_id)
+                .where(ItemError.inventory_item_id == item.id)
+                .order_by(ErrorType.sort_order, ErrorType.label)
+            ).tuples()
+        )
+    labels = [_SERIAL_SUFFIX.sub("", label) for label in attributes]
+    labels += [
+        f"{label} ({details})" if details else label for label, details in errors
     ]
-    rows = db.execute(
-        select(ErrorType.label, ItemError.details)
-        .join(ErrorType, ErrorType.id == ItemError.error_type_id)
-        .where(ItemError.inventory_item_id == item.id)
-        .order_by(ErrorType.sort_order, ErrorType.label)
-    ).tuples()
-    labels += [f"{label} ({details})" if details else label for label, details in rows]
     return [", ".join(labels)] if labels else []
 
 
-def _note(db: Session, item: InventoryItem) -> list[str]:
+def _note(db: Session, item: InventoryItem, given: Features | None) -> list[str]:
     """``[grade attributes year face S/N serial, note type seal]``."""
     detail = item.currency_detail
     assert detail is not None
     first: list[str] = []
     if grade := _grade(item):
         first.append(grade)
-    first.extend(_features(db, item))
-    year = detail.series_designation or (
+    first.extend(_features(db, item, given))
+    # `series_designation` is computed by the database; an unsaved note has
+    # none yet, so it is written the way the column writes it: 1935A.
+    designation = detail.series_designation or (
+        f"{detail.series_year}{detail.series_letter or ''}"
+        if detail.series_year is not None
+        else None
+    )
+    year = designation or (
         str(item.year_start) if item.year_start is not None else None
     )
     if year:
@@ -116,12 +149,12 @@ def _note(db: Session, item: InventoryItem) -> list[str]:
     return [" ".join(part) for part in (first, second) if part]
 
 
-def _coin(db: Session, item: InventoryItem) -> list[str]:
+def _coin(db: Session, item: InventoryItem, given: Features | None) -> list[str]:
     """``[grade attributes name, metal and fine weight, pieces]``."""
     first: list[str] = []
     if grade := _grade(item):
         first.append(grade)
-    first.extend(_features(db, item))
+    first.extend(_features(db, item, given))
     if (name := name_of(db, item)) is not None:
         first.append(name)
     sentences = [" ".join(first)] if first else []
@@ -136,12 +169,15 @@ def _coin(db: Session, item: InventoryItem) -> list[str]:
     return sentences
 
 
-def suggested_description(db: Session, item: InventoryItem) -> str:
-    """A description of the item from its saved record, in sentences.
+def suggested_description(
+    db: Session, item: InventoryItem, features: Features | None = None
+) -> str:
+    """A description of the item from its record, in sentences.
 
-    Empty when the record holds nothing to say -- the editor then says so
-    rather than replacing the description with nothing.
+    `features` gives an unsaved item's attributes and errors; a saved item's
+    are read from their tables. Empty when the record holds nothing to say --
+    the form then says so rather than replacing the description with nothing.
     """
     note = item.currency_detail is not None
-    sentences = _note(db, item) if note else _coin(db, item)
+    sentences = _note(db, item, features) if note else _coin(db, item, features)
     return " ".join(f"{s}." for s in sentences)

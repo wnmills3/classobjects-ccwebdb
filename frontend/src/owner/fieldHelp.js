@@ -172,6 +172,13 @@ export const FIELD_HELP = {
       'Ordered: bought but not yet in hand -- record its arrival later in ' +
       'Receiving. Received: already in hand.',
   },
+  suggest_description: {
+    title: 'Suggest description',
+    text:
+      'Writes a description from what is entered, in your usual order: the grade ' +
+      'and what makes the piece special first (fancy serial, errors), then what it ' +
+      'is. It replaces the Description box; edit it before saving.',
+  },
   description: {
     title: 'Description',
     text:
@@ -250,7 +257,9 @@ export const FIELD_HELP = {
       'The letter after the series year -- the A in "SERIES 1963 A". It marks a ' +
       'later printing of the same series, usually because a new Treasurer or ' +
       'Secretary signed it. Leave it blank when the series has no letter, as SERIES ' +
-      '1995 does. It is not the letter in the seal: that is the Reserve Bank.',
+      '1995 does. It is not the letter in the seal: that is the Reserve Bank. ' +
+      'If no note of that value was issued in that series, the form says so and ' +
+      'lists the series that were.',
   },
   signature_combination: {
     title: 'Signatures',

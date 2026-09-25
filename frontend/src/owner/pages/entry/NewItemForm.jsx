@@ -126,6 +126,11 @@ export default function NewItemForm({
   // already happened, so the item exists on the server even though this form
   // still shows it as unsaved. Cleared on a successful Retry.
   const [errorSaveFailure, setErrorSaveFailure] = useState(null)
+  // What the note lookup said when no issue matches the series, kept with the
+  // facts it was said about: edit them and it is not shown for the new ones.
+  const [issueWarning, setIssueWarning] = useState({ key: '', text: '' })
+  // The line beside Suggest description: what it did, or why it could not.
+  const [describeNote, setDescribeNote] = useState('')
   const titleRef = useRef(null)
   const yearId = useId()
   const yearEndId = useId()
@@ -173,7 +178,12 @@ export default function NewItemForm({
       const ask = currency ? api.suggestNote : api.suggestCoin
       ask(params)
         .then((found) => {
-          if (!cancelled) setEntry((current) => withSuggestions(current, found))
+          if (cancelled) return
+          // The warning is a message, not a field to fill: kept apart so
+          // `withSuggestions` never writes it into the form.
+          const { warning, ...codes } = found ?? {}
+          setEntry((current) => withSuggestions(current, codes))
+          setIssueWarning({ key: factsKey, text: warning ?? '' })
         })
         // A suggestion is a convenience: a failed lookup leaves the form as
         // the person left it rather than interrupting them.
@@ -213,13 +223,65 @@ export default function NewItemForm({
   // clearing between them would throw away a grade for nothing.
   function setKind(e) {
     const kind = e.target.value
-    setForm((f) => ({
-      ...f,
-      item_kind: kind,
-      grade: isCurrencyKind(kind) === isCurrencyKind(f.item_kind) ? f.grade : '',
-      // A note has no strike type.
-      strike_type: isCurrencyKind(kind) ? '' : f.strike_type,
-    }))
+    setForm((f) => {
+      const sameSide = isCurrencyKind(kind) === isCurrencyKind(f.item_kind)
+      return {
+        ...f,
+        item_kind: kind,
+        grade: sameSide ? f.grade : '',
+        // Designations are one side's too: EPQ is a note's, DCAM a coin's.
+        grade_designation: sameSide ? f.grade_designation : '',
+        // A note has no strike type.
+        strike_type: isCurrencyKind(kind) ? '' : f.strike_type,
+      }
+    })
+  }
+
+  /** The form's facts as `POST /api/inventory/suggested-description` takes them. */
+  function draftFacts() {
+    const pieces = Number(form.piece_count)
+    const draft = {
+      item_kind: form.item_kind,
+      piece_count: Number.isInteger(pieces) && pieces >= 1 ? pieces : 1,
+      errors,
+    }
+    if (form.year_start !== '') {
+      draft.year_start = Number(form.year_start)
+      draft.year_end =
+        form.year_end === '' ? Number(form.year_start) : Number(form.year_end)
+    }
+    for (const key of [
+      'country',
+      'denomination',
+      'strike_type',
+      'grade',
+      'grade_designation',
+      'grading_service',
+      'series',
+    ]) {
+      if (form[key]) draft[key] = form[key]
+    }
+    const side = isCurrency
+      ? ['serial_number', 'series_letter', 'note_type', 'seal_color']
+      : ['metal', 'mint', 'variety']
+    for (const key of side) if (form[key]) draft[key] = form[key]
+    if (isCurrency && form.series_year !== '')
+      draft.series_year = Number(form.series_year)
+    return draft
+  }
+
+  async function suggestDescription() {
+    try {
+      const { description } = await api.suggestDraftDescription(draftFacts())
+      if (!description) {
+        setDescribeNote('Nothing entered yet to describe it from.')
+        return
+      }
+      setForm((f) => ({ ...f, description }))
+      setDescribeNote('Suggested from what is entered -- edit it before saving.')
+    } catch (err) {
+      setDescribeNote(err.message)
+    }
   }
 
   /** The `ItemCreate` body, or a thrown `Error` naming the first bad field. */
@@ -329,6 +391,7 @@ export default function NewItemForm({
     // Errors are per-piece, like grade or a serial number -- never carried
     // into the next item, "add another" included.
     setErrors([])
+    setDescribeNote('')
     onSaved?.(created)
   }
 
@@ -527,6 +590,9 @@ export default function NewItemForm({
             table="grade_designation"
             value={form.grade_designation}
             onChange={set('grade_designation')}
+            // EPQ and PPQ for a note, DCAM and the rest for a coin -- the
+            // item editor's filter.
+            filter={(entry) => fitsKind(entry, form.item_kind)}
           />
         </label>
 
@@ -611,6 +677,11 @@ export default function NewItemForm({
                 onChange={set('series_letter')}
               />
             </label>
+            {issueWarning.key === factsKey && issueWarning.text && (
+              <p className="notice" role="status">
+                {issueWarning.text}
+              </p>
+            )}
             <label data-help="note_type">
               <AccessLabel text="Note class" accessKey="a" />
               <ReferenceSelect
@@ -725,6 +796,19 @@ export default function NewItemForm({
         Description{/* */}
         <textarea rows={3} value={form.description} onChange={set('description')} />
       </label>
+      {/* Outside the label, as in the item editor: a button inside a label
+          takes the label from its input. */}
+      <div className="row">
+        <button
+          type="button"
+          className="link"
+          data-help="suggest_description"
+          onClick={suggestDescription}
+        >
+          Suggest description
+        </button>
+        <span className="muted">{describeNote}</span>
+      </div>
 
       {/* The item does not exist yet, so this is fully controlled: no load,
           no PUT of its own -- `submit` sends the whole set once, right after
