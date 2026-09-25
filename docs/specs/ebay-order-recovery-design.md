@@ -121,6 +121,19 @@ lot. 11 items' price, shipping and tax were rewritten from eBay's total
 was kept where it leaves whole dollars, else 3.00 was used), and 5 of them
 relinked. Two neighbors' prices had been swapped (PO 3087 and 3088).
 
-Left for a person, in `logs\ebay_orders_review_20260925_8.xlsx`: PO 3062,
-whose two items stand against a one-line order (as PO 3064's do), and PO 3116,
-whose description and link name lot #077 while its number is lot #078's.
+A third shape: **items of several orders filed on one purchase**. A live
+auction's lots are separate eBay orders, and 20 items sat on a neighbor's
+purchase while their own listing id, description and price were another
+order's, one no purchase held (PO 2816 held eight lots of one auction). Each
+went to a new purchase for its own order -- 18 purchases, dated as eBay dates
+them. A seller's shipping charged once for several lots had been copied onto
+each (PO 2816's $4.95), and was taken off the lots eBay did not charge it on.
+
+Found by comparing each item's description with its order's title: the lot
+number that opens a live-show title ("#134 - E - 05/17/26") names the lot, so
+a description naming another lot is a row filed or copied wrongly.
+
+Left for a person: the live show of 05/16/26, where lots #161, #165 and #176
+each have two items (CC-006135/CC-006150, CC-006133/CC-006147,
+CC-006129/CC-006145) against one eBay purchase each -- duplicate entries, or
+lots of two.
