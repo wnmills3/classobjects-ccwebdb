@@ -387,6 +387,15 @@ class InventoryItem(TimestampMixin, Base):
         Text, default="", server_default=text("''"), nullable=False
     )
     listing_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    #: The seller's own id for the listing it was bought from -- eBay's item
+    #: number (`https://www.ebay.com/itm/<id>`). Every piece of one listing
+    #: carries the same id, so a lot's pieces stay traceable to it, and it
+    #: is how a purchase is matched to the seller's order records
+    #: (`app.ebay_orders`, owner 2026-09-25). Text: ids are identifiers, not
+    #: quantities.
+    sellers_item_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
 
     #: The owner's rating, in their own words: condition, grade and what
     #: makes the piece special ("66EPQ Double Quad", "Blue Seal"). Read as

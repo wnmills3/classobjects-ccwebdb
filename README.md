@@ -170,6 +170,16 @@ Every gate is at zero, so any finding is new.
 justified lint exceptions. The Python suite builds and drops its own
 `ccwebdb_test` database and never touches `ccwebdb`.
 
+## Useful tools
+
+- **eBay purchase history:** the Chrome extension
+  [eBay Purchase History Downloader](https://chromewebstore.google.com/detail/ebay-purchase-history-dow/dhccpfcjgmlajnnoigjhokbfgpaamhpe)
+  saves a year of eBay purchases as a workbook (`Ebay_Purchase_History_<year>.xlsx`),
+  a row per item bought, with its order number and eBay item id.
+  `python -m app.ebay_orders` reads those workbooks to fill missing order
+  numbers and each item's listing id (see
+  [docs/specs/ebay-order-recovery-design.md](docs/specs/ebay-order-recovery-design.md)).
+
 ## Dependencies
 
 Python dependencies are managed **only** by uv (`uv add`, `uv sync`) and land

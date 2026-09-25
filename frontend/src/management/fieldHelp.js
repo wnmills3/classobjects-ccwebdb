@@ -172,6 +172,13 @@ export const FIELD_HELP = {
       'Ordered: bought but not yet in hand -- record its arrival later in ' +
       'Receiving. Received: already in hand.',
   },
+  sellers_item_id: {
+    title: "Seller's item id",
+    text:
+      "The seller's own number for the listing this was bought from -- eBay's " +
+      'item number. Every piece split from one listing keeps it, so a lot stays ' +
+      'traceable. Opens the listing on eBay in a new tab.',
+  },
   item_purchase: {
     title: 'Purchase',
     text:

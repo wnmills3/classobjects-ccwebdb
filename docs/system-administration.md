@@ -29,7 +29,7 @@ There is no third role and no per-permission grid. The line the system
 enforces is **cost basis and provenance are not customer-visible**, and one
 boolean expresses it.
 
-Every administrative endpoint carries `require_admin` (`backend/app/deps.py`).
+Every manager-only endpoint carries `require_admin` (`backend/app/deps.py`).
 That dependency, not the console's separate bundle, is the access control; the
 bundle split removes an information leak, it does not enforce anything.
 
@@ -37,19 +37,19 @@ bundle split removes an information leak, it does not enforce anything.
 
 - **Self-service registration** (`POST /api/auth/register`, the shop's
   **Register** page) always creates a `customer`.
-- **An administrator creates it** (`POST /api/users`, **People → Accounts →
+- **A manager creates it** (`POST /api/users`, **People → Accounts →
   New account**): email, name, role and an initial password. The role has no
-  default in the API, so an administrator is never created by omission. An
+  default in the API, so a manager is never created by omission. An
   email already in use is refused with 409. There is no mail configuration,
   so pass the password on out of band.
-- **Promotion**: an administrator changes an account's role under **People**.
-- **The first administrator** of a new database is created by
+- **Promotion**: a manager changes an account's role under **People**.
+- **The first manager** of a new database is created by
   `python -m app.seed`, from `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`.
   That module also creates five demo items with listings, so it is never run
   against a database holding a real collection. Change the password
   immediately -- the default is published in this repository.
 
-### What an administrator may change
+### What a manager may change
 
 On someone else's account (`PATCH /api/users/{id}`), exactly three fields:
 
@@ -77,14 +77,14 @@ Changing a password **bumps `token_version`, which invalidates every token
 already issued for that account.** Tokens are stateless JWTs, so without that
 counter every token issued before a reset would keep working until it expired.
 
-### The last-administrator guard
+### The last-manager guard
 
-Demoting or deactivating the final active administrator is refused with 409.
+Demoting or deactivating the final active manager is refused with 409.
 The check is about the **result, not the actor**: demoting yourself is fine
-while somebody else can still administer. Without it one click locks everyone
+while somebody else is still a manager. Without it one click locks everyone
 out, and recovery means editing the database by hand.
 
-To hand over administration: promote the new person, confirm they can sign
+To hand over management: promote the new person, confirm they can sign
 in, then demote the old account.
 
 ## Settings
@@ -161,10 +161,41 @@ person set. Recovery from a data problem is a restore from a verified backup
 | `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial |
 | `python -m app.photo_import` | links photographs to items by filename |
 | `python -m app.vendor_cleanup` | merges, renames, re-kinds or deletes purchase sources, by explicit instruction |
+| `python -m app.ebay_orders` | fills eBay purchases' missing order numbers and items' listing ids from eBay's purchase history |
 
 Run `classifier_defaults` before `series_classify`: note class is evidence for
 series. Before running any pass with `--commit` on the live database, take a
 verified backup and read the dry-run counts.
+
+### eBay order numbers and listing ids
+
+eBay's purchase history comes from the Chrome extension named in the README
+(*Useful tools*): one workbook per year, a row per item bought. From
+`backend\`:
+
+```cmd
+python -m app.ebay_orders <workbook>... --review ..\logs\ebay_orders_review.xlsx
+python -m app.ebay_orders <workbook>... --commit --by <your email>
+```
+
+The first is a dry run: it prints what it would do and writes the review
+workbook. `--commit` does it, in one transaction, and records each changed
+item's order number and listing id in its **History** under the account
+named by `--by`. It matches by **eBay's item id** -- every eBay purchase links
+its listing (`ebay.com/itm/<id>`) -- not by words or price, and it:
+
+- sets **Seller's item id** (`sellers_item_id`) on each item from its own
+  listing link, or its purchase's; only where empty;
+- gives an eBay purchase with no order number the one order its listings were
+  bought on;
+- **merges the purchases one order was split into**: an order of several
+  listings becomes one purchase, holding every item, each keeping its own
+  listing's id, and linking the order's page on eBay.
+
+The review workbook lists what it numbered, what it could not (a listing in no
+order, or in several), and **stored order numbers eBay contradicts** -- those
+are never changed by the pass; correct them on the purchase's **Edit details**.
+Run it again after a new download: it only fills what is still empty.
 
 ### Series
 
@@ -592,7 +623,7 @@ The help band at the bottom of the console window explains whichever field
 has focus, on this form and every other. All four endpoints above are
 administrator-only.
 
-## Orders
+## Sales
 
 **Sales** lists every sales order, newest first: customer, lines at the price
 paid, total, platform and status (`GET /api/orders`). The shop's **Your
