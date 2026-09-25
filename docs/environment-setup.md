@@ -208,7 +208,7 @@ scripts\ccweb_startup.cmd
 | | |
 |---|---|
 | Shop | http://127.0.0.1:5173 |
-| Owner console | http://127.0.0.1:5173/management |
+| Management console | http://127.0.0.1:5173/management |
 | API docs | http://127.0.0.1:8000/docs |
 
 Sign in with the administrator from `.env`. Vite proxies `/api` to port 8000,

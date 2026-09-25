@@ -108,12 +108,12 @@ putting the runtime guard and its use in the same place.
 ## Frontend bundle isolation
 
 One source tree builds two applications, the shop (`src/store/`) and the owner
-console (`src/owner/`); shared code lives in `src/shared/`. Neither
+console (`src/management/`); shared code lives in `src/shared/`. Neither
 application may ship the other's code. That is checked on two channels,
 because each catches what the other cannot:
 
 1. **The source, by `eslint`.** `no-restricted-imports` catches a static
-   `import ... from '../owner/...'` in shop code or the reverse;
+   `import ... from '../management/...'` in shop code or the reverse;
    `no-restricted-syntax` on `ImportExpression` catches a dynamic `import()`,
    which `no-restricted-imports` does not inspect.
 2. **The built artefact, by `check-bundle-isolation.mjs`.** A Rollup plugin
@@ -121,13 +121,13 @@ because each catches what the other cannot:
    from `generateBundle`, the one point where Rollup exposes each chunk's
    actual module membership. The check walks every chunk reachable from each
    entry, following dynamic imports too (a computed specifier such as
-   ``import(`../owner/pages/${name}.jsx`)`` is invisible to eslint), and fails
+   ``import(`../management/pages/${name}.jsx`)`` is invisible to eslint), and fails
    if any contains a module from the other application's tree. It is
    symmetric.
 
 It does **not** use Vite's `manifest.json` or grep the built JavaScript. The
 manifest never lists a chunk's modules, so it cannot say whether the chunk
-shared by both entries holds an owner module -- exactly the case to catch.
+shared by both entries holds an console module -- exactly the case to catch.
 Minification renames identifiers, so a text search can pass for the wrong
 reason. The gate deletes `dist` before building so a failed build cannot leave
 a stale graph for the check to read.

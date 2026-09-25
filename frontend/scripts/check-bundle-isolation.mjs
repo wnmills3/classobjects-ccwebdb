@@ -28,7 +28,7 @@ const GRAPH = resolve(process.cwd(), 'dist/.vite/bundle-graph.json')
  * console's code to whoever asks.
  *
  * This is also the only layer that catches a dynamic import whose specifier
- * is not a plain string literal -- `import(`../owner/pages/${name}.jsx`)`, or
+ * is not a plain string literal -- `import(`../management/pages/${name}.jsx`)`, or
  * a variable. ESLint's rules match on the literal, so a template literal
  * passes them and reaches only this check. Following static imports alone
  * would leave both layers blind to the same case.
@@ -60,24 +60,24 @@ const entries = Object.entries(chunks).filter(([, c]) => c.isEntry)
 const find = (name) => entries.find(([, c]) => c.name === name)?.[0]
 
 const store = find('store')
-const owner = find('owner')
+const owner = find('management')
 
 if (!store || !owner) {
   console.error('Could not find both entry chunks in the bundle graph.')
   console.error(
     `  entry chunks present: ${entries.map(([f, c]) => `${f} (name=${c.name})`).join(', ') || '(none)'}`,
   )
-  console.error('  expected chunks named "store" and "owner"')
+  console.error('  expected chunks named "store" and "management"')
   process.exit(1)
 }
 
 // Module ids are relative to the Vite root (frontend/), so they read
-// 'src/owner/pages/AdminPeople.jsx' -- not 'frontend/src/...'. Verified
+// 'src/management/pages/AdminPeople.jsx' -- not 'frontend/src/...'. Verified
 // against a real build; a prefix with 'frontend/' in it matches nothing and
 // the check silently passes everything.
 const failures = []
 for (const [entryFile, label, forbidden] of [
-  [store, 'shop', 'src/owner/'],
+  [store, 'shop', 'src/management/'],
   [owner, 'console', 'src/store/'],
 ]) {
   for (const file of reachable(chunks, entryFile)) {

@@ -58,13 +58,13 @@ export function renderWithProviders(ui, options = {}) {
     cart = emptyCart(),
     reference = emptyReference(),
     route = '/',
-    // Only owner-console tests that specifically care about the console's
-    // real mount point (`basename="/management"` in `owner/main.jsx`) need this --
+    // Only management-console tests that specifically care about the console's
+    // real mount point (`basename="/management"` in `management/main.jsx`) need this --
     // e.g. telling a `<Link>`'s routed href apart from a hard-coded path
     // that happens to read the same without a basename in play.
     basename,
     // Renders inside `<StrictMode>`, which is how the console actually runs in
-    // development (`owner/main.jsx`): React then invokes every effect setup,
+    // development (`management/main.jsx`): React then invokes every effect setup,
     // cleanup, setup on mount. A guard that is armed in a setup and disarmed
     // in its cleanup without being re-armed is left disarmed for the
     // component's whole life -- a class of bug no ordinary render can see, so

@@ -54,7 +54,7 @@ describe('Orders', () => {
   })
 
   it("is the shopper's own orders, and has no admin view even for an administrator", async () => {
-    // Everyone's orders, and changing their status, live in the owner console.
+    // Everyone's orders, and changing their status, live in the management console.
     api.listMyOrders.mockResolvedValue([ORDER])
     renderWithProviders(<Orders />, { auth: adminAuth() })
 

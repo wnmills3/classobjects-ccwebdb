@@ -1,6 +1,6 @@
 # Acquiring, cataloguing and selling an item
 
-How an item goes from a purchase to a sale in the owner console
+How an item goes from a purchase to a sale in the management console
 (`http://127.0.0.1:5173/management`). This is the path **every acquisition
 takes**, and the path a new installation starts on from an empty inventory.
 

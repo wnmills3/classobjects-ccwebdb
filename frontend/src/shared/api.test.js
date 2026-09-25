@@ -5,7 +5,7 @@ import { ApiError, api, clearTokens, loadTokens, saveTokens, send } from './api'
 describe("the shop's api object", () => {
   // Everything here ships to every anonymous visitor of the shop. Listing
   // every order and changing an order's status are console tools, and belong
-  // in owner/api.js, which the bundle-isolation check keeps out of the shop.
+  // in management/api.js, which the bundle-isolation check keeps out of the shop.
   it('carries no order administration', () => {
     expect(api.setOrderStatus).toBeUndefined()
     expect(api.listOrders).toBeUndefined()

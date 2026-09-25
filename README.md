@@ -3,7 +3,7 @@
 Numismatic and Currency Web Platform for Inventory and Sales.
 
 A FastAPI backend and two React applications over one PostgreSQL database: an
-**owner console** for cataloguing, receiving, photographing and selling a coin
+**management console** for cataloguing, receiving, photographing and selling a coin
 and banknote collection, and a **shop** where customers browse and order. Why
 it exists and what it deliberately does not do is in
 [docs/project-purpose.md](docs/project-purpose.md).
@@ -36,7 +36,7 @@ scripts\ccweb_startup.cmd
 | | |
 |---|---|
 | Shop | http://127.0.0.1:5173 |
-| Owner console | http://127.0.0.1:5173/management |
+| Management console | http://127.0.0.1:5173/management |
 | API docs (OpenAPI) | http://127.0.0.1:8000/docs |
 
 Stop with `scripts\ccweb_shutdown.cmd`; see what is running with
@@ -71,7 +71,7 @@ backend/
 frontend/
   index.html, management.html two entries, built as two isolated bundles
   src/store/             the shop
-  src/owner/             the owner console
+  src/management/        the management console
   src/shared/            API client, auth, formatting, vocabularies
 scripts/                 ccweb_*.cmd: startup, shutdown, status, check, psql,
                          pgadmin, claude, sonar

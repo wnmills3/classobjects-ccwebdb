@@ -12,7 +12,7 @@ import Register from './pages/Register'
 /**
  * The public shop.
  *
- * There is no `adminOnly` branch here and no owner route. A visitor who types
+ * There is no `adminOnly` branch here and no console route. A visitor who types
  * an owner URL gets the same "not found" as any other unknown path -- the
  * previous "Administrator privileges are required" told a stranger the page
  * existed, which is the leak this split closes.

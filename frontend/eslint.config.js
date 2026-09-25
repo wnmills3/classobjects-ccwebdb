@@ -64,7 +64,7 @@ export default [
   },
   // Import boundaries between the two applications.
   //
-  // A static import by path is the only way owner code can enter the shop's
+  // A static import by path is the only way console code can enter the shop's
   // module graph, so this catches the cause at edit time. Written as glob
   // patterns rather than literal relative paths: a page nested one level
   // deeper reaches its sibling tree by '../../' rather than '../', and a
@@ -75,7 +75,7 @@ export default [
   // ExportNamedDeclaration source literals, so a dynamic import() --
   // ImportExpression in the AST -- sails past it untouched. That form is a
   // realistic way to reach across the boundary (it's the normal way to
-  // code-split a large owner page), and a dynamically imported owner module
+  // code-split a large console page), and a dynamically imported console module
   // does land in a chunk the shop can reach, so no-restricted-syntax below
   // covers ImportExpression with the same directory boundary, matched with a
   // regex on the source literal since esquery attribute selectors don't
@@ -91,9 +91,9 @@ export default [
         {
           patterns: [
             {
-              group: ['**/owner/**'],
+              group: ['**/management/**'],
               message:
-                'The shop must not import owner code. Move what is shared into src/shared/.',
+                'The shop must not import console code. Move what is shared into src/shared/.',
             },
           ],
         },
@@ -101,15 +101,15 @@ export default [
       'no-restricted-syntax': [
         'error',
         {
-          selector: 'ImportExpression > Literal[value=/(^|\\/)owner\\//]',
+          selector: 'ImportExpression > Literal[value=/(^|\\/)management\\//]',
           message:
-            'The shop must not import owner code, dynamically either. Move what is shared into src/shared/.',
+            'The shop must not import console code, dynamically either. Move what is shared into src/shared/.',
         },
       ],
     },
   },
   {
-    files: ['src/owner/**/*.{js,jsx}'],
+    files: ['src/management/**/*.{js,jsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -141,7 +141,7 @@ export default [
         {
           patterns: [
             {
-              group: ['**/store/**', '**/owner/**'],
+              group: ['**/store/**', '**/management/**'],
               message:
                 'Shared code must not depend on either application; the dependency runs one way.',
             },
@@ -156,7 +156,7 @@ export default [
             'Shared code must not depend on either application, dynamically either; the dependency runs one way.',
         },
         {
-          selector: 'ImportExpression > Literal[value=/(^|\\/)owner\\//]',
+          selector: 'ImportExpression > Literal[value=/(^|\\/)management\\//]',
           message:
             'Shared code must not depend on either application, dynamically either; the dependency runs one way.',
         },

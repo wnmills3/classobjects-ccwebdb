@@ -375,7 +375,7 @@ class OrderOut(BaseModel):
     id: int
     customer_id: int
     #: Who placed it. A customer only ever sees their own orders, so this adds
-    #: nothing they did not know; the owner console needs it to say who.
+    #: nothing they did not know; the management console needs it to say who.
     customer_name: str
     customer_email: str | None
     #: The platform this order sold on. Safe for a shopper: which platform a

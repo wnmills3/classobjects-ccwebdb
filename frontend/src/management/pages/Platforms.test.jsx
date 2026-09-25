@@ -218,7 +218,7 @@ describe('Platforms', () => {
     })
   })
 
-  // In StrictMode, which is how the console really runs (`owner/main.jsx`),
+  // In StrictMode, which is how the console really runs (`management/main.jsx`),
   // React runs every effect setup, cleanup, setup on mount. This form's
   // "still mounted?" guard is armed in a setup and disarmed by its cleanup,
   // so unless the setup re-arms it the guard is disarmed for the dialog's

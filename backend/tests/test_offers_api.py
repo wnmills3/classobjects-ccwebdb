@@ -774,7 +774,7 @@ def test_the_listings_page_shows_a_lot_listing(
     a 500 on the page that lists every offer, not a missing row.
 
     `GET /api/listings` answers a bare array, not an object with a
-    `listings` key: `frontend/src/owner/pages/Listings.jsx` reads it as an
+    `listings` key: `frontend/src/management/pages/Listings.jsx` reads it as an
     array and `api.listListings` hands it straight over.
     """
     db.commit()

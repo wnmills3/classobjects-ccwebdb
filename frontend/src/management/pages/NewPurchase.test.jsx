@@ -404,7 +404,7 @@ describe('NewPurchase: items on the purchase', () => {
   })
 
   it('offers a Receive these link built from the router, not a hard-coded shop path', async () => {
-    // The console mounts at basename "/management" (owner/main.jsx); a `<Link>`
+    // The console mounts at basename "/management" (management/main.jsx); a `<Link>`
     // folds that into the rendered href, while a hard-coded
     // `<a href="/receiving?...">` would not and would send the browser to
     // the shop at the site root instead of Receiving.

@@ -1,7 +1,7 @@
-# Owner console: separating the shop from the back office
+# Management console: separating the shop from the back office
 
 The frontend is two applications built from one Vite project: the **shop**,
-served at `/`, and the **owner console**, served at `/management`. The shop's
+served at `/`, and the **management console**, served at `/management`. The shop's
 bundle contains no console module -- not lazily loaded, not present -- so an
 anonymous visitor neither downloads the console's code nor learns that its
 pages exist.
@@ -24,14 +24,14 @@ needs no change to anything here.
 ```
 frontend/
   index.html              -> /src/store/main.jsx   served at /
-  management.html         -> /src/owner/main.jsx   served at /management
+  management.html         -> /src/management/main.jsx   served at /management
   vite.config.js          build.rollupOptions.input = { store, owner }
   scripts/check-bundle-isolation.mjs
   src/
     shared/   transport and calls both use (api.js), auth, reference pickers,
               kinds, formatting, LoginForm, shared.css
     store/    StoreApp.jsx, cart, pages/, styles.css
-    owner/    OwnerApp.jsx, api.js, HelpScope, fieldHelp, shortcuts,
+    management/    ManagementApp.jsx, api.js, HelpScope, fieldHelp, shortcuts,
               pages/, styles.css
     test/     helpers and setup, imported only by test files
 ```
@@ -50,17 +50,17 @@ the routes still exist in the shop's router).
 An object literal does not tree-shake, so every endpoint written into the
 shop's `api` object is a map of the owner's tooling delivered to every visitor.
 `shared/api.js` holds the transport (`send`, token handling, `ApiError`) and
-the calls the shop and shared components make; `owner/api.js` spreads it and
+the calls the shop and shared components make; `management/api.js` spreads it and
 adds the console's, so a console page imports one `api`.
 
 One exception: `addReferenceValue` stays in `shared/api.js`, because
 `ReferenceSelect` in `shared/reference.jsx` calls it and shared code may not
-import from `owner/`. So one write endpoint's path is visible to the shop;
+import from `management/`. So one write endpoint's path is visible to the shop;
 the endpoint itself is staff only.
 
 ### The stylesheet is split
 
-`shared.css`, `store/styles.css` and `owner/styles.css`. A shared stylesheet
+`shared.css`, `store/styles.css` and `management/styles.css`. A shared stylesheet
 would ship the shop class names that enumerate the owner's features
 (`.inventory-table`, `.bulk-bar`, `.review-pane`), giving back what the bundle
 split removed.
@@ -76,7 +76,7 @@ removes.
 
 ### One guard at the router root
 
-`OwnerApp.jsx`'s `RequireAdmin` wraps every console route once; sign-in is the
+`ManagementApp.jsx`'s `RequireAdmin` wraps every console route once; sign-in is the
 only route outside it. Anonymous visitors are sent to sign-in and a signed-in
 non-administrator is refused. Per-route guards leak by omission at the next new
 page, a failure that does not announce itself.
@@ -101,7 +101,7 @@ Two layers, in two channels, which fail for different reasons.
 **Source: ESLint boundary rules** (`frontend/eslint.config.js`):
 
 - `src/store/` may not import `**/management/**`;
-- `src/owner/` may not import `**/store/**`;
+- `src/management/` may not import `**/store/**`;
 - `src/shared/` may import neither.
 
 Glob patterns rather than literal relative paths, because a page nested one
@@ -118,7 +118,7 @@ symmetric. It reads chunk *membership*, not Vite's `manifest.json`: a manifest
 records a chunk's imports but not its contents, and a chunk shared between
 entries has no `src` -- exactly where a module imported by both lands. It is
 also the only layer that catches a computed dynamic import
-(``import(`../owner/pages/${name}.jsx`)``), which no lint rule can match. It is
+(``import(`../management/pages/${name}.jsx`)``), which no lint rule can match. It is
 deliberately not a string search of the built JavaScript: minification renames
 identifiers, and a check that passes for the wrong reason is worse than none.
 

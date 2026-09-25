@@ -1,4 +1,4 @@
-"""Orders as the owner console works with them.
+"""Orders as the management console works with them.
 
 Two things the console's Sales page needs that the shop never did: to say who
 placed an order and what is in it, and to be safe to drive from a dropdown

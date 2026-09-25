@@ -9,8 +9,8 @@ backups and schema releases are done.
 `docs/environment-setup.md` covers installing them;
 `docs/database-design.md` covers how the record is structured.
 
-Everything below is administered through the **owner console** at `/management`, a
-separate application from the shop (`docs/specs/owner-console-separation-design.md`).
+Everything below is administered through the **management console** at `/management`, a
+separate application from the shop (`docs/specs/management-console-separation-design.md`).
 Nothing here is reachable from the storefront.
 
 Command-line passes run from `backend\` with the `ccwebdb` conda environment
