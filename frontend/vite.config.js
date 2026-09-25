@@ -30,8 +30,8 @@ function twoAppDevFallback() {
             return next()
           }
           req.url =
-            path === '/owner' || path.startsWith('/owner/')
-              ? '/owner.html'
+            path === '/management' || path.startsWith('/management/')
+              ? '/management.html'
               : '/index.html'
           next()
         })
@@ -77,7 +77,7 @@ function bundleGraph() {
 
 export default defineConfig({
   // 'mpa' switches off the single-entry SPA fallback, which would send
-  // /owner/inventory/coins to the shop. twoAppDevFallback replaces it with one
+  // /management/inventory/coins to the shop. twoAppDevFallback replaces it with one
   // that knows about both entries.
   appType: 'mpa',
   plugins: [react(), twoAppDevFallback(), bundleGraph()],
@@ -104,7 +104,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         store: 'index.html',
-        owner: 'owner.html',
+        owner: 'management.html',
       },
     },
   },

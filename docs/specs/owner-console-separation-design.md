@@ -1,7 +1,7 @@
 # Owner console: separating the shop from the back office
 
 The frontend is two applications built from one Vite project: the **shop**,
-served at `/`, and the **owner console**, served at `/owner`. The shop's
+served at `/`, and the **owner console**, served at `/management`. The shop's
 bundle contains no console module -- not lazily loaded, not present -- so an
 anonymous visitor neither downloads the console's code nor learns that its
 pages exist.
@@ -14,7 +14,7 @@ defence in depth plus the removal of an information leak. A per-route guard in
 the shop answering "Administrator privileges are required" would confirm that
 the page exists; the shop instead answers "not found" for console paths.
 
-Someone who *guesses* `/owner` still reaches a sign-in screen, so the console
+Someone who *guesses* `/management` still reaches a sign-in screen, so the console
 remains discoverable to a determined guesser. Closing that means serving the
 console on an interface the public cannot reach -- a deployment decision that
 needs no change to anything here.
@@ -24,7 +24,7 @@ needs no change to anything here.
 ```
 frontend/
   index.html              -> /src/store/main.jsx   served at /
-  owner.html              -> /src/owner/main.jsx   served at /owner
+  management.html         -> /src/owner/main.jsx   served at /management
   vite.config.js          build.rollupOptions.input = { store, owner }
   scripts/check-bundle-isolation.mjs
   src/
@@ -69,7 +69,7 @@ split removed.
 
 The JWT lives in `localStorage` under one key and is sent as a bearer token.
 Both applications are same-origin, so a session obtained in either works in
-both. The console therefore has its **own `/owner/login` route** rather than
+both. The console therefore has its **own `/management/login` route** rather than
 redirecting to the shop's; both wrap the shared `LoginForm`. **The shop never
 links to the console**: that link would reintroduce exactly the discovery this
 removes.
@@ -83,15 +83,15 @@ page, a failure that does not announce itself.
 
 ## Routing and serving
 
-The console's router mounts at `basename="/owner"`. Each application needs its
+The console's router mounts at `basename="/management"`. Each application needs its
 own history fallback, so `vite.config.js` sets `appType: 'mpa'` and adds a
 dev-server middleware (`twoAppDevFallback`): a non-asset request under
-`/owner` is rewritten to `/owner.html`, every other one to `/index.html`.
+`/management` is rewritten to `/management.html`, every other one to `/index.html`.
 Without it a console URL works until someone reloads it.
 
 The dev server binds `127.0.0.1:5173` and proxies `/api` to
 `127.0.0.1:8000`. The backend serves no static files; any production host
-must serve `owner.html` for `/owner` and `/owner/*` and `index.html` for
+must serve `management.html` for `/management` and `/management/*` and `index.html` for
 everything else.
 
 ## How the separation is verified
@@ -100,7 +100,7 @@ Two layers, in two channels, which fail for different reasons.
 
 **Source: ESLint boundary rules** (`frontend/eslint.config.js`):
 
-- `src/store/` may not import `**/owner/**`;
+- `src/store/` may not import `**/management/**`;
 - `src/owner/` may not import `**/store/**`;
 - `src/shared/` may import neither.
 

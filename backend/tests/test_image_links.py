@@ -93,7 +93,7 @@ def test_the_first_photograph_becomes_primary_without_being_asked(
 
     `routers.catalog` serves the primary link and has no fallback to "the
     first one", so a photograph filed without `is_primary` onto an item that
-    has none would be a photograph no buyer ever sees. `/owner/photos` -- the
+    has none would be a photograph no buyer ever sees. `/management/photos` -- the
     page the import's leftovers go to -- files exactly that way.
     """
     item = build_item(db)

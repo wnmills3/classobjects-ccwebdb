@@ -1,7 +1,7 @@
 # Orders entered and edited on a customer's behalf
 
 The owner console is a superset of the shop: anything a customer can do, an
-administrator can do from `/owner`. For orders that means placing an order
+administrator can do from `/management`. For orders that means placing an order
 for someone else -- a phone, walk-in or in-person sale -- and changing an
 order after it is placed. Because an administrator can act for a buyer and
 re-price a paid order, every order records who placed it and every change
@@ -126,7 +126,7 @@ charges or refunds.
 
 ## Console
 
-All on the Sales page (`/owner/sales`).
+All on the Sales page (`/management/sales`).
 
 **Order editor** (`orders/OrderEditor.jsx`), a modal for **New order** and
 for **Edit** on a `pending` or `paid` order:

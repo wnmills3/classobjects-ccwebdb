@@ -1,7 +1,7 @@
 # Acquiring, cataloguing and selling an item
 
 How an item goes from a purchase to a sale in the owner console
-(`http://127.0.0.1:5173/owner`). This is the path **every acquisition
+(`http://127.0.0.1:5173/management`). This is the path **every acquisition
 takes**, and the path a new installation starts on from an empty inventory.
 
 Read [project-purpose.md](project-purpose.md) first for why any of this
@@ -34,7 +34,7 @@ Only a purchase lot you mean to break up takes the bracketed step.
 
 ### 1. Enter the purchase
 
-**Purchases** (`/owner/purchases`): vendor, order number, date,
+**Purchases** (`/management/purchases`): vendor, order number, date,
 shipping and tax. Then add its items with the **New item** form, one after
 another ("Save and add another" keeps what items on one order share). No item
 is entered outside a purchase.
@@ -58,7 +58,7 @@ Two shapes of purchase:
 
 ### 2. Receive it
 
-**Receive** (`/owner/receiving`) finds what has not arrived, by any part of an
+**Receive** (`/management/receiving`) finds what has not arrived, by any part of an
 order number or by what the item is, and records one of received, missing,
 returned or canceled, with an arrival date and a storage location. The
 receipt dialog also takes a note, photographs, field reviews and, for a
@@ -98,7 +98,7 @@ Bulk-set what a run of similar items shares, then review the exceptions.
 ### 5. Photograph
 
 Photographs can be added at any time after receipt: in the item editor's
-photos panel, from **Photos** (`/owner/photos`, for photographs not yet filed
+photos panel, from **Photos** (`/management/photos`, for photographs not yet filed
 to an item), or in bulk with `python -m app.photo_import` using the
 `CC-000412_01.jpg` naming convention. Metadata, including GPS, is stripped on
 the way in. The shop shows only an item's primary photograph.

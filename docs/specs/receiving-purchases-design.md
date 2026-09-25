@@ -2,7 +2,7 @@
 
 A package arrives. Somebody opens it, checks what is inside against what was
 bought, puts the objects somewhere, and records that this happened. The
-Receiving page (`/owner/receiving`) and `POST /api/inventory/receive` are how.
+Receiving page (`/management/receiving`) and `POST /api/inventory/receive` are how.
 
 ## What receiving is here
 

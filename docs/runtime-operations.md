@@ -37,7 +37,7 @@ their own path, so they work from any directory when called by full path.
 | | |
 |---|---|
 | Shop | http://127.0.0.1:5173 |
-| Owner console | http://127.0.0.1:5173/owner |
+| Owner console | http://127.0.0.1:5173/management |
 | API | http://127.0.0.1:8000 |
 | API docs | http://127.0.0.1:8000/docs |
 | Database | localhost:5432/ccwebdb |
@@ -98,7 +98,7 @@ Each service is checked **twice** where it can be: a listening port says only
 that something holds it. The backend is also asked for
 `/api/reference/item_status`, which is public and reads the database, so a 200
 means the API is up *and* talking to PostgreSQL; the frontend is asked for
-`/owner`. A port held with no answer is reported as **LISTENING but not
+`/management`. A port held with no answer is reported as **LISTENING but not
 answering**, never rounded up to RUNNING.
 
 SonarQube is listed but never counted as down: it is inspected on demand, not

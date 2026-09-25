@@ -59,7 +59,7 @@ export function renderWithProviders(ui, options = {}) {
     reference = emptyReference(),
     route = '/',
     // Only owner-console tests that specifically care about the console's
-    // real mount point (`basename="/owner"` in `owner/main.jsx`) need this --
+    // real mount point (`basename="/management"` in `owner/main.jsx`) need this --
     // e.g. telling a `<Link>`'s routed href apart from a hard-coded path
     // that happens to read the same without a basename in play.
     basename,

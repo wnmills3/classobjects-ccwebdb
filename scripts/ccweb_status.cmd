@@ -99,7 +99,7 @@ rem --- 3. Frontend ----------------------------------------------------------
 call :portpid %FPORT% FPID
 set "FOK="
 if defined FPID (
-    curl -s -f -o nul --max-time 5 "http://127.0.0.1:%FPORT%/owner" && set "FOK=1"
+    curl -s -f -o nul --max-time 5 "http://127.0.0.1:%FPORT%/management" && set "FOK=1"
 )
 if defined FOK (
     echo   Frontend     127.0.0.1:%FPORT%   RUNNING   pid !FPID!
@@ -148,7 +148,7 @@ if not defined DOWN (
     echo   Everything is up.
     echo.
     echo     shop     http://127.0.0.1:%FPORT%/
-    echo     console  http://127.0.0.1:%FPORT%/owner
+    echo     console  http://127.0.0.1:%FPORT%/management
     echo     API docs http://127.0.0.1:%BPORT%/docs
     echo ============================================
     exit /b 0

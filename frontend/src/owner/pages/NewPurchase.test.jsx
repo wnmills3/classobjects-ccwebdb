@@ -404,13 +404,13 @@ describe('NewPurchase: items on the purchase', () => {
   })
 
   it('offers a Receive these link built from the router, not a hard-coded shop path', async () => {
-    // The console mounts at basename "/owner" (owner/main.jsx); a `<Link>`
+    // The console mounts at basename "/management" (owner/main.jsx); a `<Link>`
     // folds that into the rendered href, while a hard-coded
     // `<a href="/receiving?...">` would not and would send the browser to
     // the shop at the site root instead of Receiving.
-    await openPurchase({ basename: '/owner', route: '/owner/purchases/new' })
+    await openPurchase({ basename: '/management', route: '/management/purchases/new' })
     const link = screen.getByRole('link', { name: /receive these/i })
-    expect(link).toHaveAttribute('href', '/owner/receiving?order=22')
+    expect(link).toHaveAttribute('href', '/management/receiving?order=22')
   })
 
   it('passes the resolved tax defaults down to the New item form', async () => {

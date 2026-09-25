@@ -111,7 +111,7 @@ stored; only the *link* is withheld.
   upload, change role, make primary, and **Remove**, which detaches and
   never deletes the photograph. It reads from the server after every write,
   never from the editor's draft.
-- **`/owner/photos`**: unattached photographs, most recent capture first
+- **`/management/photos`**: unattached photographs, most recent capture first
   (nulls last), each with an item picker that searches by item code across
   coins and currency. Where the pass's leftovers are filed, and where a
   photograph detached from the wrong item waits.
