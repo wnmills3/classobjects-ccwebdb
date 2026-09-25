@@ -293,7 +293,7 @@ def list_catalog(
     if include_inactive and not is_admin(caller):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrator privileges required to see withdrawn listings",
+            detail="Manager privileges required to see withdrawn listings",
         )
 
     # or_() returns a ColumnElement, which is wider than the

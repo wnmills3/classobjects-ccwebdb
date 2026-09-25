@@ -30,7 +30,7 @@ __all__ = ["User", "UserRole"]
 class UserRole(enum.StrEnum):
     """What a login may do. Administrators see cost basis; customers do not."""
 
-    admin = "admin"
+    manager = "manager"
     customer = "customer"
 
 

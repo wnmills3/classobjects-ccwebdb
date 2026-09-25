@@ -210,7 +210,7 @@ def create_order(payload: OrderCreate, db: DbSession, user: CurrentUser) -> Orde
         placed_by=user,
     )
     db.commit()
-    return order_out(db, order.id, for_admin=user.role is UserRole.admin)
+    return order_out(db, order.id, for_admin=user.role is UserRole.manager)
 
 
 @router.get("")
@@ -221,7 +221,7 @@ def list_orders(db: DbSession, user: CurrentUser, mine: bool = False) -> list[Or
     "Your orders" page asks for it: an administrator browsing the shop is a
     customer there, and everyone's orders belong in the console.
     """
-    is_admin = user.role is UserRole.admin
+    is_admin = user.role is UserRole.manager
     stmt = select(SalesOrder).options(*_ORDER_DETAIL).order_by(SalesOrder.id.desc())
     if mine or not is_admin:
         customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
@@ -242,7 +242,7 @@ def _visible_or_404(db: Session, order_id: int, user: User) -> SalesOrder:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
         )
-    if user.role is not UserRole.admin:
+    if user.role is not UserRole.manager:
         customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
         # 404 rather than 403 so ids of other customers' orders do not leak.
         if customer is None or order.customer_id != customer.id:
@@ -257,7 +257,7 @@ def get_order(order_id: int, db: DbSession, user: CurrentUser) -> OrderOut:
     """One order. A customer sees only their own; an administrator sees any."""
     order = _visible_or_404(db, order_id, user)
     return _order_out(
-        order, _status_code(db, order), for_admin=user.role is UserRole.admin
+        order, _status_code(db, order), for_admin=user.role is UserRole.manager
     )
 
 

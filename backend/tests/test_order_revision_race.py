@@ -185,7 +185,7 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
     """
     listing_id, (buyer_id, holder_id, admin_id) = _seed(committed, stock=2, buyers=3)
     with committed() as s:
-        _present(s.get(User, admin_id)).role = UserRole.admin
+        _present(s.get(User, admin_id)).role = UserRole.manager
         holder = _present(s.get(User, holder_id))
         order = place_order(
             s, customer_for_user(s, holder), [Line(listing_id, 1)], holder
@@ -271,7 +271,7 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=5, buyers=2)
     with committed() as s:
-        _present(s.get(User, admin_id)).role = UserRole.admin
+        _present(s.get(User, admin_id)).role = UserRole.manager
         buyer = _present(s.get(User, buyer_id))
         order = place_order(
             s, customer_for_user(s, buyer), [Line(listing_id, 2)], buyer
@@ -472,7 +472,7 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_cancellation(
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=1, buyers=2)
     other_listing_id = _extra_listing(committed, stock=5)
     with committed() as s:
-        _present(s.get(User, admin_id)).role = UserRole.admin
+        _present(s.get(User, admin_id)).role = UserRole.manager
         s.commit()
 
     with committed() as session_a:
@@ -641,7 +641,7 @@ def test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500(
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=1, buyers=2)
     with committed() as s:
-        _present(s.get(User, admin_id)).role = UserRole.admin
+        _present(s.get(User, admin_id)).role = UserRole.manager
         s.commit()
 
     with committed() as session:

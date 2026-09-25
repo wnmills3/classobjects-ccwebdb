@@ -23,7 +23,7 @@ active. Every pass reports and touches nothing unless given `--commit`.
 | Role | Sees | Reaches |
 |---|---|---|
 | `customer` | the shop; their own orders | nothing under `/management`, no cost basis |
-| `admin` | everything | the whole console, including what each item cost |
+| `manager` | everything | the whole console, including what each item cost |
 
 There is no third role and no per-permission grid. The line the system
 enforces is **cost basis and provenance are not customer-visible**, and one
@@ -56,7 +56,7 @@ On someone else's account (`PATCH /api/users/{id}`), exactly three fields:
 | Field | Notes |
 |---|---|
 | `full_name` | display only |
-| `role` | `admin` or `customer` |
+| `role` | `manager` or `customer` |
 | `is_active` | `false` suspends sign-in without deleting anything |
 
 The schema is `extra="forbid"`, so a request naming any other field is

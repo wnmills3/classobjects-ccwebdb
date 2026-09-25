@@ -62,10 +62,10 @@ def require_admin(user: CurrentUser, request: Request) -> User:
     operational message -- the exception handler has no dependency of its
     own to ask, and must not open a session to find out.
     """
-    if user.role is not UserRole.admin:
+    if user.role is not UserRole.manager:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Administrator privileges required",
+            detail="Manager privileges required",
         )
     request.state.is_admin = True
     return user
@@ -111,4 +111,4 @@ OptionalUser = Annotated[User | None, Depends(get_optional_user)]
 
 def is_admin(user: User | None) -> bool:
     """Whether this caller is a signed-in administrator."""
-    return user is not None and user.role is UserRole.admin
+    return user is not None and user.role is UserRole.manager

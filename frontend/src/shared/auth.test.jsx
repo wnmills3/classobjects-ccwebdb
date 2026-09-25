@@ -13,7 +13,7 @@ import { api, clearTokens, loadTokens, saveTokens } from './api'
 import { AuthProvider } from './auth'
 import { useAuth } from './auth-context'
 
-const ADMIN = { id: 1, email: 'admin@example.com', role: 'admin' }
+const ADMIN = { id: 1, email: 'admin@example.com', role: 'manager' }
 const BUYER = { id: 2, email: 'buyer@example.com', role: 'customer' }
 
 let auth

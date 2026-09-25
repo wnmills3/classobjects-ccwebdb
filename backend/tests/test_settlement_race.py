@@ -282,7 +282,7 @@ def _admin(factory: sessionmaker[Session]) -> int:
             email=RACE_ADMIN_EMAIL,
             full_name="Settle Race Admin",
             hashed_password=hash_password("racepassword"),
-            role=UserRole.admin,
+            role=UserRole.manager,
         )
         session.add(user)
         session.commit()
