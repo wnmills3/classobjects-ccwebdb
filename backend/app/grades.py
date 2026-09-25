@@ -324,7 +324,9 @@ def display_item(item: InventoryItem) -> str | None:
     )
 
 
-#: ``grade_display()`` in SQL, created by the migration that split grades.
+#: ``grade_display()`` in SQL. The baseline migration creates it on a real
+#: database and the test database is built from this text;
+#: `test_migrations` holds the two equal.
 GRADE_DISPLAY_SQL = """
 CREATE OR REPLACE FUNCTION grade_display(
     strike_prefix text,

@@ -370,8 +370,8 @@ unit marks the item `sold` while its store listing stays active.
 - **Settlement**: shares sum to the line to the cent; resumed store listings
   keep their price; consignment moves appear in location history both ways;
   a sold lot's paused store listings end rather than resume.
-- **Migrations**: `test_migrations_round_trip` and
-  `test_migrations_match_models`.
+- **Migrations**: `test_migrations_match_models` and
+  `test_the_baseline_views_and_functions_are_the_apps`.
 - **Shop boundary**: the public catalogue never exposes cost, storage
   location or non-store listings; the bundle-isolation check stays green.
 

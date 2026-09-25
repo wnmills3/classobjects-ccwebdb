@@ -4,9 +4,9 @@
 writer needs a row from a closed vocabulary that `app.seeding.seed_all` (or,
 for the one platform the migration itself does not create on a database built
 from the models, `app.sales_venues.ensure_store_venue`) is what seeds it.
-That state is real and expected -- migration `e267ec3aedc1`'s own docstring
-says so, and the live database is in it today -- so it is told to the person
-who hit it, not left to look like an ordinary crash.
+That state is real and expected -- the migrations build the schema and the
+seed load is a separate step -- so it is told to the person who hit it, not
+left to look like an ordinary crash.
 
 **A narrow subclass of `RuntimeError`, not `RuntimeError` itself, is what
 `app.main` registers a handler for** (ruling R24, Task 5 fix round 1).

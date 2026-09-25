@@ -23,8 +23,9 @@ Keeping the view honest is still worth doing: it is the schema's statement of
 which columns are public, and anything later built on it inherits that.
 
 Views are not part of ``Base.metadata`` -- Alembic autogenerate reflects tables
-only -- so they are created and dropped explicitly by the migration that owns
-them, from the definitions here.
+only. The baseline migration holds them as they stand; a migration that
+changes one runs `DROP_VIEWS` and then `CREATE_VIEWS` from the definitions
+here, and the tests build their database the same way.
 """
 
 from __future__ import annotations
@@ -32,11 +33,8 @@ from __future__ import annotations
 __all__ = [
     "ALL_VIEWS",
     "CREATE_VIEWS",
-    "CREATE_VIEWS_ORIGINAL",
-    "CREATE_VIEWS_WITHOUT_LINEAGE",
     "DROP_VIEWS",
     "PUBLIC_CATALOG_FORBIDDEN_COLUMNS",
-    "create_views",
 ]
 
 #: Columns that must never appear in `public_catalog`. Asserted by a test.
@@ -46,11 +44,6 @@ __all__ = [
 #: none today, so that half of the promise holds by accident rather than
 #: by this assertion. Add the image columns here if the view ever grows
 #: one.
-#:
-#: The cost columns are listed under **both** names. The old ones cannot
-#: appear any more, so on their own this set would have quietly stopped
-#: guarding anything -- a test that can no longer fail. They stay because a
-#: downgrade recreates the pre-rename view, and that view must be checked too.
 PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
     {
         "storage_location_id",
@@ -59,11 +52,8 @@ PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
         "item_cost",
         "shipping_cost",
         "sales_tax",
-        "price",
-        "shipping",
         "tax_rate",
         "tax_includes_shipping",
-        "taxes",
         "total_cost",
         "numismatic_value",
         "purchase_order_id",
@@ -73,15 +63,6 @@ PUBLIC_CATALOG_FORBIDDEN_COLUMNS: frozenset[str] = frozenset(
     }
 )
 
-
-#: The composed grade -- MS65, PR69+ -- from `grade_display()`, created by
-#: the migration that split strike type from grade.
-_GRADE_DISPLAY = (
-    "grade_display(\n"
-    "        stk.prefix, stk.suffix, g.numeric_value, g.is_plus, g.label,\n"
-    "        gsc.code = 'sheldon'\n"
-    "    )"
-)
 
 _COIN_INVENTORY = """
 CREATE VIEW coin_inventory AS
@@ -376,272 +357,4 @@ CREATE_VIEWS: tuple[str, ...] = (
 
 DROP_VIEWS: tuple[str, ...] = tuple(
     f"DROP VIEW IF EXISTS {name}" for name in reversed(ALL_VIEWS)
-)
-
-
-# ---------------------------------------------------------------------------
-# Historical variants, for migrations
-#
-# A migration that creates these views imports the SQL from here, which means
-# the SQL can change underneath a migration written months ago. A view created
-# by an early revision must only name columns that existed at that revision --
-# otherwise a fresh `upgrade head` fails on a column that has not been added
-# yet, which is exactly what happened when `item_code` was introduced.
-#
-# So the variants are derived from the current definitions by removing the
-# later columns, and every removal is asserted. Deriving rather than
-# duplicating keeps them from drifting; asserting means a future edit that
-# changes the wording fails loudly here instead of silently producing SQL that
-# still names a column the target revision does not have.
-# ---------------------------------------------------------------------------
-
-_LINEAGE_FRAGMENTS: tuple[tuple[str, str], ...] = (
-    ("    i.parent_item_id,\n", ""),
-    ("    i.split_at,\n", ""),
-    ("WHERE i.split_at IS NULL\n  AND ", "WHERE "),
-    ("    WHERE i.split_at IS NULL\n", ""),
-    ("\n  AND i.split_at IS NULL", ""),
-)
-
-_ITEM_CODE_FRAGMENTS: tuple[tuple[str, str], ...] = (("    i.item_code,\n", ""),)
-
-#: The cost columns were renamed later -- price -> item_cost and friends -- so
-#: a view created by an earlier revision must still say the old names. Without
-#: this a fresh `upgrade head` fails partway: the view is created before the
-#: rename runs, naming columns the table does not have yet.
-_PRE_RENAME_FRAGMENTS: tuple[tuple[str, str], ...] = (
-    ("    i.item_cost,\n", "    i.price,\n"),
-    ("    i.shipping_cost,\n", "    i.shipping,\n"),
-    ("    i.sales_tax,\n", "    i.taxes,\n"),
-    ("    i.piece_count,\n", "    i.storage_quantity,\n"),
-    ("    i.source_title,\n", "    i.title,\n"),
-    ("        i.piece_count,\n", "        i.storage_quantity,\n"),
-    (
-        "i.fine_weight_ozt * s.price_per_ozt * i.piece_count",
-        "i.fine_weight_ozt * s.price_per_ozt * i.storage_quantity",
-    ),
-    (
-        "COALESCE(NULLIF(l.title, ''), i.source_title)      AS title",
-        "COALESCE(NULLIF(l.title, ''), i.title)             AS title",
-    ),
-)
-
-#: The names that rename introduced, asserted absent from a pre-rename view.
-_RENAMED_COLUMNS = (
-    "item_cost",
-    "shipping_cost",
-    "sales_tax",
-    "piece_count",
-    "source_title",
-)
-
-#: `weight_raw` became `weight_note` later, so a view created by an earlier
-#: revision names the old column.
-_PRE_NOTE_RENAME_FRAGMENTS: tuple[tuple[str, str], ...] = (
-    ("    i.weight_note,\n", "    i.weight_raw,\n"),
-)
-
-#: Soft delete came later than the views, so a view created by an earlier
-#: revision must not name the column. Without this a fresh `upgrade head`
-#: fails partway: the view is created before the column is added.
-#:
-#: Two indents because `item_valuation` nests its WHERE inside a CTE. They
-#: cannot match each other's text: after `\n`, one expects exactly two spaces
-#: then `AND`, the other six.
-_SOFT_DELETE_FRAGMENTS: tuple[tuple[str, str], ...] = (
-    ("\n  AND i.deleted_at IS NULL", ""),
-    ("\n      AND i.deleted_at IS NULL", ""),
-)
-
-
-#: Strike types and composed grades came later (item-attributes design): a
-#: view created by an earlier revision names the grade code and no strike.
-_STRIKE_TYPE_FRAGMENTS: tuple[tuple[str, str], ...] = (
-    ("    stk.code          AS strike_type,\n", ""),
-    (
-        f"    {_GRADE_DISPLAY} AS grade,\n"
-        "    g.numeric_value   AS grade_value,\n"
-        "    g.grade_rank,\n",
-        "    g.code            AS grade,\n    g.numeric_value   AS grade_value,\n",
-    ),
-    (f"    {_GRADE_DISPLAY} AS grade,\n", "    g.code              AS grade,\n"),
-    ("LEFT JOIN grade_scale gsc ON gsc.id = g.grade_scale_id\n", ""),
-    ("LEFT JOIN strike_type stk ON stk.id = i.strike_type_id\n", ""),
-)
-
-#: Sales platforms and listing formats came later (selling design): a view
-#: created by an earlier revision shows every active listing.
-_SELLING_FRAGMENTS: tuple[tuple[str, str], ...] = (
-    ("JOIN sales_venue sv       ON sv.id = l.sales_venue_id\n", ""),
-    ("\n  AND sv.is_own_store\n  AND l.format = 'fixed_price'", ""),
-)
-
-
-def _removal_fragments(
-    *,
-    lineage: bool,
-    item_code: bool,
-    renamed_costs: bool,
-    soft_delete: bool,
-    strike_type: bool = True,
-    selling: bool = True,
-    renamed_notes: bool = True,
-) -> list[tuple[str, str]]:
-    """The (fragment, replacement) pairs that strip the features not wanted.
-
-    Order matters, which is why this is a list rather than a set.
-    """
-    removals: list[tuple[str, str]] = []
-    if not renamed_notes:
-        removals.extend(_PRE_NOTE_RENAME_FRAGMENTS)
-    if not selling:
-        removals.extend(_SELLING_FRAGMENTS)
-    if not strike_type:
-        removals.extend(_STRIKE_TYPE_FRAGMENTS)
-    # Soft delete is stripped FIRST, before lineage. Replacements apply in
-    # list order, and the lineage fragment is
-    # ("WHERE i.split_at IS NULL\n  AND ", "WHERE ") -- which would otherwise
-    # swallow the `AND i.deleted_at IS NULL` line now sitting directly beneath
-    # it, leaving `WHERE i.deleted_at IS NULL` in a view whose revision has no
-    # such column. The assertion in _assert_stripped then fires, and the fix is
-    # this ordering rather than a wider fragment.
-    if not soft_delete:
-        removals.extend(_SOFT_DELETE_FRAGMENTS)
-
-    if not lineage:
-        removals.extend(_LINEAGE_FRAGMENTS)
-    if not item_code:
-        removals.extend(_ITEM_CODE_FRAGMENTS)
-    if not renamed_costs:
-        removals.extend(_PRE_RENAME_FRAGMENTS)
-    return removals
-
-
-def _assert_stripped(
-    statement: str,
-    *,
-    lineage: bool,
-    item_code: bool,
-    renamed_costs: bool,
-    soft_delete: bool,
-    strike_type: bool = True,
-    selling: bool = True,
-    renamed_notes: bool = True,
-) -> None:
-    """Fail loudly if a fragment stopped matching the view SQL.
-
-    Silence here would mean a migration creating a view that names a column
-    which does not exist at its revision -- a failure at deploy time rather
-    than at import time.
-    """
-    if not lineage:
-        assert "split_at" not in statement, (
-            "the lineage-stripping fragments no longer match the view SQL; "
-            "a migration would create a view naming a column that does not "
-            "exist at its revision"
-        )
-        assert "parent_item_id" not in statement
-    if not item_code:
-        assert "item_code" not in statement
-    if not renamed_costs:
-        for column in _RENAMED_COLUMNS:
-            assert column not in statement, (
-                f"{column} survived the pre-rename rewrite; a "
-                "migration would create a view naming a column that "
-                "does not exist at its revision"
-            )
-    if not strike_type:
-        assert "strike_type" not in statement, (
-            "the strike-type-stripping fragments no longer match the view SQL"
-        )
-        assert "grade_display" not in statement
-    if not selling:
-        assert "sales_venue" not in statement, (
-            "the selling-stripping fragments no longer match the view SQL"
-        )
-        assert "l.format" not in statement
-    if not renamed_notes:
-        assert "weight_note" not in statement, (
-            "the note-rename fragment no longer matches the view SQL"
-        )
-    if not soft_delete:
-        assert "deleted_at" not in statement, (
-            "the soft-delete-stripping fragments no longer match the view "
-            "SQL; a migration would create a view naming a column that "
-            "does not exist at its revision"
-        )
-
-
-def create_views(
-    *,
-    lineage: bool = True,
-    item_code: bool = True,
-    renamed_costs: bool = True,
-    soft_delete: bool = True,
-    strike_type: bool = True,
-    selling: bool = True,
-    renamed_notes: bool = True,
-) -> tuple[str, ...]:
-    """The view SQL as it stood before the named columns were introduced.
-
-    ``lineage`` covers `parent_item_id` and `split_at`; ``item_code`` covers
-    the permanent item code; ``renamed_costs`` covers the earlier names of
-    `item_cost`, `shipping_cost`, `sales_tax`, `piece_count` and
-    `source_title` (`price`, `shipping`, `taxes`, `storage_quantity`,
-    `title`); ``soft_delete`` covers `deleted_at` and its `WHERE` clause in
-    all four views; ``strike_type`` covers the strike type column and the
-    composed grade (`grade_display()`), which replaced the grade code.
-    ``selling`` covers the sales platform join and the store/fixed-price
-    filter on `public_catalog`. ``renamed_notes`` covers `weight_note`,
-    earlier `weight_raw`. All default to True, the current definitions,
-    so a migration strips only what it names.
-    """
-    removals = _removal_fragments(
-        lineage=lineage,
-        item_code=item_code,
-        renamed_costs=renamed_costs,
-        soft_delete=soft_delete,
-        strike_type=strike_type,
-        selling=selling,
-        renamed_notes=renamed_notes,
-    )
-
-    statements = []
-    for statement in CREATE_VIEWS:
-        for fragment, replacement in removals:
-            statement = statement.replace(fragment, replacement)
-        _assert_stripped(
-            statement,
-            lineage=lineage,
-            item_code=item_code,
-            renamed_costs=renamed_costs,
-            soft_delete=soft_delete,
-            strike_type=strike_type,
-            selling=selling,
-            renamed_notes=renamed_notes,
-        )
-        statements.append(statement)
-    return tuple(statements)
-
-
-#: What the views looked like before lot lineage existed. Used by the
-#: downgrade of the migration that added it.
-CREATE_VIEWS_WITHOUT_LINEAGE: tuple[str, ...] = create_views(
-    lineage=False,
-    renamed_costs=False,
-    soft_delete=False,
-    strike_type=False,
-    selling=False,
-    renamed_notes=False,
-)
-
-#: What they looked like when first created, before either addition.
-CREATE_VIEWS_ORIGINAL: tuple[str, ...] = create_views(
-    lineage=False,
-    item_code=False,
-    renamed_costs=False,
-    soft_delete=False,
-    strike_type=False,
-    selling=False,
-    renamed_notes=False,
 )
