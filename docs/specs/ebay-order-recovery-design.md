@@ -115,5 +115,5 @@ purchases the stored order's price differs from ours by $0.12 to $6.38, so
 the recorded cost may be wrong, not the order: CC-004156, CC-004217, CC-005060,
 CC-005366, CC-006165.
 
-Left for a person, in `logs\ebay_orders_review_20260925_6.xlsx`: 8 purchases
-where neither order's price is ours, or both are.
+Left for a person, in `logs\ebay_orders_review_20260925_7.xlsx`: 7 purchases
+where neither order's price is ours.
