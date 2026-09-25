@@ -245,7 +245,7 @@ export default function NewItemForm({
       piece_count: Number.isInteger(pieces) && pieces >= 1 ? pieces : 1,
       errors,
     }
-    if (form.year_start !== '') {
+    if (!isCurrency && form.year_start !== '') {
       draft.year_start = Number(form.year_start)
       draft.year_end =
         form.year_end === '' ? Number(form.year_start) : Number(form.year_end)
@@ -289,7 +289,7 @@ export default function NewItemForm({
     if (!form.source_title.trim()) {
       throw new Error('Title is required.')
     }
-    if (ranged && form.year_start === '' && form.year_end !== '') {
+    if (!isCurrency && ranged && form.year_start === '' && form.year_end !== '') {
       throw new Error('Enter Year from, or clear Year to.')
     }
     const payload = {
@@ -305,7 +305,9 @@ export default function NewItemForm({
       tax_includes_shipping: defaults?.tax_includes_shipping ?? null,
     }
 
-    if (form.year_start !== '') {
+    // A note's year is its series year, set by the server from it; a Year
+    // typed while this was a coin is not sent for it.
+    if (!isCurrency && form.year_start !== '') {
       payload.year_start = Number(form.year_start)
       payload.year_end =
         form.year_end === '' ? Number(form.year_start) : Number(form.year_end)
@@ -726,44 +728,51 @@ export default function NewItemForm({
 
       {/* Divs, not a wrapping label: the range checkbox needs its own label,
           which a <label> may not contain, so each box is named through
-          htmlFor instead -- the same layout the item editor uses. */}
-      <div data-help="year_start">
-        <label htmlFor={yearId}>
-          <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
-        </label>
-        <span className="year-input">
-          <input
-            id={yearId}
-            type="number"
-            value={form.year_start}
-            onChange={ranged ? set('year_start') : setYear}
-            {...accel('y')}
-          />
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={ranged}
-              onChange={toggleRange}
-              {...accel('r')}
-            />
-            {/* */}
-            <AccessLabel text="Range of years" accessKey="r" />
-          </label>
-        </span>
-      </div>
-      {ranged && (
-        <div data-help="year_end">
-          <label htmlFor={yearEndId}>
-            <AccessLabel text="Year to" accessKey="o" />
-          </label>
-          <input
-            id={yearEndId}
-            type="number"
-            value={form.year_end}
-            onChange={set('year_end')}
-            {...accel('o')}
-          />
-        </div>
+          htmlFor instead -- the same layout the item editor uses.
+
+          Not on a note: its year is its Series year, and a second year box
+          is where a series year got typed by mistake (owner, 2026-09-24). */}
+      {!isCurrency && (
+        <>
+          <div data-help="year_start">
+            <label htmlFor={yearId}>
+              <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
+            </label>
+            <span className="year-input">
+              <input
+                id={yearId}
+                type="number"
+                value={form.year_start}
+                onChange={ranged ? set('year_start') : setYear}
+                {...accel('y')}
+              />
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={ranged}
+                  onChange={toggleRange}
+                  {...accel('r')}
+                />
+                {/* */}
+                <AccessLabel text="Range of years" accessKey="r" />
+              </label>
+            </span>
+          </div>
+          {ranged && (
+            <div data-help="year_end">
+              <label htmlFor={yearEndId}>
+                <AccessLabel text="Year to" accessKey="o" />
+              </label>
+              <input
+                id={yearEndId}
+                type="number"
+                value={form.year_end}
+                onChange={set('year_end')}
+                {...accel('o')}
+              />
+            </div>
+          )}
+        </>
       )}
 
       <fieldset data-help="new_item_status">

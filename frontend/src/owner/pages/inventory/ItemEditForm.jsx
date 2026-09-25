@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../../api'
-import { fieldFitsKind, fitsKind, sideFor } from '../../../shared/kinds'
+import { fieldFitsKind, fitsKind, isCurrencyKind, sideFor } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { AccessLabel } from '../../AccessLabel'
@@ -828,51 +828,59 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
 
           One row that stays mounted, with the end year added beneath it.
           Two separate layouts replaced the checkbox itself on every tick, and
-          a keyboard user's focus went with it. */}
-        <div className="field" data-help={ranged ? 'year_start' : 'year'}>
-          <label htmlFor={yearId}>
-            <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
-          </label>
-          <span className="year-input">
-            <input
-              id={yearId}
-              type="number"
-              value={value('year_start')}
-              onChange={
-                ranged
-                  ? (e) => setDraft({ ...draft, year_start: yearValue(e.target.value) })
-                  : setYear
-              }
-              {...accel('y')}
-            />
-            {rangeToggle}
-          </span>
-          {ranged ? claim('year_start') : yearClaim()}
-          {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
-        </div>
-        {ranged && (
-          <div className="field" data-help="year_end">
-            <label htmlFor={yearEndId}>
-              <AccessLabel text="Year to" accessKey="o" />
-            </label>
-            <input
-              id={yearEndId}
-              type="number"
-              // An item stored with a start and no end opens its range at the
-              // start year -- but only until someone types here.
-              value={
-                'year_end' in draft
-                  ? (draft.year_end ?? '')
-                  : (item.year_end ?? item.year_start ?? '')
-              }
-              onChange={(e) =>
-                setDraft({ ...draft, year_end: yearValue(e.target.value) })
-              }
-              {...accel('o')}
-            />
-            {claim('year_end')}
-            {review('year_end')}
-          </div>
+          a keyboard user's focus went with it.
+
+          Not on a note: its year is its series year, which the server
+          copies to the item's year (owner, 2026-09-24). */}
+        {!isCurrencyKind(value('item_kind')) && (
+          <>
+            <div className="field" data-help={ranged ? 'year_start' : 'year'}>
+              <label htmlFor={yearId}>
+                <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
+              </label>
+              <span className="year-input">
+                <input
+                  id={yearId}
+                  type="number"
+                  value={value('year_start')}
+                  onChange={
+                    ranged
+                      ? (e) =>
+                          setDraft({ ...draft, year_start: yearValue(e.target.value) })
+                      : setYear
+                  }
+                  {...accel('y')}
+                />
+                {rangeToggle}
+              </span>
+              {ranged ? claim('year_start') : yearClaim()}
+              {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
+            </div>
+            {ranged && (
+              <div className="field" data-help="year_end">
+                <label htmlFor={yearEndId}>
+                  <AccessLabel text="Year to" accessKey="o" />
+                </label>
+                <input
+                  id={yearEndId}
+                  type="number"
+                  // An item stored with a start and no end opens its range at the
+                  // start year -- but only until someone types here.
+                  value={
+                    'year_end' in draft
+                      ? (draft.year_end ?? '')
+                      : (item.year_end ?? item.year_start ?? '')
+                  }
+                  onChange={(e) =>
+                    setDraft({ ...draft, year_end: yearValue(e.target.value) })
+                  }
+                  {...accel('o')}
+                />
+                {claim('year_end')}
+                {review('year_end')}
+              </div>
+            )}
+          </>
         )}
 
         {NUMBER_FIELDS.map(([label, key, letter]) => (
