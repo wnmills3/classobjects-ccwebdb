@@ -85,7 +85,7 @@ new `item_code`.
 ## Console
 
 Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
-(`owner/pages/NewPurchase.jsx`), in two steps on one page:
+(`management/pages/NewPurchase.jsx`), in two steps on one page:
 
 1. **The purchase.** Either *Add to an existing purchase* -- a list filterable
    by order number or vendor, as keyboard-reachable buttons -- or a new one:
@@ -98,7 +98,7 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
    the New item form, a **Receive these** link to `/receiving?order=<id>`, and
    **Start another purchase**.
 
-**New item** (`owner/pages/entry/NewItemForm.jsx`):
+**New item** (`management/pages/entry/NewItemForm.jsx`):
 
 - Kind, title, description, year (with "Range of years"), piece count, cost,
   shipping, status (ordered / received), country, denomination, strike type
@@ -132,12 +132,12 @@ Whichever field has focus is explained in the console's **help band**, fixed
 at the bottom of the window. The console is laid out as a column the height
 of the window -- menu, page, band -- and only the page scrolls, so a form
 always fits between the menu and the band and the explanation never scrolls
-out of sight. `owner/HelpBar.jsx` holds the band (`HelpProvider`, `HelpBar`)
-and clears it on moving to another page; `owner/HelpScope.jsx` wraps a form
+out of sight. `management/HelpBar.jsx` holds the band (`HelpProvider`, `HelpBar`)
+and clears it on moving to another page; `management/HelpScope.jsx` wraps a form
 and publishes to the band (drawing an area of its own only outside the
 console shell, as in a component test). A field opts in with
 `data-help="<key>"` on its label -- or on the element wrapping a radio group
-or a box named through `htmlFor` -- and `owner/fieldHelp.js` holds the text,
+or a box named through `htmlFor` -- and `management/fieldHelp.js` holds the text,
 keyed by the field's API name, so every form explains a field the same way.
 Nothing is placed inside a label: a control in a label with no `for` takes
 the label from its field. The last field explained stays shown when focus

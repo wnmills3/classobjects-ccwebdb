@@ -80,7 +80,7 @@ async function refreshTokens() {
 }
 
 /**
- * The one place a request is made, exported so `owner/api.js` can build the
+ * The one place a request is made, exported so `management/api.js` can build the
  * console's calls on the same token handling and error shape.
  */
 export async function send(path, { method = 'GET', body, form, auth = true } = {}) {
@@ -139,7 +139,7 @@ export async function send(path, { method = 'GET', body, form, auth = true } = {
 /**
  * The calls the shop makes, plus the ones shared components make.
  *
- * The console's calls are deliberately NOT here -- see `owner/api.js`. This
+ * The console's calls are deliberately NOT here -- see `management/api.js`. This
  * object is a single literal, so nothing tree-shakes out of it: every path
  * written here is downloaded by every anonymous visitor to the shop. A list
  * of `/api/inventory/...` and `/api/users/...` endpoints is a map of the
@@ -183,13 +183,13 @@ export const api = {
     send(`/api/reference/${table}?include_inactive=true`, { auth: false }),
   // Shared because `shared/reference.jsx`'s ReferenceSelect calls it. Only
   // console pages render that component today, but the component lives here,
-  // and shared code may not import from owner/.
+  // and shared code may not import from management/.
   addReferenceValue: (table, payload) =>
     send(`/api/reference/${table}`, { method: 'POST', body: payload }),
 
   // orders
   createOrder: (items) => send('/api/orders', { method: 'POST', body: { items } }),
   // Mine even for an administrator: in the shop they are a customer. Every
-  // order, and changing status, are console tools in owner/api.js.
+  // order, and changing status, are console tools in management/api.js.
   listMyOrders: () => send('/api/orders?mine=true'),
 }

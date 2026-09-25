@@ -134,7 +134,7 @@ Receiving
   so the page issues one request per view per status and merges the rows.
 - Enter in the order number field searches; so does **Find**.
 - The form sits in a `HelpScope`: focusing a field shows what it means in the
-  console's help band at the bottom of the window (`owner/fieldHelp.js`).
+  console's help band at the bottom of the window (`management/fieldHelp.js`).
 - Each request asks for 200 rows, the endpoint's maximum. Anything beyond
   that is counted and shown ("N more match than are shown"), never dropped
   silently.

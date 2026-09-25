@@ -24,7 +24,7 @@ began) it is merged field by field and refused only where someone else changed
 one of those fields since -- a 409 whose `conflicts` name each field with
 `was`, `theirs` and `yours`; without `base`, a stale `version` is a 409. The
 editor sends `base`, checks for changes made elsewhere while it is open, and
-shows conflicts for a choice (`owner/pages/inventory/fieldMerge.js`). The
+shows conflicts for a choice (`management/pages/inventory/fieldMerge.js`). The
 inventory API speaks the item's own column names (`source_title`,
 `item_cost`). A new status or disposition on an offered item, acknowledged,
 ends its offers (see `for-sale-guards-design.md`).
@@ -194,7 +194,7 @@ refuses one: the collection is more varied than any rule written in advance.
 
 ## Review and edit in the console
 
-`frontend/src/owner/pages/inventory/`:
+`frontend/src/management/pages/inventory/`:
 
 ```
 useInventorySearch.js   URL state, fetch, cancellation, counts

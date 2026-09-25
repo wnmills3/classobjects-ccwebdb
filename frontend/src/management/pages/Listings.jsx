@@ -70,7 +70,7 @@ function ListingForm({ listing, onSaved, onClose }) {
   // away from would still rewrite the row behind the closed dialog.
   //
   // The setup ARMS it; only the cleanup disarms it. The console runs in
-  // StrictMode (`owner/main.jsx`), where React runs every effect setup,
+  // StrictMode (`management/main.jsx`), where React runs every effect setup,
   // cleanup, setup on mount: a ref only initialised at `useRef(true)` would
   // be left false by that first cleanup for the rest of the dialog's life,
   // and a save that succeeded would never close it.

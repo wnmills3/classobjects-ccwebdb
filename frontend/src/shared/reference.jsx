@@ -90,7 +90,7 @@ export function ReferenceSelect({
   filter,
   //: Keyboard accelerator attributes (`accessKey`, `aria-keyshortcuts`),
   //: passed straight to the `<select>` -- this module stays outside
-  //: `owner/`, so it takes the attributes rather than importing `shortcuts`.
+  //: `management/`, so it takes the attributes rather than importing `shortcuts`.
   accessKey,
   'aria-keyshortcuts': ariaKeyshortcuts,
   //: Extra columns sent with a value this picker adds -- e.g.

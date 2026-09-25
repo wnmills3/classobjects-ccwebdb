@@ -28,7 +28,7 @@ once.
 
 ## The Vocabularies page
 
-The console's Vocabularies page (`owner/pages/Vocabularies.jsx`) maintains
+The console's Vocabularies page (`management/pages/Vocabularies.jsx`) maintains
 existing values. It does not create them; see *Adding a value while entering*.
 
 | Action | Endpoint | Rule |

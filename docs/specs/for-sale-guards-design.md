@@ -100,7 +100,7 @@ safe. `app.photo_import` instead reports which linked items are for sale.
 bespoke extraction each time and buys nothing over a plain call.
 
 **API-only paths are guarded too.** No console component calls split, and
-image deletion is not in `owner/api.js`; both are guarded anyway, because a
+image deletion is not in `management/api.js`; both are guarded anyway, because a
 guard that exists only where a button exists is the wrong invariant.
 
 ## The console

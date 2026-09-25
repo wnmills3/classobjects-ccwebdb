@@ -15,12 +15,12 @@ vi.mock('./api', () => ({
   },
 }))
 
-import OwnerApp from './OwnerApp'
+import ManagementApp from './ManagementApp'
 import { adminAuth, anonymousAuth, renderWithProviders } from '../test/helpers'
 
-describe('owner console shell', () => {
+describe('management console shell', () => {
   it('sends an anonymous visitor to sign in', () => {
-    renderWithProviders(<OwnerApp />, { auth: anonymousAuth(), route: '/' })
+    renderWithProviders(<ManagementApp />, { auth: anonymousAuth(), route: '/' })
     expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument()
   })
 
@@ -29,7 +29,7 @@ describe('owner console shell', () => {
       user: { id: 2, email: 'buyer@example.com', role: 'customer' },
       isAdmin: false,
     })
-    renderWithProviders(<OwnerApp />, { auth: customer, route: '/' })
+    renderWithProviders(<ManagementApp />, { auth: customer, route: '/' })
     expect(screen.getByText(/does not have access/i)).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /people/i })).not.toBeInTheDocument()
   })
@@ -42,7 +42,7 @@ describe('owner console shell', () => {
   // list every export the inventory page touches and would break the moment
   // it touched one more.
   it('renders the console navigation for an administrator', () => {
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
     expect(screen.getByRole('link', { name: /coins/i })).toBeInTheDocument()
     // The unattached-photographs page's only way in. Without this the
     // /photos nav link and route could both be deleted with the suite
@@ -76,14 +76,14 @@ describe('owner console shell', () => {
     // other half of the wiring: deleting the <Route path="/photos" ...> line
     // leaves the link in place and lands the operator on "Page not found",
     // which no assertion on the navigation can see.
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/photos' })
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/photos' })
     expect(
       await screen.findByRole('heading', { name: /unattached photographs/i }),
     ).toBeInTheDocument()
   })
 
   it('keeps a help band at the bottom of the console, once', () => {
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
     const bands = screen.getAllByRole('contentinfo', { name: 'Field help' })
     expect(bands).toHaveLength(1)
     // The band comes after the page, so it sits below it in the column.
@@ -94,7 +94,7 @@ describe('owner console shell', () => {
   })
 
   it('links to the Lots page', () => {
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
     expect(screen.getByRole('link', { name: /^lots$/i })).toBeInTheDocument()
   })
 
@@ -102,7 +102,7 @@ describe('owner console shell', () => {
     // The link above proves only that the link renders. Deleting the
     // <Route path="/lots" ...> line leaves it in place and lands the operator
     // on "Page not found", which no assertion on the navigation can see.
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/lots' })
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/lots' })
     expect(
       await screen.findByRole('heading', { name: /sales lots/i }),
     ).toBeInTheDocument()
@@ -112,7 +112,7 @@ describe('owner console shell', () => {
     // Ruling R4: a single flat NavLink after Lots, not a "Selling" nav
     // group -- that restructuring was measured deliberately out of scope
     // for this branch.
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
     const links = screen.getAllByRole('link').map((link) => link.textContent)
     const lotsIndex = links.indexOf('Lots')
     expect(lotsIndex).toBeGreaterThan(-1)
@@ -120,19 +120,19 @@ describe('owner console shell', () => {
   })
 
   it('routes /auctions to the auctions page', async () => {
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/auctions' })
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/auctions' })
     expect(
       await screen.findByRole('heading', { name: /^auctions$/i }),
     ).toBeInTheDocument()
   })
 
   it('offers sign-in without a guard, so the guard cannot lock everyone out', () => {
-    renderWithProviders(<OwnerApp />, { auth: anonymousAuth(), route: '/login' })
+    renderWithProviders(<ManagementApp />, { auth: anonymousAuth(), route: '/login' })
     expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument()
   })
 
   it('does not link back to the shop', () => {
-    renderWithProviders(<OwnerApp />, { auth: adminAuth(), route: '/nowhere' })
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
     expect(screen.queryByRole('link', { name: /catalogue/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^cart$/i })).not.toBeInTheDocument()
   })

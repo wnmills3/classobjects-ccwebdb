@@ -233,7 +233,7 @@ describe('BulkEditBar', () => {
   // because "a lot begins assembling and empty; members are a PATCH"
   // (`routers/lots.create_sales_lot`). So a passing single-call assertion
   // would have pinned a request that is a 422 every time it is really sent.
-  // Both calls are asserted instead, and `owner/api.test.js` pins each body.
+  // Both calls are asserted instead, and `management/api.test.js` pins each body.
   it('groups the selection into a lot', async () => {
     const user = userEvent.setup()
     api.createLot.mockResolvedValue({

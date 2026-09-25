@@ -299,7 +299,7 @@ staff-only. The menu has a **Selling** group: Listings, Lots, Auctions.
 
 ## API
 
-Admin-only unless noted; the console's calls live in `owner/api.js`.
+Admin-only unless noted; the console's calls live in `management/api.js`.
 
 | Endpoint | Purpose |
 |---|---|

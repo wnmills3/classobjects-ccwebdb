@@ -445,7 +445,7 @@ describe('OfferDialog', () => {
     )
   })
 
-  // In StrictMode, which is how the console really runs (`owner/main.jsx`),
+  // In StrictMode, which is how the console really runs (`management/main.jsx`),
   // React runs every effect setup, cleanup, setup on mount. A "still mounted?"
   // guard armed once at useRef(true) is left false by that first cleanup, and
   // an offer the API accepted would never reach the parent: the dialog would

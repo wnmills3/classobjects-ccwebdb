@@ -137,7 +137,7 @@ export default function OfferDialog({
   // while the batch is still in flight.
   //
   // The setup ARMS it; only the cleanup disarms it. The console runs in
-  // StrictMode (`owner/main.jsx`), where React runs every effect setup,
+  // StrictMode (`management/main.jsx`), where React runs every effect setup,
   // cleanup, setup on mount: a ref only initialised at `useRef(true)` would
   // be left false by that first cleanup for the rest of the dialog's life,
   // and a batch the API accepted would never reach the parent.

@@ -26,7 +26,7 @@ vi.mock('../../api', () => ({
   },
 }))
 
-// ReferenceSelect's "add a value" posts through shared/api.js, not owner/api.js
+// ReferenceSelect's "add a value" posts through shared/api.js, not management/api.js
 // -- see the module boundary note in reference.jsx -- so it needs its own mock.
 vi.mock('../../../shared/api', () => ({
   api: { addReferenceValue: vi.fn() },

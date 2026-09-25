@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 
-import OwnerApp from './OwnerApp'
+import ManagementApp from './ManagementApp'
 import { AuthProvider } from '../shared/auth'
 import { ReferenceProvider } from '../shared/reference'
 import '../shared/shared.css'
@@ -15,7 +15,7 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter basename="/management">
       <AuthProvider>
         <ReferenceProvider>
-          <OwnerApp />
+          <ManagementApp />
         </ReferenceProvider>
       </AuthProvider>
     </BrowserRouter>

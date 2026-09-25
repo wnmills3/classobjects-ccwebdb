@@ -110,7 +110,7 @@ function Console() {
   )
 }
 
-export default function OwnerApp() {
+export default function ManagementApp() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

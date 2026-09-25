@@ -2,10 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 /**
- * Two applications in one project: the shop and the owner console.
+ * Two applications in one project: the shop and the management console.
  *
  * Rollup builds each HTML entry as an independent module graph, which is what
- * keeps owner code out of the shop's bundle. `scripts/check-bundle-isolation.mjs`
+ * keeps console code out of the shop's bundle. `scripts/check-bundle-isolation.mjs`
  * asserts that against the emitted bundle graph (see `bundleGraph()` below)
  * rather than trusting it -- Vite's own manifest cannot show chunk
  * membership, only chunk imports.
@@ -104,7 +104,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         store: 'index.html',
-        owner: 'management.html',
+        management: 'management.html',
       },
     },
   },
@@ -138,7 +138,7 @@ export default defineConfig({
       include: ['src/**/*.{js,jsx}'],
       // The entry modules only mount their app, and the test helpers are not
       // the subject.
-      exclude: ['src/store/main.jsx', 'src/owner/main.jsx', 'src/test/**'],
+      exclude: ['src/store/main.jsx', 'src/management/main.jsx', 'src/test/**'],
     },
   },
 })

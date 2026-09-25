@@ -6,7 +6,7 @@ vi.mock('../../api', () => ({
   api: { getItemErrors: vi.fn(), setItemErrors: vi.fn() },
 }))
 
-// ReferenceSelect's "add a value" posts through shared/api.js, not owner/api.js
+// ReferenceSelect's "add a value" posts through shared/api.js, not management/api.js
 // -- see the module boundary note in reference.jsx -- so it needs its own mock.
 vi.mock('../../../shared/api', () => ({
   api: { addReferenceValue: vi.fn() },
@@ -171,7 +171,7 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
   })
 
   // Rendered in StrictMode on purpose: the console runs in it (see
-  // `owner/main.jsx`), React then runs every effect setup/cleanup/setup on
+  // `management/main.jsx`), React then runs every effect setup/cleanup/setup on
   // mount, and this panel once carried an `if (mounted.current)` guard that
   // its own cleanup disarmed and no setup re-armed. Both branches of `save()`
   // were dead for the rest of the panel's life, so in the owner's real

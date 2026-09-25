@@ -1,6 +1,6 @@
 # Orders entered and edited on a customer's behalf
 
-The owner console is a superset of the shop: anything a customer can do, an
+The management console is a superset of the shop: anything a customer can do, an
 administrator can do from `/management`. For orders that means placing an order
 for someone else -- a phone, walk-in or in-person sale -- and changing an
 order after it is placed. Because an administrator can act for a buyer and

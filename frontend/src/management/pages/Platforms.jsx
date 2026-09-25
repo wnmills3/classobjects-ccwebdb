@@ -157,7 +157,7 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
   // `cancelled` flag Platforms' own effect uses for the same reason.
   //
   // The setup ARMS it; only the cleanup disarms it. That is not decoration:
-  // the console runs in StrictMode (`owner/main.jsx`), where React runs every
+  // the console runs in StrictMode (`management/main.jsx`), where React runs every
   // effect setup, cleanup, setup on mount. A ref only initialised at
   // `useRef(true)` would be left false by that first cleanup for the rest of
   // the dialog's life, and a save that succeeded would never call `onSaved`,
