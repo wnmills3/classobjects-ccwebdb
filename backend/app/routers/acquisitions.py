@@ -33,6 +33,7 @@ from ..schemas import (
     PurchaseOrderDetailOut,
     PurchaseOrderLineOut,
     PurchaseOrderOut,
+    PurchaseOrderUpdate,
     StorageLocationOut,
     VendorCreate,
     VendorOut,
@@ -57,6 +58,31 @@ _ITEM_IS_LIVE = and_(
 #: "Gift". Only a value that looks like a web address is ever offered as a
 #: link; anything else, `javascript:` included, is withheld.
 _WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
+
+#: A generated order number: `Order-0001`, `Order-0002`, ... (owner,
+#: 2026-09-24). A purchase with no number of its own could not be found by
+#: one; this gives it one, above the highest already issued.
+_GENERATED_PREFIX = "Order-"
+_GENERATED = re.compile(r"^Order-(\d+)$")
+#: Held for the rest of the transaction while a number is issued, so two
+#: purchases created at once cannot both take the same next number.
+_NUMBERING_LOCK = 2026092401
+
+
+def next_order_number(db: Session) -> str:
+    """The next generated order number, `Order-0001` and up."""
+    db.execute(select(func.pg_advisory_xact_lock(_NUMBERING_LOCK)))
+    issued = db.scalars(
+        select(PurchaseOrder.order_number).where(
+            PurchaseOrder.order_number.op("~")(_GENERATED.pattern)
+        )
+    ).all()
+    highest = max(
+        (int(m.group(1)) for n in issued if n and (m := _GENERATED.match(n))),
+        default=0,
+    )
+    return f"{_GENERATED_PREFIX}{highest + 1:04d}"
+
 
 #: The rule for turning a vendor's web address into the plain hostname
 #: stored in `Vendor.host`, so every vendor with the same URL has the same
@@ -247,6 +273,8 @@ def get_purchase_order(
             if order.source_url and _WEB_ADDRESS.match(order.source_url)
             else None
         ),
+        source_text=order.source_url,
+        notes=order.notes,
         lines=[
             PurchaseOrderLineOut(
                 id=item.id,
@@ -279,54 +307,105 @@ def create_purchase_order(
             detail=f"Unknown vendor_id: {payload.vendor_id}",
         )
 
-    # A future ordered_on is a data-entry error, not a fact -- the same
-    # reasoning `POST /api/inventory/receive` applies to arrived_on, widened
-    # by a day so a caller's honest "today" is never refused just because it
-    # is ahead of UTC's. See that endpoint's comment for the full argument.
-    limit: date = datetime.now(UTC).date() + timedelta(days=1)
-    if payload.ordered_on is not None and payload.ordered_on > limit:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"ordered_on {payload.ordered_on.isoformat()} is too far "
-            f"in the future. Latest accepted: {limit.isoformat()}.",
-        )
-
-    if payload.order_number is not None:
-        duplicate = db.scalar(
-            select(PurchaseOrder.id).where(
-                PurchaseOrder.vendor_id == vendor.id,
-                PurchaseOrder.order_number == payload.order_number,
-            )
-        )
-        if duplicate is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{vendor.name} order {payload.order_number} is "
-                f"already recorded",
-            )
+    _refuse_future(payload.ordered_on)
+    number = payload.order_number or next_order_number(db)
+    _refuse_duplicate(db, vendor, number, None)
 
     order = PurchaseOrder(
         vendor_id=vendor.id,
-        order_number=payload.order_number,
+        order_number=number,
         ordered_on=payload.ordered_on,
         source_url=payload.source_url,
         notes=payload.notes,
     )
     db.add(order)
+    _commit_order(db, vendor, number)
+    return get_purchase_order(order.id, db, admin)
+
+
+@purchase_orders_router.patch("/{order_id}")
+def update_purchase_order(
+    order_id: int, payload: PurchaseOrderUpdate, db: DbSession, admin: AdminUser
+) -> PurchaseOrderDetailOut:
+    """Change a purchase's number, date, web address or notes.
+
+    Only the fields sent change. An order number sent blank is given the next
+    generated one: a purchase is never left without a number to find it by.
+    """
+    order = db.scalar(
+        select(PurchaseOrder)
+        .where(PurchaseOrder.id == order_id)
+        .options(selectinload(PurchaseOrder.vendor))
+    )
+    if order is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
+        )
+    sent = payload.model_fields_set
+    if "ordered_on" in sent:
+        _refuse_future(payload.ordered_on)
+        order.ordered_on = payload.ordered_on
+    if "order_number" in sent:
+        number = payload.order_number or next_order_number(db)
+        _refuse_duplicate(db, order.vendor, number, order.id)
+        order.order_number = number
+    if "source_url" in sent:
+        order.source_url = payload.source_url
+    if "notes" in sent:
+        order.notes = payload.notes
+    _commit_order(db, order.vendor, order.order_number)
+    return get_purchase_order(order.id, db, admin)
+
+
+def _refuse_future(ordered_on: date | None) -> None:
+    """A future order date is a data-entry error, not a fact.
+
+    The same reasoning `POST /api/inventory/receive` applies to arrived_on,
+    widened by a day so a caller's honest "today" is never refused just
+    because it is ahead of UTC's.
+    """
+    limit: date = datetime.now(UTC).date() + timedelta(days=1)
+    if ordered_on is not None and ordered_on > limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"ordered_on {ordered_on.isoformat()} is too far "
+            f"in the future. Latest accepted: {limit.isoformat()}.",
+        )
+
+
+def _refuse_duplicate(
+    db: Session, vendor: Vendor, number: str, own_id: int | None
+) -> None:
+    """409 when this vendor already has another purchase with this number."""
+    duplicate = db.scalar(
+        select(PurchaseOrder.id).where(
+            PurchaseOrder.vendor_id == vendor.id,
+            PurchaseOrder.order_number == number,
+            PurchaseOrder.id != (own_id if own_id is not None else -1),
+        )
+    )
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{vendor.name} order {number} is already recorded",
+        )
+
+
+def _commit_order(db: Session, vendor: Vendor, number: str | None) -> None:
+    """Commit; the unique index's refusal reads as the same 409.
+
+    Two saves of the same vendor + number at once both pass the pre-check;
+    `uq_purchase_order_vendor_number` stops the second at the database, and
+    it should read as a 409 rather than an unhandled 500.
+    """
     try:
         db.commit()
     except IntegrityError as exc:
-        # Two creations of the same vendor + order number at once both pass
-        # the pre-check above; `uq_purchase_order_vendor_number` stops the
-        # second at the database, and it should read as the same 409 rather
-        # than an unhandled 500.
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"{vendor.name} order {payload.order_number} is already recorded",
+            detail=f"{vendor.name} order {number} is already recorded",
         ) from exc
-
-    return get_purchase_order(order.id, db, admin)
 
 
 @storage_locations_router.get("")

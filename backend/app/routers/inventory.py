@@ -97,6 +97,7 @@ from ..models import (
     StorageLocation,
     StrikeType,
     ValuationBasis,
+    Vendor,
 )
 from ..models.base import ReferenceMixin
 from ..references import code_to_id, require_code
@@ -1087,7 +1088,12 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
             ),
         )
 
+    order = db.get(PurchaseOrder, item.purchase_order_id)
+    vendor = db.get(Vendor, order.vendor_id) if order is not None else None
     return ItemDetailOut(
+        purchase_order_id=item.purchase_order_id,
+        order_number=order.order_number if order is not None else None,
+        vendor=vendor.name if vendor is not None else None,
         **{
             column: plain(getattr(item, column))
             for column in (

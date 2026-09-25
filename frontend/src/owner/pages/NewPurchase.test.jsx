@@ -9,6 +9,7 @@ vi.mock('../api', () => ({
     listPurchaseOrders: vi.fn(),
     getPurchaseOrder: vi.fn(),
     createPurchaseOrder: vi.fn(),
+    updatePurchaseOrder: vi.fn(),
     createInventoryItem: vi.fn(),
     suggestNote: vi.fn(() => Promise.resolve({})),
     suggestCoin: vi.fn(() => Promise.resolve({})),
@@ -180,6 +181,64 @@ describe('NewPurchase: creating a purchase', () => {
 
     expect(await screen.findByText(/already recorded/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/order number/i)).toHaveValue('PO-2')
+  })
+})
+
+describe('NewPurchase: changing a purchase after it is made', () => {
+  const PURCHASE = {
+    ...FRESH_PURCHASE,
+    order_number: 'Order-0001',
+    notes: 'from the show',
+    source_text: 'Gift',
+  }
+
+  it('opens the purchase an item links to', async () => {
+    api.getPurchaseOrder.mockResolvedValue(PURCHASE)
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    expect(await screen.findByText(/Order-0001/)).toBeInTheDocument()
+    expect(api.getPurchaseOrder).toHaveBeenCalledWith(22)
+  })
+
+  it('sends only the details changed, and shows what the server kept', async () => {
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(PURCHASE)
+    api.updatePurchaseOrder.mockResolvedValue({ ...PURCHASE, order_number: 'SD-77' })
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+
+    await user.click(await screen.findByRole('button', { name: 'Edit details' }))
+    const number = screen.getByRole('textbox', { name: /order number/i })
+    expect(number).toHaveValue('Order-0001')
+    // The web address box holds the stored text, link or not.
+    expect(screen.getByRole('textbox', { name: /web address/i })).toHaveValue('Gift')
+    await user.clear(number)
+    await user.type(number, 'SD-77')
+    await user.click(screen.getByRole('button', { name: 'Save details' }))
+
+    await waitFor(() =>
+      expect(api.updatePurchaseOrder).toHaveBeenCalledWith(22, {
+        order_number: 'SD-77',
+      }),
+    )
+    expect(await screen.findByText(/SD-77/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save details' })).toBeNull()
+  })
+
+  it('keeps the form open, as typed, when the number is refused', async () => {
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(PURCHASE)
+    api.updatePurchaseOrder.mockRejectedValue(
+      new Error('ebay.com order PO-1 is already recorded'),
+    )
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+
+    await user.click(await screen.findByRole('button', { name: 'Edit details' }))
+    const number = screen.getByRole('textbox', { name: /order number/i })
+    await user.clear(number)
+    await user.type(number, 'PO-1')
+    await user.click(screen.getByRole('button', { name: 'Save details' }))
+
+    expect(await screen.findByText(/PO-1 is already recorded/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /order number/i })).toHaveValue('PO-1')
   })
 })
 
