@@ -46,7 +46,14 @@ export function money(value, currencyCode = 'USD') {
 
 export function date(value) {
   if (!value) return ''
-  return new Date(value).toLocaleDateString(undefined, {
+  // A calendar day ("2026-09-23") is read as that day here. `new Date` reads
+  // it as midnight UTC, which west of Greenwich is still the day before, so
+  // every order date showed a day early in the owner's time zone.
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  const when = day
+    ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]))
+    : new Date(value)
+  return when.toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
