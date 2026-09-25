@@ -219,6 +219,11 @@ function PurchaseDetails({ purchase, onSaved }) {
         .filter(([key, value]) => value !== was[key])
         .map(([key, value]) => [key, value.trim() === '' ? null : value.trim()]),
     )
+    // A purchase recorded with no number is given one on any save, even
+    // with the box left blank: that is what finding it again needs.
+    if (!purchase.order_number && !('order_number' in changes)) {
+      changes.order_number = null
+    }
     setSaving(true)
     try {
       const updated =
