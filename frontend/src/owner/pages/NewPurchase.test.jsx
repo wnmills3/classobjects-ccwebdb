@@ -223,6 +223,28 @@ describe('NewPurchase: changing a purchase after it is made', () => {
     expect(screen.queryByRole('button', { name: 'Save details' })).toBeNull()
   })
 
+  it('gives a purchase with no number one on save, box left blank', async () => {
+    const user = userEvent.setup()
+    const unnumbered = { ...PURCHASE, order_number: null }
+    api.getPurchaseOrder.mockResolvedValue(unnumbered)
+    api.updatePurchaseOrder.mockResolvedValue({
+      ...unnumbered,
+      order_number: 'Order-0001',
+    })
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+
+    await user.click(await screen.findByRole('button', { name: 'Edit details' }))
+    await user.click(screen.getByRole('button', { name: 'Save details' }))
+
+    await waitFor(() =>
+      expect(api.updatePurchaseOrder).toHaveBeenCalledWith(22, { order_number: null }),
+    )
+    // The heading, not the help band, which names the pattern too.
+    expect(await screen.findByRole('heading', { level: 2 })).toHaveTextContent(
+      'Order-0001',
+    )
+  })
+
   it('keeps the form open, as typed, when the number is refused', async () => {
     const user = userEvent.setup()
     api.getPurchaseOrder.mockResolvedValue(PURCHASE)
