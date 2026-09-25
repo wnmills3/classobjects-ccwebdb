@@ -236,6 +236,24 @@ describe('ReferenceSelect adding a value by its label alone', () => {
     expect(screen.getByPlaceholderText('label')).toBeInTheDocument()
   })
 
+  it('adds by the label alone when the code box is left empty', async () => {
+    // The owner typed "Mixed Set" into the label, left the code empty, and Add
+    // stayed disabled with no reason given (2026-09-25).
+    const user = userEvent.setup()
+    api.addReferenceValue.mockResolvedValue({})
+    renderPicker()
+    await openAddForm(user, 'series')
+    await user.type(screen.getByPlaceholderText('label'), 'Mixed Set')
+
+    expect(screen.getByPlaceholderText('code: mixed_set')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    expect(api.addReferenceValue).toHaveBeenCalledWith('series', {
+      code: 'mixed_set',
+      label: 'Mixed Set',
+      extra: {},
+    })
+  })
+
   it('disables Add for a label that derives to an empty code', async () => {
     const user = userEvent.setup()
     renderAttributePicker()

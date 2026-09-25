@@ -93,6 +93,7 @@ from ..models import (
     SalesOrderStatus,
     SealColor,
     Series,
+    SetForm,
     SignatureCombination,
     StorageForm,
     StorageLocation,
@@ -886,6 +887,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     metal_id = code_to_id(db, Metal, payload.metal, "metal")
     series_id = code_to_id(db, Series, payload.series, "series")
     bullion_form_id = code_to_id(db, BullionForm, payload.bullion_form, "bullion_form")
+    set_form_id = code_to_id(db, SetForm, payload.set_form, "set_form")
     storage_form_id = require_code(
         db, StorageForm, payload.storage_form or "single", "storage_form"
     )
@@ -954,6 +956,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         metal_id=metal_id,
         series_id=series_id,
         bullion_form_id=bullion_form_id,
+        set_form_id=set_form_id,
         storage_form_id=storage_form_id,
         authenticity_id=authenticity_id,
         status_id=status_id,
@@ -961,6 +964,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         valuation_basis_id=require_code(
             db, ValuationBasis, "numismatic", "valuation_basis"
         ),
+        sellers_item_id=payload.sellers_item_id,
         source=ProvenanceSource.manual,
         **tax_kwargs,
     )
@@ -1481,6 +1485,7 @@ ITEM_CLASSIFIERS: dict[str, type[ReferenceMixin]] = {
     "country": Country,
     "denomination": Denomination,
     "bullion_form": BullionForm,
+    "set_form": SetForm,
     "strike_type": StrikeType,
     "grade": Grade,
     "grade_designation": GradeDesignation,
@@ -1524,6 +1529,7 @@ EDITABLE_SCALARS: tuple[str, ...] = (
     "shipping_cost",
     "tax_rate",
     "tax_includes_shipping",
+    "sellers_item_id",
 )
 
 #: EDITABLE_SCALARS refused by name when sent as null. Both columns are NOT

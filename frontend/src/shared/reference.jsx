@@ -122,7 +122,9 @@ export function ReferenceSelect({
   const [draft, setDraft] = useState({ code: '', label: '', group: '' })
   const [error, setError] = useState('')
   const [find, setFind] = useState('')
-  const derivedCode = labelOnly ? codeFromLabel(draft.label) : ''
+  // Always derived: a label-only form stores it, and the code-and-label
+  // form falls back to it when the code box is left empty.
+  const derivedCode = codeFromLabel(draft.label)
 
   function selectAndClose(code) {
     onChange({ target: { value: code } })
@@ -133,7 +135,7 @@ export function ReferenceSelect({
 
   async function addValue() {
     const label = draft.label.trim()
-    const code = labelOnly ? derivedCode : draft.code.trim()
+    const code = labelOnly ? derivedCode : draft.code.trim() || derivedCode
     if (labelOnly) {
       // The label a person typed may already name a value under another
       // wording -- or the same one, typed again. Either way the code already
@@ -161,7 +163,7 @@ export function ReferenceSelect({
       ? draft.label.trim() !== '' &&
         derivedCode !== '' &&
         (!groupField || draft.group !== '')
-      : draft.code.trim() !== '' && draft.label.trim() !== ''
+      : draft.label.trim() !== '' && (draft.code.trim() !== '' || derivedCode !== '')
     return (
       <div className="add-reference">
         {labelOnly ? (
@@ -195,7 +197,8 @@ export function ReferenceSelect({
         ) : (
           <>
             <input
-              placeholder="code"
+              // Shows the code the label will give when this is left empty.
+              placeholder={derivedCode ? `code: ${derivedCode}` : 'code'}
               value={draft.code}
               onChange={(e) => setDraft({ ...draft, code: e.target.value })}
             />

@@ -18,6 +18,7 @@ const SIDED_CLASSIFIERS = [
   'strike_type',
   'metal',
   'mint',
+  'set_form',
   'note_type',
   'seal_color',
   'fed_district',

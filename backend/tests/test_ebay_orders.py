@@ -248,6 +248,70 @@ def test_an_item_shows_and_is_found_by_its_listing_id(
     assert [row["id"] for row in found.json()["rows"]] == [item_id]
 
 
+def test_a_listing_id_is_typed_in_and_changed(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """For items the pass could not fill, a person types it (owner, 2026-09-25)."""
+    order = PurchaseOrder(vendor_id=_ebay(db).id)
+    db.add(order)
+    db.commit()
+    created = client.post(
+        "/api/inventory",
+        json={
+            "purchase_order_id": order.id,
+            "source_title": "t",
+            "item_kind": "coin",
+            "sellers_item_id": " 375454001960 ",
+        },
+        headers=admin_headers,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["sellers_item_id"] == "375454001960"
+    item_id = created.json()["id"]
+    cleared = client.patch(
+        f"/api/inventory/{item_id}",
+        json={"sellers_item_id": "  "},
+        headers=admin_headers,
+    )
+    assert cleared.status_code == 200, cleared.text
+    detail = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()
+    assert detail["sellers_item_id"] is None
+    history = client.get(f"/api/inventory/{item_id}/history", headers=admin_headers)
+    assert any(e.get("field") == "sellers_item_id" for e in history.json())
+
+
+def test_a_set_form_is_entered_and_changed(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Set form on entry and in the editor -- "Mixed Sets" is one (2026-09-25).
+
+    Kept beside the purchase tests: the owner met it entering a purchase.
+    """
+    order = PurchaseOrder(vendor_id=_ebay(db).id)
+    db.add(order)
+    db.commit()
+    created = client.post(
+        "/api/inventory",
+        json={
+            "purchase_order_id": order.id,
+            "source_title": "9 set lot",
+            "item_kind": "set",
+            "set_form": "mint_set",
+        },
+        headers=admin_headers,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["set_form"] == "mint_set"
+    changed = client.patch(
+        f"/api/inventory/{created.json()['id']}",
+        json={"set_form": "proof_set"},
+        headers=admin_headers,
+    )
+    assert changed.status_code == 200, changed.text
+    detail = client.get(f"/api/inventory/{created.json()['id']}", headers=admin_headers)
+    assert detail.json()["set_form"] == "proof_set"
+
+
 def test_a_workbook_without_the_columns_is_refused(tmp_path: Path) -> None:
     book = Workbook()
     sheet = book.active

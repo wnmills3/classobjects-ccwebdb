@@ -54,6 +54,50 @@ describe('NewItemForm: a coin', () => {
   })
 })
 
+describe("NewItemForm: the seller's item id", () => {
+  it('is sent, and kept for the next piece of the same listing', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 6, item_code: 'CC-000006' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(
+      screen.getByRole('textbox', { name: /seller's item id/i }),
+      ' 375454001960 ',
+    )
+    await fillTitle(user, 'First piece')
+    await user.click(screen.getByRole('button', { name: /save and add another/i }))
+
+    expect(api.createInventoryItem).toHaveBeenCalledWith(
+      expect.objectContaining({ sellers_item_id: '375454001960' }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue(''),
+    )
+    expect(screen.getByRole('textbox', { name: /seller's item id/i })).toHaveValue(
+      ' 375454001960 ',
+    )
+  })
+})
+
+describe('NewItemForm: a set', () => {
+  it("sends the set's form, which a note never shows", async () => {
+    // "Mixed Sets" is a set form, not a denomination: a denomination is one
+    // face value (owner, 2026-09-25).
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 5, item_code: 'CC-000005' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(screen.getByLabelText('set_form'), 'mixed_sets')
+    await fillTitle(user, '9 set lot')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.createInventoryItem).toHaveBeenCalledWith(
+      expect.objectContaining({ set_form: 'mixed_sets' }),
+    )
+
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+    expect(screen.queryByLabelText('set_form')).toBeNull()
+  })
+})
+
 describe('NewItemForm: a banknote', () => {
   async function openAsCurrency(user) {
     render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
