@@ -133,7 +133,7 @@ Found by comparing each item's description with its order's title: the lot
 number that opens a live-show title ("#134 - E - 05/17/26") names the lot, so
 a description naming another lot is a row filed or copied wrongly.
 
-Left for a person: the live show of 05/16/26, where lots #161, #165 and #176
-each have two items (CC-006135/CC-006150, CC-006133/CC-006147,
-CC-006129/CC-006145) against one eBay purchase each -- duplicate entries, or
-lots of two.
+The last, the live show of 05/16/26, had been entered twice: lots #161, #165
+and #177 each held two items against one eBay purchase, and the owner judged
+the second entries duplicates (CC-006146, CC-006147 and CC-006150, soft
+deleted). With that, the pass and the lot-number check both find nothing left.
