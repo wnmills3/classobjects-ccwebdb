@@ -101,6 +101,8 @@ const CLASSIFIERS = [
   // A coin's own detail. `P` is Philadelphia; blank is not recorded.
   ['Mint', 'mint', 'mint', null],
   ['Denomination', 'denomination', 'denomination', 'm'],
+  // What kind of set -- proof set, mint set, mixed sets. A coin's side only.
+  ['Set form', 'set_form', 'set_form', null],
   ['Country', 'country', 'country', 'u'],
   ['Metal', 'metal', 'metal', 'l'],
   // Status is editable here because Receiving only moves an item forward.
@@ -313,6 +315,9 @@ const FIXED_VOCABULARIES = new Set([
   'grade_designation',
   'grading_service',
   'mint',
+  // A denomination is a face value with a currency and a side, which an
+  // add-by-label form cannot give it: the server would refuse it.
+  'denomination',
 ])
 
 /**
@@ -840,6 +845,19 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           </span>
         </div>
 
+        {/* The seller's listing id -- eBay's item number. Filled from the
+            listing link by app.ebay_orders where there was one; typed here
+            for the rest. The link above opens the listing. */}
+        <label className="field" data-help="sellers_item_id">
+          <span>Seller&apos;s item id</span>
+          <input
+            type="text"
+            value={value('sellers_item_id') || ''}
+            onChange={set('sellers_item_id')}
+          />
+          <span />
+          <span />
+        </label>
         {/* Divs, not labels: a <label> may not contain the range checkbox's
           own label, so each box is named through htmlFor instead.
 

@@ -192,6 +192,12 @@ its listing (`ebay.com/itm/<id>`) -- not by words or price, and it:
   listings becomes one purchase, holding every item, each keeping its own
   listing's id, and linking the order's page on eBay.
 
+For an item the pass could not fill, type the id into **Seller's item id** in
+the item editor or the New item form (which keeps it for the next piece of
+the same listing); the editor links it to the listing on eBay. An order
+number belongs to the purchase: the editor's **Purchase:** link opens it, and
+**Edit details** changes it.
+
 The review workbook lists what it numbered, what it could not (a listing in no
 order, or in several), and **stored order numbers eBay contradicts** -- those
 are never changed by the pass; correct them on the purchase's **Edit details**.

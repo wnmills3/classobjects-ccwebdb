@@ -35,6 +35,8 @@ import { withSuggestions, without } from './suggestions'
 //: clear, even though some of them often repeat in practice.
 const SHARED_ON_REPEAT = [
   'item_kind',
+  // The pieces entered one after another usually came from one listing.
+  'sellers_item_id',
   'status',
   'country',
   'denomination',
@@ -53,6 +55,7 @@ const SHARED_ON_REPEAT = [
 const BLANK = {
   item_kind: 'coin',
   source_title: '',
+  sellers_item_id: '',
   description: '',
   year_start: '',
   year_end: '',
@@ -62,6 +65,7 @@ const BLANK = {
   status: 'ordered',
   country: '',
   denomination: '',
+  set_form: '',
   strike_type: '',
   grade: '',
   grade_designation: '',
@@ -300,6 +304,9 @@ export default function NewItemForm({
       item_kind: form.item_kind,
       source_title: form.source_title.trim(),
       description: form.description,
+      ...(form.sellers_item_id.trim() && {
+        sellers_item_id: form.sellers_item_id.trim(),
+      }),
       piece_count: form.piece_count === '' ? 1 : Number(form.piece_count),
       status: form.status,
       // The purchase's tax defaults, resolved once for every item entered on
@@ -338,6 +345,7 @@ export default function NewItemForm({
     ]) {
       if (form[key]) payload[key] = form[key]
     }
+    if (!isCurrency && form.set_form) payload.set_form = form.set_form
     if (form.cert_number) payload.cert_number = form.cert_number
 
     // Coin and currency detail never cross: sending both is a 422 naming the
@@ -505,6 +513,15 @@ export default function NewItemForm({
           />
         </label>
 
+        <label data-help="sellers_item_id">
+          Seller&apos;s item id
+          <input
+            type="text"
+            value={form.sellers_item_id}
+            onChange={set('sellers_item_id')}
+          />
+        </label>
+
         <label data-help="piece_count">
           <AccessLabel text="Pieces" accessKey="p" />
           <input
@@ -558,9 +575,22 @@ export default function NewItemForm({
             // A note is offered only note denominations, and anything else
             // only the coin ones -- the same split the item editor applies.
             filter={(entry) => fitsKind(entry, form.item_kind)}
+            // A face value with a currency and a side: not added by label.
+            allowAdd={false}
             {...accel('m')}
           />
         </label>
+
+        {fieldFitsKind('set_form', form.item_kind) && (
+          <label data-help="set_form">
+            Set form
+            <ReferenceSelect
+              table="set_form"
+              value={form.set_form}
+              onChange={set('set_form')}
+            />
+          </label>
+        )}
 
         {/* A coin's grade is a number and its strike type says whether 65
             is MS65 or PR65. A note has none. No free accelerator letter is

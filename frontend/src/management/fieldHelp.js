@@ -172,6 +172,13 @@ export const FIELD_HELP = {
       'Ordered: bought but not yet in hand -- record its arrival later in ' +
       'Receiving. Received: already in hand.',
   },
+  set_form: {
+    title: 'Set form',
+    text:
+      'What kind of set this is: proof set, mint set, mixed sets and so on. Leave ' +
+      'Denomination blank for a set of several face values -- a denomination is one ' +
+      'face value. A value that is missing can be added here by its name.',
+  },
   sellers_item_id: {
     title: "Seller's item id",
     text:

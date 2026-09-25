@@ -36,6 +36,7 @@ export const COIN_ONLY_FIELDS = new Set([
   'metal',
   'mint',
   'bullion_form',
+  'set_form',
   'variety',
   'year_start',
   'year_end',

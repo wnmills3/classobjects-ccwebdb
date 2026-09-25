@@ -716,6 +716,8 @@ class ItemDetailOut(InventoryItemOut):
     country: str | None = None
     denomination: str | None = None
     bullion_form: str | None = None
+    #: What kind of set: proof set, mint set, mixed sets... (`set_form`).
+    set_form: str | None = None
     grade: str | None = None
     strike_type: str | None = None
     #: As collectors write it: MS65, PR69+. `grade` is the code alone.
@@ -806,6 +808,16 @@ class InventoryItemUpdate(BaseModel):
 
     source_title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
+    #: The seller's id for the listing it was bought from -- eBay's item
+    #: number. Text, as the seller prints it; blank clears it.
+    sellers_item_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("sellers_item_id")
+    @classmethod
+    def _sellers_item_id(cls, value: str | None) -> str | None:
+        """Surrounding space is not part of it; nothing left is None."""
+        return (value or "").strip() or None
+
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
     year_end: int | None = Field(default=None, ge=-3000, le=2200)
     fineness: Decimal | None = Field(default=None, ge=0, le=1, decimal_places=4)
@@ -831,6 +843,7 @@ class InventoryItemUpdate(BaseModel):
     country: str | None = Field(default=None, max_length=64)
     denomination: str | None = Field(default=None, max_length=64)
     bullion_form: str | None = Field(default=None, max_length=64)
+    set_form: str | None = Field(default=None, max_length=64)
     #: A number (65, 64+) or a compound grade (MS65, PR69+), which is split
     #: into the number and `strike_type`.
     grade: str | None = Field(default=None, max_length=64)
@@ -999,6 +1012,7 @@ class ItemCreate(BaseModel):
     metal: str | None = Field(default=None, max_length=64)
     series: str | None = Field(default=None, max_length=64)
     bullion_form: str | None = Field(default=None, max_length=64)
+    set_form: str | None = Field(default=None, max_length=64)
     #: null -> `single`.
     storage_form: str | None = Field(default=None, max_length=64)
     #: null -> `unverified`.
@@ -1006,6 +1020,16 @@ class ItemCreate(BaseModel):
 
     #: Creates one `item_certification` row, graded by `grading_service`.
     cert_number: str | None = Field(default=None, max_length=64)
+
+    #: The seller's id for the listing it was bought from -- eBay's item
+    #: number. Text, as the seller prints it; blank clears it.
+    sellers_item_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("sellers_item_id")
+    @classmethod
+    def _sellers_item_id(cls, value: str | None) -> str | None:
+        """Surrounding space is not part of it; nothing left is None."""
+        return (value or "").strip() or None
 
     #: Coin detail. Refused with a 422 when `item_kind` is `currency`.
     mint: str | None = Field(default=None, max_length=64)
