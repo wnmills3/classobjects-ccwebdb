@@ -111,7 +111,7 @@ def test_a_field_nobody_reviews_is_refused(
 def test_unconfirming_removes_the_record(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """Someone who realises they confirmed the wrong coin needs a way back."""
+    """Someone who realizes they confirmed the wrong coin needs a way back."""
     item = make_item(db)
     client.post(
         f"/api/inventory/{item.id}/reviewed",

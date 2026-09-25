@@ -23,7 +23,7 @@ from .storage import get_storage
 __all__ = ["DERIVATIVE_SIZES", "ingest"]
 
 #: Longest edge per rendition. Both are generated at ingest rather than on
-#: demand: a catalogue page asks for dozens of thumbnails at once, and
+#: demand: a catalog page asks for dozens of thumbnails at once, and
 #: resizing on request turns one page view into dozens of decodes.
 DERIVATIVE_SIZES: dict[DerivativeKind, int] = {
     DerivativeKind.thumb: settings.thumbnail_max_px,

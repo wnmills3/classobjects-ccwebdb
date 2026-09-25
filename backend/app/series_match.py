@@ -109,7 +109,7 @@ EXTRA: dict[str, list[str]] = {
 
 @dataclass(frozen=True)
 class Rule:
-    """One compiled way of recognising a series."""
+    """One compiled way of recognizing a series."""
 
     series_code: str
     pattern: re.Pattern[str]
@@ -214,7 +214,7 @@ def record_series(
     """Record the classification, and say where the value came from.
 
     A series the matcher worked out is derived, not something that shipped
-    with the catalogue, so seeded provenance moves rather than staying -- and
+    with the catalog, so seeded provenance moves rather than staying -- and
     the field itself is recorded as derived, so the editor can mark it and a
     person's later choice replaces it.
     """

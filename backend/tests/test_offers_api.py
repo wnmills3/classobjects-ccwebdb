@@ -154,7 +154,7 @@ def test_offering_two_items_at_once(
     assert {row["format"] for row in listings} == {"fixed_price"}
     # The exact string, not a Decimal comparison: money crosses this API as a
     # string and `Decimal(120.0) == Decimal("120.00")` would hide a regression
-    # to float serialisation, which is the one thing forbidden here.
+    # to float serialization, which is the one thing forbidden here.
     assert listings[0]["price"] == "120.00"
     assert listings[1]["price"] == "45.50"
     assert listings[0]["item_code"] == first.item_code
@@ -162,7 +162,7 @@ def test_offering_two_items_at_once(
     # Admin-only, so the console may show what the item cost.
     assert listings[0]["cost_basis"] == str(first.total_cost)
     # A number, not the string "1": one `listing.version` column, so an int,
-    # unlike the catalogue's composite version token.
+    # unlike the catalog's composite version token.
     assert listings[0]["version"] == 1
 
     written = db.scalars(

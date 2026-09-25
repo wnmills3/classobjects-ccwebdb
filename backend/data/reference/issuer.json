@@ -3,7 +3,7 @@
     "Issuer, currency and face value.",
     "Denomination codes are prefixed by kind because the same face value exists",
     "as both a coin and a note -- a US dollar is both, and they are different",
-    "objects with different catalogues."
+    "objects with different catalogs."
   ],
   "currency": [
     {"code": "USD", "label": "US Dollar", "symbol": "$", "minor_units": 2, "sort_order": 10},

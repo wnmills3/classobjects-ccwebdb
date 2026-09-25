@@ -35,7 +35,7 @@ span for display, and `applies_to` (`coin` / `currency`). For classification:
 | Denomination per range | `series_year_range.denomination_id` | Hawaii and North Africa pair different denominations with different series. Null falls back to the design's. |
 | Series letters (notes) | `series_year_range.letters` | Null means any letter; otherwise the allowed letters, `*` for none. `*A` is plain 1934 and 1934A. |
 | Needs evidence | `series.needs_evidence` | The design shares its denomination and years with a commoner one, so the facts alone do not decide. |
-| Seal colour | `series.seal_color_id` | Evidence for a needs-evidence note design. |
+| Seal color | `series.seal_color_id` | Evidence for a needs-evidence note design. |
 | Note class | `series.note_type_id` | A design belonging to one note class. |
 
 ## The pass: `python -m app.series_classify`
@@ -44,7 +44,7 @@ It considers items with a known denomination and a single year (for a note,
 its series year). **Candidates** are the designs for the item's inventory whose
 ranges cover its denomination, year and letter. **Evidence** is text -- title,
 description and rating, read with `series_match`'s vocabulary -- or, for a
-note, a seal colour matching the design's, or a recorded note class matching
+note, a seal color matching the design's, or a recorded note class matching
 the design's.
 
 | Candidates | Evidence | Result |
@@ -97,7 +97,7 @@ as Washington quarters, whose obverse they carry.
 ## The designs
 
 Seeded from `backend/data/reference/series.json`: facts only -- designs, year
-spans, denominations, nicknames -- per the reference-data rule. No catalogue
+spans, denominations, nicknames -- per the reference-data rule. No catalog
 numbering.
 
 ### Coins

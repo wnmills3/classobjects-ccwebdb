@@ -133,7 +133,7 @@ describe('management console shell', () => {
 
   it('does not link back to the shop', () => {
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
-    expect(screen.queryByRole('link', { name: /catalogue/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /catalog/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^cart$/i })).not.toBeInTheDocument()
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { coverImage, describeMember, isLot, summarise, thumbnail } from './lot-entry'
+import { coverImage, describeMember, isLot, summarize, thumbnail } from './lot-entry'
 
 const COIN = {
   title: 'Morgan Dollar 1921',
@@ -51,19 +51,19 @@ describe('isLot', () => {
   })
 })
 
-describe('summarise', () => {
+describe('summarize', () => {
   it('describes a coin by its own attributes', () => {
-    expect(summarise(COIN)).toBe('US - 1921 - MS64')
+    expect(summarize(COIN)).toBe('US - 1921 - MS64')
   })
 
   it('counts the members of a lot', () => {
-    expect(summarise(LOT)).toBe('Lot of 2 items')
+    expect(summarize(LOT)).toBe('Lot of 2 items')
   })
 
   it('counts the pieces too when they differ from the members', () => {
     // Three entries, one of which is a roll of twenty. Both numbers are
     // true, and `piece_count` is the one that says what arrives in the box.
-    expect(summarise({ ...LOT, piece_count: 22 })).toBe(
+    expect(summarize({ ...LOT, piece_count: 22 })).toBe(
       'Lot of 2 items, 22 pieces in all',
     )
   })
@@ -71,11 +71,11 @@ describe('summarise', () => {
   it('invents no count when the entry carries none', () => {
     // A response with no `piece_count` is named, not counted. "undefined
     // pieces in all" would be worse than saying less.
-    expect(summarise({ ...LOT, piece_count: undefined })).toBe('Lot of 2 items')
+    expect(summarize({ ...LOT, piece_count: undefined })).toBe('Lot of 2 items')
   })
 
   it('says item, singular, for a lot of one', () => {
-    expect(summarise({ ...LOT, members: [LOT.members[0]], piece_count: 1 })).toBe(
+    expect(summarize({ ...LOT, members: [LOT.members[0]], piece_count: 1 })).toBe(
       'Lot of 1 item',
     )
   })

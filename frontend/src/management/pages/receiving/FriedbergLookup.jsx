@@ -61,6 +61,10 @@ function filtersOf(fields) {
   }
   if (fields.district) filters.district_letter = fields.district
   if (fields.press in PRESS) filters.web_press = PRESS[fields.press]
+  // Washington or Fort Worth: a 2017-A $1 is 3005-A from one, 3006-A from
+  // the other. The plates are not catalog fields -- they go only into
+  // the web search's question, which is how a mule is found.
+  if (fields.printing) filters.printing_facility = fields.printing
   return filters
 }
 
@@ -84,13 +88,16 @@ function fromItem(item) {
     signatureCombination: item?.signature_combination ?? '',
     district: item?.fed_district ?? '',
     press: (item?.attributes ?? []).some((a) => a.code === 'web_press') ? 'yes' : '',
+    printing: item?.printing_facility ?? '',
+    facePlate: item?.face_plate_number ?? '',
+    backPlate: item?.back_plate_number ?? '',
   }
 }
 
 /**
  * Identify a banknote's Friedberg number from what the owner can see on it.
  *
- * Searches the owner's own accumulating catalogue (`GET /friedberg`) -- never
+ * Searches the owner's own accumulating catalog (`GET /friedberg`) -- never
  * a licensed dataset. The table ships empty by design (see `CLAUDE.md`'s ban
  * on shipping a publisher's arrangement), so most of what this renders, for a
  * long while, is the "no match" path: record the number read off the note or
@@ -137,6 +144,9 @@ export default function FriedbergLookup({
   )
   const [district, setDistrict] = useState(initial.district)
   const [press, setPress] = useState(initial.press)
+  const [printing, setPrinting] = useState(initial.printing)
+  const [facePlate, setFacePlate] = useState(initial.facePlate)
+  const [backPlate, setBackPlate] = useState(initial.backPlate)
   const [signatureOptions, setSignatureOptions] = useState([])
   const [allSignatures, setAllSignatures] = useState([])
 
@@ -247,6 +257,9 @@ export default function FriedbergLookup({
       signatureCombination,
       district,
       press,
+      printing,
+      facePlate,
+      backPlate,
     },
     {
       denomination: labelsOf(denominations),
@@ -298,6 +311,7 @@ export default function FriedbergLookup({
       signatureCombination,
       district,
       press,
+      printing,
     })
   }
 
@@ -354,7 +368,7 @@ export default function FriedbergLookup({
   /**
    * Save the number in the field onto this note.
    *
-   * A number copied from a match is that catalogue row, so it is attached
+   * A number copied from a match is that catalog row, so it is attached
    * as it is; recording it again would be a 409. Anything else -- typed or
    * pasted from a web search -- is recorded with what the form describes,
    * then attached.
@@ -503,6 +517,31 @@ export default function FriedbergLookup({
                   <option value="no">No, sheet-fed</option>
                 </select>
               </label>
+              <label data-help="printing_facility">
+                Printed at
+                <select value={printing} onChange={(e) => setPrinting(e.target.value)}>
+                  <option value="">Not known</option>
+                  <option value="dc">Washington, DC</option>
+                  <option value="fw">Fort Worth, TX</option>
+                </select>
+              </label>
+              <label data-help="face_plate_number">
+                Face plate
+                <input
+                  type="text"
+                  value={facePlate}
+                  onChange={(e) => setFacePlate(e.target.value.toUpperCase())}
+                />
+              </label>
+              <label data-help="back_plate_number">
+                Back plate
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={backPlate}
+                  onChange={(e) => setBackPlate(e.target.value)}
+                />
+              </label>
             </div>
 
             <div className="row">
@@ -530,7 +569,7 @@ export default function FriedbergLookup({
           </p>
         )}
 
-        {/* One field, one pair of Save buttons. Found in the catalogue: each
+        {/* One field, one pair of Save buttons. Found in the catalog: each
           match has a Copy button that puts its number in the field. Not
           found: the field stays blank and the web search opens -- the owner
           reads the number off the results window and types or pastes it
@@ -570,7 +609,7 @@ export default function FriedbergLookup({
               </ul>
             ) : (
               <p className="muted">
-                No match in the catalogue yet, so the web search has opened in its own
+                No match in the catalog yet, so the web search has opened in its own
                 window -- type or paste the number here. An AI answer can be wrong: save
                 it as proposed until you have checked it against the note or a
                 reference.

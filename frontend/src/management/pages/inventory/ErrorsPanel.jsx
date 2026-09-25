@@ -12,7 +12,7 @@ import ForSaleNotice from '../ForSaleNotice'
  * A row added with the note box left alone already sent null, but a note
  * typed and then cleared sent "". The two mean the same thing to a person and
  * are different rows to the database, so one of them would come back as an
- * empty note that reads as a note. Normalised on the way out only: what is
+ * empty note that reads as a note. Normalized on the way out only: what is
  * being typed stays exactly as typed.
  */
 function withNoEmptyDetails(rows) {
@@ -152,7 +152,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   // `error_type`. `field` is the shape the item editor's other rows use (see
   // AttributesField): the label in the first grid column, the controls in the
   // second. In Receiving and the new-item form, where no `.edit-form` grid is
-  // in play, it lays out as a plain block -- still labelled, which is the
+  // in play, it lays out as a plain block -- still labeled, which is the
   // part that was missing everywhere.
   return (
     <div className="field errors-panel" data-help="errors">
@@ -208,7 +208,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
                 !list.some((row) => row.error_type === entry.code)
               }
             />
-            {/* Labelled, not just placeheld: a placeholder disappears the
+            {/* Labeled, not just placeheld: a placeholder disappears the
                 moment anything is typed, and "details" beside a picker whose
                 own name is `error_type` said nothing about which error it
                 belongs to. */}

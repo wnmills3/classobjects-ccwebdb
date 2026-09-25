@@ -32,7 +32,7 @@ const keys = (letter) => (letter ? accel(letter) : {})
  * inventory view, plus the "N matching" / "Clear filters" row.
  *
  * The search box has no field syntax to learn -- one term, matched anywhere,
- * ignoring case -- but it has two behaviours nobody guesses: several words are
+ * ignoring case -- but it has two behaviors nobody guesses: several words are
  * one phrase in that order, and `%` and `_` are wildcards. A placeholder
  * cannot hold that, so the view's `searchExamples` are listed underneath,
  * each one runnable with a click. The box is uncontrolled, so a clicked

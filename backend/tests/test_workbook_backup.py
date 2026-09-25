@@ -52,7 +52,7 @@ CREATE TABLE parent (
     day date,
     flag boolean,
     data jsonb,
-    colour shade
+    color shade
 );
 CREATE TYPE provenance_source AS ENUM ('seeded', 'derived', 'manual');
 CREATE TABLE finish (
@@ -85,7 +85,7 @@ CREATE TABLE child (
 
 ROWS = """
 INSERT INTO alembic_version VALUES ('rev_1');
-INSERT INTO parent (id, name, parent_id, amount, at, day, flag, data, colour) VALUES
+INSERT INTO parent (id, name, parent_id, amount, at, day, flag, data, color) VALUES
   (1, 'root', NULL, 12.50, '2026-09-24 10:00:00+02', '2026-09-24', true,
    '{"a": [1, 2]}', 'red'),
   -- A child row pointing at a parent with a HIGHER id: loaded in one pass,

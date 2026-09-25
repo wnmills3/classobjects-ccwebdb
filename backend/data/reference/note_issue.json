@@ -1,12 +1,12 @@
 {
   "_comment": [
     "Small-size US paper money, Series 1928 through 2021: what each issue was.",
-    "One row per denomination, series (year and letter), class and seal colour.",
+    "One row per denomination, series (year and letter), class and seal color.",
     "app.classifier_defaults looks a note's class, seal, signatures and serial",
     "prefix up here; see docs/specs/classifier-defaults-design.md. The loader",
     "makes the table match this file exactly.",
     "",
-    "Facts only -- class, series, seal, signers. No Friedberg or other catalogue",
+    "Facts only -- class, series, seal, signers. No Friedberg or other catalog",
     "numbers, no values. Built and verified 2026-09-16: every row is backed by",
     "at least two independent sources, named in `sources` --",
     "  wikipedia    'United States N-dollar bill' series tables and the class",

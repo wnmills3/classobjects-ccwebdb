@@ -1,11 +1,11 @@
-"""The owner's own Friedberg catalogue -- not a licensed dataset.
+"""The owner's own Friedberg catalog -- not a licensed dataset.
 
 `CLAUDE.md` forbids shipping a publisher's arrangement: the Friedberg
-catalogue's mapping of attributes to its own numbers is sold, not free to
+catalog's mapping of attributes to its own numbers is sold, not free to
 redistribute. Nothing here seeds, fetches, or hardcodes that mapping. What
 this module builds instead is a place for the owner to record numbers read
 off their own notes and slabs (`POST /friedberg`), search that private
-catalogue by what is visible on a note in hand (`GET /friedberg`), and attach
+catalog by what is visible on a note in hand (`GET /friedberg`), and attach
 a match to an item (`POST /inventory/{item_id}/friedberg`).
 
 See the `FriedbergNumber` docstring in `app.models.identification` for why the
@@ -84,6 +84,7 @@ def _to_out(db: Session, row: FriedbergNumber) -> FriedbergNumberOut:
         district_letter=row.district_letter,
         size_class=row.size_class,
         web_press=row.web_press,
+        printing_facility=row.printing_facility,
         description=row.description,
         source=row.source.value,
         verified=row.verified_at is not None,
@@ -109,24 +110,28 @@ def search_friedberg(
     web_press: Annotated[
         bool | None, Query(description="Printed on a web press")
     ] = None,
+    printing_facility: Annotated[
+        str | None,
+        Query(pattern="^(dc|fw)$", description="dc (Washington) or fw (Fort Worth)"),
+    ] = None,
 ) -> list[FriedbergNumberOut]:
-    """Search the owner's catalogue by what is visible on a note in hand.
+    """Search the owner's catalog by what is visible on a note in hand.
 
     Every supplied filter narrows -- an unknown classifier code is a 422, the
     same rule the rest of the API follows, rather than a filter that is
-    silently dropped and returns the whole catalogue looking like a match.
+    silently dropped and returns the whole catalog looking like a match.
 
     A row matches a supplied filter when its value equals the filter or is
     NULL, so a half-known type (built from a note that did not show every
     feature) is still found by what it does know. That alone would let a row
     with *everything* NULL match any query at all, which would make the
-    catalogue useless once it has a few dozen such rows in it -- so a second
+    catalog useless once it has a few dozen such rows in it -- so a second
     condition also applies: at least one supplied filter must actually equal
     the row's value, not merely find it NULL. A row is required to know
     *something* the query asked about, not just fail to contradict it.
 
     With no filters at all, both conditions are vacuous and every row comes
-    back -- browsing the whole catalogue is a valid use of this endpoint too.
+    back -- browsing the whole catalog is a valid use of this endpoint too.
     """
     # Every filter contributes two conditions: `narrow` is NULL-tolerant (the
     # row's value must equal the filter or be unknown), `hits` is not (the
@@ -217,6 +222,17 @@ def search_friedberg(
         )
         hits.append(FriedbergNumber.web_press == web_press)
 
+    # Washington or Fort Worth: a 2017-A $1 is 3005-A from one, 3006-A from
+    # the other (owner, 2026-09-25).
+    if printing_facility is not None:
+        narrow.append(
+            or_(
+                FriedbergNumber.printing_facility == printing_facility,
+                FriedbergNumber.printing_facility.is_(None),
+            )
+        )
+        hits.append(FriedbergNumber.printing_facility == printing_facility)
+
     stmt = select(FriedbergNumber)
     if narrow:
         stmt = stmt.where(and_(*narrow), or_(*hits))
@@ -248,7 +264,7 @@ def signature_choices(
     typed yet, and a list too wide is recoverable where one too narrow is
     not. A series with no facts falls back to every pair whose term ended no
     earlier than the series year. Public fact throughout, never a
-    catalogue's numbering.
+    catalog's numbering.
     """
     active = select(SignatureCombination).where(
         SignatureCombination.is_active.is_(True)
@@ -330,6 +346,7 @@ def create_friedberg_number(
         district_letter=payload.district_letter,
         size_class=payload.size_class,
         web_press=payload.web_press,
+        printing_facility=payload.printing_facility,
         description=payload.description,
         source=ProvenanceSource.manual,
     )
@@ -378,7 +395,7 @@ def _note_detail(db: Session, item_id: int) -> CurrencyDetail:
 def clear_friedberg(item_id: int, db: DbSession, _admin: AdminUser) -> None:
     """Take the Friedberg number off a note, which goes back to `unknown`.
 
-    The catalogue row stays: it records a type that exists, whether or not
+    The catalog row stays: it records a type that exists, whether or not
     this note turned out to be one. A row confirmed by an earlier attach stays
     confirmed for the same reason.
     """
@@ -392,14 +409,14 @@ def clear_friedberg(item_id: int, db: DbSession, _admin: AdminUser) -> None:
 def attach_friedberg(
     item_id: int, payload: FriedbergAttachIn, db: DbSession, admin: AdminUser
 ) -> FriedbergAttachOut:
-    """Attach a catalogue row to a currency item.
+    """Attach a catalog row to a currency item.
 
     Refused with 404 when the item has no `currency_detail` -- a coin has no
     Friedberg number, and silently doing nothing would hide that mistake
     rather than report it.
 
     Confirming a match (`status="confirmed"`) stamps `verified_by_id` and
-    `verified_at` on the *catalogue row*, not just the item: that is what
+    `verified_at` on the *catalog row*, not just the item: that is what
     turns this particular proposal into a fact the next lookup can trust,
     for every item it is ever attached to afterwards.
     """
@@ -416,7 +433,7 @@ def attach_friedberg(
     if friedberg is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No Friedberg catalogue row with id {payload.friedberg_id}",
+            detail=f"No Friedberg catalog row with id {payload.friedberg_id}",
         )
 
     detail.friedberg_id = friedberg.id

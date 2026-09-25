@@ -57,7 +57,7 @@ def test_a_position_beyond_the_column_is_refused_not_a_500(
 def test_the_endpoint_is_public(client: TestClient) -> None:
     """Vocabularies are public; they reveal nothing held.
 
-    The catalogue's own filters need it, and a vocabulary is not data:
+    The catalog's own filters need it, and a vocabulary is not data:
     knowing MS64 exists reveals nothing about what anyone owns.
     """
     assert client.get("/api/reference/grade").status_code == 200
@@ -385,7 +385,7 @@ def test_a_value_can_be_added_while_picking(
     body = response.json()
     assert body["code"] == "MS64PL"
 
-    # Marked as this installation's own, not shipped catalogue.
+    # Marked as this installation's own, not shipped catalog.
     assert body["source"] == "manual"
 
     values = client.get("/api/reference/grade").json()["values"]
@@ -397,7 +397,7 @@ def test_added_values_do_not_leak_into_a_shared_export(
 ) -> None:
     """An installation's own values stay out of an export.
 
-    `manual` is what keeps one collection's additions out of a catalogue
+    `manual` is what keeps one collection's additions out of a catalog
     handed to another installation.
     """
     client.post(

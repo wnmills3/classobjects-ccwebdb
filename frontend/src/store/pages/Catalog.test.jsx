@@ -35,9 +35,9 @@ describe('Catalog', () => {
   })
 
   it('reports a failed load', async () => {
-    api.listCatalog.mockRejectedValue(new Error('catalogue is unavailable'))
+    api.listCatalog.mockRejectedValue(new Error('catalog is unavailable'))
     renderWithProviders(<Catalog />)
-    expect(await screen.findByText('catalogue is unavailable')).toBeInTheDocument()
+    expect(await screen.findByText('catalog is unavailable')).toBeInTheDocument()
   })
 })
 
@@ -78,7 +78,7 @@ const LOT = {
   ],
 }
 
-describe('a lot in the catalogue grid', () => {
+describe('a lot in the catalog grid', () => {
   it('says a lot is a lot', async () => {
     // Without this the card carried a blank line where a coin's country,
     // year and grade go: an anonymous box at a group's price, which reads as

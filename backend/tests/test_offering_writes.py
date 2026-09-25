@@ -738,7 +738,7 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
 ) -> None:
     """Ending the offer must not undo an administrator's withdrawal.
 
-    The catalogue API's retired `PATCH .../is_active` withdrew a listing
+    The catalog API's retired `PATCH .../is_active` withdrew a listing
     without clearing `paused_by_listing_id`, so the pointer outlived the
     pause -- and old rows can still carry that shape. Resuming on the pointer
     alone would put a listing someone deliberately took down back in the
@@ -758,7 +758,7 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     elsewhere = _offer_on(db, item, ebay)
     db.commit()
 
-    # Exactly what the catalogue API's retired PATCH wrote for is_active=False,
+    # Exactly what the catalog API's retired PATCH wrote for is_active=False,
     # through `_set_status` so the listing's history records it -- the shape
     # being simulated is the stale pointer, not a history written around.
     offering_writes._set_status(db, listing, ListingStatus.ended, "withdrawn")

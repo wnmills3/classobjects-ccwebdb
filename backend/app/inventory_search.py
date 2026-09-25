@@ -2,7 +2,7 @@
 
 Coins and currency are searched separately because the columns that matter
 differ: a coin has a mint mark and a variety, a banknote has a series letter, a
-seal colour and its own printed serial. One implementation, two
+seal color and its own printed serial. One implementation, two
 specifications.
 
 **Why this queries base tables rather than the inventory views.** The obvious
@@ -22,7 +22,7 @@ That measurement settled a design question. Copying classifier labels onto
 every item would have made searching fast, at the price of a second copy of
 every label that can drift from the first. It turned out to buy nothing: the
 speed was available without giving up the single source of truth, because the
-cost was never the normalisation. It was asking a fourteen-way join for one
+cost was never the normalization. It was asking a fourteen-way join for one
 column.
 
 The views remain the right thing for reading a whole item.
@@ -272,7 +272,7 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "item_code": Col(_C_ITEM_CODE),
     "source_title": Col(_C_SOURCE_TITLE),
     # `title` often holds only a denomination -- "0.25", "Mint Set", "5" --
-    # not a name. What a person recognises the item
+    # not a name. What a person recognizes the item
     # by lives in `description`, which is why it is returned as well and is
     # what the browse screens show.
     "description": Col(_C_DESCRIPTION),
@@ -427,6 +427,9 @@ CURRENCY_VIEW = ViewSpec(
         "note_type": Col("nt.code", (_J_CUR_DETAIL, _J_NOTE_TYPE)),
         "series_year": Col("cud.series_year", (_J_CUR_DETAIL,)),
         "series_letter": Col("cud.series_letter", (_J_CUR_DETAIL,)),
+        "face_plate_number": Col("cud.face_plate_number", (_J_CUR_DETAIL,)),
+        "back_plate_number": Col("cud.back_plate_number", (_J_CUR_DETAIL,)),
+        "printing_facility": Col("cud.printing_facility", (_J_CUR_DETAIL,)),
         # How a collector writes the series -- 1935A, not 1935 and A apart.
         # Generated, so it cannot disagree with the two columns above.
         "series_designation": Col("cud.series_designation", (_J_CUR_DETAIL,)),
@@ -444,6 +447,9 @@ CURRENCY_VIEW = ViewSpec(
         "fed_district": Filt("fd.letter", join=(_J_CUR_DETAIL, _J_DISTRICT)),
         "series_year": Filt("cud.series_year", join=(_J_CUR_DETAIL,)),
         "series_letter": Filt("cud.series_letter", join=(_J_CUR_DETAIL,)),
+        "printing_facility": Filt("cud.printing_facility", join=(_J_CUR_DETAIL,)),
+        "face_plate_number": Filt("cud.face_plate_number", "ilike", (_J_CUR_DETAIL,)),
+        "back_plate_number": Filt("cud.back_plate_number", "ilike", (_J_CUR_DETAIL,)),
         "series_designation": Filt("cud.series_designation", join=(_J_CUR_DETAIL,)),
         "friedberg_status": Filt("cud.friedberg_status", join=(_J_CUR_DETAIL,)),
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),

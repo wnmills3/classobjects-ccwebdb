@@ -59,7 +59,7 @@ function Console() {
             <NavLink to="/sales">Sales</NavLink>
             <NavLink to="/people">People</NavLink>
             {/* The spec's Selling group (selling-design.md, *Console*): the
-              three pages that put things on sale, together. A labelled
+              three pages that put things on sale, together. A labeled
               group rather than a submenu -- nothing to open, and a screen
               reader announces the grouping. */}
             <span className="nav-group" role="group" aria-label="Selling">

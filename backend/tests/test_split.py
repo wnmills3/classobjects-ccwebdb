@@ -606,7 +606,7 @@ def test_a_coin_offered_inside_a_lot_cannot_be_split(
 
     db.expire_all()
     # Real state, not the status code alone: the code would pass on a split
-    # that happened and then failed to serialise its response.
+    # that happened and then failed to serialize its response.
     parent = db.get_one(InventoryItem, member_id)
     assert parent.split_at is None
     assert (

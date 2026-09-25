@@ -786,7 +786,7 @@ def test_offering_a_lot_races_offering_one_of_its_members(
 
     **Not** `uq_offer_claim_active`, which is what this test was originally
     specified against. Measured six runs of six with that index removed and
-    the item lock left in: all six pass. The lock serialises the two
+    the item lock left in: all six pass. The lock serializes the two
     writers, so the loser is refused by `_locked_offers` or `_refuse_grouped`
     -- an ordinary sequential check -- and the partial unique index is never
     reached. It is a real backstop and it is not what this race proves;
@@ -890,7 +890,7 @@ def test_two_checkouts_race_for_one_lot(
     mutation had to change.** It used to be the listing lock alone, in
     `order_writes._lock_listings`. That statement now reaches through
     `offering_writes.lock_for_sale`, which takes the lot's row and the
-    members' rows *before* it -- and **any one of those three serialises two
+    members' rows *before* it -- and **any one of those three serializes two
     checkouts of one lot on its own**. Measured: removing only the listing
     lock passes eight of eight, and leaving only the item lock passes four of
     four. The guarantee is over-determined now rather than less well
@@ -975,7 +975,7 @@ def test_two_checkouts_race_for_one_lot(
     # `StaleDataError` in with the refusals -- which is how the brief's
     # version of this race caught it -- is what makes the test pass with the
     # listing lock removed, because `Listing.version` then refuses the second
-    # writer instead of the lock serialising them.
+    # writer instead of the lock serializing them.
     assert "stale" not in outcomes, outcomes
     assert outcomes == ["refused", "won"], outcomes
     with committed() as verify:

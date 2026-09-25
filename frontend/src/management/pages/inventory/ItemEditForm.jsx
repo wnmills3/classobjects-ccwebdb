@@ -125,6 +125,10 @@ const NOTE_TEXT_FIELDS = [
   ['Series year', 'series_year', 'number'],
   ['Series letter', 'series_letter', 'text'],
   ['Serial number', 'serial_number', 'text'],
+  // `E82`, `153`, or `FW E82` for a Fort Worth note; the server stores it
+  // one way and reads the printing location from it (app.plates).
+  ['Face plate', 'face_plate_number', 'text'],
+  ['Back plate', 'back_plate_number', 'text'],
 ]
 
 //: Where a derived value came from, as the "suggested" mark's tooltip says it.
@@ -1092,6 +1096,23 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
                 <span />
               </label>
             ))}
+            {/* Read from the face plate when there is one -- FW before it is
+                Fort Worth -- so set here only for a note with none. */}
+            <label className="field" data-help="printing_facility">
+              <span>Printed at</span>
+              <select
+                value={value('printing_facility') || ''}
+                onChange={(e) =>
+                  setDraft({ ...draft, printing_facility: e.target.value || null })
+                }
+              >
+                <option value="">--</option>
+                <option value="dc">Washington, DC</option>
+                <option value="fw">Fort Worth, TX</option>
+              </select>
+              {side('printing_facility', 'printing_facility')}
+              <span />
+            </label>
           </>
         )}
         {/* The saved kind: a Friedberg number hangs on the note's stored row,

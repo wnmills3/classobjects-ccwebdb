@@ -9,7 +9,7 @@ The last is the subtle one: a Friedberg or PCGS number identifies a *type*, not
 an individual object. Two identical notes share a Friedberg number and have
 different serial numbers.
 
-Both catalogues are commercial, with no bulk licence available, so both are
+Both catalogs are commercial, with no bulk license available, so both are
 curated tables that grow with use rather than seeded datasets. Resolution
 against them is a **proposal**, never a derivation -- see the resolver in
 `app.identification`.
@@ -169,14 +169,14 @@ class ItemAttributeLink(Base):
 
 
 class FriedbergNumber(TimestampMixin, Base):
-    """US currency type catalogue.
+    """US currency type catalog.
 
     ``fr_number`` is unconditionally unique so that a licensed dataset could
-    later be merged in on the catalogue number without creating duplicates.
+    later be merged in on the catalog number without creating duplicates.
 
     The identifying *tuple* is only partially unique: a plain unique index over
     it would reject two differently half-known types, which is a normal state
-    for a catalogue built by hand as notes arrive.
+    for a catalog built by hand as notes arrive.
     """
 
     __tablename__ = "friedberg_number"
@@ -207,6 +207,10 @@ class FriedbergNumber(TimestampMixin, Base):
     #: two printings of one series, district and denomination are different
     #: types with different numbers, so this is part of the identity below.
     web_press: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    #: Where it was printed, `dc` or `fw`; None when not known. A 2017-A $1
+    #: is 3005-A from Washington and 3006-A from Fort Worth, so this is part
+    #: of the identity below, as `web_press` is.
+    printing_facility: Mapped[str | None] = mapped_column(String(2), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source: Mapped[ProvenanceSource] = mapped_column(
@@ -242,6 +246,7 @@ class FriedbergNumber(TimestampMixin, Base):
             "web_press",
             "signature_combination_id",
             "seal_color_id",
+            "printing_facility",
             unique=True,
             postgresql_nulls_not_distinct=True,
             postgresql_where=text(
@@ -253,11 +258,15 @@ class FriedbergNumber(TimestampMixin, Base):
             "size_class IS NULL OR size_class IN ('large', 'small', 'fractional')",
             name="ck_friedberg_number_size_class",
         ),
+        CheckConstraint(
+            "printing_facility IS NULL OR printing_facility IN ('dc', 'fw')",
+            name="ck_friedberg_number_printing_facility",
+        ),
     )
 
 
 class PcgsType(TimestampMixin, Base):
-    """Coin type catalogue.
+    """Coin type catalog.
 
     The coin-side complement to a Friedberg number: it identifies the type, so
     every 1881-S Morgan shares one PCGS number regardless of grade.

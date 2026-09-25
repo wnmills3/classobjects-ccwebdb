@@ -5,12 +5,12 @@ import { api } from '../../shared/api'
 import { useReference } from '../../shared/reference-context'
 import { useCart } from '../cart-context'
 import { money } from '../../shared/format'
-import { summarise, thumbnail } from './lot-entry'
+import { summarize, thumbnail } from './lot-entry'
 
 const PAGE_SIZE = 12
 
 /**
- * The catalogue grid. Some cards are a coin; some are a LOT of coins.
+ * The catalog grid. Some cards are a coin; some are a LOT of coins.
  *
  * A lot carries no photograph and no country, year or grade of its own -- no
  * single value of any of them describes a group -- so a card that read only
@@ -69,7 +69,7 @@ export default function Catalog() {
 
   return (
     <section>
-      <h1>Catalogue</h1>
+      <h1>Catalog</h1>
 
       <div className="filters">
         <input
@@ -130,7 +130,7 @@ export default function Catalog() {
                 <p className="muted small">
                   {/* A coin's country, year and grade -- or, for a lot, how
                     many coins it is, because the price is a group's. */}
-                  {summarise(coin)}
+                  {summarize(coin)}
                 </p>
                 <p className="price">{money(coin.price, coin.currency)}</p>
                 <p className="muted small">

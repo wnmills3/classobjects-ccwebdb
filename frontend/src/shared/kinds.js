@@ -6,7 +6,7 @@
  * error types and attributes, and `kind` (coin | note) on denominations,
  * where the same face value exists as both and they are different objects.
  *
- * It lives in `shared/` because the shop's catalogue filters face the same
+ * It lives in `shared/` because the shop's catalog filters face the same
  * question, and because a per-form copy is exactly how the item editor came
  * to offer a banknote a metal after the entry form had stopped.
  */
@@ -43,6 +43,9 @@ export const COIN_ONLY_FIELDS = new Set([
 
 //: Fields only paper money has.
 export const CURRENCY_ONLY_FIELDS = new Set([
+  'face_plate_number',
+  'back_plate_number',
+  'printing_facility',
   'note_type',
   'seal_color',
   'fed_district',

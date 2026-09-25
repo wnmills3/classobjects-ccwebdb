@@ -1,12 +1,12 @@
 """The user account table.
 
 This module is what remains of the original storefront scaffold. Its flat
-`coins` catalogue and its `orders` tables were superseded by the target schema
+`coins` catalog and its `orders` tables were superseded by the target schema
 -- `inventory_item`, `listing`, `sales_order` -- and have been removed.
 
 `users` was never scaffold: it is the login table the whole application uses,
 and the target schema references it from `customer`, `item_status_history`,
-`location_history` and both type catalogues.
+`location_history` and both type catalogs.
 
 One rename outlived the tables. The scaffold's PostgreSQL enum type was called
 ``item_kind``, and the target schema has a reference *table* of that name; in
@@ -35,7 +35,7 @@ class UserRole(enum.StrEnum):
 
 
 class User(Base):
-    """A login. Referenced by customer, history rows and both type catalogues."""
+    """A login. Referenced by customer, history rows and both type catalogs."""
 
     __tablename__ = "users"
 

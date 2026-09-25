@@ -13,7 +13,7 @@ import { useInventorySearch } from './inventory/useInventorySearch'
  *
  * Coins and currency get separate views rather than one grid with a kind
  * filter, because the columns that matter differ: a coin has a mint mark and
- * a variety, a banknote has a series letter, a seal colour and its own
+ * a variety, a banknote has a series letter, a seal color and its own
  * printed serial. One grid would leave most columns blank most of the time.
  *
  * The filter options come from *facets* -- value counts over the current

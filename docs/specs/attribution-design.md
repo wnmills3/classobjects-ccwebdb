@@ -165,7 +165,7 @@ look alike (the same item entered twice, one purchase recorded twice, a year
 parsed into the cert field), and some are correct: collecting matched serials
 across issues is a deliberate pursuit. So a person decides.
 
-`near_duplicate_serial` compares normalised serials (case folded,
+`near_duplicate_serial` compares normalized serials (case folded,
 non-alphanumerics stripped) within one purchase order and flags a pair at edit
 distance 1 **whose lengths differ** -- a dropped or duplicated character. A
 same-length substitution is indistinguishable from the next note in a
@@ -218,9 +218,9 @@ search and the same edit API.
 ## Friedberg numbers
 
 The owner records Friedberg numbers read from their own notes and slabs; none
-are seeded, fetched or hardcoded, because the catalogue's numbering is a
+are seeded, fetched or hardcoded, because the catalog's numbering is a
 publisher's arrangement (see `CLAUDE.md`, Reference data). `app/routers/friedberg.py`
-serves the owner's private catalogue: `GET /api/friedberg` searches it by what
+serves the owner's private catalog: `GET /api/friedberg` searches it by what
 is visible on a note, `POST /api/friedberg` records a number, and
 `POST|DELETE /api/inventory/{id}/friedberg` attaches or clears one on an item.
 `GET /api/friedberg/signatures` returns the signature choices, drawn from
@@ -241,10 +241,10 @@ needs no price guide.
 **A licensed price service (CDN Public API v2)**, if subscribed, is a service
 called rather than a table copied. Its published terms shape the design:
 
-| Data | Licence |
+| Data | License |
 |---|---|
 | Greysheet wholesale values | back-end only; never on a public page |
-| CPG retail values | may be shown publicly, labelled as CDN's |
+| CPG retail values | may be shown publicly, labeled as CDN's |
 | GSID numbers | may be stored and shown; publicly with the `GSID` label and a link |
 | Caching | at most 24 hours and not past the daily refresh; no storing to avoid calls |
 | Redistribution | none without written consent |

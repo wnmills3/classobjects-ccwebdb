@@ -119,9 +119,9 @@ part of the runtime.
    the setup doc.
 2. **PostgreSQL** -- started in a console of its own
    (`scripts\ccweb_pgstart.cmd`) unless `pg_isready` says it is up.
-3. **Backend** -- `uvicorn app.main:app` on 127.0.0.1:8000, minimised window,
+3. **Backend** -- `uvicorn app.main:app` on 127.0.0.1:8000, minimized window,
    no `--reload`.
-4. **Frontend** -- Vite on 127.0.0.1:5173, minimised window.
+4. **Frontend** -- Vite on 127.0.0.1:5173, minimized window.
 5. **Waits** up to 60 seconds each for PostgreSQL, the backend's `/health`
    and Vite to answer, then reports.
 6. **Records PIDs** in `.runtime\ccweb.pids`.
@@ -302,7 +302,7 @@ netsh interface ipv4 show excludedportrange protocol=tcp
 `scripts\ccweb_shutdown.cmd` clears the first. For the second, change the port
 or remove the reservation.
 
-**`pg_ctl` not recognised** -- the conda environment is not active. Activate
+**`pg_ctl` not recognized** -- the conda environment is not active. Activate
 it, or use the scripts.
 
 **Startup reports FAILED but the service seems fine** -- the wait is 60

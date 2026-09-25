@@ -252,7 +252,7 @@ def update_sales_lot(
     # Sorted, so two requests touching the same coins take the lot's members
     # in one order rather than in whatever order each body happened to list
     # them. The lot's own row lock, taken by `lot_writes` before the first
-    # write, is what actually serialises them; this keeps the *effect* of a
+    # write, is what actually serializes them; this keeps the *effect* of a
     # request independent of how its list was typed.
     added = sorted(set(payload.add_item_ids))
     removed = sorted(set(payload.remove_item_ids))

@@ -25,7 +25,7 @@ unchanged, and the report says so rather than leaving it to be discovered:
 
 None of that loses data. It changes how the target enforces it.
 
-**Every table, not only the modelled ones.** `alembic_version` is
+**Every table, not only the modeled ones.** `alembic_version` is
 Alembic's own, with no model; a copy driven by the models alone left it
 out, and the copy could not be migrated. Such tables are read from the
 source database itself (`unmodelled_tables`), created in the copy and
@@ -87,7 +87,7 @@ def unmodelled_tables(source: Engine) -> list[Table]:
 
 
 def all_tables(source: Engine) -> list[Table]:
-    """The modelled tables in foreign-key order, then the unmodelled ones."""
+    """The modeled tables in foreign-key order, then the unmodelled ones."""
     return [*Base.metadata.sorted_tables, *unmodelled_tables(source)]
 
 
@@ -121,7 +121,7 @@ def copy_rows(
 
     `sorted_tables` is the topological order, so a row never arrives before
     the row it references. Copying alphabetically would fail on the first
-    foreign key. The unmodelled tables come last: they reference modelled
+    foreign key. The unmodelled tables come last: they reference modeled
     ones, never the reverse.
     """
     with Session(source) as read, Session(target) as write:
@@ -233,7 +233,7 @@ def run(target_url: str | None, *, name: str | None = None) -> tuple[str, int]:
     Base.metadata.create_all(target)
     extra = unmodelled_tables(source)
     if extra:
-        # Their own reflected definitions; the modelled tables they point at
+        # Their own reflected definitions; the modeled tables they point at
         # exist now, so their foreign keys resolve.
         extra[0].metadata.create_all(target, tables=extra)
 

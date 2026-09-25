@@ -10,7 +10,7 @@ pages exist.
 
 This is frontend structure, not access control. `require_admin` in
 `backend/app/deps.py` guards every administrative endpoint; the separation is
-defence in depth plus the removal of an information leak. A per-route guard in
+defense in depth plus the removal of an information leak. A per-route guard in
 the shop answering "Manager privileges are required" would confirm that
 the page exists; the shop instead answers "not found" for console paths.
 

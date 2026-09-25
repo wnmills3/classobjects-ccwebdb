@@ -307,7 +307,7 @@ def record_sale(
     (`POST /api/listings/{id}/sale`) already uses and adds no second
     implementation of fees, shares or endings below it. Everything this used
     to do, and every reason it did it in that order, now lives in
-    `record_sale_lines`; read that docstring for the behaviour, including
+    `record_sale_lines`; read that docstring for the behavior, including
     which refusals are `SaleInputInvalid` and which stay a plain
     `SaleRefused`.
 

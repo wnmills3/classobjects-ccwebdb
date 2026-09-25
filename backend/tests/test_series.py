@@ -94,7 +94,7 @@ def test_two_series_in_one_description_stays_ambiguous(db: Session) -> None:
     """
     rules = build_rules(db)
     found = match("2010 D FRANKLIN PIERCE PRESIDENTIAL DOLLAR ANACS", None, rules)
-    assert len(found) > 1, "must be recognised as ambiguous, not silently resolved"
+    assert len(found) > 1, "must be recognized as ambiguous, not silently resolved"
 
 
 def test_series_facet_counts_by_indexed_key(

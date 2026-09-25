@@ -155,7 +155,7 @@ describe('OffersPanel', () => {
     renderPanel()
     const row = await screen.findByRole('row', { name: /^eBay/ })
     // Money exactly as it arrived, with the currency the API sent -- never
-    // through Number(), and never labelled USD by this console.
+    // through Number(), and never labeled USD by this console.
     expect(within(row).getByText('189.00 USD')).toBeInTheDocument()
     expect(within(row).getByText('Active')).toBeInTheDocument()
     expect(within(row).getByRole('link', { name: '1234567' })).toHaveAttribute(

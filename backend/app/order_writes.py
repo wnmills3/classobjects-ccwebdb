@@ -480,7 +480,7 @@ def place_order(
     # which reads `InventoryItem` rows this flush would otherwise touch first.
     db.flush()
     # Every line gets shares, a single item included: `sale_state` and
-    # realised gain both ask that table "which items did this order carry",
+    # realized gain both ask that table "which items did this order carry",
     # and a line with no shares would silently answer "none". A lot listing's
     # line is divided among its members; an item listing's line is
     # one share carrying the whole amount. `new_line=True` because every line
@@ -763,7 +763,7 @@ def revise_order(
             db.flush()
             _settle_sold_lots(db, sold_lots)
     except StaleDataError:
-        # **Defence in depth, no longer a live path, and it used to be one.**
+        # **Defense in depth, no longer a live path, and it used to be one.**
         # The order lock already made a stale write to the `sales_order` row
         # itself hard to hit -- it was locked and re-read above, and
         # `update_order_status` takes the same lock before it writes. What was
@@ -782,7 +782,7 @@ def revise_order(
         # this clause is kept rather than removed.
         # `test_a_stale_data_error_inside_revise_order_is_a_409_not_a_500`,
         # in the same file, covers the clause itself by forcing the failure
-        # from a patched flush -- so "defence in depth" does not mean
+        # from a patched flush -- so "defense in depth" does not mean
         # "unexercised": make this clause re-raise and that test goes red.
         #
         # If it is ever reached, it must surface the way the version check

@@ -30,7 +30,7 @@ def test_an_ordinary_shop_order_s_listing_has_not_ended(
     """The negative half: a coin bought with stock left keeps its listing live.
 
     Without this, a regression that always answered `listing_ended: true`
-    would grey out Cancel on every shop order and pass the suite.
+    would gray out Cancel on every shop order and pass the suite.
     """
     placed = place(client, customer_headers, listing.id, 1)
     assert placed.status_code == 201, placed.text
@@ -61,7 +61,7 @@ def test_cancelling_a_shop_order_that_bought_a_lot_is_refused(
     placed = place(client, customer_headers, listing_id, 1)
     assert placed.status_code == 201, placed.text
     order_id = placed.json()["id"]
-    # What the console reads to grey Cancel out rather than offer it.
+    # What the console reads to gray Cancel out rather than offer it.
     assert placed.json()["items"][0]["listing_ended"] is True
 
     refused = _set(client, admin_headers, order_id, "cancelled")

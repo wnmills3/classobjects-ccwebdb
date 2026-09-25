@@ -25,7 +25,14 @@ const SIDED_CLASSIFIERS = [
 ]
 
 //: A note's own fields that are not pickers: gone with the note.
-const NOTE_SCALARS = ['series_year', 'series_letter', 'serial_number']
+const NOTE_SCALARS = [
+  'series_year',
+  'series_letter',
+  'serial_number',
+  'face_plate_number',
+  'back_plate_number',
+  'printing_facility',
+]
 
 //: What a coin weighs and is made of. Not on the form, but a note that kept
 //: them would go on counting as silver in the collection's fine-metal total.

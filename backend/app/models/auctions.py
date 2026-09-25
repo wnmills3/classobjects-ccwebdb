@@ -3,7 +3,7 @@
 `auction` and `auction_lot` are the schema half of the selling design's
 auction flow (`docs/specs/selling-design.md`, the `auction` and `auction_lot`
 section). An auction-format listing always belongs to an auction, and a timed
-eBay auction is modelled the same way -- an auction with one lot. Nothing in
+eBay auction is modeled the same way -- an auction with one lot. Nothing in
 this module writes these tables: `app/auctions.py` is their sole writer, the
 same pattern `offering_writes.py` and `lifecycle_writes.py` follow for their
 own tables.

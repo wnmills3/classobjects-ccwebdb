@@ -12,7 +12,7 @@ never hardcoded in Python. Two reasons:
    collection carry ``source='derived'``, those a person adds
    ``source='manual'``. ``export`` can then
    dump the vocabulary back to JSON, and the ``--source`` filter is what keeps
-   one collection's guesses out of the shared catalogue.
+   one collection's guesses out of the shared catalog.
 
 Foreign keys are written as the *code* of the referenced row rather than its
 id, because ids are per-installation and codes are not. Resolution is generic:
@@ -628,7 +628,7 @@ def export_reference_data(
 
     This is the path that lets one installation's curation benefit the next.
     ``sources`` is the safety valve: exporting only ``seeded`` reproduces the
-    shipped catalogue, while adding ``derived`` includes classifiers learned
+    shipped catalog, while adding ``derived`` includes classifiers learned
     from real data. ``manual`` rows are one operator's private decisions and
     are excluded unless asked for explicitly.
     """

@@ -73,7 +73,7 @@ convention is not a recorded fact.
   by one rule and offered by another, a new value would vanish from the
   picker that created it.
 - `COIN_ONLY_FIELDS` (strike type, metal, mint, bullion form),
-  `CURRENCY_ONLY_FIELDS` (note class, seal colour, Fed district, signature
+  `CURRENCY_ONLY_FIELDS` (note class, seal color, Fed district, signature
   combination) and `fieldFitsKind(field, itemKind)`, which answers true for a
   field in neither set.
 

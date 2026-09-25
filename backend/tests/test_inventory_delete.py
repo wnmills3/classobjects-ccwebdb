@@ -128,7 +128,7 @@ def test_an_ended_listing_still_refuses_and_the_message_says_so(
     """The refusal is permanent, and must not name a step that cannot clear it.
 
     Ending an offer leaves the listing row in place, and nothing removes one
-    -- the catalogue's delete endpoint was retired in phase 2. So "withdraw
+    -- the catalog's delete endpoint was retired in phase 2. So "withdraw
     the listing first" was a remedy that could never work. The rule itself is
     right: once a coin has been offered the offer is part of the sales
     history, so the message has to state that instead.

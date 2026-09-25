@@ -72,6 +72,9 @@ const BLANK = {
   mint: '',
   variety: '',
   serial_number: '',
+  face_plate_number: '',
+  back_plate_number: '',
+  printing_facility: '',
   series_year: '',
   series_letter: '',
   seal_color: '',
@@ -341,6 +344,13 @@ export default function NewItemForm({
     // field, so only the block that matches the kind is ever included.
     if (isCurrency) {
       if (form.serial_number) payload.serial_number = form.serial_number
+      for (const key of [
+        'face_plate_number',
+        'back_plate_number',
+        'printing_facility',
+      ]) {
+        if (form[key]) payload[key] = form[key]
+      }
       if (form.series_year !== '') payload.series_year = Number(form.series_year)
       if (form.series_letter) payload.series_letter = form.series_letter
       if (form.seal_color) payload.seal_color = form.seal_color
@@ -662,6 +672,34 @@ export default function NewItemForm({
                 onChange={set('serial_number')}
               />
             </label>
+            <label data-help="face_plate_number">
+              Face plate
+              <input
+                type="text"
+                value={form.face_plate_number}
+                onChange={set('face_plate_number')}
+              />
+            </label>
+            <label data-help="back_plate_number">
+              Back plate
+              <input
+                type="text"
+                inputMode="numeric"
+                value={form.back_plate_number}
+                onChange={set('back_plate_number')}
+              />
+            </label>
+            <label data-help="printing_facility">
+              Printed at
+              <select
+                value={form.printing_facility}
+                onChange={set('printing_facility')}
+              >
+                <option value="">--</option>
+                <option value="dc">Washington, DC</option>
+                <option value="fw">Fort Worth, TX</option>
+              </select>
+            </label>
             <label data-help="series_year">
               Series year
               <input
@@ -695,7 +733,7 @@ export default function NewItemForm({
               {mark('note_type')}
             </label>
             <label data-help="seal_color">
-              Seal colour
+              Seal color
               <ReferenceSelect
                 table="seal_color"
                 value={form.seal_color}

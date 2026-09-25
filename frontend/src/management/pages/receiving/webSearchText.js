@@ -15,6 +15,9 @@
  * or stores what a search finds -- a machine collecting Friedberg numbers
  * is the harvesting CLAUDE.md's reference-data rule forbids.
  */
+//: Where it was printed, as a dealer's listing says it.
+const PRINTED_AT = { dc: 'printed in Washington DC', fw: 'printed in Fort Worth' }
+
 export function webSearchText(fields, labels = {}) {
   const label = (table, code) => (code ? (labels[table]?.[code] ?? code) : '')
   const series = fields.seriesYear
@@ -28,7 +31,20 @@ export function webSearchText(fields, labels = {}) {
     label('fed_district', fields.district).replace(/^[A-L] - /, ''),
     label('signature_combination', fields.signatureCombination).replace(' / ', ' '),
     fields.press === 'yes' ? 'web press' : '',
+    PRINTED_AT[fields.printing] ?? '',
   ]
   const note = parts.filter(Boolean).join(' ')
-  return `What is the Friedberg number for ${note || 'this US banknote'}?`
+  // The plates are how a mule is told apart: a face and back from
+  // different eras. The answer's "m" suffix says it is one (owner,
+  // 2026-09-25), so the question asks for it.
+  const plates = [
+    fields.facePlate ? `face plate ${fields.facePlate}` : '',
+    fields.backPlate ? `back plate ${fields.backPlate}` : '',
+  ].filter(Boolean)
+  const described = note || 'this US banknote'
+  if (plates.length === 0) return `What is the Friedberg number for ${described}?`
+  return (
+    `What is the Friedberg number for ${described} with ${plates.join(' and ')}? ` +
+    'If it is a mule, give the number with its m suffix.'
+  )
 }

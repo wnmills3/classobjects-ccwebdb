@@ -1,9 +1,9 @@
-"""Catalogue endpoints: public reads only.
+"""Catalog endpoints: public reads only.
 
-A catalogue entry is a `listing` joined to the `inventory_item` behind it.
+A catalog entry is a `listing` joined to the `inventory_item` behind it.
 Keeping them separate in the database is what lets an item be listed, delisted
 and relisted at different prices without rewriting its history -- and what lets
-the public catalogue show a listing while the item's cost basis and storage
+the public catalog show a listing while the item's cost basis and storage
 location stay private. The API presents the pair as one resource, because that
 is how a shop is actually operated.
 
@@ -15,7 +15,7 @@ listing out of the shop -- and `to_catalog_item` has a branch for each shape.
 
 Writing a listing -- offering an item, changing its price or wording, ending
 it -- is `app.routers.offers`. This module used to also create, update and
-delete catalogue entries; that path let "Manage" create an item and a listing
+delete catalog entries; that path let "Manage" create an item and a listing
 together, which contradicted entering nothing outside a purchase, and it could
 never offer an item the business already owned. `app.offering_writes` is now
 the only writer of `listing.status` and the claims that go with it.
@@ -70,7 +70,7 @@ def _item_loads() -> tuple[Any, ...]:
         selectinload(InventoryItem.metal),
         # `.image` as well as the link: the public URL is keyed by the
         # image's content hash, so projecting a row now reads through to
-        # the image itself. Without this the catalogue would issue one
+        # the image itself. Without this the catalog would issue one
         # extra query per photographed item.
         selectinload(InventoryItem.images).selectinload(ItemImage.image),
     )
@@ -105,7 +105,7 @@ def _code(row: object) -> str | None:
 def version_token(listing: Listing, item: InventoryItem | None) -> str:
     """One token for a resource that is two rows.
 
-    A catalogue entry is a listing plus its inventory item, each with its own
+    A catalog entry is a listing plus its inventory item, each with its own
     version counter. The client should not have to know that, and checking
     only one of them lets an edit to the other through unnoticed.
 
@@ -146,7 +146,7 @@ def to_catalog_member(item: InventoryItem) -> CatalogMemberOut:
     """Project one coin of a lot into the public shape.
 
     Field by field, for the reason `to_catalog_item` is: this function is the
-    authorisation boundary for everything a lot's members put in front of a
+    authorization boundary for everything a lot's members put in front of a
     buyer, and the fields it does not name are the ones that stay private.
     """
     urls = _photograph(item)
@@ -296,7 +296,7 @@ def list_catalog(
     limit: Annotated[int, Query(ge=1, le=200)] = 24,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> CatalogPage:
-    """Browse the catalogue. Withdrawn listings are for administrators only.
+    """Browse the catalog. Withdrawn listings are for administrators only.
 
     The endpoint itself is public -- the shop has to answer a signed-out
     browser -- but `include_inactive` is not. A withdrawn listing is stock
@@ -311,7 +311,7 @@ def list_catalog(
 
     # or_() returns a ColumnElement, which is wider than the
     # BinaryExpression the first append would otherwise pin this to.
-    # The shop's catalogue is the web store's active fixed-price listings, and
+    # The shop's catalog is the web store's active fixed-price listings, and
     # `app.offering_writes` is where that rule lives -- in this SQL form and
     # in the Python one checkout asks. `include_inactive` is the admin preview
     # of withdrawn listings, which drops only the "active" half.
@@ -393,14 +393,14 @@ def _get_listing(db: Session, listing_id: int) -> Listing:
     listing = db.scalar(_eager(select(Listing).where(Listing.id == listing_id)))
     if listing is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Catalogue item not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Catalog item not found"
         )
     return listing
 
 
 @router.get("/{listing_id}")
 def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
-    """One catalogue entry. Public: it carries no cost basis or location.
+    """One catalog entry. Public: it carries no cost basis or location.
 
     A listing on another platform or sold at auction is not this shop's to
     show -- treated as unknown, the same 404 an unknown id gets, so a caller
@@ -413,6 +413,6 @@ def get_catalog_item(listing_id: int, db: DbSession) -> CatalogItemOut:
     listing = _get_listing(db, listing_id)
     if not offering_writes.sellable_in_shop(listing, active_only=False):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Catalogue item not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Catalog item not found"
         )
     return to_catalog_item(listing)

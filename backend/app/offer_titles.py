@@ -19,7 +19,7 @@ It is a **default**, shown in an editable field; the operator still owns the
 wording. `source_title` remains the fallback only when the record holds no
 fact worth naming, so an unclassified item is no worse off than before.
 
-Facts, not a catalogue's arrangement: every part is a label from this
+Facts, not a catalog's arrangement: every part is a label from this
 database's own vocabularies (see CLAUDE.md, *Reference data*).
 """
 
@@ -39,7 +39,7 @@ from .models import (
 )
 
 #: The grading service code meaning the owner graded it: not a service a
-#: buyer would recognise, so it is left out of a public title.
+#: buyer would recognize, so it is left out of a public title.
 _SELF_GRADED = "SELF"
 
 #: The item kind whose title is written as a note rather than a coin.

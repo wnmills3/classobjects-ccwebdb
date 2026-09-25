@@ -221,7 +221,7 @@ class Listing(TimestampMixin, Base):
     """What is offered for sale, and at what price.
 
     Separate from `inventory_item` because an item may be listed, delisted and
-    relisted at different prices, and because the public catalogue must be able
+    relisted at different prices, and because the public catalog must be able
     to expose a listing without exposing the item behind it.
 
     Relisting the same item or lot is always a **new** `Listing` row
@@ -288,7 +288,7 @@ class Listing(TimestampMixin, Base):
         nullable=False,
     )
     #: Generated from `status`, so every reader written before statuses
-    #: existed -- checkout, the public catalogue, the for-sale warning -- keeps
+    #: existed -- checkout, the public catalog, the for-sale warning -- keeps
     #: its meaning. It cannot be written; set `status`.
     is_active: Mapped[bool] = mapped_column(
         Boolean,
@@ -341,7 +341,7 @@ class Listing(TimestampMixin, Base):
             "sales_lot_id IS NULL OR quantity_available <= 1",
             name="ck_listing_lot_quantity_one",
         ),
-        # The public catalogue reads only active listings, so the index that
+        # The public catalog reads only active listings, so the index that
         # serves it excludes everything else.
         Index(
             "ix_listing_active",
@@ -494,7 +494,7 @@ class SalesLotItem(TimestampMixin, Base):
     tried. The partial unique index is what stops an item being in two open
     lots at once -- the same shape, and the same reason, as
     `uq_offer_claim_active`. `TimestampMixin` -- as `OfferClaim`, the sibling
-    this is modelled on, already has -- so "which coins were in the lot that
+    this is modeled on, already has -- so "which coins were in the lot that
     sold, and when did each join" is answerable from `created_at`, not just
     "when did each leave" from `released_at`.
     """
@@ -516,7 +516,7 @@ class SalesLotItem(TimestampMixin, Base):
 
     lot: Mapped[SalesLot] = relationship(back_populates="members")
     #: The item itself. Named here because every reader of a lot needs it --
-    #: shares, snapshots and the catalogue all ask "which coins" -- and a
+    #: shares, snapshots and the catalog all ask "which coins" -- and a
     #: membership row with no way to reach its item makes each of them write
     #: its own join.
     item: Mapped[InventoryItem] = relationship()
@@ -803,7 +803,7 @@ class SalesOrderItemShare(Base):
     member for a lot. A share of one looks redundant and is deliberate --
     it makes this table the single permanent answer to "which items did this
     order carry", with one query shape instead of two. `app.sale_state`
-    depends on that, and so will realised-gain reporting.
+    depends on that, and so will realized-gain reporting.
 
     Shares sum to their line exactly (`app.allocation`), so a cent is never
     lost between the order total and the items that made it up.

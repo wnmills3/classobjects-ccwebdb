@@ -187,7 +187,7 @@ def _server_misconfigured(request: Request, exc: Exception) -> JSONResponse:
     and because `ExceptionMiddleware` had already handled the exception, it
     never reached `ServerErrorMiddleware`: no logged traceback, and
     `TestClient` stopped re-raising it, so a genuine bug that happened to be
-    a `RuntimeError` became a tidy, misleadingly-labelled 500 instead of the
+    a `RuntimeError` became a tidy, misleadingly-labeled 500 instead of the
     crash it was. `test_an_unrelated_runtime_error_is_not_swallowed`
     (`test_auctions_api.py`) is the regression test: a plain `RuntimeError`
     from a monkeypatched writer must still escape `TestClient` unhandled.

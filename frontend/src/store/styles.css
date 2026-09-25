@@ -17,7 +17,7 @@
   flex: 1;
 }
 
-/* --- catalogue ---------------------------------------------------------- */
+/* --- catalog ---------------------------------------------------------- */
 .filters {
   display: flex;
   gap: 12px;
@@ -116,7 +116,7 @@
   color: var(--danger);
 }
 
-/* Catalogue thumbnails.
+/* Catalog thumbnails.
    A fixed aspect box so a grid of mixed portrait and landscape photographs
    still lines up, and so cards do not jump as images load. */
 .card-thumb {
@@ -147,7 +147,7 @@
 }
 
 /* What is in a lot: one row per coin, each with its own photograph.
-   A fixed thumbnail box for the same reason the catalogue grid has one --
+   A fixed thumbnail box for the same reason the catalog grid has one --
    mixed portrait and landscape photographs still line up, and the rows do
    not jump about as the images load. */
 .lot-member-list {

@@ -167,7 +167,7 @@ class Denomination(ReferenceMixin, Base):
 
     ``kind`` separates coin denominations from note denominations because the
     same face value exists as both: a US dollar is a coin and a bill, and they
-    are different objects with different catalogues.
+    are different objects with different catalogs.
     """
 
     __tablename__ = "denomination"
@@ -193,7 +193,7 @@ class Denomination(ReferenceMixin, Base):
 class Series(ReferenceMixin, Base):
     """A design series: Morgan Dollar, Peace Dollar, Winged Liberty Head Dime.
 
-    "Series" is the industry's word, not one invented here -- PCGS organises
+    "Series" is the industry's word, not one invented here -- PCGS organizes
     its price guide, population report and CoinFacts by series, so using the
     same term is what lets a value be looked up against a published guide.
 
@@ -224,11 +224,11 @@ class Series(ReferenceMixin, Base):
     #: The design shares its denomination and series with ordinary notes, so
     #: those facts alone do not decide it -- a Hawaii note is a 1934 or 1935A
     #: note like any other, apart from its seal and overprint. Such a design is
-    #: assigned only on evidence: a matching seal colour, or text naming it.
+    #: assigned only on evidence: a matching seal color, or text naming it.
     needs_evidence: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False
     )
-    #: The seal colour that is evidence for this design: brown for Hawaii,
+    #: The seal color that is evidence for this design: brown for Hawaii,
     #: yellow for North Africa.
     seal_color_id: Mapped[int | None] = mapped_column(
         ForeignKey("seal_color.id", ondelete="RESTRICT"), nullable=True
@@ -531,7 +531,7 @@ class ReferenceAlias(Base):
 
     "Legal Tender Note" is a United States Note; "National Currency" is a
     National Bank Note. Text uses the other names, so search and the pickers
-    must recognise them. One table serves every vocabulary (note types now, grade
+    must recognize them. One table serves every vocabulary (note types now, grade
     designations next: Ultra Cameo for UCAM) rather than one alias table per
     classifier. `series_alias` predates it and stays.
 
@@ -636,7 +636,7 @@ class ItemAttribute(ReferenceMixin, Base):
 
 
 class SealColor(ReferenceMixin, Base):
-    """Treasury seal colour: blue, red, brown, green, gold."""
+    """Treasury seal color: blue, red, brown, green, gold."""
 
     __tablename__ = "seal_color"
 

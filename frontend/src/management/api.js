@@ -9,7 +9,7 @@
  *
  * This is not the access control. `require_admin` on the backend is, and it
  * guards every one of these endpoints whether or not the path is guessable.
- * Keeping the map out of the shop is defence in depth.
+ * Keeping the map out of the shop is defense in depth.
  *
  * Exported as `api` spreading the shared object, so a console page imports one
  * `api` and calls shop and console methods alike without knowing which is
@@ -30,7 +30,7 @@ function query(params) {
 export const api = {
   ...shared,
 
-  // No catalogue writes: the Manage page that used them is retired, and
+  // No catalog writes: the Manage page that used them is retired, and
   // offering an item the business already owns is what replaces it
   // (`docs/specs/selling-design.md`).
 
@@ -107,7 +107,7 @@ export const api = {
       body: { errors, acknowledge_for_sale: acknowledgeForSale },
     }),
 
-  // friedberg -- the owner's own banknote catalogue: searched by what is
+  // friedberg -- the owner's own banknote catalog: searched by what is
   // visible on a note in hand, recorded from a number read off one, and
   // attached to the currency item it identifies. Ships empty by design --
   // CLAUDE.md forbids seeding, fetching or hardcoding a publisher's Friedberg
@@ -124,7 +124,7 @@ export const api = {
     send('/api/friedberg', { method: 'POST', body: payload }),
   attachFriedberg: (itemId, payload) =>
     send(`/api/inventory/${itemId}/friedberg`, { method: 'POST', body: payload }),
-  // Takes the number off the note; the catalogue row stays.
+  // Takes the number off the note; the catalog row stays.
   clearFriedberg: (itemId) =>
     send(`/api/inventory/${itemId}/friedberg`, { method: 'DELETE' }),
   // The signature pairs a note of this series can carry, from the seeded

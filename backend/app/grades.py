@@ -299,7 +299,7 @@ def split_fields(
 
     ``("MS65", None)`` becomes ``("65", "business")``. A strike type the
     client names wins over the one the grade implies. A grade :func:`split`
-    does not recognise is passed through for the code lookup to judge.
+    does not recognize is passed through for the code lookup to judge.
     """
     parts = split(grade) if grade else None
     if parts is None:

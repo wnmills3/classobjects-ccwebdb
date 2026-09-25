@@ -91,7 +91,7 @@ def get_optional_user(
     buyer -- `routers.catalog.list_catalog` and its `include_inactive`. The
     shop must answer a signed-out browser, so the whole endpoint cannot take
     `CurrentUser`, and a parameter documented as an admin preview cannot be
-    honoured on the strength of a caller asking for it.
+    honored on the strength of a caller asking for it.
 
     Anything short of a good token is `None`, not a 401: an expired or
     revoked one is a caller with no privileges, and on an endpoint that

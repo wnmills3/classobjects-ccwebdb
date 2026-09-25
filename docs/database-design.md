@@ -28,12 +28,12 @@ stack. Weights, which multiply into money, are `NUMERIC(12,6)`.
 What an item is worth moves with spot price and is computed at read time.
 
 **Machine guesses never masquerade as curated facts.** Reference rows, type
-catalogue rows, attribute links and errors record whether they were
+catalog rows, attribute links and errors record whether they were
 `seeded`, `derived` by a rule, or entered `manual`ly (the `provenance_source`
 enum). Per-field provenance on items is `item_field_source` (§7).
 
 **Storage location, cost basis and inventory photographs are never
-customer-visible.** This is an authorisation boundary, enforced and tested
+customer-visible.** This is an authorization boundary, enforced and tested
 (§10).
 
 **One writer per invariant.** Where a column and a history or guard table
@@ -102,7 +102,7 @@ One row per acquired item or lot (`models/core.py`).
 | `deleted_at` | timestamptz null | soft delete: the row should never have existed |
 | `local_catalog_number` | varchar null | the owner's own earlier numbering; not unique |
 | `source_title` | varchar(500) | what the seller called the item, kept verbatim |
-| `description` | text | what a person recognises the item by |
+| `description` | text | what a person recognizes the item by |
 | `listing_url` | varchar null | where it was bought |
 | `rating` | text null | the owner's rating in their own words ("66EPQ Double Quad"); searched and read as evidence, never shown to a buyer |
 | `weight_note` | text null | a weight as written where it is not a single number ("1 oz each") |
@@ -312,10 +312,10 @@ All serials and numbers are text.
 deleted link straight back, so a person removing one sets `removed_at`; every
 reader skips such rows and every rule leaves them alone.
 
-### Type catalogues
+### Type catalogs
 
 A Friedberg or PCGS number identifies a *type*, not an object. Both are
-commercial catalogues, so both tables are **curated as notes and coins
+commercial catalogs, so both tables are **curated as notes and coins
 arrive**, not seeded. Resolution against them is a proposal, never a
 derivation: the lookup returns ranked candidates, a person confirms, and
 confirmation stamps `verified_by_id` and `verified_at` so the next lookup can
@@ -335,11 +335,11 @@ trust the row.
 web_press, signature_combination_id, seal_color_id)` **`NULLS NOT DISTINCT`**,
 only where denomination, year and note type are known. Partial, because a
 plain unique index would reject two differently half-known types, which is
-normal in a catalogue built by hand. `NULLS NOT DISTINCT`, because most series
+normal in a catalog built by hand. `NULLS NOT DISTINCT`, because most series
 have no letter and PostgreSQL otherwise treats two NULLs as different, so the
 index would never fire and one type could be recorded twice under two numbers.
 That makes every column that tells two types apart a member: many series
-differ only by signatures, and wartime issues only by seal colour.
+differ only by signatures, and wartime issues only by seal color.
 
 | `pcgs_type` | Notes |
 |---|---|
@@ -709,9 +709,9 @@ autogenerate reflects tables only). All exclude split and soft-deleted items.
 **Nothing in the application reads them.** `app.inventory_search` queries the
 base tables with only the joins each query needs, which is far faster than
 paying for every join in a view. The views remain the schema's statement of
-what each inventory and the public catalogue contain.
+what each inventory and the public catalog contain.
 
-**`public_catalog` describes the authorisation boundary; code enforces it.**
+**`public_catalog` describes the authorization boundary; code enforces it.**
 The view must never expose storage location, `local_catalog_number`, cost
 basis, purchase details, lineage or inventory photographs, and
 `test_public_catalog_never_exposes_private_columns` asserts its columns
@@ -753,7 +753,7 @@ vocabularies; `ck_listing_item_xor_lot`; address validity ordered.
 | `uq_sales_venue_own_store` | one own store |
 | `uq_address_default` | one default address per customer and kind |
 | `uq_purchase_order_vendor_number` | order numbers unique per vendor when present |
-| `uq_friedberg_number_identity`, `uq_pcgs_type_identity` | one catalogue row per fully known type |
+| `uq_friedberg_number_identity`, `uq_pcgs_type_identity` | one catalog row per fully known type |
 | `uq_customer_venue_username`, `uq_customer_venue_undisclosed` | one buyer per platform account |
 | `uq_storage_location_identity_no_identifier` | one location per institution with no box number |
 | `uq_note_issue`, `uq_series_year_range` | `NULLS NOT DISTINCT` identities for seeded facts |
@@ -782,7 +782,7 @@ counter decremented under a row lock.
 listings by ascending id, each kind in one statement — through
 `offering_writes.lock_for_sale`, so concurrent buyers can neither oversell nor
 deadlock. See [lock-order-design.md](specs/lock-order-design.md). Tests drive
-these paths from real threads; a test that serialises its requests passes
+these paths from real threads; a test that serializes its requests passes
 with the lock removed.
 
 **Single writers.**
@@ -842,7 +842,7 @@ Closed vocabularies the product defines rather than the world —
 `sales_venue_kind`, `sales_fee_kind` — are seeded by the baseline
 migration, as is the own-store `sales_venue` row.
 
-Seed files hold facts only, never a catalogue publisher's numbering or prices
+Seed files hold facts only, never a catalog publisher's numbering or prices
 (`CLAUDE.md`, *Reference data*).
 
 ---
@@ -856,7 +856,7 @@ carrying `token_version`, which is bumped on every password change so that a
 reset revokes every token issued before it.
 
 It is referenced by `customer.user_id` and by the audit columns on history,
-review, catalogue, error, attribute, merge and order-change rows, all
+review, catalog, error, attribute, merge and order-change rows, all
 `ON DELETE SET NULL`.
 
 ---
@@ -865,5 +865,5 @@ review, catalogue, error, attribute, merge and order-change rows, all
 
 - No per-sale record of a platform's fee *estimate*; estimates are computed
   from `sales_venue` when shown.
-- No stored net payout or realised gain; both are computed from shares and
+- No stored net payout or realized gain; both are computed from shares and
   fees when asked.

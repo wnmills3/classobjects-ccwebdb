@@ -33,6 +33,10 @@ _NOTE_COLUMNS: tuple[str, ...] = (
     "signature_combination_id",
     "fed_district_id",
     "serial_number",
+    "face_plate_number",
+    "back_plate_number",
+    "plate_position",
+    "printing_facility",
     # Cleared through `DELETE /inventory/{id}/friedberg`, not a PATCH.
     "friedberg_id",
 )

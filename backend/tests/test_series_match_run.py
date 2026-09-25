@@ -5,7 +5,7 @@ the collection and writes the classification -- was not covered, which is the
 part a refactor could break silently.
 
 Written against the code as it stands: their job is to detect a change, not to
-argue what the behaviour ought to be.
+argue what the behavior ought to be.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def test_a_seeded_item_becomes_derived_once_classified(
     db: Session, make_item: ItemFactory
 ) -> None:
     # The provenance has to move: a value the matcher worked out is not one
-    # that shipped with the catalogue.
+    # that shipped with the catalog.
     item = make_item(
         title="1881-S Morgan Silver Dollar",
         description="Nice strike.",

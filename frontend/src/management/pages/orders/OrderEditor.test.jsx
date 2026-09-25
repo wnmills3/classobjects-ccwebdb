@@ -110,7 +110,7 @@ describe('OrderEditor', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
   })
 
-  it('adds an item from a catalogue search and removes another', async () => {
+  it('adds an item from a catalog search and removes another', async () => {
     const { user } = await setup(ORDER)
     await user.type(screen.getByRole('searchbox', { name: 'Find item' }), 'dime')
     await user.click(screen.getByRole('button', { name: 'Search' }))

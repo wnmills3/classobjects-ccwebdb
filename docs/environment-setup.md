@@ -236,7 +236,7 @@ Two suites worth knowing about:
   asserts autogenerate finds no difference from the models, so a model change
   without a migration fails.
 - `test_concurrency.py` drives the order handler from real threads rather
-  than `TestClient`, which serialises requests -- a race written against it
+  than `TestClient`, which serializes requests -- a race written against it
   passes even with the row lock removed.
 
 ---

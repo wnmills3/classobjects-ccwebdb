@@ -26,7 +26,7 @@ built in memory from the form's fields, never added to the session, with
 the attributes its serial earns (`app.serial_patterns`) and the errors the
 form holds.
 
-Facts, not a catalogue's arrangement: every part is a label from this
+Facts, not a catalog's arrangement: every part is a label from this
 database's own vocabularies or the item's own values (CLAUDE.md,
 *Reference data*).
 """

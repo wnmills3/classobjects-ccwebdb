@@ -48,7 +48,7 @@ describe('FriedbergPanel', () => {
     renderWithProviders(<FriedbergPanel item={PROPOSED} onChanged={onChanged} />)
     await userEvent.click(screen.getByRole('button', { name: /^confirm$/i }))
 
-    // The same catalogue row, now as confirmed -- not a new lookup.
+    // The same catalog row, now as confirmed -- not a new lookup.
     await waitFor(() =>
       expect(api.attachFriedberg).toHaveBeenCalledWith(412, {
         friedberg_id: 9,
@@ -108,7 +108,7 @@ describe('FriedbergPanel', () => {
       expect(api.searchFriedberg).toHaveBeenCalledWith({ district_letter: 'B' }),
     )
     expect(screen.queryByLabelText(/series year/i)).toBeNull()
-    // Nothing in the catalogue: the web search opens on its own.
+    // Nothing in the catalog: the web search opens on its own.
     await waitFor(() =>
       expect(open).toHaveBeenCalledWith(
         expect.stringContaining('https://www.google.com/ai?q='),

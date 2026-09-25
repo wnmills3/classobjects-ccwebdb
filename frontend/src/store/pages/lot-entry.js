@@ -1,5 +1,5 @@
 /**
- * Reading a catalogue entry that may be a LOT of coins rather than one coin.
+ * Reading a catalog entry that may be a LOT of coins rather than one coin.
  *
  * `CatalogItemOut` is one shape for both. A lot listing has no
  * `inventory_item` at all, so its `item_code` is null and **every**
@@ -11,7 +11,7 @@
  *
  * A plain module rather than exports from a page: a component module that
  * also exports something else breaks Fast Refresh
- * (`react-refresh/only-export-components`), and the catalogue grid and the
+ * (`react-refresh/only-export-components`), and the catalog grid and the
  * detail page both need these answers to agree.
  *
  * **`members` is past tense once a lot has ended.** `_lot_entry` reads
@@ -58,7 +58,7 @@ function pictureOf(entry, key) {
 /** The full-size picture for a detail page, or null when there is none. */
 export const coverImage = (entry) => pictureOf(entry, 'image_url')
 
-/** The card-sized picture for the catalogue grid, or null. */
+/** The card-sized picture for the catalog grid, or null. */
 export const thumbnail = (entry) => pictureOf(entry, 'thumbnail_url')
 
 /**
@@ -74,7 +74,7 @@ export const thumbnail = (entry) => pictureOf(entry, 'thumbnail_url')
  * of which is a roll of twenty is three items and twenty-two pieces. Saying
  * only one of those is how a buyer expects the wrong parcel.
  */
-export function summarise(entry) {
+export function summarize(entry) {
   if (!isLot(entry)) {
     return [entry.country, entry.year_start, entry.grade_display]
       .filter(Boolean)

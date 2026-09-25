@@ -17,7 +17,7 @@ import { api } from '../api'
  *
  * `api.listUnattachedImages()` already returns them newest-capture-first,
  * nulls last -- the order a person working through a box of prints would
- * recognise them in. This page renders that order as given; a `.sort()`
+ * recognize them in. This page renders that order as given; a `.sort()`
  * here would silently put them back into id order and undo the reason the
  * server orders them at all.
  *

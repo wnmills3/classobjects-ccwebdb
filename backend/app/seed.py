@@ -1,4 +1,4 @@
-"""Create the first administrator and a small demo catalogue.
+"""Create the first administrator and a small demo catalog.
 
 Reference data is *not* seeded here -- that is `app.seeding`, which loads the
 shipped vocabulary from `backend/data/reference/`. Run that first; this module
@@ -42,7 +42,7 @@ from .models import (
 )
 from .security import hash_password
 
-#: A demo catalogue. Classifiers are given as codes, matching how they cross
+#: A demo catalog. Classifiers are given as codes, matching how they cross
 #: the API -- see `app.references`.
 SAMPLE_CATALOG: list[dict] = [
     {
@@ -84,7 +84,7 @@ SAMPLE_CATALOG: list[dict] = [
     },
     {
         "title": "1957-B $1 Silver Certificate",
-        "description": "Blue seal. Crisp, well centred, bright paper.",
+        "description": "Blue seal. Crisp, well centered, bright paper.",
         "item_kind": "currency",
         "country": "US",
         "denomination": "usd_note_1",
@@ -186,7 +186,7 @@ def _build(db: Session, row: dict) -> None:
 
 
 def seed() -> None:
-    """Create the first administrator and a small demo catalogue.
+    """Create the first administrator and a small demo catalog.
 
     Assumes the reference vocabularies are already loaded; run
     `python -m app.seeding load` first.
@@ -208,7 +208,7 @@ def seed() -> None:
         created = 0
         for row in SAMPLE_CATALOG:
             # Matched on source_title: the schema has no artificial unique key
-            # per catalogue row, because two identical coins are two objects.
+            # per catalog row, because two identical coins are two objects.
             exists = db.scalar(
                 select(InventoryItem.id).where(
                     InventoryItem.source_title == row["title"]
@@ -219,7 +219,7 @@ def seed() -> None:
                 created += 1
 
         print(
-            f"created {created} catalogue item(s); "
+            f"created {created} catalog item(s); "
             f"{len(SAMPLE_CATALOG) - created} already present"
         )
         db.commit()

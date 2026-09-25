@@ -4,7 +4,7 @@ The export path exists so that one installation's curation can benefit the
 next: a fresh install should inherit grades, mints, districts and coinage
 composition rather than rebuilding them. That only works if codes -- not ids --
 are what cross the boundary, and if one collection's private guesses cannot
-leak into a catalogue meant to be shared.
+leak into a catalog meant to be shared.
 """
 
 from __future__ import annotations

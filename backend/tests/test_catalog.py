@@ -1,17 +1,17 @@
-"""Catalogue reads. Browsing is public; seeing what is *not* for sale is not.
+"""Catalog reads. Browsing is public; seeing what is *not* for sale is not.
 
-No authorisation of any kind is needed to browse. The one exception is
+No authorization of any kind is needed to browse. The one exception is
 `include_inactive`, the administrator's preview of withdrawn listings, which
 is checked here rather than by a dependency because the endpoint itself has
 to answer a signed-out browser.
 
-Ported from the scaffold's test_coins.py. One behaviour did not survive and
-should not have: the scaffold enforced a unique `sku` per catalogue row. The
+Ported from the scaffold's test_coins.py. One behavior did not survive and
+should not have: the scaffold enforced a unique `sku` per catalog row. The
 target schema has no such key, because two identical Morgan dollars are two
 physical objects and two rows. Forcing artificial uniqueness on them was a
 property of the demo, not of the domain.
 
-The catalogue used to also write: `POST`/`PATCH`/`DELETE /api/catalog` created
+The catalog used to also write: `POST`/`PATCH`/`DELETE /api/catalog` created
 an item and a listing together, edited either, and deleted an unsold one. That
 path is retired (the offers API replaces it -- `test_offers_api.py`,
 `test_offering_writes.py`), because it could not offer an item the business
@@ -88,7 +88,7 @@ def test_a_stranger_cannot_ask_to_see_withdrawn_listings(
     """`include_inactive` is described as an admin preview, so make it one.
 
     The endpoint is public and must stay so -- the shop answers signed-out
-    browsers. But the parameter was honoured for anyone who passed it, so
+    browsers. But the parameter was honored for anyone who passed it, so
     every listing the owner had ever withdrawn was one query string away.
     That set is the stock taken off sale, mostly because it sold elsewhere:
     a history of the collection no buyer is owed.
@@ -197,7 +197,7 @@ def test_limit_is_bounded(client: TestClient) -> None:
     assert client.get("/api/catalog?limit=500").status_code == 422
 
 
-#: Every key a catalogue entry may carry. An **allow-list**, written out by
+#: Every key a catalog entry may carry. An **allow-list**, written out by
 #: hand, and the boundary's first assertion: a deny-list only catches the
 #: private names somebody thought of, so a newly named one ships green for
 #: ever and nobody finds out. This fails closed instead -- any new key, public
@@ -277,7 +277,7 @@ EXPECTED_MEMBER_FIELDS = {
 }
 
 #: Staff-only names, kept **as well as** the allow-lists above and used over
-#: the serialised payload rather than over its keys. The allow-lists cover
+#: the serialized payload rather than over its keys. The allow-lists cover
 #: every key the two models declare; only this catches a private name nested
 #: inside a structure neither of them declares today. Inexhaustive by nature,
 #: which is why it is the second assertion and not the first.
@@ -321,7 +321,7 @@ def test_catalogue_never_exposes_cost_basis_or_location(
     that function plus this assertion, and by nothing else.
 
     The allow-list first, because it fails closed: a private field nobody
-    thought to forbid still reddens it. The deny-list over the serialised
+    thought to forbid still reddens it. The deny-list over the serialized
     payload second, for a name nested somewhere the key check cannot see.
     """
     body = client.get(f"/api/catalog/{listing.id}").json()
@@ -385,12 +385,12 @@ def test_an_auction_listing_is_not_found_in_the_shop(
 
 
 def _entry(client: TestClient, listing_id: int) -> dict[str, Any]:
-    """The catalogue's list entry for one listing, or fail saying it is absent."""
+    """The catalog's list entry for one listing, or fail saying it is absent."""
     body = client.get("/api/catalog").json()
     for row in body["items"]:
         if row["id"] == listing_id:
             return dict(row)
-    raise AssertionError(f"listing {listing_id} is not in the catalogue: {body}")
+    raise AssertionError(f"listing {listing_id} is not in the catalog: {body}")
 
 
 def _buy(
@@ -470,7 +470,7 @@ def test_a_lot_entry_shows_the_offer_wording_not_the_lots(
 
     Written with the two strings deliberately different. The fixture's lot is
     titled the same as its listing, so an assertion against it would pass
-    whichever of the two the catalogue actually showed.
+    whichever of the two the catalog actually showed.
     """
     lot = make_lot(
         [make_item(title="First coin"), make_item(title="Second coin")],
@@ -498,7 +498,7 @@ def test_a_buyers_order_line_calls_a_lot_what_the_shop_called_it(
     group's working name, which the test above establishes is not for buyers
     -- over the listing wording sitting beside it in the same snapshot. So
     the shop said "Two Morgan Dollars" and the buyer's own order said
-    "Working name nobody should see". Asserted against the catalogue entry
+    "Working name nobody should see". Asserted against the catalog entry
     rather than against a literal, because agreeing with each other is the
     property that matters.
     """
@@ -546,7 +546,7 @@ def test_a_lot_entry_counts_every_piece_in_it(
 def test_a_lot_entry_never_carries_cost_or_location(
     client: TestClient, db: Session, store_lot_listing: Listing
 ) -> None:
-    """The authorisation boundary is `to_catalog_item` building fields by name.
+    """The authorization boundary is `to_catalog_item` building fields by name.
 
     A lot widens what that function must build; this asserts the widening did
     not reach for the whole row. Three assertions, and they are not
@@ -555,7 +555,7 @@ def test_a_lot_entry_never_carries_cost_or_location(
     to forbid it; each member's keys must be exactly
     `EXPECTED_MEMBER_FIELDS`, which is what actually bites here, since a
     lot's private data would arrive nested; and `PRIVATE_FIELD_NAMES` over
-    the serialised payload catches a private name appearing anywhere at all,
+    the serialized payload catches a private name appearing anywhere at all,
     including inside a structure neither model declares today.
 
     Both allow-lists are the same ones the single-item boundary test uses.

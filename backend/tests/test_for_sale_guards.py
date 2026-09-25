@@ -841,7 +841,7 @@ def test_a_lot_sale_refuses_a_split_of_the_member_it_sold(
     split, silently. That is the one shape of this branch's nullable-column
     fallout that costs money: the line's `sales_order_item_share` still
     credits the parent, whose `item_cost` has just been re-allocated to two
-    children, so realised gain and cost basis double-count with no error
+    children, so realized gain and cost basis double-count with no error
     anywhere. The plausible route is a returned tube or mint set that went
     out inside a lot and is now being broken up.
 

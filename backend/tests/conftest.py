@@ -123,7 +123,7 @@ def engine() -> Iterator[Engine]:
 
     # Views are not in Base.metadata -- create_all builds tables only -- so
     # they are created from the same definitions the migration uses. Without
-    # this, a test of the public_catalog authorisation boundary would silently
+    # this, a test of the public_catalog authorization boundary would silently
     # have nothing to check.
     with test_engine.begin() as conn:
         # The views compose grades with this function, which the migration
@@ -956,9 +956,9 @@ def three_item_costs() -> list[Decimal]:
 
 
 # --------------------------------------------------------------------------
-# Catalogue fixtures
+# Catalog fixtures
 #
-# A catalogue entry is a `listing` plus the `inventory_item` behind it, so a
+# A catalog entry is a `listing` plus the `inventory_item` behind it, so a
 # fixture has to build both. The item carries what the object *is*; the
 # listing carries what it is being sold for.
 # --------------------------------------------------------------------------
@@ -1030,7 +1030,7 @@ def make_item(db: Session) -> Callable[..., InventoryItem]:
 
 
 def build_listing(db: Session, **overrides: object) -> Listing:
-    """One catalogue entry, with every NOT NULL classifier resolved.
+    """One catalog entry, with every NOT NULL classifier resolved.
 
     An explicit ``inventory_item_id`` override reuses that item instead of
     creating a new one -- how a second listing on the same item is built, as
@@ -1133,7 +1133,7 @@ def listing(db: Session) -> Listing:
 
 @pytest.fixture
 def make_listing(db: Session) -> Callable[..., Listing]:
-    """Factory for additional catalogue entries within a test."""
+    """Factory for additional catalog entries within a test."""
 
     def _make(**overrides: object) -> Listing:
         overrides.pop("n", None)
@@ -1222,7 +1222,7 @@ def offered_lot_listing(
 
 @pytest.fixture
 def store_lot_listing(db: Session, lot_of_three: SalesLot) -> Listing:
-    """A lot of three offered in the web store, so the catalogue can serve it.
+    """A lot of three offered in the web store, so the catalog can serve it.
 
     `quantity=1` is the default and is also what `ck_listing_lot_quantity_one`
     requires -- note that `make_listing` would default it to 5, which is why
