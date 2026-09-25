@@ -9,10 +9,15 @@ import ItemEditForm from './ItemEditForm'
  * the pairing of that shell with the item form, kept as its own component so
  * the results table names what it opens rather than assembling it inline.
  */
-export default function ItemEditDialog({ itemId, onSaved, onClose }) {
+export default function ItemEditDialog({ itemId, onSaved, onChanged, onClose }) {
   return (
     <ModalDialog label="Edit item" onClose={onClose}>
-      <ItemEditForm itemId={itemId} onSaved={onSaved} onClose={onClose} />
+      <ItemEditForm
+        itemId={itemId}
+        onSaved={onSaved}
+        onChanged={onChanged}
+        onClose={onClose}
+      />
     </ModalDialog>
   )
 }

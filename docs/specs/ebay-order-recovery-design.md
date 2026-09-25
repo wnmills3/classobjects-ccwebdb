@@ -97,6 +97,23 @@ that gave the same counts:
 | items, total cost | 7,661, $536,222.82 | unchanged |
 
 968 purchases were numbered and 300 items moved; each changed item has its
-History rows (7,421). A second run finds nothing to fill. Left for a person, in
-`logs\ebay_orders_review_20260925.xlsx`: the 2 purchases the history cannot
-decide, and the 49 stored order numbers eBay contradicts.
+History rows (7,421). A second run finds nothing to fill.
+
+## Numbers that disagree
+
+Most disagreements were not a wrong number but a **link copied from another
+purchase**: live-show lots bought one after another share a seller and a title,
+and a purchase's link had been pasted from its neighbor's -- its listing's order
+already held by that neighbor, or by nobody while four purchases shared the one
+link. The money tells which record is wrong: eBay's line price includes tax, as
+our items' `total_cost` does, so the order whose price is ours to the cent is
+the purchase's. Settled that way, with the owner's corrections: 27 purchases
+relinked to their stored order's one listing (purchase link, items' listing
+link and `sellers_item_id`), 2 renumbered, 1 pair of swapped numbers
+exchanged, and several same-day swaps the owner named. For 5 of the relinked
+purchases the stored order's price differs from ours by $0.12 to $6.38, so
+the recorded cost may be wrong, not the order: CC-004156, CC-004217, CC-005060,
+CC-005366, CC-006165.
+
+Left for a person, in `logs\ebay_orders_review_20260925_6.xlsx`: 8 purchases
+where neither order's price is ours, or both are.

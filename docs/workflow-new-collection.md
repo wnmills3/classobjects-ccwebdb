@@ -69,16 +69,20 @@ required.
 
 ### 3. Split a lot (optional)
 
-`POST /api/inventory/{id}/split` divides a lot into one child per piece,
-dividing cost `equal`ly for identical pieces or `relative` to a value per piece
-when they differ (a mint set's cent and half dollar). `item_cost` and
+**Split into pieces...** in the item editor (`POST /api/inventory/{id}/split`)
+divides a lot into one child per piece, dividing cost `equal`ly for identical
+pieces -- nine proof sets, a tube of rounds -- or `relative` to a value per piece
+when they differ (a mint set's cent and half dollar). The dialog starts with a
+row per piece the lot records; each row may carry its own description and year,
+and shows its estimated share. Every piece keeps the lot's seller's title,
+purchase, listing link and seller's item id. It splits the saved record, so
+unsaved edits must be saved first; a split lot and a piece of one offer no
+split. `item_cost` and
 `shipping_cost` reconcile to the penny; `sales_tax` is generated per row, so
 the pieces' rounded tax can differ from the lot's by a cent or two, and that
 difference is reported, not absorbed. The lot is kept, marked `split_at`, and
-excluded from every count, so a lot and its pieces are never both counted.
-
-**Not built:** a Split panel in the console. The API works; the screen does
-not exist.
+excluded from every count, so a lot and its pieces are never both counted; its
+editor names the pieces it became.
 
 ### 4. Attribute
 

@@ -23,6 +23,7 @@ vi.mock('../../api', () => ({
     uploadImage: vi.fn(),
     updateImageLink: vi.fn(),
     detachImage: vi.fn(),
+    splitItem: vi.fn(),
   },
 }))
 
@@ -84,6 +85,69 @@ describe('ItemEditForm', () => {
     expect(
       screen.getByRole('link', { name: /eBay item 276413586076/ }),
     ).toHaveAttribute('href', 'https://www.ebay.com/itm/276413586076')
+  })
+
+  it('splits a lot, says what it made, and refreshes what is behind it', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    const onChanged = vi.fn()
+    api.getInventoryItem.mockResolvedValue({
+      ...item,
+      piece_count: 2,
+      item_cost: '14.12',
+    })
+    api.splitItem.mockResolvedValue({
+      parent_total_cost: '14.12',
+      allocated_total_cost: '14.12',
+      pieces: [{ item_code: 'C-013' }, { item_code: 'C-014' }],
+    })
+    render(
+      <ItemEditForm
+        itemId={12}
+        onSaved={onSaved}
+        onChanged={onChanged}
+        onClose={vi.fn()}
+      />,
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Split into pieces...' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Split into 2 pieces' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Split into 2 pieces: C-013, C-014. They cost 14.12 in all; the lot cost 14.12.',
+    )
+    expect(onChanged).toHaveBeenCalled()
+    // Kept open to say so: onSaved closes the editor.
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('splits only what is saved', async () => {
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const description = await screen.findByDisplayValue('Mercury Dime')
+    await user.type(description, ', toned')
+    expect(screen.getByRole('button', { name: 'Split into pieces...' })).toBeDisabled()
+    expect(
+      screen.getByText('Save or undo your changes to split it.'),
+    ).toBeInTheDocument()
+  })
+
+  it.each([
+    [
+      'a split lot',
+      { split_at: '2026-09-25T10:00:00Z', piece_codes: ['C-013', 'C-014'] },
+    ],
+    ['a piece of one', { parent_item_id: 11, parent_item_code: 'C-011' }],
+  ])('offers no split for %s', async (_what, state) => {
+    api.getInventoryItem.mockResolvedValue({ ...item, ...state })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    expect(screen.queryByRole('button', { name: 'Split into pieces...' })).toBeNull()
+    if (state.piece_codes) {
+      expect(screen.getByText('split into C-013, C-014')).toBeInTheDocument()
+      expect(screen.getByText(/no longer counted: edit the pieces/)).toBeInTheDocument()
+    }
   })
 
   it('offers a confirmed checkbox per reviewable field', async () => {

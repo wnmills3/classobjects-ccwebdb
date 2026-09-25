@@ -468,6 +468,66 @@ def test_pieces_may_carry_their_own_classifiers(
     assert half.year_start == 1964
 
 
+def test_pieces_may_carry_their_own_description(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A lot of proof sets becomes one set per year, each described as such."""
+    parent = lot(db, description="9 Proof Sets")
+    payload = {
+        "mode": "equal",
+        "pieces": [
+            {"source_title": "Lot", "description": "1980 US Proof Set"},
+            {"source_title": "Lot"},
+        ],
+    }
+    body = do_split(client, admin_headers, parent.id, payload).json()
+
+    db.expire_all()
+    descriptions = db.scalars(
+        select(InventoryItem.description)
+        .where(InventoryItem.id.in_([p["id"] for p in body["pieces"]]))
+        .order_by(InventoryItem.id)
+    ).all()
+    assert descriptions == ["1980 US Proof Set", "9 Proof Sets"]
+
+
+def test_pieces_keep_the_listing_they_were_bought_from(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """EBay's item id traces a piece to its listing, so every piece keeps it."""
+    parent = lot(
+        db,
+        sellers_item_id="235872202173",
+        listing_url="https://www.ebay.com/itm/235872202173",
+    )
+    body = do_split(client, admin_headers, parent.id, TUBE).json()
+
+    db.expire_all()
+    kept = db.execute(
+        select(InventoryItem.sellers_item_id, InventoryItem.listing_url).where(
+            InventoryItem.id.in_([p["id"] for p in body["pieces"]])
+        )
+    ).all()
+    assert len(kept) == 4
+    assert set(kept) == {("235872202173", "https://www.ebay.com/itm/235872202173")}
+
+
+def test_a_split_lot_names_its_pieces(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The editor shows what a split lot became; a piece became nothing."""
+    parent = lot(db)
+    body = do_split(client, admin_headers, parent.id, TUBE).json()
+    codes = [p["item_code"] for p in body["pieces"]]
+
+    shown = client.get(f"/api/inventory/{parent.id}", headers=admin_headers).json()
+    assert shown["piece_codes"] == codes
+    piece = client.get(
+        f"/api/inventory/{body['pieces'][0]['id']}", headers=admin_headers
+    ).json()
+    assert piece["piece_codes"] == []
+
+
 # ---------------------------------------------------------------------------
 # Detail rows
 # ---------------------------------------------------------------------------
