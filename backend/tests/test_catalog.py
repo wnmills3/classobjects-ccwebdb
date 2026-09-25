@@ -96,7 +96,7 @@ def test_a_stranger_cannot_ask_to_see_withdrawn_listings(
     make_listing(is_active=False)
     refused = client.get("/api/catalog?include_inactive=true")
     assert refused.status_code == 403, refused.text
-    assert "Administrator" in refused.json()["detail"]
+    assert "Manager" in refused.json()["detail"]
 
 
 def test_a_customer_is_not_enough_to_see_withdrawn_listings(

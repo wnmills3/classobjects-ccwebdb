@@ -59,7 +59,7 @@ export function AuthProvider({ children }) {
       login,
       register,
       logout,
-      isAdmin: user?.role === 'admin',
+      isAdmin: user?.role === 'manager',
     }),
     [user, loading, login, register, logout],
   )

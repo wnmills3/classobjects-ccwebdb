@@ -786,7 +786,7 @@ def admin_user(db: Session) -> User:
         email="admin@example.com",
         full_name="Test Admin",
         hashed_password=hash_password(ADMIN_PASSWORD),
-        role=UserRole.admin,
+        role=UserRole.manager,
     )
     db.add(user)
     db.commit()

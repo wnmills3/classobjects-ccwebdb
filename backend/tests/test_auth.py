@@ -39,7 +39,7 @@ def test_register_cannot_self_assign_admin(client: TestClient, db: Session) -> N
         json={
             "email": "sneaky@example.com",
             "password": "longenough",
-            "role": "admin",
+            "role": "manager",
         },
     )
     assert response.status_code == 201

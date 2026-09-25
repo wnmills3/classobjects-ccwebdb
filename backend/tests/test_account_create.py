@@ -36,7 +36,7 @@ def test_only_an_administrator_may_create_an_account(
         client.post("/api/users", json=NEW, headers=customer_headers).status_code == 403
     )
     # A customer must not be able to mint an administrator, above all.
-    as_admin = {**NEW, "role": "admin"}
+    as_admin = {**NEW, "role": "manager"}
     assert (
         client.post("/api/users", json=as_admin, headers=customer_headers).status_code
         == 403
@@ -68,9 +68,9 @@ def test_an_administrator_creates_another_administrator(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     body = client.post(
-        "/api/users", json={**NEW, "role": "admin"}, headers=admin_headers
+        "/api/users", json={**NEW, "role": "manager"}, headers=admin_headers
     ).json()
-    assert body["role"] == "admin"
+    assert body["role"] == "manager"
 
     tokens = client.post(
         "/api/auth/login", data={"username": NEW["email"], "password": NEW["password"]}
@@ -87,7 +87,7 @@ def test_an_email_already_in_use_is_refused_and_the_account_untouched(
 
     response = client.post(
         "/api/users",
-        json={**NEW, "email": customer_user.email, "role": "admin"},
+        json={**NEW, "email": customer_user.email, "role": "manager"},
         headers=admin_headers,
     )
 

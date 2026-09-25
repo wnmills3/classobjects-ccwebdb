@@ -340,7 +340,7 @@ def _seed_lot_listing_and_buyer(
             email=RACE_ADMIN_EMAIL,
             full_name="RACE Admin",
             hashed_password=hash_password("racepassword"),
-            role=UserRole.admin,
+            role=UserRole.manager,
         )
         customer = Customer(display_name=RACE_BUYER, email=None)
         session.add_all([admin, customer])

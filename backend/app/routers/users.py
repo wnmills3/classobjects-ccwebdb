@@ -75,7 +75,7 @@ def _admin_count(db: DbSession) -> int:
         db.scalar(
             select(func.count())
             .select_from(User)
-            .where(User.role == UserRole.admin, User.is_active.is_(True))
+            .where(User.role == UserRole.manager, User.is_active.is_(True))
         )
         or 0
     )
@@ -90,17 +90,17 @@ def _refuse_last_admin(db: DbSession, target: User, update: UserUpdate) -> None:
     rather than about who is making it: an administrator demoting themselves
     is fine when someone else can still administer, and fatal when not.
     """
-    losing_admin = update.role is not None and update.role is not UserRole.admin
+    losing_admin = update.role is not None and update.role is not UserRole.manager
     losing_active = update.is_active is False
     if not (losing_admin or losing_active):
         return
-    is_currently_admin = target.role is UserRole.admin and target.is_active
+    is_currently_admin = target.role is UserRole.manager and target.is_active
     if is_currently_admin and _admin_count(db) <= 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "This is the only active administrator. Promote another "
-                "account first, or nobody will be able to administer the site."
+                "This is the only active manager. Make another account a "
+                "manager first, or nobody will be able to manage the site."
             ),
         )
 

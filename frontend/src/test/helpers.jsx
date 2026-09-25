@@ -29,7 +29,7 @@ export function anonymousAuth(overrides = {}) {
 
 export function adminAuth(overrides = {}) {
   return anonymousAuth({
-    user: { id: 1, email: 'admin@example.com', role: 'admin', full_name: 'Admin' },
+    user: { id: 1, email: 'admin@example.com', role: 'manager', full_name: 'Manager' },
     isAdmin: true,
     ...overrides,
   })

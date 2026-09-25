@@ -198,7 +198,7 @@ def seed() -> None:
                 email=settings.first_admin_email,
                 full_name="Site Administrator",
                 hashed_password=hash_password(settings.first_admin_password),
-                role=UserRole.admin,
+                role=UserRole.manager,
             )
             db.add(admin)
             print(f"created admin {settings.first_admin_email}")

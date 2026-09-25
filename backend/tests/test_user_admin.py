@@ -47,10 +47,10 @@ def test_promote_and_demote(
     up = client.patch(
         f"/api/users/{customer_user.id}",
         headers=admin_headers,
-        json={"role": "admin"},
+        json={"role": "manager"},
     )
     assert up.status_code == 200, up.text
-    assert up.json()["role"] == "admin"
+    assert up.json()["role"] == "manager"
 
     down = client.patch(
         f"/api/users/{customer_user.id}",
@@ -76,7 +76,7 @@ def test_cannot_demote_the_last_administrator(
         json={"role": "customer"},
     )
     assert response.status_code == 409
-    assert "only active administrator" in response.json()["detail"]
+    assert "only active manager" in response.json()["detail"]
 
 
 def test_cannot_deactivate_the_last_administrator(
@@ -100,7 +100,7 @@ def test_may_demote_once_another_admin_exists(
     promoted = client.patch(
         f"/api/users/{customer_user.id}",
         headers=admin_headers,
-        json={"role": "admin"},
+        json={"role": "manager"},
     )
     assert promoted.status_code == 200
 

@@ -25,7 +25,7 @@ beforeEach(() => {
       id: 1,
       email: 'staff@example.com',
       full_name: 'Staff',
-      role: 'admin',
+      role: 'manager',
       is_active: true,
     },
   ])
@@ -86,14 +86,14 @@ describe('AdminPeople', () => {
 
     await user.type(screen.getByLabelText(/^email$/i), 'colleague@example.com')
     await user.type(screen.getByLabelText(/^name$/i), 'A Colleague')
-    await user.selectOptions(screen.getByLabelText(/^role$/i), 'admin')
+    await user.selectOptions(screen.getByLabelText(/^role$/i), 'manager')
     await user.type(screen.getByLabelText(/initial password/i), 'long-enough-pw')
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     expect(api.createUser).toHaveBeenCalledWith({
       email: 'colleague@example.com',
       full_name: 'A Colleague',
-      role: 'admin',
+      role: 'manager',
       password: 'long-enough-pw',
     })
     expect(await screen.findByText(/colleague@example.com/)).toBeInTheDocument()

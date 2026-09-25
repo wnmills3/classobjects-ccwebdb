@@ -850,7 +850,7 @@ Seed files hold facts only, never a catalogue publisher's numbering or prices
 ## 13. Users
 
 `users` is the login table: `email` (unique), `full_name`, `hashed_password`,
-`role` (`admin` \| `customer`), `is_active`, `token_version`, `created_at`.
+`role` (`manager` \| `customer`), `is_active`, `token_version`, `created_at`.
 Administrators see cost basis; customers do not. Tokens are stateless JWTs
 carrying `token_version`, which is bumped on every password change so that a
 reset revokes every token issued before it.

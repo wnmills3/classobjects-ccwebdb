@@ -84,7 +84,7 @@ function NewAccountForm({ onCreated, onCancel }) {
           Role{/* */}
           <select value={form.role} onChange={set('role')}>
             <option value="customer">customer</option>
-            <option value="admin">admin</option>
+            <option value="manager">manager</option>
           </select>
         </label>
         <label>
@@ -215,7 +215,7 @@ function Accounts({ notify }) {
                   }
                 >
                   <option value="customer">customer</option>
-                  <option value="admin">admin</option>
+                  <option value="manager">manager</option>
                 </select>
               </td>
               <td>
