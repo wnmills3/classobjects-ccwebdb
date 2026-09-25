@@ -1106,6 +1106,7 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
         purchase_order_id=item.purchase_order_id,
         order_number=order.order_number if order is not None else None,
         vendor=vendor.name if vendor is not None else None,
+        sellers_item_id=item.sellers_item_id,
         **{
             column: plain(getattr(item, column))
             for column in (

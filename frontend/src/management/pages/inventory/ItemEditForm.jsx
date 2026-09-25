@@ -732,6 +732,17 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
               {item.vendor ? ` · ${item.vendor}` : ''}
             </a>
           )}
+          {item.sellers_item_id && (
+            // The listing it was bought from, on eBay (app.ebay_orders).
+            <a
+              href={`https://www.ebay.com/itm/${item.sellers_item_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-help="sellers_item_id"
+            >
+              eBay item {item.sellers_item_id}
+            </a>
+          )}
           {onClose && (
             <button className="link" onClick={onClose}>
               Close

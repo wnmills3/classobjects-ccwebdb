@@ -686,6 +686,9 @@ class ItemDetailOut(InventoryItemOut):
     purchase_order_id: int | None = None
     order_number: str | None = None
     vendor: str | None = None
+    #: The seller's id for the listing it was bought from -- eBay's item
+    #: number (`app.ebay_orders`). Read-only here.
+    sellers_item_id: str | None = None
 
     # -- the rest of EDITABLE_SCALARS: not on InventoryItemOut, which is the
     # shape a split's pieces come back as and has no reason to carry these.

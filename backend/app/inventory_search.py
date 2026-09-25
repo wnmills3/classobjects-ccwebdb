@@ -320,6 +320,8 @@ _SHARED_COLUMNS: dict[str, Col] = {
 
 _SHARED_FILTERS: dict[str, Filt] = {
     "item_code": Filt(_C_ITEM_CODE, "ilike"),
+    # The seller's listing id -- eBay's item number (app.ebay_orders).
+    "sellers_item_id": Filt("i.sellers_item_id", "ilike"),
     # Partial and case-insensitive, like item code: Receiving finds a parcel
     # by an order number typed in part, read off a packing slip.
     "order_number": Filt("po.order_number", "ilike", (_J_PURCHASE_ORDER,)),
