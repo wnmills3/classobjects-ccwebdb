@@ -34,7 +34,7 @@ Only a purchase lot you mean to break up takes the bracketed step.
 
 ### 1. Enter the purchase
 
-**New purchase** (`/owner/purchases/new`): vendor, order number, date,
+**Purchases** (`/owner/purchases`): vendor, order number, date,
 shipping and tax. Then add its items with the **New item** form, one after
 another ("Save and add another" keeps what items on one order share). No item
 is entered outside a purchase.

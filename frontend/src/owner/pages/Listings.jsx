@@ -452,7 +452,7 @@ export default function Listings() {
                       2026-09-22 (ruling S4): the API refuses it too
                       (`sales_writes._refuse_store_sale`), and an in-person
                       sale of a shop item is an order on the customer's
-                      behalf, from the Orders page. An unmatched platform (the venue
+                      behalf, from the Sales page. An unmatched platform (the venue
                       list failed to load, and the table still shows) reads as
                       "not the store", the same way `isAuctionHouse` below
                       reads an unmatched one as "not an auction house":

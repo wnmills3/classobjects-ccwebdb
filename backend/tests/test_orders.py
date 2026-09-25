@@ -403,7 +403,7 @@ def test_an_order_says_which_platform_it_was_sold_on(
     ebay_listing: Listing,
     admin_user: User,
 ) -> None:
-    """The Orders page cannot tell a shop sale from an outside one without it.
+    """The Sales page cannot tell a shop sale from an outside one without it.
 
     Its status dropdown offers `cancelled` behind a confirmation promising
     the stock goes back on sale -- which `routers/orders.py` then refuses

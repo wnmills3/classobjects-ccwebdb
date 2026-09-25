@@ -126,7 +126,7 @@ charges or refunds.
 
 ## Console
 
-All on the Orders page (`/owner/orders`).
+All on the Sales page (`/owner/sales`).
 
 **Order editor** (`orders/OrderEditor.jsx`), a modal for **New order** and
 for **Edit** on a `pending` or `paid` order:

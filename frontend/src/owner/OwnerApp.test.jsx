@@ -48,8 +48,16 @@ describe('owner console shell', () => {
     // /photos nav link and route could both be deleted with the suite
     // staying green.
     expect(screen.getByRole('link', { name: /photos/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /new purchase/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^orders$/i })).toBeInTheDocument()
+    // Purchases and Sales, not "New purchase" and "Orders": an order is
+    // both, and the owner read Orders as purchases (2026-09-24).
+    expect(screen.getByRole('link', { name: /^purchases$/i })).toHaveAttribute(
+      'href',
+      '/purchases',
+    )
+    expect(screen.getByRole('link', { name: /^sales$/i })).toHaveAttribute(
+      'href',
+      '/sales',
+    )
     expect(screen.getByRole('link', { name: /people/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /listings/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /platforms/i })).toBeInTheDocument()

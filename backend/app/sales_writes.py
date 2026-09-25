@@ -231,14 +231,14 @@ def _refuse_store_sale(listing: Listing) -> None:
     rows; the API still took the request, which made it a second way to sell
     a shop item -- past the cart and past checkout, minting an "Undisclosed
     buyer (store)" when the username was blank. An in-person sale of a shop
-    item is entered as an order on the customer's behalf (the Orders page),
+    item is entered as an order on the customer's behalf (the Sales page),
     which goes through checkout's own rules.
     """
     if listing.sales_venue.is_own_store:
         raise SaleRefused(
             f"listing #{listing.id} is in the web store, which sells through "
             "checkout. For an in-person sale, place an order on the customer's "
-            "behalf from the Orders page."
+            "behalf from the Sales page."
         )
 
 

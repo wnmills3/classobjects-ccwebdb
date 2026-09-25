@@ -1,7 +1,7 @@
-# Entry panels: New purchase and New item
+# Entry panels: Purchases and New item
 
 The database is the system of record, so acquisitions are entered in the
-console: **New purchase** records a vendor and a purchase order, and **New
+console: **Purchases** records a vendor and a purchase order, and **New
 item** records a coin, banknote or lot bought on it. Splitting a lot,
 attributing its pieces, editing a vendor and editing a purchase order happen
 elsewhere; a Friedberg number is attached afterwards from Receiving or the item
@@ -84,7 +84,7 @@ new `item_code`.
 
 ## Console
 
-Route `/purchases/new`, nav link **New purchase**
+Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
 (`owner/pages/NewPurchase.jsx`), in two steps on one page:
 
 1. **The purchase.** Either *Add to an existing purchase* -- a list filterable

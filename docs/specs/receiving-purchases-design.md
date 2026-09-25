@@ -7,7 +7,7 @@ Receiving page (`/owner/receiving`) and `POST /api/inventory/receive` are how.
 ## What receiving is here
 
 Receiving does not create inventory. An item already exists from the moment
-it was bought -- entered on New purchase (`POST /api/inventory` defaults
+it was bought -- entered on Purchases (`POST /api/inventory` defaults
 `status` to `ordered`) -- and an item
 awaiting arrival has `status = ordered`. Receiving is a **state transition on
 a row that already exists**, so the design problem is *finding the right
@@ -140,7 +140,7 @@ Receiving
   silently.
 
 **`?order=<id>`** -- the link from the inventory screens' Order column and
-from New purchase's *Receive these*. The page loads that order, shows its
+from Purchases' *Receive these*. The page loads that order, shows its
 header (order number, vendor, order date, and a link to the seller's page)
 and runs the search at once **by the order's id** (the `purchase_order_id`
 filter) with the default *Not yet arrived* status. Not by its number: an
