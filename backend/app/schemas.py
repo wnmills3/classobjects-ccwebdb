@@ -894,9 +894,9 @@ class BulkEditRequest(BaseModel):
     changes: InventoryItemUpdate
 
 
-#: Coin-detail fields on `ItemCreate`, valid only when `item_kind` is not
-#: `currency`.
-_COIN_ONLY_FIELDS: tuple[str, ...] = ("mint", "variety")
+#: Fields on `ItemCreate` valid only when `item_kind` is not `currency`: the
+#: coin's detail, and the years -- a note's year is its series year.
+_COIN_ONLY_FIELDS: tuple[str, ...] = ("mint", "variety", "year_start", "year_end")
 
 #: Currency-detail fields on `ItemCreate`, valid only when `item_kind` is
 #: `currency`.

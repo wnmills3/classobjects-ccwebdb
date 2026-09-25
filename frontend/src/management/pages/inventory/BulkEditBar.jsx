@@ -36,7 +36,8 @@ import OfferDialog from './OfferDialog'
 const FOR_SALE = 'For sale'
 
 const BULK_FIELDS = [
-  ['Year', 'year_start', 'number'],
+  //: Coins only: a note's year is its series year, and it holds no other.
+  ['Year', 'year_start', 'number', 'coins'],
   ['Grade', 'grade', 'text'],
   ['Country', 'country', 'text'],
   ['Denomination', 'denomination', 'text'],
@@ -192,7 +193,11 @@ export default function BulkEditBar({
   onClear,
   view,
 }) {
-  const [field, setField] = useState(BULK_FIELDS[0][1])
+  // The first field this view offers: Year is a coin's, so a currency
+  // selection starts on Grade.
+  const [field, setField] = useState(
+    () => BULK_FIELDS.find(([, , , onlyView]) => !onlyView || onlyView === view)[1],
+  )
   const [value, setValue] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)

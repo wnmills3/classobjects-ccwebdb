@@ -118,6 +118,12 @@ COIN_ISSUES: dict[str, Issue] = {
 
 CURRENCY_ISSUES: dict[str, Issue] = {
     **SHARED_ISSUES,
+    # A note's year is its series year; it holds no other (owner, 2026-09-25).
+    "no_year": Issue(
+        "cud.series_year IS NULL",
+        join=(_J_CUR_DETAIL,),
+        description="No series year recorded",
+    ),
     "star_mismatch": Issue(
         # Scoped to notes with a recorded serial. Without the IS NOT NULL
         # guard, a null serial reads as "not a star pattern" by construction

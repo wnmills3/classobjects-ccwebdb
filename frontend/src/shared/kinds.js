@@ -29,12 +29,16 @@ export function sideFor(itemKind) {
 }
 
 //: Fields a banknote does not have. Coin, bullion, set, medal and token all do.
+//: The years among them: a note's year is its series year, and it holds no
+//: other (owner, 2026-09-25) -- the server refuses one sent for a note.
 export const COIN_ONLY_FIELDS = new Set([
   'strike_type',
   'metal',
   'mint',
   'bullion_form',
   'variety',
+  'year_start',
+  'year_end',
 ])
 
 //: Fields only paper money has.

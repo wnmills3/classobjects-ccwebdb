@@ -34,6 +34,7 @@ from ..deps import DbSession, OptionalUser, is_admin
 from ..lot_writes import members_held
 from ..models import (
     Country,
+    CurrencyDetail,
     Grade,
     InventoryItem,
     ItemImage,
@@ -129,6 +130,18 @@ def _photograph(item: InventoryItem) -> dict[str, str]:
     return image_urls(primary.image.sha256) if primary else {}
 
 
+def _years(item: InventoryItem) -> tuple[int | None, int | None]:
+    """The years a buyer is shown: a note's are its series year.
+
+    A note holds no year of its own (owner, 2026-09-25) -- its series year is
+    its year -- so it is read from the note's detail here, not stored twice.
+    """
+    detail = item.currency_detail
+    if detail is not None and detail.series_year is not None:
+        return detail.series_year, detail.series_year
+    return item.year_start, item.year_end
+
+
 def to_catalog_member(item: InventoryItem) -> CatalogMemberOut:
     """Project one coin of a lot into the public shape.
 
@@ -151,8 +164,8 @@ def to_catalog_member(item: InventoryItem) -> CatalogMemberOut:
         grade_display=grades.display_item(item),
         grading_service=_code(item.grading_service),
         metal=_code(item.metal),
-        year_start=item.year_start,
-        year_end=item.year_end,
+        year_start=_years(item)[0],
+        year_end=_years(item)[1],
         fineness=item.fineness,
         gross_weight_ozt=item.gross_weight_ozt,
         fine_weight_ozt=item.fine_weight_ozt,
@@ -249,8 +262,8 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         grade_display=grades.display_item(item),
         grading_service=_code(item.grading_service),
         metal=_code(item.metal),
-        year_start=item.year_start,
-        year_end=item.year_end,
+        year_start=_years(item)[0],
+        year_end=_years(item)[1],
         fineness=item.fineness,
         gross_weight_ozt=item.gross_weight_ozt,
         fine_weight_ozt=item.fine_weight_ozt,
@@ -324,10 +337,18 @@ def list_catalog(
         )
     if metal:
         filters.append(InventoryItem.metal_id == code_to_id(db, Metal, metal, "metal"))
+    # A note's year is its series year (see `_years`): read from its
+    # detail row, through a subquery so the joins below stay as they are.
+    year = func.coalesce(
+        InventoryItem.year_start,
+        select(CurrencyDetail.series_year)
+        .where(CurrencyDetail.inventory_item_id == InventoryItem.id)
+        .scalar_subquery(),
+    )
     if year_min is not None:
-        filters.append(InventoryItem.year_start >= year_min)
+        filters.append(year >= year_min)
     if year_max is not None:
-        filters.append(InventoryItem.year_start <= year_max)
+        filters.append(year <= year_max)
     if in_stock:
         filters.append(Listing.quantity_available > 0)
 
