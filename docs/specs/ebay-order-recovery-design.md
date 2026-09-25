@@ -80,5 +80,18 @@ Run again after a new download: it fills only what is still empty.
 
 ## Applied to live, 2026-09-25
 
-See *Applied* in the system-administration guide's *eBay order numbers and
-listing ids*, and the review workbook in `logs\`.
+From the 2024-2026 workbooks, after a backup verified by restore
+(`ccwebdb_pre_ebay_orders_20260925.dump`) and a rehearsal on a restored copy
+that gave the same counts:
+
+| | before | after |
+|---|---|---|
+| eBay purchases without an order number | 1,234 | 2 |
+| purchases | 3,922 | 3,658 (264 merged into their orders) |
+| items with a listing id | 0 | 5,567 |
+| items, total cost | 7,661, $536,222.82 | unchanged |
+
+968 purchases were numbered and 300 items moved; each changed item has its
+History rows (7,421). A second run finds nothing to fill. Left for a person, in
+`logs\ebay_orders_review_20260925.xlsx`: the 2 purchases the history cannot
+decide, and the 49 stored order numbers eBay contradicts.
