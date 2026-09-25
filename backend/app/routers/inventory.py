@@ -841,9 +841,10 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         if getattr(payload, field) is not None
     }
     years = resolve_years((None, None), given_years)
-    if payload.item_kind == "currency" and payload.series_year is not None:
-        # A note's year is its series year (see `_note_year`).
-        years = (payload.series_year, payload.series_year)
+    if payload.item_kind == "currency":
+        # A note holds no year: its series year is its year (see
+        # `_refuse_note_year`; ItemCreate refuses one sent for a note).
+        years = None
     if years is not None:
         refuse_backwards(years, payload.source_title)
     else:
@@ -1275,21 +1276,31 @@ def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemS
     ]
 
 
-def _note_year(
-    item: InventoryItem, data: dict[str, object]
-) -> tuple[int | None, int | None] | None:
-    """A note's year pair when this change sets its series year, else None.
+def _is_note_after(item: InventoryItem, data: dict[str, object]) -> bool:
+    """Whether the item is a banknote once this change is made."""
+    return (data.get("item_kind") or item.item_kind.code) == "currency"
 
-    A note has one year, its series year (owner, 2026-09-24: "Series year is
-    good enough"): the item's year follows it, so search, sorting and titles
-    read the same year the note is catalogued by.
+
+def _refuse_note_year(items: Sequence[InventoryItem], data: dict[str, object]) -> None:
+    """A note has no year of its own: its series year is its year.
+
+    Owner, 2026-09-25: the item's years exist for coins and for lots of
+    mixed years; storing a note's series year a second time only gave the
+    two a chance to disagree, and three did. A note's year is left empty and
+    everything that shows or searches one reads `series_year`.
     """
-    kind = data.get("item_kind") or item.item_kind.code
-    if kind != "currency" or "series_year" not in data:
-        return None
-    year = data["series_year"]
-    assert year is None or isinstance(year, int)
-    return (year, year)
+    sent = [field for field in YEAR_FIELDS if data.get(field) is not None]
+    if not sent:
+        return
+    notes = sorted(i.item_code for i in items if _is_note_after(i, data))
+    if notes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"{' and '.join(sent)}: a note's year is its series year -- "
+                f"send series_year instead ({', '.join(notes[:10])})"
+            ),
+        )
 
 
 def _row[T: ReferenceMixin](
@@ -2009,9 +2020,11 @@ def bulk_edit(
     # Per item, not once for the set: the same Year moves a single year's end
     # with it and leaves a range's end alone. Checked across every item before
     # any is changed, the same all-or-nothing as the codes above.
+    _refuse_note_year(items, data)
     years = {
-        item.id: _note_year(item, data)
-        or resolve_years((item.year_start, item.year_end), data)
+        item.id: (None, None)
+        if _is_note_after(item, data)
+        else resolve_years((item.year_start, item.year_end), data)
         for item in items
     }
     broken = sorted(
@@ -2167,9 +2180,12 @@ def update_item(
         sale_state.guard(db, [item], acknowledged=False)
 
     # Before anything is set: a refused year leaves the item untouched. A
-    # note's year is its series year.
-    years = _note_year(item, data) or resolve_years(
-        (item.year_start, item.year_end), data
+    # note holds none: its series year is its year.
+    _refuse_note_year([item], data)
+    years = (
+        (None, None)
+        if _is_note_after(item, data)
+        else resolve_years((item.year_start, item.year_end), data)
     )
     if years is not None:
         refuse_backwards(years, item.item_code)

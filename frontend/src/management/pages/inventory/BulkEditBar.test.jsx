@@ -60,6 +60,15 @@ beforeEach(() => {
 })
 
 describe('BulkEditBar', () => {
+  it('offers a note selection no Year, and starts it on another field', () => {
+    render(
+      <BulkEditBar view="currency" ids={[1]} onApplied={vi.fn()} onClear={vi.fn()} />,
+    )
+    const options = [...screen.getByRole('combobox').options].map((o) => o.value)
+    expect(options).not.toContain('year_start')
+    expect(screen.getByRole('combobox')).toHaveValue(options[0])
+  })
+
   it('offers to change items for sale only once the server names them', async () => {
     const user = userEvent.setup()
     const onApplied = vi.fn()
@@ -68,7 +77,10 @@ describe('BulkEditBar', () => {
         new Error('For sale -- CC-000001: listing #3 at 189.00. A change shows ...'),
       )
       .mockResolvedValueOnce({ updated: 2 })
-    render(<BulkEditBar ids={[1, 2]} onApplied={onApplied} onClear={vi.fn()} />)
+    // The coin view: Year is a coin's field (a note's year is its series year).
+    render(
+      <BulkEditBar view="coins" ids={[1, 2]} onApplied={onApplied} onClear={vi.fn()} />,
+    )
 
     expect(screen.queryByRole('checkbox')).toBeNull()
     await user.type(screen.getByPlaceholderText('New value'), '1964')

@@ -447,6 +447,10 @@ CURRENCY_VIEW = ViewSpec(
         "series_designation": Filt("cud.series_designation", join=(_J_CUR_DETAIL,)),
         "friedberg_status": Filt("cud.friedberg_status", join=(_J_CUR_DETAIL,)),
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
+        # A note's year is its series year; it holds no other (owner,
+        # 2026-09-25), so Year from / to read that.
+        "year_min": Filt("cud.series_year", "gte", (_J_CUR_DETAIL,)),
+        "year_max": Filt("cud.series_year", "lte", (_J_CUR_DETAIL,)),
     },
     search_columns=(_C_SOURCE_TITLE, _C_DESCRIPTION, _C_RATING, _C_ITEM_CODE),
     named=(
