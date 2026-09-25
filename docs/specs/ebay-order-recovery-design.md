@@ -57,7 +57,12 @@ loads that list, and fails with the expiry removed.
 `inventory_item.sellers_item_id` (text, indexed; migration `9a4c2e7f5b18`):
 the seller's id for the listing the item was bought from. Filled from the
 item's own listing link, else its purchase's; only where empty. A lot's pieces
-share it. The item editor shows it as a link to the listing, and both
+share it. **It is not unique and does not name an order**: a seller lists many
+of one coin under one id, and it is bought in several orders -- 4 ids in the
+2024-2026 history were, and CC-000684 and CC-000685 share `124766588249` across
+orders `16-11696-17632` and `13-11699-25451`. So its index is plain, and the
+pass, meeting an id bought more than once, takes the order dated as the
+purchase is and leaves a tie for a person. The item editor shows it as a link to the listing, and both
 inventory searches take `sellers_item_id`.
 
 ## The pass

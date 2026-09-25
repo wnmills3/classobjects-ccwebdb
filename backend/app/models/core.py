@@ -392,7 +392,9 @@ class InventoryItem(TimestampMixin, Base):
     #: carries the same id, so a lot's pieces stay traceable to it, and it
     #: is how a purchase is matched to the seller's order records
     #: (`app.ebay_orders`, owner 2026-09-25). Text: ids are identifiers, not
-    #: quantities.
+    #: quantities. **Not unique**, and not an order: a seller lists many of
+    #: one coin under one id and it is bought in several orders (CC-000684
+    #: and CC-000685 share 124766588249 across two), so the index is plain.
     sellers_item_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True
     )
