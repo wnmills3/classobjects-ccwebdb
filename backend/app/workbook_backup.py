@@ -7,6 +7,7 @@ import rebuilds the same database -- relationships and all.
 
     python -m app.workbook_backup export [--out FILE]      live -> workbook
     python -m app.workbook_backup import FILE --to URL     workbook -> database
+        [--unknown-for-missing]                            broken link -> Unknown row
     python -m app.workbook_backup compare URL              live vs URL, row by row
     python -m app.workbook_backup widths FILE              remember FILE's column widths
 
@@ -29,6 +30,20 @@ foreign-key order (a column that points at its own table, or at one loaded
 later, is filled in a second pass), and every id sequence is moved past the
 highest id. It refuses the live database: restore into a new one, compare
 it, then switch to it.
+
+**A broken link is refused, all of them at once.** Every foreign key is
+checked against the workbook's own rows before anything is written, and the
+refusal lists each row that points at nothing. With `--unknown-for-missing`
+(owner, 2026-09-24) a link into a *vocabulary* -- a table with a code and a
+label, such as `grade` or `mint` -- is pointed at that vocabulary's Unknown
+row instead, and every substitution is reported. The Unknown row is the one
+coded `unknown` (or labelled Unknown) if the sheet has one; otherwise it is
+added, with id 0 -- ids start at 1, so 0 is never a real row's -- and
+`source` manual, so a seed load leaves it alone. A vocabulary whose rows need
+more than a code and a label (a denomination's face value, a mint's mark) is
+not given one by guesswork: add an `unknown` row to its sheet. A link into
+anything else -- an item, an order -- is still refused; there is no Unknown
+item.
 
 **Column widths are remembered** (owner, 2026-09-24): each export sizes its
 columns from `data/workbook_widths.json`, keyed by sheet and column *name*
@@ -80,8 +95,11 @@ from .config import REPO_ROOT, settings
 
 __all__ = [
     "EMPTY_STRING",
+    "UNKNOWN_CODE",
     "WIDTHS_FILE",
     "Difference",
+    "Imported",
+    "Substitution",
     "capture_widths",
     "compare",
     "export_workbook",
@@ -108,6 +126,12 @@ ABOUT_HEADER = ("format", FORMAT)
 VERSION_TABLE = "alembic_version"
 #: Rows written per insert round trip.
 CHUNK = 1000
+#: The code of a vocabulary's Unknown row.
+UNKNOWN_CODE = "unknown"
+#: The columns that make a table a vocabulary (`models.base.ReferenceMixin`).
+_VOCABULARY_COLUMNS = frozenset({"code", "label", "sort_order", "is_active", "source"})
+#: Broken links named in a refusal; the count says how many more.
+_SHOWN = 25
 
 
 class WorkbookError(RuntimeError):
@@ -482,13 +506,40 @@ def _refuse_live(url: str) -> None:
         )
 
 
-def import_workbook(path: Path, url: str) -> dict[str, int]:
-    """Load the workbook at `path` into the database at `url`; rows per table."""
+@dataclass(frozen=True)
+class Substitution:
+    """A link that pointed at nothing, pointed at its vocabulary's Unknown row."""
+
+    table: str
+    row: str
+    column: str
+    missing: object
+    vocabulary: str
+    unknown: object
+
+
+@dataclass(frozen=True)
+class Imported:
+    """What an import loaded: rows per table, and every Unknown substitution."""
+
+    counts: dict[str, int]
+    substituted: list[Substitution]
+
+
+def import_workbook(
+    path: Path, url: str, *, unknown_for_missing: bool = False
+) -> Imported:
+    """Load the workbook at `path` into the database at `url`.
+
+    A link that points at no row is refused, unless `unknown_for_missing`
+    and the link is into a vocabulary: then it points at that vocabulary's
+    Unknown row, and the substitution is returned.
+    """
     _refuse_live(url)
     book = load_workbook(path, read_only=True, data_only=True)
     engine = create_engine(url)
     try:
-        return _load(engine, book)
+        return _load(engine, book, unknown_for_missing=unknown_for_missing)
     finally:
         # Closed whether it loaded or was refused: a pooled connection left
         # open holds the database, and nothing can drop or rename it.
@@ -496,7 +547,134 @@ def import_workbook(path: Path, url: str) -> dict[str, int]:
         engine.dispose()
 
 
-def _load(engine: Engine, book: Workbook) -> dict[str, int]:
+def _is_vocabulary(table: Table) -> bool:
+    return {c.name for c in table.columns} >= _VOCABULARY_COLUMNS
+
+
+def _key(part: _Loaded, row: dict[str, object]) -> str:
+    """A row named by its primary key, as a refusal or a report shows it."""
+    keys = list(part.table.primary_key.columns) or list(part.table.columns)[:1]
+    return ", ".join(f"{k.name} {row.get(k.name)}" for k in keys)
+
+
+def _unknown_row(part: _Loaded, column: str) -> object:
+    """The value of `column` on the vocabulary's Unknown row, added if absent."""
+    for row in part.rows:
+        code, label = row.get("code"), row.get("label")
+        if code == UNKNOWN_CODE or (
+            isinstance(label, str) and label.lower() == "unknown"
+        ):
+            return row[column]
+    table = part.table
+    primary = list(table.primary_key.columns)
+    if [c.name for c in primary] != [column] or not isinstance(
+        primary[0].type, Integer
+    ):
+        raise WorkbookError(
+            f"{table.name}: links point at {column}, not its integer id, so no "
+            f"Unknown row can be added: add a row coded {UNKNOWN_CODE!r} to its sheet"
+        )
+    filled = {"code", "label", "sort_order", "is_active", "source", column}
+    needed = [
+        c.name
+        for c in _stored(table)
+        if not c.nullable and c.server_default is None and c.name not in filled
+    ]
+    if needed:
+        raise WorkbookError(
+            f"{table.name}: an Unknown row needs {', '.join(needed)}, which cannot "
+            f"be guessed: add a row coded {UNKNOWN_CODE!r} to its sheet"
+        )
+    taken = {row.get(column) for row in part.rows}
+    new_id = 0
+    while new_id in taken:
+        new_id -= 1
+    orders = [o for r in part.rows if isinstance(o := r.get("sort_order"), int)]
+    # Only the columns set here: the database fills the rest, NULL or its own
+    # default (`grade.is_plus` is NOT NULL DEFAULT false) -- an explicit None
+    # would be refused. `_load` inserts a row of other columns on its own.
+    part.rows.append(
+        {
+            column: new_id,
+            "code": UNKNOWN_CODE,
+            "label": "Unknown",
+            # Last in a sequenced picker, after every real value.
+            "sort_order": max(orders, default=0) + 1,
+            "is_active": True,
+            "source": "manual",
+        }
+    )
+    return new_id
+
+
+def _check_links(parts: list[_Loaded], unknown_for_missing: bool) -> list[Substitution]:
+    """Refuse or substitute every link that points at no row in the workbook.
+
+    Checked here, before anything is written, so a refusal names every broken
+    link at once rather than the database's first. A link of several columns
+    is left to the database.
+    """
+    by_name = {part.table.name: part for part in parts}
+    present: dict[tuple[str, str], set[object]] = {}
+
+    def values(table: str, column: str) -> set[object]:
+        if (table, column) not in present:
+            present[table, column] = {r.get(column) for r in by_name[table].rows}
+        return present[table, column]
+
+    broken: list[str] = []
+    substituted: list[Substitution] = []
+    for part in parts:
+        for fk in sorted(part.table.foreign_keys, key=lambda f: f.parent.name):
+            constraint = fk.constraint
+            if (
+                constraint is None
+                or len(constraint.elements) != 1
+                or fk.column.table.name not in by_name
+            ):
+                continue
+            target, column = fk.column.table, fk.column.name
+            for row in part.rows:
+                value = row.get(fk.parent.name)
+                if value is None or value in values(target.name, column):
+                    continue
+                if unknown_for_missing and _is_vocabulary(target):
+                    unknown = _unknown_row(by_name[target.name], column)
+                    values(target.name, column).add(unknown)
+                    row[fk.parent.name] = unknown
+                    substituted.append(
+                        Substitution(
+                            part.table.name,
+                            _key(part, row),
+                            fk.parent.name,
+                            value,
+                            target.name,
+                            unknown,
+                        )
+                    )
+                else:
+                    broken.append(
+                        f"{part.table.name} {_key(part, row)}: {fk.parent.name} "
+                        f"{value!r} is no {target.name}.{column}"
+                    )
+    if broken:
+        shown = "; ".join(broken[:_SHOWN])
+        more = f" (and {len(broken) - _SHOWN} more)" if len(broken) > _SHOWN else ""
+        hint = (
+            ""
+            if unknown_for_missing
+            else (
+                " -- with --unknown-for-missing, a link into a vocabulary "
+                "points at its Unknown row instead"
+            )
+        )
+        raise WorkbookError(
+            f"{len(broken)} link(s) point at nothing: {shown}{more}{hint}"
+        )
+    return substituted
+
+
+def _load(engine: Engine, book: Workbook, *, unknown_for_missing: bool) -> Imported:
     """Replace every table's rows with the workbook's, in one transaction."""
     about = _about(book)
     tables = _tables(reflect(engine))
@@ -523,21 +701,24 @@ def _load(engine: Engine, book: Workbook) -> dict[str, int]:
         loaded: list[_Loaded] = []
         for table in tables:
             remaining.discard(table.name)
-            part = _read_sheet(book, table, remaining)
-            if part.rows:
-                first = [
-                    {k: (None if k in part.deferred else v) for k, v in r.items()}
-                    for r in part.rows
-                ]
-                for start in range(0, len(first), CHUNK):
-                    _insert(conn, table, first[start : start + CHUNK])
-            loaded.append(part)
-            counts[table.name] = len(part.rows)
+            loaded.append(_read_sheet(book, table, remaining))
+        substituted = _check_links(loaded, unknown_for_missing)
+        for part in loaded:
+            # One insert per set of columns: a sheet's rows all share one, an
+            # added Unknown row names fewer.
+            shapes: dict[tuple[str, ...], list[dict[str, object]]] = {}
+            for r in part.rows:
+                first = {k: (None if k in part.deferred else v) for k, v in r.items()}
+                shapes.setdefault(tuple(first), []).append(first)
+            for rows in shapes.values():
+                for start in range(0, len(rows), CHUNK):
+                    _insert(conn, part.table, rows[start : start + CHUNK])
+            counts[part.table.name] = len(part.rows)
         for part in loaded:
             _second_pass(conn, part)
         for table in tables:
             _resync(conn, table)
-    return counts
+    return Imported(counts, substituted)
 
 
 def _insert(conn: Connection, table: Table, rows: list[dict[str, object]]) -> None:
@@ -664,6 +845,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     imp = sub.add_parser("import", help="load a workbook into an empty database")
     imp.add_argument("file", type=Path)
     imp.add_argument("--to", required=True, help="the database URL to load into")
+    imp.add_argument(
+        "--unknown-for-missing",
+        action="store_true",
+        help="point a vocabulary link that finds no row at its Unknown row",
+    )
     cmp_ = sub.add_parser("compare", help="compare the live database with another")
     cmp_.add_argument("url")
     wid = sub.add_parser("widths", help="remember a workbook's column widths")
@@ -686,8 +872,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_counts(counts)
             print(f"wrote {path}")
         elif args.command == "import":
-            counts = import_workbook(args.file, args.to)
-            _print_counts(counts)
+            imported = import_workbook(
+                args.file, args.to, unknown_for_missing=args.unknown_for_missing
+            )
+            _print_counts(imported.counts)
+            for s in imported.substituted:
+                print(
+                    f"  UNKNOWN {s.table} {s.row}: {s.column} {s.missing!r} -> "
+                    f"{s.vocabulary} Unknown ({s.unknown})"
+                )
+            if imported.substituted:
+                print(f"  {len(imported.substituted)} link(s) set to Unknown")
             print(f"loaded {args.file} into {make_url(args.to).database}")
         else:
             differences = compare(live, create_engine(args.url))

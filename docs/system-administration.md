@@ -1060,6 +1060,7 @@ itself, not the models, so none is missed.
 python -m app.workbook_backup export                        live -> ccwebdb-backups\ccwebdb_<time>.xlsx
 python -m app.workbook_backup export --out <file.xlsx>      ... to a file you name
 python -m app.workbook_backup import <file.xlsx> --to <url> workbook -> an empty database
+    [--unknown-for-missing]                                 a vocabulary link to nothing -> Unknown
 python -m app.workbook_backup compare <url>                 live vs <url>, every row of every table
 ```
 
@@ -1097,10 +1098,32 @@ python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@lo
 
 The import refuses a database at a different migration revision than the
 workbook's, refuses the live database, clears any rows the migrations put
-there, and loads everything in one transaction: a refused row (a link to an
-id that does not exist, a value that does not fit its column) names its table
-and reason and loads nothing. `compare` then says `identical`, or names each
-table that differs -- after edits, exactly the tables edited.
+there, and loads everything in one transaction: a refused row (a value that
+does not fit its column, a duplicate) names its table and reason and loads
+nothing. `compare` then says `identical`, or names each table that differs --
+after edits, exactly the tables edited.
+
+**Links that point at nothing.** Before anything is written, every link is
+checked against the workbook's own rows. By default the import refuses and
+lists each row whose link finds nothing, for example after a vocabulary
+row was deleted from its sheet. Fix the sheet, or add `--unknown-for-missing`:
+a link into a vocabulary (grade, mint, status and the like) is then pointed
+at that vocabulary's **Unknown** row, and each substitution is printed:
+
+```
+  UNKNOWN inventory_item id 1: grade_id 99999 -> grade Unknown (0)
+  1 link(s) set to Unknown
+```
+
+The Unknown row is the vocabulary's own `unknown` row if its sheet has one
+(item status does). Otherwise it is added with id 0 -- real ids start at 1 --
+labelled Unknown, sorted last, marked `manual` so a seed load leaves it
+alone. Find the items that point at it and correct them in the console. A
+vocabulary whose rows need more than a code and a label -- a denomination's
+currency and face value, a mint's mark -- gets no invented row: the import
+names the columns, and you add an `unknown` row to that sheet yourself. A link
+to anything that is not a vocabulary (an item, an order, a purchase) is always
+refused; there is no Unknown item.
 
 ## Applying a schema release
 

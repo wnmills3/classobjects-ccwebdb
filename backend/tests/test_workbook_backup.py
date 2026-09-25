@@ -6,7 +6,8 @@ hold every hard case at once: a link to its own table pointing at a row
 loaded after it, a link to another table, a computed column, an enum,
 JSON with both SQL NULL and JSON's null, a decimal, a zone-aware
 timestamp, a date, an empty string beside a NULL, and a value that looks
-like a formula.
+like a formula. Two vocabularies test `--unknown-for-missing`: `finish`
+needs nothing but a code and a label, `coinage` a face value too.
 """
 
 from __future__ import annotations
@@ -53,10 +54,32 @@ CREATE TABLE parent (
     data jsonb,
     colour shade
 );
+CREATE TYPE provenance_source AS ENUM ('seeded', 'derived', 'manual');
+CREATE TABLE finish (
+    id serial PRIMARY KEY,
+    code varchar(32) NOT NULL UNIQUE,
+    label varchar(64) NOT NULL,
+    sort_order integer NOT NULL,
+    is_active boolean NOT NULL,
+    source provenance_source NOT NULL,
+    -- As grade.is_plus: an added Unknown row must get the default.
+    featured boolean NOT NULL DEFAULT false
+);
+CREATE TABLE coinage (
+    id serial PRIMARY KEY,
+    code varchar(32) NOT NULL UNIQUE,
+    label varchar(64) NOT NULL,
+    sort_order integer NOT NULL,
+    is_active boolean NOT NULL,
+    source provenance_source NOT NULL,
+    face numeric(8, 2) NOT NULL
+);
 CREATE TABLE child (
     id serial PRIMARY KEY,
     parent_id integer NOT NULL REFERENCES parent(id),
-    note text
+    note text,
+    finish_id integer REFERENCES finish(id),
+    coinage_id integer REFERENCES coinage(id)
 );
 """
 
@@ -72,7 +95,12 @@ INSERT INTO parent (id, name, parent_id, amount, at, day, flag, data, colour) VA
   -- JSON's own null, distinct from row 2's SQL NULL.
   (4, 'json null', 1, NULL, NULL, NULL, NULL, 'null', NULL);
 SELECT setval('parent_id_seq', 4);
-INSERT INTO child (parent_id, note) VALUES (1, NULL), (3, ''), (2, 'x');
+INSERT INTO finish (code, label, sort_order, is_active, source) VALUES
+  ('matte', 'Matte', 10, true, 'seeded'), ('gloss', 'Gloss', 20, true, 'seeded');
+INSERT INTO coinage (code, label, sort_order, is_active, source, face) VALUES
+  ('cent', 'Cent', 10, true, 'seeded', 0.01);
+INSERT INTO child (parent_id, note, finish_id, coinage_id) VALUES
+  (1, NULL, 1, 1), (3, '', 2, NULL), (2, 'x', NULL, NULL);
 """
 
 
@@ -120,10 +148,11 @@ def test_a_round_trip_rebuilds_the_database_exactly(
     source, target_url = pair
     path = tmp_path / "backup.xlsx"
     counts = wb.export_workbook(source, path)
-    assert counts == {"parent": 4, "child": 3}
+    assert counts == {"parent": 4, "finish": 2, "coinage": 1, "child": 3}
 
     loaded = wb.import_workbook(path, target_url)
-    assert loaded == counts
+    assert loaded.counts == counts
+    assert loaded.substituted == []
     target = create_engine(target_url)
     try:
         assert wb.compare(source, target) == []
@@ -214,8 +243,15 @@ def test_a_broken_link_is_refused_and_nothing_is_loaded(
     book = load_workbook(path)
     book["child"]["B2"] = 999  # no parent 999
     book.save(path)
-    with pytest.raises(wb.WorkbookError, match="child: the database refused a row"):
+    with pytest.raises(
+        wb.WorkbookError,
+        match=r"1 link\(s\) point at nothing: child id 1: parent_id 999 is no "
+        r"parent\.id",
+    ):
         wb.import_workbook(path, target_url)
+    # An item-like table has no Unknown row: the flag changes nothing.
+    with pytest.raises(wb.WorkbookError, match="point at nothing"):
+        wb.import_workbook(path, target_url, unknown_for_missing=True)
     target = create_engine(target_url)
     try:
         with target.connect() as conn:
@@ -272,7 +308,7 @@ def test_app_backup_finds_the_tables_no_model_describes(
     """
     source, _ = pair
     found = [table.name for table in backup.unmodelled_tables(source)]
-    assert set(found) == {"alembic_version", "parent", "child"}
+    assert set(found) == {"alembic_version", "parent", "finish", "coinage", "child"}
     assert found.index("parent") < found.index("child")
     # And the copy's table list is the models' followed by these.
     names = [table.name for table in backup.all_tables(source)]
@@ -336,6 +372,111 @@ def test_a_width_excel_saved_for_a_run_of_columns_reaches_each(
 
 def test_no_width_file_means_default_widths(tmp_path: Path) -> None:
     assert wb.load_widths(tmp_path / "absent.json") == {}
+
+
+# -- links that point at nothing -------------------------------------------------
+
+
+def _break(path: Path, cells: dict[str, dict[str, str | int]]) -> None:
+    """Overwrite workbook cells: {sheet: {cell: value}}."""
+    book = load_workbook(path)
+    for sheet, values in cells.items():
+        for cell, value in values.items():
+            book[sheet][cell] = value
+    book.save(path)
+
+
+def test_every_broken_link_is_named_at_once(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    # child id 1's finish, child id 2's parent.
+    _break(path, {"child": {"D2": 99, "B3": 998}})
+    with pytest.raises(wb.WorkbookError) as refused:
+        wb.import_workbook(path, target_url)
+    message = str(refused.value)
+    assert message.startswith("2 link(s) point at nothing")
+    assert "child id 1: finish_id 99 is no finish.id" in message
+    assert "child id 2: parent_id 998 is no parent.id" in message
+    assert "--unknown-for-missing" in message
+
+
+def test_a_missing_vocabulary_value_becomes_a_new_unknown_row(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    """With the flag, the link points at an Unknown row with id 0, reported."""
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    _break(path, {"child": {"D2": 99, "D3": 98}})
+    loaded = wb.import_workbook(path, target_url, unknown_for_missing=True)
+    assert loaded.substituted == [
+        wb.Substitution("child", "id 1", "finish_id", 99, "finish", 0),
+        wb.Substitution("child", "id 2", "finish_id", 98, "finish", 0),
+    ]
+    assert loaded.counts["finish"] == 3
+    target = create_engine(target_url)
+    try:
+        with target.connect() as conn:
+            unknown = conn.execute(
+                text(
+                    "SELECT code, label, sort_order, is_active, source::text, "
+                    "featured FROM finish WHERE id = 0"
+                )
+            ).one()
+            assert tuple(unknown) == (
+                "unknown",
+                "Unknown",
+                21,
+                True,
+                "manual",
+                False,
+            )
+            links = conn.execute(
+                text("SELECT finish_id FROM child ORDER BY id")
+            ).scalars()
+            assert list(links) == [0, 0, None]
+            # The sequence is untouched by id 0: the next real row is 3.
+            new_id = conn.execute(
+                text(
+                    "INSERT INTO finish (code, label, sort_order, is_active, source) "
+                    "VALUES ('satin', 'Satin', 30, true, 'manual') RETURNING id"
+                )
+            ).scalar()
+            assert new_id == 3
+    finally:
+        target.dispose()
+
+
+def test_an_unknown_row_already_in_the_sheet_is_reused(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    # finish id 2 becomes the Unknown row; child id 1 points at nothing.
+    _break(path, {"finish": {"B3": "unknown"}, "child": {"D2": 99}})
+    loaded = wb.import_workbook(path, target_url, unknown_for_missing=True)
+    assert loaded.substituted == [
+        wb.Substitution("child", "id 1", "finish_id", 99, "finish", 2)
+    ]
+    assert loaded.counts["finish"] == 2
+
+
+def test_an_unknown_row_is_not_guessed_for_a_vocabulary_that_needs_more(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    """`coinage` needs a face value: no Unknown row is made up for it."""
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    _break(path, {"child": {"E2": 99}})
+    with pytest.raises(
+        wb.WorkbookError, match="coinage: an Unknown row needs face, which cannot"
+    ):
+        wb.import_workbook(path, target_url, unknown_for_missing=True)
 
 
 # -- one cell -------------------------------------------------------------------
