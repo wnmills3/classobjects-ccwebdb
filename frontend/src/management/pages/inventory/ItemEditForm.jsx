@@ -728,8 +728,10 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
               rel="noopener noreferrer"
               data-help="item_purchase"
             >
-              {item.order_number ?? 'purchase'}
-              {item.vendor ? ` · ${item.vendor}` : ''}
+              {/* Named for what it opens: the order number is the purchase's,
+                  changed there, not on the item (owner, 2026-09-25). */}
+              Purchase: {item.order_number ?? 'no order number'}
+              {item.vendor ? ` · ${item.vendor}` : ''} -- edit
             </a>
           )}
           {item.sellers_item_id && (

@@ -182,8 +182,9 @@ export const FIELD_HELP = {
   item_purchase: {
     title: 'Purchase',
     text:
-      'The purchase this item was bought on: its order number and vendor. Opens the ' +
-      'purchase in a new tab, where Edit details changes its number, date or notes.',
+      'The purchase this item was bought on: its order number and vendor. The order ' +
+      'number belongs to the purchase, not the item: this opens the purchase in a new ' +
+      'tab, where Edit details changes its number, date, web address or notes.',
   },
   edit_purchase: {
     title: 'Edit details',

@@ -65,6 +65,27 @@ describe('ItemEditForm', () => {
     expect(api.getInventoryItem).toHaveBeenCalledWith(12)
   })
 
+  it('names its purchase, and where to change the order number', async () => {
+    // The owner looked for the order number in the item editor: it belongs to
+    // the purchase, so the link says so even when there is no number yet.
+    api.getInventoryItem.mockResolvedValue({
+      ...item,
+      purchase_order_id: 127,
+      order_number: null,
+      vendor: 'ebay.com',
+      sellers_item_id: '276413586076',
+    })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const purchase = await screen.findByRole('link', {
+      name: /^Purchase: no order number/,
+    })
+    expect(purchase).toHaveTextContent('Purchase: no order number · ebay.com -- edit')
+    expect(purchase).toHaveAttribute('href', '/management/purchases?order=127')
+    expect(
+      screen.getByRole('link', { name: /eBay item 276413586076/ }),
+    ).toHaveAttribute('href', 'https://www.ebay.com/itm/276413586076')
+  })
+
   it('offers a confirmed checkbox per reviewable field', async () => {
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
