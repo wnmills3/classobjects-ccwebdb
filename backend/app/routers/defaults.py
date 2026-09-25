@@ -16,6 +16,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ..classifier_defaults import NoteFacts, suggest
 from ..composition import composition_for
@@ -25,6 +26,7 @@ from ..models import (
     Denomination,
     FedDistrict,
     Metal,
+    NoteIssue,
     NoteType,
     ReferenceMixin,
     SealColor,
@@ -32,6 +34,7 @@ from ..models import (
 )
 from ..references import code_to_id
 from ..schemas import CoinSuggestionOut, NoteSuggestionOut
+from ..serial_patterns import SMALL_SIZE_FROM
 
 router = APIRouter(prefix="/defaults", tags=["defaults"])
 
@@ -105,7 +108,45 @@ def suggest_note(
             if row_id is not None
             else None
         )
-    return NoteSuggestionOut(**found)
+    return NoteSuggestionOut(
+        **found, warning=_issue_warning(db, denomination_id, series_year, series_letter)
+    )
+
+
+def _issue_warning(
+    db: Session, denomination_id: int | None, year: int | None, letter: str | None
+) -> str | None:
+    """Say so when no issue of this denomination is of this series.
+
+    Only where the record covers the denomination at all -- the small-size
+    US notes `note_issue` holds -- and only from 1928, when small-size notes
+    begin: a large-size or foreign note is simply not described there, which
+    is no reason to doubt its series. The issues that do exist are named, so
+    a letter typed wrong (1953E for 1953B) is easy to put right.
+    """
+    if denomination_id is None or year is None or year < SMALL_SIZE_FROM:
+        return None
+    issues = db.execute(
+        select(NoteIssue.series_year, NoteIssue.series_letter)
+        .where(NoteIssue.denomination_id == denomination_id)
+        .distinct()
+    ).all()
+    if not issues:
+        return None
+    wanted = (letter or "").strip().upper() or None
+    if any(y == year and (ltr or None) == wanted for y, ltr in issues):
+        return None
+    label = db.execute(
+        select(Denomination.label).where(Denomination.id == denomination_id)
+    ).scalar_one()
+    note = f"{label.removesuffix(' Bill')} note"
+    that_year = sorted({f"{y}{ltr or ''}" for y, ltr in issues if y == year})
+    if that_year:
+        known = f"Series {year} on record: {', '.join(that_year)}."
+    else:
+        years = sorted({y for y, _ in issues})
+        known = f"{note.capitalize()} series on record: {', '.join(map(str, years))}."
+    return f"No {note} of Series {year}{wanted or ''} is on record. {known}"
 
 
 @router.get("/coin")

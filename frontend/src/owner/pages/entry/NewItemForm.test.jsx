@@ -7,6 +7,7 @@ vi.mock('../../api', () => ({
     createInventoryItem: vi.fn(),
     suggestNote: vi.fn(),
     suggestCoin: vi.fn(),
+    suggestDraftDescription: vi.fn(),
     setItemErrors: vi.fn(),
   },
 }))
@@ -573,6 +574,137 @@ describe('NewItemForm: errors, held in form state until the item exists', () => 
       expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue('')
     },
   )
+})
+
+describe('NewItemForm: what fits a note, and what the facts cannot find', () => {
+  const row = (code, extra = {}) => ({
+    code,
+    label: code,
+    source: 'seeded',
+    aliases: [],
+    extra,
+  })
+  const vocab = emptyReference({
+    tables: {
+      item_kind: [row('coin'), row('currency')],
+      grade_designation: [
+        row('DCAM', { applies_to: 'coin' }),
+        row('EPQ', { applies_to: 'currency' }),
+      ],
+    },
+  })
+  const optionsOf = (name) =>
+    [...screen.getByRole('combobox', { name }).options].map((o) => o.value)
+
+  it('offers a note only the note designations, and clears a coin one', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />,
+      { reference: vocab },
+    )
+    expect(optionsOf('grade_designation')).toContain('DCAM')
+    expect(optionsOf('grade_designation')).not.toContain('EPQ')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'grade_designation' }),
+      'DCAM',
+    )
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'item_kind' }),
+      'currency',
+    )
+
+    expect(optionsOf('grade_designation')).toContain('EPQ')
+    expect(optionsOf('grade_designation')).not.toContain('DCAM')
+    // DCAM means nothing on a banknote: it is not carried across.
+    expect(screen.getByRole('combobox', { name: 'grade_designation' })).toHaveValue('')
+  })
+
+  it('says when no issue matches the series, and fills nothing with it', async () => {
+    const user = userEvent.setup()
+    const warning =
+      'No $2 note of Series 1953E is on record. ' +
+      'Series 1953 on record: 1953, 1953A, 1953B, 1953C.'
+    api.suggestNote.mockResolvedValue({
+      note_type: null,
+      seal_color: null,
+      signature_combination: null,
+      fed_district: null,
+      warning,
+    })
+    render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+    await user.type(screen.getByLabelText('denomination'), 'usd_note_2')
+    await user.type(screen.getByRole('spinbutton', { name: /series year/i }), '1953')
+    await user.type(screen.getByRole('textbox', { name: /series letter/i }), 'E')
+
+    expect(await screen.findByRole('status')).toHaveTextContent(warning)
+    expect(screen.queryByText('suggested')).toBeNull()
+
+    // A different letter is a different question: the old answer is not
+    // shown for it.
+    api.suggestNote.mockResolvedValue({ signature_combination: 'smith_dillon' })
+    await user.clear(screen.getByRole('textbox', { name: /series letter/i }))
+    await user.type(screen.getByRole('textbox', { name: /series letter/i }), 'B')
+    await waitFor(() =>
+      expect(screen.getByLabelText('signature_combination')).toHaveValue(
+        'smith_dillon',
+      ),
+    )
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+})
+
+describe('NewItemForm: Suggest description', () => {
+  it('asks with what is entered and puts the answer in the box', async () => {
+    const user = userEvent.setup()
+    api.suggestDraftDescription.mockResolvedValue({
+      description: 'Choice Unc 64 Trinary 2017A $1 S/N B12211221A.',
+    })
+    render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+    await user.type(screen.getByLabelText('denomination'), 'usd_note_1')
+    await user.type(screen.getByRole('spinbutton', { name: /series year/i }), '2017')
+    await user.type(screen.getByRole('textbox', { name: /series letter/i }), 'A')
+    await user.type(
+      screen.getByRole('textbox', { name: /serial number/i }),
+      'B12211221A',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Suggest description' }))
+
+    expect(api.suggestDraftDescription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        item_kind: 'currency',
+        denomination: 'usd_note_1',
+        series_year: 2017,
+        series_letter: 'A',
+        serial_number: 'B12211221A',
+        piece_count: 1,
+        errors: [],
+      }),
+    )
+    const sent = api.suggestDraftDescription.mock.calls[0][0]
+    expect(sent).not.toHaveProperty('mint')
+    expect(screen.getByRole('textbox', { name: /description/i })).toHaveValue(
+      'Choice Unc 64 Trinary 2017A $1 S/N B12211221A.',
+    )
+    expect(screen.getByText(/edit it before saving/)).toBeInTheDocument()
+  })
+
+  it('leaves the box alone when there is nothing to describe yet', async () => {
+    const user = userEvent.setup()
+    api.suggestDraftDescription.mockResolvedValue({ description: '' })
+    render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(screen.getByRole('textbox', { name: /description/i }), 'mine')
+
+    await user.click(screen.getByRole('button', { name: 'Suggest description' }))
+
+    expect(await screen.findByText(/Nothing entered yet/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /description/i })).toHaveValue('mine')
+  })
 })
 
 describe('withSuggestions', () => {
