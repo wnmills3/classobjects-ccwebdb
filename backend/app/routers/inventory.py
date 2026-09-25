@@ -49,7 +49,7 @@ from ..inventory_search import (
     plain,
     search,
 )
-from ..item_descriptions import Features, suggested_description
+from ..item_descriptions import FANCY_SERIAL, Features, suggested_description
 from ..item_history import timeline
 from ..lifecycle_writes import record_initial_status, set_location, set_status
 from ..models import (
@@ -1320,6 +1320,8 @@ def _draft_item(db: Session, draft: ItemDraftIn) -> tuple[InventoryItem, Feature
             serial_number=draft.serial_number,
         )
         earned = serial_patterns.analyse(draft.serial_number or "")
+        if len(earned) > 1:
+            earned -= {FANCY_SERIAL}  # the pattern itself says more
         if earned:
             attributes = list(
                 db.scalars(

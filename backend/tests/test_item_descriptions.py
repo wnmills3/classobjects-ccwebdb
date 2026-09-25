@@ -97,6 +97,21 @@ def test_a_note_reads_as_the_owner_writes_it(db: Session) -> None:
     )
 
 
+def test_fancy_serial_is_left_out_beside_the_pattern_it_sums_up(db: Session) -> None:
+    item = _note(db)
+    radar = _link(db, item, "radar").removesuffix(" Serial")
+    _link(db, item, "fancy_serial")
+    text = suggested_description(db, item)
+    assert f"EPQ {radar} 1999" in text
+    assert "Fancy" not in text
+
+
+def test_fancy_serial_alone_is_still_said(db: Session) -> None:
+    item = _note(db)
+    fancy = _link(db, item, "fancy_serial").removesuffix(" Serial")
+    assert f"EPQ {fancy} 1999" in suggested_description(db, item)
+
+
 def test_no_district_signatures_service_or_labels(db: Session) -> None:
     text = suggested_description(db, _note(db))
     for left_out in ("District", "signatures", "PMG", "Serial number", "Graded"):

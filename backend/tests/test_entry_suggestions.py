@@ -124,6 +124,8 @@ def test_a_fancy_serial_is_promoted_before_it_is_saved(
     first = text_.split(" 1957B ")[0]
     assert "Trinary" not in first  # 12211221 has two digits: a binary
     assert "Binary" in first and "Radar" in first
+    # The umbrella says nothing beside the pattern itself.
+    assert "Fancy" not in first
 
 
 def test_a_draft_writes_nothing_and_takes_no_item_code(

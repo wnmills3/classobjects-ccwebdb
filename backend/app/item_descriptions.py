@@ -49,7 +49,10 @@ from .models import (
 )
 from .offer_titles import name_of
 
-__all__ = ["Features", "suggested_description"]
+__all__ = ["FANCY_SERIAL", "Features", "suggested_description"]
+
+#: The attribute that says only "some digit pattern": left out beside one.
+FANCY_SERIAL = "fancy_serial"
 
 
 @dataclass(frozen=True)
@@ -94,9 +97,12 @@ def _features(db: Session, item: InventoryItem, given: Features | None) -> list[
     if given is not None:
         attributes, errors = given.attributes, given.errors
     else:
-        attributes = [
-            held.label for held in item_attributes.held_attributes(db, item.id)
-        ]
+        held = item_attributes.held_attributes(db, item.id)
+        # "Fancy Serial" is the umbrella over the digit patterns: beside the
+        # pattern itself -- Trinary, Radar -- it says nothing more.
+        if len(held) > 1:
+            held = [h for h in held if h.code != FANCY_SERIAL]
+        attributes = [h.label for h in held]
         errors = list(
             db.execute(
                 select(ErrorType.label, ItemError.details)
