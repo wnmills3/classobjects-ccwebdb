@@ -532,10 +532,11 @@ export default function FriedbergLookup({
 
         {/* One field, one pair of Save buttons. Found in the catalogue: each
           match has a Copy button that puts its number in the field. Not
-          found: the field stays blank and Search the web takes Copy's place
-          -- the owner reads the number off the results window and types or
-          pastes it here. Nothing is fetched or saved from the search itself
-          (see `webSearchText`). */}
+          found: the field stays blank and the web search opens -- the owner
+          reads the number off the results window and types or pastes it
+          here. Search the web is always offered, for a match that is wrong.
+          Nothing is fetched or saved from the search itself (see
+          `webSearchText`). */}
         {results && (
           <div className="admin-form">
             {results.length > 0 ? (
@@ -584,11 +585,12 @@ export default function FriedbergLookup({
                   onChange={(e) => setRecordFrNumber(e.target.value)}
                 />
               </label>
-              {results.length === 0 && (
-                <button type="button" onClick={searchWeb} title={searchText}>
-                  Search the web
-                </button>
-              )}
+              {/* Offered with matches too: a match can be a wrong number
+                  recorded earlier, and the web is where the right one is
+                  found (owner, 2026-09-24). Only a miss opens it unasked. */}
+              <button type="button" onClick={searchWeb} title={searchText}>
+                Search the web
+              </button>
             </div>
             {recordError && <p className="error">{recordError}</p>}
             <div className="row">

@@ -402,13 +402,18 @@ describe('FriedbergLookup', () => {
     await waitFor(() => expect(window.open).toHaveBeenCalledTimes(1))
   })
 
-  it('with a match, offers Copy instead of Search the web', async () => {
+  it('with a match, offers Copy and still Search the web', async () => {
+    // A match can be the wrong number recorded earlier: the owner then needs
+    // the web search more than ever (owner, 2026-09-24), so it is not taken
+    // away. It does not open by itself, though -- only a miss does that.
     api.searchFriedberg.mockResolvedValue([ROW_VERIFIED])
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
     expect(await screen.findByRole('button', { name: 'Copy FR-TEST-1' })).toBeEnabled()
-    expect(screen.queryByRole('button', { name: /search the web/i })).toBeNull()
+    expect(window.open).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: /search the web/i }))
+    expect(window.open).toHaveBeenCalledTimes(1)
     // The field stays blank until Copy is pressed.
     expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('')
     expect(screen.getByRole('button', { name: /save as proposed/i })).toBeDisabled()
