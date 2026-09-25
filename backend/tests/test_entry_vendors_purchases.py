@@ -1,4 +1,4 @@
-"""The New purchase panel's backend: vendors and purchase-order creation.
+"""The Purchases page's backend: vendors and purchase-order creation.
 
 This is what lets an owner start a purchase from the console;
 `test_acquisitions.py` reads `vendor` and `purchase_order` back.

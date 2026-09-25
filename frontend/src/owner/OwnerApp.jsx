@@ -55,8 +55,8 @@ function Console() {
             <NavLink to="/inventory/currency">Currency</NavLink>
             <NavLink to="/photos">Photos</NavLink>
             <NavLink to="/receiving">Receive</NavLink>
-            <NavLink to="/purchases/new">New purchase</NavLink>
-            <NavLink to="/orders">Orders</NavLink>
+            <NavLink to="/purchases">Purchases</NavLink>
+            <NavLink to="/sales">Sales</NavLink>
             <NavLink to="/people">People</NavLink>
             {/* The spec's Selling group (selling-design.md, *Console*): the
               three pages that put things on sale, together. A labelled
@@ -89,7 +89,11 @@ function Console() {
             <Route path="/inventory/currency" element={<InventoryCurrency />} />
             <Route path="/photos" element={<Photos />} />
             <Route path="/receiving" element={<Receiving />} />
+            <Route path="/purchases" element={<NewPurchase />} />
+            {/* The page's earlier address, kept for links and bookmarks. */}
             <Route path="/purchases/new" element={<NewPurchase />} />
+            <Route path="/sales" element={<Orders />} />
+            {/* The page's earlier address, kept for links and bookmarks. */}
             <Route path="/orders" element={<Orders />} />
             <Route path="/people" element={<AdminPeople />} />
             <Route path="/listings" element={<Listings />} />

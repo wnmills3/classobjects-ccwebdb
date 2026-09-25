@@ -479,7 +479,7 @@ export default function NewPurchase() {
   if (purchase) {
     return (
       <section>
-        <h1>New purchase</h1>
+        <h1>Purchases</h1>
         <HelpScope>
           <div className="admin-form">
             <h2>
@@ -607,7 +607,7 @@ export default function NewPurchase() {
 
   return (
     <section>
-      <h1>New purchase</h1>
+      <h1>Purchases</h1>
       <HelpScope>
         <div className="filter-grid" data-help="purchase_mode">
           <label className="checkbox">

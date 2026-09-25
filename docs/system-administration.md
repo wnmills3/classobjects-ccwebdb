@@ -563,7 +563,7 @@ split child from its parent, for when the lineage itself was wrong.
 
 ## Entering a purchase
 
-**New purchase** (`/owner/purchases/new`) is the one door for an acquisition:
+**Purchases** (`/owner/purchases`) is the one door for an acquisition:
 no item is entered outside a purchase, so a standalone buy is a purchase
 holding one item (`docs/specs/entry-panels-design.md`).
 
@@ -594,7 +594,7 @@ administrator-only.
 
 ## Orders
 
-**Orders** lists every order, newest first: customer, lines at the price
+**Sales** lists every sales order, newest first: customer, lines at the price
 paid, total, platform and status (`GET /api/orders`). The shop's **Your
 orders** page is only the signed-in person's own (`GET /api/orders?mine=true`)
 and has no status control; order administration lives in the console alone.
@@ -611,7 +611,7 @@ returns no stock; re-sending `cancelled` is harmless.
 Two kinds of unshipped order **cannot be cancelled**, because the listing they
 sold has already ended and there is nothing to put the stock back on: a sale
 recorded from an outside platform, and an order that bought a **sales lot**.
-The API refuses with a 409 naming what is in the way; the Orders page greys
+The API refuses with a 409 naming what is in the way; the Sales page greys
 out **cancelled** on an outside-platform order. Once such an order has shipped
 it can be cancelled normally (no stock returns), which is how a refund is
 recorded. There is no "undo an outside sale" path: if one falls through,

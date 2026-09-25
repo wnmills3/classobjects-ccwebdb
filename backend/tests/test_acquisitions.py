@@ -94,7 +94,7 @@ def test_an_order_lists_its_lines_with_their_status(
 def test_a_line_carries_its_title_and_kind(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The New purchase items table needs a title and a kind per line.
+    """The Purchases page's items table needs a title and a kind per line.
 
     Both come straight off the item -- no per-line query -- so a line for a
     banknote reads `item_kind: "currency"` and shows its own title rather

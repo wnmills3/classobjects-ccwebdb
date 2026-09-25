@@ -719,7 +719,7 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
             // where no router is mounted. The console's pages live under
             // /owner (owner/main.jsx's basename).
             <a
-              href={`/owner/purchases/new?order=${item.purchase_order_id}`}
+              href={`/owner/purchases?order=${item.purchase_order_id}`}
               target="_blank"
               rel="noopener noreferrer"
               data-help="item_purchase"

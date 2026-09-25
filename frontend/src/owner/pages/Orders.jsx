@@ -86,7 +86,7 @@ export default function Orders() {
 
   return (
     <section>
-      <h1>Orders</h1>
+      <h1>Sales</h1>
 
       <div className="row">
         <button onClick={() => setEditing('new')}>New order</button>

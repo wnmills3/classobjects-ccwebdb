@@ -8,7 +8,7 @@ import { date, money } from '../../shared/format'
  *
  * Only their own, whoever is signed in. This page used to turn into "All
  * orders" with a status control for an administrator; that is the owner
- * console's Orders page now, and the shop keeps no admin view.
+ * console's Sales page now, and the shop keeps no admin view.
  */
 export default function Orders() {
   const [orders, setOrders] = useState([])

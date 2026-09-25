@@ -227,7 +227,7 @@ def test_an_order_line_for_a_lot_is_titled_by_the_lot(
 ) -> None:
     """`_sold_as` fell back to `listing.inventory_item.source_title`.
 
-    That is `None` for a lot listing, so the Orders page would raise
+    That is `None` for a lot listing, so the Sales page would raise
     `AttributeError` -- a 500 on every page that includes the order -- rather
     than showing the lot's title. Reached through the API, not by calling
     `_sold_as`, because the 500 is what an operator actually meets.

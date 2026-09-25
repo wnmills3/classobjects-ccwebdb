@@ -24,7 +24,7 @@ function orderIdFromParams(params) {
  * item in hand whose order is not known.
  *
  * **`?order=<id>` still works** -- the inventory screens' Order column and
- * New purchase's "Receive these" link here that way. The order's number is
+ * Purchases' "Receive these" link here that way. The order's number is
  * read and handed to the search, which runs at once with it. The search is
  * keyed on that number, so following a link to another order starts a fresh
  * search rather than keeping the last one's fields.

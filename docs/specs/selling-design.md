@@ -17,7 +17,7 @@ from being sold twice.
 | Consignment custody | **A storage location** ("Consigned: Heritage"), through the ordinary location history. |
 | Where platforms live | **`sales_venue`, with an optional link to `vendor`**, so eBay is one partner whether buying or selling. |
 | Grouping items for sale | A **sales lot**: a temporary group offered as one thing, which **dissolves back into its items** if it does not sell. |
-| A web-store item sold in person | **An order on the customer's behalf**, from the Orders page (`order-on-behalf-design.md`). Record sale refuses store listings. |
+| A web-store item sold in person | **An order on the customer's behalf**, from the Sales page (`order-on-behalf-design.md`). Record sale refuses store listings. |
 
 Rejected, with reasons that still hold:
 
@@ -199,7 +199,7 @@ the date once every coin is back.
   so a reader asks for `lot` and branches. The lot half is the whole record of
   which coins the group held -- selling a lot releases every membership.
 - **Order status on an outside sale**: `marketplace` and `live_auction`
-  sales are created `paid` (the owner ships from the Orders page);
+  sales are created `paid` (the owner ships from the Sales page);
   `auction_house` sales `delivered` (the house ships).
   `sales_writes._STATUS_BY_VENUE_KIND` has no `own_store` key, so a store
   sale cannot be recorded this way even past the explicit refusal.
@@ -380,7 +380,7 @@ unit marks the item `sold` while its store listing stays active.
 - **Cancelling an order that bought a lot is refused.** The lot is `sold`
   and its listing ended, so there is nothing to return the stock to. The
   coins come back by the owner's own correction and are regrouped as a
-  **new** lot. The Orders page disables Cancel on such an order
+  **new** lot. The Sales page disables Cancel on such an order
   (`listing_ended`).
 - **Ending a lot's offer dissolves the lot**; there is no "withdraw but keep
   the group". It is also the only way to sell one of its coins on its own.
