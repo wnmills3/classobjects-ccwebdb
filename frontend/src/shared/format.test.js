@@ -61,4 +61,24 @@ describe('date', () => {
     expect(rendered).toMatch(/2026/)
     expect(rendered).not.toBe('')
   })
+
+  it('shows a calendar day as that day, west of Greenwich too', () => {
+    // Order 3922, dated 2026-09-23, showed "Sep 22" in the owner's Eastern
+    // time: the string was read as midnight UTC. The suite runs in UTC
+    // (vite.config.js), where the two readings agree, so this test sets the
+    // owner's zone for its own duration -- Node re-reads TZ live.
+    const saved = process.env.TZ
+    process.env.TZ = 'America/New_York'
+    try {
+      const local = new Date(2026, 8, 23).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+      expect(local).toMatch(/23/)
+      expect(date('2026-09-23')).toBe(local)
+    } finally {
+      process.env.TZ = saved
+    }
+  })
 })
