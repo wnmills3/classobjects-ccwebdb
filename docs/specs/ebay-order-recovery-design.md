@@ -110,10 +110,17 @@ our items' `total_cost` does, so the order whose price is ours to the cent is
 the purchase's. Settled that way, with the owner's corrections: 27 purchases
 relinked to their stored order's one listing (purchase link, items' listing
 link and `sellers_item_id`), 2 renumbered, 1 pair of swapped numbers
-exchanged, and several same-day swaps the owner named. For 5 of the relinked
-purchases the stored order's price differs from ours by $0.12 to $6.38, so
-the recorded cost may be wrong, not the order: CC-004156, CC-004217, CC-005060,
-CC-005366, CC-006165.
+exchanged, and several same-day swaps the owner named.
 
-Left for a person, in `logs\ebay_orders_review_20260925_7.xlsx`: 7 purchases
-where neither order's price is ours.
+Where neither price was ours, **the whole row had been copied** from the
+neighboring purchase -- description, link and price -- while the order number
+was typed right. The description settles it: it is the seller's live-show
+title, lot number included ("#134 - E - 05/17/26"), and it names the neighbor's
+lot. 11 items' price, shipping and tax were rewritten from eBay's total
+(`ItemPrice`, tax included; the export has no separate shipping, so shipping
+was kept where it leaves whole dollars, else 3.00 was used), and 5 of them
+relinked. Two neighbors' prices had been swapped (PO 3087 and 3088).
+
+Left for a person, in `logs\ebay_orders_review_20260925_8.xlsx`: PO 3062,
+whose two items stand against a one-line order (as PO 3064's do), and PO 3116,
+whose description and link name lot #077 while its number is lot #078's.
