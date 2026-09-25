@@ -713,6 +713,21 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           {item.parent_item_code && (
             <span className="muted">split from {item.parent_item_code}</span>
           )}
+          {item.purchase_order_id && (
+            // A new tab, so the editor and the search behind it stay as they
+            // are. A plain link, not a routed one: the editor is also opened
+            // where no router is mounted. The console's pages live under
+            // /owner (owner/main.jsx's basename).
+            <a
+              href={`/owner/purchases/new?order=${item.purchase_order_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-help="item_purchase"
+            >
+              {item.order_number ?? 'purchase'}
+              {item.vendor ? ` · ${item.vendor}` : ''}
+            </a>
+          )}
           {onClose && (
             <button className="link" onClick={onClose}>
               Close

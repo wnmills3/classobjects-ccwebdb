@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import NewItemForm from './entry/NewItemForm'
@@ -170,6 +170,117 @@ const BLANK_PURCHASE = {
   notes: '',
 }
 
+/** A purchase's editable details as form text: absent is ''. */
+function detailsOf(purchase) {
+  return {
+    order_number: purchase.order_number ?? '',
+    ordered_on: purchase.ordered_on ?? '',
+    source_url: purchase.source_text ?? '',
+    notes: purchase.notes ?? '',
+  }
+}
+
+/**
+ * A purchase's number, date, web address and notes, shown and changed.
+ *
+ * Sends only what changed. An order number cleared is given the next
+ * generated one by the server (`Order-0001`, ...), never left blank.
+ */
+function PurchaseDetails({ purchase, onSaved }) {
+  const [draft, setDraft] = useState(null)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  if (draft === null) {
+    return (
+      <p className="row">
+        <button
+          type="button"
+          className="link"
+          data-help="edit_purchase"
+          onClick={() => {
+            setError('')
+            setDraft(detailsOf(purchase))
+          }}
+        >
+          Edit details
+        </button>
+      </p>
+    )
+  }
+
+  const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
+
+  async function save(e) {
+    e.preventDefault()
+    const was = detailsOf(purchase)
+    const changes = Object.fromEntries(
+      Object.entries(draft)
+        .filter(([key, value]) => value !== was[key])
+        .map(([key, value]) => [key, value.trim() === '' ? null : value.trim()]),
+    )
+    setSaving(true)
+    try {
+      const updated =
+        Object.keys(changes).length > 0
+          ? await api.updatePurchaseOrder(purchase.id, changes)
+          : purchase
+      setDraft(null)
+      onSaved(updated)
+    } catch (err) {
+      // Kept open as typed: a 409 (that vendor already has the number) or a
+      // 422 is corrected here.
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    // noValidate: a stored web address may be free text ("Gift"), and the
+    // browser would refuse to submit the form at all over a box not being
+    // changed. Only a changed value is sent, and the server checks it.
+    <form className="admin-form" onSubmit={save} noValidate>
+      {error && <p className="error">{error}</p>}
+      <div className="form-grid">
+        <label data-help="order_number">
+          Order number{/* */}
+          <input
+            value={draft.order_number}
+            onChange={set('order_number')}
+            placeholder="blank: the next Order-0001, ..."
+          />
+        </label>
+        <label data-help="ordered_on">
+          Order date{/* */}
+          <input type="date" value={draft.ordered_on} onChange={set('ordered_on')} />
+        </label>
+        <label data-help="source_url">
+          Web address{/* */}
+          <input
+            type="url"
+            placeholder="https://"
+            value={draft.source_url}
+            onChange={set('source_url')}
+          />
+        </label>
+      </div>
+      <label data-help="purchase_notes">
+        Notes{/* */}
+        <textarea rows={2} value={draft.notes} onChange={set('notes')} />
+      </label>
+      <div className="row">
+        <button type="submit" disabled={saving}>
+          {saving ? 'Saving...' : 'Save details'}
+        </button>
+        <button type="button" className="link" onClick={() => setDraft(null)}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
 export default function NewPurchase() {
   const rateId = useId()
   const [mode, setMode] = useState('new')
@@ -239,6 +350,26 @@ export default function NewPurchase() {
   }, [])
 
   useEffect(loadOrders, [loadOrders, ordersEpoch])
+
+  // `?order=<id>` opens that purchase: the item editor links here so an
+  // item's purchase can be corrected from the item.
+  const [searchParams] = useSearchParams()
+  const linkedOrder = Number(searchParams.get('order')) || null
+  useEffect(() => {
+    if (linkedOrder === null) return undefined
+    const token = ++pickToken.current
+    api
+      .getPurchaseOrder(linkedOrder)
+      .then((body) => {
+        if (pickToken.current === token) setPurchase(body)
+      })
+      .catch((err) => {
+        if (pickToken.current === token) setPickError(err.message)
+      })
+    return () => {
+      pickToken.current += 1
+    }
+  }, [linkedOrder])
 
   function set(key) {
     return (e) => setForm({ ...form, [key]: e.target.value })
@@ -365,6 +496,15 @@ export default function NewPurchase() {
                 </>
               )}
             </h2>
+            <PurchaseDetails
+              key={purchase.id}
+              purchase={purchase}
+              onSaved={(updated) => {
+                setPurchase(updated)
+                // The list shows the number: fetch it again for the picker.
+                setOrdersEpoch((n) => n + 1)
+              }}
+            />
             {reloadError && <p className="error">{reloadError}</p>}
 
             <div className="filter-grid">
@@ -539,7 +679,11 @@ export default function NewPurchase() {
               </label>
               <label data-help="order_number">
                 Order number{/* */}
-                <input value={form.order_number} onChange={set('order_number')} />
+                <input
+                  value={form.order_number}
+                  onChange={set('order_number')}
+                  placeholder="blank: the next Order-0001, ..."
+                />
               </label>
               <label data-help="ordered_on">
                 Order date{/* */}

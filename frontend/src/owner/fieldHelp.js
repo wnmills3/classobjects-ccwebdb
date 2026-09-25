@@ -172,6 +172,18 @@ export const FIELD_HELP = {
       'Ordered: bought but not yet in hand -- record its arrival later in ' +
       'Receiving. Received: already in hand.',
   },
+  item_purchase: {
+    title: 'Purchase',
+    text:
+      'The purchase this item was bought on: its order number and vendor. Opens the ' +
+      'purchase in a new tab, where Edit details changes its number, date or notes.',
+  },
+  edit_purchase: {
+    title: 'Edit details',
+    text:
+      "Change this purchase's order number, date, web address or notes. Clear the " +
+      'order number to give it the next generated one (Order-0001, Order-0002, ...).',
+  },
   suggest_description: {
     title: 'Suggest description',
     text:

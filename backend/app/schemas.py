@@ -680,6 +680,11 @@ class ItemDetailOut(InventoryItemOut):
     #: that filled it (`note_type_id`: `note_issue`). The form marks them as
     #: suggestions; saving one by hand makes it the person's.
     derived: dict[str, str] = Field(default_factory=dict)
+    #: The purchase it was bought on, read-only here: the editor links to it,
+    #: and the purchase's own page changes its number (owner, 2026-09-24).
+    purchase_order_id: int | None = None
+    order_number: str | None = None
+    vendor: str | None = None
 
     # -- the rest of EDITABLE_SCALARS: not on InventoryItemOut, which is the
     # shape a split's pieces come back as and has no reason to carry these.
@@ -2018,7 +2023,8 @@ class PurchaseOrderCreate(BaseModel):
 
     The order number is optional because a walk-in or show purchase has
     none -- only a vendor is required, so entering one never blocks on a
-    field most purchases genuinely lack.
+    field most purchases genuinely lack. A purchase created without one is
+    given the next generated number, `Order-0001` and up, so it can be found.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -2097,7 +2103,43 @@ class PurchaseOrderDetailOut(BaseModel):
     #: Free text, so anything else -- "Gift" -- is withheld rather than
     #: offered as a link.
     source_url: str | None = None
+    #: The stored text itself, link or not, for the form that edits it.
+    source_text: str | None = None
+    notes: str | None = None
     lines: list[PurchaseOrderLineOut]
+
+
+class PurchaseOrderUpdate(BaseModel):
+    """A change to a purchase's details; only the fields sent are changed.
+
+    An order number sent blank is not an absence: the purchase is given the
+    next generated one (`Order-0001`, ...), as a new purchase with none is,
+    so it can always be found by its number.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    order_number: str | None = Field(default=None, max_length=128)
+    ordered_on: date | None = None
+    source_url: str | None = Field(default=None, max_length=1000)
+    notes: str | None = None
+
+    @field_validator("order_number", "notes")
+    @classmethod
+    def _blank_to_none(cls, value: str | None) -> str | None:
+        """Surrounding space is not part of the value; nothing left is None."""
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
+
+    @field_validator("source_url")
+    @classmethod
+    def _http_url(cls, value: str | None) -> str | None:
+        """Blank clears it; otherwise `http://` or `https://`, as on create."""
+        if value is None or not value.strip():
+            return None
+        return _require_http_url(value.strip())
 
 
 class StorageLocationOut(BaseModel):

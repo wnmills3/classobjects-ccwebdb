@@ -207,7 +207,9 @@ def test_creating_a_purchase_order_returns_the_detail_shape(
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["vendor"] == "Show Table Vendor"
-    assert body["order_number"] is None
+    # None given: a generated one, so the purchase can be found by it.
+    assert str(body["order_number"]).startswith("Order-")
+    assert body["notes"] == "Bought at the coin show"
     assert body["lines"] == []
 
 
@@ -279,9 +281,10 @@ def test_two_numberless_purchases_for_one_vendor_are_both_allowed(
     assert first.json()["id"] != second.json()["id"]
 
 
-def test_a_blank_order_number_is_stored_as_null(
+def test_a_blank_order_number_is_given_a_generated_one(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
+    """Blank is the same as none: the next Order-NNNN, never NULL."""
     vendor = _vendor(db, "Blank Number Vendor")
     res = client.post(
         "/api/purchase-orders",
@@ -289,7 +292,7 @@ def test_a_blank_order_number_is_stored_as_null(
         headers=admin_headers,
     )
     assert res.status_code == 201, res.text
-    assert res.json()["order_number"] is None
+    assert str(res.json()["order_number"]).startswith("Order-")
 
 
 def test_a_far_future_ordered_on_is_refused(

@@ -280,6 +280,10 @@ export const api = {
 
   createPurchaseOrder: (payload) =>
     send('/api/purchase-orders', { method: 'POST', body: payload }),
+  // Only the fields sent change; a blank order number is given the next
+  // generated one (Order-0001, ...).
+  updatePurchaseOrder: (id, changes) =>
+    send(`/api/purchase-orders/${id}`, { method: 'PATCH', body: changes }),
   createInventoryItem: (payload) =>
     send('/api/inventory', { method: 'POST', body: payload }),
   // What the facts entered so far decide: a note's class, seal, signatures
