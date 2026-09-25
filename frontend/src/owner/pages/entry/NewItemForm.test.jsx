@@ -94,6 +94,30 @@ describe('NewItemForm: a banknote', () => {
     }
   })
 
+  it('asks a note for its series year only, and sends no other year', async () => {
+    // Two year boxes on a note is where 1935 went into Year and the series
+    // year stayed blank (CC-007663). The server sets a note's year from its
+    // series year.
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 3, item_code: 'CC-000003' })
+    render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(screen.getByRole('spinbutton', { name: 'Year' }), '1881')
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+
+    expect(screen.queryByRole('spinbutton', { name: 'Year' })).toBeNull()
+    expect(screen.queryByRole('checkbox', { name: /range of years/i })).toBeNull()
+    await user.type(screen.getByRole('spinbutton', { name: /series year/i }), '1935')
+    await fillTitle(user, 'A 1935 dollar')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    const sent = api.createInventoryItem.mock.calls[0][0]
+    expect(sent.series_year).toBe(1935)
+    // The 1881 typed while it was a coin is not sent for the note.
+    expect(sent).not.toHaveProperty('year_start')
+    expect(sent).not.toHaveProperty('year_end')
+  })
+
   it('submits the currency block and omits coin detail', async () => {
     const user = userEvent.setup()
     api.createInventoryItem.mockResolvedValue({ id: 2, item_code: 'CC-000002' })
