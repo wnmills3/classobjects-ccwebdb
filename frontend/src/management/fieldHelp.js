@@ -75,8 +75,45 @@ export const FIELD_HELP = {
     title: 'Pieces',
     text:
       'How many pieces this one entry stands for: 1 for a single coin or note, more ' +
-      'for a roll, a set or a lot bought as one. A lot can be split into its ' +
-      'pieces later.',
+      'for a roll, a set or a lot bought as one. Split into pieces, below, makes ' +
+      'each piece an item of its own.',
+  },
+  split_pieces: {
+    title: 'Pieces',
+    text:
+      'How many items the lot becomes: a row each, below. It starts at the Pieces ' +
+      'the lot records.',
+  },
+  split_mode: {
+    title: 'Divide the cost',
+    text:
+      'Equally gives every item the same share -- nine proof sets, a tube of ' +
+      'rounds. By value divides in proportion to a value you give each piece -- ' +
+      'face, melt or a price guide -- so a half dollar does not carry the cost of a ' +
+      'cent. Shipping is divided the same way.',
+  },
+  split_description: {
+    title: 'Description',
+    text:
+      'What this piece is, in your words: "1980 US Proof Set". Left as it is, the ' +
+      "piece keeps the lot's description. The seller's title stays the lot's.",
+  },
+  split_year: {
+    title: 'Year',
+    text: "This piece's year. Blank keeps the lot's.",
+  },
+  split_items: {
+    title: 'Items',
+    text:
+      'How many items this row holds, usually 1. A row of 3 takes three shares ' +
+      'of the cost and stays one item of 3 pieces.',
+  },
+  split_value: {
+    title: 'Value of one',
+    text:
+      'What one item of this row is worth, on whatever basis you choose -- the ' +
+      "same basis for every row. Only the proportions matter: it divides the lot's " +
+      'cost and is kept on the piece.',
   },
   item_cost: {
     title: 'Item cost',

@@ -515,6 +515,9 @@ class SplitPieceIn(BaseModel):
     strike_type: str | None = Field(default=None, max_length=64)
     metal: str | None = Field(default=None, max_length=64)
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
+    #: What this piece is, in the owner's words -- "1980 US Proof Set" out of
+    #: a lot of nine. Omitted, the piece keeps the lot's description.
+    description: str | None = None
 
 
 class SplitRequest(BaseModel):
@@ -671,6 +674,8 @@ class ItemDetailOut(InventoryItemOut):
     #: 2026-09-20, nothing having been split yet: no parent is the normal
     #: state, not an orphan.
     parent_item_code: str | None = None
+    #: The pieces a split lot became, oldest first; empty for anything else.
+    piece_codes: list[str] = Field(default_factory=list)
     #: What the lot said, for the fields a piece inherits. The form shows
     #: these beside the item's own values, so it is always visible what is
     #: being overridden and what is still only the seller's word.

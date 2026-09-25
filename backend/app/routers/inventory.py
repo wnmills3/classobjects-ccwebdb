@@ -164,6 +164,8 @@ def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
     if spec.year_start is not None:
         overrides["year_start"] = spec.year_start
         overrides["year_end"] = spec.year_start
+    if spec.description is not None:
+        overrides["description"] = spec.description
 
     # Pieces come out of a tube or a set as individual items, whatever the lot
     # was packaged as.
@@ -1104,7 +1106,11 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
             ),
         )
 
-    order = db.get(PurchaseOrder, item.purchase_order_id)
+    order = (
+        db.get(PurchaseOrder, item.purchase_order_id)
+        if item.purchase_order_id is not None
+        else None
+    )
     vendor = db.get(Vendor, order.vendor_id) if order is not None else None
     return ItemDetailOut(
         purchase_order_id=item.purchase_order_id,
@@ -1143,6 +1149,13 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
         grade_display=grades.display_item(item),
         default_tax_rate=settings.sales_tax_rate,
         parent_item_code=parent_code,
+        piece_codes=list(
+            db.scalars(
+                select(InventoryItem.item_code)
+                .where(InventoryItem.parent_item_id == item.id)
+                .order_by(InventoryItem.id)
+            )
+        ),
         lot_claims=claims,
         reviewed=_reviewed_fields(db, item.id),
         derived=derived_fields(db, item.id),

@@ -143,6 +143,9 @@ function InventoryView({ config }) {
             setEditing(null)
             refresh()
           }}
+          // A split stays open to say what it made; the results behind it
+          // lose the lot and gain its pieces.
+          onChanged={refresh}
           onClose={() => setEditing(null)}
         />
       )}

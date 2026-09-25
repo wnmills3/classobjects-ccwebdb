@@ -87,6 +87,10 @@ INHERITED = (
     "fine_weight_ozt",
     "weight_note",
     "purchase_order_id",
+    # The listing the lot was bought from is every piece's listing: eBay's
+    # item id is how a piece is traced back to it (app.ebay_orders).
+    "listing_url",
+    "sellers_item_id",
     "tax_rate",
     "tax_includes_shipping",
     "description",

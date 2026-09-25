@@ -376,7 +376,7 @@ shortcut on a disabled dropdown does nothing.
 | Path | When | Notes |
 |---|---|---|
 | **Entering an item on a purchase** (`POST /api/inventory`) | every new acquisition | requires a purchase order; see *Entering a purchase* |
-| **Splitting a lot** (`POST /api/inventory/{id}/split`) | a bought lot becomes individual pieces | children inherit the parent's claims and a share of its cost (`equal`, or `relative` to a value per piece); the parent gets `split_at` and drops out of every count. There is no console screen for it yet |
+| **Splitting a lot** (`POST /api/inventory/{id}/split`) | a bought lot becomes individual pieces | children inherit the parent's claims and a share of its cost (`equal`, or `relative` to a value per piece); the parent gets `split_at` and drops out of every count. In the console: **Split into pieces...** in the item editor, a row per piece with its own description and year |
 | **`python -m app.seed`** | a new, empty database | five demo items; never on real data |
 
 Every path records an opening `item_status_history` row, so every item has a

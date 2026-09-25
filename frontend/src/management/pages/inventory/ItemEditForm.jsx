@@ -22,6 +22,7 @@ import HelpScope from '../../HelpScope'
 import HistoryPanel from './HistoryPanel'
 import OffersPanel from './OffersPanel'
 import PhotosPanel from './PhotosPanel'
+import SplitDialog from './SplitDialog'
 
 /**
  * One item, every field, with what the lot claimed beside each.
@@ -327,7 +328,7 @@ const FIXED_VOCABULARIES = new Set([
  */
 const certsFrom = (text) => text.split(',').map((part) => part.trim())
 
-export default function ItemEditForm({ itemId, onSaved, onClose }) {
+export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const [item, setItem] = useState(null)
   const [draft, setDraft] = useState({})
   // Where each edited field's edit began (see `fieldMerge.js`): a change made
@@ -349,6 +350,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
   const [kindCleared, setKindCleared] = useState({})
   // What the Suggest button last said: a note under the description.
   const [suggestNote, setSuggestNote] = useState('')
+  // The Split dialog, while open; and what the last split made, to say so.
+  const [splitting, setSplitting] = useState(false)
+  const [splitNote, setSplitNote] = useState('')
   const kinds = useReference('item_kind')
   const vocab = {
     denomination: useReference('denomination'),
@@ -722,6 +726,9 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           {item.parent_item_code && (
             <span className="muted">split from {item.parent_item_code}</span>
           )}
+          {item.piece_codes?.length > 0 && (
+            <span className="muted">split into {item.piece_codes.join(', ')}</span>
+          )}
           {item.purchase_order_id && (
             // A new tab, so the editor and the search behind it stay as they
             // are. A plain link, not a routed one: the editor is also opened
@@ -758,6 +765,17 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
         </div>
 
         {error && <p className="error">{error}</p>}
+        {splitNote && (
+          <p className="muted" role="status">
+            {splitNote}
+          </p>
+        )}
+        {item.split_at && (
+          <p className="muted">
+            This lot has been split into its pieces. It is kept for its purchase and
+            item code, but is no longer counted: edit the pieces instead.
+          </p>
+        )}
 
         {refreshedAt && conflicts.length === 0 && (
           <p className="muted" role="status">
@@ -1157,7 +1175,43 @@ export default function ItemEditForm({ itemId, onSaved, onClose }) {
           <button disabled={!canSave} onClick={save} {...accel('v')}>
             <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />
           </button>
+          {/* A lot is split as saved: the pieces copy the stored record, so
+              an edit still waiting here would not reach them. Neither a
+              split lot nor a piece of one can be split again. */}
+          {!item.split_at && !item.parent_item_id && (
+            <>
+              <button
+                type="button"
+                disabled={Object.keys(draft).length > 0}
+                onClick={() => setSplitting(true)}
+              >
+                Split into pieces...
+              </button>
+              {Object.keys(draft).length > 0 && (
+                <span className="muted">Save or undo your changes to split it.</span>
+              )}
+            </>
+          )}
         </div>
+        {splitting && (
+          <SplitDialog
+            item={item}
+            onClose={() => setSplitting(false)}
+            onSplit={(result) => {
+              setSplitting(false)
+              setSplitNote(
+                `Split into ${result.pieces.length} pieces: ` +
+                  `${result.pieces.map((piece) => piece.item_code).join(', ')}. ` +
+                  `They cost ${result.allocated_total_cost} in all; the lot cost ` +
+                  `${result.parent_total_cost}.`,
+              )
+              reloadItem()
+              // Not `onSaved`, which closes the editor over the results: what
+              // the split made is said here, while the list behind catches up.
+              onChanged?.()
+            }}
+          />
+        )}
 
         {/* What is being asked for the item, beside what it has sold for.
           Self-loading like the errors panel, and it writes nothing itself:
