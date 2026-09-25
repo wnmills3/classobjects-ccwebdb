@@ -9,7 +9,7 @@ backups and schema releases are done.
 `docs/environment-setup.md` covers installing them;
 `docs/database-design.md` covers how the record is structured.
 
-Everything below is administered through the **owner console** at `/owner`, a
+Everything below is administered through the **owner console** at `/management`, a
 separate application from the shop (`docs/specs/owner-console-separation-design.md`).
 Nothing here is reachable from the storefront.
 
@@ -22,7 +22,7 @@ active. Every pass reports and touches nothing unless given `--commit`.
 
 | Role | Sees | Reaches |
 |---|---|---|
-| `customer` | the shop; their own orders | nothing under `/owner`, no cost basis |
+| `customer` | the shop; their own orders | nothing under `/management`, no cost basis |
 | `admin` | everything | the whole console, including what each item cost |
 
 There is no third role and no per-permission grid. The line the system
@@ -273,12 +273,12 @@ slot (a collision links *neither*), or an earlier run already filled the slot.
 An item that already has a primary keeps it: the `_01` is filed at sequence 1
 but not primary, and reported under `primary`. A photograph linked onto an
 item that is for sale is reported by item code. Unattached photographs are
-filed by hand on the console's **Photos** page (`/owner/photos`).
+filed by hand on the console's **Photos** page (`/management/photos`).
 
 ## Finding items
 
-The **Coins** and **Currency** screens (`/owner/inventory/coins`,
-`/owner/inventory/currency`) share one search panel.
+The **Coins** and **Currency** screens (`/management/inventory/coins`,
+`/management/inventory/currency`) share one search panel.
 
 **The search box has no field syntax.** What you type is one term, matched
 anywhere in an item's title, description, rating or item code, ignoring case.
@@ -460,7 +460,7 @@ when it turns up.
   current status and arrival date, so a double submission is distinguishable
   from the wrong row.
 
-**In the console** (`/owner/receiving`) there is one search form: part of an
+**In the console** (`/management/receiving`) there is one search form: part of an
 order number (matched anywhere in it, any case) and/or what the item is --
 kind, denomination, year, mint, serial, series year. By default it finds only
 what has not arrived (`ordered` or `missing`); **Any status** shows a whole
@@ -563,7 +563,7 @@ split child from its parent, for when the lineage itself was wrong.
 
 ## Entering a purchase
 
-**Purchases** (`/owner/purchases`) is the one door for an acquisition:
+**Purchases** (`/management/purchases`) is the one door for an acquisition:
 no item is entered outside a purchase, so a standalone buy is a purchase
 holding one item (`docs/specs/entry-panels-design.md`).
 
@@ -665,7 +665,7 @@ is offered, or a sales lot's status.
 
 ### Sales platforms
 
-**Platforms** (`/owner/platforms`) lists every platform the business sells
+**Platforms** (`/management/platforms`) lists every platform the business sells
 through -- the web store, eBay, Whatnot, an auction house -- with its kind, an
 optional link to the purchase source of the same name, account handle,
 listing-link template and default fees.
@@ -722,7 +722,7 @@ deleted, not received, split, or the platform retired -- names every affected
 item inside the still-open dialog with the typed prices kept, and writes
 nothing.
 
-**Listings** (`/owner/listings`) shows every offer -- active and paused by
+**Listings** (`/management/listings`) shows every offer -- active and paused by
 default, or **All, including ended** -- filterable by platform and format,
 with price, cost, margin, status and a link to the platform's own page.
 **Edit** (active rows only) changes price, title, description or listing
@@ -766,7 +766,7 @@ something came in, permanent); a coin can be in one of each.
 **Putting a lot together.** On the **Coins** or **Currency** screen select
 coins and choose **Group into lot...**: start a new lot with a title, or add
 to a lot still assembling. The whole selection goes in, including any part off
-the current page. **Sales lots** (`/owner/lots`) shows each assembling lot's
+the current page. **Sales lots** (`/management/lots`) shows each assembling lot's
 coins with cost and value, the group's running cost basis and value,
 **Remove** per coin, **Edit wording...**, **Discard...** and **Offer for
 sale...**.
@@ -814,7 +814,7 @@ members'.
 
 ### Auctions
 
-**Auctions** (`/owner/auctions`) runs an auction from draft to settled
+**Auctions** (`/management/auctions`) runs an auction from draft to settled
 (`app.auctions`, the only writer of `auction` and `auction_lot`). An auction
 belongs to a platform (a live auction, an auction house, or a marketplace for
 a single timed auction) and moves `draft` -> `scheduled` -> [`consigned`] ->
@@ -845,7 +845,7 @@ fails naming the missing code.
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows
 in reference tables, not free text. Values are added from the dropdown where
 they are needed, and renamed, retired, merged or reordered on the
-**Vocabularies** page (`/owner/vocabularies`), which does not create values.
+**Vocabularies** page (`/management/vocabularies`), which does not create values.
 
 - **Rename** changes the label, which is what people read. The code never
   changes: saved searches, the data and the API use it. A renamed value is

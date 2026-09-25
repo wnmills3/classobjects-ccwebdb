@@ -269,7 +269,7 @@ All pages use the console's patterns: modal dialogs, Alt-key accelerators,
 the version token sent back on save. Cost basis, value, fees and margin are
 staff-only. The menu has a **Selling** group: Listings, Lots, Auctions.
 
-1. **Platforms** (`/owner/platforms`): add, edit, retire. Name, kind,
+1. **Platforms** (`/management/platforms`): add, edit, retire. Name, kind,
    purchase source (a `vendor` picker), account handle, URL template with a
    sample link, default fees and their as-of date. The store's kind is fixed.
 2. **Offer from inventory.** The coin and currency pages' bulk bar has
@@ -279,17 +279,17 @@ staff-only. The menu has a **Selling** group: Listings, Lots, Auctions.
    basis, value, estimated fees and net, and margin. The **item editor** has
    an **Offers** panel (current and past listings, claim state, Offer, End)
    beside its sales history.
-3. **Listings** (`/owner/listings`): every listing, filterable by platform,
+3. **Listings** (`/management/listings`): every listing, filterable by platform,
    format and status. **Edit** (price, public text, external id), **End**,
    and **Record sale...** on active non-store rows (buyer by platform
    username or undisclosed, sale price, order number, actual fees by kind,
    net and margin before confirming).
-4. **Lots** (`/owner/lots`): assembling lots with add and remove, title,
+4. **Lots** (`/management/lots`): assembling lots with add and remove, title,
    description, running cost basis and value; **Offer** or add to an
    auction. History of offered, sold and dissolved lots, newest page first,
    with **Re-offer as a lot** on a dissolved one, which pre-fills a new
    assembling lot.
-5. **Auctions** (`/owner/auctions`): list by platform, date, status and lot
+5. **Auctions** (`/management/auctions`): list by platform, date, status and lot
    count. Detail: platform, sale number, dates; **Schedule**, **Mark
    consigned**, **Close**, **Cancel**; a lot table with editable lot numbers
    and **Add lot** (an assembling lot, or one item as a lot of one). The

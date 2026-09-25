@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
  *
  * The shared stylesheet gives inputs full-width, block, bordered text-field
  * styling. Applied to a radio, that put a dark box on its own line above the
- * label on /owner/receiving, and inside `.filter-grid` the column layout meant
+ * label on /management/receiving, and inside `.filter-grid` the column layout meant
  * for "Denomination" above a text box stacked it there too.
  *
  * jsdom resolves the cascade but does no layout, so these check the rules that

@@ -66,7 +66,7 @@ def attach(
     serves an item's *primary* link and has no fallback to "the first one", so
     a photograph filed without `is_primary` onto an item that has no primary
     would otherwise be a photograph no buyer ever sees. Filling that vacancy
-    here rather than in each caller is why `/owner/photos`, the item editor's
+    here rather than in each caller is why `/management/photos`, the item editor's
     upload and the receiving screen cannot disagree about it.
 
     Filling a vacancy is never a demotion: an incumbent is displaced only when
@@ -137,7 +137,7 @@ def fill_primary_vacancy(db: Session, item_ids: Collection[int]) -> list[ItemIma
     An item with photographs and no primary shows a buyer nothing at all --
     `routers.catalog` serves the primary link and has no fallback to "the
     first one". The successor is the lowest `sort_order`, then the lowest id:
-    the order the item editor and `/owner/photos` already list them in, so
+    the order the item editor and `/management/photos` already list them in, so
     the photograph that takes over is the one the owner sees at the top.
 
     Returns the links promoted, so a caller can say what it did.

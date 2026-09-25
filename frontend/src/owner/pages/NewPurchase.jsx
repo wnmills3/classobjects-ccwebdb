@@ -591,7 +591,7 @@ export default function NewPurchase() {
 
             <p className="row">
               {/* A routed link, not a hard-coded shop path: the console mounts
-                under basename "/owner" (owner/main.jsx), and a plain
+                under basename "/management" (owner/main.jsx), and a plain
                 `href="/receiving?..."` would send the browser to the shop at
                 the site root instead. */}
               <Link to={`/receiving?order=${purchase.id}`}>Receive these</Link>

@@ -36,7 +36,7 @@ scripts\ccweb_startup.cmd
 | | |
 |---|---|
 | Shop | http://127.0.0.1:5173 |
-| Owner console | http://127.0.0.1:5173/owner |
+| Owner console | http://127.0.0.1:5173/management |
 | API docs (OpenAPI) | http://127.0.0.1:8000/docs |
 
 Stop with `scripts\ccweb_shutdown.cmd`; see what is running with
@@ -69,7 +69,7 @@ backend/
   data/reference/        shipped vocabularies as versioned JSON
   tests/                 pytest, against its own ccwebdb_test database
 frontend/
-  index.html, owner.html two entries, built as two isolated bundles
+  index.html, management.html two entries, built as two isolated bundles
   src/store/             the shop
   src/owner/             the owner console
   src/shared/            API client, auth, formatting, vocabularies

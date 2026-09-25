@@ -9,10 +9,10 @@ import '../shared/shared.css'
 import './styles.css'
 
 // basename, not a route prefix: every `to="/people"` in the console resolves
-// under /owner, so no component needs to know where the console is mounted.
+// under /management, so no component needs to know where the console is mounted.
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <BrowserRouter basename="/owner">
+    <BrowserRouter basename="/management">
       <AuthProvider>
         <ReferenceProvider>
           <OwnerApp />
