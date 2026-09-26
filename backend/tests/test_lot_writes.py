@@ -92,9 +92,7 @@ def test_removing_a_member_releases_it(
     While a lot is `assembling` nothing has been offered or sold, so a
     removal is an edit, not history -- `released_at` is the record of a lot
     that sold or was dissolved, and only `offering_writes` (a later task)
-    writes it. This is a deliberate rewrite of the brief's version of this
-    test, which asserted `released_at is not None`; see task-2-report.md for
-    why that would have been wrong.
+    writes it. Asserting `released_at is not None` here would be wrong.
 
     Both lots are taken as locals here. The previous draft of this test named
     `other_lot` in its body without taking it as a parameter -- a `NameError`
@@ -271,7 +269,7 @@ def test_a_sold_item_cannot_be_grouped(
     off `listed` (`order_writes._after_stock_change` returned silently on a
     lot listing's NULL item id), so a lot-sale version would have gone red
     for that reason instead of this one and would have kept passing with
-    this guard deleted. Task 4 closed that route;
+    this guard deleted. `record_sale` now moves lot members;
     `test_a_member_sold_inside_a_lot_cannot_be_grouped_again` below now
     drives it end to end, and this one stays for the shipped and delivered
     cases a single sale cannot reach.
@@ -288,10 +286,10 @@ def test_a_member_sold_inside_a_lot_cannot_be_grouped_again(
 ) -> None:
     """The coin really sold, through the real sale path, and is refused for it.
 
-    The end-to-end case the parametrised test above could not take before
-    Task 4: nothing wrote a lot member's disposition, so selling a lot left
-    every member at `listed` and this refusal was unreachable from a real
-    sale. `record_sale` now moves them, which makes the guard testable
+    The end-to-end case the parametrised test above cannot take: until
+    `record_sale` moved lot members, selling a lot left every member at
+    `listed` and this refusal was unreachable from a real sale. That move
+    makes the guard testable
     against the route an operator actually walks.
 
     `match` names the disposition refusal specifically, so the test cannot

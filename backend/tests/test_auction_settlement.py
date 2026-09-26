@@ -1,11 +1,11 @@
 """Settling an auction: one transaction, and the money reconciles to the cent.
 
-Task 3 of the auctions phase. `app.auctions.settle` is the second caller
+`app.auctions.settle` is the second caller
 `sales_writes`' single entry point was built for (spec, *Where record-a-sale
 lives*), so most of what these tests prove is that settlement hands off to
 `sales_writes`, `offering_writes` and `lifecycle_writes` correctly rather
 than growing a second copy of fees, shares, endings or location moves --
-the same discipline `test_auctions.py` holds Task 2 to.
+the same discipline `test_auctions.py` holds the auction transitions to.
 
 Three things here cannot be proved by reading the code, and each has a test
 whose failure is the evidence:
@@ -285,9 +285,9 @@ def lots_of(db: Session, auction: Auction) -> list[AuctionLot]:
 
     Never `auction.lots`: that collection carries no `order_by`, and a
     settlement is exactly the call most likely to have been preceded by
-    something that left it stale -- the defect fix round 1 found in
-    `add_lot`. Reading it back is also how these tests stay honest about
-    what `settle` wrote rather than about what the session remembers.
+    something that left it stale -- the defect once found in `add_lot`.
+    Reading it back is also how these tests stay honest about what `settle`
+    wrote rather than about what the session remembers.
     """
     return list(
         db.scalars(
@@ -1101,7 +1101,7 @@ def test_a_failure_part_way_through_leaves_nothing_written(
     what it did.
 
     **Mutation-verified.** Replacing `settle`'s `with db.begin_nested():`
-    boundary with a `db.commit()` after each buyer -- the brief's Step 4 --
+    boundary with a `db.commit()` after each buyer
     reddens this test:
 
         assert 1 == 0
@@ -1198,9 +1198,9 @@ def test_a_lot_listing_can_never_be_paused_by_another_offer(
 ) -> None:
     """Why settlement needs no `offering_writes.refuse_if_lot_unheld`.
 
-    `end_offer(sold=True)` -- which settlement calls and Task 2 never did --
-    **ends** the listings this one paused instead of resuming them, and those
-    are listings settlement never named. The obligation at
+    `end_offer(sold=True)` -- which settlement calls and no other auction
+    transition does -- **ends** the listings this one paused instead of
+    resuming them, and those are listings settlement never named. The obligation at
     `lock_for_sale`'s door covers exactly one case: one of them being a
     **lot** listing, whose lot row `_end` would then rewrite without this
     pass necessarily holding it.
@@ -1294,7 +1294,7 @@ def test_bad_money_and_a_conflict_are_different_refusals(
     a `SettlementInputInvalid`, the conflict one is *not*.
 
     This is also the only thing standing between a reversed pair of `except`
-    clauses in Task 5's router and every 422 silently becoming a 409 -- mypy
+    clauses in the auctions router and every 422 silently becoming a 409 -- mypy
     cannot see that ordering, because the narrower type is still assignable
     to the wider one.
     """

@@ -143,9 +143,9 @@ def test_recording_a_sale_on_an_auction_lot_is_a_409(
     heritage_venue: SalesVenue,
     make_item: Callable[..., InventoryItem],
 ) -> None:
-    """Ruling R25 (Task 5 fix round 1): an auction lot sells through settlement.
+    """Ruling R25: an auction lot sells through settlement.
 
-    Record sale sits beside End on the Listings page, and defect 1's guard
+    Record sale sits beside End on the Listings page, and End's guard
     (`routers.offers._refuse_auction_lot`) only closed the End half. This is
     the other route to the same orphaned `auction_lot`:
     `sales_writes.record_sale` now refuses before writing anything, naming

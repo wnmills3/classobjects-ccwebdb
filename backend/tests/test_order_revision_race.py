@@ -4,7 +4,7 @@ Real, committing sessions rather than ``TestClient``: a client call serializes
 through one connection and would look correct even with the fix reverted --
 see test_concurrency.py for the pattern this borrows.
 
-Task 6 adds a genuinely concurrent (threaded) test to this file. This one is
+The first test here is
 deterministic -- two sessions taking turns, no threads -- and exists to pin
 down exactly what a stale read must produce: a 409 naming what is actually
 left, never a `StaleDataError` and never a silent oversell.

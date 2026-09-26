@@ -306,7 +306,7 @@ def test_detaching_an_item_with_no_parent_is_harmless(
 def test_a_lot_can_be_deleted_once_its_last_piece_is_detached(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The round trip the guard in Task 6 would otherwise make impossible."""
+    """The round trip the lot-with-pieces guard would otherwise make impossible."""
     parent = build_split_lot(db)
     pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
 

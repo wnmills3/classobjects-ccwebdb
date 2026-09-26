@@ -507,7 +507,7 @@ def test_revising_in_a_new_line_gives_it_a_share(
 
     `_line` is the only place a `SalesOrderItem` is built; the "line added"
     branch of `revise_order` is the one path into it that a plain checkout
-    never exercises, and so the one Task 5's own test missed.
+    never exercises, and so the one a checkout test misses.
     """
     kept = make_listing(title="Kept", price=Decimal("50.00"), quantity_available=5)
     added = make_listing(title="Added", price=Decimal("30.00"), quantity_available=5)
@@ -968,7 +968,7 @@ def test_cancelling_relists_an_item_that_had_sold_out(
     admin_headers: dict[str, str],
     db: Session,
 ) -> None:
-    """Fix round 1, ruling-1 behavior: `return_stock` must relist on its own.
+    """Ruling 1: `return_stock` must relist on its own.
 
     `place_order` marks the item `sold` once its listing hits zero;
     `return_stock` must reverse that when a cancellation puts the last unit

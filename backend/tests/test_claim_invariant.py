@@ -3,7 +3,7 @@
 Without this, a fixture that silently passed on every input would look
 exactly like a fixture that works.
 
-The naive form the brief suggested -- set the state wrong, assert the
+The naive form -- set the state wrong, assert the
 now-obvious fact about it, and mark the whole test ``xfail(strict=True)`` --
 does not work, and the difference matters. Confirmed by hand while writing
 this: with the claim left broken at the end of the test body, the *test

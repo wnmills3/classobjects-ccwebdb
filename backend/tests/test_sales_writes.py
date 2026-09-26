@@ -423,7 +423,7 @@ def test_recording_a_manual_sale_against_an_auction_lot_is_refused(
     make_item: Callable[..., InventoryItem],
     admin_user: User,
 ) -> None:
-    """Ruling R25 (Task 5 fix round 1): an auction lot sells through settlement.
+    """Ruling R25: an auction lot sells through settlement.
 
     `record_sale` reaching `offering_writes.end_offer(sold=True)` on an
     auction-format listing would end it and write an order outside
@@ -470,8 +470,8 @@ def test_a_direct_auction_format_listing_records_its_sale(
 
     The Offer dialog offers a coin on eBay by auction without any `auction`
     row; Record sale is the only way that sale is recorded. The guard keyed
-    on `format` alone and refused it (review of the final fix wave,
-    Important #1); it now refuses only a listing that is a lot of an auction.
+    on `format` alone and refused it; it now refuses only a listing that
+    is a lot of an auction.
     """
     listing = offering_writes.offer(
         db,

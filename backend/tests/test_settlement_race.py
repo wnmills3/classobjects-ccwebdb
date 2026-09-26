@@ -1,14 +1,14 @@
 """Two settlements of one auction cannot both run (selling design, phase 4).
 
-Task 4 of the auctions phase, and the only thing in the suite that can
-measure either of the two locks Task 3 added. `app.auctions.settle` takes the
+The only thing in the suite that can measure either of the two locks
+settlement takes. `app.auctions.settle` takes the
 `auction` row `FOR UPDATE` as a **new outermost lock level** (ruling R2) and
 then takes every coin in the whole auction in **one**
 `offering_writes.lock_for_sale` call (ruling R1). Neither is observable from
-a single session -- Task 3's own review said so -- because a lock nobody is
+a single session, because a lock nobody is
 contending for behaves exactly like no lock at all.
 
-A third writer joined them after the whole-branch review: `app.auctions.
+A third writer joins them: `app.auctions.
 cancel` is legal on a `closed` auction (ruling R8) and used to take the
 `auction` row only as its **last** statement, the inverse of `settle`'s
 order. `test_cancelling_an_auction_races_settling_it` is that pair, and it
@@ -22,10 +22,10 @@ cannot do this job at all: it funnels every request through Starlette's
 single portal, so two settlements of one auction would run one after the
 other and the test would pass against code holding no locks whatsoever.
 
-These tests are **below HTTP on purpose** -- Task 5 has not written the
-router yet -- so they assert the exception `settle` actually raises rather
-than a status code. The loser raises `auctions.AuctionRefused` with a message
-naming the auction's state, which is the class Task 5 maps to 409 (see
+These tests are **below HTTP on purpose**, so they assert the exception
+`settle` actually raises rather than a status code. The loser raises
+`auctions.AuctionRefused` with a message naming the auction's state, which is
+the class the auctions router maps to 409 (see
 `SettlementInputInvalid`'s docstring, which fixes that mapping and its 422
 sibling). Every *other* way a settlement can lose is named and asserted
 against separately -- `SaleRefused`, `StaleDataError`, `LockSetChanged`, a
@@ -372,7 +372,7 @@ def test_two_settlements_of_one_auction_leave_one_set_of_orders(
 
     The loser waits on the `auction` row, re-reads `settled`, and is refused
     by `settle`'s own status check with a message naming the state -- an
-    `AuctionRefused`, which is the class Task 5 maps to **409**. Nothing is
+    `AuctionRefused`, which is the class the router maps to **409**. Nothing is
     written twice: one order, two lines, one share per sold coin, and the
     unsold coin comes home once.
 
@@ -651,9 +651,8 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
     a loser is entitled to be refused with a reason, never to a 500 on a
     money path.
 
-    **Two outcomes are legal now, and both are asserted** (changed by the
-    whole-branch review's Important #2; it used to assert `["marked",
-    "settled"]` alone). `routers.inventory._refuse_auction_lots` refuses a
+    **Two outcomes are legal, and both are asserted.**
+    `routers.inventory._refuse_auction_lots` refuses a
     receipt that would end an auction-format listing -- a coin in an auction
     goes missing in two steps, remove the lot then record the loss, the trade
     ruling R25 already accepted for Record sale. That refusal is raised
@@ -889,10 +888,9 @@ def test_cancelling_an_auction_races_settling_it(
 ) -> None:
     """Cancel and settle the same closed auction at once: no deadlock, no 500.
 
-    The race the whole-branch review's **Critical #1** named, and the one
-    nothing here covered: the two settlement tests above race settle against
-    settle and against a receipt, and nothing cancelled. Both endpoints are
-    admin-only, both buttons are present on a `closed` auction in the
+    The race nothing else here covers: the two settlement tests above race
+    settle against settle and against a receipt, and nothing cancelled. Both
+    endpoints are admin-only, both buttons are present on a `closed` auction in the
     console, and ruling **R8** made `cancel` legal on `closed` -- so two
     tabs, or two operators, is all it takes.
 
@@ -1137,7 +1135,7 @@ def test_consigning_an_auction_races_cancelling_it(
 ) -> None:
     """Consign and cancel the same scheduled auction at once: no deadlock.
 
-    Found by the review of the final fix wave (Important #2). Once `cancel`
+    Once `cancel`
     took the `auction` row first, `consign` became the next writer that
     reached an auction's coins before its auction row: its item moves
     flushed before its `UPDATE auction`, so on a `scheduled` auction -- the

@@ -686,7 +686,7 @@ def test_ending_an_auction_lot_listing_directly_is_refused(
     make_item: ItemFactory,
     heritage_venue: SalesVenue,
 ) -> None:
-    """Task 5, defect 1: an auction lot is ended through its auction, not here.
+    """An auction lot is ended through its auction, not here.
 
     `app.auctions.consign` reads an auction's coins through
     `offering_writes.offered_items(db, auction_lot.listing)`, which answers
@@ -730,7 +730,7 @@ def test_ending_a_direct_auction_format_listing_is_allowed(
     The Offer dialog offers a coin directly on eBay by auction; no
     `auction_lot` row exists, so there is no auction to end it through. The
     guard keyed on `format` alone and refused it, leaving the listing with no
-    way to be ended (review of the final fix wave, Important #1).
+    way to be ended.
     """
     listing = offering_writes.offer(
         db,
