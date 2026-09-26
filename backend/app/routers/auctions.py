@@ -73,6 +73,16 @@ from ..schemas import (
     SettleIn,
     SettleOut,
 )
+from ._resolve import (
+    enum_member,
+    found_or_404,
+    get_or_422,
+    item_by_id,
+    lot_by_id,
+    refuse_null_required,
+    refuse_stale_version,
+    venue_by_code,
+)
 from .offers import listing_out, sale_recorded
 
 router = APIRouter(prefix="/auctions", tags=["selling"])
@@ -85,77 +95,14 @@ _REFUSAL_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-# --------------------------------------------------------------------------
-# Resolving what the client sent
-# --------------------------------------------------------------------------
-
-
-def _venue_by_code(db: Session, code: str) -> SalesVenue:
-    """Resolve a `sales_venue` code. An unknown platform is a 422."""
-    venue = db.scalar(select(SalesVenue).where(SalesVenue.code == code))
-    if venue is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown venue: {code!r}",
-        )
-    return venue
-
-
-def _auction_status(code: str) -> AuctionStatus:
-    """Resolve an auction status code, naming the ones that exist."""
-    try:
-        return AuctionStatus(code)
-    except ValueError as exc:
-        allowed = ", ".join(member.value for member in AuctionStatus)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown status: {code!r}. Use one of: {allowed}",
-        ) from exc
-
-
-def _lot_result(code: str) -> AuctionLotResult:
-    """Resolve a settlement result code, naming the ones that exist."""
-    try:
-        return AuctionLotResult(code)
-    except ValueError as exc:
-        allowed = ", ".join(member.value for member in AuctionLotResult)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown result: {code!r}. Use one of: {allowed}",
-        ) from exc
-
-
-def _item_by_id(db: Session, item_id: int) -> InventoryItem:
-    """The item to add as a lot of one. An id no item wears is a 422."""
-    item = db.get(InventoryItem, item_id)
-    if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown item_id: {item_id}",
-        )
-    return item
-
-
-def _lot_by_id(db: Session, lot_id: int) -> SalesLot:
-    """The assembled lot to add. An id no lot wears is a 422."""
-    lot = db.get(SalesLot, lot_id)
-    if lot is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown lot_id: {lot_id}",
-        )
-    return lot
-
-
 def _location_by_id(db: Session, location_id: int) -> StorageLocation:
     """A storage location to return items to. An id no location wears is a 422."""
-    location = db.get(StorageLocation, location_id)
-    if location is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown returned_to_location_id: {location_id}",
-        )
-    return location
+    return get_or_422(
+        db,
+        StorageLocation,
+        location_id,
+        f"Unknown returned_to_location_id: {location_id}",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -187,27 +134,22 @@ def _eager(stmt: Select[tuple[Auction]]) -> Select[tuple[Auction]]:
 
 def _get_auction(db: Session, auction_id: int) -> Auction:
     """One auction with its lots, or a 404."""
-    auction = db.scalar(_eager(select(Auction).where(Auction.id == auction_id)))
-    if auction is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such auction"
-        )
-    return auction
+    return found_or_404(
+        db.scalar(_eager(select(Auction).where(Auction.id == auction_id))),
+        "No such auction",
+    )
 
 
 def _auction_lot_by_id(db: Session, auction: Auction, lot_id: int) -> AuctionLot:
     """One lot of this auction, or a 404 naming the auction as well as the id."""
-    row = db.scalar(
-        select(AuctionLot).where(
-            AuctionLot.id == lot_id, AuctionLot.auction_id == auction.id
-        )
+    return found_or_404(
+        db.scalar(
+            select(AuctionLot).where(
+                AuctionLot.id == lot_id, AuctionLot.auction_id == auction.id
+            )
+        ),
+        f"No such lot #{lot_id} in auction #{auction.id}",
     )
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No such lot #{lot_id} in auction #{auction.id}",
-        )
-    return row
 
 
 def _lot_out(auction_lot: AuctionLot) -> AuctionLotOut:
@@ -270,9 +212,11 @@ def list_auctions(
     """Every auction, newest first. Filterable by platform and by status."""
     stmt = select(Auction)
     if venue is not None:
-        stmt = stmt.where(Auction.sales_venue_id == _venue_by_code(db, venue).id)
+        stmt = stmt.where(Auction.sales_venue_id == venue_by_code(db, venue).id)
     if wanted_status is not None:
-        stmt = stmt.where(Auction.status == _auction_status(wanted_status))
+        stmt = stmt.where(
+            Auction.status == enum_member(AuctionStatus, wanted_status, "status")
+        )
     rows = db.scalars(_eager(stmt).order_by(Auction.id.desc())).all()
     return AuctionListOut(auctions=[_out(row) for row in rows])
 
@@ -280,7 +224,7 @@ def list_auctions(
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_auction(payload: AuctionIn, db: DbSession, _admin: AdminUser) -> AuctionOut:
     """Start an auction. It begins `draft`, with no lots yet."""
-    venue = _venue_by_code(db, payload.venue)
+    venue = venue_by_code(db, payload.venue)
     auction = Auction(
         sales_venue_id=venue.id,
         title=payload.title,
@@ -299,16 +243,6 @@ def create_auction(payload: AuctionIn, db: DbSession, _admin: AdminUser) -> Auct
 _REQUIRED_ON_UPDATE = frozenset({"title"})
 
 
-def _refuse_null_required(data: dict[str, Any]) -> None:
-    """Raise a 422 naming every required column a PATCH sent as an explicit null."""
-    nulled = sorted(f for f in _REQUIRED_ON_UPDATE if f in data and data[f] is None)
-    if nulled:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"{', '.join(nulled)} cannot be null",
-        )
-
-
 @router.patch("/{auction_id}")
 def update_auction(
     auction_id: int, payload: AuctionUpdate, db: DbSession, _admin: AdminUser
@@ -319,10 +253,8 @@ def update_auction(
     """
     auction = _get_auction(db, auction_id)
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
-    expected = data.pop("version", None)
-    if expected is not None and expected != auction.version:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
-    _refuse_null_required(data)
+    refuse_stale_version(data.pop("version", None), auction.version, _STALE)
+    refuse_null_required(data, _REQUIRED_ON_UPDATE)
 
     for field, value in data.items():
         setattr(auction, field, value)
@@ -377,9 +309,9 @@ def add_auction_lot(
     auction = _get_auction(db, auction_id)
     lot_number = payload.lot_number
     if payload.lot_id is not None:
-        subject: SalesLot | InventoryItem = _lot_by_id(db, payload.lot_id)
+        subject: SalesLot | InventoryItem = lot_by_id(db, payload.lot_id)
     elif payload.item_id is not None:
-        subject = _item_by_id(db, payload.item_id)
+        subject = item_by_id(db, payload.item_id)
     else:  # pragma: no cover - AuctionLotIn._one_subject already refuses this
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -652,7 +584,7 @@ def settle_auction(
     lines = [
         auctions.SettlementLine(
             auction_lot_id=line.auction_lot_id,
-            result=_lot_result(line.result),
+            result=enum_member(AuctionLotResult, line.result, "result"),
             hammer_price=line.hammer_price,
             buyer_username=line.buyer_username,
         )

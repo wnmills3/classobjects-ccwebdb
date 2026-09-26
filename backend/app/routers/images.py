@@ -30,6 +30,7 @@ from ..models import (
 )
 from ..schemas import ImageLinkIn, ImageLinkOut, ImageOut
 from ..storage import get_storage
+from ._resolve import found_or_404, get_or_404
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -91,12 +92,12 @@ async def upload_image(
     """
     item: InventoryItem | None = None
     if inventory_item_id is not None:
-        item = db.get(InventoryItem, inventory_item_id)
-        if item is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Unknown inventory_item_id: {inventory_item_id}",
-            )
+        item = get_or_404(
+            db,
+            InventoryItem,
+            inventory_item_id,
+            f"Unknown inventory_item_id: {inventory_item_id}",
+        )
         sale_state.guard(db, [item], acknowledged=acknowledge_for_sale)
 
     raw = await file.read()
@@ -167,15 +168,13 @@ def attach_image(
     acknowledges it: the shop serves an item's primary photograph, so filing
     one changes what a buyer is looking at.
     """
-    image = db.get(Image, image_id)
-    if image is None:
-        raise HTTPException(status_code=404, detail="Image not found")
-    item = db.get(InventoryItem, payload.inventory_item_id)
-    if item is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No such item: {payload.inventory_item_id}",
-        )
+    image = get_or_404(db, Image, image_id, "Image not found")
+    item = get_or_404(
+        db,
+        InventoryItem,
+        payload.inventory_item_id,
+        f"No such item: {payload.inventory_item_id}",
+    )
 
     sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
 
@@ -269,10 +268,7 @@ def get_derivative(sha256: str, kind: DerivativeKind, db: DbSession) -> Response
         .join(Image, ImageDerivative.image_id == Image.id)
         .where(Image.sha256 == sha256, ImageDerivative.kind == kind)
     ).first()
-    if found is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
-        )
+    found = found_or_404(found, "Image not found")
     storage_key, media_type = found
 
     try:
@@ -305,11 +301,7 @@ def delete_image(
     because DELETE has no body here. The shop serves an item's primary image
     (`routers.catalog`), so deleting one changes what a buyer is looking at.
     """
-    image = db.get(Image, image_id)
-    if image is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
-        )
+    image = get_or_404(db, Image, image_id, "Image not found")
 
     # This endpoint knew only an image id. The items it is attached to are
     # what the for-sale rule is about, so they are read before anything is

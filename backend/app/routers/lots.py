@@ -30,7 +30,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from .. import lot_writes
 from ..deps import AdminUser, DbSession
-from ..models import InventoryItem, SalesLot, SalesLotItem, SalesLotStatus
+from ..models import SalesLot, SalesLotItem, SalesLotStatus
 from ..schemas import (
     SalesLotIn,
     SalesLotListOut,
@@ -38,6 +38,7 @@ from ..schemas import (
     SalesLotOut,
     SalesLotUpdate,
 )
+from ._resolve import enum_member, found_or_404, item_by_id, refuse_stale_version
 
 router = APIRouter(prefix="/sales-lots", tags=["selling"])
 
@@ -52,34 +53,6 @@ _ALL = "all"
 _ZERO = Decimal("0.00")
 
 
-# --------------------------------------------------------------------------
-# Resolving what the client sent
-# --------------------------------------------------------------------------
-
-
-def _lot_status(code: str) -> SalesLotStatus:
-    """Resolve a lot status code, naming the ones that exist."""
-    try:
-        return SalesLotStatus(code)
-    except ValueError as exc:
-        allowed = ", ".join([*(member.value for member in SalesLotStatus), _ALL])
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown status: {code!r}. Use one of: {allowed}",
-        ) from exc
-
-
-def _item_by_id(db: Session, item_id: int) -> InventoryItem:
-    """The item to group. An id no item wears is a 422, like an unknown code."""
-    item = db.get(InventoryItem, item_id)
-    if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown item_id: {item_id}",
-        )
-    return item
-
-
 def _eager(stmt: Select[tuple[SalesLot]]) -> Select[tuple[SalesLot]]:
     """Load what `_out` reads, so a list of lots is not two queries per row."""
     return stmt.options(selectinload(SalesLot.members).selectinload(SalesLotItem.item))
@@ -87,10 +60,10 @@ def _eager(stmt: Select[tuple[SalesLot]]) -> Select[tuple[SalesLot]]:
 
 def _get_lot(db: Session, lot_id: int) -> SalesLot:
     """One lot, or a 404."""
-    lot = db.scalar(_eager(select(SalesLot).where(SalesLot.id == lot_id)))
-    if lot is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such lot")
-    return lot
+    return found_or_404(
+        db.scalar(_eager(select(SalesLot).where(SalesLot.id == lot_id))),
+        "No such lot",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -162,7 +135,10 @@ def list_sales_lots(
     """
     stmt = select(SalesLot)
     if wanted_status is not None and wanted_status != _ALL:
-        stmt = stmt.where(SalesLot.status == _lot_status(wanted_status))
+        stmt = stmt.where(
+            SalesLot.status
+            == enum_member(SalesLotStatus, wanted_status, "status", also=[_ALL])
+        )
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = db.scalars(
         _eager(stmt).order_by(SalesLot.id.desc()).limit(limit).offset(offset)
@@ -246,9 +222,7 @@ def update_sales_lot(
     trying to send.
     """
     lot = _get_lot(db, lot_id)
-    expected = payload.version
-    if expected is not None and expected != lot.version:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
+    refuse_stale_version(payload.version, lot.version, _STALE)
     # Sorted, so two requests touching the same coins take the lot's members
     # in one order rather than in whatever order each body happened to list
     # them. The lot's own row lock, taken by `lot_writes` before the first
@@ -269,9 +243,9 @@ def update_sales_lot(
             db, lot, title=payload.title, description=payload.description
         )
         for item_id in removed:
-            lot_writes.remove_member(db, lot, _item_by_id(db, item_id))
+            lot_writes.remove_member(db, lot, item_by_id(db, item_id))
         for item_id in added:
-            lot_writes.add_member(db, lot, _item_by_id(db, item_id))
+            lot_writes.add_member(db, lot, item_by_id(db, item_id))
         if changed:
             lot_writes.touch(db, lot)
         db.commit()

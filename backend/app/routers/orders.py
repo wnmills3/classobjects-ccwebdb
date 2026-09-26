@@ -44,6 +44,7 @@ from ..schemas import (
     OrderRevision,
     OrderStatusUpdate,
 )
+from ._resolve import found_or_404, get_or_404
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -188,10 +189,7 @@ def order_out(db: Session, order_id: int, *, for_admin: bool) -> OrderOut:
     """One order, freshly loaded, as the API returns it."""
     db.expire_all()
     order = _load(db, order_id)
-    if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
-        )
+    order = found_or_404(order, _ORDER_NOT_FOUND)
     return _order_out(order, _status_code(db, order), for_admin=for_admin)
 
 
@@ -242,10 +240,7 @@ def list_orders(db: DbSession, user: CurrentUser, mine: bool = False) -> list[Or
 
 def _visible_or_404(db: Session, order_id: int, user: User) -> SalesOrder:
     order = _load(db, order_id)
-    if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
-        )
+    order = found_or_404(order, _ORDER_NOT_FOUND)
     if user.role is not UserRole.manager:
         customer = db.scalar(select(Customer).where(Customer.user_id == user.id))
         # 404 rather than 403 so ids of other customers' orders do not leak.
@@ -270,10 +265,7 @@ def list_order_changes(
     order_id: int, db: DbSession, _admin: AdminUser
 ) -> list[OrderChangeOut]:
     """An order's history, newest first."""
-    if db.get(SalesOrder, order_id) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
-        )
+    get_or_404(db, SalesOrder, order_id, _ORDER_NOT_FOUND)
     rows = db.scalars(
         select(SalesOrderChange)
         .where(SalesOrderChange.sales_order_id == order_id)
@@ -381,10 +373,7 @@ def update_order_status(
         .with_for_update()
         .execution_options(populate_existing=True)
     ).scalar_one_or_none()
-    if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
-        )
+    order = found_or_404(order, _ORDER_NOT_FOUND)
 
     previous = _status_code(db, order)
     # Cancelling an order that has not shipped returns its stock to the
@@ -464,15 +453,8 @@ def revise(
 ) -> OrderOut:
     """Replace an order's lines, prices, customer and notes, all or nothing."""
     order = _load(db, order_id)
-    if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
-        )
-    customer = db.get(Customer, payload.customer_id)
-    if customer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such customer"
-        )
+    order = found_or_404(order, _ORDER_NOT_FOUND)
+    customer = get_or_404(db, Customer, payload.customer_id, "No such customer")
     revise_order(
         db,
         order,

@@ -20,6 +20,12 @@ from ..deps import AdminUser, DbSession
 from ..models import SalesVenue, SalesVenueKind, Vendor
 from ..references import code_to_id
 from ..schemas import SalesVenueCreate, SalesVenueOut, SalesVenueUpdate
+from ._resolve import (
+    found_or_404,
+    get_or_422,
+    refuse_null_required,
+    refuse_stale_version,
+)
 
 router = APIRouter(prefix="/sales-venues", tags=["selling"])
 
@@ -71,25 +77,11 @@ def _kind_id(db: Session, code: str) -> int:
 _REQUIRED_ON_UPDATE = frozenset({"name", "is_active"})
 
 
-def _refuse_null_required(data: dict[str, Any]) -> None:
-    """Raise a 422 naming every required column a PATCH sent as an explicit null."""
-    nulled = sorted(f for f in _REQUIRED_ON_UPDATE if f in data and data[f] is None)
-    if nulled:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"{', '.join(nulled)} cannot be null",
-        )
-
-
 def _check_vendor(db: Session, vendor_id: int | None, venue_id: int | None) -> None:
     """The purchase source exists and no other platform is linked to it."""
     if vendor_id is None:
         return
-    if db.get(Vendor, vendor_id) is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown vendor_id: {vendor_id}",
-        )
+    get_or_422(db, Vendor, vendor_id, f"Unknown vendor_id: {vendor_id}")
     other = db.scalar(
         select(SalesVenue).where(
             SalesVenue.vendor_id == vendor_id, SalesVenue.id != (venue_id or 0)
@@ -144,20 +136,17 @@ def update_sales_venue(
     code: str, payload: SalesVenueUpdate, db: DbSession, _admin: AdminUser
 ) -> SalesVenueOut:
     """Change a platform. Send `version` to be told about conflicts."""
-    venue = db.scalar(select(SalesVenue).where(SalesVenue.code == code))
-    if venue is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such platform"
-        )
+    venue = found_or_404(
+        db.scalar(select(SalesVenue).where(SalesVenue.code == code)),
+        "No such platform",
+    )
 
     # exclude_unset: an omitted field is left alone, an explicit null clears it
     # -- except name and is_active, which are NOT NULL columns and are refused
-    # by _refuse_null_required below rather than silently left unchanged.
+    # by refuse_null_required below rather than silently left unchanged.
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
-    expected = data.pop("version", None)
-    if expected is not None and expected != venue.version:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
-    _refuse_null_required(data)
+    refuse_stale_version(data.pop("version", None), venue.version, _STALE)
+    refuse_null_required(data, _REQUIRED_ON_UPDATE)
 
     if venue.is_own_store:
         if "kind" in data:

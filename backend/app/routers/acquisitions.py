@@ -38,6 +38,7 @@ from ..schemas import (
     VendorCreate,
     VendorOut,
 )
+from ._resolve import found_or_404, get_or_404
 
 vendors_router = APIRouter(prefix="/vendors", tags=["acquisitions"])
 purchase_orders_router = APIRouter(prefix="/purchase-orders", tags=["acquisitions"])
@@ -249,10 +250,7 @@ def get_purchase_order(
         .where(PurchaseOrder.id == order_id)
         .options(selectinload(PurchaseOrder.vendor))
     )
-    if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
-        )
+    order = found_or_404(order, _ORDER_NOT_FOUND)
 
     items = db.scalars(
         select(InventoryItem)
@@ -300,12 +298,9 @@ def create_purchase_order(
     calling that route's own function, so the two can never drift into
     describing a freshly created order differently from an existing one.
     """
-    vendor = db.get(Vendor, payload.vendor_id)
-    if vendor is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown vendor_id: {payload.vendor_id}",
-        )
+    vendor = get_or_404(
+        db, Vendor, payload.vendor_id, f"Unknown vendor_id: {payload.vendor_id}"
+    )
 
     _refuse_future(payload.ordered_on)
     number = payload.order_number or next_order_number(db)
@@ -337,10 +332,7 @@ def update_purchase_order(
         .where(PurchaseOrder.id == order_id)
         .options(selectinload(PurchaseOrder.vendor))
     )
-    if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=_ORDER_NOT_FOUND
-        )
+    order = found_or_404(order, _ORDER_NOT_FOUND)
     sent = payload.model_fields_set
     if "ordered_on" in sent:
         _refuse_future(payload.ordered_on)

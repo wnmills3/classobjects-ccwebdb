@@ -26,6 +26,7 @@ from ..models import Address, AddressKind, Country, Customer
 from ..order_writes import Line, place_order
 from ..references import code_to_id
 from ..schemas import AdminOrderCreate, OrderOut
+from ._resolve import get_or_404
 from .orders import order_out
 
 router = APIRouter(prefix="/customers", tags=["customers"])
@@ -130,11 +131,7 @@ def update_customer(
     customer_id: int, update: CustomerUpdate, db: DbSession, _: AdminUser
 ) -> Customer:
     """Correct a customer's contact details."""
-    customer = db.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such customer"
-        )
+    customer = get_or_404(db, Customer, customer_id, "No such customer")
 
     fields = update.model_dump(exclude_unset=True)
     # `display_name` is NOT NULL: an explicit null would reach the database
@@ -166,11 +163,7 @@ def add_address(
     so an order shipped to the previous address still resolves to where it
     actually went.
     """
-    customer = db.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such customer"
-        )
+    customer = get_or_404(db, Customer, customer_id, "No such customer")
 
     country_id = code_to_id(db, Country, body.country, "country")
 
@@ -218,11 +211,7 @@ def place_order_for_customer(
     customer_id: int, body: AdminOrderCreate, db: DbSession, admin: AdminUser
 ) -> OrderOut:
     """Place an order for a customer: a phone, walk-in or account holder's order."""
-    customer = db.get(Customer, customer_id)
-    if customer is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such customer"
-        )
+    customer = get_or_404(db, Customer, customer_id, "No such customer")
     order = place_order(
         db,
         customer,

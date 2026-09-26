@@ -35,6 +35,7 @@ from ..schemas import (
     ReferenceValueOut,
     ReferenceValueRename,
 )
+from ._resolve import found_or_404
 
 router = APIRouter(prefix="/reference", tags=["reference"])
 
@@ -196,13 +197,7 @@ def get_table(
     record may still reference a classifier that should no longer be offered
     for new ones, and the form still has to render it.
     """
-    model = TABLES.get(table)
-    if model is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown reference table: {table!r}",
-        )
-
+    model = _model_or_404(table)
     stmt = select(model)
     if not include_inactive:
         stmt = stmt.where(model.is_active.is_(True))
@@ -258,13 +253,7 @@ def _limit_to_year(
 
 
 def _model_or_404(table: str) -> type[ReferenceMixin]:
-    model = TABLES.get(table)
-    if model is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown reference table: {table!r}",
-        )
-    return model
+    return found_or_404(TABLES.get(table), f"Unknown reference table: {table!r}")
 
 
 @router.post(
@@ -366,13 +355,7 @@ def rename_value(
     key, so the new wording is live everywhere the moment this commits. That is
     the payoff for keeping one copy of it.
     """
-    model = _model_or_404(table)
-    row = db.scalar(select(model).where(model.code == code))
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{table} has no value with code {code!r}",
-        )
+    model, row = _row_or_404(db, table, code)
 
     label = " ".join(payload.label.split())
     if not label:
@@ -407,11 +390,7 @@ def _row_or_404(
 ) -> tuple[type[ReferenceMixin], ReferenceMixin]:
     model = _model_or_404(table)
     row = db.scalar(select(model).where(model.code == code))
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{table} has no value with code {code!r}",
-        )
+    row = found_or_404(row, f"{table} has no value with code {code!r}")
     return model, row
 
 
