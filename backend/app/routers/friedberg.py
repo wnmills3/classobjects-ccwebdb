@@ -16,12 +16,12 @@ turns a proposal into a fact the next lookup can trust.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import ColumnElement, and_, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from ..deps import AdminUser, DbSession
 from ..models import (
@@ -124,109 +124,50 @@ def search_friedberg(
     With no filters at all, both conditions are vacuous and every row comes
     back -- browsing the whole catalog is a valid use of this endpoint too.
     """
-    # Every filter contributes two conditions: `narrow` is NULL-tolerant (the
-    # row's value must equal the filter or be unknown), `hits` is not (the
-    # row's value must actually equal it). ANDing every `narrow` condition
-    # implements the stated matching rule; ORing every `hits` condition on
-    # top is what stops a completely unknown row from matching regardless of
-    # what was asked -- see the docstring.
-    narrow: list[ColumnElement[bool]] = []
-    hits: list[ColumnElement[bool]] = []
-
-    note_type_id = code_to_id(db, NoteType, note_type, "note_type")
-    if note_type_id is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.note_type_id == note_type_id,
-                FriedbergNumber.note_type_id.is_(None),
-            )
-        )
-        hits.append(FriedbergNumber.note_type_id == note_type_id)
-
-    denomination_id = code_to_id(db, Denomination, denomination, "denomination")
-    if denomination_id is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.denomination_id == denomination_id,
-                FriedbergNumber.denomination_id.is_(None),
-            )
-        )
-        hits.append(FriedbergNumber.denomination_id == denomination_id)
-
-    if series_year is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.series_year == series_year,
-                FriedbergNumber.series_year.is_(None),
-            )
-        )
-        hits.append(FriedbergNumber.series_year == series_year)
-
-    if series_letter is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.series_letter == series_letter,
-                FriedbergNumber.series_letter.is_(None),
-            )
-        )
-        hits.append(FriedbergNumber.series_letter == series_letter)
-
-    seal_color_id = code_to_id(db, SealColor, seal_color, "seal_color")
-    if seal_color_id is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.seal_color_id == seal_color_id,
-                FriedbergNumber.seal_color_id.is_(None),
-            )
-        )
-        hits.append(FriedbergNumber.seal_color_id == seal_color_id)
-
-    signature_combination_id = code_to_id(
-        db, SignatureCombination, signature_combination, "signature_combination"
-    )
-    if signature_combination_id is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.signature_combination_id == signature_combination_id,
-                FriedbergNumber.signature_combination_id.is_(None),
-            )
-        )
-        hits.append(
-            FriedbergNumber.signature_combination_id == signature_combination_id
-        )
-
-    if district_letter is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.district_letter == district_letter,
-                FriedbergNumber.district_letter.is_(None),
-            )
-        )
-        hits.append(FriedbergNumber.district_letter == district_letter)
-
-    if web_press is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.web_press == web_press,
-                FriedbergNumber.web_press.is_(None),
-            )
-        )
-        hits.append(FriedbergNumber.web_press == web_press)
-
-    # Washington or Fort Worth: a 2017-A $1 is 3005-A from one, 3006-A from
-    # the other (owner, 2026-09-25).
-    if printing_facility is not None:
-        narrow.append(
-            or_(
-                FriedbergNumber.printing_facility == printing_facility,
-                FriedbergNumber.printing_facility.is_(None),
-            )
-        )
-        hits.append(FriedbergNumber.printing_facility == printing_facility)
+    # Resolved in this order, so an unknown code is refused the same way
+    # whichever others were sent too. Washington or Fort Worth: a 2017-A $1 is
+    # 3005-A from one, 3006-A from the other (owner, 2026-09-25).
+    filters: list[tuple[InstrumentedAttribute[Any], object]] = [
+        (
+            FriedbergNumber.note_type_id,
+            code_to_id(db, NoteType, note_type, "note_type"),
+        ),
+        (
+            FriedbergNumber.denomination_id,
+            code_to_id(db, Denomination, denomination, "denomination"),
+        ),
+        (FriedbergNumber.series_year, series_year),
+        (FriedbergNumber.series_letter, series_letter),
+        (
+            FriedbergNumber.seal_color_id,
+            code_to_id(db, SealColor, seal_color, "seal_color"),
+        ),
+        (
+            FriedbergNumber.signature_combination_id,
+            code_to_id(
+                db, SignatureCombination, signature_combination, "signature_combination"
+            ),
+        ),
+        (FriedbergNumber.district_letter, district_letter),
+        (FriedbergNumber.web_press, web_press),
+        (FriedbergNumber.printing_facility, printing_facility),
+    ]
+    supplied = [(column, value) for column, value in filters if value is not None]
 
     stmt = select(FriedbergNumber)
-    if narrow:
-        stmt = stmt.where(and_(*narrow), or_(*hits))
+    if supplied:
+        # Each supplied filter contributes two conditions: the NULL-tolerant
+        # one (the row's value equals the filter or is unknown), all of which
+        # must hold -- the stated matching rule -- and the strict one (the
+        # row's value actually equals it), at least one of which must hold,
+        # which is what stops a completely unknown row from matching
+        # regardless of what was asked. See the docstring.
+        stmt = stmt.where(
+            and_(
+                *(or_(column == value, column.is_(None)) for column, value in supplied)
+            ),
+            or_(*(column == value for column, value in supplied)),
+        )
 
     rows = db.scalars(stmt.order_by(FriedbergNumber.id)).all()
     return [_to_out(db, row) for row in rows]
