@@ -141,6 +141,27 @@ def _years(item: InventoryItem) -> tuple[int | None, int | None]:
     return item.year_start, item.year_end
 
 
+def _describe(item: InventoryItem) -> dict[str, Any]:
+    """The `CatalogDescription` fields of one item, for either public shape."""
+    year_start, year_end = _years(item)
+    return {
+        "item_kind": id_to_code(item.item_kind),
+        "country": id_to_code(item.country),
+        "denomination": id_to_code(item.denomination),
+        "bullion_form": id_to_code(item.bullion_form),
+        "grade": id_to_code(item.grade),
+        "strike_type": id_to_code(item.strike_type),
+        "grade_display": grades.display_item(item),
+        "grading_service": id_to_code(item.grading_service),
+        "metal": id_to_code(item.metal),
+        "year_start": year_start,
+        "year_end": year_end,
+        "fineness": item.fineness,
+        "gross_weight_ozt": item.gross_weight_ozt,
+        "fine_weight_ozt": item.fine_weight_ozt,
+    }
+
+
 def to_catalog_member(item: InventoryItem) -> CatalogMemberOut:
     """Project one coin of a lot into the public shape.
 
@@ -154,20 +175,7 @@ def to_catalog_member(item: InventoryItem) -> CatalogMemberOut:
         item_code=item.item_code,
         title=item.source_title,
         description=item.description,
-        item_kind=id_to_code(item.item_kind),
-        country=id_to_code(item.country),
-        denomination=id_to_code(item.denomination),
-        bullion_form=id_to_code(item.bullion_form),
-        grade=id_to_code(item.grade),
-        strike_type=id_to_code(item.strike_type),
-        grade_display=grades.display_item(item),
-        grading_service=id_to_code(item.grading_service),
-        metal=id_to_code(item.metal),
-        year_start=_years(item)[0],
-        year_end=_years(item)[1],
-        fineness=item.fineness,
-        gross_weight_ozt=item.gross_weight_ozt,
-        fine_weight_ozt=item.fine_weight_ozt,
+        **_describe(item),
         piece_count=item.piece_count,
         thumbnail_url=urls.get("thumbnail_url"),
         image_url=urls.get("image_url"),
@@ -252,20 +260,7 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         image_url=urls.get("image_url"),
         title=listing.title or item.source_title,
         description=listing.description or item.description,
-        item_kind=id_to_code(item.item_kind),
-        country=id_to_code(item.country),
-        denomination=id_to_code(item.denomination),
-        bullion_form=id_to_code(item.bullion_form),
-        grade=id_to_code(item.grade),
-        strike_type=id_to_code(item.strike_type),
-        grade_display=grades.display_item(item),
-        grading_service=id_to_code(item.grading_service),
-        metal=id_to_code(item.metal),
-        year_start=_years(item)[0],
-        year_end=_years(item)[1],
-        fineness=item.fineness,
-        gross_weight_ozt=item.gross_weight_ozt,
-        fine_weight_ozt=item.fine_weight_ozt,
+        **_describe(item),
         piece_count=item.piece_count,
         price=listing.price,
         currency=id_to_code(listing.currency) or "USD",
