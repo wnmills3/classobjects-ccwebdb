@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import cast
 
-from sqlalchemy import ColumnElement, SQLColumnExpression, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, SQLColumnExpression, delete, func, or_, select
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from .models import (
     ProvenanceSource,
@@ -31,6 +32,7 @@ __all__ = [
     "AliasError",
     "add_alias",
     "aliases_by_row",
+    "delete_all",
     "ids_named",
     "normalise",
     "remove_alias",
@@ -55,20 +57,66 @@ def normalise(text: str) -> str:
     return " ".join(text.split())
 
 
+@dataclass(frozen=True)
+class _AliasTable:
+    """Where one vocabulary's aliases live: the table and its columns.
+
+    The one place the `series_alias` / `reference_alias` split is decided;
+    every function below reads the columns from here.
+    """
+
+    model: type[SeriesAlias] | type[ReferenceAlias]
+    row_id: InstrumentedAttribute[int]
+    alias: InstrumentedAttribute[str]
+    is_active: InstrumentedAttribute[bool]
+    #: `reference_alias.table_name == <vocabulary>`; none for `series_alias`.
+    scope: tuple[ColumnElement[bool], ...]
+    table_name: str | None
+
+    def new(self, row_id: int, alias: str) -> SeriesAlias | ReferenceAlias:
+        """An alias an administrator added, not yet in the session."""
+        if self.table_name is None:
+            return SeriesAlias(
+                series_id=row_id, alias=alias, source=ProvenanceSource.manual
+            )
+        return ReferenceAlias(
+            table_name=self.table_name,
+            row_id=row_id,
+            alias=alias,
+            source=ProvenanceSource.manual,
+        )
+
+
+def _alias_table(model: type[ReferenceMixin]) -> _AliasTable:
+    """The alias table for `model`'s vocabulary."""
+    if model is Series:
+        return _AliasTable(
+            SeriesAlias,
+            SeriesAlias.series_id,
+            SeriesAlias.alias,
+            SeriesAlias.is_active,
+            (),
+            None,
+        )
+    table = model.__tablename__
+    return _AliasTable(
+        ReferenceAlias,
+        ReferenceAlias.row_id,
+        ReferenceAlias.alias,
+        ReferenceAlias.is_active,
+        (ReferenceAlias.table_name == table,),
+        table,
+    )
+
+
 def aliases_by_row(
     db: Session, model: type[ReferenceMixin], *, include_retired: bool = False
 ) -> dict[int, list[str]]:
     """Every row's aliases, in alphabetical order, keyed by row id."""
-    if model is Series:
-        stmt = select(SeriesAlias.series_id, SeriesAlias.alias)
-        if not include_retired:
-            stmt = stmt.where(SeriesAlias.is_active.is_(True))
-    else:
-        stmt = select(ReferenceAlias.row_id, ReferenceAlias.alias).where(
-            ReferenceAlias.table_name == model.__tablename__
-        )
-        if not include_retired:
-            stmt = stmt.where(ReferenceAlias.is_active.is_(True))
+    held = _alias_table(model)
+    stmt = select(held.row_id, held.alias).where(*held.scope)
+    if not include_retired:
+        stmt = stmt.where(held.is_active.is_(True))
     found: dict[int, list[str]] = defaultdict(list)
     for row_id, alias in db.execute(stmt).all():
         found[row_id].append(alias)
@@ -97,16 +145,10 @@ def ids_named(db: Session, model: type[ReferenceMixin], query: str | None) -> li
         return column.ilike(f"%{text}%")
 
     by_name = select(model.id).where(or_(named(model.label), named(model.code)))
-    if model is Series:
-        by_alias = select(SeriesAlias.series_id).where(
-            SeriesAlias.is_active.is_(True), named(SeriesAlias.alias)
-        )
-    else:
-        by_alias = select(ReferenceAlias.row_id).where(
-            ReferenceAlias.table_name == model.__tablename__,
-            ReferenceAlias.is_active.is_(True),
-            named(ReferenceAlias.alias),
-        )
+    held = _alias_table(model)
+    by_alias = select(held.row_id).where(
+        *held.scope, held.is_active.is_(True), named(held.alias)
+    )
     return sorted(set(db.scalars(by_name.union(by_alias))))
 
 
@@ -137,17 +179,12 @@ def resolve(db: Session, model: type[ReferenceMixin], word: str) -> Resolved | N
         ).all()
         if len(matched) == 1:
             return Resolved(matched[0], by)
-    if model is Series:
-        stmt = select(SeriesAlias.series_id).where(
-            SeriesAlias.is_active.is_(True),
-            func.lower(SeriesAlias.alias) == text.lower(),
-        )
-    else:
-        stmt = select(ReferenceAlias.row_id).where(
-            ReferenceAlias.table_name == model.__tablename__,
-            ReferenceAlias.is_active.is_(True),
-            func.lower(ReferenceAlias.alias) == text.lower(),
-        )
+    held = _alias_table(model)
+    stmt = select(held.row_id).where(
+        *held.scope,
+        held.is_active.is_(True),
+        func.lower(held.alias) == text.lower(),
+    )
     ids = set(db.scalars(stmt))
     if len(ids) == 1:
         return Resolved(ids.pop(), "alias")
@@ -157,19 +194,18 @@ def resolve(db: Session, model: type[ReferenceMixin], word: str) -> Resolved | N
 def _existing(
     db: Session, model: type[ReferenceMixin], row_id: int, alias: str
 ) -> SeriesAlias | ReferenceAlias | None:
-    if model is Series:
-        return db.scalar(
-            select(SeriesAlias).where(
-                SeriesAlias.series_id == row_id,
-                func.lower(SeriesAlias.alias) == alias.lower(),
+    held = _alias_table(model)
+    # `select` of a union of two entities types its row as their common base;
+    # the entity is `held.model`, one of the two named here.
+    return cast(
+        "SeriesAlias | ReferenceAlias | None",
+        db.scalar(
+            select(held.model).where(
+                *held.scope,
+                held.row_id == row_id,
+                func.lower(held.alias) == alias.lower(),
             )
-        )
-    return db.scalar(
-        select(ReferenceAlias).where(
-            ReferenceAlias.table_name == model.__tablename__,
-            ReferenceAlias.row_id == row_id,
-            func.lower(ReferenceAlias.alias) == alias.lower(),
-        )
+        ),
     )
 
 
@@ -218,21 +254,20 @@ def add_alias(
         existing.is_active = True
         db.flush()
         return existing
-    created: SeriesAlias | ReferenceAlias
-    if model is Series:
-        created = SeriesAlias(
-            series_id=row_id, alias=text, source=ProvenanceSource.manual
-        )
-    else:
-        created = ReferenceAlias(
-            table_name=model.__tablename__,
-            row_id=row_id,
-            alias=text,
-            source=ProvenanceSource.manual,
-        )
+    created = _alias_table(model).new(row_id, text)
     db.add(created)
     db.flush()
     return created
+
+
+def delete_all(db: Session, model: type[ReferenceMixin], row_id: int) -> None:
+    """Delete every alias of one row, retired ones included.
+
+    For a row that is itself going: `reference_merge.merge` deletes the
+    merged-away value, and its aliases would otherwise name nothing.
+    """
+    held = _alias_table(model)
+    db.execute(delete(held.model).where(*held.scope, held.row_id == row_id))
 
 
 def remove_alias(

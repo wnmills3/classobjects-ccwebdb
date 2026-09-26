@@ -36,11 +36,8 @@ from . import aliases, sale_state
 from .models import (
     Base,
     InventoryItem,
-    ReferenceAlias,
     ReferenceMerge,
     ReferenceMixin,
-    Series,
-    SeriesAlias,
 )
 
 __all__ = ["MergeError", "MergePlan", "NoSuchValue", "merge", "plan"]
@@ -235,14 +232,7 @@ def merge(
         )
 
     names = _new_names(db, model, source)
-    if model is not Series:
-        db.execute(
-            delete(ReferenceAlias).where(
-                ReferenceAlias.table_name == table, ReferenceAlias.row_id == source.id
-            )
-        )
-    else:
-        db.execute(delete(SeriesAlias).where(SeriesAlias.series_id == source.id))
+    aliases.delete_all(db, model, source.id)
     db.add(
         ReferenceMerge(
             table_name=table,
