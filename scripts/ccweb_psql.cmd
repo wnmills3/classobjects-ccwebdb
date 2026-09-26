@@ -9,7 +9,8 @@ rem    ccweb_psql -c "select * from metal;"    run one statement
 rem    ccweb_psql -f query.sql                 run a file
 rem    ccweb_psql -c "\d inventory_item"       describe a table
 rem
-rem  Connection settings match app\config.py. Override any of them by setting
+rem  Defaults (localhost:5432, ccwebdb/ccwebdb, devpassword) match
+rem  backend\app\config.py's DATABASE_URL. Override any of them by setting
 rem  the standard PG* variables before calling, e.g. set PGDATABASE=ccwebdb_test
 rem ---------------------------------------------------------------------------
 setlocal

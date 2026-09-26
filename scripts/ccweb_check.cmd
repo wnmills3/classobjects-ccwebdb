@@ -74,9 +74,8 @@ if defined MUTATION_HIT (
 )
 
 echo === python types ===
-rem A gate since the backlog reached zero. It was reported-only while a
-rem standing count of findings made a new one invisible; with none left, a
-rem single new finding is the signal, so it fails the build like the rest.
+rem Fails the build like the rest: with no findings standing, a single new
+rem one is the signal.
 "%PY%" -m mypy
 if errorlevel 1 set "FAILED=!FAILED! types"
 
@@ -123,10 +122,9 @@ if exist "frontend\node_modules\eslint" (
     )
     popd
 ) else (
-    rem  Silence here used to read as success: every frontend gate lives in
-    rem  the block above, so a missing node_modules printed "All checks
-    rem  passed" having run none of them -- including the bundle-isolation
-    rem  check. An unrun check is not a passed one.
+    rem  Every frontend gate lives in the block above, so a missing
+    rem  node_modules runs none of them -- including the bundle-isolation
+    rem  check. It fails the run: an unrun check is not a passed one.
     echo === frontend === SKIPPED: frontend\node_modules is missing
     echo     run: cd frontend ^&^& npm install
     set "FAILED=!FAILED! frontend-not-installed"

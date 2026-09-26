@@ -44,9 +44,8 @@ rem  Port must be free, unless it is already our own container holding it.
 rem
 rem  Matched with --filter and for/f, not `findstr /x`: podman writes
 rem  LF-only line endings, and findstr's whole-line match never matches
-rem  against those. The old check therefore always concluded the container
-rem  was absent, then found port 9000 held -- by its own SonarQube -- and
-rem  refused to start. Re-running the script while it was already up failed.
+rem  them, which would report the container absent and then refuse because
+rem  its own SonarQube holds port 9000.
 set "SQRUNNING="
 for /f "delims=" %%N in ('podman ps --filter "name=^%SQNAME%$" --format "{{.Names}}"') do set "SQRUNNING=%%N"
 if not defined SQRUNNING (
