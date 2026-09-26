@@ -194,21 +194,31 @@ def _with_merged(codes: dict[str, int], merged: dict[str, str]) -> dict[str, int
     return out
 
 
-def _build_code_index(session: Session) -> dict[str, dict[str, int]]:
+def _table_codes(
+    session: Session, model: SeedableModel, merged: dict[str, dict[str, str]]
+) -> dict[str, int] | None:
+    """Code -> id for one table, merged codes included; None if it has no code.
+
+    Composition is seedable but has no code, so it gets None. Taking the
+    columns rather than the class attributes keeps this test and the
+    select() below reading from the same place.
+    """
+    columns = model.__table__.columns
+    if "code" not in columns:
+        return None
+    rows = session.execute(select(columns["code"], columns["id"])).tuples().all()
+    return _with_merged(dict(rows), merged.get(model.__tablename__, {}))
+
+
+def _build_code_index(
+    session: Session, merged: dict[str, dict[str, str]]
+) -> dict[str, dict[str, int]]:
     """Current code -> id for every table that has a code column."""
     index: dict[str, dict[str, int]] = {}
-    merged = _merged(session)
     for model in SEEDABLE:
-        columns = model.__table__.columns
-        # Composition is seedable but has no code, so it gets no entry.
-        # Taking the columns rather than the class attributes keeps this
-        # test and the select() below reading from the same place.
-        if "code" not in columns:
-            continue
-        pairs = select(columns["code"], columns["id"])
-        rows = session.execute(pairs).tuples().all()
-        table = model.__tablename__
-        index[table] = _with_merged(dict(rows), merged.get(table, {}))
+        codes = _table_codes(session, model, merged)
+        if codes is not None:
+            index[model.__tablename__] = codes
     return index
 
 
@@ -246,16 +256,28 @@ def _upsert(
 
 
 def _seed_table(
-    session: Session, model: SeedableModel, rows: list[dict[str, Any]]
+    session: Session,
+    model: SeedableModel,
+    rows: list[dict[str, Any]],
+    code_index: dict[str, dict[str, int]] | None = None,
+    merged_codes: dict[str, dict[str, str]] | None = None,
 ) -> Counter:
-    """Load one table's rows, matched on its natural key."""
+    """Load one table's rows, matched on its natural key.
+
+    `code_index` and `merged_codes` are `seed_all`'s, built once per load;
+    read here when not given. This table's entry in `code_index` is
+    refreshed after its rows are written, so a table seeded later in the
+    same run can reference them -- SEEDABLE's dependency order means no
+    table references one after it.
+    """
     table = model.__tablename__
     counter: Counter = Counter()
     keys = natural_key(model)
-    # Rebuilt per table so a table can reference one seeded earlier in the
-    # same run.
-    code_index = _build_code_index(session)
-    merged = _merged(session).get(table, {})
+    if merged_codes is None:
+        merged_codes = _merged(session)
+    if code_index is None:
+        code_index = _build_code_index(session, merged_codes)
+    merged = merged_codes.get(table, {})
 
     for position, row in enumerate(rows, start=1):
         where = f"{table}[{position}]"
@@ -269,6 +291,9 @@ def _seed_table(
         _upsert(session, model, values, keys, counter)
 
     session.flush()
+    codes = _table_codes(session, model, merged_codes)
+    if codes is not None:
+        code_index[table] = codes
     return counter
 
 
@@ -290,6 +315,10 @@ def seed_all(
     """
     data = load_seed_data(data_dir)
     stats: dict[str, Counter] = {}
+    # Built once for the whole load: `_seed_table` refreshes each table's
+    # entry as it writes it, and the tables seeded after read the index.
+    merged = _merged(session)
+    code_index = _build_code_index(session, merged)
 
     for model in SEEDABLE:
         table = model.__tablename__
@@ -298,23 +327,25 @@ def seed_all(
         rows = data.get(table)
         if not rows:
             continue
-        stats[table] = _seed_table(session, model, rows)
+        stats[table] = _seed_table(session, model, rows, code_index, merged)
 
     if not only or "series_alias" in only:
-        stats["series_alias"] = _seed_series_aliases(session, data)
+        stats["series_alias"] = _seed_series_aliases(session, data, code_index)
     if not only or "series_year_range" in only:
         stats["series_year_range"] = _seed_series_year_ranges(session, data)
     if not only or "reference_alias" in only:
-        stats["reference_alias"] = _seed_reference_aliases(session, data)
+        stats["reference_alias"] = _seed_reference_aliases(session, data, code_index)
     if not only or "note_issue" in only:
-        stats["note_issue"] = _seed_note_issues(session, data)
+        stats["note_issue"] = _seed_note_issues(session, data, code_index)
 
     session.commit()
     return stats
 
 
 def _seed_series_aliases(
-    session: Session, data: dict[str, list[dict[str, Any]]]
+    session: Session,
+    data: dict[str, list[dict[str, Any]]],
+    code_index: dict[str, dict[str, int]] | None = None,
 ) -> Counter:
     """Load the colloquial names, which the generic loader cannot carry.
 
@@ -328,7 +359,7 @@ def _seed_series_aliases(
     if not rows:
         return counter
 
-    series_ids = _codes(session, Series)
+    series_ids = _codes(session, Series, code_index)
     existing = {
         (series_id, alias)
         for series_id, alias in session.execute(
@@ -441,15 +472,27 @@ def _seed_series_year_ranges(
     return counter
 
 
-def _codes(session: Session, model: SeedableModel) -> dict[str, int]:
-    """Code to id for one classifier table, merged codes included."""
-    table = model.__table__
-    codes = dict(session.execute(select(table.c.code, table.c.id)).tuples().all())
-    return _with_merged(codes, _merged(session).get(model.__tablename__, {}))
+def _codes(
+    session: Session,
+    model: SeedableModel,
+    code_index: dict[str, dict[str, int]] | None = None,
+) -> dict[str, int]:
+    """Code to id for one classifier table, merged codes included.
+
+    From `code_index` when `seed_all` passed its own, else read now.
+    """
+    if code_index is not None and model.__tablename__ in code_index:
+        return code_index[model.__tablename__]
+    codes = _table_codes(session, model, _merged(session))
+    if codes is None:
+        raise SeedError(f"{model.__tablename__} has no code column")
+    return codes
 
 
 def _seed_reference_aliases(
-    session: Session, data: dict[str, list[dict[str, Any]]]
+    session: Session,
+    data: dict[str, list[dict[str, Any]]],
+    code_index: dict[str, dict[str, int]] | None = None,
 ) -> Counter:
     """Load other names for classifier rows: {table, code, alias}.
 
@@ -483,7 +526,7 @@ def _seed_reference_aliases(
         if model is None or "code" not in model.__table__.c:
             raise SeedError(f"{where}: {table!r} is not a classifier table")
         if table not in codes:
-            codes[table] = _codes(session, model)
+            codes[table] = _codes(session, model, code_index)
         row_id = codes[table].get(code)
         if row_id is None:
             raise SeedError(f"{where}: unknown {table} {code!r}")
@@ -504,7 +547,9 @@ _IssueKey = tuple[int, int, str | None, int, int]
 
 
 def _seed_note_issues(
-    session: Session, data: dict[str, list[dict[str, Any]]]
+    session: Session,
+    data: dict[str, list[dict[str, Any]]],
+    code_index: dict[str, dict[str, int]] | None = None,
 ) -> Counter:
     """Make `note_issue` match the file exactly.
 
@@ -519,10 +564,10 @@ def _seed_note_issues(
         return counter
 
     lookups = {
-        "denomination": _codes(session, Denomination),
-        "note_type": _codes(session, NoteType),
-        "seal_color": _codes(session, SealColor),
-        "signatures": _codes(session, SignatureCombination),
+        "denomination": _codes(session, Denomination, code_index),
+        "note_type": _codes(session, NoteType, code_index),
+        "seal_color": _codes(session, SealColor, code_index),
+        "signatures": _codes(session, SignatureCombination, code_index),
     }
 
     def resolve(where: str, kind: str, code: object) -> int:
