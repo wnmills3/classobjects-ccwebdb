@@ -670,9 +670,8 @@ class ItemDetailOut(InventoryItemOut):
     be computed from anything. Neither replaces the other.
     """
 
-    #: The lot this piece came out of, if any. Absent for every item as of
-    #: 2026-09-20, nothing having been split yet: no parent is the normal
-    #: state, not an orphan.
+    #: The lot this piece came out of, if any. Only a split lot's pieces
+    #: have one: no parent is the normal state, not an orphan.
     parent_item_code: str | None = None
     #: The pieces a split lot became, oldest first; empty for anything else.
     piece_codes: list[str] = Field(default_factory=list)
@@ -1623,11 +1622,10 @@ class ListingOut(BaseModel):
     go stale the day a platform changes its URLs.
 
     **A listing offers an item or a lot, never both** (`ck_listing_item_xor_lot`),
-    so the two pairs below are mutually exclusive and both are optional. They
-    were required until lots existed, and `routers/offers._out` read
-    `listing.inventory_item.item_code` unconditionally: the moment a lot
-    listing was written, `GET /api/listings` raised `AttributeError` for
-    every administrator -- a 500 on the page that lists every offer.
+    so the two pairs below are mutually exclusive and both are optional:
+    `routers.offers.listing_out` fills the item pair for an item listing and
+    the lot pair for a lot listing, and never reads the item of a lot
+    listing, which has none.
     """
 
     id: int
@@ -1798,10 +1796,10 @@ class FeeLineIn(BaseModel):
     #: check and then overflows `sales_order_fee.amount`'s `Numeric(12, 2)`
     #: as a `DataError` PostgreSQL raises, not pydantic -- `decimal_places`
     #: must be given alongside `max_digits` for the ten-whole-digit limit to
-    #: apply at all. `ge=0` closes the same gap for sign: `record_sale`
-    #: checks a fee's sign itself too, for phase-4 auction settlement, but
-    #: this schema is what keeps a negative fee from ever reaching that
-    #: check by way of an `IntegrityError` on `ck_sales_order_fee_non_negative`.
+    #: apply at all. `ge=0` closes the same gap for sign: `record_sale_lines`
+    #: checks a fee's sign itself too, for auction settlement, which does
+    #: not pass through this schema; here the schema refuses a negative fee
+    #: before the request reaches it.
     amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
     note: str | None = Field(default=None, max_length=255)
 

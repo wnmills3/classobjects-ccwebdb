@@ -781,27 +781,19 @@ def record_listing_sale(
 
     `record_sale`'s own refusals split by cause: a genuine conflict -- the
     listing not on offer, an unmapped venue kind -- is a `SaleRefused`, 409;
-    malformed input is the narrower `SaleInputInvalid`, 422 (today that
-    branch is unreachable from here -- the request schema's own `ge=0` and
-    `decimal_places=2` already refuse a negative or sub-cent price or fee
-    before this body ever runs -- but the guard stays in `record_sale` for
-    phase-4 auction settlement, a future caller that will not pass through
-    this schema at all). Both are decided, and both are caught, before
+    malformed input is the narrower `SaleInputInvalid`, 422. From here the
+    money half of that is unreachable -- the request schema's `ge=0` and
+    `decimal_places=2` refuse a negative or sub-cent price or fee first --
+    but the checks stay in `sales_writes.record_sale_lines`, which
+    `auctions.settle` reaches without this schema. Both are raised before
     anything is written, so either status means nothing was written; an
-    unknown fee kind fails the same way, as the 422 `require_code` already
-    raises.
+    unknown fee kind fails the same way, as the 422 `require_code` raises.
 
-    **Neither is caught here** (ruling R23, Task 5 follow-up). Both used to
-    be, in `except` clauses ordered with `SaleInputInvalid` first because it
-    is a `SaleRefused` subclass -- reversing them would have routed every 422
-    into the 409 branch, silently, and mypy would not have noticed. Now both
-    propagate to the handlers `app.main` registers for them by class, the
-    same as every `app.auctions` caller already does, which makes that
-    reversal unwritable here too rather than merely documented and warned
-    against. `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409`
-    (`test_record_sale_api.py`) is unchanged and still proves the dispatch;
-    only how it is proven changed under it, from `except` order to
-    registration.
+    **Neither is caught here.** Both propagate to the handlers `app.main`
+    registers for them by class, as for every `app.auctions` caller, so no
+    ordering of `except` clauses decides the status.
+    `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409`
+    (`tests/test_record_sale_api.py`) proves the dispatch.
     """
     try:
         listing = db.get(Listing, listing_id)

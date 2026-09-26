@@ -38,7 +38,11 @@ _E164 = re.compile(r"^\+[1-9]\d{6,14}$")
 
 
 class AddressOut(BaseModel):
-    """An address as the API returns it, with its country as a code."""
+    """An address as the API returns it.
+
+    The country is not included. `valid_to` is the date the address was
+    superseded, null while it is current.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 

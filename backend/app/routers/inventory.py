@@ -514,14 +514,13 @@ def _refuse_field_conflicts(
         }
         for field in clashing
     ]
-    if conflicts:
-        names = ", ".join(conflict["field"] for conflict in conflicts)
-        raise FieldConflicts(
-            f"{item.item_code} was changed by someone else since you opened it, "
-            f"in the same field{'s' if len(conflicts) > 1 else ''} you changed: "
-            f"{names}. Choose which value to keep.",
-            conflicts,
-        )
+    names = ", ".join(conflict["field"] for conflict in conflicts)
+    raise FieldConflicts(
+        f"{item.item_code} was changed by someone else since you opened it, "
+        f"in the same field{'s' if len(conflicts) > 1 else ''} you changed: "
+        f"{names}. Choose which value to keep.",
+        conflicts,
+    )
 
 
 def _sale_standing_change(
@@ -1058,8 +1057,7 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
     """One item, with what its lot claimed and what has been confirmed.
 
     Both in one response because the edit form needs both on every field, and
-    three round trips per coin is three per coin across the collection
-    (7,656 items as of 2026-09-20).
+    three round trips per coin is three per coin across the collection.
 
     Carries every field EDITABLE_SCALARS and ITEM_CLASSIFIERS accept, not a
     hand-picked subset -- see test_the_detail_payload_covers_every_editable_field.
@@ -2289,8 +2287,8 @@ def update_item(
 
     # A new status or disposition on an item that is offered takes it off
     # sale: the guard above has already had the caller acknowledge that it is
-    # for sale. Left alone, marking an offered coin missing kept its listing
-    # active and the shop went on selling it (code review, 2026-09-23). The
+    # for sale. Left alone, an offered coin marked missing would stay on
+    # sale in the shop. The
     # rows are locked here, before the first write, in the canonical order --
     # the same discipline and for the same reasons as `receive_items`.
     standing = _sale_standing_change(db, item, data)
@@ -2763,10 +2761,10 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
 def detach_item(item_id: int, db: DbSession, _admin: AdminUser) -> InventoryItem:
     """Set an item's `parent_item_id` back to null.
 
-    An item with no parent is complete, not orphaned: as of 2026-09-20 all
-    7,656 items have none, because nothing has been split yet. So this moves
-    nothing and repairs nothing -- the piece keeps the cost it was allocated,
-    and simply stops recording where it came from.
+    An item with no parent is complete, not orphaned: only a split lot's
+    pieces have one. So this moves nothing and repairs nothing -- the piece
+    keeps the cost it was allocated, and simply stops recording where it
+    came from.
 
     Idempotent, because the end state is exactly what was asked for.
     """

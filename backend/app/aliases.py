@@ -32,6 +32,7 @@ __all__ = [
     "add_alias",
     "aliases_by_row",
     "ids_named",
+    "normalise",
     "remove_alias",
     "resolve",
 ]
@@ -44,8 +45,13 @@ class AliasError(ValueError):
     """An alias that cannot be added or removed, with the reason."""
 
 
-def _normalise(text: str) -> str:
-    """Case and runs of spaces do not make a different name."""
+def normalise(text: str) -> str:
+    """A name with its runs of whitespace collapsed and its ends trimmed.
+
+    Case is kept: every comparison of names here is case-insensitive
+    (`func.lower` against `str.lower`), so case never makes a different name
+    either, and the alias is stored as it was written.
+    """
     return " ".join(text.split())
 
 
@@ -80,7 +86,7 @@ def ids_named(db: Session, model: type[ReferenceMixin], query: str | None) -> li
     "PR" is the Proof strike and "D" the Denver mint, but as substrings "s"
     would name the strike aliased "MS", and with it most of the collection.
     """
-    text = _normalise(query or "")
+    text = normalise(query or "")
     if not text:
         return []
     whole = len(text) < SUBSTRING_FROM
@@ -119,7 +125,7 @@ def resolve(db: Session, model: type[ReferenceMixin], word: str) -> Resolved | N
     alias shared by two rows names neither -- a guess between them would be
     silent -- so it resolves to None.
     """
-    text = _normalise(word or "")
+    text = normalise(word or "")
     if not text:
         return None
     found = db.scalar(select(model.id).where(model.code == text))
@@ -184,7 +190,7 @@ def add_alias(
     because `reference_merge.merge` catches `AliasError` broadly and would
     swallow any of them.
     """
-    text = _normalise(alias)
+    text = normalise(alias)
     if not text:
         raise AliasError("An alias needs some text.")
     if len(text) > MAX_ALIAS:
@@ -233,7 +239,7 @@ def remove_alias(
     db: Session, model: type[ReferenceMixin], row_id: int, alias: str
 ) -> None:
     """Take a name away: retire a shipped one, delete one added here."""
-    existing = _existing(db, model, row_id, _normalise(alias))
+    existing = _existing(db, model, row_id, normalise(alias))
     if existing is None or not existing.is_active:
         raise AliasError(f"{alias!r} is not an alias of this value.")
     if existing.source == ProvenanceSource.manual:

@@ -60,14 +60,14 @@ from .models import (
 #: backend/data/reference
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "reference"
 
-#: Tables the seeder understands, in dependency order: a table may only
-#: reference tables that appear before it.
 #: A table the seeder understands. Every classifier is one, and so is
 #: Composition -- which shares the shape seeding needs (__tablename__ and
 #: __table__) but not ReferenceMixin's code and label columns. Neither
 #: class is a supertype of the other, so the union names both.
 SeedableModel = type[ReferenceMixin] | type[Composition]
 
+#: Tables the seeder understands, in dependency order: a table may only
+#: reference tables that appear before it.
 SEEDABLE: tuple[SeedableModel, ...] = (*REFERENCE_MODELS, Composition)
 
 #: Composition has no `code`, so its identity is the span it describes.
