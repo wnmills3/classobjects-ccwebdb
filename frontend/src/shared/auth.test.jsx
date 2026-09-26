@@ -1,5 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
-import { useEffect } from 'react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api', async (importOriginal) => ({
@@ -13,59 +12,37 @@ vi.mock('./api', async (importOriginal) => ({
 import { ApiError, api, clearTokens, loadTokens, saveTokens } from './api'
 import { AuthProvider } from './auth'
 import { useAuth } from './auth-context'
+import { adminAuth, customerAuth } from '../test/helpers'
 
-const ADMIN = { id: 1, email: 'admin@example.com', role: 'manager' }
-const BUYER = { id: 2, email: 'buyer@example.com', role: 'customer' }
+//: The profiles `GET /api/auth/me` answers with.
+const ADMIN = adminAuth().user
+const BUYER = customerAuth().user
 
-let auth
-
-function Probe() {
-  const value = useAuth()
-  // Captured in an effect, not during render: reassigning a module
-  // variable while rendering is a side effect React's rules forbid.
-  useEffect(() => {
-    auth = value
-  })
-  return (
-    <div>
-      <span data-testid="user">{value.user?.email ?? 'anonymous'}</span>
-      <span data-testid="loading">{String(value.loading)}</span>
-      <span data-testid="admin">{String(value.isAdmin)}</span>
-    </div>
-  )
+/** The auth context as a component sees it; `result.current` is the latest. */
+async function mount() {
+  const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  return result
 }
-
-const mount = () =>
-  render(
-    <AuthProvider>
-      <Probe />
-    </AuthProvider>,
-  )
 
 beforeEach(() => {
   vi.clearAllMocks()
-  auth = undefined
 })
 
 describe('AuthProvider', () => {
   it('finishes loading as anonymous when no token is stored', async () => {
     loadTokens.mockReturnValue(null)
-    mount()
-    await waitFor(() =>
-      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
-    )
-    expect(screen.getByTestId('user')).toHaveTextContent('anonymous')
+    const auth = await mount()
+    expect(auth.current.user).toBeNull()
     expect(api.me).not.toHaveBeenCalled()
   })
 
   it('restores the signed-in user from a stored token', async () => {
     loadTokens.mockReturnValue({ access_token: 'a', refresh_token: 'r' })
     api.me.mockResolvedValue(ADMIN)
-    mount()
-    await waitFor(() =>
-      expect(screen.getByTestId('user')).toHaveTextContent('admin@example.com'),
-    )
-    expect(screen.getByTestId('admin')).toHaveTextContent('true')
+    const auth = await mount()
+    expect(auth.current.user).toEqual(ADMIN)
+    expect(auth.current.isAdmin).toBe(true)
   })
 
   it('drops a token the server no longer accepts', async () => {
@@ -73,12 +50,9 @@ describe('AuthProvider', () => {
     // usable, not stuck on a token that will fail every later request.
     loadTokens.mockReturnValue({ access_token: 'stale' })
     api.me.mockRejectedValue(new ApiError(401, 'Could not validate credentials'))
-    mount()
-    await waitFor(() =>
-      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
-    )
+    const auth = await mount()
     expect(clearTokens).toHaveBeenCalled()
-    expect(screen.getByTestId('user')).toHaveTextContent('anonymous')
+    expect(auth.current.user).toBeNull()
   })
 
   it.each([
@@ -87,13 +61,10 @@ describe('AuthProvider', () => {
   ])('keeps the stored tokens through %s', async (_case, failure) => {
     // Only the server saying no (401) means the tokens are no good. A restart
     // of the API or a dropped connection says nothing about them, and
-    // clearing them signed the owner out of every tab over a blip.
+    // clearing them would sign the owner out of every tab over a blip.
     loadTokens.mockReturnValue({ access_token: 'a', refresh_token: 'r' })
     api.me.mockRejectedValue(failure)
-    mount()
-    await waitFor(() =>
-      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
-    )
+    await mount()
     expect(clearTokens).not.toHaveBeenCalled()
   })
 
@@ -101,17 +72,14 @@ describe('AuthProvider', () => {
     loadTokens.mockReturnValue(null)
     api.login.mockResolvedValue({ access_token: 'new', refresh_token: 'r' })
     api.me.mockResolvedValue(BUYER)
-    mount()
-    await waitFor(() =>
-      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
-    )
+    const auth = await mount()
 
-    await act(() => auth.login('buyer@example.com', 'hunter2'))
+    await act(() => auth.current.login('buyer@example.com', 'hunter2'))
 
     expect(api.login).toHaveBeenCalledWith('buyer@example.com', 'hunter2')
     expect(saveTokens).toHaveBeenCalledWith({ access_token: 'new', refresh_token: 'r' })
-    expect(screen.getByTestId('user')).toHaveTextContent('buyer@example.com')
-    expect(screen.getByTestId('admin')).toHaveTextContent('false')
+    expect(auth.current.user).toEqual(BUYER)
+    expect(auth.current.isAdmin).toBe(false)
   })
 
   it('signs in straight after registering', async () => {
@@ -119,28 +87,27 @@ describe('AuthProvider', () => {
     api.register.mockResolvedValue(BUYER)
     api.login.mockResolvedValue({ access_token: 'new' })
     api.me.mockResolvedValue(BUYER)
-    mount()
-    await waitFor(() =>
-      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
-    )
+    const auth = await mount()
 
     await act(() =>
-      auth.register({ email: 'buyer@example.com', password: 'p', full_name: 'B' }),
+      auth.current.register({
+        email: 'buyer@example.com',
+        password: 'p',
+        full_name: 'B',
+      }),
     )
     expect(api.login).toHaveBeenCalledWith('buyer@example.com', 'p')
-    expect(screen.getByTestId('user')).toHaveTextContent('buyer@example.com')
+    expect(auth.current.user).toEqual(BUYER)
   })
 
   it('clears the stored tokens on logout', async () => {
     loadTokens.mockReturnValue({ access_token: 'a' })
     api.me.mockResolvedValue(ADMIN)
-    mount()
-    await waitFor(() =>
-      expect(screen.getByTestId('user')).toHaveTextContent('admin@example.com'),
-    )
+    const auth = await mount()
+    expect(auth.current.user).toEqual(ADMIN)
 
-    act(() => auth.logout())
+    act(() => auth.current.logout())
     expect(clearTokens).toHaveBeenCalled()
-    expect(screen.getByTestId('user')).toHaveTextContent('anonymous')
+    expect(auth.current.user).toBeNull()
   })
 })
