@@ -84,9 +84,6 @@ export const api = {
       method: 'POST',
       body: { fields, replace },
     }),
-  detachInventoryItem: (id) =>
-    send(`/api/inventory/${id}/parent`, { method: 'DELETE' }),
-  deleteInventoryItem: (id) => send(`/api/inventory/${id}`, { method: 'DELETE' }),
   // Errors: several per item -- a bill is commonly miscut AND misprinted --
   // each with its own note. PUT replaces the whole set.
   getItemErrors: (id) => send(`/api/inventory/${id}/errors`),
