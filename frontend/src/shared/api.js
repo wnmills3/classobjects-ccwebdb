@@ -200,8 +200,8 @@ export async function send(path, { method = 'GET', body, form, auth = true } = {
  * object is a single literal, so nothing tree-shakes out of it: every path
  * written here is downloaded by every anonymous visitor to the shop. A list
  * of `/api/inventory/...` and `/api/users/...` endpoints is a map of the
- * owner's tooling, which is the same thing the stylesheet split removed and
- * for the same reason.
+ * owner's tooling -- the same reason the console's styles are a stylesheet
+ * of their own.
  */
 export const api = {
   // auth

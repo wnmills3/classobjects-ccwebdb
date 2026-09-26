@@ -6,9 +6,10 @@
  * error types and attributes, and `kind` (coin | note) on denominations,
  * where the same face value exists as both and they are different objects.
  *
- * It lives in `shared/` because the shop's catalog filters face the same
- * question, and because a per-form copy is exactly how the item editor came
- * to offer a banknote a metal after the entry form had stopped.
+ * Only the console's forms read it. It lives in `shared/` so that anything
+ * in the shop asking the same question reads this rule rather than a copy:
+ * a per-form copy is exactly how the item editor came to offer a banknote a
+ * metal after the entry form had stopped.
  */
 
 /** Whether an item of this kind is paper money. */

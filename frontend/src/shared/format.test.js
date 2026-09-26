@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { date, money } from './format'
+import { date, dateTime, money } from './format'
 
 describe('money', () => {
   it('formats a decimal string as US currency', () => {
@@ -19,9 +19,9 @@ describe('money', () => {
   })
 
   it('treats null and empty string as absent, not as zero', () => {
-    // Changed 2026-09-22 (was $0.00, because Number(null) is 0). "Nothing
-    // recorded" and "free" are different facts, the distinction the console
-    // keeps everywhere else, so an absent amount renders as absent.
+    // Not $0.00, which Number(null) would give. "Nothing recorded" and
+    // "free" are different facts, the distinction the console keeps
+    // everywhere else, so an absent amount renders as absent.
     expect(money(null)).toBe('--')
     expect(money('')).toBe('--')
   })
@@ -44,6 +44,20 @@ describe('money', () => {
   it('falls back to US dollars when no currency is known', () => {
     expect(money('12.5', undefined)).toBe('$12.50')
     expect(money('12.5', null)).toBe('$12.50')
+  })
+})
+
+describe('dateTime', () => {
+  it('returns an empty string for a missing value', () => {
+    expect(dateTime(null)).toBe('')
+    expect(dateTime(undefined)).toBe('')
+  })
+
+  it('shows the date and the time of day', () => {
+    // The suite runs in UTC (vite.config.js), so the moment reads as written.
+    const rendered = dateTime('2026-03-14T15:04:00Z')
+    expect(rendered).toMatch(/2026/)
+    expect(rendered).toMatch(/3:04/)
   })
 })
 

@@ -44,11 +44,21 @@ export function money(value, currencyCode = 'USD') {
   }
 }
 
+/**
+ * A moment as a person reads it, date and time in their own zone and locale:
+ * for an event's timestamp, where the time of day matters. '' when absent.
+ */
+export function dateTime(value) {
+  if (!value) return ''
+  return new Date(value).toLocaleString()
+}
+
+/** A day as a person reads it: `Sep 23, 2026` in en-US. '' when absent. */
 export function date(value) {
   if (!value) return ''
   // A calendar day ("2026-09-23") is read as that day here. `new Date` reads
   // it as midnight UTC, which west of Greenwich is still the day before, so
-  // every order date showed a day early in the owner's time zone.
+  // the date would show a day early in the owner's time zone.
   const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   const when = day
     ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]))
