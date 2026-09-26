@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../../api'
 import HelpScope from '../../HelpScope'
 import ModalDialog from '../../ModalDialog'
 import { fromCents, isMoney, toCents } from '../../../shared/cents'
 import ForSaleNotice from '../ForSaleNotice'
+import { useMounted } from '../../useMounted'
 
 /**
  * Breaking a lot into its pieces (`POST /api/inventory/{id}/split`,
@@ -89,15 +90,8 @@ export default function SplitDialog({ item, onSplit, onClose }) {
   const [splitting, setSplitting] = useState(false)
 
   // Guards the continuation once the request settles: Cancel or Escape can
-  // unmount the dialog meanwhile. Armed in the setup, not at `useRef(true)`,
-  // because StrictMode runs setup, cleanup, setup (see OfferDialog).
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  // unmount the dialog meanwhile.
+  const mounted = useMounted()
 
   // Only a listing can be acknowledged; an order refuses the split outright,
   // and the server says so.

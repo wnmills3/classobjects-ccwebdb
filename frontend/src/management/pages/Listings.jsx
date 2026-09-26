@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
@@ -10,6 +10,7 @@ import { isMoney } from '../../shared/cents'
 import { FORMATS, STATUSES, UNKNOWN, labelFor, subjectOf } from './listing-labels'
 import { marginPercent } from './platform-rates'
 import { date } from '../../shared/format'
+import { useMounted } from '../useMounted'
 
 /**
  * The Listings page: every offer the business has out, and the two things
@@ -68,19 +69,7 @@ function ListingForm({ listing, onSaved, onClose }) {
   // Escape, which ModalDialog routes to onClose) can unmount this form while
   // a save is still in flight, and without the guard a save the user walked
   // away from would still rewrite the row behind the closed dialog.
-  //
-  // The setup ARMS it; only the cleanup disarms it. The console runs in
-  // StrictMode (`management/main.jsx`), where React runs every effect setup,
-  // cleanup, setup on mount: a ref only initialized at `useRef(true)` would
-  // be left false by that first cleanup for the rest of the dialog's life,
-  // and a save that succeeded would never close it.
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const mounted = useMounted()
 
   // `save` is a function declaration below, hoisted for the whole component
   // scope. Disabled while a save is in flight, so holding Ctrl+S cannot fire

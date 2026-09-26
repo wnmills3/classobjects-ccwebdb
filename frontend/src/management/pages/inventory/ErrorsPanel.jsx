@@ -99,14 +99,9 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   /**
    * PUTs the whole set. No-op in the controlled mode -- there is no item yet.
    *
-   * No "still mounted?" guard: both continuations only call this panel's own
-   * `setError`, and React 19 makes a `setState` on an unmounted component a
-   * no-op rather than a warning. The guard that used to be here was armed by
-   * `useRef(true)` and disarmed by an unmount cleanup that no setup re-armed,
-   * so StrictMode's setup/cleanup/setup on mount -- which is how the console
-   * actually runs -- left BOTH branches dead: a PUT that 422'd or timed out
-   * showed nothing at all, and the row read as saved. Nothing here needs the
-   * guard, so it is gone rather than repaired.
+   * No "still mounted?" guard (`useMounted`): both continuations only call
+   * this panel's own `setError`, and React 19 makes a `setState` on an
+   * unmounted component a no-op rather than a warning.
    */
   function save(next) {
     if (controlled) return

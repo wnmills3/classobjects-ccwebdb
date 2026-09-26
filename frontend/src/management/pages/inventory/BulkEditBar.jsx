@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '../../api'
 import ForSaleNotice from '../ForSaleNotice'
 import ModalDialog from '../../ModalDialog'
 import OfferDialog from './OfferDialog'
+import { useMounted } from '../../useMounted'
 
 /**
  * Set one field across a selection, or offer it for sale.
@@ -76,19 +77,7 @@ function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
   // Guards group()'s continuation once the request settles: Cancel (and
   // Escape, which ModalDialog routes to onClose) can unmount this dialog
   // while a write is still in flight.
-  //
-  // The setup ARMS it; only the cleanup disarms it. The console runs in
-  // StrictMode (`management/main.jsx`), where React runs every effect setup,
-  // cleanup, setup on mount: a ref only initialized at `useRef(true)` would
-  // be left false by that first cleanup for the rest of the dialog's life,
-  // and a lot the API accepted would never close the dialog.
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const mounted = useMounted()
 
   useEffect(() => {
     let cancelled = false

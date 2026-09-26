@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { AccessLabel } from '../../AccessLabel'
 import { api } from '../../api'
@@ -12,6 +12,7 @@ import {
   netAfterFees,
   netMarginPercent,
 } from '../platform-rates'
+import { useMounted } from '../../useMounted'
 
 /**
  * Offering items for sale: one platform, one format, a price per item.
@@ -135,19 +136,7 @@ export default function OfferDialog({
   // Guards offer()'s continuation once the request settles: Cancel (and
   // Escape, which ModalDialog routes to onClose) can unmount this dialog
   // while the batch is still in flight.
-  //
-  // The setup ARMS it; only the cleanup disarms it. The console runs in
-  // StrictMode (`management/main.jsx`), where React runs every effect setup,
-  // cleanup, setup on mount: a ref only initialized at `useRef(true)` would
-  // be left false by that first cleanup for the rest of the dialog's life,
-  // and a batch the API accepted would never reach the parent.
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const mounted = useMounted()
 
   useEffect(() => {
     let cancelled = false
