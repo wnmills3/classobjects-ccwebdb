@@ -235,7 +235,7 @@ describe('Listings', () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByRole('row', { name: /^eBay/ })
-    // Exact: the console's `query()` drops empty values, so these three keys
+    // Exact: `withQuery` drops empty values, so these three keys
     // are the whole query string the API is asked for.
     expect(api.listListings).toHaveBeenCalledWith({
       venue: '',

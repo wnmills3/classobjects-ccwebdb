@@ -16,16 +16,7 @@
  * which. The split is a bundling concern, not something callers should think
  * about.
  */
-import { api as shared, send } from '../shared/api'
-
-/** A query string from the parameters that have a value. */
-function query(params) {
-  const qs = new URLSearchParams()
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== '' && v !== null && v !== undefined) qs.set(k, v)
-  })
-  return qs.toString()
-}
+import { api as shared, send, withQuery } from '../shared/api'
 
 export const api = {
   ...shared,
@@ -38,7 +29,7 @@ export const api = {
     send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),
   // Retired values and removed aliases included, for the Vocabularies page.
   getReferenceForEditing: (table) =>
-    send(`/api/reference/${table}?${query({ include_inactive: true })}`),
+    send(withQuery(`/api/reference/${table}`, { include_inactive: true })),
   // dryRun: say what would move, change nothing. acknowledgeForSale: the
   // operator has seen the preview's for-sale items and confirmed the merge
   // should move them anyway.
@@ -60,20 +51,18 @@ export const api = {
     }),
   removeReferenceAlias: (table, code, alias) =>
     send(
-      `/api/reference/${table}/${encodeURIComponent(code)}/aliases?${query({ alias })}`,
-      { method: 'DELETE' },
+      withQuery(`/api/reference/${table}/${encodeURIComponent(code)}/aliases`, {
+        alias,
+      }),
+      {
+        method: 'DELETE',
+      },
     ),
 
   // inventory
-  searchInventory: (view, params = {}) => {
-    const qs = new URLSearchParams()
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== '' && v !== null && v !== undefined && v !== false) qs.set(k, v)
-    })
-    const query = qs.toString()
-    const suffix = query ? `?${query}` : ''
-    return send(`/api/inventory/${view}/search${suffix}`)
-  },
+  // An unticked filter box asks for nothing, so `false` is left out too.
+  searchInventory: (view, params = {}) =>
+    send(withQuery(`/api/inventory/${view}/search`, params, { dropFalse: true })),
   splitItem: (itemId, payload) =>
     send(`/api/inventory/${itemId}/split`, { method: 'POST', body: payload }),
   getInventoryItem: (id) => send(`/api/inventory/${id}`),
@@ -112,14 +101,7 @@ export const api = {
   // attached to the currency item it identifies. Ships empty by design --
   // CLAUDE.md forbids seeding, fetching or hardcoding a publisher's Friedberg
   // mapping, so nothing here ever does.
-  searchFriedberg: (params = {}) => {
-    const qs = new URLSearchParams()
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== '' && v !== null && v !== undefined) qs.set(k, v)
-    })
-    const query = qs.toString()
-    return send(`/api/friedberg${query ? `?${query}` : ''}`)
-  },
+  searchFriedberg: (params = {}) => send(withQuery('/api/friedberg', params)),
   createFriedbergNumber: (payload) =>
     send('/api/friedberg', { method: 'POST', body: payload }),
   attachFriedberg: (itemId, payload) =>
@@ -131,24 +113,11 @@ export const api = {
   // `note_issue` facts -- not the pairs in office in the series year, which
   // hides every lettered series' later signers. With no series year, every
   // pair. Body: { values: [{ code, label }], source }.
-  getSignatureChoices: (params = {}) => {
-    const qs = new URLSearchParams()
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== '' && v !== null && v !== undefined) qs.set(k, v)
-    })
-    const query = qs.toString()
-    return send(`/api/friedberg/signatures${query ? `?${query}` : ''}`)
-  },
+  getSignatureChoices: (params = {}) =>
+    send(withQuery('/api/friedberg/signatures', params)),
 
   // acquisition -- reading what was ordered, to record what arrived
-  listPurchaseOrders: (params = {}) => {
-    const qs = new URLSearchParams()
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== '' && v !== null && v !== undefined) qs.set(k, v)
-    })
-    const query = qs.toString()
-    return send(`/api/purchase-orders${query ? `?${query}` : ''}`)
-  },
+  listPurchaseOrders: (params = {}) => send(withQuery('/api/purchase-orders', params)),
   getPurchaseOrder: (id) => send(`/api/purchase-orders/${id}`),
   listStorageLocations: () => send('/api/storage-locations'),
   receiveItems: (payload) =>
@@ -184,15 +153,9 @@ export const api = {
   // (`app/offer_titles.py`) -- what `OfferDialog` pre-fills instead of the
   // seller's `source_title`. Answers {titles: {id: title}}; unknown ids are
   // simply absent.
-  getOfferTitles: (itemIds) => {
-    const qs = new URLSearchParams()
-    itemIds.forEach((id) => qs.append('item_ids', id))
-    return send(`/api/offers/titles?${qs}`)
-  },
-  listListings: (params = {}) => {
-    const qs = query(params)
-    return send(`/api/listings${qs ? `?${qs}` : ''}`)
-  },
+  getOfferTitles: (itemIds) =>
+    send(withQuery('/api/offers/titles', { item_ids: itemIds })),
+  listListings: (params = {}) => send(withQuery('/api/listings', params)),
   updateListing: (id, payload) =>
     send(`/api/listings/${id}`, { method: 'PATCH', body: payload }),
   endListing: (id) => send(`/api/listings/${id}/end`, { method: 'POST' }),
@@ -214,10 +177,7 @@ export const api = {
   // `SalesLotIn` is `extra="forbid"` and a lot "begins assembling and empty;
   // members are a PATCH". A caller that wants a lot with coins in it makes
   // both calls; sending `add_item_ids` here is a 422.
-  listLots: (params = {}) => {
-    const qs = query(params)
-    return send(`/api/sales-lots${qs ? `?${qs}` : ''}`)
-  },
+  listLots: (params = {}) => send(withQuery('/api/sales-lots', params)),
   createLot: (body) => send('/api/sales-lots', { method: 'POST', body }),
   // The whole change -- wording and every membership move -- in one body,
   // because the API applies it in one transaction: a screenful of edits
@@ -237,10 +197,7 @@ export const api = {
   // `createOffers` above documents for `refused`. `send` throws an `ApiError`
   // carrying the whole parsed body, so `SettlementGrid.jsx` reads
   // `err.body?.refused` to mark every offending lot, not just the first.
-  listAuctions: (params = {}) => {
-    const qs = query(params)
-    return send(`/api/auctions${qs ? `?${qs}` : ''}`)
-  },
+  listAuctions: (params = {}) => send(withQuery('/api/auctions', params)),
   createAuction: (payload) => send('/api/auctions', { method: 'POST', body: payload }),
   // No `updateAuction` here: this task adds no UI that edits an auction's
   // own title, dates or notes (`AuctionUpdate` in `schemas.py`), and a call
@@ -259,12 +216,13 @@ export const api = {
   // `returnedToLocationId` becomes a query parameter, as the endpoint takes
   // it -- required only when the auction is consigned, which the caller
   // decides from `auction.consigned_on`.
-  removeAuctionLot: (auctionId, lotId, returnedToLocationId) => {
-    const qs = query({ returned_to_location_id: returnedToLocationId ?? null })
-    return send(`/api/auctions/${auctionId}/lots/${lotId}${qs ? `?${qs}` : ''}`, {
-      method: 'DELETE',
-    })
-  },
+  removeAuctionLot: (auctionId, lotId, returnedToLocationId) =>
+    send(
+      withQuery(`/api/auctions/${auctionId}/lots/${lotId}`, {
+        returned_to_location_id: returnedToLocationId,
+      }),
+      { method: 'DELETE' },
+    ),
   // Renumbering a lot or changing its reserve. `app.auctions.refuse_unless_lot_editable`
   // refuses this once the auction is closed, settled or cancelled; the page
   // disables the inputs to match, but the refusal is still the real gate.
@@ -288,8 +246,8 @@ export const api = {
     send('/api/inventory', { method: 'POST', body: payload }),
   // What the facts entered so far decide: a note's class, seal, signatures
   // and Reserve Bank, or a coin's metal. See app/routers/defaults.py.
-  suggestNote: (params = {}) => send(`/api/defaults/note?${query(params)}`),
-  suggestCoin: (params = {}) => send(`/api/defaults/coin?${query(params)}`),
+  suggestNote: (params = {}) => send(withQuery('/api/defaults/note', params)),
+  suggestCoin: (params = {}) => send(withQuery('/api/defaults/coin', params)),
 
   // images -- evidence a person looked at the object, attached to an item
   uploadImage: (
