@@ -10,14 +10,12 @@ argue what the behavior ought to be.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
-from app.models import InventoryItem, ProvenanceSource, Series
+from app.models import ProvenanceSource, Series
 from app.series_match import run
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
+from tests.builders import ItemFactory
 
 # Nothing in the seeded series vocabulary matches this.
 UNRECOGNISABLE = {"title": "Plain metal disc", "description": "No series here."}

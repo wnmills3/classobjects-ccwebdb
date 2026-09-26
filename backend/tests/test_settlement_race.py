@@ -86,11 +86,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from tests.conftest import (
     ClaimInvariantViolation,
     build_item,
-    check_auction_invariant,
-    check_claim_invariant,
-    check_disposition_invariant,
-    check_listing_history_invariant,
-    check_lot_invariant,
+    check_all_invariants,
 )
 
 #: What every item this file commits is titled, and what `_cleanup_rows`
@@ -115,7 +111,7 @@ Outcome = str
 
 
 def _cleanup_rows(cleanup: Session) -> None:
-    """Check all three suite invariants against these rows, then delete regardless.
+    """Check all five suite invariants against these rows, then delete regardless.
 
     The same shape, and for the same reasons, as
     `test_offer_races.py::_cleanup_race_rows`: every test here takes
@@ -173,11 +169,7 @@ def _cleanup_rows(cleanup: Session) -> None:
         Auction.sales_venue_id.in_(race_venue_ids)
     )
     try:
-        check_claim_invariant(cleanup)
-        check_lot_invariant(cleanup)
-        check_disposition_invariant(cleanup)
-        check_listing_history_invariant(cleanup)
-        check_auction_invariant(cleanup)
+        check_all_invariants(cleanup)
     finally:
         lot_ids = list(cleanup.scalars(race_lot_ids).all())
         cleanup.query(AuctionLot).filter(
@@ -224,7 +216,7 @@ def _cleanup_rows(cleanup: Session) -> None:
 def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     """Real, committing sessions; removes every row the race creates.
 
-    Checks the three suite-wide invariants against those rows *before*
+    Checks the five suite-wide invariants against those rows *before*
     deleting them, for the reason `test_offer_races.py`'s twin gives: this
     fixture is requested by name, pytest tears an explicitly-requested
     fixture down before an autouse one the test never named, and without the

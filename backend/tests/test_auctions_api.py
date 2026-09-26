@@ -23,7 +23,6 @@ directly, which is `routers.offers.py`, not this module.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
@@ -44,11 +43,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from tests.builders import ItemFactory, ListingFactory, priced_item
 from tests.conftest import build_lot, item_of
-
-ItemFactory = Callable[..., InventoryItem]
-ListingFactory = Callable[..., Listing]
-
 
 # --------------------------------------------------------------------------
 # Fixtures
@@ -76,11 +72,6 @@ def scheduled_auction(db: Session, draft_auction: Auction) -> Auction:
     return draft_auction
 
 
-def _priced_item(make_item: ItemFactory, title: str, cost: Decimal) -> InventoryItem:
-    """An item with an exact cost basis, for a money-as-string assertion."""
-    return make_item(title=title, item_cost=cost, tax_rate=Decimal("0"))
-
-
 @pytest.fixture
 def closed_auction_of_two_lots(
     db: Session, scheduled_auction: Auction, make_item: ItemFactory
@@ -90,7 +81,7 @@ def closed_auction_of_two_lots(
         auctions.add_lot(
             db,
             scheduled_auction,
-            _priced_item(make_item, f"Lot {number}", Decimal("100.00")),
+            priced_item(make_item, f"Lot {number}", Decimal("100.00")),
             lot_number=str(number),
             reserve=None,
             price=Decimal("10.00"),

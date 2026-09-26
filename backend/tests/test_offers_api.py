@@ -9,7 +9,6 @@ shape carries what the console needs.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from decimal import Decimal
 
 import httpx
@@ -17,7 +16,6 @@ import pytest
 from app import auctions, offering_writes
 from app.models import (
     Auction,
-    InventoryItem,
     Listing,
     ListingFormat,
     ListingStatus,
@@ -33,7 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
-ItemFactory = Callable[..., InventoryItem]
+from tests.builders import ItemFactory
 
 EBAY_TEMPLATE = "https://www.ebay.com/itm/{external_id}"
 

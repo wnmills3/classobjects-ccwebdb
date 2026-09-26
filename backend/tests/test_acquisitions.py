@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from app.models import ItemKind, ItemStatus, PurchaseOrder, Vendor
+from app.models import ItemKind, ItemStatus, PurchaseOrder
 from app.models.base import utcnow
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, build_purchase_order, code_id
 
 
 def _order_with_lines(db: Session, outstanding: int, done: int) -> PurchaseOrder:
-    vendor = Vendor(name=f"Vendor {outstanding}{done}")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id, order_number="27-1234")
-    db.add(order)
-    db.flush()
+    order = build_purchase_order(
+        db,
+        vendor_name=f"Vendor {outstanding}{done}",
+        order_number="27-1234",
+        commit=False,
+    )
     ordered_id = db.scalars(
         select(ItemStatus.id).where(ItemStatus.code == "ordered")
     ).one()
@@ -25,11 +25,11 @@ def _order_with_lines(db: Session, outstanding: int, done: int) -> PurchaseOrder
         select(ItemStatus.id).where(ItemStatus.code == "received")
     ).one()
     for _ in range(outstanding):
-        item = make_item(db)
+        item = build_bare_item(db)
         item.purchase_order_id = order.id
         item.status_id = ordered_id
     for _ in range(done):
-        item = make_item(db)
+        item = build_bare_item(db)
         item.purchase_order_id = order.id
         item.status_id = received_id
     db.commit()
@@ -56,16 +56,13 @@ def test_a_missing_line_counts_as_outstanding(
     `GET /api/purchase-orders`, or the late arrival has no route back in
     through the order path at all.
     """
-    vendor = Vendor(name="Missing-only Vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id, order_number="27-4321")
-    db.add(order)
-    db.flush()
+    order = build_purchase_order(
+        db, vendor_name="Missing-only Vendor", order_number="27-4321", commit=False
+    )
     missing_id = db.scalars(
         select(ItemStatus.id).where(ItemStatus.code == "missing")
     ).one()
-    item = make_item(db, status_id=missing_id)
+    item = build_bare_item(db, status_id=missing_id)
     item.purchase_order_id = order.id
     db.commit()
 
@@ -100,13 +97,10 @@ def test_a_line_carries_its_title_and_kind(
     banknote reads `item_kind: "currency"` and shows its own title rather
     than falling back to `description`.
     """
-    vendor = Vendor(name="Titled Vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id, order_number="TL-1")
-    db.add(order)
-    db.flush()
-    item = make_item(
+    order = build_purchase_order(
+        db, vendor_name="Titled Vendor", order_number="TL-1", commit=False
+    )
+    item = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "currency"),
         source_title="Series 1928 $1 Silver Certificate",
@@ -146,7 +140,7 @@ def test_a_deleted_item_does_not_count_or_appear(
     ordered_id = db.scalars(
         select(ItemStatus.id).where(ItemStatus.code == "ordered")
     ).one()
-    deleted_item = make_item(db, status_id=ordered_id)
+    deleted_item = build_bare_item(db, status_id=ordered_id)
     deleted_item.purchase_order_id = order.id
     deleted_item.deleted_at = utcnow()
     db.commit()
@@ -168,19 +162,16 @@ def test_a_split_parent_is_hidden_but_its_children_are_not(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A split lot's parent is superseded by its children, not alongside them."""
-    vendor = Vendor(name="Split Vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id, order_number="27-9999")
-    db.add(order)
-    db.flush()
+    order = build_purchase_order(
+        db, vendor_name="Split Vendor", order_number="27-9999", commit=False
+    )
     ordered_id = db.scalars(
         select(ItemStatus.id).where(ItemStatus.code == "ordered")
     ).one()
 
-    parent = make_item(db, status_id=ordered_id)
-    child_a = make_item(db, status_id=ordered_id, parent_item_id=parent.id)
-    child_b = make_item(db, status_id=ordered_id, parent_item_id=parent.id)
+    parent = build_bare_item(db, status_id=ordered_id)
+    child_a = build_bare_item(db, status_id=ordered_id, parent_item_id=parent.id)
+    child_b = build_bare_item(db, status_id=ordered_id, parent_item_id=parent.id)
     for item in (parent, child_a, child_b):
         item.purchase_order_id = order.id
     parent.split_at = utcnow()
@@ -202,16 +193,12 @@ def test_a_split_parent_is_hidden_but_its_children_are_not(
 
 
 def _order_with_source_url(db: Session, source_url: str | None) -> PurchaseOrder:
-    vendor = Vendor(name="Source URL Vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(
-        vendor_id=vendor.id, order_number="27-5555", source_url=source_url
+    return build_purchase_order(
+        db,
+        vendor_name="Source URL Vendor",
+        order_number="27-5555",
+        source_url=source_url,
     )
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-    return order
 
 
 def test_a_web_address_source_url_is_returned_unchanged(

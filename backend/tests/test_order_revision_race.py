@@ -44,7 +44,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
-from tests.test_concurrency import RACE_TITLE, _code_id, _seed
+from tests.builders import code_id
+from tests.test_concurrency import RACE_TITLE, _seed
 
 
 def _present[T](instance: T | None) -> T:
@@ -69,19 +70,19 @@ def _extra_listing(factory: sessionmaker[Session], *, stock: int) -> int:
     with factory() as session:
         item = InventoryItem(
             source_title=RACE_TITLE,
-            item_kind_id=_code_id(session, ItemKind, "coin"),
-            storage_form_id=_code_id(session, StorageForm, "single"),
-            authenticity_id=_code_id(session, Authenticity, "unverified"),
-            status_id=_code_id(session, ItemStatus, "received"),
-            disposition_id=_code_id(session, Disposition, "listed"),
-            valuation_basis_id=_code_id(session, ValuationBasis, "numismatic"),
+            item_kind_id=code_id(session, ItemKind, "coin"),
+            storage_form_id=code_id(session, StorageForm, "single"),
+            authenticity_id=code_id(session, Authenticity, "unverified"),
+            status_id=code_id(session, ItemStatus, "received"),
+            disposition_id=code_id(session, Disposition, "listed"),
+            valuation_basis_id=code_id(session, ValuationBasis, "numismatic"),
         )
         session.add(item)
         session.flush()
         listing = Listing(
             inventory_item_id=item.id,
             price=Decimal("100.00"),
-            currency_id=_code_id(session, Currency, "USD"),
+            currency_id=code_id(session, Currency, "USD"),
             sales_venue_id=store_venue_id(session),
             quantity_available=stock,
         )

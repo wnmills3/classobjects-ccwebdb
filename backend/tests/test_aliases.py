@@ -8,7 +8,6 @@ files shows up here too.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 
 import pytest
 from app import aliases
@@ -18,7 +17,6 @@ from app.models import (
     CoinDetail,
     CurrencyDetail,
     GradeDesignation,
-    InventoryItem,
     ItemAttribute,
     ItemAttributeLink,
     Mint,
@@ -36,11 +34,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
-
-
-def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
+from tests.builders import ItemFactory, code_id
 
 
 def _codes(db: Session, model: type[ReferenceMixin], ids: list[int]) -> set[str]:
@@ -88,7 +82,7 @@ def test_nothing_resolves_nothing(db: Session) -> None:
 
 
 def test_a_retired_alias_no_longer_names_anything(db: Session) -> None:
-    national = _id(db, NoteType, "national_bank_note")
+    national = code_id(db, NoteType, "national_bank_note")
     assert aliases.resolve(db, NoteType, "Natl") == aliases.Resolved(national, "alias")
 
     _alias_row(db, "note_type", "Natl").is_active = False
@@ -125,7 +119,7 @@ def test_longer_text_matches_part_of_a_name(db: Session) -> None:
 
 
 def test_an_added_alias_is_manual_and_works_at_once(db: Session) -> None:
-    dcam = _id(db, GradeDesignation, "DCAM")
+    dcam = code_id(db, GradeDesignation, "DCAM")
     created = aliases.add_alias(db, GradeDesignation, dcam, " Black  Cameo ")
 
     assert (created.alias, created.source) == ("Black Cameo", ProvenanceSource.manual)
@@ -150,20 +144,20 @@ def test_an_alias_that_could_never_be_reached_is_refused(
 ) -> None:
     with pytest.raises(aliases.AliasError, match=re.escape(reason)):
         aliases.add_alias(
-            db, GradeDesignation, _id(db, GradeDesignation, "DCAM"), alias
+            db, GradeDesignation, code_id(db, GradeDesignation, "DCAM"), alias
         )
 
 
 def test_the_same_alias_twice_on_one_value_is_refused(db: Session) -> None:
-    us_note = _id(db, NoteType, "us_note")
+    us_note = code_id(db, NoteType, "us_note")
     with pytest.raises(aliases.AliasError, match="already an alias"):
         aliases.add_alias(db, NoteType, us_note, "legal tender")
 
 
 def test_two_values_may_share_an_alias(db: Session) -> None:
     """Search finds both; `resolve`, which cannot choose, names neither."""
-    silver = _id(db, NoteType, "silver_certificate")
-    gold = _id(db, NoteType, "gold_certificate")
+    silver = code_id(db, NoteType, "silver_certificate")
+    gold = code_id(db, NoteType, "gold_certificate")
     aliases.add_alias(db, NoteType, silver, "Certificate")
     aliases.add_alias(db, NoteType, gold, "Certificate")
 
@@ -172,7 +166,7 @@ def test_two_values_may_share_an_alias(db: Session) -> None:
 
 
 def test_removing_an_added_alias_deletes_it(db: Session) -> None:
-    dcam = _id(db, GradeDesignation, "DCAM")
+    dcam = code_id(db, GradeDesignation, "DCAM")
     aliases.add_alias(db, GradeDesignation, dcam, "Black Cameo")
     aliases.remove_alias(db, GradeDesignation, dcam, "black cameo")
 
@@ -185,7 +179,7 @@ def test_removing_an_added_alias_deletes_it(db: Session) -> None:
 def test_removing_a_shipped_alias_retires_it_and_a_seed_load_keeps_it_retired(
     db: Session,
 ) -> None:
-    us_note = _id(db, NoteType, "us_note")
+    us_note = code_id(db, NoteType, "us_note")
     aliases.remove_alias(db, NoteType, us_note, "Legal Tender")
 
     shipped = [{"table": "note_type", "code": "us_note", "alias": "Legal Tender"}]
@@ -197,7 +191,7 @@ def test_removing_a_shipped_alias_retires_it_and_a_seed_load_keeps_it_retired(
 
 
 def test_adding_a_retired_alias_back_restores_the_shipped_row(db: Session) -> None:
-    us_note = _id(db, NoteType, "us_note")
+    us_note = code_id(db, NoteType, "us_note")
     aliases.remove_alias(db, NoteType, us_note, "Legal Tender")
     restored = aliases.add_alias(db, NoteType, us_note, "legal tender")
 
@@ -206,7 +200,7 @@ def test_adding_a_retired_alias_back_restores_the_shipped_row(db: Session) -> No
 
 
 def test_removing_what_is_not_an_alias_is_refused(db: Session) -> None:
-    us_note = _id(db, NoteType, "us_note")
+    us_note = code_id(db, NoteType, "us_note")
     with pytest.raises(aliases.AliasError, match="not an alias"):
         aliases.remove_alias(db, NoteType, us_note, "Greenback")
     aliases.remove_alias(db, NoteType, us_note, "Legal Tender")
@@ -215,7 +209,7 @@ def test_removing_what_is_not_an_alias_is_refused(db: Session) -> None:
 
 
 def test_series_aliases_retire_the_same_way(db: Session) -> None:
-    walker = _id(db, Series, "walking_liberty_half")
+    walker = code_id(db, Series, "walking_liberty_half")
     assert match("1943 Walker", None, build_rules(db)) == {"walking_liberty_half"}
     aliases.remove_alias(db, Series, walker, "Walker")
 
@@ -234,7 +228,7 @@ def test_series_aliases_retire_the_same_way(db: Session) -> None:
 
 
 def test_the_defaults_pass_ignores_a_retired_note_class_alias(db: Session) -> None:
-    us_note = _id(db, NoteType, "us_note")
+    us_note = code_id(db, NoteType, "us_note")
 
     def reads(text: str) -> bool:
         return any(
@@ -260,17 +254,19 @@ def test_search_finds_a_coin_by_its_strike_designation_or_mint(
     db: Session, make_item: ItemFactory
 ) -> None:
     proof = make_item(
-        description="plain", grade_id=None, strike_type_id=_id(db, StrikeType, "proof")
+        description="plain",
+        grade_id=None,
+        strike_type_id=code_id(db, StrikeType, "proof"),
     )
     cameo = make_item(
         description="plain",
-        grade_designation_id=_id(db, GradeDesignation, "DCAM"),
+        grade_designation_id=code_id(db, GradeDesignation, "DCAM"),
     )
     denver = make_item(description="plain")
-    db.add(CoinDetail(inventory_item_id=denver.id, mint_id=_id(db, Mint, "D")))
+    db.add(CoinDetail(inventory_item_id=denver.id, mint_id=code_id(db, Mint, "D")))
     db.commit()
     aliases.add_alias(
-        db, GradeDesignation, _id(db, GradeDesignation, "DCAM"), "Black Cameo"
+        db, GradeDesignation, code_id(db, GradeDesignation, "DCAM"), "Black Cameo"
     )
     db.commit()
 
@@ -290,7 +286,7 @@ def test_search_finds_a_note_by_its_class_alias_or_serial_feature(
     )
     db.add(
         CurrencyDetail(
-            inventory_item_id=note.id, note_type_id=_id(db, NoteType, "us_note")
+            inventory_item_id=note.id, note_type_id=code_id(db, NoteType, "us_note")
         )
     )
     starred = make_item(
@@ -299,7 +295,7 @@ def test_search_finds_a_note_by_its_class_alias_or_serial_feature(
     db.add(
         ItemAttributeLink(
             inventory_item_id=starred.id,
-            item_attribute_id=_id(db, ItemAttribute, "star"),
+            item_attribute_id=code_id(db, ItemAttribute, "star"),
         )
     )
     db.commit()
@@ -321,13 +317,13 @@ def test_a_note_matching_two_ways_is_listed_once(
     )
     db.add(
         CurrencyDetail(
-            inventory_item_id=note.id, note_type_id=_id(db, NoteType, "us_note")
+            inventory_item_id=note.id, note_type_id=code_id(db, NoteType, "us_note")
         )
     )
     db.add(
         ItemAttributeLink(
             inventory_item_id=note.id,
-            item_attribute_id=_id(db, ItemAttribute, "star"),
+            item_attribute_id=code_id(db, ItemAttribute, "star"),
         )
     )
     db.commit()
@@ -449,4 +445,4 @@ def test_the_services_other_words_resolve(db: Session, word: str, code: str) -> 
 
 def test_the_newer_designations_are_rows(db: Session) -> None:
     for code in ("FT", "5FS", "6FS", "UCAM"):
-        assert _id(db, GradeDesignation, code)
+        assert code_id(db, GradeDesignation, code)

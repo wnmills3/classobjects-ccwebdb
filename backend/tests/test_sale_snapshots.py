@@ -5,21 +5,18 @@ app.sale_snapshot and app.sale_state.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from decimal import Decimal
 
 from app import sale_snapshot
-from app.models import InventoryItem, Listing, SalesOrderItem, User
+from app.models import Listing, SalesOrderItem, User
 from app.sales_writes import record_sale
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tests.builders import ItemFactory, ListingFactory
 from tests.conftest import item_id_of
-
-ItemFactory = Callable[..., InventoryItem]
-ListingFactory = Callable[..., Listing]
 
 
 def _order(

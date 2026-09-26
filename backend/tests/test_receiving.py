@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 
 def _location(db: Session) -> StorageLocation:
@@ -36,7 +36,7 @@ def _location(db: Session) -> StorageLocation:
 
 
 def _ordered(db: Session) -> InventoryItem:
-    item = make_item(db)
+    item = build_bare_item(db)
     item.status_id = db.scalars(
         select(ItemStatus.id).where(ItemStatus.code == "ordered")
     ).one()

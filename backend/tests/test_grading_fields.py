@@ -23,7 +23,7 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 
 def _patch(
@@ -44,7 +44,7 @@ def _certs(db: Session, item_id: int) -> list[ItemCertification]:
 
 
 def _note(db: Session) -> int:
-    item = make_item(
+    item = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "currency"),
         country_id=None,
@@ -69,7 +69,7 @@ def test_a_note_takes_a_paper_designation_and_a_coin_does_not(
     ok = _patch(client, admin_headers, note, {"grade_designation": "EPQ"})
     assert ok.status_code == 200, ok.text
 
-    coin = make_item(db)
+    coin = build_bare_item(db)
     refused = _patch(client, admin_headers, coin.id, {"grade_designation": "EPQ"})
     assert refused.status_code == 422
     assert "EPQ belongs to banknotes" in refused.json()["detail"]
@@ -81,7 +81,9 @@ def test_a_note_takes_a_paper_designation_and_a_coin_does_not(
 def test_changing_kind_is_checked_against_the_designation_held(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    coin = make_item(db, grade_designation_id=code_id(db, GradeDesignation, "DCAM"))
+    coin = build_bare_item(
+        db, grade_designation_id=code_id(db, GradeDesignation, "DCAM")
+    )
     stranded = _patch(client, admin_headers, coin.id, {"item_kind": "currency"})
     assert stranded.status_code == 422
     assert coin.item_code in stranded.json()["detail"]
@@ -99,7 +101,7 @@ def test_certificate_numbers_are_edited_as_a_set(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     pmg = code_id(db, GradingService, "PMG")
-    item = make_item(db, grading_service_id=pmg)
+    item = build_bare_item(db, grading_service_id=pmg)
     db.add(ItemCertification(inventory_item_id=item.id, cert_number="111"))
     db.add(ItemCertification(inventory_item_id=item.id, cert_number="222"))
     db.commit()
@@ -137,7 +139,7 @@ def test_certificate_numbers_are_edited_as_a_set(
 def test_a_certificate_added_with_a_service_takes_that_service(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     response = _patch(
         client,
         admin_headers,
@@ -152,7 +154,7 @@ def test_a_certificate_added_with_a_service_takes_that_service(
 def test_a_certificate_change_moves_the_version(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     before = item.version
     _patch(client, admin_headers, item.id, {"cert_numbers": ["1"]})
     after = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
@@ -170,7 +172,7 @@ def test_bad_certificate_lists_are_refused(
     numbers: list[str] | None,
     reason: str,
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     response = _patch(client, admin_headers, item.id, {"cert_numbers": numbers})
     assert response.status_code == 422
     assert reason in response.text

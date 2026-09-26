@@ -25,7 +25,7 @@ whose failure is the evidence:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 
@@ -66,10 +66,8 @@ from app.sales_writes import FeeLine
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from tests.builders import ItemFactory, ListingFactory, build_auction, priced_item
 from tests.conftest import build_lot, item_of
-
-ItemFactory = Callable[..., InventoryItem]
-ListingFactory = Callable[..., Listing]
 
 #: Cost bases that divide a price unevenly in one direction and a fee in
 #: another, so a test can tell a cost-weighted split from a price-weighted
@@ -93,33 +91,19 @@ _SALE_NUMBER = "SIG-2026-09"
 
 @pytest.fixture
 def auction(db: Session, heritage_venue: SalesVenue) -> Auction:
-    """A draft auction at an auction house, with no lots yet."""
-    row = Auction(
-        sales_venue_id=heritage_venue.id,
-        title="September Signature Sale",
-        external_id=_SALE_NUMBER,
-    )
-    db.add(row)
-    db.flush()
-    return row
+    """A draft auction at an auction house, with no lots yet.
+
+    Overrides conftest's `auction` to give the sale a number.
+    """
+    return build_auction(db, heritage_venue, external_id=_SALE_NUMBER)
 
 
 @pytest.fixture
 def ebay_auction(db: Session, ebay_venue: SalesVenue) -> Auction:
     """A draft auction on a marketplace, which always names its buyer."""
-    row = Auction(
-        sales_venue_id=ebay_venue.id,
-        title="Weekly eBay auction",
-        external_id="EB-2026-09",
+    return build_auction(
+        db, ebay_venue, title="Weekly eBay auction", external_id="EB-2026-09"
     )
-    db.add(row)
-    db.flush()
-    return row
-
-
-def priced_item(make_item: ItemFactory, title: str, cost: Decimal) -> InventoryItem:
-    """An item with an exact cost basis, for an allocation assertion."""
-    return make_item(title=title, item_cost=cost, tax_rate=Decimal("0"))
 
 
 @pytest.fixture

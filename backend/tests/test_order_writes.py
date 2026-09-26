@@ -38,8 +38,8 @@ from httpx import Response
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
+from tests.builders import post_order
 from tests.conftest import item_of
-from tests.test_orders import place
 
 
 def test_an_order_records_its_placer_version_and_changes(
@@ -79,7 +79,7 @@ def test_an_order_records_its_placer_version_and_changes(
 def test_checkout_records_the_buyer_as_placer_and_writes_placed(
     client: TestClient, listing: Listing, customer_headers: dict[str, str], db: Session
 ) -> None:
-    body = place(client, customer_headers, listing.id, 2).json()
+    body = post_order(client, customer_headers, listing.id, 2).json()
 
     assert body["version"] == 1
     # placed_by_email is admin-only (see test_orders.py::

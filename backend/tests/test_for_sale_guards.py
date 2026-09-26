@@ -32,8 +32,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tests.builders import make_jpeg
 from tests.conftest import build_item, item_id_of
-from tests.test_images import make_jpeg
 
 
 def test_the_guard_passes_an_item_that_is_not_for_sale(

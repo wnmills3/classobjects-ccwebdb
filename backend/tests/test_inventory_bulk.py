@@ -11,13 +11,13 @@ from app.models import Denomination, ItemKind, Metal
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 
 def test_a_field_is_set_across_every_selected_item(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    items = [make_item(db, year_start=None) for _ in range(3)]
+    items = [build_bare_item(db, year_start=None) for _ in range(3)]
 
     response = client.post(
         "/api/inventory/bulk",
@@ -35,8 +35,8 @@ def test_a_field_is_set_across_every_selected_item(
 def test_an_unselected_item_is_untouched(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    chosen = make_item(db, year_start=1878)
-    other = make_item(db, year_start=1921)
+    chosen = build_bare_item(db, year_start=1878)
+    other = build_bare_item(db, year_start=1921)
 
     client.post(
         "/api/inventory/bulk",
@@ -52,7 +52,7 @@ def test_one_bad_id_changes_nothing(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """All-or-nothing. A half-applied bulk edit is unreportable."""
-    items = [make_item(db, year_start=1878) for _ in range(3)]
+    items = [build_bare_item(db, year_start=1878) for _ in range(3)]
 
     response = client.post(
         "/api/inventory/bulk",
@@ -69,7 +69,7 @@ def test_one_bad_id_changes_nothing(
 def test_one_bad_code_changes_nothing(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    items = [make_item(db, year_start=1878) for _ in range(3)]
+    items = [build_bare_item(db, year_start=1878) for _ in range(3)]
 
     response = client.post(
         "/api/inventory/bulk",
@@ -92,7 +92,7 @@ def test_bulk_nulling_a_required_classifier_is_refused_naming_the_field(
     test_nulling_a_required_classifier_is_refused_naming_the_field in
     test_inventory_edit.py.
     """
-    items = [make_item(db) for _ in range(2)]
+    items = [build_bare_item(db) for _ in range(2)]
 
     response = client.post(
         "/api/inventory/bulk",
@@ -108,8 +108,8 @@ def test_a_bulk_edit_cannot_give_a_note_a_coin_denomination(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """All or nothing: the coin in the same selection keeps its own denomination."""
-    coin = make_item(db)
-    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    coin = build_bare_item(db)
+    note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
 
     response = client.post(
         "/api/inventory/bulk",
@@ -132,8 +132,8 @@ def test_a_bulk_kind_only_edit_that_would_strand_a_denomination_is_refused(
     batch is all-or-nothing, and `note` in the same selection already
     carries a note denomination that `item_kind: coin` would strand.
     """
-    plain_note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
-    note = make_item(
+    plain_note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    note = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "currency"),
         denomination_id=code_id(db, Denomination, "usd_note_1"),
@@ -155,8 +155,8 @@ def test_a_bulk_kind_only_edit_that_would_strand_a_metal_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Same shape as the denomination case, for the other coin-only field."""
-    plain_coin = make_item(db)
-    coin = make_item(db, metal_id=code_id(db, Metal, "silver"))
+    plain_coin = build_bare_item(db)
+    coin = build_bare_item(db, metal_id=code_id(db, Metal, "silver"))
 
     response = client.post(
         "/api/inventory/bulk",
@@ -174,7 +174,7 @@ def test_a_bulk_combined_kind_and_denomination_edit_to_a_consistent_pair_succeed
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A note becoming a coin, with a coin denomination in the same request."""
-    note = make_item(
+    note = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "currency"),
         denomination_id=code_id(db, Denomination, "usd_note_1"),
@@ -199,7 +199,7 @@ def test_a_bulk_combined_kind_and_metal_edit_to_a_consistent_pair_succeeds(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A coin becoming a note, clearing its metal in the same request."""
-    coin = make_item(db, metal_id=code_id(db, Metal, "silver"))
+    coin = build_bare_item(db, metal_id=code_id(db, Metal, "silver"))
 
     response = client.post(
         "/api/inventory/bulk",

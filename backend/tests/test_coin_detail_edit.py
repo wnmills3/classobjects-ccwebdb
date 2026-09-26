@@ -15,7 +15,7 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 
 def _patch(
@@ -27,7 +27,7 @@ def _patch(
 def test_a_coin_with_no_detail_row_gets_its_mint_and_variety(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    coin = make_item(db)
+    coin = build_bare_item(db)
     assert db.get(CoinDetail, coin.id) is None
 
     response = _patch(
@@ -54,7 +54,7 @@ def test_a_coin_with_no_detail_row_gets_its_mint_and_variety(
 def test_a_mint_change_is_logged_and_shown_by_label(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    coin = make_item(db)
+    coin = build_bare_item(db)
     _patch(client, admin_headers, coin.id, {"mint": "S"})
     _patch(client, admin_headers, coin.id, {"mint": "D"})
     logged = db.scalars(
@@ -77,7 +77,7 @@ def test_a_mint_change_is_logged_and_shown_by_label(
 def test_a_banknote_refuses_a_mint(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
     response = _patch(client, admin_headers, note.id, {"mint": "S"})
     assert response.status_code == 422
     assert "belongs to coins" in response.json()["detail"]
@@ -87,7 +87,7 @@ def test_a_banknote_refuses_a_mint(
 def test_an_unknown_mint_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    coin = make_item(db)
+    coin = build_bare_item(db)
     response = _patch(client, admin_headers, coin.id, {"mint": "ZZ"})
     assert response.status_code == 422
 
@@ -95,7 +95,7 @@ def test_an_unknown_mint_is_refused(
 def test_clearing_the_mint_keeps_the_variety(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    coin = make_item(db)
+    coin = build_bare_item(db)
     _patch(client, admin_headers, coin.id, {"mint": "CC", "variety": "Micro O"})
     _patch(client, admin_headers, coin.id, {"mint": None})
     db.expire_all()

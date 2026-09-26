@@ -31,44 +31,14 @@ from app.models import (  # noqa: F401
     StorageForm,
     ValuationBasis,
 )
-from app.models.base import ReferenceMixin, utcnow
+from app.models.base import utcnow
 from app.models.views import PUBLIC_CATALOG_FORBIDDEN_COLUMNS
 from app.sales_venues import store_venue_id
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
-
-def code_id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
-
-
-def make_item(db: Session, **overrides: object) -> InventoryItem:
-    """An ordinary, fully-attributed coin.
-
-    Every NOT NULL classifier is filled in, plus a year and a country, so a
-    test that wants a gap has to ask for one explicitly rather than getting
-    it by accident.
-    """
-    defaults: dict[str, object] = {
-        "item_kind_id": code_id(db, ItemKind, "coin"),
-        "storage_form_id": code_id(db, StorageForm, "single"),
-        "authenticity_id": code_id(db, Authenticity, "unverified"),
-        "status_id": code_id(db, ItemStatus, "received"),
-        "disposition_id": code_id(db, Disposition, "held"),
-        "valuation_basis_id": code_id(db, ValuationBasis, "numismatic"),
-        "country_id": code_id(db, Country, "US"),
-        "year_start": 1881,
-        "item_cost": Decimal("100.00"),
-        "shipping_cost": Decimal("0.00"),
-    }
-    defaults.update(overrides)
-    item = InventoryItem(**defaults)
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    return item
-
+from tests.builders import build_bare_item, code_id
 
 # ---------------------------------------------------------------------------
 # Cost basis: generated columns
@@ -76,7 +46,9 @@ def make_item(db: Session, **overrides: object) -> InventoryItem:
 
 
 def test_taxes_and_total_are_computed_by_the_database(db: Session) -> None:
-    item = make_item(db, item_cost=Decimal("37.95"), shipping_cost=Decimal("8.95"))
+    item = build_bare_item(
+        db, item_cost=Decimal("37.95"), shipping_cost=Decimal("8.95")
+    )
 
     # 46.90 * 0.0635 = 2.97815 -> 2.98
     assert item.sales_tax == Decimal("2.98")
@@ -89,13 +61,13 @@ def test_generated_columns_cannot_be_written(db: Session) -> None:
     cost = Decimal("10.00")
     tax = Decimal("999.99")
     with pytest.raises((DBAPIError, IntegrityError)):
-        make_item(db, item_cost=cost, sales_tax=tax)
+        build_bare_item(db, item_cost=cost, sales_tax=tax)
     db.rollback()
 
 
 def test_tax_rate_is_per_row_not_a_constant(db: Session) -> None:
     """Rates vary by jurisdiction, which is why it is a column."""
-    item = make_item(
+    item = build_bare_item(
         db,
         item_cost=Decimal("100.00"),
         shipping_cost=Decimal("0.00"),
@@ -106,7 +78,7 @@ def test_tax_rate_is_per_row_not_a_constant(db: Session) -> None:
 
 
 def test_money_never_becomes_a_float(db: Session) -> None:
-    item = make_item(db, item_cost=Decimal("0.10"), shipping_cost=Decimal("0.20"))
+    item = build_bare_item(db, item_cost=Decimal("0.10"), shipping_cost=Decimal("0.20"))
     assert isinstance(item.item_cost, Decimal)
     assert isinstance(item.total_cost, Decimal)
     # The float trap: 0.1 + 0.2 != 0.3 in binary floating point.
@@ -134,7 +106,7 @@ def test_money_never_becomes_a_float(db: Session) -> None:
 )
 def test_constraints_refuse_impossible_data(db: Session, overrides: dict) -> None:
     with pytest.raises(IntegrityError):
-        make_item(db, **overrides)
+        build_bare_item(db, **overrides)
     db.rollback()
 
 
@@ -144,7 +116,7 @@ def test_a_classifier_in_use_cannot_be_deleted(db: Session) -> None:
     Reference foreign keys are ON DELETE RESTRICT: deleting a classifier
     that rows depend on would orphan them.
     """
-    item = make_item(db)
+    item = build_bare_item(db)
     kind = db.get(ItemKind, item.item_kind_id)
 
     # delete() only stages the change; commit() is what the database refuses.
@@ -156,8 +128,8 @@ def test_a_classifier_in_use_cannot_be_deleted(db: Session) -> None:
 
 def test_year_range_allows_a_single_year_and_an_open_range(db: Session) -> None:
     """A bare year and an open range are different claims; both are legal."""
-    assert make_item(db, year_start=1964, year_end=1964).year_end == 1964
-    assert make_item(db, year_start=1980, year_end=None).year_end is None
+    assert build_bare_item(db, year_start=1964, year_end=1964).year_end == 1964
+    assert build_bare_item(db, year_start=1980, year_end=None).year_end is None
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +139,7 @@ def test_year_range_allows_a_single_year_and_an_open_range(db: Session) -> None:
 
 def test_weight_survives_the_database_exactly(db: Session) -> None:
     """Six decimal places in troy ounces represents a silver dime exactly."""
-    item = make_item(
+    item = build_bare_item(
         db, gross_weight_ozt=Decimal("0.080376"), fine_weight_ozt=Decimal("0.072340")
     )
     db.expire(item)
@@ -181,7 +153,7 @@ def test_fine_weight_is_less_than_gross_for_a_ninety_percent_coin(db: Session) -
     Melt uses the fine weight; using gross would overstate every 90% coin by
     11%.
     """
-    item = make_item(
+    item = build_bare_item(
         db,
         gross_weight_ozt=Decimal("0.859380"),
         fine_weight_ozt=Decimal("0.773440"),
@@ -231,10 +203,10 @@ def test_composition_resolves_a_silver_dime_by_year(db: Session) -> None:
 
 
 def test_coin_and_currency_views_partition_the_inventory(db: Session) -> None:
-    coin = make_item(
+    coin = build_bare_item(
         db, item_kind_id=code_id(db, ItemKind, "coin"), source_title="a coin"
     )
-    note = make_item(
+    note = build_bare_item(
         db, item_kind_id=code_id(db, ItemKind, "currency"), source_title="a note"
     )
 
@@ -266,7 +238,7 @@ def test_item_valuation_computes_melt_from_the_latest_spot_price(db: Session) ->
     )
     db.commit()
 
-    item = make_item(
+    item = build_bare_item(
         db,
         metal_id=silver.id,
         fine_weight_ozt=Decimal("2.000000"),
@@ -312,7 +284,7 @@ def test_public_catalog_never_exposes_private_columns(db: Session) -> None:
 
 def test_public_catalog_shows_only_active_listings(db: Session) -> None:
     usd = db.execute(select(Currency).where(Currency.code == "USD")).scalar_one()
-    item = make_item(db, source_title="for sale")
+    item = build_bare_item(db, source_title="for sale")
 
     active = Listing(
         inventory_item_id=item.id,
@@ -346,8 +318,8 @@ def test_a_deleted_item_leaves_every_view(db: Session) -> None:
     views carry `deleted_at IS NULL`, and this checks each one directly rather
     than trusting that they agree.
     """
-    coin = make_item(db, item_cost=Decimal("42.00"))
-    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    coin = build_bare_item(db, item_cost=Decimal("42.00"))
+    note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
 
     usd = db.execute(select(Currency).where(Currency.code == "USD")).scalar_one()
     listing = Listing(
@@ -425,15 +397,15 @@ def test_seeded_and_derived_rows_are_distinguishable(db: Session) -> None:
 
 
 def test_every_item_gets_a_code_without_being_asked(db: Session) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     assert item.item_code
     assert item.item_code.startswith("CC-")
 
 
 def test_codes_are_unique(db: Session) -> None:
-    first = make_item(db)
+    first = build_bare_item(db)
     with pytest.raises(IntegrityError):
-        make_item(db, item_code=first.item_code)
+        build_bare_item(db, item_code=first.item_code)
     db.rollback()
 
 
@@ -443,12 +415,12 @@ def test_a_deleted_items_code_is_never_reissued(db: Session) -> None:
     If a dead item's code could be handed to a later one, every historical
     reference would become ambiguous.
     """
-    doomed = make_item(db)
+    doomed = build_bare_item(db)
     code = doomed.item_code
     db.delete(doomed)
     db.commit()
 
-    replacement = make_item(db)
+    replacement = build_bare_item(db)
     assert replacement.item_code != code
 
 
@@ -458,7 +430,7 @@ def test_the_code_survives_being_sold_and_returned(db: Session) -> None:
     The reason it exists: a returned item resumes its own history rather
     than starting a new one.
     """
-    item = make_item(db)
+    item = build_bare_item(db)
     original = item.item_code
 
     item.disposition_id = code_id(db, Disposition, "sold")
@@ -478,7 +450,7 @@ def test_concurrent_inserts_cannot_collide_on_a_code(db: Session) -> None:
     Assigned by a sequence rather than by the application, so two inserts
     in the same instant cannot compute the same value.
     """
-    codes = {make_item(db).item_code for _ in range(20)}
+    codes = {build_bare_item(db).item_code for _ in range(20)}
     assert len(codes) == 20
 
 
@@ -493,7 +465,7 @@ def test_plate_numbers_accept_a_check_letter(db: Session) -> None:
     Storing it as a number would destroy the check letter irreversibly, the
     same reasoning `purchase_order.order_number` documents.
     """
-    item = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    item = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
     detail = CurrencyDetail(
         inventory_item_id=item.id,
         face_plate_number="E82",
@@ -516,7 +488,7 @@ def test_plate_numbers_accept_a_check_letter(db: Session) -> None:
 
 def test_an_item_can_carry_two_different_errors(db: Session) -> None:
     """Miscut and overprint commonly appear on the same bill."""
-    item = make_item(db)
+    item = build_bare_item(db)
     doubled_die = code_id(db, ErrorType, "doubled_die")
     off_center = code_id(db, ErrorType, "off_center")
 
@@ -541,7 +513,7 @@ def test_an_item_can_carry_two_different_errors(db: Session) -> None:
 
 def test_the_same_error_twice_on_one_item_is_refused(db: Session) -> None:
     """The unique constraint: the same fact recorded twice, not two facts."""
-    item = make_item(db)
+    item = build_bare_item(db)
     error_type = code_id(db, ErrorType, "off_center")
     db.add(ItemError(inventory_item_id=item.id, error_type_id=error_type))
     db.commit()
@@ -554,7 +526,7 @@ def test_the_same_error_twice_on_one_item_is_refused(db: Session) -> None:
 
 def test_deleting_an_item_deletes_its_errors(db: Session) -> None:
     """An error is meaningless without its item -- CASCADE, not RESTRICT."""
-    item = make_item(db)
+    item = build_bare_item(db)
     error_type = code_id(db, ErrorType, "off_center")
     db.add(ItemError(inventory_item_id=item.id, error_type_id=error_type))
     db.commit()

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import pytest
 from app import plates
-from app.models import PurchaseOrder, Vendor
+from app.models import PurchaseOrder
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from tests.builders import build_purchase_order
 
 
 @pytest.mark.parametrize(
@@ -47,13 +49,7 @@ def test_a_back_plate_is_digits() -> None:
 
 
 def _order(db: Session) -> PurchaseOrder:
-    vendor = Vendor(name="Plates Vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id)
-    db.add(order)
-    db.commit()
-    return order
+    return build_purchase_order(db, vendor_name="Plates Vendor")
 
 
 def _note(

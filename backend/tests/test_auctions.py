@@ -51,23 +51,12 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from tests.builders import ItemFactory
 from tests.conftest import build_lot, item_of
-
-ItemFactory = Callable[..., InventoryItem]
-
 
 # --------------------------------------------------------------------------
 # Fixtures
 # --------------------------------------------------------------------------
-
-
-@pytest.fixture
-def auction(db: Session, heritage_venue: SalesVenue) -> Auction:
-    """A draft auction at an auction house, with no lots yet."""
-    row = Auction(sales_venue_id=heritage_venue.id, title="September Signature Sale")
-    db.add(row)
-    db.flush()
-    return row
 
 
 @pytest.fixture
@@ -1025,9 +1014,11 @@ def test_marking_a_coin_on_a_direct_auction_listing_missing_ends_it(
 def test_consigning_notes_the_move_with_the_auction(
     db: Session, house_auction: Auction
 ) -> None:
-    """Minor #8, fix round 1: history says *why* the item moved, not just where."""
+    """History says *why* the item moved, not just where."""
     consign(db, house_auction, on_date=date(2026, 10, 1))
-    for item in items_of(house_auction):
+    items = items_of(house_auction)
+    assert items, "the auction holds no items, so nothing here is checked"
+    for item in items:
         rows = db.scalars(
             select(LocationHistory)
             .where(LocationHistory.inventory_item_id == item.id)

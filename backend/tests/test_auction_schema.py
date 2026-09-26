@@ -18,22 +18,17 @@ from app.models import (
     AuctionLot,
     AuctionLotResult,
     AuctionStatus,
-    Currency,
     InventoryItem,
     Listing,
     ListingFormat,
     SalesVenue,
     StorageLocationKind,
 )
-from app.references import require_code
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-
-def _usd(db: Session) -> int:
-    """The currency id every listing below needs. See test_sales_lot_schema.py."""
-    return require_code(db, Currency, "USD", "currency")
+from tests.builders import build_auction, usd_id
 
 
 def _listing(db: Session, item: InventoryItem, venue: SalesVenue) -> Listing:
@@ -46,7 +41,7 @@ def _listing(db: Session, item: InventoryItem, venue: SalesVenue) -> Listing:
         inventory_item_id=item.id,
         sales_venue_id=venue.id,
         format=ListingFormat.auction,
-        currency_id=_usd(db),
+        currency_id=usd_id(db),
         price=Decimal("10.00"),
         quantity_available=1,
     )
@@ -56,21 +51,9 @@ def _listing(db: Session, item: InventoryItem, venue: SalesVenue) -> Listing:
 
 
 @pytest.fixture
-def auction(db: Session, heritage_venue: SalesVenue) -> Auction:
-    """An auction at an auction house, ready to have lots consigned to it."""
-    row = Auction(sales_venue_id=heritage_venue.id, title="September Signature Sale")
-    db.add(row)
-    db.flush()
-    return row
-
-
-@pytest.fixture
 def other_auction(db: Session, heritage_venue: SalesVenue) -> Auction:
-    """A second, distinct auction on the same platform."""
-    row = Auction(sales_venue_id=heritage_venue.id, title="October Signature Sale")
-    db.add(row)
-    db.flush()
-    return row
+    """A second, distinct auction on the same platform as `auction` (conftest)."""
+    return build_auction(db, heritage_venue, title="October Signature Sale")
 
 
 @pytest.fixture

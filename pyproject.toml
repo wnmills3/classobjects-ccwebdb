@@ -35,11 +35,11 @@ testpaths = ["backend/tests"]
 pythonpath = ["backend"]
 addopts = "-q --strict-markers"
 # --strict-markers means any custom mark below must be registered here, so
-# an opt-out from the suite-wide claim invariant (tests/conftest.py) cannot
+# an opt-out from a suite-wide invariant (tests/conftest.py) cannot
 # arrive quietly -- it needs this greppable line plus a `reason=` at each
 # use site.
 markers = [
-    "claim_invariant_waiver(reason): this test builds an OfferClaim/Listing pair no current write path can produce, to exercise a reader function against it (see reason=). The suite-wide claim invariant in tests/conftest.py still runs its check for a test carrying this mark, and requires the check to raise -- a waiver that stops biting fails loudly instead of going stale. Scoped to the claim invariant only: the lot-membership and disposition invariants (also in tests/conftest.py) run unconditionally ahead of this waiver and are never absorbed by it.",
+    "claim_invariant_waiver(reason): this test builds an OfferClaim/Listing pair no current write path can produce, to exercise a reader function against it (see reason=). The suite-wide claim invariant in tests/conftest.py still runs its check for a test carrying this mark, and requires the check to raise -- a waiver that stops biting fails loudly instead of going stale. Scoped to the claim invariant only: the lot-membership, disposition and listing-history invariants (also in tests/conftest.py) run unconditionally ahead of this waiver, the auction invariant under its own auction_invariant_waiver, and none is ever absorbed by this one.",
     "auction_invariant_waiver(reason): this test builds auction rows, or drives a sale into an auction lot, around app.auctions (see reason=). The suite-wide auction invariant in tests/conftest.py still runs its check for a test carrying this mark, and requires the check to raise -- a waiver that stops biting fails loudly instead of going stale. Scoped to the auction invariant only: it never absorbs the claim, lot, disposition or history checks.",
 ]
 # Surface deprecations in our own code as failures, but do not fail on

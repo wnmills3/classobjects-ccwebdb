@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import pytest
 from app import aliases
 from app.models import (
@@ -14,7 +12,6 @@ from app.models import (
     ProvenanceSource,
     ReferenceAlias,
     ReferenceMerge,
-    ReferenceMixin,
 )
 from app.seeding import _seed_reference_aliases, _seed_table
 from fastapi.testclient import TestClient
@@ -22,11 +19,7 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
-
-
-def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
+from tests.builders import ItemFactory, code_id
 
 
 def _merge(
@@ -51,8 +44,8 @@ def test_a_merge_moves_items_keeps_the_names_and_removes_the_value(
     client: TestClient,
     admin_headers: dict[str, str],
 ) -> None:
-    cam = _id(db, GradeDesignation, "CAM")
-    dcam = _id(db, GradeDesignation, "DCAM")
+    cam = code_id(db, GradeDesignation, "CAM")
+    dcam = code_id(db, GradeDesignation, "DCAM")
     moved = [make_item(grade_designation_id=cam) for _ in range(2)]
     kept = make_item(grade_designation_id=dcam)
     versions = {item.id: item.version for item in moved}
@@ -91,7 +84,7 @@ def test_the_old_values_aliases_move_with_it(
     """UCAM's Ultra Cameo and UC become CAM's, with its code and label."""
     response = _merge(client, admin_headers, "grade_designation", "UCAM", "CAM")
     assert response.status_code == 200, response.text
-    cam = _id(db, GradeDesignation, "CAM")
+    cam = code_id(db, GradeDesignation, "CAM")
     assert set(aliases.aliases_by_row(db, GradeDesignation)[cam]) == {
         "UCAM",
         "UCAM (Ultra Cameo)",
@@ -116,7 +109,7 @@ def test_a_dry_run_says_what_would_move_and_changes_nothing(
     client: TestClient,
     admin_headers: dict[str, str],
 ) -> None:
-    cam = _id(db, GradeDesignation, "CAM")
+    cam = code_id(db, GradeDesignation, "CAM")
     item = make_item(grade_designation_id=cam)
 
     response = _merge(
@@ -136,8 +129,8 @@ def test_an_item_with_both_attributes_keeps_one(
     client: TestClient,
     admin_headers: dict[str, str],
 ) -> None:
-    early = _id(db, ItemAttribute, "early_releases")
-    first = _id(db, ItemAttribute, "first_releases")
+    early = code_id(db, ItemAttribute, "early_releases")
+    first = code_id(db, ItemAttribute, "first_releases")
     both = make_item()
     only_early = make_item()
     for item, attribute in ((both, early), (both, first), (only_early, early)):
@@ -179,8 +172,8 @@ def test_a_dry_run_reports_the_rows_it_would_drop(
     the two numbers are directly comparable: whatever the dry run promises
     here, that test proves the merge delivers.
     """
-    early = _id(db, ItemAttribute, "early_releases")
-    first = _id(db, ItemAttribute, "first_releases")
+    early = code_id(db, ItemAttribute, "early_releases")
+    first = code_id(db, ItemAttribute, "first_releases")
     both = make_item()
     only_early = make_item()
     for item, attribute in ((both, early), (both, first), (only_early, early)):
@@ -222,7 +215,7 @@ def test_a_form_opened_before_the_merge_is_refused(
     client: TestClient,
     admin_headers: dict[str, str],
 ) -> None:
-    item = make_item(grade_designation_id=_id(db, GradeDesignation, "CAM"))
+    item = make_item(grade_designation_id=code_id(db, GradeDesignation, "CAM"))
     version = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()[
         "version"
     ]
@@ -310,5 +303,5 @@ def test_a_merged_value_stays_merged_through_a_seed_load(
     alias = [{"table": "grade_designation", "code": "PL", "alias": "Proof-like"}]
     assert _seed_reference_aliases(db, {"reference_alias": alias}) == {"created": 1}
     assert aliases.resolve(db, GradeDesignation, "proof-like") == aliases.Resolved(
-        _id(db, GradeDesignation, "DMPL"), "alias"
+        code_id(db, GradeDesignation, "DMPL"), "alias"
     )

@@ -19,13 +19,13 @@ from app.models import (
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 
 def test_editing_a_coin_into_a_note_gives_it_a_note_row(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     db.add(CoinDetail(inventory_item_id=item.id, mint_id=code_id(db, Mint, "D")))
     db.commit()
 
@@ -50,7 +50,7 @@ def test_editing_a_coin_into_a_note_gives_it_a_note_row(
 def test_a_note_keeps_its_serial_unless_it_is_cleared_first(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(
+    item = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "currency"),
         denomination_id=code_id(db, Denomination, "usd_note_1"),

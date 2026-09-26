@@ -21,12 +21,14 @@ from app.models import (
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 
 def _currency_item(db: Session, **overrides: object) -> InventoryItem:
     """A banknote item with a `currency_detail` row attached."""
-    item = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"), **overrides)
+    item = build_bare_item(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), **overrides
+    )
     db.add(CurrencyDetail(inventory_item_id=item.id))
     db.commit()
     db.refresh(item)
@@ -209,7 +211,7 @@ def test_attaching_to_a_coin_is_404(
     real currency item and expects success, so the two together require
     genuine branching on whether `currency_detail` exists.
     """
-    coin = make_item(db, item_kind_id=code_id(db, ItemKind, "coin"))
+    coin = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "coin"))
     friedberg = _add_friedberg(db, fr_number="FR-TEST-7")
 
     resp = client.post(
@@ -464,7 +466,7 @@ def test_clearing_a_coin_is_404(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     """A coin has no Friedberg number to clear -- refused, as attaching is."""
-    coin = make_item(db, item_kind_id=code_id(db, ItemKind, "coin"))
+    coin = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "coin"))
     resp = client.delete(f"/api/inventory/{coin.id}/friedberg", headers=admin_headers)
     assert resp.status_code == 404, resp.text
 

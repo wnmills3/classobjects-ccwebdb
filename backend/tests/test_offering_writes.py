@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from decimal import Decimal
 
@@ -11,7 +11,6 @@ import pytest
 from app import lot_writes, offering_writes, order_writes, sale_state
 from app.models import (
     ClaimState,
-    Disposition,
     InventoryItem,
     ItemStatus,
     Listing,
@@ -32,10 +31,8 @@ from sqlalchemy import event, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from tests.builders import ItemFactory, ListingFactory, set_disposition
 from tests.conftest import item_of
-
-ItemFactory = Callable[..., InventoryItem]
-ListingFactory = Callable[..., Listing]
 
 
 def _claim(
@@ -55,7 +52,7 @@ def _claim(
     without touching the invariant itself.
     """
     if state in offering_writes.HELD_BY:
-        _set_disposition(db, item, "listed")
+        set_disposition(db, item, "listed")
     claim = OfferClaim(inventory_item_id=item.id, listing_id=listing.id, state=state)
     db.add(claim)
     db.flush()
@@ -286,14 +283,6 @@ def _order_holding(
     )
 
 
-def _set_disposition(db: Session, item: InventoryItem, code: str) -> None:
-    """Move an item's disposition the way another write path would."""
-    item.disposition_id = db.scalars(
-        select(Disposition.id).where(Disposition.code == code)
-    ).one()
-    db.flush()
-
-
 def test_offering_an_item_creates_an_active_listing_and_claim(
     db: Session, make_item: ItemFactory
 ) -> None:
@@ -472,7 +461,7 @@ def test_a_sold_item_cannot_be_offered(db: Session, listing: Listing) -> None:
     """
     item = item_of(listing)
     listing.quantity_available = 0
-    _set_disposition(db, item, "sold")
+    set_disposition(db, item, "sold")
     db.commit()
     ebay = _venue(db, "ebay-already-sold")
 
@@ -524,7 +513,7 @@ def test_an_item_whose_order_has_shipped_can_be_offered_again(
     """
     item = item_of(listing)
     _order_holding(db, listing, customer_user, admin_user, status_code="shipped")
-    _set_disposition(db, item, "returned_by_buyer")
+    set_disposition(db, item, "returned_by_buyer")
     db.commit()
     ebay = _venue(db, "ebay-returned")
 
@@ -592,7 +581,7 @@ def test_ending_a_sold_offer_ends_the_paused_store_listing(
         quantity=1,
     )
     # What the sale path does before it settles the listing.
-    _set_disposition(db, item, "sold")
+    set_disposition(db, item, "sold")
     db.commit()
 
     offering_writes.end_offer(db, elsewhere, sold=True)
@@ -793,7 +782,7 @@ def test_a_sold_item_is_not_put_back_to_held(
     item = make_item()
     ebay = _venue(db, "ebay-sold-item")
     made = _offer_on(db, item, ebay)
-    _set_disposition(db, item, "sold")
+    set_disposition(db, item, "sold")
     db.commit()
 
     offering_writes.end_offer(db, made)
@@ -812,7 +801,7 @@ def test_an_item_released_from_this_listing_earlier_is_left_alone(
     file it as held while it is still on offer.
     """
     gone = make_item()
-    _set_disposition(db, gone, "listed")
+    set_disposition(db, gone, "listed")
     _claim(db, gone, listing, ClaimState.released)
     db.commit()
 
@@ -827,7 +816,7 @@ def test_ending_a_listing_releases_the_items_it_claimed(
 ) -> None:
     """An item held only by a claim is released and filed with the rest."""
     member = make_item()
-    _set_disposition(db, member, "listed")
+    set_disposition(db, member, "listed")
     _claim(db, member, listing, ClaimState.active)
     db.commit()
 

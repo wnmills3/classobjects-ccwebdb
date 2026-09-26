@@ -19,7 +19,7 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.builders import build_bare_item
 
 
 def _years(db: Session, item: InventoryItem) -> tuple[int | None, int | None]:
@@ -38,7 +38,7 @@ def _patch(
 def test_a_single_year_stays_single_when_its_year_changes(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, year_start=1878, year_end=1878)
+    item = build_bare_item(db, year_start=1878, year_end=1878)
 
     response = _patch(client, admin_headers, item, year_start=1964)
 
@@ -50,7 +50,7 @@ def test_a_start_year_with_no_end_becomes_a_single_year(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """The second shape a single year was stored in, left by the demo seed."""
-    item = make_item(db, year_start=1881, year_end=None)
+    item = build_bare_item(db, year_start=1881, year_end=None)
 
     assert _patch(client, admin_headers, item, year_start=1882).status_code == 200
     assert _years(db, item) == (1882, 1882)
@@ -59,7 +59,7 @@ def test_a_start_year_with_no_end_becomes_a_single_year(
 def test_a_range_keeps_its_end_when_only_the_start_changes(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, year_start=1999, year_end=2008)
+    item = build_bare_item(db, year_start=1999, year_end=2008)
 
     assert _patch(client, admin_headers, item, year_start=2000).status_code == 200
     assert _years(db, item) == (2000, 2008)
@@ -68,7 +68,7 @@ def test_a_range_keeps_its_end_when_only_the_start_changes(
 def test_both_years_sent_are_taken_as_given(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, year_start=1999, year_end=2008)
+    item = build_bare_item(db, year_start=1999, year_end=2008)
 
     response = _patch(client, admin_headers, item, year_start=1990, year_end=1990)
 
@@ -79,7 +79,7 @@ def test_both_years_sent_are_taken_as_given(
 def test_clearing_a_single_year_clears_both_ends(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, year_start=1878, year_end=1878)
+    item = build_bare_item(db, year_start=1878, year_end=1878)
 
     assert _patch(client, admin_headers, item, year_start=None).status_code == 200
     assert _years(db, item) == (None, None)
@@ -88,7 +88,7 @@ def test_clearing_a_single_year_clears_both_ends(
 def test_a_range_that_would_end_before_it_starts_is_a_422(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, year_start=1999, year_end=2008)
+    item = build_bare_item(db, year_start=1999, year_end=2008)
 
     response = _patch(client, admin_headers, item, year_start=2010)
 
@@ -100,9 +100,9 @@ def test_a_range_that_would_end_before_it_starts_is_a_422(
 def test_a_bulk_year_moves_single_years_and_keeps_range_ends(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    single = make_item(db, year_start=1878, year_end=1878)
-    start_only = make_item(db, year_start=1881, year_end=None)
-    ranged = make_item(db, year_start=1950, year_end=2008)
+    single = build_bare_item(db, year_start=1878, year_end=1878)
+    start_only = build_bare_item(db, year_start=1881, year_end=None)
+    ranged = build_bare_item(db, year_start=1950, year_end=2008)
 
     response = client.post(
         "/api/inventory/bulk",
@@ -122,8 +122,8 @@ def test_a_bulk_year_moves_single_years_and_keeps_range_ends(
 def test_a_bulk_year_that_breaks_one_range_changes_nothing(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    single = make_item(db, year_start=1878, year_end=1878)
-    ranged = make_item(db, year_start=1999, year_end=2008)
+    single = build_bare_item(db, year_start=1878, year_end=1878)
+    ranged = build_bare_item(db, year_start=1999, year_end=2008)
 
     response = client.post(
         "/api/inventory/bulk",

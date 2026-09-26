@@ -8,19 +8,15 @@ refused by name, and what searches a note by year reads its series year.
 
 from __future__ import annotations
 
-from app.models import InventoryItem, PurchaseOrder, Vendor
+from app.models import InventoryItem, PurchaseOrder
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from tests.builders import build_purchase_order
+
 
 def _order(db: Session) -> PurchaseOrder:
-    vendor = Vendor(name="Note Year Vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id)
-    db.add(order)
-    db.commit()
-    return order
+    return build_purchase_order(db, vendor_name="Note Year Vendor")
 
 
 def _create(

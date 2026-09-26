@@ -16,7 +16,6 @@ from decimal import Decimal
 
 import pytest
 from app.models import (
-    Currency,
     InventoryItem,
     Listing,
     SalesLot,
@@ -25,14 +24,10 @@ from app.models import (
     SalesVenue,
     utcnow,
 )
-from app.references import require_code
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-
-def _usd(db: Session) -> int:
-    """The currency id every listing below needs. See the module docstring."""
-    return require_code(db, Currency, "USD", "currency")
+from tests.builders import usd_id
 
 
 def test_an_item_is_in_at_most_one_open_lot(
@@ -117,7 +112,7 @@ def test_a_listing_names_an_item_or_a_lot_but_not_both(
             inventory_item_id=received_item.id,
             sales_lot_id=lot.id,
             sales_venue_id=ebay_venue.id,
-            currency_id=_usd(db),
+            currency_id=usd_id(db),
             price=Decimal("10.00"),
             quantity_available=1,
         )
@@ -134,7 +129,7 @@ def test_a_listing_names_at_least_one_of_them(
     db.add(
         Listing(
             sales_venue_id=ebay_venue.id,
-            currency_id=_usd(db),
+            currency_id=usd_id(db),
             price=Decimal("10.00"),
             quantity_available=1,
         )
@@ -153,7 +148,7 @@ def test_a_lot_listing_offers_exactly_one(db: Session, ebay_venue: SalesVenue) -
         Listing(
             sales_lot_id=lot.id,
             sales_venue_id=ebay_venue.id,
-            currency_id=_usd(db),
+            currency_id=usd_id(db),
             price=Decimal("10.00"),
             quantity_available=2,
         )

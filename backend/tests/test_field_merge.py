@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.builders import build_bare_item
 
 
 def _open(
@@ -49,7 +49,7 @@ def _save(
 def test_a_change_to_another_field_does_not_stop_a_save(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, source_title="1881-S Morgan", description="as bought")
+    item = build_bare_item(db, source_title="1881-S Morgan", description="as bought")
     mine = _open(client, admin_headers, item)
     theirs = _open(client, admin_headers, item)
 
@@ -72,7 +72,7 @@ def test_a_change_to_another_field_does_not_stop_a_save(
 def test_a_change_to_the_same_field_is_refused_naming_both_values(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, description="as bought")
+    item = build_bare_item(db, description="as bought")
     mine = _open(client, admin_headers, item)
     theirs = _open(client, admin_headers, item)
     assert (
@@ -103,7 +103,7 @@ def test_a_change_to_the_same_field_is_refused_naming_both_values(
 def test_the_same_change_made_twice_is_no_conflict(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, description="as bought")
+    item = build_bare_item(db, description="as bought")
     mine = _open(client, admin_headers, item)
     theirs = _open(client, admin_headers, item)
     assert (
@@ -118,7 +118,7 @@ def test_numbers_compare_as_numbers_not_text(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A cost typed "84" is not a change from a stored "84.00"."""
-    item = make_item(db)
+    item = build_bare_item(db)
     mine = _open(client, admin_headers, item)
     base_cost = mine["item_cost"]
     response = client.patch(
@@ -137,7 +137,7 @@ def test_base_must_cover_every_field_sent(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A field with no base would be saved unchecked -- refused instead."""
-    item = make_item(db)
+    item = build_bare_item(db)
     opened = _open(client, admin_headers, item)
     response = client.patch(
         f"/api/inventory/{item.id}",
@@ -157,7 +157,7 @@ def test_without_a_base_a_stale_version_is_still_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Scripts and older callers keep the whole-item version check."""
-    item = make_item(db)
+    item = build_bare_item(db)
     opened = _open(client, admin_headers, item)
     first = client.patch(
         f"/api/inventory/{item.id}",

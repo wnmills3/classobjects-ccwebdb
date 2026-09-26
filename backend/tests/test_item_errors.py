@@ -13,7 +13,7 @@ from app.models import ErrorType, InventoryItem, ItemError, User
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 
 def _errors_of(db: Session, item: InventoryItem) -> set[int]:
@@ -34,7 +34,7 @@ def _errors_of(db: Session, item: InventoryItem) -> set[int]:
 def test_get_errors_is_empty_for_an_unremarkable_item(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     resp = client.get(f"/api/inventory/{item.id}/errors", headers=admin_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"inventory_item_id": item.id, "errors": []}
@@ -43,7 +43,7 @@ def test_get_errors_is_empty_for_an_unremarkable_item(
 def test_get_errors_requires_an_administrator(
     client: TestClient, customer_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     resp = client.get(f"/api/inventory/{item.id}/errors", headers=customer_headers)
     assert resp.status_code == 403
 
@@ -60,7 +60,7 @@ def test_two_errors_round_trip(
     db: Session,
 ) -> None:
     """Miscut and overprint on the same bill: both survive, each with its own note."""
-    item = make_item(db)
+    item = build_bare_item(db)
 
     resp = client.put(
         f"/api/inventory/{item.id}/errors",
@@ -103,7 +103,7 @@ def test_put_replaces_rather_than_adds(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A second PUT with a different set discards the first, entirely."""
-    item = make_item(db)
+    item = build_bare_item(db)
     client.put(
         f"/api/inventory/{item.id}/errors",
         json={"errors": [{"error_type": "doubled_die"}]},
@@ -123,7 +123,7 @@ def test_put_replaces_rather_than_adds(
 def test_put_with_an_empty_list_clears_every_error(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     client.put(
         f"/api/inventory/{item.id}/errors",
         json={"errors": [{"error_type": "doubled_die"}]},
@@ -143,7 +143,7 @@ def test_put_with_an_empty_list_clears_every_error(
 def test_an_unknown_error_type_is_422(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     resp = client.put(
         f"/api/inventory/{item.id}/errors",
         json={"errors": [{"error_type": "not_a_real_error"}]},
@@ -156,7 +156,7 @@ def test_the_same_error_type_twice_in_one_request_is_422(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """The same error twice is one fact, not two -- caught before it reaches SQL."""
-    item = make_item(db)
+    item = build_bare_item(db)
     resp = client.put(
         f"/api/inventory/{item.id}/errors",
         json={
@@ -173,7 +173,7 @@ def test_the_same_error_type_twice_in_one_request_is_422(
 def test_set_errors_requires_an_administrator(
     client: TestClient, customer_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     resp = client.put(
         f"/api/inventory/{item.id}/errors",
         json={"errors": []},

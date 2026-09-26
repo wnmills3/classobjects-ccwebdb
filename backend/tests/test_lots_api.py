@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import httpx
-from app.models import InventoryItem, Listing, SalesLot, SalesVenue
+from app.models import Listing, SalesLot, SalesVenue
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
+from tests.builders import ItemFactory
 
 
 def test_a_lot_can_be_created_and_read_back(

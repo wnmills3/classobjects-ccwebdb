@@ -7,7 +7,6 @@ so the rules are tested on their own and not on the state of the data.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 
@@ -22,19 +21,23 @@ from app.models import (
     InventoryItem,
     NoteIssue,
     NoteType,
-    PurchaseOrder,
     ReferenceAlias,
     ReferenceMixin,
     SealColor,
     SignatureCombination,
-    Vendor,
 )
 from app.seeding import SeedError, seed_all
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
+from tests.builders import (
+    ItemFactory,
+    add_note_issue,
+    build_purchase_order,
+    code_id,
+    review_cases,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -47,41 +50,10 @@ def _no_seeded_issues(db: Session) -> None:
     db.flush()
 
 
-def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
-
-
 def _code(db: Session, model: type[ReferenceMixin], row_id: int | None) -> str | None:
     if row_id is None:
         return None
     return db.get_one(model, row_id).code
-
-
-def _issue(
-    db: Session,
-    denomination: str,
-    year: int,
-    note_type: str,
-    seal: str,
-    *,
-    letter: str | None = None,
-    signatures: str | None = None,
-    prefix: str | None = None,
-) -> None:
-    db.add(
-        NoteIssue(
-            denomination_id=_id(db, Denomination, denomination),
-            series_year=year,
-            series_letter=letter,
-            note_type_id=_id(db, NoteType, note_type),
-            seal_color_id=_id(db, SealColor, seal),
-            signature_combination_id=(
-                _id(db, SignatureCombination, signatures) if signatures else None
-            ),
-            serial_prefix=prefix,
-        )
-    )
-    db.flush()
 
 
 def _note(
@@ -97,7 +69,7 @@ def _note(
     item = make_item(
         kind="currency",
         title="Plain note",
-        denomination_id=_id(db, Denomination, denomination),
+        denomination_id=code_id(db, Denomination, denomination),
         year_start=year,
     )
     db.add(
@@ -121,21 +93,13 @@ def _detail(db: Session, item: InventoryItem) -> CurrencyDetail:
     return detail
 
 
-def _cases(db: Session, item: InventoryItem) -> list[tuple[str, str]]:
-    return [
-        (c.reason, c.detail)
-        for c in classify(db).review
-        if c.item_code == item.item_code
-    ]
-
-
 # -- notes: class, seal, signatures ------------------------------------------
 
 
 def test_a_single_issue_fills_class_seal_and_signatures(
     db: Session, make_item: ItemFactory
 ) -> None:
-    _issue(
+    add_note_issue(
         db,
         "usd_note_1",
         1957,
@@ -163,7 +127,7 @@ def test_a_single_issue_fills_class_seal_and_signatures(
 def test_a_dry_run_writes_nothing_and_a_rerun_changes_nothing(
     db: Session, make_item: ItemFactory
 ) -> None:
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     note = _note(db, make_item, "usd_note_1", 1957)
 
     report = run(db, commit=False)
@@ -175,26 +139,26 @@ def test_a_dry_run_writes_nothing_and_a_rerun_changes_nothing(
 
 
 def test_the_letter_is_part_of_the_series(db: Session, make_item: ItemFactory) -> None:
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue", letter="B")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue", letter="B")
     plain = _note(db, make_item, "usd_note_1", 1957)
 
     run(db, commit=True)
 
     assert _detail(db, plain).note_type_id is None
-    assert ("unknown issue", "1957") in _cases(db, plain)
+    assert ("unknown issue", "1957") in review_cases(db, plain)
 
 
 def test_two_classes_in_one_series_are_left_for_a_person(
     db: Session, make_item: ItemFactory
 ) -> None:
-    _issue(db, "usd_note_1", 1928, "us_note", "red")
-    _issue(db, "usd_note_1", 1928, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1928, "us_note", "red")
+    add_note_issue(db, "usd_note_1", 1928, "silver_certificate", "blue")
     unknown = _note(db, make_item, "usd_note_1", 1928)
 
     run(db, commit=True)
 
     assert _detail(db, unknown).note_type_id is None
-    reason, detail = _cases(db, unknown)[0]
+    reason, detail = review_cases(db, unknown)[0]
     assert reason == "ambiguous"
     assert "Silver Certificate" in detail and "United States Note" in detail
 
@@ -202,10 +166,10 @@ def test_two_classes_in_one_series_are_left_for_a_person(
 def test_a_recorded_seal_decides_the_class_and_is_kept(
     db: Session, make_item: ItemFactory
 ) -> None:
-    _issue(db, "usd_note_1", 1928, "us_note", "red")
-    _issue(db, "usd_note_1", 1928, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1928, "us_note", "red")
+    add_note_issue(db, "usd_note_1", 1928, "silver_certificate", "blue")
     red = _note(
-        db, make_item, "usd_note_1", 1928, seal_color_id=_id(db, SealColor, "red")
+        db, make_item, "usd_note_1", 1928, seal_color_id=code_id(db, SealColor, "red")
     )
 
     run(db, commit=True)
@@ -220,9 +184,9 @@ def test_a_recorded_seal_decides_the_class_and_is_kept(
 def test_a_persons_value_is_never_replaced_and_a_contradiction_is_reported(
     db: Session, make_item: ItemFactory
 ) -> None:
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     wrong = _note(
-        db, make_item, "usd_note_1", 1957, note_type_id=_id(db, NoteType, "frn")
+        db, make_item, "usd_note_1", 1957, note_type_id=code_id(db, NoteType, "frn")
     )
 
     run(db, commit=True)
@@ -230,15 +194,15 @@ def test_a_persons_value_is_never_replaced_and_a_contradiction_is_reported(
     detail = _detail(db, wrong)
     assert _code(db, NoteType, detail.note_type_id) == "frn"
     assert detail.seal_color_id is None
-    assert ("disagrees", "1957: note_type") in _cases(db, wrong)
+    assert ("disagrees", "1957: note_type") in review_cases(db, wrong)
 
 
 def test_a_derived_value_is_refreshed_when_the_facts_change(
     db: Session, make_item: ItemFactory
 ) -> None:
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     note = _note(
-        db, make_item, "usd_note_1", 1957, note_type_id=_id(db, NoteType, "us_note")
+        db, make_item, "usd_note_1", 1957, note_type_id=code_id(db, NoteType, "us_note")
     )
     record_derived(db, note.id, ["note_type_id"], "note_issue")
     db.commit()
@@ -271,8 +235,8 @@ def test_the_serial_names_the_bank(
 def test_a_federal_reserve_note_gets_its_district(
     db: Session, make_item: ItemFactory
 ) -> None:
-    _issue(db, "usd_note_1", 1969, "frn", "green")
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1969, "frn", "green")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     frn = _note(db, make_item, "usd_note_1", 1969, serial="B12345678A")
     certificate = _note(db, make_item, "usd_note_1", 1957, serial="B12345678A")
 
@@ -290,12 +254,12 @@ def test_a_federal_reserve_note_gets_its_district(
 def test_a_serial_from_another_series_is_reported(
     db: Session, make_item: ItemFactory
 ) -> None:
-    _issue(db, "usd_note_20", 2004, "frn", "green", prefix="E")
+    add_note_issue(db, "usd_note_20", 2004, "frn", "green", prefix="E")
     right = _note(db, make_item, "usd_note_20", 2004, serial="EB12345678A")
     wrong = _note(db, make_item, "usd_note_20", 2004, serial="CB12345678A")
 
-    assert not [c for c in _cases(db, right) if c[0] == "serial prefix"]
-    assert any(reason == "serial prefix" for reason, _ in _cases(db, wrong))
+    assert not [c for c in review_cases(db, right) if c[0] == "serial prefix"]
+    assert any(reason == "serial prefix" for reason, _ in review_cases(db, wrong))
 
 
 # -- coins: composition ------------------------------------------------------
@@ -306,7 +270,7 @@ def _dime(
 ) -> InventoryItem:
     return make_item(
         title="Plain dime",
-        denomination_id=_id(db, Denomination, "usd_coin_0_10"),
+        denomination_id=code_id(db, Denomination, "usd_coin_0_10"),
         year_start=year,
         **extra,
     )
@@ -345,7 +309,7 @@ def test_editing_a_derived_field_makes_it_the_persons(
     db: Session,
     make_item: ItemFactory,
 ) -> None:
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     note = _note(db, make_item, "usd_note_1", 1957)
     run(db, commit=True)
 
@@ -412,13 +376,10 @@ def test_a_bulk_edit_makes_the_fields_the_persons(
 def test_a_new_items_suggestions_are_recorded_as_derived(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
-    vendor = Vendor(name="Suggestion seller")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id, order_number="SUG-1")
-    db.add(order)
-    db.commit()
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    order = build_purchase_order(
+        db, vendor_name="Suggestion seller", order_number="SUG-1"
+    )
 
     response = client.post(
         "/api/inventory",
@@ -447,12 +408,9 @@ def test_a_new_items_suggestions_are_recorded_as_derived(
 def test_an_unknown_suggested_field_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    vendor = Vendor(name="Suggestion seller 2")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id, order_number="SUG-2")
-    db.add(order)
-    db.commit()
+    order = build_purchase_order(
+        db, vendor_name="Suggestion seller 2", order_number="SUG-2"
+    )
 
     response = client.post(
         "/api/inventory",
@@ -538,7 +496,7 @@ def test_aliases_name_rows_of_any_classifier(db: Session, tmp_path: Path) -> Non
     ).scalar_one()
     assert (alias.table_name, alias.row_id) == (
         "note_type",
-        _id(db, NoteType, "us_note"),
+        code_id(db, NoteType, "us_note"),
     )
 
 
@@ -552,15 +510,15 @@ def test_the_seeded_note_types_use_bep_names(db: Session) -> None:
             ReferenceAlias.alias == "Legal Tender Note",
         )
     ).scalar_one()
-    assert legal == _id(db, NoteType, "us_note")
+    assert legal == code_id(db, NoteType, "us_note")
 
 
 # -- the rating as evidence, and defaults applied as items change ------------
 
 
 def test_the_rating_can_name_the_class(db: Session, make_item: ItemFactory) -> None:
-    _issue(db, "usd_note_1", 1928, "us_note", "red")
-    _issue(db, "usd_note_1", 1928, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1928, "us_note", "red")
+    add_note_issue(db, "usd_note_1", 1928, "silver_certificate", "blue")
     note = _note(db, make_item, "usd_note_1", 1928)
     note.rating = "VF Legal Tender funnyback"
     db.commit()
@@ -578,8 +536,8 @@ def test_editing_the_series_refreshes_what_followed_from_it(
     db: Session,
     make_item: ItemFactory,
 ) -> None:
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
-    _issue(db, "usd_note_1", 1969, "frn", "green")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1969, "frn", "green")
     note = _note(db, make_item, "usd_note_1", 1957, serial="B12345678A")
     run(db, commit=True)
 
@@ -599,12 +557,7 @@ def test_editing_the_series_refreshes_what_followed_from_it(
 def test_a_new_coin_gets_its_composition_at_once(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    vendor = Vendor(name="Coin seller")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id, order_number="COIN-1")
-    db.add(order)
-    db.commit()
+    order = build_purchase_order(db, vendor_name="Coin seller", order_number="COIN-1")
 
     response = client.post(
         "/api/inventory",
@@ -628,11 +581,11 @@ def test_a_new_coin_gets_its_composition_at_once(
 def test_the_form_is_told_what_a_note_would_be(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    _issue(db, "usd_note_1", 1928, "us_note", "red", signatures="woods_woodin")
-    _issue(
+    add_note_issue(db, "usd_note_1", 1928, "us_note", "red", signatures="woods_woodin")
+    add_note_issue(
         db, "usd_note_1", 1928, "silver_certificate", "blue", signatures="tate_mellon"
     )
-    _issue(db, "usd_note_1", 1969, "frn", "green")
+    add_note_issue(db, "usd_note_1", 1969, "frn", "green")
 
     def ask(**params: object) -> dict:
         response = client.get(
@@ -681,7 +634,7 @@ def test_search_finds_a_note_by_its_class_nickname(
     from app.inventory_search import CURRENCY_VIEW, search
 
     note = _note(
-        db, make_item, "usd_note_1", 1928, note_type_id=_id(db, NoteType, "us_note")
+        db, make_item, "usd_note_1", 1928, note_type_id=code_id(db, NoteType, "us_note")
     )
 
     rows, _ = search(db, CURRENCY_VIEW, params={}, query="legal tender")
@@ -698,7 +651,7 @@ def test_a_series_the_facts_do_not_cover_takes_back_the_defaults(
     db: Session,
     make_item: ItemFactory,
 ) -> None:
-    _issue(
+    add_note_issue(
         db,
         "usd_note_1",
         1957,
@@ -730,8 +683,8 @@ def test_a_derived_district_goes_when_the_class_changes(
     db: Session,
     make_item: ItemFactory,
 ) -> None:
-    _issue(db, "usd_note_1", 1969, "frn", "green")
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1969, "frn", "green")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     note = _note(db, make_item, "usd_note_1", 1969, serial="B12345678A")
     run(db, commit=True)
     assert _detail(db, note).fed_district_id is not None
@@ -750,13 +703,13 @@ def test_a_signature_the_issue_does_not_have_is_taken_back(
     db: Session, make_item: ItemFactory
 ) -> None:
     # Series 1929 bank notes were signed by bank officers: the facts say no pair.
-    _issue(db, "usd_note_10", 1929, "frbn", "brown")
+    add_note_issue(db, "usd_note_10", 1929, "frbn", "brown")
     note = _note(
         db,
         make_item,
         "usd_note_10",
         1929,
-        signature_combination_id=_id(db, SignatureCombination, "julian_morgenthau"),
+        signature_combination_id=code_id(db, SignatureCombination, "julian_morgenthau"),
     )
     record_derived(db, note.id, ["signature_combination_id"], "note_issue")
     db.commit()
@@ -794,7 +747,7 @@ def test_a_range_one_composition_covers_keeps_it(
     # A 1999-2008 quarter set is clad throughout.
     quarters = make_item(
         title="State quarter set",
-        denomination_id=_id(db, Denomination, "usd_coin_0_25"),
+        denomination_id=code_id(db, Denomination, "usd_coin_0_25"),
         year_start=1999,
         year_end=2008,
     )
@@ -813,7 +766,9 @@ def test_a_stated_value_the_composition_contradicts_is_reported(
 ) -> None:
     dime = _dime(db, make_item, 1964, fineness=Decimal("0.5000"))
 
-    assert ("disagrees", "composition says otherwise: fineness") in _cases(db, dime)
+    assert ("disagrees", "composition says otherwise: fineness") in review_cases(
+        db, dime
+    )
 
 
 # -- a person emptying a field -----------------------------------------------
@@ -825,7 +780,7 @@ def test_an_emptied_field_stays_empty(
     db: Session,
     make_item: ItemFactory,
 ) -> None:
-    _issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
+    add_note_issue(db, "usd_note_1", 1957, "silver_certificate", "blue")
     note = _note(db, make_item, "usd_note_1", 1957)
     run(db, commit=True)
 

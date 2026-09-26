@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.builders import build_bare_item
 
 
 def test_a_field_is_reviewed_at_most_once(db: Session) -> None:
@@ -22,7 +22,7 @@ def test_a_field_is_reviewed_at_most_once(db: Session) -> None:
     Without the constraint the table accumulates duplicates and "is this
     reviewed?" becomes a count rather than an existence check.
     """
-    item = make_item(db)
+    item = build_bare_item(db)
     db.add(ItemFieldReview(inventory_item_id=item.id, field_name="grade_id"))
     db.commit()
 
@@ -34,7 +34,7 @@ def test_a_field_is_reviewed_at_most_once(db: Session) -> None:
 
 def test_two_fields_of_one_item_are_separate_records(db: Session) -> None:
     """Confirming the grade says nothing about the year."""
-    item = make_item(db)
+    item = build_bare_item(db)
     db.add_all(
         [
             ItemFieldReview(inventory_item_id=item.id, field_name="grade_id"),
@@ -49,7 +49,7 @@ def test_two_fields_of_one_item_are_separate_records(db: Session) -> None:
 
 def test_deleting_an_item_takes_its_reviews_with_it(db: Session) -> None:
     """A review of a row that no longer exists is not a fact about anything."""
-    item = make_item(db)
+    item = build_bare_item(db)
     db.add(ItemFieldReview(inventory_item_id=item.id, field_name="grade_id"))
     db.commit()
 
@@ -61,7 +61,7 @@ def test_deleting_an_item_takes_its_reviews_with_it(db: Session) -> None:
 def test_confirming_a_field_records_who_and_when(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
 
     response = client.post(
         f"/api/inventory/{item.id}/reviewed",
@@ -82,7 +82,7 @@ def test_confirming_twice_is_not_an_error(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Looking again and agreeing is the same fact, not a failure."""
-    item = make_item(db)
+    item = build_bare_item(db)
     for _ in range(2):
         response = client.post(
             f"/api/inventory/{item.id}/reviewed",
@@ -98,7 +98,7 @@ def test_a_field_nobody_reviews_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A typo must not become a review record nobody can query for."""
-    item = make_item(db)
+    item = build_bare_item(db)
     response = client.post(
         f"/api/inventory/{item.id}/reviewed",
         json={"fields": ["grade"]},
@@ -112,7 +112,7 @@ def test_unconfirming_removes_the_record(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Someone who realizes they confirmed the wrong coin needs a way back."""
-    item = make_item(db)
+    item = build_bare_item(db)
     client.post(
         f"/api/inventory/{item.id}/reviewed",
         json={"fields": ["grade_id"]},
@@ -133,7 +133,7 @@ def test_unconfirming_removes_the_record(
 def test_reading_back_what_has_been_reviewed(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     client.post(
         f"/api/inventory/{item.id}/reviewed",
         json={"fields": ["grade_id", "year_start"]},
@@ -168,7 +168,7 @@ def test_a_concurrent_confirmation_of_the_same_field_is_not_an_error(
     """
     import app.routers.inventory as inventory_module
 
-    item = make_item(db)
+    item = build_bare_item(db)
     real_reviewed_fields = inventory_module._reviewed_fields
     calls = {"n": 0}
 

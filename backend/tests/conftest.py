@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import cast
 
 import pytest
-from app import lot_writes, offering_writes
+from app import lot_writes, offering_writes, security
 from app.config import settings
 from app.database import Base, get_db
 from app.grades import GRADE_DISPLAY_SQL, split_fields
@@ -39,7 +39,6 @@ from app.models import (
     ListingStatus,
     ListingStatusHistory,
     OfferClaim,
-    ReferenceMixin,
     SalesFeeKind,
     SalesLot,
     SalesLotItem,
@@ -57,10 +56,13 @@ from app.references import require_code
 from app.sales_venues import ensure_store_venue, store_venue_id
 from app.security import hash_password
 from app.seeding import seed_all
+from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select, text
-from sqlalchemy.engine import URL, Engine, make_url
+from sqlalchemy.engine import URL, Connection, Engine, make_url
 from sqlalchemy.orm import Session
+
+from tests.builders import ItemFactory, ListingFactory, build_auction, code_id
 
 
 def _test_database_url() -> URL:
@@ -92,30 +94,61 @@ _FEE_KINDS: tuple[tuple[str, str, int], ...] = (
 )
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _cheap_password_hashing() -> Iterator[None]:
+    """Hash passwords at argon2's lowest cost for the whole session.
+
+    `hash_password` and `verify_password` read `app.security._hasher` at call
+    time, so swapping the module global is enough. At the production cost a
+    hash and a verify take about 50 ms each, and every `admin_headers` or
+    `customer_headers` test pays for both. The hashes stay real argon2 --
+    `test_auth.py` still checks the stored prefix -- and the production
+    default is restored at teardown.
+    """
+    original = security._hasher
+    security._hasher = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
+    yield
+    security._hasher = original
+
+
+def drop_database(conn: Connection, name: str) -> None:
+    """Drop a database, ending the client sessions on it first.
+
+    Client sessions only, and not `DROP DATABASE ... WITH (FORCE)`: an
+    autovacuum worker may be running on the database, and signalling one
+    needs the pg_signal_autovacuum_worker role -- which the application user
+    does not have, so the attempt raises and the drop fails intermittently.
+    Workers exit when the database is dropped, so there is nothing to
+    terminate there anyway. `conn` must be in autocommit mode: DROP DATABASE
+    cannot run inside a transaction.
+    """
+    conn.execute(
+        text(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = :name AND pid <> pg_backend_pid() "
+            "AND backend_type = 'client backend'"
+        ),
+        {"name": name},
+    )
+    conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+
+
 @pytest.fixture(scope="session")
 def engine() -> Iterator[Engine]:
-    """Create a fresh test database for the session and tear it down after."""
+    """Create a fresh test database for the session and tear it down after.
+
+    Its `seed_all` runs against an empty database, so it is also what proves
+    the shipped seed files load on their own: every foreign key they name
+    resolves within the one load, or every test errors at setup here.
+    """
     url = TEST_URL
+    assert url.database is not None
     admin_url = url.set(database="postgres")
 
     # CREATE/DROP DATABASE cannot run inside a transaction.
     admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
-        conn.execute(
-            text(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = :name AND pid <> pg_backend_pid() "
-                # Client sessions only. An autovacuum worker may be running
-                # on this database, and signalling one needs the
-                # pg_signal_autovacuum_worker role -- which the application
-                # user does not have, so the attempt raises and the teardown
-                # fails intermittently. Workers exit when the database is
-                # dropped, so there is nothing to terminate here anyway.
-                "AND backend_type = 'client backend'"
-            ),
-            {"name": url.database},
-        )
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{url.database}"'))
+        drop_database(conn, url.database)
         conn.execute(text(f'CREATE DATABASE "{url.database}"'))
 
     test_engine = create_engine(TEST_URL, pool_pre_ping=True)
@@ -163,21 +196,7 @@ def engine() -> Iterator[Engine]:
 
     test_engine.dispose()
     with admin.connect() as conn:
-        conn.execute(
-            text(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = :name AND pid <> pg_backend_pid() "
-                # Client sessions only. An autovacuum worker may be running
-                # on this database, and signalling one needs the
-                # pg_signal_autovacuum_worker role -- which the application
-                # user does not have, so the attempt raises and the teardown
-                # fails intermittently. Workers exit when the database is
-                # dropped, so there is nothing to terminate here anyway.
-                "AND backend_type = 'client backend'"
-            ),
-            {"name": url.database},
-        )
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{url.database}"'))
+        drop_database(conn, url.database)
     admin.dispose()
 
 
@@ -307,7 +326,7 @@ class LotInvariantViolation(AssertionError):
     exact type, so sharing one would let either proof pass on the other's
     failure. And `claim_invariant_waiver` absorbs *any*
     `ClaimInvariantViolation` (the documented limit at this fixture's
-    docstring): reusing that type would silently exempt the four waived
+    docstring): reusing that type would silently exempt the three waived
     tests from this rule as well, which is exactly the accident this check
     exists to prevent.
     """
@@ -569,6 +588,22 @@ def check_auction_invariant(db: Session) -> None:
         raise AuctionInvariantViolation("; ".join(wrong))
 
 
+def check_all_invariants(db: Session) -> None:
+    """Run all five suite-wide invariant checks, with no waiver.
+
+    For the race files' `committed` fixtures, which the autouse
+    `_claim_invariant` below never reaches (see its docstring): they call
+    this on their cleanup session before deleting what the race committed.
+    The claim check runs first, so a scenario that breaks only the claim
+    rule raises `ClaimInvariantViolation`.
+    """
+    check_claim_invariant(db)
+    check_lot_invariant(db)
+    check_disposition_invariant(db)
+    check_listing_history_invariant(db)
+    check_auction_invariant(db)
+
+
 @pytest.fixture(autouse=True)
 def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     """After every test, each claim's state must equal its listing's status.
@@ -611,32 +646,29 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     Two further consequences of running for every test in the suite, worth
     naming rather than discovering later:
 
-    - `test_offer_races.py`, `test_concurrency.py`, `test_concurrent_writes.py`
-      and `test_order_revision_race.py` -- four files, all of whose tests
-      take ``committed`` as their only fixture argument -- each race real,
-      independently committing sessions against that shared fixture (not
-      ``db``) and delete the rows the race made in the fixture's own
-      teardown. `db` is in none of those tests' closures, so **this autouse
-      check does not run for any of them at all** -- not "runs against an
-      emptied table," which was true before this paragraph named the actual
-      mechanism, but genuinely skipped, the same way a `db`-free test is.
-      Measured directly: a fixture requested
-      explicitly by a test (``committed``) is torn down *before* an autouse
-      fixture the test never named (confirmed with a throwaway probe:
-      `committed teardown` then `auto teardown` then a fixture `committed`
-      itself depends on) -- so even where `db` did happen to be in scope,
-      ``committed``'s cleanup would already have deleted whatever the race
-      wrote before this fixture's check could see it. `test_offer_races.py`
-      is the one of the four that actually writes `OfferClaim` rows, and its
-      own `committed` fixture now calls `check_claim_invariant` on the
-      `cleanup` session immediately before deleting anything (inside a
-      `try`/`finally` so a real violation still leaves the database clean
-      for the rest of the run -- see that fixture's own docstring), closing
-      the gap for real committed claim data. The other three never create an
-      `OfferClaim`, `offering_writes`, or `record_sale` at all, so the same
-      gap exists there in principle but has nothing to grade in practice;
-      anyone adding claim-writing to one of them needs to call
-      `check_claim_invariant` explicitly the way `test_offer_races.py` does,
+    - `test_offer_races.py`, `test_settlement_race.py`, `test_concurrency.py`,
+      `test_concurrent_writes.py` and `test_order_revision_race.py` -- five
+      files whose tests take ``committed``, never ``db`` -- each race real,
+      independently committing sessions against that shared fixture and
+      delete the rows the race made in the fixture's own teardown. `db` is in
+      none of those tests' closures, so **this autouse check does not run for
+      any of them at all** -- genuinely skipped, the same way a `db`-free
+      test is. And even where `db` did happen to be in scope, a fixture
+      requested explicitly by a test (``committed``) is torn down *before*
+      an autouse fixture the test never named (confirmed with a throwaway
+      probe: `committed teardown` then `auto teardown` then a fixture
+      `committed` itself depends on), so ``committed``'s cleanup would
+      already have deleted whatever the race wrote before this fixture's
+      check could see it. `test_offer_races.py` and
+      `test_settlement_race.py` are the two that commit claims, lot
+      memberships and auctions for real, and their own `committed` fixtures
+      call `check_all_invariants` on the `cleanup` session immediately before
+      deleting anything (inside a `try`/`finally` so a real violation still
+      leaves the database clean for the rest of the run -- see
+      `test_offer_races.py::_cleanup_race_rows`). The other three commit no
+      claims, lots or auctions, so the same gap exists there in principle
+      but has nothing to grade in practice; anyone adding such writes to one
+      of them needs to call `check_all_invariants` explicitly the same way,
       because the autouse fixture here cannot reach a `committed`-only test.
     - A test that caught an `IntegrityError` from an ORM flush and never
       called `db.rollback()` afterward is the one real case this skips:
@@ -646,11 +678,10 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
       `True` again, so neither is what this guards against). Querying a
       session in that state raises a `PendingRollbackError` unrelated to the
       invariant, which would turn "invariant broken" into a misleading
-      fixture crash, so this returns early instead. The handful of tests
-      that end this way (a handful of `pytest.raises(IntegrityError)`
-      constraint tests in `test_sales_fees_schema.py`, `test_sales_venues.py`
-      and one in `test_offering_writes.py`) go **unchecked** by this fixture
-      -- not verified, skipped. That is an honest gap, not a guarantee.
+      fixture crash, so this returns early instead. The
+      `pytest.raises(IntegrityError)` constraint tests that end without a
+      rollback go **unchecked** by this fixture -- not verified, skipped.
+      That is an honest gap, not a guarantee.
 
     A test whose ``claim_invariant_waiver`` marker names a scenario this
     check must still be seen to catch (see `check_claim_invariant`'s
@@ -869,7 +900,13 @@ def heritage_venue(db: Session) -> SalesVenue:
 
 
 @pytest.fixture
-def received_item(make_item: Callable[..., InventoryItem]) -> InventoryItem:
+def auction(db: Session, heritage_venue: SalesVenue) -> Auction:
+    """A draft auction at an auction house, with no lots yet."""
+    return build_auction(db, heritage_venue)
+
+
+@pytest.fixture
+def received_item(make_item: ItemFactory) -> InventoryItem:
     """An item ready to be offered: received, not yet listed anywhere.
 
     `make_item` (below) defaults an item's status to `received`, which is
@@ -964,25 +1001,28 @@ def three_item_costs() -> list[Decimal]:
 # --------------------------------------------------------------------------
 
 
-def _code_id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
-
-
 def _grade_ids(db: Session, grade: object) -> dict[str, int | None]:
     """A fixture grade as collectors write it (MS64), as the two columns."""
     code, strike = split_fields(str(grade), None) if grade else (None, None)
     return {
-        "grade_id": _code_id(db, Grade, code) if code else None,
-        "strike_type_id": _code_id(db, StrikeType, strike) if strike else None,
+        "grade_id": code_id(db, Grade, code) if code else None,
+        "strike_type_id": code_id(db, StrikeType, strike) if strike else None,
     }
 
 
-def build_item(db: Session, **overrides: object) -> InventoryItem:
-    """One inventory item, with every NOT NULL classifier resolved.
+def _item_kwargs(
+    db: Session,
+    overrides: dict[str, object],
+    *,
+    disposition: str,
+    country: str | None = "US",
+    grade: object = "MS64",
+) -> dict[str, object]:
+    """The column values of a fixture item, taking its own keys off `overrides`.
 
-    Separate from `build_listing` because an item need not be for sale --
-    most of the collection is not, and the search tests care about items
-    rather than about what is offered.
+    Shared by `build_item` and `build_listing`, which differ only in the
+    arguments: a listed item starts `listed` rather than `held`, and
+    `build_listing` lets a caller name the country and grade.
     """
     # `storage_quantity` is this fixture's own spelling of the piece count and
     # `piece_count` is the column's own name. Both are popped, so whichever
@@ -991,27 +1031,36 @@ def build_item(db: Session, **overrides: object) -> InventoryItem:
     # `make_item(piece_count=4)` raise "got multiple values for piece_count".
     piece_count = overrides.pop("storage_quantity", overrides.pop("piece_count", 1))
     # `**overrides: object` erases the value type. These keys are classifier
-    # codes by this helper's contract, and `_code_id` fails loudly (no row
+    # codes by this helper's contract, and `code_id` fails loudly (no row
     # found) rather than silently on anything that is not one.
     kind = cast("str", overrides.pop("kind", "coin"))
+    return {
+        "source_title": overrides.pop("title", "1881-S Morgan Silver Dollar"),
+        "description": overrides.pop("description", "Test fixture item."),
+        "year_start": overrides.pop("year_start", 1881),
+        "year_end": overrides.pop("year_end", None),
+        "piece_count": piece_count,
+        "item_kind_id": code_id(db, ItemKind, kind),
+        "country_id": code_id(db, Country, country) if country else None,
+        **_grade_ids(db, grade),
+        "storage_form_id": code_id(db, StorageForm, "single"),
+        "authenticity_id": code_id(db, Authenticity, "unverified"),
+        "status_id": code_id(db, ItemStatus, "received"),
+        "disposition_id": code_id(db, Disposition, disposition),
+        "valuation_basis_id": code_id(db, ValuationBasis, "numismatic"),
+    }
 
+
+def build_item(db: Session, **overrides: object) -> InventoryItem:
+    """One inventory item, with every NOT NULL classifier resolved.
+
+    Separate from `build_listing` because an item need not be for sale --
+    most of the collection is not, and the search tests care about items
+    rather than about what is offered. Whatever `_item_kwargs` does not take
+    is a column value, and overrides the default for that column.
+    """
     item = InventoryItem(
-        source_title=overrides.pop("title", "1881-S Morgan Silver Dollar"),
-        description=overrides.pop("description", "Test fixture item."),
-        year_start=overrides.pop("year_start", 1881),
-        year_end=overrides.pop("year_end", None),
-        piece_count=piece_count,
-        item_kind_id=_code_id(db, ItemKind, kind),
-        country_id=_code_id(db, Country, "US"),
-        storage_form_id=_code_id(db, StorageForm, "single"),
-        authenticity_id=_code_id(db, Authenticity, "unverified"),
-        status_id=_code_id(db, ItemStatus, "received"),
-        disposition_id=_code_id(db, Disposition, "held"),
-        valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
-        **{
-            **_grade_ids(db, "MS64"),
-            **overrides,
-        },
+        **{**_item_kwargs(db, overrides, disposition="held"), **overrides}
     )
     db.add(item)
     db.commit()
@@ -1020,7 +1069,7 @@ def build_item(db: Session, **overrides: object) -> InventoryItem:
 
 
 @pytest.fixture
-def make_item(db: Session) -> Callable[..., InventoryItem]:
+def make_item(db: Session) -> ItemFactory:
     """Factory for inventory items inside one test."""
 
     def factory(**overrides: object) -> InventoryItem:
@@ -1038,31 +1087,14 @@ def build_listing(db: Session, **overrides: object) -> Listing:
     """
     inventory_item_id = overrides.pop("inventory_item_id", None)
     if inventory_item_id is None:
-        item_fields = {
-            "source_title": overrides.pop("title", "1881-S Morgan Silver Dollar"),
-            "description": overrides.pop("description", "Test fixture item."),
-            "year_start": overrides.pop("year_start", 1881),
-            "year_end": overrides.pop("year_end", None),
-            "piece_count": overrides.pop("storage_quantity", 1),
-        }
-        # `**overrides: object` erases the value type. These three are
-        # classifier codes by this helper's contract -- `country` may also be
-        # None, meaning "no country" -- and `_code_id` fails loudly (no row
-        # found) rather than silently on anything that is not one.
-        kind = cast("str", overrides.pop("kind", "coin"))
+        # `country` may be None, meaning "no country"; like `kind`, it is a
+        # classifier code by this helper's contract.
         country = cast("str | None", overrides.pop("country", "US"))
         grade = overrides.pop("grade", "MS64")
-
         item = InventoryItem(
-            **item_fields,
-            item_kind_id=_code_id(db, ItemKind, kind),
-            country_id=_code_id(db, Country, country) if country else None,
-            **_grade_ids(db, grade),
-            storage_form_id=_code_id(db, StorageForm, "single"),
-            authenticity_id=_code_id(db, Authenticity, "unverified"),
-            status_id=_code_id(db, ItemStatus, "received"),
-            disposition_id=_code_id(db, Disposition, "listed"),
-            valuation_basis_id=_code_id(db, ValuationBasis, "numismatic"),
+            **_item_kwargs(
+                db, overrides, disposition="listed", country=country, grade=grade
+            )
         )
         db.add(item)
         db.flush()
@@ -1071,7 +1103,7 @@ def build_listing(db: Session, **overrides: object) -> Listing:
     listing = Listing(
         inventory_item_id=inventory_item_id,
         price=overrides.pop("price", Decimal("189.00")),
-        currency_id=_code_id(db, Currency, "USD"),
+        currency_id=code_id(db, Currency, "USD"),
         quantity_available=overrides.pop("quantity_available", 5),
         status=(
             ListingStatus.active
@@ -1132,11 +1164,10 @@ def listing(db: Session) -> Listing:
 
 
 @pytest.fixture
-def make_listing(db: Session) -> Callable[..., Listing]:
+def make_listing(db: Session) -> ListingFactory:
     """Factory for additional catalog entries within a test."""
 
     def _make(**overrides: object) -> Listing:
-        overrides.pop("n", None)
         return build_listing(db, **overrides)
 
     return _make
@@ -1174,7 +1205,7 @@ def make_lot(db: Session) -> Callable[..., SalesLot]:
 
 
 @pytest.fixture
-def lot_of_three(db: Session, make_item: Callable[..., InventoryItem]) -> SalesLot:
+def lot_of_three(db: Session, make_item: ItemFactory) -> SalesLot:
     """An assembling lot of three items with deliberately uneven cost bases.
 
     `item_cost`, never `total_cost`: `total_cost` is a generated column
@@ -1205,8 +1236,8 @@ def offered_lot_listing(
     it carries the real claims a real offer produces, not a listing that
     merely looks like one. Price 1,000.00 against member costs of 500, 300
     and 200 -- so a cost-weighted division is 500.00 / 300.00 / 200.00 and an
-    equal one is not, which is what makes the weighting assertions in Task 4
-    able to fail.
+    equal one is not, which is what makes the weighting assertions able to
+    fail.
     """
     return offering_writes.offer(
         db,

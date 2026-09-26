@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 # ---------------------------------------------------------------------------
 # Taking a grade apart
@@ -135,7 +135,9 @@ def test_a_note_grade_and_an_unnumbered_one_show_their_label(db: Session) -> Non
 
 
 def test_every_seeded_strike_type_shows_as_the_app_shows_it(db: Session) -> None:
-    for strike in db.scalars(select(StrikeType)):
+    strikes = db.scalars(select(StrikeType)).all()
+    assert strikes, "no strike types are seeded, so nothing here is checked"
+    for strike in strikes:
         in_sql = db.execute(
             text("SELECT grade_display(:p, :s, 66, true, 'x', true)"),
             {"p": strike.prefix, "s": strike.suffix},
@@ -161,7 +163,8 @@ def test_a_plus_ranks_between_its_number_and_the_next(db: Session) -> None:
 
 def test_coin_grades_are_numbers_on_the_sheldon_scale(db: Session) -> None:
     sheldon = db.scalar(select(GradeScale.id).where(GradeScale.code == "sheldon"))
-    rows = db.execute(select(Grade).where(Grade.grade_scale_id == sheldon)).scalars()
+    rows = db.scalars(select(Grade).where(Grade.grade_scale_id == sheldon)).all()
+    assert rows, "no Sheldon grades are seeded, so nothing here is checked"
     for row in rows:
         # A grade on the Sheldon scale is a number by definition.
         assert row.numeric_value is not None, row.code
@@ -176,7 +179,7 @@ def test_coin_grades_are_numbers_on_the_sheldon_scale(db: Session) -> None:
 def test_a_compound_grade_sent_to_an_item_is_split(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     response = client.patch(
         f"/api/inventory/{item.id}", json={"grade": "PR69+"}, headers=admin_headers
     )
@@ -190,7 +193,7 @@ def test_a_compound_grade_sent_to_an_item_is_split(
 def test_a_number_alone_leaves_the_strike_type(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(
+    item = build_bare_item(
         db,
         grade_id=code_id(db, Grade, "65"),
         strike_type_id=code_id(db, StrikeType, "proof"),
@@ -205,7 +208,7 @@ def test_a_number_alone_leaves_the_strike_type(
 def test_an_unknown_strike_type_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     response = client.patch(
         f"/api/inventory/{item.id}",
         json={"strike_type": "wishful"},
@@ -240,7 +243,7 @@ def graded(db: Session) -> dict[str, int]:
         ("65", "sms"),
         ("65", None),
     ]:
-        item = make_item(
+        item = build_bare_item(
             db,
             item_kind_id=coin,
             grade_id=code_id(db, Grade, grade),
