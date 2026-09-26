@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { dateTime } from '../../../shared/format'
 import { api } from '../../api'
 import { describeChange } from './describeChange'
 
@@ -46,8 +47,8 @@ export default function OrderHistory({ order, onClose }) {
       <ul>
         {groups.map((group) => (
           <li key={`${group.at}-${group.by}`}>
-            <strong>{new Date(group.at).toLocaleString()}</strong>{' '}
-            {group.by ?? 'unknown account'}: {group.rows.map(describeChange).join('; ')}
+            <strong>{dateTime(group.at)}</strong> {group.by ?? 'unknown account'}:{' '}
+            {group.rows.map(describeChange).join('; ')}
           </li>
         ))}
       </ul>

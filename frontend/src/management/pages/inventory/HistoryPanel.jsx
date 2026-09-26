@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { dateTime } from '../../../shared/format'
 import { api } from '../../api'
 import { fieldName, shown } from './fieldMerge'
 
@@ -70,7 +71,7 @@ export default function HistoryPanel({ itemId, version }) {
           <tbody>
             {rows.map((e, i) => (
               <tr key={`${e.at}-${e.kind}-${e.field}-${i}`}>
-                <td>{new Date(e.at).toLocaleString()}</td>
+                <td>{dateTime(e.at)}</td>
                 <td>{e.by ?? 'unknown'}</td>
                 <td>{subject(e)}</td>
                 <td>{shown(e.old_value)}</td>

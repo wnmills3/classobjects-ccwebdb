@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
+import { dateTime } from '../../../shared/format'
 import { api } from '../../api'
 import { fieldFitsKind, fitsKind, isCurrencyKind, sideFor } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
@@ -45,8 +46,7 @@ const CHECK_EVERY_MS = 15000
  */
 function changedBy(change) {
   if (!change) return ''
-  const when = new Date(change.at).toLocaleString()
-  return `, changed by ${change.by ?? 'someone'} at ${when}`
+  return `, changed by ${change.by ?? 'someone'} at ${dateTime(change.at)}`
 }
 
 const TEXT_FIELDS = [
