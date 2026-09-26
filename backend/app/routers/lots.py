@@ -26,7 +26,6 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.orm.exc import StaleDataError
 
 from .. import lot_writes
 from ..deps import AdminUser, DbSession
@@ -39,6 +38,7 @@ from ..schemas import (
     SalesLotUpdate,
 )
 from ._resolve import enum_member, found_or_404, item_by_id, refuse_stale_version
+from ._tx import committing
 
 router = APIRouter(prefix="/sales-lots", tags=["selling"])
 
@@ -235,23 +235,20 @@ def update_sales_lot(
     changed = changed or payload.description is not None
 
     try:
-        # Unconditional, and first: `edit_lot` refuses a frozen lot whether
-        # or not there is wording to change, so a membership-only request on
-        # an offered lot is refused by the same line and with the same words
-        # as a rename of one.
-        lot_writes.edit_lot(
-            db, lot, title=payload.title, description=payload.description
-        )
-        for item_id in removed:
-            lot_writes.remove_member(db, lot, item_by_id(db, item_id))
-        for item_id in added:
-            lot_writes.add_member(db, lot, item_by_id(db, item_id))
-        if changed:
-            lot_writes.touch(db, lot)
-        db.commit()
-    except HTTPException:
-        db.rollback()
-        raise
+        with committing(db, _STALE):
+            # Unconditional, and first: `edit_lot` refuses a frozen lot
+            # whether or not there is wording to change, so a
+            # membership-only request on an offered lot is refused by the
+            # same line and with the same words as a rename of one.
+            lot_writes.edit_lot(
+                db, lot, title=payload.title, description=payload.description
+            )
+            for item_id in removed:
+                lot_writes.remove_member(db, lot, item_by_id(db, item_id))
+            for item_id in added:
+                lot_writes.add_member(db, lot, item_by_id(db, item_id))
+            if changed:
+                lot_writes.touch(db, lot)
     # `EmptyLot` has no clause here, and adding a dead one would be worse
     # than saying why: nothing in assembly needs a lot to be non-empty, so
     # only `offering_writes._lot_members` raises it and only
@@ -261,15 +258,9 @@ def update_sales_lot(
     # swallow it and answer 409 for what is bad input, and mypy cannot see
     # the mistake.
     except lot_writes.LotRefused as refused:
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(refused)
         ) from refused
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
     return _out(_get_lot(db, lot_id))
 
 
@@ -283,16 +274,10 @@ def delete_sales_lot(lot_id: int, db: DbSession, _admin: AdminUser) -> Response:
     """
     lot = _get_lot(db, lot_id)
     try:
-        lot_writes.delete_lot(db, lot)
-        db.commit()
+        with committing(db, _STALE):
+            lot_writes.delete_lot(db, lot)
     except lot_writes.LotRefused as refused:
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(refused)
         ) from refused
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -14,7 +14,6 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import StaleDataError
 
 from ..deps import AdminUser, DbSession
 from ..models import SalesVenue, SalesVenueKind, Vendor
@@ -26,6 +25,7 @@ from ._resolve import (
     refuse_null_required,
     refuse_stale_version,
 )
+from ._tx import commit
 
 router = APIRouter(prefix="/sales-venues", tags=["selling"])
 
@@ -167,14 +167,8 @@ def update_sales_venue(
         setattr(venue, field, value)
 
     try:
-        db.commit()
-    except StaleDataError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from exc
+        commit(db, _STALE)
     except IntegrityError as exc:
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="That purchase source is already linked to another platform",

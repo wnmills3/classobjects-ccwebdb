@@ -165,9 +165,9 @@ to compare; that is safe because `add_lot` refuses any auction that is not
 - **No false conflicts on items.** `_after_stock_change` writes
   `inventory_item.disposition`, which carries a version column; the items are
   locked and re-read first, so an unrelated concurrent edit to a coin does
-  not refuse a revision or a cancellation. The `except StaleDataError`
-  clauses in `revise_order` and `update_order_status` remain as defense in
-  depth.
+  not refuse a revision or a cancellation. The `StaleDataError` handling in
+  `revise_order`, and `routers._tx.committing` around `update_order_status`,
+  remain as defense in depth.
 
 ## Tests
 
