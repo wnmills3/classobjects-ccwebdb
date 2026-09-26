@@ -1,4 +1,4 @@
-import ModalDialog from '../ModalDialog'
+import ConfirmDialog from '../ConfirmDialog'
 import { isLot, subjectOf } from './listing-labels'
 
 /**
@@ -42,8 +42,15 @@ export default function EndOfferConfirm({ listing, busy, onConfirm, onCancel }) 
   const grouped = isLot(listing)
   const question = `End listing #${listing.id} for ${subject} on ${listing.venue_name}?`
   return (
-    <ModalDialog label={question} onClose={onCancel}>
-      <h2>{question}</h2>
+    <ConfirmDialog
+      question={question}
+      confirmLabel="End listing"
+      busyLabel="Ending..."
+      cancelLabel="Keep it offered"
+      busy={busy}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    >
       <p>
         {subject} is withdrawn from {listing.venue_name} at {listing.price}{' '}
         {listing.currency} -- not recorded as sold.{' '}
@@ -54,14 +61,6 @@ export default function EndOfferConfirm({ listing, busy, onConfirm, onCancel }) 
           ? 'The lot is dissolved with the listing and its coins are released, each back to being sold on its own. Nothing brings the lot back; grouping the same coins again starts a new one.'
           : 'Nothing brings this listing back; offering the item again makes a new one.'}
       </p>
-      <div className="row">
-        <button disabled={busy} onClick={onConfirm}>
-          {busy ? 'Ending...' : 'End listing'}
-        </button>
-        <button className="link" onClick={onCancel}>
-          Keep it offered
-        </button>
-      </div>
-    </ModalDialog>
+    </ConfirmDialog>
   )
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
+import ConfirmDialog from '../ConfirmDialog'
 import ModalDialog from '../ModalDialog'
 import SettlementGrid from './SettlementGrid'
 import { RESULT_LABEL } from './auction-labels'
@@ -26,9 +27,8 @@ import { useMounted } from '../useMounted'
  * disabled outside that window rather than left live for a refusal to
  * explain; and cancelling or removing a lot from an auction whose items are
  * at an auction house (`auction.consigned_on is not None`) requires a return
- * location, so `RemoveLotConfirm` and `CancelConfirm` below hold their
- * confirm button disabled until one is chosen, exactly as the API would
- * refuse without it.
+ * location, so `ReturnLocationConfirm` below holds its confirm button
+ * disabled until one is chosen, exactly as the API would refuse without it.
  *
  * Money is shown and sent exactly as the API carries it: a decimal string,
  * never parsed into a JavaScript number. The settlement grid itself is
@@ -430,100 +430,60 @@ function ConsignDialog({ auction, onSaved, onClose }) {
 }
 
 /**
- * A location picker shared by the two confirmations below, that require one
- * only when the auction's items are physically at an auction house.
- */
-function ReturnLocationPicker({ locations, value, onChange }) {
-  return (
-    <label>
-      Return items to
-      <select aria-label="Return items to" value={value} onChange={onChange}>
-        <option value="">Choose a location</option>
-        {locations.map((loc) => (
-          <option key={loc.id} value={loc.id}>
-            {loc.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
-
-/**
- * The question asked before a lot is pulled out of its auction.
+ * The question asked before a lot is pulled out of its auction, or the whole
+ * auction is cancelled.
  *
  * `returned_to_location_id` is required whenever `auction.consigned_on` is
- * set -- the lot's items physically left the premises and something has to
- * say where they came back to -- so the confirm button stays disabled until
- * a location is chosen, the same way this page never lets the owner submit
- * a request the API would only refuse for a missing field.
+ * set -- the items physically left the premises and something has to say
+ * where they came back to -- so the picker appears then, and the confirm
+ * button stays disabled until a location is chosen, the same way this page
+ * never lets the owner submit a request the API would only refuse for a
+ * missing field. `onConfirm` is called with the location id, or null when
+ * none was needed.
  */
-function RemoveLotConfirm({ auction, lot, locations, busy, onConfirm, onCancel }) {
+function ReturnLocationConfirm({
+  auction,
+  locations,
+  question,
+  confirmLabel,
+  busyLabel,
+  busy,
+  onConfirm,
+  onCancel,
+  children,
+}) {
   const [locationId, setLocationId] = useState('')
   const needsLocation = auction.consigned_on != null
-  const canConfirm = !needsLocation || locationId !== ''
-  const question = `Remove lot ${lot.lot_number} from ${auction.title}?`
   return (
-    <ModalDialog label={question} onClose={onCancel}>
-      <h2>{question}</h2>
-      <p>
-        {subjectOf(lot.listing)} is withdrawn from the sale. Nothing brings this lot
-        number back; adding the same items again is a new lot.
-      </p>
+    <ConfirmDialog
+      question={question}
+      confirmLabel={confirmLabel}
+      busyLabel={busyLabel}
+      cancelLabel="Keep it"
+      busy={busy}
+      disabled={needsLocation && locationId === ''}
+      onConfirm={() => onConfirm(needsLocation ? Number(locationId) : null)}
+      onCancel={onCancel}
+    >
+      {children}
       {needsLocation && (
-        <ReturnLocationPicker
-          locations={locations}
-          value={locationId}
-          onChange={(e) => setLocationId(e.target.value)}
-        />
+        <label>
+          Return items to
+          <select
+            aria-label="Return items to"
+            value={locationId}
+            onChange={(e) => setLocationId(e.target.value)}
+          >
+            <option value="">Choose a location</option>
+            {locations.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                {loc.label}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
-      <div className="row">
-        <button
-          disabled={busy || !canConfirm}
-          onClick={() => onConfirm(needsLocation ? Number(locationId) : null)}
-        >
-          {busy ? 'Removing...' : 'Remove lot'}
-        </button>
-        <button className="link" onClick={onCancel}>
-          Keep it
-        </button>
-      </div>
-    </ModalDialog>
-  )
-}
-
-/** The question asked before a whole auction is cancelled. */
-function CancelConfirm({ auction, locations, busy, onConfirm, onCancel }) {
-  const [locationId, setLocationId] = useState('')
-  const needsLocation = auction.consigned_on != null
-  const canConfirm = !needsLocation || locationId !== ''
-  const question = `Cancel ${auction.title}?`
-  return (
-    <ModalDialog label={question} onClose={onCancel}>
-      <h2>{question}</h2>
-      <p>
-        Every lot still in this auction is withdrawn, the same way ending any offer is.
-        Nothing brings a cancelled auction back.
-      </p>
-      {needsLocation && (
-        <ReturnLocationPicker
-          locations={locations}
-          value={locationId}
-          onChange={(e) => setLocationId(e.target.value)}
-        />
-      )}
-      <div className="row">
-        <button
-          disabled={busy || !canConfirm}
-          onClick={() => onConfirm(needsLocation ? Number(locationId) : null)}
-        >
-          {busy ? 'Cancelling...' : 'Cancel auction'}
-        </button>
-        <button className="link" onClick={onCancel}>
-          Keep it
-        </button>
-      </div>
-    </ModalDialog>
+    </ConfirmDialog>
   )
 }
 
@@ -829,23 +789,38 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
         />
       )}
       {cancelling && (
-        <CancelConfirm
+        <ReturnLocationConfirm
           auction={auction}
           locations={locations}
+          question={`Cancel ${auction.title}?`}
+          confirmLabel="Cancel auction"
+          busyLabel="Cancelling..."
           busy={busy}
           onConfirm={cancelThisAuction}
           onCancel={() => setCancelling(false)}
-        />
+        >
+          <p>
+            Every lot still in this auction is withdrawn, the same way ending any offer
+            is. Nothing brings a cancelled auction back.
+          </p>
+        </ReturnLocationConfirm>
       )}
       {removing && (
-        <RemoveLotConfirm
+        <ReturnLocationConfirm
           auction={auction}
-          lot={removing}
           locations={locations}
+          question={`Remove lot ${removing.lot_number} from ${auction.title}?`}
+          confirmLabel="Remove lot"
+          busyLabel="Removing..."
           busy={busy}
           onConfirm={(locationId) => removeLot(removing, locationId)}
           onCancel={() => setRemoving(null)}
-        />
+        >
+          <p>
+            {subjectOf(removing.listing)} is withdrawn from the sale. Nothing brings
+            this lot number back; adding the same items again is a new lot.
+          </p>
+        </ReturnLocationConfirm>
       )}
     </section>
   )

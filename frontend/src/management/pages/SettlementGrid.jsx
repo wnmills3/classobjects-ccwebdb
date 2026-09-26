@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { api } from '../api'
-import ModalDialog from '../ModalDialog'
+import ConfirmDialog from '../ConfirmDialog'
 import { RESULTS } from './auction-labels'
 import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { subjectOf, UNKNOWN } from './listing-labels'
@@ -53,24 +53,23 @@ const EMPTY_LINE = { result: '', hammer_price: '', buyer_username: '' }
  * writes nothing.
  */
 function SettleConfirm({ auction, busy, canSettle, onConfirm, onCancel }) {
-  const question = `Settle ${auction.title}?`
   return (
-    <ModalDialog label={question} onClose={onCancel}>
-      <h2>{question}</h2>
+    <ConfirmDialog
+      question={`Settle ${auction.title}?`}
+      confirmLabel="Settle"
+      busyLabel="Settling..."
+      cancelLabel="Keep reviewing"
+      busy={busy}
+      disabled={!canSettle}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    >
       <p>
         Every lot&apos;s result and hammer price, and every buyer&apos;s fees, are
         written at once -- one order per buyer. If any lot in the grid has a problem,
         nothing is written; the grid stays open with every offending lot marked.
       </p>
-      <div className="row">
-        <button disabled={busy || !canSettle} onClick={onConfirm}>
-          {busy ? 'Settling...' : 'Settle'}
-        </button>
-        <button className="link" onClick={onCancel}>
-          Keep reviewing
-        </button>
-      </div>
-    </ModalDialog>
+    </ConfirmDialog>
   )
 }
 

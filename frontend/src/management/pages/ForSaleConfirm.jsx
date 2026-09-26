@@ -1,4 +1,4 @@
-import ModalDialog from '../ModalDialog'
+import ConfirmDialog from '../ConfirmDialog'
 
 /**
  * The question asked before a receipt changes a coin someone is buying.
@@ -17,22 +17,21 @@ import ModalDialog from '../ModalDialog'
 export default function ForSaleConfirm({ detail, outcome, busy, onConfirm, onCancel }) {
   const question = `Record "${outcome}" for an item that is for sale?`
   return (
-    <ModalDialog label={question} onClose={onCancel}>
-      <h2>{question}</h2>
+    <ConfirmDialog
+      question={question}
+      confirmLabel="Record it anyway"
+      busyLabel="Recording..."
+      cancelLabel="Leave it on sale"
+      busy={busy}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    >
       <p>{detail}</p>
       <p>
         Recording this says the coin will not be delivered, so it is also{' '}
         <strong>withdrawn from sale</strong>: any listing offering it is ended. Nothing
         brings that listing back; offering the item again makes a new one.
       </p>
-      <div className="row">
-        <button disabled={busy} onClick={onConfirm}>
-          {busy ? 'Recording...' : 'Record it anyway'}
-        </button>
-        <button className="link" onClick={onCancel}>
-          Leave it on sale
-        </button>
-      </div>
-    </ModalDialog>
+    </ConfirmDialog>
   )
 }
