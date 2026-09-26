@@ -87,7 +87,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Connection, Engine, make_url
+from sqlalchemy.engine import URL, Connection, Engine, make_url
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.types import TypeEngine
@@ -504,16 +504,41 @@ def _identity(engine: Engine) -> tuple[int, str]:
     return int(row[0]), str(row[1])
 
 
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _named(url: URL) -> tuple[str, int, str]:
+    """The host, port and database a URL names, with the usual spellings merged.
+
+    Every loopback spelling is one host and an omitted port is PostgreSQL's
+    default. Weaker than `_identity` -- another hostname for this machine is
+    not recognised -- so it serves only when the server cannot be asked.
+    """
+    host = (url.host or "localhost").lower()
+    return (
+        "localhost" if host in _LOOPBACK else host,
+        url.port or 5432,
+        url.database or "",
+    )
+
+
 def _refuse_live(target: Engine) -> None:
     """Refuse `target` if it is the database the app runs on.
 
-    When the live database cannot be reached, `target` -- which can be -- is
-    not it; `_refuse_occupied` still refuses a target that holds a collection.
+    The server identifies itself when it can be reached. When it cannot, a
+    restore must still be possible, so the two URLs' host, port and database
+    are compared instead; `_refuse_occupied` also refuses a target that holds
+    a collection.
     """
     live = create_engine(settings.database_url)
     try:
         live_identity = _identity(live)
     except OperationalError:
+        if _named(live.url) == _named(target.url):
+            raise WorkbookError(
+                f"{live.url.database} is the live database: import into a new "
+                "one, compare it, then switch to it"
+            ) from None
         return
     finally:
         live.dispose()
