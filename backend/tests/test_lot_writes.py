@@ -145,7 +145,7 @@ def test_a_cancelled_orders_stock_does_not_bar_a_lot_join(
     Fix for I1: the first version of `_refuse_partial` restated "sold units"
     as a bare join with no filter on order status, so a `sales_order_item`
     row -- permanent even after the order that made it is cancelled and its
-    stock returned -- barred the item forever. `sale_state.for_sale`
+    stock returned -- barred the item forever. `sale_state.orders_holding`
     already excludes a cancelled order via `OPEN_ORDER_STATUSES`; this
     reaches that same, single definition instead of a second one that
     forgets to.
@@ -258,7 +258,7 @@ def test_a_sold_item_cannot_be_grouped(
     """A coin a buyer has bought is not the business's to group and sell again.
 
     `_refuse_partial` does not cover this and an earlier docstring claimed it
-    did: its order half asks `sale_state.for_sale`, which filters to
+    did: its order half asks `sale_state.orders_holding`, which filters to
     `OPEN_ORDER_STATUSES` and stops seeing the item once the order ships --
     so after shipping, nothing refused it. All three `SOLD_AWAY`
     dispositions, because the shipped and delivered ones are exactly the two

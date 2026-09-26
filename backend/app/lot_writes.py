@@ -249,11 +249,10 @@ def _refuse_unofferable(item: InventoryItem) -> None:
     The same asks `offering_writes._refuse_unofferable` makes, in the same
     order and the same words, minus its venue check -- a lot has no venue.
 
-    The already-sold check is **not** among the things left out, and an
-    earlier version of this docstring was wrong to say `_refuse_partial` was
-    "this module's own version of 'already spoken for'". It is not: its order
-    half asks `sale_state.for_sale`, which filters to `OPEN_ORDER_STATUSES`
-    and stops seeing the item the moment its order ships. Without the
+    The already-sold check is **not** among the things left out, and
+    `_refuse_partial` does not cover it: its order half asks
+    `sale_state.orders_holding`, which filters to `OPEN_ORDER_STATUSES` and
+    stops seeing the item the moment its order ships. Without the
     disposition check below, a coin sold and shipped could be grouped into a
     fresh lot and offered again. A lot must never be *stricter* than an
     offer, so the list is `offering_writes.SOLD_AWAY` exactly, which
@@ -284,13 +283,12 @@ def _refuse_partial(db: Session, item: InventoryItem) -> None:
     offer, or any unit an open order still holds, are both that shape -- a
     broken-up lot is not a whole item either.
 
-    The sold half is asked through `sale_state.for_sale` rather than a second
-    query, so "spoken for" has one definition -- the one
+    The sold half is asked through `sale_state.orders_holding` rather than a
+    second query, so "spoken for" has one definition -- the one
     `offering_writes._refuse_sold` already defers to -- instead of two that
-    can drift apart. A query restated here would have to rediscover
-    `for_sale`'s own filter to `OPEN_ORDER_STATUSES`; the first version of
-    this function did not, and so refused an item forever over an order that
-    had since been cancelled and its stock returned.
+    can drift apart. A query restated here would have to rediscover its
+    filter to `OPEN_ORDER_STATUSES`; without it an item would be refused
+    forever over an order since cancelled and its stock returned.
     """
     over_listed = db.execute(
         select(Listing.id, Listing.quantity_available)
@@ -307,11 +305,7 @@ def _refuse_partial(db: Session, item: InventoryItem) -> None:
             f"{item.item_code}: has more than one unit (quantity {quantity}) "
             f"on listing #{listing_id}; a lot claims a whole item"
         )
-    held_by_order = [
-        use
-        for use in sale_state.for_sale(db, [item.id]).get(item.id, [])
-        if use.kind == "order"
-    ]
+    held_by_order = sale_state.orders_holding(db, [item.id]).get(item.id)
     if held_by_order:
         raise LotRefused(
             f"{item.item_code}: has sold units ({held_by_order[0].text}); "

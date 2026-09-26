@@ -917,11 +917,12 @@ def _refuse_sold(db: Session, item: InventoryItem) -> None:
 
     Two ways to be spoken for, and `app.sale_state` already knows both: the
     disposition a settled sale wrote, and an order that has not shipped. The
-    order half is asked through `sale_state.for_sale` rather than queried
-    again here, so "spoken for" has one definition -- the one the console
-    warns on before an edit -- instead of two that can drift apart. Only its
-    order half is consulted: a listing offering the item is not a refusal but
-    the ordinary case `offer` pauses, and it has its own messages below.
+    order half is asked through `sale_state.orders_holding` rather than
+    queried again here, so "spoken for" has one definition -- the order half
+    of `sale_state.for_sale`, which the console warns on before an edit --
+    instead of two that can drift apart. Only the order half is consulted: a
+    listing offering the item is not a refusal but the ordinary case `offer`
+    pauses, and it has its own messages below.
 
     Imported here rather than at the top because `sale_state` imports this
     module: it is the reader built on top of this writer, and the dependency
@@ -936,11 +937,7 @@ def _refuse_sold(db: Session, item: InventoryItem) -> None:
         raise OfferRefused(
             item.item_code, f"has already been sold (it is {disposition})"
         )
-    held_by = [
-        use
-        for use in sale_state.for_sale(db, [item.id]).get(item.id, [])
-        if use.kind == "order"
-    ]
+    held_by = sale_state.orders_holding(db, [item.id]).get(item.id)
     if held_by:
         raise OfferRefused(item.item_code, f"is held by {held_by[0].text}")
 
