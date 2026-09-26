@@ -29,8 +29,9 @@ one is open, which is a caller concern this module does not otherwise track.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import NoReturn
 
@@ -82,6 +83,32 @@ def _refuse(db: Session, code: int, detail: str) -> NoReturn:
     """Roll back, releasing any row locks, and raise."""
     db.rollback()
     raise HTTPException(status_code=code, detail=detail)
+
+
+def _change(
+    order_id: int,
+    by: User,
+    kind: SalesOrderChangeKind,
+    *,
+    at: datetime | None = None,
+    listing_id: int | None = None,
+    before: str | None = None,
+    after: str | None = None,
+) -> SalesOrderChange:
+    """One history row for an order: what changed, who changed it, and when.
+
+    `at` defaults to now; `revise_order` passes one stamp for every row a
+    save writes, so they read as one change.
+    """
+    return SalesOrderChange(
+        sales_order_id=order_id,
+        changed_at=utcnow() if at is None else at,
+        changed_by_id=by.id,
+        change=kind,
+        listing_id=listing_id,
+        from_value=before,
+        to_value=after,
+    )
 
 
 def customer_for_user(db: Session, user: User) -> Customer:
@@ -487,13 +514,7 @@ def place_order(
     # made above rather than read it back.
     _settle_sold_lots(db, sold_lots)
     db.add(
-        SalesOrderChange(
-            sales_order_id=order.id,
-            changed_at=utcnow(),
-            changed_by_id=placed_by.id,
-            change=SalesOrderChangeKind.placed,
-            to_value=placed_by.email,
-        )
+        _change(order.id, placed_by, SalesOrderChangeKind.placed, after=placed_by.email)
     )
     db.flush()
     return order
@@ -509,6 +530,55 @@ def _order_status_code(db: Session, order: SalesOrder) -> str:
     reading it as `pending` would let an order in any state be revised.
     """
     return db.get_one(SalesOrderStatus, order.sales_order_status_id).code
+
+
+def _revision_deltas(
+    db: Session,
+    listings: Mapping[int, Listing],
+    current: Mapping[int, SalesOrderItem],
+    desired: Mapping[int, Line],
+) -> dict[int, int]:
+    """Each listing's change in quantity, refusing one the shop cannot make. 409.
+
+    Keyed by listing id over every listing the order has or wants, and asked
+    in ascending id order, so the first refusal is the same on every run. A
+    line that grows must be on sale in the shop and have the stock; a line
+    that shrinks or goes cannot hand stock back to an ended listing.
+    """
+    deltas: dict[int, int] = {}
+    for listing_id in sorted(set(current) | set(desired)):
+        have = current[listing_id].quantity if listing_id in current else 0
+        want = desired[listing_id].quantity if listing_id in desired else 0
+        deltas[listing_id] = want - have
+        listing = listings[listing_id]
+        if deltas[listing_id] > 0:
+            _refuse_unless_on_sale_in_shop(db, listing)
+            if listing.quantity_available < deltas[listing_id]:
+                _refuse(
+                    db,
+                    status.HTTP_409_CONFLICT,
+                    f"Only {listing.quantity_available} more of listing "
+                    f"{listing_id} are available (this change needs "
+                    f"{deltas[listing_id]})",
+                )
+        # Giving stock back to an ended listing strands what it sold, and
+        # this is the same refusal `routers.orders._no_stock_to_return` makes
+        # for a cancellation -- the other way to hand a line's stock back.
+        # `_after_stock_change` moves items off `sold` only while the listing
+        # is active, so the quantity would return to a listing nobody can see
+        # while the coins stayed `sold` and un-offerable. Reached by removing
+        # a **lot** line, whose listing this module ended when the lot was
+        # bought, and by removing or shrinking a line of a sale recorded from
+        # an outside platform.
+        elif deltas[listing_id] < 0 and listing.status is ListingStatus.ended:
+            _refuse(
+                db,
+                status.HTTP_409_CONFLICT,
+                f"Listing {listing_id} has ended, so the stock this order "
+                "holds cannot be put back on sale. A lot is sold as one "
+                "group and its listing ends with the sale.",
+            )
+    return deltas
 
 
 def revise_order(
@@ -578,40 +648,7 @@ def revise_order(
     changes: list[SalesOrderChange] = []
     try:
         listings = _lock_listings(db, ids)
-
-        deltas: dict[int, int] = {}
-        for listing_id in sorted(ids):
-            have = current[listing_id].quantity if listing_id in current else 0
-            want = desired[listing_id].quantity if listing_id in desired else 0
-            deltas[listing_id] = want - have
-            listing = listings[listing_id]
-            if deltas[listing_id] > 0:
-                _refuse_unless_on_sale_in_shop(db, listing)
-                if listing.quantity_available < deltas[listing_id]:
-                    _refuse(
-                        db,
-                        status.HTTP_409_CONFLICT,
-                        f"Only {listing.quantity_available} more of listing "
-                        f"{listing_id} are available (this change needs "
-                        f"{deltas[listing_id]})",
-                    )
-            # Giving stock back to an ended listing strands what it sold, and
-            # this is the same refusal `routers.orders._no_stock_to_return`
-            # makes for a cancellation -- the other way to hand a line's stock
-            # back. `_after_stock_change` moves items off `sold` only while
-            # the listing is active, so the quantity would return to a listing
-            # nobody can see while the coins stayed `sold` and un-offerable.
-            # Reached by removing a **lot** line, whose listing this module
-            # ended when the lot was bought, and by removing or shrinking a
-            # line of a sale recorded from an outside platform.
-            elif deltas[listing_id] < 0 and listing.status is ListingStatus.ended:
-                _refuse(
-                    db,
-                    status.HTTP_409_CONFLICT,
-                    f"Listing {listing_id} has ended, so the stock this order "
-                    "holds cannot be put back on sale. A lot is sold as one "
-                    "group and its listing ends with the sale.",
-                )
+        deltas = _revision_deltas(db, listings, current, desired)
 
         stamp = utcnow()
 
@@ -623,14 +660,14 @@ def revise_order(
         ) -> None:
             """Queue one history row for this save."""
             changes.append(
-                SalesOrderChange(
-                    sales_order_id=order_id,
-                    changed_at=stamp,
-                    changed_by_id=by.id,
-                    change=kind,
+                _change(
+                    order_id,
+                    by,
+                    kind,
+                    at=stamp,
                     listing_id=listing_id,
-                    from_value=before,
-                    to_value=after,
+                    before=before,
+                    after=after,
                 )
             )
 
@@ -788,14 +825,7 @@ def record_status_change(
     if before == after:
         return
     db.add(
-        SalesOrderChange(
-            sales_order_id=order.id,
-            changed_at=utcnow(),
-            changed_by_id=by.id,
-            change=SalesOrderChangeKind.status,
-            from_value=before,
-            to_value=after,
-        )
+        _change(order.id, by, SalesOrderChangeKind.status, before=before, after=after)
     )
 
 
