@@ -469,14 +469,33 @@ def _return_from_consignment(
     "which items does this listing offer" -- so it must run before
     `end_offer` releases that membership, never after.
     """
+    _move_lot_items(
+        db,
+        auction_lot,
+        location_id,
+        user_id=user_id,
+        note=f"Returned from consignment, auction #{auction_lot.auction_id}",
+    )
+
+
+def _move_lot_items(
+    db: Session,
+    auction_lot: AuctionLot,
+    location_id: int,
+    *,
+    user_id: int | None,
+    note: str,
+) -> None:
+    """Move every coin the lot's listing offers to `location_id`, noting why.
+
+    Both directions of consignment custody: `consign` out to the house and
+    `_return_from_consignment` back. Through `lifecycle_writes.set_location`,
+    the one writer of an item's location, and over
+    `offering_writes.offered_items`, so it must run before `end_offer`
+    releases the lot's membership.
+    """
     for item in offering_writes.offered_items(db, auction_lot.listing):
-        lifecycle_writes.set_location(
-            db,
-            item,
-            location_id,
-            user_id=user_id,
-            note=f"Returned from consignment, auction #{auction_lot.auction_id}",
-        )
+        lifecycle_writes.set_location(db, item, location_id, user_id=user_id, note=note)
 
 
 def refuse_unless_lot_editable(db: Session, auction_lot: AuctionLot) -> None:
@@ -574,10 +593,7 @@ def consign(
     location = _consigned_location(db, venue.name)
     note = f"Consigned to auction #{auction.id}"
     for auction_lot in _lots_of(db, auction):
-        for item in offering_writes.offered_items(db, auction_lot.listing):
-            lifecycle_writes.set_location(
-                db, item, location.id, user_id=user_id, note=note
-            )
+        _move_lot_items(db, auction_lot, location.id, user_id=user_id, note=note)
     auction.consigned_on = on_date
     auction.status = AuctionStatus.consigned
     db.flush()
