@@ -7,7 +7,7 @@
  * part it cares about.
  */
 import { StrictMode } from 'react'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 
@@ -35,6 +35,13 @@ export function adminAuth(overrides = {}) {
   })
 }
 
+export function customerAuth(overrides = {}) {
+  return anonymousAuth({
+    user: { id: 2, email: 'buyer@example.com', role: 'customer', full_name: 'Buyer' },
+    ...overrides,
+  })
+}
+
 export function emptyCart(overrides = {}) {
   return {
     lines: [],
@@ -43,9 +50,20 @@ export function emptyCart(overrides = {}) {
     remove: vi.fn(),
     clear: vi.fn(),
     count: 0,
-    total: 0,
+    // A decimal string, as the real cart's total is.
+    total: '0.00',
     ...overrides,
   }
+}
+
+/**
+ * The table row whose accessible name starts with `prefix` -- the text of its
+ * first cell. `prefix` is matched literally, so a code like `CC-000001` or a
+ * name with a `+` in it needs no escaping by the caller.
+ */
+export function rowNamed(prefix) {
+  const literal = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return screen.getByRole('row', { name: new RegExp(`^${literal}`) })
 }
 
 export function emptyReference(overrides = {}) {
@@ -63,8 +81,8 @@ export function renderWithProviders(ui, options = {}) {
     // e.g. telling a `<Link>`'s routed href apart from a hard-coded path
     // that happens to read the same without a basename in play.
     basename,
-    // Renders inside `<StrictMode>`, which is how the console actually runs in
-    // development (`management/main.jsx`): React then invokes every effect setup,
+    // Renders inside `<StrictMode>`, which is how both applications run in
+    // development (each `main.jsx`): React then invokes every effect setup,
     // cleanup, setup on mount. A guard that is armed in a setup and disarmed
     // in its cleanup without being re-armed is left disarmed for the
     // component's whole life -- a class of bug no ordinary render can see, so

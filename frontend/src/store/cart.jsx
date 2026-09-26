@@ -42,6 +42,7 @@ export function CartProvider({ children }) {
     })
   }, [])
 
+  // Whole coins only, between none (a removal) and the stock on hand.
   const setQuantity = useCallback((coinId, quantity) => {
     setLines((current) =>
       current
@@ -49,7 +50,10 @@ export function CartProvider({ children }) {
           l.coin.id === coinId
             ? {
                 ...l,
-                quantity: Math.max(0, Math.min(quantity, l.coin.quantity_available)),
+                quantity: Math.max(
+                  0,
+                  Math.min(Math.floor(quantity), l.coin.quantity_available),
+                ),
               }
             : l,
         )

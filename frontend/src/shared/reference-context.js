@@ -21,12 +21,16 @@ export const ReferenceContext = createContext(null)
 export function useReference(table, { includeRetired = false } = {}) {
   const context = useContext(ReferenceContext)
   const { tables, load } = context ?? { tables: {}, load: () => {} }
+  const values = tables[table]
+  // Asked for whenever it is missing: on first use, and again after the
+  // provider has invalidated it. `load` itself ignores a table already
+  // loaded or in flight.
+  const missing = values === undefined
 
   useEffect(() => {
-    if (table) load(table)
-  }, [table, load])
+    if (table && missing) load(table)
+  }, [table, missing, load])
 
-  const values = tables[table]
   return useMemo(
     () =>
       values && !includeRetired

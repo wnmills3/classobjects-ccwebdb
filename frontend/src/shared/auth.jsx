@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { api, clearTokens, loadTokens, saveTokens } from './api'
+import { ApiError, api, clearTokens, loadTokens, saveTokens } from './api'
 import { AuthContext } from './auth-context'
 
 export function AuthProvider({ children }) {
@@ -8,7 +8,10 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   // On first mount, exchange any stored token for the current profile. This
-  // also silently drops tokens that expired while the tab was closed.
+  // also drops tokens that expired while the tab was closed -- but only when
+  // the server refuses them (401). A server that is down or a dropped
+  // connection says nothing about the tokens, so they are kept for the next
+  // load rather than signing the visitor out over a blip.
   useEffect(() => {
     let cancelled = false
     async function bootstrap() {
@@ -19,8 +22,8 @@ export function AuthProvider({ children }) {
       try {
         const me = await api.me()
         if (!cancelled) setUser(me)
-      } catch {
-        clearTokens()
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) clearTokens()
       } finally {
         if (!cancelled) setLoading(false)
       }

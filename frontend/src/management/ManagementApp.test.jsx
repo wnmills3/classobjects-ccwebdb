@@ -1,4 +1,6 @@
+import userEvent from '@testing-library/user-event'
 import { screen, within } from '@testing-library/react'
+import { useMemo, useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 // Only the one call the unattached-photographs page makes on mount. Every
@@ -16,7 +18,26 @@ vi.mock('./api', () => ({
 }))
 
 import ManagementApp from './ManagementApp'
-import { adminAuth, anonymousAuth, renderWithProviders } from '../test/helpers'
+import { AuthContext } from '../shared/auth-context'
+import {
+  adminAuth,
+  anonymousAuth,
+  customerAuth,
+  renderWithProviders,
+} from '../test/helpers'
+
+/** An auth context whose login signs an administrator in, as the real one does. */
+function SignsIn({ children }) {
+  const [user, setUser] = useState(null)
+  const value = useMemo(
+    () =>
+      user
+        ? adminAuth()
+        : anonymousAuth({ login: async () => setUser(adminAuth().user) }),
+    [user],
+  )
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
 
 describe('management console shell', () => {
   it('sends an anonymous visitor to sign in', () => {
@@ -24,12 +45,28 @@ describe('management console shell', () => {
     expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument()
   })
 
+  it('returns to the page that asked for sign-in', async () => {
+    // The guard sent the owner to /login and forgot where from, so a
+    // bookmarked console page came back as the coins list after signing in.
+    const user = userEvent.setup()
+    renderWithProviders(
+      <SignsIn>
+        <ManagementApp />
+      </SignsIn>,
+      { route: '/photos' },
+    )
+
+    await user.type(screen.getByLabelText(/email/i), 'admin@example.com')
+    await user.type(screen.getByLabelText(/password/i), 'hunter2')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    expect(
+      await screen.findByRole('heading', { name: /unattached photographs/i }),
+    ).toBeInTheDocument()
+  })
+
   it('refuses a signed-in customer without revealing the console', () => {
-    const customer = anonymousAuth({
-      user: { id: 2, email: 'buyer@example.com', role: 'customer' },
-      isAdmin: false,
-    })
-    renderWithProviders(<ManagementApp />, { auth: customer, route: '/' })
+    renderWithProviders(<ManagementApp />, { auth: customerAuth(), route: '/' })
     expect(screen.getByText(/does not have access/i)).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /people/i })).not.toBeInTheDocument()
   })

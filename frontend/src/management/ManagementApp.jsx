@@ -1,4 +1,4 @@
-import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 
 import { useAuth } from '../shared/auth-context'
 import { HelpBar, HelpProvider } from './HelpBar'
@@ -21,12 +21,17 @@ import Vocabularies from './pages/Vocabularies'
  * Per-route guarding is fine at four routes and is the pattern that leaks at
  * page five, because a new page is left unguarded by *omission* -- a failure
  * that does not announce itself. Sign-in is the one route outside the guard,
- * since a guard covering it would lock everyone out permanently.
+ * since a guard covering it would lock everyone out permanently. The page
+ * asked for goes along as `from`, so signing in comes back to it.
  */
 function RequireAdmin({ children }) {
   const { user, loading, isAdmin } = useAuth()
+  const location = useLocation()
   if (loading) return <p className="muted">Loading...</p>
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) {
+    const from = location.pathname + location.search
+    return <Navigate to="/login" replace state={{ from }} />
+  }
   if (!isAdmin) {
     return <p className="error">This account does not have access to the console.</p>
   }

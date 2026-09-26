@@ -1,4 +1,4 @@
-import { useCallback, useContext, useMemo, useState } from 'react'
+import { useCallback, useContext, useMemo, useRef, useState } from 'react'
 
 import { api } from './api'
 import { codeFromLabel } from './reference-codes'
@@ -18,16 +18,23 @@ export const FIND_FROM = 10
  *
  * Cached in one place because a single admin form needs five or six of these
  * vocabularies, and they change about as often as the software does.
+ *
+ * Each table is requested once, however many pickers ask for it in the same
+ * commit and however often StrictMode repeats their effects: `requested` is
+ * a ref, read and written synchronously, so the second caller sees the first
+ * caller's request before any state has updated. `load` is therefore stable,
+ * and `useReference` asks again only when its table is missing.
  */
-
 export function ReferenceProvider({ children }) {
   const [tables, setTables] = useState({})
-  const [pending, setPending] = useState({})
+  //: table -> a token for its latest request, loaded or still in flight.
+  const requested = useRef(new Map())
 
   // After adding a value the cached vocabulary is stale, so it is dropped and
   // refetched rather than patched locally -- the server decides sort order and
   // provenance, and guessing at them here is how a cache starts lying.
   const invalidate = useCallback((table) => {
+    requested.current.delete(table)
     setTables((t) => {
       const next = { ...t }
       delete next[table]
@@ -35,23 +42,23 @@ export function ReferenceProvider({ children }) {
     })
   }, [])
 
-  const load = useCallback(
-    async (table) => {
-      if (tables[table] || pending[table]) return
-      setPending((p) => ({ ...p, [table]: true }))
-      try {
-        const body = await api.getReference(table)
-        setTables((t) => ({ ...t, [table]: body.values }))
-      } catch {
-        // A missing vocabulary must not take the form down: the field falls
-        // back to a free-text input, which is what it was before.
-        setTables((t) => ({ ...t, [table]: [] }))
-      } finally {
-        setPending((p) => ({ ...p, [table]: false }))
-      }
-    },
-    [tables, pending],
-  )
+  const load = useCallback(async (table) => {
+    if (requested.current.has(table)) return
+    const token = {}
+    requested.current.set(table, token)
+    let values
+    try {
+      values = (await api.getReference(table)).values
+    } catch {
+      // A missing vocabulary must not take the form down: the field falls
+      // back to a free-text input.
+      values = []
+    }
+    // An answer to a request since invalidated is stale; the newer one wins.
+    if (requested.current.get(table) === token) {
+      setTables((t) => ({ ...t, [table]: values }))
+    }
+  }, [])
 
   const value = useMemo(
     () => ({ tables, load, invalidate }),

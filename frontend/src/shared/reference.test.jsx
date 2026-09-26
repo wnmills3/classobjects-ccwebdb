@@ -1,14 +1,15 @@
 import userEvent from '@testing-library/user-event'
-import { screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import { StrictMode, useContext } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api', () => ({
-  api: { addReferenceValue: vi.fn() },
+  api: { addReferenceValue: vi.fn(), getReference: vi.fn() },
 }))
 
 import { api } from './api'
-import { FIND_FROM, ReferenceSelect } from './reference'
-import { useReference } from './reference-context'
+import { FIND_FROM, ReferenceProvider, ReferenceSelect } from './reference'
+import { ReferenceContext, useReference } from './reference-context'
 import { entryMatch, findEntries } from './reference-match'
 import { codeFromLabel } from './reference-codes'
 import { emptyReference, renderWithProviders } from '../test/helpers'
@@ -321,6 +322,89 @@ describe('ReferenceSelect adding a value by its label alone', () => {
 
       expect(api.addReferenceValue).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('ReferenceProvider', () => {
+  function Codes({ table = 'series' }) {
+    const values = useReference(table)
+    return (
+      <p>
+        {values === undefined
+          ? 'loading'
+          : values.map((v) => v.code).join(',') || 'none'}
+      </p>
+    )
+  }
+
+  function Invalidate() {
+    const { invalidate } = useContext(ReferenceContext)
+    return (
+      <button type="button" onClick={() => invalidate('series')}>
+        invalidate
+      </button>
+    )
+  }
+
+  it('fetches a vocabulary once for every picker that asks for it', async () => {
+    // A form mounts five pickers over the same table in one commit. Each one
+    // asked before any answer had arrived, and each one fetched.
+    api.getReference.mockResolvedValue({ values: [value('a', 'A')] })
+    render(
+      <ReferenceProvider>
+        <Codes />
+        <Codes />
+      </ReferenceProvider>,
+    )
+    expect(await screen.findAllByText('a')).toHaveLength(2)
+    expect(api.getReference).toHaveBeenCalledTimes(1)
+  })
+
+  it('fetches once under StrictMode too', async () => {
+    // StrictMode runs every effect twice on mount, which is how the console
+    // runs in development.
+    api.getReference.mockResolvedValue({ values: [value('a', 'A')] })
+    render(
+      <StrictMode>
+        <ReferenceProvider>
+          <Codes />
+        </ReferenceProvider>
+      </StrictMode>,
+    )
+    expect(await screen.findByText('a')).toBeInTheDocument()
+    expect(api.getReference).toHaveBeenCalledTimes(1)
+  })
+
+  it('fetches a vocabulary again once it has been invalidated', async () => {
+    const user = userEvent.setup()
+    api.getReference
+      .mockResolvedValueOnce({ values: [value('a', 'A')] })
+      .mockResolvedValueOnce({ values: [value('a', 'A'), value('b', 'B')] })
+    render(
+      <ReferenceProvider>
+        <Codes />
+        <Invalidate />
+      </ReferenceProvider>,
+    )
+    expect(await screen.findByText('a')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'invalidate' }))
+
+    expect(await screen.findByText('a,b')).toBeInTheDocument()
+    expect(api.getReference).toHaveBeenCalledTimes(2)
+  })
+
+  it('settles on an empty list, once, when the vocabulary cannot be fetched', async () => {
+    // Empty, so the picker falls back to a text box; once, so a table the
+    // server refuses is not asked for again on every render.
+    api.getReference.mockRejectedValue(new Error('offline'))
+    render(
+      <ReferenceProvider>
+        <Codes />
+      </ReferenceProvider>,
+    )
+    expect(await screen.findByText('none')).toBeInTheDocument()
+    await waitFor(() => expect(api.getReference).toHaveBeenCalledTimes(1))
   })
 })
 

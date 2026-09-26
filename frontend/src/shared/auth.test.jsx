@@ -2,14 +2,15 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('./api', () => ({
+vi.mock('./api', async (importOriginal) => ({
+  ApiError: (await importOriginal()).ApiError,
   api: { login: vi.fn(), me: vi.fn(), register: vi.fn() },
   loadTokens: vi.fn(),
   saveTokens: vi.fn(),
   clearTokens: vi.fn(),
 }))
 
-import { api, clearTokens, loadTokens, saveTokens } from './api'
+import { ApiError, api, clearTokens, loadTokens, saveTokens } from './api'
 import { AuthProvider } from './auth'
 import { useAuth } from './auth-context'
 
@@ -71,13 +72,29 @@ describe('AuthProvider', () => {
     // Expiring while the tab was closed must leave the app anonymous and
     // usable, not stuck on a token that will fail every later request.
     loadTokens.mockReturnValue({ access_token: 'stale' })
-    api.me.mockRejectedValue(new Error('401'))
+    api.me.mockRejectedValue(new ApiError(401, 'Could not validate credentials'))
     mount()
     await waitFor(() =>
       expect(screen.getByTestId('loading')).toHaveTextContent('false'),
     )
     expect(clearTokens).toHaveBeenCalled()
     expect(screen.getByTestId('user')).toHaveTextContent('anonymous')
+  })
+
+  it.each([
+    ['a server that is down', new ApiError(503, 'Service Unavailable')],
+    ['no network at all', new TypeError('Failed to fetch')],
+  ])('keeps the stored tokens through %s', async (_case, failure) => {
+    // Only the server saying no (401) means the tokens are no good. A restart
+    // of the API or a dropped connection says nothing about them, and
+    // clearing them signed the owner out of every tab over a blip.
+    loadTokens.mockReturnValue({ access_token: 'a', refresh_token: 'r' })
+    api.me.mockRejectedValue(failure)
+    mount()
+    await waitFor(() =>
+      expect(screen.getByTestId('loading')).toHaveTextContent('false'),
+    )
+    expect(clearTokens).not.toHaveBeenCalled()
   })
 
   it('stores the tokens a login returns and then loads the profile', async () => {
