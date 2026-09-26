@@ -35,4 +35,11 @@ describe('AccessLabel', () => {
     expect(container.firstChild).toHaveTextContent('Title')
     expect(container.querySelector('u')).toBeNull()
   })
+
+  it('is the plain label for a control with no access key', () => {
+    const { container } = render(<AccessLabel text="Seal" accessKey={null} />)
+    expect(container.childNodes).toHaveLength(1)
+    expect(container.firstChild).toHaveTextContent('Seal')
+    expect(container.querySelector('u')).toBeNull()
+  })
 })

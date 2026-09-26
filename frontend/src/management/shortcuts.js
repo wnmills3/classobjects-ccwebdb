@@ -12,11 +12,9 @@ import { useEffect, useRef } from 'react'
  * it renders JSX, so it stays out of this plain module.
  */
 
-/** The attributes an accelerated control carries. */
-export const accel = (key) => ({
-  accessKey: key,
-  'aria-keyshortcuts': `Alt+${key.toUpperCase()}`,
-})
+/** The attributes an accelerated control carries; none for one without a letter. */
+export const accel = (key) =>
+  key ? { accessKey: key, 'aria-keyshortcuts': `Alt+${key.toUpperCase()}` } : {}
 
 //: Every mounted `useSaveShortcut`, oldest first. Only the last one answers.
 const saveHandlers = []

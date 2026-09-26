@@ -24,9 +24,6 @@ const HELP_FOR = {
 }
 const helpFor = (param) => HELP_FOR[param] ?? param
 
-/** `accel` attributes, or none for a filter that was given no letter. */
-const keys = (letter) => (letter ? accel(letter) : {})
-
 /**
  * The search box, facet dropdowns, text filters and year range for an
  * inventory view, plus the "N matching" / "Clear filters" row.
@@ -129,7 +126,7 @@ export default function FilterPanel({
                       ? `No ${label.toLowerCase()} has been recorded on any matching item yet`
                       : undefined
                   }
-                  {...keys(letter)}
+                  {...accel(letter)}
                 >
                   {/* A disabled control with no explanation reads as broken.
                     Empty here means the field is unrecorded on every
@@ -164,7 +161,7 @@ export default function FilterPanel({
                   if (e.key === 'Enter') apply({ [param]: e.target.value })
                 }}
                 onBlur={(e) => apply({ [param]: e.target.value })}
-                {...keys(letter)}
+                {...accel(letter)}
               />
             </label>
           ))}

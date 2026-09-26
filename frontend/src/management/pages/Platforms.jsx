@@ -7,6 +7,7 @@ import { accel, useSaveShortcut } from '../shortcuts'
 import { fractionToPercent, percentToFraction } from './platform-rates'
 import { useReference } from '../../shared/reference-context'
 import { orNull } from '../../shared/text'
+import { money } from '../../shared/format'
 import { useMounted } from '../useMounted'
 
 /**
@@ -66,8 +67,8 @@ function feeSummary(v) {
   const parts = []
   if (given(v.commission_rate)) parts.push(`${fractionToPercent(v.commission_rate)}%`)
   if (given(v.processing_rate)) parts.push(`${fractionToPercent(v.processing_rate)}%`)
-  if (given(v.processing_fixed)) parts.push(`$${v.processing_fixed}`)
-  if (given(v.listing_fee)) parts.push(`$${v.listing_fee} per listing`)
+  if (given(v.processing_fixed)) parts.push(money(v.processing_fixed))
+  if (given(v.listing_fee)) parts.push(`${money(v.listing_fee)} per listing`)
   return parts.join(' + ')
 }
 

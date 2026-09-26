@@ -35,6 +35,7 @@ vi.mock('../../../shared/api', () => ({
 
 import { api } from '../../api'
 import { api as sharedApi } from '../../../shared/api'
+import { date } from '../../../shared/format'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 import ItemEditForm from './ItemEditForm'
 
@@ -1576,7 +1577,11 @@ describe('An item for sale', () => {
     expect(await screen.findByRole('heading', { name: 'Sales' })).toBeVisible()
     expect(api.getItemSales).toHaveBeenCalledWith(12)
     expect(
-      screen.getByText(/Order #9, 2026-09-17, shipped: 1 at 189.00 to Ada/),
+      screen.getByText(
+        new RegExp(
+          `Order #9, ${date('2026-09-17T10:00:00Z')}, shipped: 1 at 189.00 to Ada`,
+        ),
+      ),
     ).toBeVisible()
     expect(screen.getByText(/sold as 1881-S Morgan, MS64/)).toBeVisible()
   })
@@ -1618,7 +1623,11 @@ describe('An item for sale', () => {
     render(<ItemEditForm itemId={12} />)
     expect(await screen.findByRole('heading', { name: 'Sales' })).toBeVisible()
     expect(
-      screen.getByText(/Order #9, 2026-09-17, shipped: 200.00 of lot #7 to Ada/),
+      screen.getByText(
+        new RegExp(
+          `Order #9, ${date('2026-09-17T10:00:00Z')}, shipped: 200.00 of lot #7 to Ada`,
+        ),
+      ),
     ).toBeVisible()
     // The lot's own price must not appear against one coin.
     expect(screen.queryByText(/1000\.00/)).toBeNull()

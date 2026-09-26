@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AccessLabel } from './AccessLabel'
-import { useSaveShortcut } from './shortcuts'
+import { accel, useSaveShortcut } from './shortcuts'
 
 function Probe({ onSave, enabled }) {
   useSaveShortcut(onSave, enabled)
@@ -19,6 +19,16 @@ describe('AccessLabel', () => {
   it('renders plain text when the letter is absent', () => {
     const { container } = render(<AccessLabel text="Grade" accessKey="z" />)
     expect(container.querySelector('u')).toBeNull()
+  })
+})
+
+describe('accel', () => {
+  it('gives a control its access key and announces it', () => {
+    expect(accel('h')).toEqual({ accessKey: 'h', 'aria-keyshortcuts': 'Alt+H' })
+  })
+
+  it('gives a control with no letter nothing', () => {
+    expect(accel(null)).toEqual({})
   })
 })
 

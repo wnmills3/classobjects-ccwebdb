@@ -1,14 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
-import { dateTime } from '../../../shared/format'
+import { money } from '../../../shared/format'
 import { api } from '../../api'
 import {
-  PRINTING_FACILITIES,
   fieldFitsKind,
   fitsKind,
   gradeFitsKind,
   isCurrencyKind,
-  sideFor,
 } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
@@ -16,20 +14,17 @@ import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
-import {
-  baseFor,
-  conflictsOf,
-  fieldName,
-  fieldValue,
-  rebase,
-  shown,
-} from './fieldMerge'
+import AttributesField from './AttributesField'
+import ConflictList from './ConflictList'
+import { baseFor, conflictsOf, fieldName, rebase, shown } from './fieldMerge'
 import { clearedByKind } from './kindChange'
 import FriedbergPanel from './FriedbergPanel'
 import HelpScope from '../../HelpScope'
 import HistoryPanel from './HistoryPanel'
+import NoteFields from './NoteFields'
 import OffersPanel from './OffersPanel'
 import PhotosPanel from './PhotosPanel'
+import SaleHistory from './SaleHistory'
 import SplitDialog from './SplitDialog'
 
 /**
@@ -45,16 +40,6 @@ import SplitDialog from './SplitDialog'
 //: How often an open form checks for changes made elsewhere. It also checks
 //: whenever the window gets focus back, which is when it matters most.
 const CHECK_EVERY_MS = 15000
-
-/**
- * Who made a field's latest change, and when, from the item's change log
- * (`last_changes`) -- blank when the log has none, as for a change made by
- * a pass or before the log existed.
- */
-function changedBy(change) {
-  if (!change) return ''
-  return `, changed by ${change.by ?? 'someone'} at ${dateTime(change.at)}`
-}
 
 const TEXT_FIELDS = [
   ['Title', 'source_title', 't'],
@@ -122,25 +107,6 @@ const CLASSIFIERS = [
   ['Status', 'status', 'item_status', 's'],
 ]
 
-//: A note's own fields, shown only for a banknote. Letters are scarce by
-//: here: only these two labels hold one that is still free.
-const NOTE_CLASSIFIERS = [
-  ['Note class', 'note_type', 'note_type', 'a'],
-  ['Seal', 'seal_color', 'seal_color', null],
-  ['Signatures', 'signature_combination', 'signature_combination', null],
-  ['Reserve Bank', 'fed_district', 'fed_district', 'b'],
-]
-
-const NOTE_TEXT_FIELDS = [
-  ['Series year', 'series_year', 'number'],
-  ['Series letter', 'series_letter', 'text'],
-  ['Serial number', 'serial_number', 'text'],
-  // `E82`, `153`, or `FW E82` for a Fort Worth note; the server stores it
-  // one way and reads the printing location from it (app.plates).
-  ['Face plate', 'face_plate_number', 'text'],
-  ['Back plate', 'back_plate_number', 'text'],
-]
-
 //: Where a derived value came from, as the "suggested" mark's tooltip says it.
 const DERIVED_FROM = {
   note_issue: "Filled from the note's denomination and series",
@@ -153,164 +119,8 @@ const DERIVED_FROM = {
   rating: 'Read from the rating',
 }
 
-//: Where a derived attribute was read, as its mark's tooltip says it.
-const ATTRIBUTE_FROM = {
-  serial_pattern: 'Read from the serial number',
-  rating: 'Read from the rating',
-  attribute_rule: "Follows from the note's class and series",
-}
-
-//: `item_attribute.attribute_group`'s members, for the add form's group
-//: picker. The reference API has no endpoint listing an enum's values --
-//: only each existing row's own `extra.attribute_group` -- so this mirrors
-//: `AttributeGroup` in backend/app/models/reference.py by hand; keep the two
-//: in step if that enum changes.
-const ATTRIBUTE_GROUPS = [
-  { code: 'serial', label: 'Serial' },
-  { code: 'variety', label: 'Variety' },
-  { code: 'release', label: 'Release' },
-  { code: 'verification', label: 'Verification' },
-  { code: 'qualifier', label: 'Qualifier' },
-]
-
-/**
- * What the item is beyond its grade: Star Note, No Motto, First Strike.
- *
- * The whole set is saved with the item, so a stale form is a 409 like any
- * other field. Removing one a rule read (marked "read") keeps it removed:
- * the rule does not add it back. Only attributes for this kind of item are
- * offered -- a star note is not a coin's.
- */
-function AttributesField({ item, codes, onChange, kind }) {
-  const vocabulary = useReference('item_attribute') ?? []
-  const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
-  const held = new Map((item.attributes ?? []).map((a) => [a.code, a]))
-
-  return (
-    <div className="field" data-help="attributes">
-      <span>Attributes</span>
-      <div className="attribute-list">
-        {codes.map((code) => {
-          const label = byCode.get(code)?.label ?? held.get(code)?.label ?? code
-          const read = held.get(code)?.source === 'derived' ? held.get(code) : null
-          return (
-            <span key={code} className="chip alias-chip">
-              {label}
-              {read && (
-                <span
-                  className="suggested"
-                  title={ATTRIBUTE_FROM[read.derived_by] ?? 'Read by a rule'}
-                >
-                  read
-                </span>
-              )}
-              <button
-                type="button"
-                aria-label={`Remove ${label}`}
-                onClick={() => onChange(codes.filter((c) => c !== code))}
-              >
-                ×
-              </button>
-            </span>
-          )
-        })}
-        {/* Only once loaded: until then the picker is a text box, and each
-            keystroke would add a partial code. */}
-        {vocabulary.length > 0 && (
-          <ReferenceSelect
-            table="item_attribute"
-            value=""
-            allowAdd
-            labelOnly
-            // No top-level `applies_to` field: the API reads it from `extra`
-            // (`ReferenceValueCreate`). A value added with none would fit no
-            // kind and vanish from this very picker the moment it appeared
-            // -- see `fitsKind`, whose exact inverse `sideFor` is.
-            // `attribute_group` is NOT NULL with no database default, and the
-            // owner chose to ask rather than have one picked silently:
-            // `groupField`/`groupOptions` put a required group picker in the
-            // add form instead.
-            addFields={{ applies_to: sideFor(kind) }}
-            groupField="attribute_group"
-            groupOptions={ATTRIBUTE_GROUPS}
-            filter={(entry) => fitsKind(entry, kind) && !codes.includes(entry.code)}
-            onChange={(e) => {
-              if (e.target.value) onChange([...codes, e.target.value])
-            }}
-          />
-        )}
-      </div>
-      <span />
-      <span />
-    </div>
-  )
-}
-
-/**
- * Every sale of the item, each as it was sold.
- *
- * A returned item may be corrected and sold again; each sale keeps the
- * item's name, grade and price from the day it sold.
- *
- * A sale made inside a lot is shown as this coin's own share of the line,
- * not the line's `quantity` and `unit_price` -- those are the whole group's,
- * so a three-coin lot sold for 1,000.00 would otherwise claim the full
- * 1,000.00 against each of its coins on the one screen that answers "what
- * happened to this coin".
- */
-function SaleHistory({ itemId }) {
-  const [sales, setSales] = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .getItemSales(itemId)
-      .then((body) => {
-        if (!cancelled) setSales(body)
-      })
-      .catch(() => {
-        if (!cancelled) setSales([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [itemId])
-
-  if (!sales || sales.length === 0) return null
-  return (
-    <div className="sale-history">
-      <h3>Sales</h3>
-      <ul>
-        {sales.map((sale) => {
-          const sold = sale.snapshot?.item
-          const inLot = sale.sales_lot_id != null
-          return (
-            <li key={`${sale.order_id}-${sale.placed_at}`}>
-              Order #{sale.order_id}, {sale.placed_at.slice(0, 10)}, {sale.status}:{' '}
-              {inLot
-                ? `${sale.share_amount ?? sale.unit_price} of lot #${sale.sales_lot_id}`
-                : `${sale.quantity} at ${sale.unit_price}`}{' '}
-              to {sale.customer_name}
-              {sold && (
-                <span className="muted">
-                  {' '}
-                  -- sold as {sold.source_title}
-                  {sold.grade_display ? `, ${sold.grade_display}` : ''}
-                </span>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    </div>
-  )
-}
-
 /** The column a form field is stored in, as `derived` and reviews name it. */
 const columnOf = (key, isClassifier) => (isClassifier ? `${key}_id` : key)
-
-/** `accel` attributes, or none for a field that has no letter. */
-const keys = (letter) => (letter ? accel(letter) : {})
 
 //: Vocabularies this form must not let anyone extend. `item_status` is a
 //: lifecycle the code branches on, not a descriptive list that grows with
@@ -390,19 +200,28 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     conflicts.length === 0
   useSaveShortcut(save, canSave)
 
+  /**
+   * Take `body` as the item now open -- a first load, or a save read back --
+   * with nothing edited: the draft, the kind change and the for-sale tick
+   * all start again from it.
+   */
+  const adopt = useCallback((body) => {
+    setItem(body)
+    setBaseItem(body)
+    setReviewed(body.reviewed ?? [])
+    setRanged(isRange(body.year_start, body.year_end))
+    setDraft({})
+    setKindCleared({})
+    setAcknowledged(false)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     api
       .getInventoryItem(itemId)
       .then((body) => {
         if (cancelled) return
-        setItem(body)
-        setBaseItem(body)
-        setReviewed(body.reviewed ?? [])
-        setRanged(isRange(body.year_start, body.year_end))
-        setDraft({})
-        setKindCleared({})
-        setAcknowledged(false)
+        adopt(body)
         setError('')
       })
       .catch((err) => {
@@ -411,7 +230,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     return () => {
       cancelled = true
     }
-  }, [itemId])
+  }, [itemId, adopt])
 
   // The latest draft and version, for the check below, which runs on a timer.
   useEffect(() => {
@@ -709,14 +528,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     // spent draft, and its next save was refused as a conflict with itself
     // (code review, 2026-09-23).
     try {
-      const fresh = await api.getInventoryItem(itemId)
-      setItem(fresh)
-      setBaseItem(fresh)
-      setReviewed(fresh.reviewed ?? [])
-      setRanged(isRange(fresh.year_start, fresh.year_end))
-      setDraft({})
-      setKindCleared({})
-      setAcknowledged(false)
+      adopt(await api.getInventoryItem(itemId))
     } catch (err) {
       setError(`Saved, but could not read it back: ${err.message}`)
     } finally {
@@ -790,36 +602,18 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           </p>
         )}
         {conflicts.length > 0 && (
-          <div className="for-sale" role="alert">
-            <strong>Changed elsewhere while you were editing</strong>
-            <ul>
-              {conflicts.map((key) => (
-                <li key={key}>
-                  {fieldName(key)}: now {shown(fieldValue(item, key))}
-                  {changedBy(item.last_changes?.[key])}; yours {shown(draft[key])}.{' '}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      // Keep mine: the other change has been seen, so mine is
-                      // now based on it and will replace it.
-                      setBaseItem((base) => ({ ...base, [key]: item[key] }))
-                    }
-                  >
-                    Keep mine
-                  </button>{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDraft(({ [key]: _dropped, ...rest }) => rest)
-                      setBaseItem((base) => ({ ...base, [key]: item[key] }))
-                    }}
-                  >
-                    Use theirs
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ConflictList
+            item={item}
+            draft={draft}
+            conflicts={conflicts}
+            // Keep mine: the other change has been seen, so mine is now based
+            // on it and will replace it.
+            onKeepMine={(key) => setBaseItem((base) => ({ ...base, [key]: item[key] }))}
+            onUseTheirs={(key) => {
+              setDraft(({ [key]: _dropped, ...rest }) => rest)
+              setBaseItem((base) => ({ ...base, [key]: item[key] }))
+            }}
+          />
         )}
         <ForSaleNotice
           uses={item.sale_state ?? []}
@@ -984,7 +778,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           <div className="field">
             Sales tax
             <span title="Recalculated by the database when saved">
-              {`$${item.sales_tax}`}
+              {money(item.sales_tax)}
             </span>
             <label className="checkbox" data-help="no_sales_tax">
               <input
@@ -1033,11 +827,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         {CLASSIFIERS.filter(([, key]) => fieldFitsKind(key, value('item_kind'))).map(
           ([label, key, table, letter]) => (
             <label key={key} className="field" data-help={key}>
-              {letter ? (
-                <AccessLabel text={label} accessKey={letter} />
-              ) : (
-                <span>{label}</span>
-              )}
+              <AccessLabel text={label} accessKey={letter} />
               <ReferenceSelect
                 table={table}
                 value={value(key)}
@@ -1053,7 +843,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                       ? (entry) => fitsKind(entry, value('item_kind'))
                       : undefined
                 }
-                {...keys(letter)}
+                {...accel(letter)}
               />
               {side(key, columnOf(key, true))}
               {review(REVIEWABLE[key])}
@@ -1113,62 +903,15 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
             shows its note fields now, and the save creates the note's row
             before writing them. */}
         {value('item_kind') === 'currency' && (
-          <>
-            {NOTE_CLASSIFIERS.map(([label, key, table, letter]) => (
-              <label key={key} className="field" data-help={key}>
-                {letter ? (
-                  <AccessLabel text={label} accessKey={letter} />
-                ) : (
-                  <span>{label}</span>
-                )}
-                <ReferenceSelect
-                  table={table}
-                  value={value(key)}
-                  onChange={set(key)}
-                  allowAdd={false}
-                  {...keys(letter)}
-                />
-                {side(key, columnOf(key, true))}
-                <span />
-              </label>
-            ))}
-            {NOTE_TEXT_FIELDS.map(([label, key, type]) => (
-              <label key={key} className="field" data-help={key}>
-                <span>{label}</span>
-                <input
-                  type={type}
-                  value={value(key)}
-                  onChange={
-                    type === 'number'
-                      ? (e) => setDraft({ ...draft, [key]: yearValue(e.target.value) })
-                      : set(key)
-                  }
-                />
-                {side(key, key)}
-                <span />
-              </label>
-            ))}
-            {/* Read from the face plate when there is one -- FW before it is
-                Fort Worth -- so set here only for a note with none. */}
-            <label className="field" data-help="printing_facility">
-              <span>Printed at</span>
-              <select
-                value={value('printing_facility') || ''}
-                onChange={(e) =>
-                  setDraft({ ...draft, printing_facility: e.target.value || null })
-                }
-              >
-                <option value="">--</option>
-                {PRINTING_FACILITIES.map(([code, label]) => (
-                  <option key={code} value={code}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              {side('printing_facility', 'printing_facility')}
-              <span />
-            </label>
-          </>
+          <NoteFields
+            value={value}
+            set={set}
+            setNumber={(key) => (e) =>
+              setDraft({ ...draft, [key]: yearValue(e.target.value) })
+            }
+            setField={(key, next) => setDraft({ ...draft, [key]: next })}
+            side={side}
+          />
         )}
         {/* The saved kind: a Friedberg number hangs on the note's stored row,
             so it can be looked up only once that row exists -- and cleared
