@@ -224,13 +224,19 @@ export default function FriedbergLookup({
   // A choice the narrowed list leaves out is **kept**, never cleared: it is
   // usually what the note itself records, and clearing it silently is how a
   // right answer vanished before. The pulldown shows it marked instead.
+  //
+  // A year that is not a whole number ("19x") names no series: nothing is
+  // asked, since the server would refuse it, and no pair is offered. It is
+  // not read as "no year entered", which would offer every pair.
+  const yearNumber = Number(seriesYear)
+  const yearUnreadable = seriesYear !== '' && !Number.isInteger(yearNumber)
   const narrowKey = useDebounced(
-    seriesYear
+    seriesYear && !yearUnreadable
       ? JSON.stringify({
           denomination,
           note_type: noteType,
           seal_color: sealColor,
-          series_year: Number(seriesYear),
+          series_year: yearNumber,
           series_letter: seriesLetter,
         })
       : null,
@@ -239,8 +245,9 @@ export default function FriedbergLookup({
   const narrowed = useRequest(narrowKey, () =>
     api.getSignatureChoices(JSON.parse(narrowKey)),
   )
-  const signatureOptions =
-    narrowKey === null
+  const signatureOptions = yearUnreadable
+    ? []
+    : narrowKey === null
       ? allSignatures
       : narrowed.error
         ? []

@@ -121,6 +121,24 @@ describe('FriedbergLookup', () => {
     expect(api.getSignatureChoices).toHaveBeenCalledTimes(2)
   })
 
+  it('offers no pairs for a series year that is not a number, and asks nothing', async () => {
+    // "19x" names no series. It must not be read as "no year entered", which
+    // would offer every pair as though any of them fitted.
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    const select = await screen.findByLabelText(/signature combination/i)
+    await waitFor(() =>
+      expect(select).toHaveTextContent('Test Treasurer A / Test Secretary A'),
+    )
+
+    await userEvent.type(screen.getByLabelText(/series year/i), '19x')
+    // Past the narrowing delay, so a request it would make has been made.
+    await new Promise((resolve) => setTimeout(resolve, 400))
+
+    expect(api.getSignatureChoices).toHaveBeenCalledTimes(1)
+    expect(select).not.toHaveTextContent('Test Treasurer A / Test Secretary A')
+    expect(select).not.toHaveTextContent('Test Treasurer B / Test Secretary B')
+  })
+
   it('sends the codes the pulldowns hold when the owner looks up a match', async () => {
     renderWithProviders(<FriedbergLookup itemId={412} />)
 

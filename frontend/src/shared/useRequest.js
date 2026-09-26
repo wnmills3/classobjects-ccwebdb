@@ -9,8 +9,10 @@ import { useCallback, useEffect, useEffectEvent, useState } from 'react'
  * - `data` is what the latest successful request resolved to. It is kept
  *   while a newer request is out, so a page can go on showing the previous
  *   results under a "Loading..."; a caller that must not show stale data
- *   checks `busy`.
- * - `error` is the message of the latest request if it failed, else ''.
+ *   checks `busy`. Undefined while `key` is null.
+ * - `error` is the message of the request for the current `key` if it
+ *   failed, else ''. Another key's failure is never reported: it is '' while
+ *   a new key's request is out, and while `key` is null.
  * - `busy` is true while no request for the current `key` has settled.
  * - `reload()` asks again for the same `key`.
  *
@@ -61,10 +63,11 @@ export function useRequest(key, fetcher) {
     setRound((n) => n + 1)
   }, [])
 
+  const settled = state.key === key
   return {
-    data: state.data,
-    error: state.error,
-    busy: key !== null && state.key !== key,
+    data: key === null ? undefined : state.data,
+    error: key !== null && settled ? state.error : '',
+    busy: key !== null && !settled,
     reload,
   }
 }

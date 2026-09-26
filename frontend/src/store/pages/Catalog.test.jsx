@@ -64,6 +64,40 @@ describe('Catalog', () => {
     const asked = api.listCatalog.mock.calls.map(([params]) => params.q)
     expect(asked).toEqual(['', 'peace'])
   })
+
+  it('typing on a later page asks once, for the new search from its start', async () => {
+    const user = userEvent.setup()
+    api.listCatalog.mockImplementation(({ offset }) =>
+      Promise.resolve({
+        items: [{ id: offset + 1, title: `Coin ${offset + 1}`, price: '1' }],
+        total: 30,
+        limit: 12,
+        offset,
+      }),
+    )
+    renderWithProviders(<Catalog />)
+    await screen.findByText('Coin 1')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Coin 13')
+    api.listCatalog.mockClear()
+
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search the catalog' }),
+      'peace',
+    )
+    await waitFor(() =>
+      expect(api.listCatalog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: 'peace', offset: 0 }),
+      ),
+    )
+    // Not the old search again at offset 0 while the new one was still being
+    // typed: one request, for what was typed.
+    const asked = api.listCatalog.mock.calls.map(([params]) => [
+      params.q,
+      params.offset,
+    ])
+    expect(asked).toEqual([['peace', 0]])
+  })
 })
 
 // A LOT card: no photograph, no country, no year, no grade -- those describe
