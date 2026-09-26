@@ -4,7 +4,7 @@ import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
 import ModalDialog from '../ModalDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
-import { fromCents, isMoney, toCents } from './orders/cents'
+import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { UNKNOWN, subjectOf } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
 
@@ -20,7 +20,7 @@ import { useReference } from '../../shared/reference-context'
  * Money crosses this dialog exactly as it is typed and exactly as it is
  * sent: a decimal string, never rounded through a JavaScript number. The one
  * calculation here -- the gross/fees/net/margin summary -- is done in whole
- * cents via `../orders/cents.js`, for display only; what reaches
+ * cents via `shared/cents.js`, for display only; what reaches
  * `api.recordSale` is the strings the owner typed, untouched.
  */
 

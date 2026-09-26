@@ -1,13 +1,11 @@
-/**
- * Money in whole cents, for the order editor's running total.
- *
- * The conversions live in `shared/cents.js`, which the shop's cart uses too;
- * they are re-exported here so the console's callers are unchanged.
- */
 import { isMoney, toCents } from '../../../shared/cents'
 
-export { fromCents, isMoney, toCents } from '../../../shared/cents'
-
+/**
+ * The order editor's running total, in whole cents.
+ *
+ * A line counts once its quantity is a whole number and its price is money
+ * text; a line still being typed adds nothing rather than throwing.
+ */
 export function totalCents(lines) {
   return lines.reduce((sum, line) => {
     const quantity = String(line.quantity)
