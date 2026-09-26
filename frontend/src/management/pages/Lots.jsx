@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
+import ConfirmDialog from '../ConfirmDialog'
 import ModalDialog from '../ModalDialog'
 import OfferDialog from './inventory/OfferDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
@@ -161,23 +162,21 @@ function LotForm({ lot, onSaved, onClose }) {
  * one this is.
  */
 function DiscardConfirm({ lot, busy, onConfirm, onCancel }) {
-  const question = `Discard the lot ${lot.title}?`
   return (
-    <ModalDialog label={question} onClose={onCancel}>
-      <h2>{question}</h2>
+    <ConfirmDialog
+      question={`Discard the lot ${lot.title}?`}
+      confirmLabel="Discard the lot"
+      busyLabel="Discarding..."
+      cancelLabel="Keep assembling"
+      busy={busy}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    >
       <p>
         The group goes; the {lot.members.length} coin(s) in it do not. Each one stays in
         inventory exactly as it is and can be sold on its own or grouped again.
       </p>
-      <div className="row">
-        <button disabled={busy} onClick={onConfirm}>
-          {busy ? 'Discarding...' : 'Discard the lot'}
-        </button>
-        <button className="link" onClick={onCancel}>
-          Keep assembling
-        </button>
-      </div>
-    </ModalDialog>
+    </ConfirmDialog>
   )
 }
 
