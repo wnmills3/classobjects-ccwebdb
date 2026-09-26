@@ -22,7 +22,7 @@ kept, and deletes it:
   old code and reads a seed row naming it as naming the kept one.
 
 A value the application looks up by its code cannot be merged away, for the
-reason it cannot be retired (`routers.reference.retirable`).
+reason it cannot be retired (`references.retirable`).
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from .models import (
     ReferenceMerge,
     ReferenceMixin,
 )
+from .references import retirable
 
 __all__ = ["MergeError", "MergePlan", "NoSuchValue", "merge", "plan"]
 
@@ -120,8 +121,6 @@ def plan(
     db: Session, model: type[ReferenceMixin], code: str, into: str
 ) -> tuple[MergePlan, ReferenceMixin, ReferenceMixin]:
     """What merging `code` into `into` would do; refuses what it cannot."""
-    from .routers.reference import retirable
-
     table = model.__tablename__
     if code == into:
         raise MergeError("A value cannot be merged into itself.")

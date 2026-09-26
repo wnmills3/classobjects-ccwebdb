@@ -19,6 +19,11 @@ refused, with "Retired" in the message rather than "Unknown".
 **The API never creates classifier rows while resolving a code.** Letting a
 request invent classifiers that way is how a reference table fills up with
 typos.
+
+**Some values cannot be retired** (`retirable`): the vocabularies the
+application branches on value by value, and single values it looks up by
+code. Kept here, beside the lookups they protect, so the reference router
+and `reference_merge` ask one module without importing each other.
 """
 
 from __future__ import annotations
@@ -29,7 +34,58 @@ from sqlalchemy.orm import Session
 
 from .models import ReferenceMixin
 
-__all__ = ["code_of", "code_to_id", "id_to_code", "require_code"]
+__all__ = ["code_of", "code_to_id", "id_to_code", "require_code", "retirable"]
+
+#: Vocabularies the application branches on value by value -- a status, a
+#: kind, a strike -- and single values it looks up by code. Any of them may be
+#: renamed, since a label is only what a person reads, but retiring one would
+#: make the lookup fail: receiving, a pass or a sale would stop.
+_CODE_KEYED_TABLES = frozenset(
+    {
+        "item_status",
+        "disposition",
+        "sales_order_status",
+        "shipment_status",
+        "strike_type",
+        "item_kind",
+        "grade_scale",
+        "valuation_basis",
+        "authenticity",
+        "sales_venue_kind",
+        # `sales_writes.record_sale` resolves every fee line's kind through
+        # `require_code`, which filters on `is_active`: retiring `commission`
+        # would make every sale charging one fail with 422 "Unknown fee",
+        # naming a code the dialog itself had just offered.
+        "sales_fee_kind",
+    }
+)
+_CODE_KEYED_VALUES = frozenset(
+    {
+        ("vendor_kind", "unknown"),
+        ("storage_form", "single"),
+        ("currency", "USD"),
+        ("country", "US"),
+        ("note_type", "frn"),
+        # `photo_names` turns a filename's sequence number into one of these
+        # three codes and `photo_import` resolves each through `code_to_id`,
+        # which refuses a retired value. Retiring one would fail every
+        # import of a photograph named for it -- the other image roles are
+        # descriptive and may be retired freely.
+        ("image_role", "obverse"),
+        ("image_role", "reverse"),
+        ("image_role", "unassigned"),
+    }
+)
+
+
+def retirable(table: str, code: str) -> bool:
+    """Whether a value may be retired; see _CODE_KEYED_TABLES.
+
+    Asked by the reference endpoints before a value is retired, and by
+    `reference_merge.plan` before one is merged away -- a merge deletes the
+    value, which breaks a lookup by its code just as retiring it would.
+    """
+    return table not in _CODE_KEYED_TABLES and (table, code) not in _CODE_KEYED_VALUES
 
 
 def code_to_id(

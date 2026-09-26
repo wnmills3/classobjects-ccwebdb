@@ -960,8 +960,7 @@ def _refuse_sold(db: Session, item: InventoryItem) -> None:
     Imported here rather than at the top because `sale_state` imports this
     module: it is the reader built on top of this writer, and the dependency
     is meant to run that way round. A module-level import back would make the
-    two load correctly only in one order, which is the same trap
-    `reference_merge.plan` avoids the same way.
+    two load correctly only in one order.
     """
     from . import sale_state
 

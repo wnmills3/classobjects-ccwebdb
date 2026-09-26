@@ -26,6 +26,7 @@ from .. import aliases, reference_merge, sale_state
 from ..deps import AdminUser, DbSession
 from ..inventory_search import plain
 from ..models import REFERENCE_MODELS, InventoryItem, ProvenanceSource, ReferenceMixin
+from ..references import retirable
 from ..schemas import (
     ReferenceAliasIn,
     ReferenceMergeIn,
@@ -46,47 +47,6 @@ _COMMON = frozenset({"id", "code", "label", "sort_order", "is_active", "source"}
 TABLES: dict[str, type[ReferenceMixin]] = {
     model.__tablename__: model for model in REFERENCE_MODELS
 }
-
-#: Vocabularies the application branches on value by value -- a status, a
-#: kind, a strike -- and single values it looks up by code. Any of them may be
-#: renamed, since a label is only what a person reads, but retiring one would
-#: make the lookup fail: receiving, a pass or a sale would stop.
-_CODE_KEYED_TABLES = frozenset(
-    {
-        "item_status",
-        "disposition",
-        "sales_order_status",
-        "shipment_status",
-        "strike_type",
-        "item_kind",
-        "grade_scale",
-        "valuation_basis",
-        "authenticity",
-        "sales_venue_kind",
-        # `sales_writes.record_sale` resolves every fee line's kind through
-        # `require_code`, which filters on `is_active`: retiring `commission`
-        # would make every sale charging one fail with 422 "Unknown fee",
-        # naming a code the dialog itself had just offered.
-        "sales_fee_kind",
-    }
-)
-_CODE_KEYED_VALUES = frozenset(
-    {
-        ("vendor_kind", "unknown"),
-        ("storage_form", "single"),
-        ("currency", "USD"),
-        ("country", "US"),
-        ("note_type", "frn"),
-        # `photo_names` turns a filename's sequence number into one of these
-        # three codes and `photo_import` resolves each through `code_to_id`,
-        # which refuses a retired value. Retiring one would fail every
-        # import of a photograph named for it -- the other image roles are
-        # descriptive and may be retired freely.
-        ("image_role", "obverse"),
-        ("image_role", "reverse"),
-        ("image_role", "unassigned"),
-    }
-)
 
 #: Vocabularies whose order is their meaning, so they keep `sort_order`.
 #: Three reasons an entry belongs here: a scale (grade runs 70, 69+, 69, ...;
@@ -117,11 +77,6 @@ _SEQUENCED_TABLES = frozenset(
         "sales_fee_kind",
     }
 )
-
-
-def retirable(table: str, code: str) -> bool:
-    """Whether a value may be retired; see _CODE_KEYED_TABLES."""
-    return table not in _CODE_KEYED_TABLES and (table, code) not in _CODE_KEYED_VALUES
 
 
 def _to_value(
