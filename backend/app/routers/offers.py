@@ -77,7 +77,7 @@ def _venue_by_code(db: Session, code: str) -> SalesVenue:
     venue = db.scalar(select(SalesVenue).where(SalesVenue.code == code))
     if venue is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown venue: {code!r}",
         )
     return venue
@@ -90,7 +90,7 @@ def _listing_format(code: str) -> ListingFormat:
     except ValueError as exc:
         allowed = ", ".join(member.value for member in ListingFormat)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown format: {code!r}. Use one of: {allowed}",
         ) from exc
 
@@ -102,7 +102,7 @@ def _listing_status(code: str) -> ListingStatus:
     except ValueError as exc:
         allowed = ", ".join([*(member.value for member in ListingStatus), _ALL])
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown status: {code!r}. Use one of: {allowed}",
         ) from exc
 
@@ -112,7 +112,7 @@ def _item_by_id(db: Session, item_id: int) -> InventoryItem:
     item = db.get(InventoryItem, item_id)
     if item is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown item_id: {item_id}",
         )
     return item
@@ -275,7 +275,7 @@ def _lot_by_id(db: Session, lot_id: int) -> SalesLot:
     lot = db.get(SalesLot, lot_id)
     if lot is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown lot_id: {lot_id}",
         )
     return lot
@@ -307,7 +307,7 @@ def _offer_lot(
         # building an `OfferIn` in code is told, rather than writing a lot
         # listing priced at nothing.
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="price is required when offering a lot",
         )
     return offering_writes.offer(
@@ -468,7 +468,7 @@ def create_offers(
         # 422 and prove nothing about this clause existing.
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(empty)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(empty)
         ) from empty
     except lot_writes.LotRefused as refused_lot:
         # The lot itself cannot be offered -- already offered, sold,
@@ -546,7 +546,7 @@ def _refuse_null_required(data: dict[str, Any]) -> None:
     nulled = sorted(f for f in _REQUIRED_ON_UPDATE if f in data and data[f] is None)
     if nulled:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{', '.join(nulled)} cannot be null",
         )
 
@@ -767,7 +767,7 @@ def sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
     # `except` clauses for that pair were removed.
     responses={
         status.HTTP_409_CONFLICT: {"model": AuctionRefusedOut},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": AuctionRefusedOut},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": AuctionRefusedOut},
     },
 )
 def record_listing_sale(

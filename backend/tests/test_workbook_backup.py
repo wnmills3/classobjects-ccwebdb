@@ -34,7 +34,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.types import Enum, TypeEngine
 
 from tests.conftest import TEST_URL, drop_database
@@ -156,8 +156,8 @@ def pair(
         conn.execute(text("INSERT INTO alembic_version VALUES ('rev_1')"))
         # As a migration might: a row the import must clear first.
         conn.execute(text("INSERT INTO parent (name) VALUES ('seeded by migration')"))
-    # The live database is neither of these.
-    monkeypatch.setattr(wb.settings, "database_url", _url("ccwebdb_test_live_stand_in"))
+    # The live database is not the target: the source stands in for it.
+    monkeypatch.setattr(wb.settings, "database_url", _url("ccwebdb_test_wb_source"))
     try:
         yield source, _url(name)
     finally:
@@ -320,6 +320,54 @@ def test_the_live_database_is_refused(
     monkeypatch.setattr(wb.settings, "database_url", target_url)
     with pytest.raises(wb.WorkbookError, match="is the live database"):
         wb.import_workbook(path, target_url)
+
+
+def test_the_live_database_is_refused_however_its_url_is_spelled(
+    pair: tuple[Engine, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same server and database under another host spelling and no port.
+
+    `127.0.0.1` with the default port left out names the server the live URL
+    names as `localhost:5432`; comparing the URL strings would let it through.
+    """
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    monkeypatch.setattr(wb.settings, "database_url", target_url)
+    respelled = (
+        make_url(target_url)
+        .set(host="127.0.0.1", port=None)
+        .render_as_string(hide_password=False)
+    )
+    assert respelled != target_url
+    with pytest.raises(wb.WorkbookError, match="is the live database"):
+        wb.import_workbook(path, respelled)
+    target = create_engine(target_url)
+    try:
+        with target.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM parent")).scalar() == 1
+    finally:
+        target.dispose()
+
+
+def test_a_database_that_already_holds_items_is_refused(
+    pair: tuple[Engine, str], tmp_path: Path
+) -> None:
+    """A target with inventory rows is somebody's collection, not a new database."""
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    target = create_engine(target_url)
+    try:
+        with target.begin() as conn:
+            conn.execute(text("CREATE TABLE inventory_item (id serial PRIMARY KEY)"))
+            conn.execute(text("INSERT INTO inventory_item DEFAULT VALUES"))
+        with pytest.raises(wb.WorkbookError, match="already holds 1 inventory item"):
+            wb.import_workbook(path, target_url)
+        with target.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM parent")).scalar() == 1
+    finally:
+        target.dispose()
 
 
 def test_app_backup_finds_the_tables_no_model_describes(

@@ -64,7 +64,7 @@ def _lot_status(code: str) -> SalesLotStatus:
     except ValueError as exc:
         allowed = ", ".join([*(member.value for member in SalesLotStatus), _ALL])
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown status: {code!r}. Use one of: {allowed}",
         ) from exc
 
@@ -74,7 +74,7 @@ def _item_by_id(db: Session, item_id: int) -> InventoryItem:
     item = db.get(InventoryItem, item_id)
     if item is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown item_id: {item_id}",
         )
     return item
@@ -210,7 +210,7 @@ def _refuse_overlap(added: list[int], removed: list[int]) -> None:
     both = sorted(set(added) & set(removed))
     if both:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"item_id {', '.join(str(item_id) for item_id in both)}: "
                 "sent as both an addition and a removal"

@@ -270,11 +270,15 @@ def split_item(
     shipping = allocate(parent.shipping_cost, weights)
 
     now = datetime.now(UTC)
-    held = db.scalar(select(Disposition.id).where(Disposition.code == "held"))
+    # `.one()`: a vocabulary row that is not there fails the split loudly,
+    # rather than leaving every piece with no disposition or a coin's detail.
+    held = db.scalars(select(Disposition.id).where(Disposition.code == "held")).one()
 
     # Resolved once rather than per piece: a fifty-way split would otherwise
     # run fifty identical lookups.
-    currency_kind_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    currency_kind_id = db.scalars(
+        select(ItemKind.id).where(ItemKind.code == "currency")
+    ).one()
 
     children: list[InventoryItem] = []
     for piece, cost, ship in zip(pieces, costs, shipping, strict=True):

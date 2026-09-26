@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
 from app import lot_writes, offering_writes
 from app.models import (
     CoinDetail,
@@ -16,7 +17,8 @@ from app.models import (
     SalesVenue,
 )
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
 from tests.builders import TUBE, build_split_lot, code_id, do_split
@@ -581,6 +583,19 @@ def test_a_piece_detail_row_starts_empty(
         select(CoinDetail.variety).where(CoinDetail.inventory_item_id.in_(ids))
     ).all()
     assert set(varieties) == {None}
+
+
+def test_a_missing_currency_kind_fails_the_split_loudly(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Not found, the kind must not quietly give a banknote's pieces coin rows."""
+    parent = build_split_lot(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    db.execute(
+        update(ItemKind).where(ItemKind.code == "currency").values(code="not_currency")
+    )
+    db.commit()
+    with pytest.raises(NoResultFound):
+        do_split(client, admin_headers, parent.id, TUBE)
 
 
 def test_a_coin_offered_inside_a_lot_cannot_be_split(

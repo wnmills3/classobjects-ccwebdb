@@ -20,6 +20,7 @@ from app.models import (
     Listing,
     ListingFormat,
     ListingStatus,
+    ListingStatusHistory,
     OfferClaim,
     SalesOrderItemShare,
     SalesOrderStatus,
@@ -396,6 +397,46 @@ def test_an_acknowledged_bulk_status_edit_ends_each_offer(
     assert response.status_code == 200, response.text
     assert _listing_status(db, first_listing.id) is ListingStatus.ended
     assert _listing_status(db, second_listing.id) is ListingStatus.ended
+
+
+def test_a_bulk_edit_notes_each_offer_with_its_own_item_s_change(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """One request, two different changes: each ending names its own.
+
+    The second item already has the status the request sends, so for it the
+    change is the disposition; the first item's is the status.
+    """
+    first, first_listing = _offered_item(db)
+    second, second_listing = _offered_item(db)
+    second.status_id = db.scalars(
+        select(ItemStatus.id).where(ItemStatus.code == "missing")
+    ).one()
+    db.commit()
+    response = client.post(
+        "/api/inventory/bulk",
+        json={
+            "ids": [first.id, second.id],
+            "changes": {
+                "status": "missing",
+                "disposition": "held",
+                "acknowledge_for_sale": True,
+            },
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+
+    def ending(listing: Listing) -> str | None:
+        return db.scalars(
+            select(ListingStatusHistory.note).where(
+                ListingStatusHistory.listing_id == listing.id,
+                ListingStatusHistory.to_status == ListingStatus.ended,
+            )
+        ).one()
+
+    assert ending(first_listing) == "item edited to missing"
+    assert ending(second_listing) == "item edited to held"
 
 
 def test_an_acknowledged_disposition_edit_ends_the_offer_too(

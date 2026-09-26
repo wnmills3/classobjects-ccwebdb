@@ -101,16 +101,14 @@ def customer_for_user(db: Session, user: User) -> Customer:
 def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
     """Take every row these listings reach, and hand back the listings.
 
-    **This function no longer decides the lock order, and that is the point.**
-    It used to take the listings first, because `place_order` is handed
-    listing ids and nothing here needed any other order -- while
-    `offering_writes` took the items first, because *its* listing set is
-    derived from claims and the claim-uniqueness guarantee depends on holding
-    the items before that derivation is read. Two orders, one deadlock: a
-    checkout of a lot and an `offer` or `end_offer` touching one of its coins
-    could each hold what the other waited for, and Postgres aborted one with a
-    500 instead of the clean refusal either path would otherwise give. The
-    order that carried a guarantee stayed; this one moved.
+    **This function does not decide the lock order, and that is the point.**
+    `place_order` is handed listing ids, but `offering_writes` must take
+    items before listings -- its listing set is derived from claims, and the
+    claim-uniqueness guarantee depends on holding the items before that
+    derivation is read. Were the two orders different, a checkout of a lot
+    and an `offer` or `end_offer` touching one of its coins could each hold
+    what the other waited for, and Postgres would abort one with a 500
+    instead of the clean refusal either path gives.
 
     So the acquisition is `offering_writes.lock_for_sale`: the lot rows these
     listings belong to, then their items, then the listings -- each kind in
@@ -147,15 +145,10 @@ def _after_stock_change(db: Session, listing: Listing, before: int) -> None:
     """Move every offered item's disposition when the stock crosses zero.
 
     "Every offered item" is `offered_items`: one for an item listing, the
-    lot's open members for a lot listing. This used to read
-    `listing.inventory_item_id` and `return` when it was `None` -- which is
-    exactly a lot listing's shape, so selling a lot left every member at
-    `listed`, silently, with no error anywhere. A lot must be asked before
-    `offering_writes.end_offer` releases its memberships, which is the order
-    the sale path already runs in.
-
-    The before/after-zero rule itself is unchanged; only the set of items it
-    applies to widened.
+    lot's open members for a lot listing -- whose own `inventory_item_id` is
+    NULL, so reading that column would leave every member of a sold lot at
+    `listed`. A lot must be asked before `offering_writes.end_offer` releases
+    its memberships, which is the order the sale path runs in.
     """
     after = listing.quantity_available
     if before > 0 and after == 0:
@@ -213,22 +206,13 @@ def _settle_sold_lots(db: Session, listings: Sequence[Listing]) -> None:
     those memberships, so a lot ended first would leave the sale with no
     shares at all.
 
-    **The lock order here was the deadlock, and is now settled.** This
-    comment once claimed the order matched `sales_writes.record_sale`'s --
-    listing first, then the items and the lot inside `end_offer` -- and
-    concluded it added no new deadlock shape. True against `record_sale`, and
-    false against `app.offering_writes`, which took the two the other way
-    round: lot, then items, then listings. A checkout of a lot and a
-    concurrent `offer` or `end_offer` touching one of its coins could each
-    hold what the other waited for, and Postgres aborted one with a 500
-    rather than the clean `OfferRefused`.
-
-    `_lock_listings` now takes those rows through
-    `offering_writes.lock_for_sale`, so both modules acquire in the one
-    canonical order and `end_offer` below re-locks rows this transaction
-    already holds. `test_buying_a_lot_races_offering_one_of_its_coins`
-    (`tests/test_offer_races.py`) is the race that could not be written while
-    the two disagreed, and it is what stops the inversion coming back.
+    **The lock order.** `_lock_listings` has already taken these rows
+    through `offering_writes.lock_for_sale` -- lot, then items, then
+    listings, the one canonical order -- so `end_offer` below re-locks rows
+    this transaction already holds. A checkout that took them any other way
+    could deadlock against a concurrent `offer` or `end_offer` of one of the
+    lot's coins; `test_buying_a_lot_races_offering_one_of_its_coins`
+    (`tests/test_offer_races.py`) is what stops that inversion.
     """
     for listing in listings:
         end_offer(db, listing, sold=True)
@@ -510,9 +494,12 @@ EDITABLE_STATUSES = frozenset({"pending", "paid"})
 
 
 def _order_status_code(db: Session, order: SalesOrder) -> str:
-    """The order's status code, read fresh from its (possibly just-locked) row."""
-    row = db.get(SalesOrderStatus, order.sales_order_status_id)
-    return row.code if row else "pending"
+    """The order's status code, read fresh from its (possibly just-locked) row.
+
+    `get_one`: a status id that names no row is a broken database, and
+    reading it as `pending` would let an order in any state be revised.
+    """
+    return db.get_one(SalesOrderStatus, order.sales_order_status_id).code
 
 
 def revise_order(
@@ -669,17 +656,22 @@ def revise_order(
         for listing_id in sorted(ids):
             listing = listings[listing_id]
             delta = deltas[listing_id]
+            existing = current.get(listing_id)
+            line = desired.get(listing_id)
+            added: tuple[SalesOrderItem, Decimal] | None = None
+            if existing is None and line is not None:
+                price = listing.price if line.unit_price is None else line.unit_price
+                # The snapshot before the stock change, as in `place_order`:
+                # the item as it was offered, not as this line's sale left it.
+                added = (_line(db, listing, line.quantity, price), price)
             if delta:
                 before = listing.quantity_available
                 listing.quantity_available -= delta
                 _after_stock_change(db, listing, before)
                 if _lot_sold_out(listing, before):
                     sold_lots.append(listing)
-            existing = current.get(listing_id)
-            line = desired.get(listing_id)
-            if existing is None and line is not None:
-                price = listing.price if line.unit_price is None else line.unit_price
-                new_item = _line(db, listing, line.quantity, price)
+            if added is not None and line is not None:
+                new_item, price = added
                 order.items.append(new_item)
                 to_sync.append((new_item, listing, price * line.quantity, True))
                 record(
@@ -763,23 +755,15 @@ def revise_order(
             db.flush()
             _settle_sold_lots(db, sold_lots)
     except StaleDataError:
-        # **Defense in depth, no longer a live path, and it used to be one.**
-        # The order lock already made a stale write to the `sales_order` row
-        # itself hard to hit -- it was locked and re-read above, and
-        # `update_order_status` takes the same lock before it writes. What was
-        # *not* locked was `InventoryItem.disposition`, written by
-        # `_after_stock_change` above and carrying its own version column, so
-        # a concurrent edit to that inventory row (outside the order path)
-        # lost the race at one of this section's flushes and a person was
-        # told to reload their revision because someone else had edited a
-        # coin's description. `_lock_listings` now takes its rows through
-        # `offering_writes.lock_for_sale`, which locks and re-reads every item
-        # `_after_stock_change` writes, so every version-tracked row this
-        # function writes -- `sales_order`, `listing`, `inventory_item`,
-        # `sales_lot` -- was locked and re-read first.
-        # `test_a_concurrently_edited_item_no_longer_refuses_a_revision`
-        # (`tests/test_order_revision_race.py`) is that change, and says why
-        # this clause is kept rather than removed.
+        # **Defense in depth, not a live path.** Every version-tracked row
+        # this function writes -- `sales_order`, `listing`, `inventory_item`,
+        # `sales_lot` -- was locked and re-read first: the order row above,
+        # and the rest through `_lock_listings` and so
+        # `offering_writes.lock_for_sale`, which locks and re-reads every
+        # item `_after_stock_change` writes. So a concurrent edit to a coin
+        # does not refuse a revision
+        # (`test_a_concurrently_edited_item_no_longer_refuses_a_revision`,
+        # `tests/test_order_revision_race.py`).
         # `test_a_stale_data_error_inside_revise_order_is_a_409_not_a_500`,
         # in the same file, covers the clause itself by forcing the failure
         # from a patched flush -- so "defense in depth" does not mean

@@ -14,9 +14,10 @@ from pathlib import Path
 
 import pytest
 from alembic.autogenerate import compare_metadata
-from alembic.command import upgrade
+from alembic.command import current, upgrade
 from alembic.config import Config
 from alembic.migration import MigrationContext
+from app.config import settings
 from app.database import Base
 from app.models.views import ALL_VIEWS
 from sqlalchemy import create_engine, text
@@ -33,6 +34,26 @@ def _upgrade(url: str) -> None:
     config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     config.set_main_option("sqlalchemy.url", url)
     upgrade(config, "head")
+
+
+def test_a_configured_url_with_a_percent_sign_reaches_alembic_intact(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`env.py` falls back to the app's URL, which may hold a `%`.
+
+    Alembic's config is a `ConfigParser`, which reads `%` as interpolation;
+    a URL-encoded password (`p%40ss`) must arrive as written. `current` only
+    reads `alembic_version`, on the suite's own database.
+    """
+    url = engine.url.update_query_dict({"application_name": "ccweb%test"})
+    rendered = url.render_as_string(hide_password=False)
+    assert "%" in rendered
+    monkeypatch.setattr(settings, "database_url", rendered)
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    assert config.get_main_option("sqlalchemy.url", None) is None
+    current(config)
+    assert config.get_main_option("sqlalchemy.url") == rendered
 
 
 @pytest.fixture(scope="module")

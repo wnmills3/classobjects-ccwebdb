@@ -1,49 +1,40 @@
 """Auction transitions: adding and removing lots, settling, and an auction's life.
 
-Tasks 2 and 3 of the auctions phase. `app/models/auctions.py` (Task 1) built the
-schema; this module is the sole writer of `auction` and `auction_lot`, the
-same single-writer discipline `offering_writes.py` keeps for `listing.status`,
-`offer_claim` and `sales_lot.status`, and `lifecycle_writes.py` keeps for
-`inventory_item.storage_location_id`. **One deliberate exception**, confirmed
-by the fix-round-1 review: `_consigned_location` also constructs a
-`StorageLocation` row. The brief's Step 3 and the spec's *Consignment
-custody* both require creating one on first use, and `auctions.py` is the
-only place in `backend/app` that constructs a `StorageLocation` at all, so no
-existing single writer of that table is being bypassed -- there is no other
-writer to collide with.
+This module is the sole writer of every auction transition -- an
+`auction`'s status and custody, and which `auction_lot` rows exist -- the
+same single-writer discipline `offering_writes.py` keeps for
+`listing.status`, `offer_claim` and `sales_lot.status`, and
+`lifecycle_writes.py` keeps for `inventory_item.storage_location_id`.
+`routers.auctions` creates a `draft` auction and edits its wording and
+dates, and a lot's number and reserve, directly: fields with no consequence
+for this module to own. It also constructs `StorageLocation`
+rows: `_consigned_location` creates a house's consigned location on first
+use (spec, *Consignment custody*), and nothing else in `backend/app`
+constructs one, so no other writer of that table is bypassed.
 
-Adding or removing a lot **is** an offer or an ending -- "Same refusals and
-pausing as any offer -- it *is* an offer" (the Task 2 brief's own test
-docstring) -- so this module calls `offering_writes.offer` and
-`offering_writes.end_offer` for that half rather than writing
-`listing.status`, `offer_claim` or `sales_lot.status` itself. Moving items
-into consignment custody **is** a location change, so `consign` and the
-return-from-consignment half of `remove_lot`/`cancel` call
-`lifecycle_writes.set_location` rather than assigning
+Adding or removing a lot **is** an offer or an ending, so this module calls
+`offering_writes.offer` and `offering_writes.end_offer` for that half rather
+than writing `listing.status`, `offer_claim` or `sales_lot.status` itself.
+Moving items into consignment custody **is** a location change, so `consign`
+and the return-from-consignment half of `remove_lot`, `cancel` and `settle`
+call `lifecycle_writes.set_location` rather than assigning
 `inventory_item.storage_location_id` directly. And settling a lot **is** a
-sale, so `settle` (Task 3) calls `sales_writes.record_sale_lines` for the
-money rather than writing `sales_order`, `sales_order_fee` or
-`sales_order_item_share` here -- it is the second caller
-`sales_writes`' single entry point was built for (spec, *Where
-record-a-sale lives*), and the only thing it needed that recording one sale
-did not is several listings on one order, because a house bills per buyer.
+sale, so `settle` calls `sales_writes.record_sale_lines` for the money rather
+than writing `sales_order`, `sales_order_fee` or `sales_order_item_share`
+here (spec, *Where record-a-sale lives*); what it needs beyond recording one
+sale is several listings on one order, because a house bills per buyer.
+
 `remove_lot`, `cancel` and `settle` share the `returned_to_location_id`
-contract (ruling R9, fix round 1) through `_return_from_consignment`, the
-one place "move these items back" is implemented. Custody is tracked by
-`auction.consigned_on is not None`, never by `auction.status is
-AuctionStatus.consigned` (ruling R13, fix round 2): `close` accepts a
-`consigned` auction without clearing the date, so status alone cannot tell
-whether the house still holds something -- fix round 1's `status ==
-consigned` check let `consign -> close -> cancel`, and `consign -> close ->
-_remove_lot` (reached through `cancel`), walk straight past the return
-requirement fix round 1 had just added. `consigned_on` is cleared in exactly
-two places, `cancel` and `settle`, each once every one of the auction's lots
-that had to come back actually has -- never inside `_remove_lot`, which only
-ever returns one lot's worth. The **public** `remove_lot` never sees this shape
-at all: it refuses a `closed` auction unconditionally (ruling R14, fix
-round 3), so `consign -> close -> remove_lot` is not a reachable call
-sequence -- only `cancel`, acting on the whole auction, can touch a closed
-auction's lots, through `_remove_lot` directly.
+contract through `_return_from_consignment`, the one place "move these items
+back" is implemented, and record who brought them back. Custody is tracked
+by `auction.consigned_on is not None`, never by `auction.status is
+AuctionStatus.consigned`: `close` accepts a `consigned` auction without
+clearing the date, so the status alone cannot tell whether the house still
+holds something. `consigned_on` is cleared in exactly two places, `cancel`
+and `settle`, each once every lot that had to come back has -- never inside
+`_remove_lot`, which returns one lot's worth. The public `remove_lot` refuses
+a `closed` auction outright, so only `cancel`, acting on the whole auction,
+touches a closed auction's lots, through `_remove_lot`.
 
 Every transition validates the auction's current status (and, for `consign`,
 the platform's kind) before writing anything, and refuses with a message
@@ -52,51 +43,38 @@ naming what is in the way -- the same discipline `offering_writes.offer` and
 produces, `AuctionRefused`, is deliberately singular for the same reason
 `LotRefused` is: a caller has one thing to catch.
 
-**On `offering_writes.lock_for_sale`'s one undischarged obligation.** Its
-docstring states the rule: a caller that may call `end_offer` on a listing it
-did not name must first pass that set through `refuse_if_lot_unheld`, because
-`end_offer` takes its lot row late and the failure mode for forgetting is a
-Postgres deadlock under concurrency, not a single-request bug. `remove_lot`
-and `cancel` both call `end_offer`, and neither needs it: both always call it
-on `auction_lot.listing`, a listing this module named by holding the
-`AuctionLot` row itself (`remove_lot`) or by reading this auction's own lot
-rows through `_lots_of` (`cancel`, which removes lots through `_remove_lot`
-one at a time) -- never a
-listing reached through `lock_for_sale`'s *derived* half, the search that
-finds a listing because it holds one of the caller's items without the
-caller ever naming it (`routers.inventory.receive_items` is the one caller
-today that reaches a listing that way). And `end_offer` itself, called here
-with `sold=False` (withdrawal, never a sale), only ever ends the one listing
-it is handed -- the `paused_by_it` listings it also touches are *resumed*,
-not ended, on that path. Independently verified in the fix-round-1 review,
-including that `lock_for_sale` seeds `lot_ids` from the *named* listings
-before `_acquire` runs, so the lot row of the listing `remove_lot` names is
-always taken first regardless.
+**`offering_writes.lock_for_sale`'s caller obligation does not reach this
+module.** Its docstring states the rule: a caller that may call `end_offer`
+on a listing it did not name must first pass that set through
+`refuse_if_lot_unheld`, because `end_offer` takes its lot row late and
+forgetting it is a Postgres deadlock under concurrency, not a single-request
+bug. `remove_lot` and `cancel` call `end_offer` only on `auction_lot.listing`,
+a listing named by the `AuctionLot` row itself (`remove_lot`) or by this
+auction's own lot rows read through `_lots_of` (`cancel`, through
+`_remove_lot`) -- never one reached through `lock_for_sale`'s *derived* half,
+the search that finds a listing because it holds one of the caller's items.
+`end_offer(sold=False)` ends only the listing it is handed; the
+`paused_by_it` listings it also touches are resumed, not ended. And
+`lock_for_sale` seeds `lot_ids` from the named listings before `_acquire`
+runs, so the named listing's lot row is always taken first.
 
-**`settle` does take the `sold=True` branch, and the answer is still no --
-but for a different reason, which had to be established rather than
-inherited.** A sale ends the store listings its offer paused instead of
+**`settle` takes the `sold=True` branch, and still has nothing to
+discharge.** A sale ends the store listings its offer paused instead of
 resuming them (spec, *Record a sale*), and those are listings settlement
-never named. The obligation covers exactly one case: one of them being a
-**lot** listing, whose lot row `_end` would then rewrite. It cannot happen.
-`paused_by_listing_id` is written in exactly one statement in the whole
-codebase -- `offering_writes.offer`'s `to_pause` loop -- over the own-store
-listings that already hold a member being offered elsewhere; and each member
-passes `_refuse_unofferable` -> `_refuse_grouped` first, in the same loop
-iteration, which refuses any coin that is an open member of an **offered**
-lot. A lot listing holds its coins only through the claims `offer` wrote
-(`_holds_any`), and `_end` releases those claims and the lot's memberships in
-the same breath, so "a lot listing holds this coin" and "this coin is in an
-offered lot" are one fact. So no lot listing can ever carry
-`paused_by_listing_id`, `end_offer(sold=True)`'s second `_end` only ever ends
-item listings -- which return before touching a lot row -- and
-`refuse_if_lot_unheld` still has nothing to discharge in this module.
-`offering_writes._end`'s own docstring already said this is what
-`_refuse_grouped` makes true; Task 3 measured it rather than reading it, in
+never named. The obligation would bite only if one were a **lot** listing,
+and none can be. `paused_by_listing_id` is written in one statement --
+`offering_writes.offer`'s `to_pause` loop -- over the own-store listings that
+already hold a member being offered elsewhere, and each member first passes
+`_refuse_unofferable` -> `_refuse_grouped`, which refuses any coin that is an
+open member of an **offered** lot. A lot listing holds its coins only
+through the claims `offer` wrote (`_holds_any`), and `_end` releases those
+claims and the lot's memberships together, so "a lot listing holds this
+coin" and "this coin is in an offered lot" are one fact. So no lot listing
+carries `paused_by_listing_id`, and `end_offer(sold=True)`'s second `_end`
+ends only item listings, which return before touching a lot row.
 `test_a_lot_listing_can_never_be_paused_by_another_offer` and
 `test_settlement_ends_only_item_listings_it_did_not_name`
-(`tests/test_auction_settlement.py`). Those two are the tripwire if
-`_refuse_grouped` is ever relaxed.
+(`tests/test_auction_settlement.py`) fail if `_refuse_grouped` is relaxed.
 """
 
 from __future__ import annotations
@@ -197,22 +175,17 @@ class SettlementInputInvalid(AuctionRefused):
     conflict between what the grid says and what the auction is, which the
     owner could not have known from the form alone.
 
-    **Task 5 maps this to 422 and plain `AuctionRefused` to 409**, so the
-    same bad number refuses the same way whether it was typed into the
-    settlement grid or into the Listings page's Record sale -- that one
-    reaches `sales_writes.SaleInputInvalid`, which this deliberately mirrors
-    (ruling R15). A subclass, not a field, for exactly the reasons
-    `SaleInputInvalid`'s own docstring gives: every existing
-    `except AuctionRefused` and `pytest.raises(AuctionRefused)` keeps
-    catching this unchanged, and an HTTP layer dispatches by `except` clause
-    order rather than by matching on a message string.
-
-    **The same warning applies here as there: mypy does not check that
-    ordering.** A reversed `except AuctionRefused` before
-    `except SettlementInputInvalid` still type-checks cleanly, and every 422
-    silently becomes a 409. `test_bad_money_and_a_conflict_are_different_refusals`
-    in `test_auction_settlement.py` is what stands between that reversal and
-    a silent regression until Task 5 adds its own router-level twin.
+    **The API answers this with 422 and plain `AuctionRefused` with 409**, so
+    the same bad number refuses the same way whether it was typed into the
+    settlement grid or into the Listings page's Record sale, which reaches
+    `sales_writes.SaleInputInvalid` -- the class this one mirrors. A
+    subclass, not a field, so every `except AuctionRefused` and
+    `pytest.raises(AuctionRefused)` catches it too. `app.main` registers a
+    handler for each class, and Starlette picks the handler by walking the
+    raised exception's MRO, so the narrower class's handler wins whatever
+    order the two are registered in; no `except` ordering decides the
+    status. `test_settlement_input_invalid_is_a_422_not_a_409`
+    (`tests/test_auctions_api.py`) checks it at the API.
 
     **A grid with both kinds of problem refuses as the wider one.** `settle`
     reports every problem in one message, and a message that contains a real
@@ -355,6 +328,7 @@ def remove_lot(
     auction_lot: AuctionLot,
     *,
     returned_to_location_id: int | None = None,
+    user_id: int | None = None,
 ) -> None:
     """Take a lot out of its auction: end its offer, as an ordinary End.
 
@@ -364,53 +338,32 @@ def remove_lot(
     members back to `held` (`offering_writes._end`).
 
     The `auction_lot` row itself is deleted, not left behind ended.
-    `sales_lot` stays forever once offered, because it is the permanent
-    record of a group that really was shown to a buyer; `auction_lot` is not
-    that record -- it names a numbered slot in a sale that may still be
-    reshuffled, and once its listing is no longer offered here there is
-    nothing left for the row to describe. Deleting it also frees
-    `lot_number` for reuse, which `uq_auction_lot_auction_lot_number` would
-    otherwise hold onto forever for a lot that never sold.
+    `sales_lot` stays once offered, because it is the permanent record of a
+    group that really was shown to a buyer; `auction_lot` names a numbered
+    slot in a sale that may still be reshuffled, and once its listing is no
+    longer offered here there is nothing left for the row to describe.
+    Deleting it also frees `lot_number` for reuse, which
+    `uq_auction_lot_auction_lot_number` would otherwise hold for a lot that
+    never sold.
 
-    `returned_to_location_id` (ruling R9, fix round 1; keyed on custody, not
-    status, since ruling R13, fix round 2): **required** whenever
-    `auction.consigned_on is not None` at the time of removal, because its
-    items physically left the premises and something has to say where they
-    came back to before the lot can be considered withdrawn -- the spec's
-    *Consignment custody* moves items "there, and back", and this is the
-    "back" half for a withdrawal rather than a settlement. This function's
-    own gate below never lets it see a `closed`-and-still-consigned auction
-    (ruling R14, fix round 3 -- see that paragraph), so in practice this
-    check only ever fires here for a `consigned` auction; the predicate
-    still reads `consigned_on`, not the status, because `_remove_lot` is the
-    one place that logic actually lives and `cancel` reaches the identical
-    check through `_remove_lot` directly, on a `closed`-but-consigned
-    auction, which is exactly the shape this function itself now refuses.
-    Ignored otherwise; a caller may pass `None` (the default) or omit it
-    entirely when `consigned_on` is already `None`.
+    `returned_to_location_id` is **required** whenever `auction.consigned_on
+    is not None`: the items physically left the premises, and something has
+    to say where they came back to before the lot is withdrawn -- the "back"
+    half of the spec's *Consignment custody* for a withdrawal rather than a
+    settlement. Ignored otherwise. `user_id` is who brought them back, for
+    each item's location history.
 
-    Raises `AuctionRefused` if the auction has already closed, settled or
-    been cancelled -- editing a finished or abandoned auction's lot table
-    makes no sense once results are being entered, or nothing is happening
-    any more.
+    Raises `AuctionRefused` if the auction has closed, settled or been
+    cancelled. **`closed` refuses whether or not the auction was consigned**:
+    once closed, the sale has happened and the only ways out are `settle`
+    and `cancel`; a lot that did not sell is `AuctionLotResult.withdrawn`, a
+    settlement result, not a removal with no record of what became of it.
+    Also raises `AuctionRefused`, naming the missing argument, if custody is
+    still at the house and `returned_to_location_id` is not given.
 
-    **`closed` refuses unconditionally, whether or not the auction was ever
-    consigned** (ruling R14, fix round 3, reverting a widening fix round 2
-    added here). Once closed, the sale has happened and the only ways out
-    are `settle` and `cancel`: a lot that did not sell is
-    `AuctionLotResult.withdrawn`, a **settlement** result Task 3's `settle`
-    will record -- returning its items the same way `_return_from_consignment`
-    does here -- not a removal with no record of what became of it. Pulling
-    a single lot out of a closed, still-consigned auction through this
-    function would take coins out of the sale with nothing in the schema
-    saying so.
-
-    Also raises `AuctionRefused`, naming the missing argument, if the
-    auction is `consigned` and `returned_to_location_id` is not given.
-
-    See this module's own docstring for why this does not need
-    `offering_writes.refuse_if_lot_unheld`: `end_offer` is always called here
-    on `auction_lot.listing`, a listing this function was handed by name.
+    Needs no `offering_writes.refuse_if_lot_unheld` (see this module's
+    docstring): `end_offer` is called here only on `auction_lot.listing`, a
+    listing this function was handed by name.
 
     Takes the `auction` row first (`_lock_auction`), like every transition
     that reaches an auction's coins -- see that function for why.
@@ -421,7 +374,12 @@ def remove_lot(
             f"auction #{auction.id} is {auction.status.value}, "
             "so lots cannot be removed"
         )
-    _remove_lot(db, auction_lot, returned_to_location_id=returned_to_location_id)
+    _remove_lot(
+        db,
+        auction_lot,
+        returned_to_location_id=returned_to_location_id,
+        user_id=user_id,
+    )
 
 
 def _remove_lot(
@@ -429,28 +387,26 @@ def _remove_lot(
     auction_lot: AuctionLot,
     *,
     returned_to_location_id: int | None,
+    user_id: int | None,
 ) -> None:
     """The removal itself, without the status gate the public `remove_lot` applies.
 
-    Factored out so `cancel` -- whose own status boundary is wider than a
-    single lot's removal (ruling R8: `cancel` accepts `closed`, `remove_lot`
-    does not) -- can remove each of an auction's lots without `remove_lot`'s
-    own `_LOTS_REMOVABLE` check refusing a `closed` auction that `cancel` has
-    already decided, by its own check, is cancellable.
+    Separate so `cancel`, whose status boundary is wider (it accepts
+    `closed`, `remove_lot` does not), can remove each of an auction's lots
+    without `_LOTS_REMOVABLE` refusing an auction `cancel` has already
+    judged cancellable.
 
     If the house still holds something of this auction's
-    (`auction.consigned_on is not None`, ruling R13 -- **not** `auction.status
-    is AuctionStatus.consigned`, which a `closed` auction fails even though
-    the coins never came home), the lot's items are moved back to
-    `returned_to_location_id` (required; see `remove_lot`'s docstring)
-    *before* the offer ends -- `_return_from_consignment` reads the lot's
-    open membership through `offering_writes.offered_items`, which
-    `end_offer` would otherwise have already released.
+    (`auction.consigned_on is not None` -- **not** `auction.status is
+    AuctionStatus.consigned`, which a `closed` auction fails even though the
+    coins never came home), the lot's items are moved back to
+    `returned_to_location_id`, recorded as moved by `user_id`, *before* the
+    offer ends: `_return_from_consignment` reads the lot's open membership
+    through `offering_writes.offered_items`, which `end_offer` releases.
 
-    Never clears `auction.consigned_on` -- that is an auction-level fact
-    (ruling R13, fix round 2), owned by `cancel`, which clears it only once
-    every one of the auction's lots has been returned. Removing a single lot
-    out of several leaves the house still holding the rest.
+    Never clears `auction.consigned_on` -- that is an auction-level fact,
+    owned by `cancel`, which clears it once every lot has been returned.
+    Removing a single lot out of several leaves the house holding the rest.
     """
     auction = auction_lot.auction
     if auction.consigned_on is not None:
@@ -460,7 +416,9 @@ def _remove_lot(
                 "auction house, so returned_to_location_id is required to "
                 "bring its items back before the lot can be removed"
             )
-        _return_from_consignment(db, auction_lot, returned_to_location_id)
+        _return_from_consignment(
+            db, auction_lot, returned_to_location_id, user_id=user_id
+        )
     offering_writes.end_offer(
         db,
         auction_lot.listing,
@@ -479,10 +437,10 @@ def _return_from_consignment(
 ) -> None:
     """Move one auction lot's items back from the house, through `lifecycle_writes`.
 
-    The one implementation of "move these items back" (ruling R9, fix round
-    1): `remove_lot` and `cancel` both call it, through `_remove_lot`, and so
-    does `settle`, for the "unsold at an auction house" case the spec's
-    *Settle* row describes -- rather than growing a second copy of it.
+    The one implementation of "move these items back": `remove_lot` and
+    `cancel` call it through `_remove_lot`, and `settle` for the "unsold at
+    an auction house" case the spec's *Settle* row describes. `user_id` is
+    recorded on each item's location history as who moved it.
 
     Reads the lot's currently open members through
     `offering_writes.offered_items` -- the one answer in the codebase to
@@ -688,7 +646,11 @@ def close(db: Session, auction: Auction) -> None:
 
 
 def cancel(
-    db: Session, auction: Auction, *, returned_to_location_id: int | None = None
+    db: Session,
+    auction: Auction,
+    *,
+    returned_to_location_id: int | None = None,
+    user_id: int | None = None,
 ) -> None:
     """Cancel the auction and remove every lot it still holds.
 
@@ -697,104 +659,52 @@ def cancel(
     so nothing is left claimed by a sale that is not happening. The removals
     run before the status moves to `cancelled`.
 
-    **Accepts every status except `settled` and `cancelled` (ruling R8, fix
-    round 1) -- including `closed`.** The spec's own line reads
-    `draft -> scheduled -> [consigned] -> closed -> settled, **or
-    cancelled**`, read here as making `cancelled` an alternative terminal
-    state from anywhere before `settled`: a closed auction whose sale
-    happened and whose settlement is being abandoned is a real case, not a
-    contradiction. Lots are removed through `_remove_lot` directly, **not**
-    through the public `remove_lot`, precisely so a `closed` auction --
-    which `remove_lot`'s own `_LOTS_REMOVABLE` refuses individually -- can
-    still be cancelled as a whole; `cancel`'s own check above is the gate
-    that applies.
+    **Accepts every status except `settled` and `cancelled`, `closed`
+    included.** The spec's line `draft -> scheduled -> [consigned] -> closed
+    -> settled, or cancelled` makes `cancelled` an alternative terminal state
+    from anywhere before `settled`: a closed auction whose settlement is
+    being abandoned is a real case. Lots are removed through `_remove_lot`,
+    not the public `remove_lot`, so a `closed` auction -- which
+    `_LOTS_REMOVABLE` refuses lot by lot -- can still be cancelled whole.
 
-    **Takes the `auction` row FOR UPDATE first, exactly as `settle` does**
-    (`_lock_auction`, whole-branch review Critical #1 -- the completion of
-    ruling R2, not a departure from it). R2 gave `settle` a new outermost
-    lock level above `offering_writes`' canonical lot -> items -> listings
-    order, and argued it could not invert because the only other writer that
-    could reach an auction's coins was gated to statuses `settle` refuses on.
-    **Ruling R8 then widened `cancel` to accept `closed`** and created the
-    second party that argument assumed away: both endpoints are legal on a
-    `closed` auction, two console tabs is all it takes, and `cancel` used to
-    reach the coins with no auction row held and write `UPDATE auction` as
-    its *last* statement -- lots -> items -> listings -> auction, the exact
-    inverse of `settle`. Measured interleaving: `cancel` takes the first
-    lot's item, `settle` takes the auction row and then waits on that item,
-    `cancel` finishes its lots and waits on the auction row. Postgres
-    `DeadlockDetected`, surfacing as `sqlalchemy.exc.OperationalError`, which
-    neither router catches -- an HTTP 500 on a money path with a
-    non-deterministic victim. Taking the same outermost level here adds no
-    new level and makes the two agree;
+    **Takes the `auction` row FOR UPDATE first, as `settle` does**
+    (`_lock_auction`). Both are legal on a `closed` auction, and a `cancel`
+    that reached the coins first and wrote the auction row last would take
+    lots -> items -> listings -> auction, the inverse of `settle`: a Postgres
+    deadlock, an HTTP 500 on a money path.
     `test_cancelling_an_auction_races_settling_it`
-    (`tests/test_settlement_race.py`) is the proof, and reds with
-    `['cancelled', 'deadlock']` when this line is removed.
+    (`tests/test_settlement_race.py`) is the proof. `add_lot`, `remove_lot`
+    and `consign` take the auction row first for the same reason: `cancel`
+    is legal on their statuses too. The status and custody checks below
+    therefore read a locked, re-read row, so cancel-versus-cancel is refused
+    with an `AuctionRefused` naming the status; the version column still
+    guards a `settle` that commits without ever contending.
 
-    **`add_lot`, `remove_lot` and `consign` take it first too.** Against
-    `settle` alone they would not need to -- each is gated to statuses
-    `settle` refuses on -- but `cancel` is legal on exactly those statuses,
-    and once `cancel` holds the auction row from its first statement, a
-    transition that reaches coins first and the auction row last inverts
-    against it. `consign` did: its item moves flushed before its
-    `UPDATE auction`. `close` and `schedule` take no rows but the auction's
-    own.
+    Lots are removed in **ascending id order**, read fresh through
+    `_lots_of` rather than `auction.lots` (which has no `order_by`), so two
+    concurrent cancels of one auction take their rows in the same order.
+    Within each removal, `end_offer` keeps the canonical lot -> items ->
+    listings order.
 
-    A second effect, and a wanted one: the status and custody checks below
-    now read a **locked, re-read** row, so cancel-versus-cancel and a stale
-    status read are refused with an `AuctionRefused` naming the status rather
-    than losing later on `Auction.version` with a blunt `StaleDataError`.
-    The version column still guards the case where `settle` commits without
-    ever contending -- that 409 is correct and is a different path from the
-    deadlock above.
-
-    Lots are removed in **ascending id order** (fix round 1, Minor #7)
-    through `_lots_of`, never `auction.lots`: that collection carries no
-    `order_by` of its own (`app/models/auctions.py`), and locking lots one at
-    a time in whatever order it happens to return would let two concurrent
-    cancels of the same auction acquire their rows in different orders and
-    deadlock, rather than one losing cleanly. `_lots_of` reads them fresh and
-    ascending, which also closes the stale-collection hazard its own
-    docstring was written for -- `cancel` used to rely on
-    `routers.auctions._get_auction` eager-loading per request, a caller's
-    loading strategy rather than a guarantee. Within a single pass the
-    canonical lot -> items -> listings order inside `end_offer` is
-    unaffected.
-
-    `returned_to_location_id` (ruling R9, fix round 1; keyed on custody, not
-    status, since ruling R13, fix round 2): the same contract `remove_lot`
-    carries, and for the same reason -- **required** whenever
-    `auction.consigned_on is not None`, since every one of its lots needs
-    somewhere to return its items to before it can be withdrawn. **Not**
-    `auction.status is AuctionStatus.consigned`: `close` accepts a
-    `consigned` auction without clearing the date, so `consign -> close ->
-    cancel` used to read `closed`, skip this requirement entirely, and cancel
-    an auction whose coins were still sitting at the house with nothing
-    saying so (Important #1, fix round 2 -- the defect fix round 1's own
-    ruling R8 opened by letting `cancel` accept `closed`, and R9 did not
-    anticipate). When the return happens, `consigned_on` is cleared along
-    with the status move -- **only here**, once every lot has actually been
-    returned, never inside `_remove_lot`: a single lot coming home out of
-    five leaves the house still holding the other four, so the field is an
-    auction-level fact, not a per-lot one.
-
-    Checked here **as well as** inside `_remove_lot`'s own identical guard,
-    and the duplication is deliberate, not an oversight: a consigned
-    auction with **zero** lots (`consign` never requires at least one) never
-    enters the removal loop below, so `_remove_lot`'s check would never run
-    at all -- this is the only guard that covers that case. Mutation-verified
-    apart from the per-lot check in fix round 1
-    (`test_cancelling_a_consigned_auction_with_no_lots_requires_a_return_location`).
+    `returned_to_location_id` is **required** whenever `auction.consigned_on
+    is not None` -- keyed on custody, not on `status is consigned`, because
+    `close` accepts a `consigned` auction without clearing the date -- since
+    every lot needs somewhere to return its items to. `user_id` is recorded
+    as who brought them back. `consigned_on` is cleared here, with the
+    status move, once every lot has been returned -- never inside
+    `_remove_lot`, since one lot coming home leaves the house holding the
+    rest. The requirement is checked here as well as in `_remove_lot`,
+    because a consigned auction with **no** lots never enters the removal
+    loop:
+    `test_cancelling_a_consigned_auction_with_no_lots_requires_a_return_location`.
 
     Raises `AuctionRefused` if the auction has already been settled or
-    cancelled, or if `auction.consigned_on is not None` and
+    cancelled, or if custody is still at the house and
     `returned_to_location_id` is missing.
 
-    Needs no `offering_writes.refuse_if_lot_unheld` for the same reason
-    `remove_lot` does not -- see this module's own docstring: every
-    `end_offer` call this makes goes through `_remove_lot`, on a listing
-    named by this auction's own lot rows, never one reached through
-    `lock_for_sale`'s derived half.
+    Needs no `offering_writes.refuse_if_lot_unheld`, as for `remove_lot`
+    (see this module's docstring): every `end_offer` call goes through
+    `_remove_lot`, on a listing named by this auction's own lot rows.
     """
     auction = _lock_auction(db, auction)
     if auction.status in (AuctionStatus.settled, AuctionStatus.cancelled):
@@ -807,7 +717,12 @@ def cancel(
         )
     still_consigned = auction.consigned_on is not None
     for auction_lot in _lots_of(db, auction):
-        _remove_lot(db, auction_lot, returned_to_location_id=returned_to_location_id)
+        _remove_lot(
+            db,
+            auction_lot,
+            returned_to_location_id=returned_to_location_id,
+            user_id=user_id,
+        )
     if still_consigned:
         auction.consigned_on = None
     auction.status = AuctionStatus.cancelled

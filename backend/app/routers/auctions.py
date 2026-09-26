@@ -4,38 +4,30 @@ Admin only, and deliberately so: an auction lot carries what its coins cost,
 same as an offer, and a house's fees and hammer prices are staff-only figures
 the shop's own catalog endpoints never touch.
 
-Every write here goes through `app.auctions`, the sole writer of `auction`
-and `auction_lot`, or -- for `lot_number` and `reserve`, administrative
-fields the same way `Listing.price`, `.title` and `.description` are -- is a
-plain `setattr` the way `routers.offers.update_listing` edits those, because
-neither field carries a consequence `app.auctions` needs to own. This module
-resolves ids and codes, owns the transaction, and shapes the response; it
-decides nothing about what may be added, removed, consigned, closed,
-cancelled or settled.
+Every transition goes through `app.auctions`: adding and removing lots,
+scheduling, consigning, closing, cancelling and settling. Creating a `draft`
+auction, editing its wording and dates, and changing a lot's `lot_number`
+or `reserve` are plain writes here, the way `routers.offers.update_listing`
+edits a listing's price and wording, because none of those fields carries a
+consequence `app.auctions` needs to own. This module resolves ids and codes,
+owns the transaction, and shapes the response; it decides nothing about
+what may be added, removed, consigned, closed, cancelled or settled.
 
 **`AuctionRefused` and its narrower `SettlementInputInvalid`, and
 `sales_writes.SaleRefused` and its narrower `SaleInputInvalid`, are never
-caught here at all.** Ruling R20 (the Task 5 brief): each pair is registered
-as a FastAPI exception handler in `app.main`, keyed by class, so the HTTP
-status a refusal gets can never depend on the order of an `except` clause a
-later edit reordered without anyone noticing. See `app.main`'s own note on
-this for the full reasoning. `settle` alone can raise all four -- its own
-`AuctionRefused`/`SettlementInputInvalid` from the grid, or
-`sales_writes.SaleRefused`/`SaleInputInvalid` from the `record_sale_lines`
-call inside it -- which is exactly the shape an ordered `except` in this
-module would have had the hardest time getting right, and now does not have
-to.
+caught here.** `app.main` registers a handler for each class, so the HTTP
+status a refusal gets is decided by the class, never by the order of
+`except` clauses (see `app.main`'s note). `settle` can raise all four --
+its own from the grid, and `sales_writes`' from the `record_sale_lines`
+call inside it.
 
-**A write is all or nothing.** Every endpoint that commits wraps its calls
-into `app.auctions` in a `try`/`except Exception: db.rollback(); raise`, even
-where the writer itself never leaves a partial write behind (it checks every
-refusal before writing anything -- see that module's own docstring): the
-`client` fixture in `tests/conftest.py` shares one session across every
-request in a test, with no per-request teardown to roll it back, so a path
-that skipped this would leave that shared session dirty for the next
-assertion in the same test rather than merely for the next request in
-production, where `database.get_db`'s own `finally: db.close()` would have
-done it anyway.
+**A write is all or nothing.** Every endpoint that calls into
+`app.auctions` commits inside a `try` that rolls back on any exception and
+re-raises, so a refusal leaves the session clean for whatever uses it next.
+In production `database.get_db` closes the session after the request
+anyway; the `client` fixture in `tests/conftest.py` shares one session
+across every request in a test, so there the rollback is what keeps the
+next request's reads sound.
 
 Plain ids are read into locals before each `try`, and every implicit
 autoflush stays inside it, the same discipline `routers.lots.update_sales_lot`
@@ -89,7 +81,7 @@ _STALE = "This auction was changed by someone else. Reload and reapply your chan
 
 _REFUSAL_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_409_CONFLICT: {"model": AuctionRefusedOut},
-    status.HTTP_422_UNPROCESSABLE_ENTITY: {"model": AuctionRefusedOut},
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": AuctionRefusedOut},
 }
 
 
@@ -103,7 +95,7 @@ def _venue_by_code(db: Session, code: str) -> SalesVenue:
     venue = db.scalar(select(SalesVenue).where(SalesVenue.code == code))
     if venue is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown venue: {code!r}",
         )
     return venue
@@ -116,7 +108,7 @@ def _auction_status(code: str) -> AuctionStatus:
     except ValueError as exc:
         allowed = ", ".join(member.value for member in AuctionStatus)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown status: {code!r}. Use one of: {allowed}",
         ) from exc
 
@@ -128,7 +120,7 @@ def _lot_result(code: str) -> AuctionLotResult:
     except ValueError as exc:
         allowed = ", ".join(member.value for member in AuctionLotResult)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown result: {code!r}. Use one of: {allowed}",
         ) from exc
 
@@ -138,7 +130,7 @@ def _item_by_id(db: Session, item_id: int) -> InventoryItem:
     item = db.get(InventoryItem, item_id)
     if item is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown item_id: {item_id}",
         )
     return item
@@ -149,7 +141,7 @@ def _lot_by_id(db: Session, lot_id: int) -> SalesLot:
     lot = db.get(SalesLot, lot_id)
     if lot is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown lot_id: {lot_id}",
         )
     return lot
@@ -160,7 +152,7 @@ def _location_by_id(db: Session, location_id: int) -> StorageLocation:
     location = db.get(StorageLocation, location_id)
     if location is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown returned_to_location_id: {location_id}",
         )
     return location
@@ -312,7 +304,7 @@ def _refuse_null_required(data: dict[str, Any]) -> None:
     nulled = sorted(f for f in _REQUIRED_ON_UPDATE if f in data and data[f] is None)
     if nulled:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{', '.join(nulled)} cannot be null",
         )
 
@@ -390,7 +382,7 @@ def add_auction_lot(
         subject = _item_by_id(db, payload.item_id)
     else:  # pragma: no cover - AuctionLotIn._one_subject already refuses this
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Exactly one of item_id or lot_id is required",
         )
 
@@ -415,7 +407,7 @@ def add_auction_lot(
     except lot_writes.EmptyLot as empty:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(empty)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(empty)
         ) from empty
     except lot_writes.LotRefused as refused_lot:
         db.rollback()
@@ -447,7 +439,7 @@ def remove_auction_lot(
     auction_id: int,
     lot_id: int,
     db: DbSession,
-    _admin: AdminUser,
+    admin: AdminUser,
     returned_to_location_id: Annotated[
         int | None,
         Query(description="Required if the auction is consigned"),
@@ -466,7 +458,10 @@ def remove_auction_lot(
         _location_by_id(db, returned_to_location_id)
     try:
         auctions.remove_lot(
-            db, auction_lot, returned_to_location_id=returned_to_location_id
+            db,
+            auction_lot,
+            returned_to_location_id=returned_to_location_id,
+            user_id=admin.id,
         )
         db.commit()
     except StaleDataError as stale:
@@ -520,7 +515,7 @@ def update_auction_lot(
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
     if "lot_number" in data and data["lot_number"] is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="lot_number cannot be null",
         )
 
@@ -572,11 +567,11 @@ def consign_auction(
 ) -> AuctionOut:
     """Move every member item into the house's consigned location.
 
-    A migrated-but-unseeded database -- the real state the live database is
-    in today -- raises a bare `RuntimeError` from `app.auctions.consign`,
-    naming the missing seed. Nothing here catches it either: `app.main`
-    registers a handler for `RuntimeError` itself, so the message reaches the
-    operator instead of a bare 500 (see that handler's own docstring).
+    A migrated but unseeded database, with no `consigned` storage-location
+    kind, makes `app.auctions.consign` raise `errors.ReferenceDataMissing`
+    naming the missing seed. Nothing here catches it: `app.main` registers
+    `_server_misconfigured` for that class, so an administrator sees the
+    message in a 500 instead of a bare one (see that handler's docstring).
     """
     auction = _get_auction(db, auction_id)
     try:
@@ -613,7 +608,7 @@ def close_auction(auction_id: int, db: DbSession, _admin: AdminUser) -> AuctionO
 
 @router.post("/{auction_id}/cancel", responses=_REFUSAL_RESPONSES)
 def cancel_auction(
-    auction_id: int, payload: AuctionCancelIn, db: DbSession, _admin: AdminUser
+    auction_id: int, payload: AuctionCancelIn, db: DbSession, admin: AdminUser
 ) -> AuctionOut:
     """Cancel the auction and remove every lot it still holds."""
     auction = _get_auction(db, auction_id)
@@ -621,7 +616,10 @@ def cancel_auction(
         _location_by_id(db, payload.returned_to_location_id)
     try:
         auctions.cancel(
-            db, auction, returned_to_location_id=payload.returned_to_location_id
+            db,
+            auction,
+            returned_to_location_id=payload.returned_to_location_id,
+            user_id=admin.id,
         )
         db.commit()
     except StaleDataError as stale:

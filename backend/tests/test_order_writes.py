@@ -36,6 +36,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import inspect, select
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
 from tests.builders import post_order
@@ -1168,3 +1169,14 @@ def test_a_revision_that_adds_a_lot_line_ends_the_lot_sold(
         )
     ).all()
     assert not open_rows
+
+
+def test_an_order_status_that_names_no_row_is_not_read_as_pending(
+    db: Session,
+) -> None:
+    """A status id with no row fails loudly; `pending` would allow a revision."""
+    from app.order_writes import _order_status_code
+
+    orphan = SalesOrder(sales_order_status_id=999_999)
+    with pytest.raises(NoResultFound):
+        _order_status_code(db, orphan)

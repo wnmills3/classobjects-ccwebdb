@@ -16,7 +16,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
@@ -70,14 +70,20 @@ class PasswordSet(BaseModel):
 
 
 def _admin_count(db: DbSession) -> int:
-    """How many active administrators remain."""
-    return (
-        db.scalar(
-            select(func.count())
-            .select_from(User)
+    """How many active administrators remain, their rows locked until commit.
+
+    Locked, not merely counted: two saves each removing one of the last two
+    managers would otherwise both count two and both go through. The second
+    waits for the first to commit, and Postgres re-checks the rows it waited
+    on against the filter, so it counts what the first left.
+    """
+    return len(
+        db.scalars(
+            select(User.id)
             .where(User.role == UserRole.manager, User.is_active.is_(True))
-        )
-        or 0
+            .order_by(User.id)
+            .with_for_update()
+        ).all()
     )
 
 

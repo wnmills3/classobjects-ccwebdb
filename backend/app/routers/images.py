@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .. import image_links, sale_state
 from ..config import settings
@@ -84,15 +84,12 @@ async def upload_image(
     ``inventory_item_id`` is optional because photographs exist before anyone
     has decided what they depict. An unattached image is still stored,
     browsable and searchable -- linking is a separate, human step.
-    """
-    raw = await file.read()
-    try:
-        image = ingest(db, raw, source_ref=file.filename)
-    except ImageRejected as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
 
+    The item is found and the for-sale guard asked before `ingest` writes
+    the bytes, so a refused upload leaves no file behind with no row
+    pointing at it.
+    """
+    item: InventoryItem | None = None
     if inventory_item_id is not None:
         item = db.get(InventoryItem, inventory_item_id)
         if item is None:
@@ -102,6 +99,15 @@ async def upload_image(
             )
         sale_state.guard(db, [item], acknowledged=acknowledge_for_sale)
 
+    raw = await file.read()
+    try:
+        image = ingest(db, raw, source_ref=file.filename)
+    except ImageRejected as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    if item is not None:
         try:
             link = image_links.attach(
                 db,
@@ -227,6 +233,7 @@ def list_images(
     links = db.scalars(
         select(ItemImage)
         .where(ItemImage.inventory_item_id == inventory_item_id)
+        .options(selectinload(ItemImage.item), selectinload(ItemImage.image))
         .order_by(ItemImage.sort_order, ItemImage.id)
     ).all()
     return [_link_out(db, link) for link in links]
@@ -257,24 +264,19 @@ def get_derivative(sha256: str, kind: DerivativeKind, db: DbSession) -> Response
     reach is the path -- see `image_urls`. Addressed by content hash, so a
     caller who has not been given a URL has nothing to walk.
     """
-    image = db.scalar(select(Image).where(Image.sha256 == sha256))
-    if image is None:
+    found = db.execute(
+        select(ImageDerivative.storage_key, Image.media_type)
+        .join(Image, ImageDerivative.image_id == Image.id)
+        .where(Image.sha256 == sha256, ImageDerivative.kind == kind)
+    ).first()
+    if found is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
         )
-
-    derivative = db.scalar(
-        select(ImageDerivative).where(
-            ImageDerivative.image_id == image.id, ImageDerivative.kind == kind
-        )
-    )
-    if derivative is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
-        )
+    storage_key, media_type = found
 
     try:
-        data = get_storage().get(derivative.storage_key)
+        data = get_storage().get(storage_key)
     except (FileNotFoundError, ValueError) as exc:
         # A row pointing at bytes that are gone is a real fault worth
         # surfacing as 404 rather than a 500 -- but it means storage and the
@@ -285,7 +287,7 @@ def get_derivative(sha256: str, kind: DerivativeKind, db: DbSession) -> Response
 
     return Response(
         content=data,
-        media_type=image.media_type,
+        media_type=media_type,
         headers={"Cache-Control": CACHE_CONTROL},
     )
 
@@ -319,10 +321,8 @@ def delete_image(
     ).all()
     sale_state.guard(db, list(attached), acknowledged=acknowledge_for_sale)
 
-    storage = get_storage()
-    for derivative in image.derivatives:
-        storage.delete(derivative.storage_key)
-    storage.delete(image.storage_key)
+    keys = [derivative.storage_key for derivative in image.derivatives]
+    keys.append(image.storage_key)
 
     db.delete(image)
     db.flush()
@@ -333,3 +333,10 @@ def delete_image(
     # and the shop shows a buyer nothing at all in that state.
     image_links.fill_primary_vacancy(db, [item.id for item in attached])
     db.commit()
+
+    # The bytes go only once the rows that point at them are gone: a failed
+    # commit leaves the image whole, and a failed removal here leaves only
+    # files no row points at.
+    storage = get_storage()
+    for key in keys:
+        storage.delete(key)

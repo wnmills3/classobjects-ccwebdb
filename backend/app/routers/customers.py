@@ -137,7 +137,7 @@ def update_customer(
     # and come back as a 500 rather than a refusal naming the field.
     if "display_name" in fields and fields["display_name"] is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="display_name cannot be null",
         )
     for name, value in fields.items():

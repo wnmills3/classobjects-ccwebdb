@@ -73,6 +73,9 @@ def _item_loads() -> tuple[Any, ...]:
         # the image itself. Without this the catalog would issue one
         # extra query per photographed item.
         selectinload(InventoryItem.images).selectinload(ItemImage.image),
+        # A note's year is its series year, read from its currency detail
+        # (`_years`): one query for the page rather than one per item.
+        selectinload(InventoryItem.currency_detail),
     )
 
 

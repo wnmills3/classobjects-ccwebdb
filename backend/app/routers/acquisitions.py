@@ -367,7 +367,7 @@ def _refuse_future(ordered_on: date | None) -> None:
     limit: date = datetime.now(UTC).date() + timedelta(days=1)
     if ordered_on is not None and ordered_on > limit:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"ordered_on {ordered_on.isoformat()} is too far "
             f"in the future. Latest accepted: {limit.isoformat()}.",
         )
