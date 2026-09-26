@@ -12,62 +12,18 @@ cannot be removed without breaking the history those orders belong to, and
 
 from __future__ import annotations
 
-from typing import Annotated
-
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
 from ..models import Customer, User, UserRole
 from ..order_writes import customer_for_user
-from ..schemas import UserOut
+from ..schemas import AccountCreate, CustomerOut, PasswordSet, UserOut, UserUpdate
 from ..security import hash_password
 from ._resolve import get_or_404
-from .customers import CustomerOut
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-
-class UserUpdate(BaseModel):
-    """The fields an administrator may change on someone else's account."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    full_name: str | None = None
-    role: UserRole | None = None
-    is_active: bool | None = None
-
-
-class AccountCreate(BaseModel):
-    """An account an administrator opens for someone else.
-
-    The role has no default. Self-registration can only ever produce a
-    customer; here either role is possible, so an administrator is never made
-    by a field left out. The password is the administrator's to set and pass
-    on out of band, the same as `PasswordSet` -- there is no mail to send an
-    invitation with.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    email: EmailStr
-    full_name: Annotated[str, Field(max_length=255)] = ""
-    role: UserRole
-    password: Annotated[str, Field(min_length=8, max_length=128)]
-
-
-class PasswordSet(BaseModel):
-    """A new password, chosen by an administrator.
-
-    There is no mail configuration, so a reset link is not possible. An
-    administrator sets the password and tells the person out of band.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    password: Annotated[str, Field(min_length=8, max_length=128)]
 
 
 def _admin_count(db: DbSession) -> int:

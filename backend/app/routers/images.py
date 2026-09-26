@@ -191,7 +191,7 @@ def attach_image(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     db.refresh(link)
-    return _link_out(db, link)
+    return link_out(db, link)
 
 
 @router.get("", response_model=list[ImageLinkOut])
@@ -235,10 +235,10 @@ def list_images(
         .options(selectinload(ItemImage.item), selectinload(ItemImage.image))
         .order_by(ItemImage.sort_order, ItemImage.id)
     ).all()
-    return [_link_out(db, link) for link in links]
+    return [link_out(db, link) for link in links]
 
 
-def _link_out(db: Session, link: ItemImage) -> ImageLinkOut:
+def link_out(db: Session, link: ItemImage) -> ImageLinkOut:
     """Project a filed photograph into the API shape."""
     role = db.get(ImageRole, link.image_role_id) if link.image_role_id else None
     return ImageLinkOut(

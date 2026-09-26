@@ -12,106 +12,27 @@ row in place would quietly rewrite history.
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
-from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from ..deps import AdminUser, DbSession
-from ..models import Address, AddressKind, Country, Customer
+from ..models import Address, Country, Customer
 from ..order_writes import Line, place_order
 from ..references import code_to_id
-from ..schemas import AdminOrderCreate, OrderOut
+from ..schemas import (
+    AddressIn,
+    AdminOrderCreate,
+    CustomerOut,
+    CustomerUpdate,
+    OrderOut,
+)
 from ._resolve import get_or_404
 from .orders import order_out
 
 router = APIRouter(prefix="/customers", tags=["customers"])
-
-#: E.164: a leading +, a country code that cannot start with 0, then digits.
-#: Stored whole rather than split into a country code and the rest, because two
-#: columns can disagree and this one cannot. The default country code is a
-#: presentation concern and belongs in the form, not the database.
-_E164 = re.compile(r"^\+[1-9]\d{6,14}$")
-
-
-class AddressOut(BaseModel):
-    """An address as the API returns it.
-
-    The country is not included. `valid_to` is the date the address was
-    superseded, null while it is current.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    address_kind: AddressKind
-    line1: str
-    line2: str | None
-    city: str
-    region: str | None
-    postal_code: str | None
-    is_default: bool
-    valid_to: object | None
-
-
-class CustomerOut(BaseModel):
-    """A customer and their addresses."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    user_id: int | None
-    display_name: str
-    email: EmailStr | None
-    phone: str | None
-    notes: str | None
-    addresses: list[AddressOut] = []
-
-
-class CustomerUpdate(BaseModel):
-    """The fields an administrator may correct on a customer record."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    display_name: str | None = None
-    email: EmailStr | None = None
-    phone: str | None = None
-    notes: str | None = None
-
-    @field_validator("phone")
-    @classmethod
-    def _e164(cls, value: str | None) -> str | None:
-        """Require E.164, so a number is dialable from anywhere.
-
-        A bare '555 1234' is ambiguous the moment a customer is not in the
-        same country as the seller, and this collection already has overseas
-        buyers in prospect. Empty clears the number.
-        """
-        if value is None or value.strip() == "":
-            return None
-        compact = re.sub(r"[\s()\-.]", "", value.strip())
-        if not _E164.match(compact):
-            raise ValueError("phone must be in international form, e.g. +12125551234")
-        return compact
-
-
-class AddressIn(BaseModel):
-    """A new address. Supersedes the previous default of the same kind."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    address_kind: AddressKind = AddressKind.shipping
-    line1: Annotated[str, Field(min_length=1, max_length=255)]
-    line2: str | None = None
-    city: Annotated[str, Field(min_length=1, max_length=128)]
-    region: str | None = None
-    postal_code: str | None = None
-    country: str | None = None
-    is_default: bool = True
 
 
 @router.get("", response_model=list[CustomerOut])

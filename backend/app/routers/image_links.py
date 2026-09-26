@@ -21,7 +21,7 @@ from ..deps import AdminUser, DbSession
 from ..models import InventoryItem, ItemImage
 from ..schemas import ImageLinkOut, ImageLinkUpdate
 from ._resolve import get_or_404
-from .images import _link_out
+from .images import link_out
 
 router = APIRouter(prefix="/image-links", tags=["images"])
 
@@ -55,7 +55,7 @@ def update_link(
         image_links.make_primary(db, link)
     db.commit()
     db.refresh(link)
-    return _link_out(db, link)
+    return link_out(db, link)
 
 
 @router.delete("/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
