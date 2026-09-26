@@ -1595,7 +1595,8 @@ describe('An item for sale', () => {
     api.updateInventoryItem.mockResolvedValue(saved)
     render(<ItemEditForm itemId={12} />)
     expect(await screen.findByRole('heading', { name: 'History' })).toBeVisible()
-    expect(api.getItemHistory).toHaveBeenCalledWith(12)
+    // The panel asks in an effect after it renders, so wait for the call.
+    await waitFor(() => expect(api.getItemHistory).toHaveBeenCalledWith(12))
     expect(api.getItemHistory).toHaveBeenCalledTimes(1)
 
     await user.type(screen.getByDisplayValue('Mercury Dime'), '!')
