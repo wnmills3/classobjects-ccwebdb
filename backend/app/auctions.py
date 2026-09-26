@@ -79,7 +79,7 @@ ends only item listings, which return before touching a lot row.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -173,6 +173,20 @@ def _custody_away(auction: Auction, purpose: str = "") -> str:
         f"auction #{auction.id}: custody has not returned from the auction "
         f"house, so returned_to_location_id is required{purpose}"
     )
+
+
+def _refuse_unless(
+    auction: Auction, allowed: Collection[AuctionStatus], action: str
+) -> None:
+    """Refuse unless the auction's status is one of `allowed`, naming it.
+
+    Every status refusal in this module says it the same way: "auction #7
+    is closed, so lots cannot be added". `action` is what follows "so".
+    """
+    if auction.status not in allowed:
+        raise AuctionRefused(
+            f"auction #{auction.id} is {auction.status.value}, so {action}"
+        )
 
 
 class SettlementInputInvalid(AuctionRefused):
@@ -292,10 +306,9 @@ def add_lot(
     that reaches an auction's coins -- see that function for why.
     """
     auction = _lock_auction(db, auction)
-    if auction.status not in (AuctionStatus.draft, AuctionStatus.scheduled):
-        raise AuctionRefused(
-            f"auction #{auction.id} is {auction.status.value}, so lots cannot be added"
-        )
+    _refuse_unless(
+        auction, (AuctionStatus.draft, AuctionStatus.scheduled), "lots cannot be added"
+    )
     if isinstance(lot, InventoryItem):
         lot = _lot_of_one(db, lot)
 
@@ -382,11 +395,7 @@ def remove_lot(
     that reaches an auction's coins -- see that function for why.
     """
     auction = _lock_auction(db, auction_lot.auction)
-    if auction.status not in _LOTS_REMOVABLE:
-        raise AuctionRefused(
-            f"auction #{auction.id} is {auction.status.value}, "
-            "so lots cannot be removed"
-        )
+    _refuse_unless(auction, _LOTS_REMOVABLE, "lots cannot be removed")
     _remove_lot(
         db,
         auction_lot,
@@ -507,13 +516,12 @@ def refuse_unless_lot_editable(db: Session, auction_lot: AuctionLot) -> None:
     # `get_one`, not `scalar(select(...))`: `auction_id` is `ondelete="RESTRICT"`,
     # so the row is guaranteed to exist, and this reads that guarantee's
     # type as well as its data -- `AuctionStatus`, never `AuctionStatus | None`.
-    auction_status = db.get_one(Auction, auction_lot.auction_id).status
-    if auction_status not in _LOTS_REMOVABLE:
-        raise AuctionRefused(
-            f"auction #{auction_lot.auction_id} is {auction_status.value}, so "
-            f"lot {auction_lot.lot_number} cannot be renumbered or have its "
-            "reserve changed"
-        )
+    _refuse_unless(
+        db.get_one(Auction, auction_lot.auction_id),
+        _LOTS_REMOVABLE,
+        f"lot {auction_lot.lot_number} cannot be renumbered or have its "
+        "reserve changed",
+    )
 
 
 def schedule(db: Session, auction: Auction) -> None:
@@ -521,11 +529,7 @@ def schedule(db: Session, auction: Auction) -> None:
 
     Raises `AuctionRefused` unless the auction is `draft`.
     """
-    if auction.status is not AuctionStatus.draft:
-        raise AuctionRefused(
-            f"auction #{auction.id} is {auction.status.value}, "
-            "so it cannot be scheduled"
-        )
+    _refuse_unless(auction, (AuctionStatus.draft,), "it cannot be scheduled")
     auction.status = AuctionStatus.scheduled
     db.flush()
 
@@ -566,11 +570,7 @@ def consign(
             f"{venue.name} is not an auction house: nothing leaves the "
             f"premises for a {venue.kind.code} auction"
         )
-    if auction.status is not AuctionStatus.scheduled:
-        raise AuctionRefused(
-            f"auction #{auction.id} is {auction.status.value}, "
-            "so it cannot be marked consigned"
-        )
+    _refuse_unless(auction, (AuctionStatus.scheduled,), "it cannot be marked consigned")
     location = _consigned_location(db, venue.name)
     note = f"Consigned to auction #{auction.id}"
     for auction_lot in _lots_of(db, auction):
@@ -650,10 +650,11 @@ def close(db: Session, auction: Auction) -> None:
     again, with `settle` as the only exit for a sale that never ran. A
     `draft` auction that should not proceed is `cancel`led, not closed.
     """
-    if auction.status not in (AuctionStatus.scheduled, AuctionStatus.consigned):
-        raise AuctionRefused(
-            f"auction #{auction.id} is {auction.status.value}, so it cannot be closed"
-        )
+    _refuse_unless(
+        auction,
+        (AuctionStatus.scheduled, AuctionStatus.consigned),
+        "it cannot be closed",
+    )
     auction.status = AuctionStatus.closed
     db.flush()
 
@@ -1196,10 +1197,7 @@ def settle(
     written.
     """
     auction = _lock_auction(db, auction)
-    if auction.status is not AuctionStatus.closed:
-        raise AuctionRefused(
-            f"auction #{auction.id} is {auction.status.value}, so it cannot be settled"
-        )
+    _refuse_unless(auction, (AuctionStatus.closed,), "it cannot be settled")
     lots = _lots_of(db, auction)
 
     by_lot: dict[int, SettlementLine] = {}
