@@ -30,13 +30,16 @@ In order:
 | Mutation-scaffolding guard | `findstr` over `backend\app\*.py` |
 | Python types | `mypy` |
 | Python tests | `pytest` |
-| Frontend linting | `eslint` |
+| Frontend linting | `eslint --max-warnings 0` |
 | Frontend formatting | `prettier --check` |
 | Frontend tests | `vitest` |
 | Frontend bundle isolation | `vite build`, then `frontend/scripts/check-bundle-isolation.mjs` |
 
 If `frontend\node_modules` is missing, the frontend gates are reported as
 **not installed** and the run fails: an unrun check is not a passed one.
+
+`eslint` fails on any warning as well as any error (`--max-warnings 0`, in the
+gate and in `npm run lint` alike), so a warning is never left to accumulate.
 
 **One tool owns layout, another owns correctness.** `ruff format` decides line
 breaks and `ruff check` has no opinions about them; on the frontend,
