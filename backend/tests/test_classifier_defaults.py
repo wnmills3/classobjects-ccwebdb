@@ -820,3 +820,25 @@ def test_emptying_a_field_no_pass_fills_holds_nothing(
 
     assert response.status_code == 200, response.text
     assert "grade_id" not in sources_by_item(db, [dime.id]).get(dime.id, {})
+
+
+def test_holding_fields_on_many_items_is_one_upsert_that_tolerates_repeats(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """`hold` writes every item's rows at once; a repeated id or name is harmless.
+
+    PostgreSQL refuses an `ON CONFLICT DO UPDATE` that touches one row twice
+    in a statement, so the repeats below would fail without de-duplication.
+    """
+    from app.field_sources import HELD, hold, sources_by_item
+
+    first, second = make_item(), make_item()
+    record_derived(db, first.id, ["fineness"], "composition")
+
+    hold(db, [first.id, second.id, first.id], ["fineness", "metal_id", "fineness"])
+
+    held = {"fineness": HELD, "metal_id": HELD}
+    assert sources_by_item(db, [first.id, second.id]) == {
+        first.id: held,
+        second.id: held,
+    }
