@@ -11,6 +11,7 @@ import { FORMATS, STATUSES, UNKNOWN, labelFor, subjectOf } from './listing-label
 import { marginPercent } from './platform-rates'
 import { date } from '../../shared/format'
 import { useMounted } from '../useMounted'
+import { orNull } from '../../shared/text'
 
 /**
  * The Listings page: every offer the business has out, and the two things
@@ -95,7 +96,7 @@ function ListingForm({ listing, onSaved, onClose }) {
         // row and the API refuses an explicit null for it; an empty string is
         // how the wording is cleared.
         description: form.description,
-        external_id: form.external_id.trim() === '' ? null : form.external_id.trim(),
+        external_id: orNull(form.external_id),
         // The version the form loaded, as a number: `ListingUpdate.version`
         // is an `int` and Pydantic v2 does not coerce "3".
         version: listing.version,

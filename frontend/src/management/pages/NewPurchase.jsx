@@ -6,6 +6,7 @@ import NewItemForm from './entry/NewItemForm'
 import HelpScope from '../HelpScope'
 import { ReferenceSelect } from '../../shared/reference'
 import { date } from '../../shared/format'
+import { orNull } from '../../shared/text'
 
 /**
  * Recording an acquisition: a vendor and a purchase, then the items bought
@@ -46,7 +47,7 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
       const created = await api.createVendor({
         name: draft.name.trim(),
         vendor_kind: draft.vendor_kind || null,
-        url: draft.url.trim() || null,
+        url: orNull(draft.url),
       })
       onVendorAdded(created)
       onChange(created.id)
@@ -217,7 +218,7 @@ function PurchaseDetails({ purchase, onSaved }) {
     const changes = Object.fromEntries(
       Object.entries(draft)
         .filter(([key, value]) => value !== was[key])
-        .map(([key, value]) => [key, value.trim() === '' ? null : value.trim()]),
+        .map(([key, value]) => [key, orNull(value)]),
     )
     // A purchase recorded with no number is given one on any save, even
     // with the box left blank: that is what finding it again needs.
@@ -399,10 +400,10 @@ export default function NewPurchase() {
     try {
       const payload = {
         vendor_id: Number(form.vendor_id),
-        order_number: form.order_number.trim() || null,
+        order_number: orNull(form.order_number),
         ordered_on: form.ordered_on || null,
-        source_url: form.source_url.trim() || null,
-        notes: form.notes.trim() || null,
+        source_url: orNull(form.source_url),
+        notes: orNull(form.notes),
       }
       const created = await api.createPurchaseOrder(payload)
       setPurchase(created)
@@ -467,7 +468,7 @@ export default function NewPurchase() {
   // An invalid rate is never passed down at all: saving is disabled instead
   // (see `itemDisabledReason`), so this only has to describe a valid state.
   const itemDefaults = {
-    tax_rate: noTax ? '0' : rateInvalid ? null : rateText.trim() || null,
+    tax_rate: noTax ? '0' : rateInvalid ? null : orNull(rateText),
     tax_includes_shipping:
       taxIncludesShipping === '' ? null : taxIncludesShipping === 'true',
   }

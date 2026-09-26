@@ -6,6 +6,7 @@ import ModalDialog from '../ModalDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { fractionToPercent, percentToFraction } from './platform-rates'
 import { useReference } from '../../shared/reference-context'
+import { orNull } from '../../shared/text'
 import { useMounted } from '../useMounted'
 
 /**
@@ -103,8 +104,6 @@ function toForm(v) {
     is_active: v.is_active,
   }
 }
-
-const orNull = (text) => (String(text).trim() === '' ? null : String(text).trim())
 
 function toPayload(form) {
   return {

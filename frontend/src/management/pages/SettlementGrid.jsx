@@ -6,6 +6,7 @@ import { RESULTS } from './auction-labels'
 import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { subjectOf, UNKNOWN } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
+import { orNull } from '../../shared/text'
 import { useMounted } from '../useMounted'
 
 /**
@@ -195,10 +196,8 @@ export default function SettlementGrid({
       settlementLines.push({
         auction_lot_id: lot.id,
         result: line.result,
-        hammer_price:
-          sold && line.hammer_price.trim() !== '' ? line.hammer_price.trim() : null,
-        buyer_username:
-          sold && line.buyer_username.trim() !== '' ? line.buyer_username.trim() : null,
+        hammer_price: sold ? orNull(line.hammer_price) : null,
+        buyer_username: sold ? orNull(line.buyer_username) : null,
       })
     }
     const fees = buyers

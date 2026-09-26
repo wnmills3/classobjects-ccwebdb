@@ -5,6 +5,7 @@ import { api } from '../../api'
 import ModalDialog from '../../ModalDialog'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import { isMoney } from '../../../shared/cents'
+import { orNull } from '../../../shared/text'
 import { FORMATS, UNKNOWN } from '../listing-labels'
 import {
   estimatedFees,
@@ -58,9 +59,6 @@ const KEYS = {
   format: 'o',
   offer: 's',
 }
-
-/** A blank listing number is an absence, which the API spells `null`. */
-const orNull = (text) => (text.trim() === '' ? null : text.trim())
 
 /**
  * What is being offered, as one row each, whichever shape it arrived in.
