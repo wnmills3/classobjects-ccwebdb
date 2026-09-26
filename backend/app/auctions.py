@@ -162,6 +162,19 @@ class AuctionRefused(Exception):
         )
 
 
+def _custody_away(auction: Auction, purpose: str = "") -> str:
+    """The refusal when a consigned auction's coins must come home first.
+
+    Said the same way by `remove_lot`, `cancel` and `settle`: the house still
+    holds the coins, so the caller has to name where they return to.
+    `purpose` finishes the sentence with what they are coming back for.
+    """
+    return (
+        f"auction #{auction.id}: custody has not returned from the auction "
+        f"house, so returned_to_location_id is required{purpose}"
+    )
+
+
 class SettlementInputInvalid(AuctionRefused):
     """The settlement grid itself is malformed, not in conflict with the state.
 
@@ -412,9 +425,9 @@ def _remove_lot(
     if auction.consigned_on is not None:
         if returned_to_location_id is None:
             raise AuctionRefused(
-                f"auction #{auction.id}: custody has not returned from the "
-                "auction house, so returned_to_location_id is required to "
-                "bring its items back before the lot can be removed"
+                _custody_away(
+                    auction, " to bring its items back before the lot can be removed"
+                )
             )
         _return_from_consignment(
             db, auction_lot, returned_to_location_id, user_id=user_id
@@ -711,9 +724,9 @@ def cancel(
         raise AuctionRefused(f"auction #{auction.id} is already {auction.status.value}")
     if auction.consigned_on is not None and returned_to_location_id is None:
         raise AuctionRefused(
-            f"auction #{auction.id}: custody has not returned from the "
-            "auction house, so returned_to_location_id is required to bring "
-            "its items back before it can be cancelled"
+            _custody_away(
+                auction, " to bring its items back before it can be cancelled"
+            )
         )
     still_consigned = auction.consigned_on is not None
     for auction_lot in _lots_of(db, auction):
@@ -1034,9 +1047,9 @@ def _grid_problems(
         if coming_home:
             problems.append(
                 _Problem(
-                    f"auction #{auction.id}: custody has not returned from the "
-                    "auction house, so returned_to_location_id is required to "
-                    f"bring back lot(s) {', '.join(coming_home)}"
+                    _custody_away(
+                        auction, f" to bring back lot(s) {', '.join(coming_home)}"
+                    )
                 )
             )
     return problems
@@ -1296,11 +1309,7 @@ def settle(
         ]
         if coming_home and auction.consigned_on is not None:
             if returned_to_location_id is None:  # pragma: no cover - refused above
-                raise AuctionRefused(
-                    f"auction #{auction.id}: custody has not returned from "
-                    "the auction house, so returned_to_location_id is "
-                    "required"
-                )
+                raise AuctionRefused(_custody_away(auction))
             # Every return before any ending, never interleaved:
             # `_return_from_consignment` reads a lot's coins through
             # `offered_items`, which `end_offer` releases.
