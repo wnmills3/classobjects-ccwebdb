@@ -1,7 +1,13 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../../api'
-import { fieldFitsKind, fitsKind, isCurrencyKind } from '../../../shared/kinds'
+import {
+  PRINTING_FACILITIES,
+  fieldFitsKind,
+  fitsKind,
+  gradeFitsKind,
+  isCurrencyKind,
+} from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
@@ -606,10 +612,7 @@ export default function NewItemForm({
             table="grade"
             value={form.grade}
             onChange={set('grade')}
-            // A note is offered only the paper-money scale, and anything
-            // else only the coin scales -- the same filter the item editor
-            // applies.
-            filter={(grade) => (grade.extra?.grade_scale === 'note') === isCurrency}
+            filter={(grade) => gradeFitsKind(grade, form.item_kind)}
             {...accel('g')}
           />
         </label>
@@ -714,8 +717,11 @@ export default function NewItemForm({
                 onChange={set('printing_facility')}
               >
                 <option value="">--</option>
-                <option value="dc">Washington, DC</option>
-                <option value="fw">Fort Worth, TX</option>
+                {PRINTING_FACILITIES.map(([code, label]) => (
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </label>
             <label data-help="series_year">

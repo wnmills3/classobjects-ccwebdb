@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
+import { PRINTING_FACILITIES } from '../../../shared/kinds'
 import { webSearchText } from './webSearchText'
 import HelpScope from '../../HelpScope'
 
@@ -521,8 +522,11 @@ export default function FriedbergLookup({
                 Printed at
                 <select value={printing} onChange={(e) => setPrinting(e.target.value)}>
                   <option value="">Not known</option>
-                  <option value="dc">Washington, DC</option>
-                  <option value="fw">Fort Worth, TX</option>
+                  {PRINTING_FACILITIES.map(([code, label]) => (
+                    <option key={code} value={code}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label data-help="face_plate_number">

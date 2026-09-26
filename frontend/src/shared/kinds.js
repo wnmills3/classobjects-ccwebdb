@@ -72,6 +72,23 @@ export function fieldFitsKind(field, itemKind) {
   return true
 }
 
+//: Where a note was printed: `printing_facility`'s codes and their names.
+export const PRINTING_FACILITIES = [
+  ['dc', 'Washington, DC'],
+  ['fw', 'Fort Worth, TX'],
+]
+
+/**
+ * Whether a grade may be offered for an item of `itemKind`.
+ *
+ * Paper money is graded on its own scale, and every other scale is a coin's:
+ * a note is offered only note grades, and anything else only the coin
+ * scales. The scales share no values -- MS64 means nothing for a banknote.
+ */
+export function gradeFitsKind(grade, itemKind) {
+  return (grade?.extra?.grade_scale === 'note') === isCurrencyKind(itemKind)
+}
+
 /** Whether a reference value may be offered for an item of `itemKind`. */
 export function fitsKind(entry, itemKind) {
   const side = sideFor(itemKind)
