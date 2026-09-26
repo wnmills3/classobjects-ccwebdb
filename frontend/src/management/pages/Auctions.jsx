@@ -512,7 +512,13 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
   const addable = LOTS_ADDABLE_STATUSES.includes(auction.status)
   const cancellable = !['settled', 'cancelled'].includes(auction.status)
 
-  async function run(action, doneNotice) {
+  /**
+   * One write to this auction: `action` returns the auction as saved, which
+   * replaces the row and is announced with `doneNotice`. `done` runs after a
+   * success only; `settled` after either outcome -- closing a confirmation,
+   * whose question is answered whether or not the write was refused.
+   */
+  async function run(action, doneNotice, { done, settled } = {}) {
     setBusy(true)
     setRefusal('')
     setNotice('')
@@ -520,10 +526,13 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
       const saved = await action()
       if (!mounted.current) return
       onChanged(saved)
+      done?.()
+      settled?.()
       setNotice(doneNotice)
     } catch (err) {
       if (!mounted.current) return
       setRefusal(err.message)
+      settled?.()
     } finally {
       if (mounted.current) setBusy(false)
     }
@@ -541,71 +550,45 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
     }))
   }
 
-  async function saveLot(lot) {
+  function saveLot(lot) {
     const draft = draftFor(lot)
-    setBusy(true)
-    setRefusal('')
-    setNotice('')
-    try {
-      const saved = await api.updateAuctionLot(auction.id, lot.id, {
-        lot_number: draft.lot_number.trim(),
-        reserve: orNull(draft.reserve),
-      })
-      if (!mounted.current) return
-      onChanged(saved)
-      setLotDrafts((current) => {
-        const next = { ...current }
-        delete next[lot.id]
-        return next
-      })
-      setNotice(`Lot ${draft.lot_number.trim()} saved.`)
-    } catch (err) {
-      if (!mounted.current) return
-      setRefusal(err.message)
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
+    const number = draft.lot_number.trim()
+    return run(
+      () =>
+        api.updateAuctionLot(auction.id, lot.id, {
+          lot_number: number,
+          reserve: orNull(draft.reserve),
+        }),
+      `Lot ${number} saved.`,
+      {
+        done: () =>
+          setLotDrafts((current) => {
+            const next = { ...current }
+            delete next[lot.id]
+            return next
+          }),
+      },
+    )
   }
 
-  async function removeLot(lot, locationId) {
-    setBusy(true)
-    setRefusal('')
-    setNotice('')
-    try {
-      const saved = await api.removeAuctionLot(auction.id, lot.id, locationId)
-      if (!mounted.current) return
-      onChanged(saved)
-      setRemoving(null)
-      setNotice(`Lot ${lot.lot_number} removed.`)
-    } catch (err) {
-      if (!mounted.current) return
-      setRefusal(err.message)
-      setRemoving(null)
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
+  function removeLot(lot, locationId) {
+    return run(
+      () => api.removeAuctionLot(auction.id, lot.id, locationId),
+      `Lot ${lot.lot_number} removed.`,
+      { settled: () => setRemoving(null) },
+    )
   }
 
-  async function cancelThisAuction(locationId) {
-    setBusy(true)
-    setRefusal('')
-    setNotice('')
-    try {
-      const saved = await api.cancelAuction(
-        auction.id,
-        locationId ? { returned_to_location_id: locationId } : {},
-      )
-      if (!mounted.current) return
-      onChanged(saved)
-      setCancelling(false)
-      setNotice('Auction cancelled.')
-    } catch (err) {
-      if (!mounted.current) return
-      setRefusal(err.message)
-      setCancelling(false)
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
+  function cancelThisAuction(locationId) {
+    return run(
+      () =>
+        api.cancelAuction(
+          auction.id,
+          locationId ? { returned_to_location_id: locationId } : {},
+        ),
+      'Auction cancelled.',
+      { settled: () => setCancelling(false) },
+    )
   }
 
   function lotAdded(saved) {
