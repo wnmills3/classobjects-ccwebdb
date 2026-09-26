@@ -309,6 +309,23 @@ export default function NewPurchase() {
   //: its response happens to arrive last.
   const pickToken = useRef(0)
 
+  /**
+   * Read purchase `id` and show it, unless a later pick, reload or "Start
+   * another purchase" has moved on by the time it answers. A failure is
+   * handed to `onError`, under the same guard.
+   */
+  const fetchPurchase = useCallback((id, onError) => {
+    const token = ++pickToken.current
+    api
+      .getPurchaseOrder(id)
+      .then((body) => {
+        if (pickToken.current === token) setPurchase(body)
+      })
+      .catch((err) => {
+        if (pickToken.current === token) onError(err.message)
+      })
+  }, [])
+
   // Tax defaults for every item entered on this purchase. The rate box
   // starts empty, meaning "use the configured default" (`tax_rate: null`);
   // ticking "No sales tax charged" is what actually sends a zero rate.
@@ -363,19 +380,11 @@ export default function NewPurchase() {
   const linkedOrder = Number(searchParams.get('order')) || null
   useEffect(() => {
     if (linkedOrder === null) return undefined
-    const token = ++pickToken.current
-    api
-      .getPurchaseOrder(linkedOrder)
-      .then((body) => {
-        if (pickToken.current === token) setPurchase(body)
-      })
-      .catch((err) => {
-        if (pickToken.current === token) setPickError(err.message)
-      })
+    fetchPurchase(linkedOrder, setPickError)
     return () => {
       pickToken.current += 1
     }
-  }, [linkedOrder])
+  }, [linkedOrder, fetchPurchase])
 
   function set(key) {
     return (e) => setForm({ ...form, [key]: e.target.value })
@@ -383,15 +392,7 @@ export default function NewPurchase() {
 
   function pickExisting(id) {
     setPickError('')
-    const token = ++pickToken.current
-    api
-      .getPurchaseOrder(id)
-      .then((body) => {
-        if (pickToken.current === token) setPurchase(body)
-      })
-      .catch((err) => {
-        if (pickToken.current === token) setPickError(err.message)
-      })
+    fetchPurchase(id, setPickError)
   }
 
   async function createPurchase(e) {
@@ -422,15 +423,7 @@ export default function NewPurchase() {
   // answer back on screen (code review, 2026-09-23).
   function reloadPurchase() {
     if (!purchase) return
-    const token = ++pickToken.current
-    api
-      .getPurchaseOrder(purchase.id)
-      .then((body) => {
-        if (pickToken.current === token) setPurchase(body)
-      })
-      .catch((err) => {
-        if (pickToken.current === token) setReloadError(err.message)
-      })
+    fetchPurchase(purchase.id, setReloadError)
   }
 
   function startAnother() {
