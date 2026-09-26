@@ -36,32 +36,52 @@ RATING = "rating"
 #: Not a rule: a person emptied the field, and it is to stay empty.
 HELD = "held"
 
+#: Rows per upsert statement: four bound parameters each, well inside
+#: PostgreSQL's 65535-parameter limit for a bulk edit of the whole collection.
+_ROWS_PER_STATEMENT = 5000
 
-def record_derived(
-    db: Session, item_id: int, fields: Iterable[str], derived_by: str
+
+def _record(
+    db: Session, item_ids: Iterable[int], fields: Iterable[str], derived_by: str
 ) -> None:
-    """Mark fields of one item as holding a default filled by `derived_by`."""
+    """Mark every field of every item as filled by `derived_by`, in bulk.
+
+    One upsert per `_ROWS_PER_STATEMENT` rows rather than one per item. Ids
+    and names are de-duplicated first: PostgreSQL refuses an `ON CONFLICT DO
+    UPDATE` that would touch one row twice in a single statement.
+    """
+    stamp = utcnow()
+    names = list(dict.fromkeys(fields))
     rows = [
         {
             "inventory_item_id": item_id,
             "field_name": field,
             "derived_by": derived_by,
-            "derived_at": utcnow(),
+            "derived_at": stamp,
         }
-        for field in fields
+        for item_id in dict.fromkeys(item_ids)
+        for field in names
     ]
-    if not rows:
-        return
-    statement = insert(ItemFieldSource).values(rows)
-    db.execute(
-        statement.on_conflict_do_update(
-            constraint="uq_item_field_source",
-            set_={
-                "derived_by": statement.excluded.derived_by,
-                "derived_at": statement.excluded.derived_at,
-            },
+    for start in range(0, len(rows), _ROWS_PER_STATEMENT):
+        statement = insert(ItemFieldSource).values(
+            rows[start : start + _ROWS_PER_STATEMENT]
         )
-    )
+        db.execute(
+            statement.on_conflict_do_update(
+                constraint="uq_item_field_source",
+                set_={
+                    "derived_by": statement.excluded.derived_by,
+                    "derived_at": statement.excluded.derived_at,
+                },
+            )
+        )
+
+
+def record_derived(
+    db: Session, item_id: int, fields: Iterable[str], derived_by: str
+) -> None:
+    """Mark fields of one item as holding a default filled by `derived_by`."""
+    _record(db, [item_id], fields, derived_by)
 
 
 def forget(db: Session, item_ids: Iterable[int], fields: Iterable[str]) -> None:
@@ -79,9 +99,7 @@ def forget(db: Session, item_ids: Iterable[int], fields: Iterable[str]) -> None:
 
 def hold(db: Session, item_ids: Iterable[int], fields: Iterable[str]) -> None:
     """A person has emptied these fields: keep them empty."""
-    names = list(fields)
-    for item_id in item_ids:
-        record_derived(db, item_id, names, HELD)
+    _record(db, item_ids, fields, HELD)
 
 
 def derived_fields(db: Session, item_id: int) -> dict[str, str]:
