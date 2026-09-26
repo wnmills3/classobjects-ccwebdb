@@ -1,41 +1,19 @@
-import { useEffect, useState } from 'react'
-
 import { api } from '../../shared/api'
 import { date, money } from '../../shared/format'
+import { useRequest } from '../../shared/useRequest'
 
 /**
  * The shopper's own orders.
  *
- * Only their own, whoever is signed in. This page used to turn into "All
- * orders" with a status control for an administrator; that is the owner
- * console's Sales page now, and the shop keeps no admin view.
+ * Only their own, whoever is signed in, an administrator included. Every
+ * order, and changing an order's status, is the console's Sales page; the
+ * shop has no admin view.
  */
 export default function Orders() {
-  const [orders, setOrders] = useState([])
-  const [error, setError] = useState('')
-  const [loaded, setLoaded] = useState(false)
+  const { data, error, busy } = useRequest('mine', () => api.listMyOrders())
+  const orders = data ?? []
 
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listMyOrders()
-      .then((rows) => {
-        if (cancelled) return
-        setOrders(rows)
-        setError('')
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message)
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (!loaded) return <p className="muted">Loading...</p>
+  if (busy) return <p className="muted">Loading...</p>
 
   return (
     <section>

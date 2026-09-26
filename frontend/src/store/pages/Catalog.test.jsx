@@ -1,4 +1,5 @@
-import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../shared/api', () => ({ api: { listCatalog: vi.fn() } }))
@@ -9,12 +10,16 @@ import { renderWithProviders } from '../../test/helpers'
 
 beforeEach(() => vi.clearAllMocks())
 
-const page = (items) => ({ items, total: items.length })
+// The shape `GET /api/catalog` answers with: one page of entries, and where
+// that page sits in the whole.
+const page = (items) => ({ items, total: items.length, limit: 12, offset: 0 })
 
 describe('Catalog', () => {
   it('renders an item with its formatted price', async () => {
     api.listCatalog.mockResolvedValue(
-      page([{ id: 1, title: 'Morgan Dollar 1921', price: '89.5', in_stock: true }]),
+      page([
+        { id: 1, title: 'Morgan Dollar 1921', price: '89.5', quantity_available: 1 },
+      ]),
     )
     renderWithProviders(<Catalog />)
 
@@ -38,6 +43,26 @@ describe('Catalog', () => {
     api.listCatalog.mockRejectedValue(new Error('catalog is unavailable'))
     renderWithProviders(<Catalog />)
     expect(await screen.findByText('catalog is unavailable')).toBeInTheDocument()
+  })
+
+  it('asks the catalog once for what was typed, not once per keystroke', async () => {
+    const user = userEvent.setup()
+    api.listCatalog.mockResolvedValue(page([]))
+    renderWithProviders(<Catalog />)
+    await screen.findByText('No items match those filters.')
+
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search the catalog' }),
+      'peace',
+    )
+
+    await waitFor(() =>
+      expect(api.listCatalog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: 'peace' }),
+      ),
+    )
+    const asked = api.listCatalog.mock.calls.map(([params]) => params.q)
+    expect(asked).toEqual(['', 'peace'])
   })
 })
 

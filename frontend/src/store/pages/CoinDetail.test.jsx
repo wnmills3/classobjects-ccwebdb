@@ -1,5 +1,6 @@
+import userEvent from '@testing-library/user-event'
 import { screen } from '@testing-library/react'
-import { Route, Routes } from 'react-router-dom'
+import { Link, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Only the method the page is supposed to call. That is deliberate: the page
@@ -11,7 +12,7 @@ vi.mock('../../shared/api', () => ({ api: { getCatalogItem: vi.fn() } }))
 
 import { api } from '../../shared/api'
 import CoinDetail from './CoinDetail'
-import { emptyCart, renderWithProviders } from '../../test/helpers'
+import { emptyCart, emptyReference, renderWithProviders } from '../../test/helpers'
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -76,6 +77,49 @@ describe('CoinDetail', () => {
     api.getCatalogItem.mockRejectedValue(new Error('that coin is not for sale'))
     show()
     expect(await screen.findByText('that coin is not for sale')).toBeInTheDocument()
+  })
+
+  it('names the type by its label, not its code', async () => {
+    api.getCatalogItem.mockResolvedValue({ ...COIN, item_kind: 'bullion' })
+    show({
+      reference: emptyReference({
+        tables: { item_kind: [{ code: 'bullion', label: 'Bullion' }] },
+      }),
+    })
+    expect(await screen.findByText('Bullion')).toBeInTheDocument()
+    expect(screen.queryByText('bullion')).toBeNull()
+  })
+
+  it('never shows the previous entry while the next one loads', async () => {
+    // A link from one entry to another changes the id without remounting
+    // the page; the first coin stayed on screen, under the second's URL,
+    // until the second arrived.
+    const user = userEvent.setup()
+    let arrive
+    api.getCatalogItem.mockImplementation((id) =>
+      id === '7'
+        ? Promise.resolve(COIN)
+        : new Promise((resolve) => {
+            arrive = resolve
+          }),
+    )
+    renderWithProviders(
+      <>
+        <Link to="/coin/8">next</Link>
+        <Routes>
+          <Route path="/coin/:id" element={<CoinDetail />} />
+        </Routes>
+      </>,
+      { route: '/coin/7' },
+    )
+    expect(await screen.findByText('Morgan Dollar 1921')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('link', { name: 'next' }))
+
+    expect(screen.queryByText('Morgan Dollar 1921')).toBeNull()
+    expect(screen.getByText('Loading...')).toBeInTheDocument()
+    arrive({ ...COIN, id: 8, title: 'Peace Dollar 1922' })
+    expect(await screen.findByText('Peace Dollar 1922')).toBeInTheDocument()
   })
 })
 
