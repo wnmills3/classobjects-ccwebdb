@@ -27,9 +27,6 @@ export const api = {
 
   renameReferenceValue: (table, code, payload) =>
     send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),
-  // Retired values and removed aliases included, for the Vocabularies page.
-  getReferenceForEditing: (table) =>
-    send(withQuery(`/api/reference/${table}`, { include_inactive: true })),
   // dryRun: say what would move, change nothing. acknowledgeForSale: the
   // operator has seen the preview's for-sale items and confirmed the merge
   // should move them anyway.

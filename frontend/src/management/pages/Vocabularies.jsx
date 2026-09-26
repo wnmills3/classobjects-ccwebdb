@@ -57,7 +57,10 @@ function describe(result, value, target) {
   )
 }
 
-function MergePanel({ table, value, others, onMerged, onCancel }) {
+function MergePanel({ table, value, active, onMerged, onCancel }) {
+  // Worked out here, for the one row being merged, rather than for every
+  // row of the table on every render.
+  const others = active.filter((v) => v.code !== value.code)
   const [into, setInto] = useState('')
   const [preview, setPreview] = useState(null)
   const [error, setError] = useState('')
@@ -137,7 +140,7 @@ function MergePanel({ table, value, others, onMerged, onCancel }) {
   )
 }
 
-function ValueRow({ table, value, others, shared, sequenced, onChanged, onMerged }) {
+function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged }) {
   const [draft, setDraft] = useState('')
   // The position being typed, as text; the value's own until it is edited.
   const [order, setOrder] = useState(String(value.sort_order))
@@ -236,7 +239,7 @@ function ValueRow({ table, value, others, shared, sequenced, onChanged, onMerged
               <MergePanel
                 table={table}
                 value={value}
-                others={others}
+                active={active}
                 onMerged={onMerged}
                 onCancel={() => setMerging(false)}
               />
@@ -393,7 +396,7 @@ export default function Vocabularies() {
   useEffect(() => {
     let current = true
     api
-      .getReferenceForEditing(table)
+      .getReference(table)
       .then((body) => {
         if (current)
           setLoaded({
@@ -436,8 +439,11 @@ export default function Vocabularies() {
     context?.invalidate(table)
   }
 
-  const shown = values ? findEntries(values, find).map(({ entry }) => entry) : []
-  const active = (values ?? []).filter((v) => v.is_active)
+  const shown = useMemo(
+    () => (values ? findEntries(values, find).map(({ entry }) => entry) : []),
+    [values, find],
+  )
+  const active = useMemo(() => (values ?? []).filter((v) => v.is_active), [values])
 
   return (
     <section>
@@ -498,7 +504,7 @@ export default function Vocabularies() {
                 key={`${value.code}:${value.sort_order}`}
                 table={table}
                 value={value}
-                others={active.filter((v) => v.code !== value.code)}
+                active={active}
                 shared={(alias) => (counts.get(alias.toLowerCase()) ?? 0) > 1}
                 sequenced={sequenced}
                 onChanged={changed}
