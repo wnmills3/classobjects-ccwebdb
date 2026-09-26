@@ -1,9 +1,9 @@
 # Orders entered and edited on a customer's behalf
 
-The management console is a superset of the shop: anything a customer can do, an
-administrator can do from `/management`. For orders that means placing an order
+The management console is a superset of the shop: anything a customer can do, a
+manager can do from `/management`. For orders that means placing an order
 for someone else -- a phone, walk-in or in-person sale -- and changing an
-order after it is placed. Because an administrator can act for a buyer and
+order after it is placed. Because a manager can act for a buyer and
 re-price a paid order, every order records who placed it and every change
 to it.
 
@@ -13,11 +13,11 @@ to it.
 |---|---|
 | Who an order can be for | **Any customer record**, account holder or not. Choosing an account with no customer record creates one. |
 | When contents may change | **While `pending` or `paid`.** Not from `packed` on, and not when `cancelled` or `refunded`. |
-| Line prices | **The listing's price by default; an administrator may override it** (not below zero). Existing lines keep the price they were bought at unless changed. |
+| Line prices | **The listing's price by default; a manager may override it** (not below zero). Existing lines keep the price they were bought at unless changed. |
 | Accountability | **Who placed the order, plus a history row for every change.** |
-| Shape | **One order-writing module (`app/order_writes.py`) behind separate admin endpoints.** The shop's `POST /api/orders` keeps its contract. |
+| Shape | **One order-writing module (`app/order_writes.py`) behind separate manager endpoints.** The shop's `POST /api/orders` keeps its contract. |
 
-Admin-only fields on the shop's endpoints were rejected: one role check
+Manager-only fields on the shop's endpoints were rejected: one role check
 would stand between a shopper and setting their own price. Line-by-line
 endpoints were rejected: "swap this coin for that one" would be two calls
 that can half-succeed.
@@ -31,8 +31,8 @@ page's Record sale, which refuses store listings (`selling-design.md`).
 
 | Column | Meaning |
 |---|---|
-| `placed_by_id` | FK `users`, `ON DELETE SET NULL`, nullable. The account that entered the order: the buyer, or the administrator acting for them. |
-| `version` | `version_id_col`. Two administrators editing one order cannot overwrite each other silently. |
+| `placed_by_id` | FK `users`, `ON DELETE SET NULL`, nullable. The account that entered the order: the buyer, or the manager acting for them. |
+| `version` | `version_id_col`. Two managers editing one order cannot overwrite each other silently. |
 
 **`sales_order_change`**, one row per individual change:
 
@@ -108,11 +108,11 @@ cancelled order cannot be moved to another status.
 | Endpoint | Access | Behavior |
 |---|---|---|
 | `POST /api/orders` | signed in | Shop checkout: `place_order` for the caller's own customer record, listing prices only. |
-| `POST /api/customers/{id}/orders` | admin | Place an order for that customer: `items` of `{listing_id, quantity, unit_price?}`, optional `notes`. Unknown customer: 404. |
-| `POST /api/users/{id}/customer` | admin | Find or create the customer record behind an account. |
-| `PUT /api/orders/{id}` | admin | `revise_order`. Body: `version`, `customer_id`, `items` of `{listing_id, quantity, unit_price}`, `notes`. |
-| `GET /api/orders/{id}/changes` | admin | Change rows, newest first, with the changing account's email and each line's listing title. |
-| `PATCH /api/orders/{id}` | admin | Status, as above. |
+| `POST /api/customers/{id}/orders` | manager | Place an order for that customer: `items` of `{listing_id, quantity, unit_price?}`, optional `notes`. Unknown customer: 404. |
+| `POST /api/users/{id}/customer` | manager | Find or create the customer record behind an account. |
+| `PUT /api/orders/{id}` | manager | `revise_order`. Body: `version`, `customer_id`, `items` of `{listing_id, quantity, unit_price}`, `notes`. |
+| `GET /api/orders/{id}/changes` | manager | Change rows, newest first, with the changing account's email and each line's listing title. |
+| `PATCH /api/orders/{id}` | manager | Status, as above. |
 
 Request schemas forbid extra fields. 422 for a quantity below 1, a unit price
 below 0, a listing twice in one order, or no lines -- an order is emptied by
@@ -156,13 +156,13 @@ exactly where the server would refuse it (`listing_ended`).
 - Stock: raising, lowering and removing lines move stock by the delta;
   swapping listings in one save; `listed`/`sold` as edits cross zero; an
   over-request refused with nothing changed.
-- Concurrency (`tests/test_order_revision_race.py`): an admin edit and a
+- Concurrency (`tests/test_order_revision_race.py`): a manager's edit and a
   checkout contending for a last unit on real threads -- one succeeds, stock
   never negative; two edits at one version, the second 409; a concurrent
   edit to an item does not refuse a revision or a cancellation.
 - Rules: editable statuses, version, price and quantity bounds, duplicate
   listings, at least one line, unknown customer and listing.
-- Access: each admin endpoint is 401 signed out and 403 for a shopper,
+- Access: each manager endpoint is 401 signed out and 403 for a shopper,
   writing nothing.
 - History: one row per difference; none for a no-op; `placed` on both paths;
   `status` rows; `payment_adjustment_due` only after a paid total changes.

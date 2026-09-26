@@ -55,22 +55,12 @@ Named volumes: `sonar-db-data`, `sonarqube-data`, `sonarqube-extensions`,
 **Why a separate MCP launcher.** The CLI's own `sonar run mcp` starts its
 container on the default bridge network with `SONARQUBE_URL=http://localhost:9000`
 and no `--network` flag, so `localhost` is the container itself and it dies
-with `Connection refused`. `ccweb_sonar_mcp.cmd` joins `sonar-net` instead.
-`.mcp.json` (gitignored, hand-edited) points at it:
-
-```json
-{
-  "mcpServers": {
-    "sonarqube": {
-      "command": "scripts\\ccweb_sonar_mcp.cmd"
-    }
-  }
-}
-```
-
-**Do not run `sonar integrate claude`** on a machine where this works: it
-overwrites `.mcp.json` with the `sonar run mcp` launcher and breaks MCP again.
-If that happens, restore the file above.
+with `Connection refused`. `ccweb_sonar_mcp.cmd` joins `sonar-net` instead,
+and `.mcp.json` (gitignored, hand-edited) points at it.
+`sonar integrate claude` overwrites `.mcp.json` with the `sonar run mcp`
+launcher and breaks MCP again; the file's contents, to restore it, are in
+[runtime-operations.md](../runtime-operations.md) (*SonarQube (local
+server)*).
 
 ## Configuration
 
@@ -110,15 +100,10 @@ Ignored by git: `coverage.xml`, `.scannerwork/`, `frontend/coverage/`,
 ## Authentication
 
 The scanner and MCP containers cannot read the host keychain, so both take
-`SONAR_TOKEN` from the environment. Generate a token at
-`http://localhost:9000/account/security`, then:
-
-```
-set "SONAR_TOKEN=squ_..."
-```
-
-SonarQube ships `admin` / `admin` and forces a password change at first login,
-a manual browser step.
+`SONAR_TOKEN` from the environment. SonarQube ships `admin` / `admin` and
+forces a password change at first login, a manual browser step. The steps to
+log in, generate a token and set it are in
+[runtime-operations.md](../runtime-operations.md) (*SonarQube (local server)*).
 
 ## Verifying it works
 

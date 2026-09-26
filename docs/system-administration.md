@@ -397,19 +397,33 @@ relisting, because a returned item resumes its own history.
 | `POST /api/inventory/{id}/reviewed` | mark fields as confirmed by a person looking at the object |
 | `PUT /api/inventory/{id}/errors` | replace the item's recorded errors -- see *Errors* |
 
-**Editable scalars:** `source_title`, `description`, `year_start`, `year_end`,
-`fineness`, `gross_weight_ozt`, `fine_weight_ozt`, `piece_count`, `item_cost`,
-`shipping_cost`, `tax_rate`, `tax_includes_shipping`. The last two are NOT
-NULL, and a null for either is refused naming the field.
+**Editable scalars:** `source_title`, `description`, `sellers_item_id`,
+`year_start`, `year_end`, `fineness`, `gross_weight_ozt`, `fine_weight_ozt`,
+`piece_count`, `item_cost`, `shipping_cost`, `tax_rate`,
+`tax_includes_shipping`. The last two are NOT NULL, and a null for either is
+refused naming the field. A banknote holds no year of its own:
+`year_start`/`year_end` sent for a note is refused (422); send `series_year`.
 
 **Editable classifiers**, set by code rather than id: `item_kind`, `country`,
-`denomination`, `bullion_form`, `strike_type`, `grade`, `grade_designation`,
-`grading_service`, `metal`, `series`, `storage_form`, `authenticity`,
+`denomination`, `bullion_form`, `set_form`, `strike_type`, `grade`,
+`grade_designation`, `grading_service`, `metal`, `series`, `storage_form`, `authenticity`,
 `status`, `disposition` -- and a coin's `mint` (by code) and `variety`, on its coin detail, created if it has none and refused for a banknote. Five are NOT NULL (`item_kind`, `storage_form`,
 `authenticity`, `status`, `disposition`) and refuse a null or empty code.
 A designation of the other kind is refused naming the item -- EPQ or PPQ on
 anything but a note, DCAM, FBL and the rest on a note -- including by a bare
 `item_kind` change to an item that holds one.
+
+**Banknote fields**, on the note's detail and refused by name for any other
+kind: `note_type`, `seal_color`, `fed_district` and `signature_combination`
+(by code); `series_year`, `series_letter`, `serial_number`,
+`face_plate_number`, `back_plate_number`; and `printing_facility` (`dc` or
+`fw`), read from the face plate when one is sent -- a location sent beside a
+face plate that says otherwise is refused.
+
+**Attributes** (`attributes`, a list of codes) replace the item's whole set:
+one the item had and the list omits is marked removed, so no rule adds it
+back. `[]` clears them; null is refused. Single-item edits only -- bulk edit
+refuses them.
 
 **Certificate numbers** (`cert_numbers`, a list) replace the item's
 `item_certification` rows as a set: a number kept keeps its row, one omitted
@@ -427,7 +441,7 @@ Note Green Seal." for a note, "MS64 First Strike 1921-S Morgan Dollar.
 Silver, 0.7734 ozt fine." for a coin -- with recorded errors beside the attributes, right after the grade ("Error Note, Misaligned Print (Reverse) 1963A $1 ..."). No field
 labels, district, signatures or grading service. It writes nothing; Save
 keeps it. It is disabled while other edits are unsaved,
-since it reads the saved item. A listing's suggested title now carries the
+since it reads the saved item. A listing's suggested title carries the
 designation too ("PMG 64 EPQ").
 
 **A kind change moves the detail row** (`app.item_kinds`). An item made a
@@ -618,16 +632,16 @@ holding one item (`docs/specs/entry-panels-design.md`).
   that starts empty (the configured default), "No sales tax charged" (rate 0),
   and "Tax on shipping" (As configured / Taxed / Not taxed). An explicit rate
   must be 0-1 with up to four decimal places; `.0635` is accepted.
-- **Save and add another** keeps `item_kind`, `status`, `country`,
-  `denomination`, `series`, `series_year`, `series_letter`, `seal_color`,
-  `fed_district`, `note_type`, `grading_service`, `metal`, `mint` and the
-  purchase-wide tax defaults, and clears the rest (piece count back to 1).
+- **Save and add another** keeps what the next piece of the same purchase
+  usually shares, and the purchase-wide tax defaults, and clears the rest;
+  the exact list is in
+  [specs/entry-panels-design.md](specs/entry-panels-design.md) (*New item*).
 - **Receive these** opens Receiving for that purchase; **Start another
   purchase** returns to step one.
 
 The help band at the bottom of the console window explains whichever field
 has focus, on this form and every other. All four endpoints above are
-administrator-only.
+manager-only.
 
 ## Sales
 
@@ -786,11 +800,10 @@ label, promotion, other), showing gross, fees, net and margin.
 `POST /api/listings/{id}/sale` records the order (buyer matched or created,
 price, fees, per-item shares) and ends the listing as sold in one
 transaction. A store listing it had paused ends too rather than resuming. The
-order appears on Orders already `paid` (or `delivered` for an auction house).
+order appears on Sales already `paid` (or `delivered` for an auction house).
 
 A shop item sells through checkout; an in-person sale of one is an order
-placed for the customer. Whether **Record sale...** should also be offered on
-store listings is an open decision in `docs/specs/selling-design.md`.
+placed for the customer (*Sales*). **Record sale...** refuses store listings.
 
 ### Sales lots
 
@@ -839,7 +852,7 @@ divided by cost basis, which keeps per-coin gain answerable. Each member's
 A lot once offered is never deleted; the **Offered, sold and dissolved** table
 keeps it, as the record of which coins went out together. Only a lot never
 offered can be discarded. An order that bought a lot cannot be cancelled
-(see *Orders*); if the sale falls through, restore the coins by hand and group
+(see *Sales*); if the sale falls through, restore the coins by hand and group
 them again.
 
 **In the shop**, a store lot is one card and one detail page with one price

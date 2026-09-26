@@ -197,6 +197,7 @@ uv run python -m app.seed
 `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD` **plus five demo items with shop
 listings**. Both are idempotent. Never run `app.seed` against a real
 collection's database.
+
 ---
 
 ## Running the application
@@ -205,15 +206,10 @@ collection's database.
 scripts\ccweb_startup.cmd
 ```
 
-| | |
-|---|---|
-| Shop | http://127.0.0.1:5173 |
-| Management console | http://127.0.0.1:5173/management |
-| API docs | http://127.0.0.1:8000/docs |
-
-Sign in with the administrator from `.env`. Vite proxies `/api` to port 8000,
-so the browser talks to one origin and CORS is not involved during
-development.
+The addresses are in [runtime-operations.md](runtime-operations.md)
+(*Quick reference*). Sign in with the administrator from `.env`. Vite
+proxies `/api` to port 8000, so the browser talks to one origin and CORS is
+not involved during development.
 
 ## Running the tests
 
@@ -243,12 +239,11 @@ Two suites worth knowing about:
 
 ## Daily workflow
 
+Starting, stopping and checking the runtime, and the quality gate, are in
+[runtime-operations.md](runtime-operations.md) (*Quick reference*).
+
 | Task                        | Command                                          |
 | --------------------------- | ------------------------------------------------ |
-| See what is running         | `scripts\ccweb_status.cmd`                       |
-| Start everything            | `scripts\ccweb_startup.cmd`                      |
-| Stop everything             | `scripts\ccweb_shutdown.cmd`                     |
-| Run every quality gate      | `scripts\ccweb_check.cmd`                        |
 | Add a Python dependency     | `uv add <pkg>` (from repo root)                  |
 | Add a dev-only dependency   | `uv add --dev <pkg>`                             |
 | Add a JS dependency         | `npm install <pkg>` (from `frontend\`)           |

@@ -18,6 +18,7 @@ editor.
 | Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. |
 | Vendors | Picked from a list; a missing one is added inline. Names are unique, case-insensitively. |
 | Web addresses | A purchase's `source_url` must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing it. |
+| Repeated entry | **Save and add another** keeps exactly what the next piece of one purchase shares (`SHARED_ON_REPEAT` in `NewItemForm.jsx`, listed under *New item* below) and clears the rest. Grade, grade designation, serial number, certificate, variety, cost, shipping and piece count are per piece and always clear, even when they often repeat. |
 
 **Tax fields are three-state.** The tax-rate box starts empty, meaning the
 configured rate (sent as `tax_rate: null`); "No sales tax charged" sends 0 and
@@ -29,7 +30,7 @@ from "use the default", and the default is `true`.
 
 ## API
 
-All endpoints are administrator-only (401 signed out, 403 for a customer).
+All endpoints are manager-only (401 signed out, 403 for a customer).
 Request bodies forbid unknown fields (422). Money crosses as decimal strings.
 
 ### Vendors (`routers/acquisitions.py`)
@@ -57,17 +58,18 @@ Request bodies forbid unknown fields (422). Money crosses as decimal strings.
 | `item_kind` | required code |
 | `source_title` | required, 1-500 |
 | `description` | default "" |
-| `year_start`, `year_end` | a start with no end is a single year; end before start is a 422 |
+| `year_start`, `year_end` | a start with no end is a single year; end before start is a 422; refused for `currency` (a note's year is its `series_year`) |
 | `piece_count` | default 1, >= 1 |
 | `item_cost`, `shipping_cost` | default 0.00, >= 0, 2 places |
 | `tax_rate`, `tax_includes_shipping` | null -> the configured default |
 | `status` | `ordered` or `received` |
-| `country`, `denomination`, `grade`, `strike_type`, `grade_designation`, `grading_service`, `metal`, `series`, `bullion_form` | codes; unknown -> 422 naming the field. `grade` may be compound (`MS65`), split into number and strike type. |
+| `country`, `denomination`, `grade`, `strike_type`, `grade_designation`, `grading_service`, `metal`, `series`, `bullion_form`, `set_form` | codes; unknown -> 422 naming the field. `grade` may be compound (`MS65`), split into number and strike type. |
 | `storage_form` | null -> `single` |
 | `authenticity` | null -> `unverified` |
 | `cert_number` | creates one `item_certification`, graded by `grading_service` |
+| `sellers_item_id` | optional, <= 64; the seller's id for the listing it was bought from (eBay's item number); trimmed, blank -> null |
 | `mint`, `variety` | coin detail; refused for `currency` |
-| `serial_number`, `series_year`, `series_letter` (<= 4), `seal_color`, `fed_district`, `note_type`, `signature_combination` | currency detail; refused for any other kind |
+| `serial_number`, `series_year`, `series_letter` (<= 4), `seal_color`, `fed_district`, `note_type`, `signature_combination`, `face_plate_number`, `back_plate_number`, `printing_facility` | currency detail; refused for any other kind. A face plate is a check letter and digits (`E82`), digits alone, or either with `FW` before it; a back plate is digits; `printing_facility` is `dc` or `fw`, read from the face plate when one is sent |
 | `suggested` | field names whose value the form filled from the facts and the person left alone; recorded as derived defaults |
 
 A detail field for the other kind is a 422 naming the field: a silently
@@ -100,12 +102,14 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
 
 **New item** (`management/pages/entry/NewItemForm.jsx`):
 
-- Kind, title, description, year (with "Range of years"), piece count, cost,
-  shipping, status (ordered / received), country, denomination, strike type
-  (not for a note), grade, grade designation, grading service, certificate
-  number, metal (not for a note), series.
+- Kind, title, seller's item id, description, year (with "Range of years";
+  not for a note), piece count, cost, shipping, status (ordered / received),
+  country, denomination, set form (not for a note), strike type (not for a
+  note), grade, grade designation, grading service, certificate number,
+  metal (not for a note), series.
 - Coin block (not currency): mint, variety. Banknote block (currency): serial
-  number, series year and letter, note class, seal, signatures, Reserve Bank.
+  number, face plate, back plate, printing location ("Printed at"), series
+  year and letter, note class, seal, signatures, Reserve Bank.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
@@ -117,9 +121,10 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   with a Retry if that second step fails.
 - Money is validated with `isMoney` before sending.
 - **Save** clears the whole form. **Save and add another** keeps
-  `SHARED_ON_REPEAT` -- kind, status, country, denomination, series, series
-  year and letter, seal, district, note class, signatures, grading service,
-  metal, mint -- clears everything that varies piece to piece (title,
+  `SHARED_ON_REPEAT` -- kind, seller's item id, status, country,
+  denomination, series, series year and letter, seal, district, note class,
+  signatures, grading service, metal, mint -- clears everything that varies
+  piece to piece (title,
   description, years, grade, designation, serial, certificate, variety, cost,
   shipping, piece count back to 1) and focuses the title.
 - Keyboard accelerators via `accel` / `AccessLabel` (Alt+letter, avoiding D,

@@ -55,9 +55,10 @@ of one.
 - **`sales_fee_kind`**: `commission`, `processing`, `listing`,
   `shipping_label`, `promotion`, `other`.
 
-Both are small, closed vocabularies the product defines, so the migration
-that creates each table seeds it with an `INSERT`; they are the only two
-tables the schema seeds (`backend/app/models/__init__.py`).
+Both are small, closed vocabularies the product defines, so the baseline
+migration (`backend/alembic/baseline.sql`) seeds them with `INSERT`s. The
+only other rows it inserts are the own-store `sales_venue` and the six
+`strike_type` rows.
 **`storage_location_kind.consigned`** is a row in
 `data/reference/operations.json`, loaded by `python -m app.seeding load`.
 
@@ -155,19 +156,18 @@ because status alone cannot tell a sale from a withdrawal.
 An auction-format listing need not belong to an auction: the Offer dialog can
 put a coin on eBay by auction directly.
 
-**Removing a lot from an auction deletes its `auction_lot` row** (ruling
-R11), so its `lot_number` is free again at once; lot numbers stay editable
-until the sale. Two consequences: a removed lot leaves no auction-side record
+**Removing a lot from an auction deletes its `auction_lot` row**, so its
+`lot_number` is free again at once; lot numbers stay editable until the sale.
+Two consequences: a removed lot leaves no auction-side record
 (the coin's `location_history` is the only trace, if it was consigned), and
 an ended auction-format listing may have no `auction_lot` row. A lot pulled
 *after* the sale closed is a settlement result (`withdrawn`), recorded on a
-row settlement keeps -- which is why `remove_lot` refuses a `closed` auction
-(R14).
+row settlement keeps -- which is why `remove_lot` refuses a `closed` auction.
 
-**Custody is `consigned_on is not None`, not the status** (R13): `close`
+**Custody is `consigned_on is not None`, not the status**: `close`
 accepts a `consigned` auction and keeps the date, so a `closed` auction may
 still have coins at the house. `cancel`, `remove_lot` and `settle` then
-require a location to return them to (R9), and `cancel` and `settle` clear
+require a location to return them to, and `cancel` and `settle` clear
 the date once every coin is back.
 
 ### Sales
@@ -245,13 +245,13 @@ after any `auction` or `sales_order` row above them. See
 |---|---|
 | **Offer** an item or lot (platform, format, price, public text, external id) | Refused if any affected item is not `received`, is split or deleted, is already sold or held by an open order, is a member of an offered lot, has an active claim on a **non-store** listing ("end it first"), or the platform is retired. An active **store** listing of an affected item is **paused** with `paused_by_listing_id` set -- except that offering an item on the store while it is already active there is refused. The new listing and its claims are `active`; items become `listed`; a lot becomes `offered`. A batch is all or nothing and lists every refused item with its reason. |
 | **End** a listing | `ended`, claims `released`. Store listings it paused **resume**. A lot listing's lot **dissolves** (members released). Items nothing else offers go to `held`. Ending an ended listing changes nothing. An auction lot's listing cannot be ended here -- only through its auction. |
-| **Record a sale** on an outside listing | One order on that platform: buyer (matched or created), price, `external_order_id`, fee lines, shares, snapshot. The listing ends **sold**: claims released, the lot `sold`, members' paused store listings **ended** rather than resumed, items `sold`. Refused for a store listing and for a listing that is a lot of an auction (R25) -- that sells through settlement. |
+| **Record a sale** on an outside listing | One order on that platform: buyer (matched or created), price, `external_order_id`, fee lines, shares, snapshot. The listing ends **sold**: claims released, the lot `sold`, members' paused store listings **ended** rather than resumed, items `sold`. Refused for a store listing and for a listing that is a lot of an auction -- that sells through settlement. |
 | **Add to an auction** (`draft` or `scheduled`) | Offers the lot, or a new lot of one, with `format = auction`, and creates its `auction_lot`. Same refusals and pausing as Offer. |
 | **Remove from an auction** (not once `closed`), or **Cancel** | Ends its listings as for End and deletes the `auction_lot` rows; consigned coins return to the chosen location. |
 | **Schedule** | `draft` → `scheduled`. |
 | **Mark consigned** (auction houses, from `scheduled`) | `consigned_on` set, status `consigned`; every member moves to the house's consigned location. |
 | **Close** (from `scheduled` or `consigned`) | `closed`; lot results may now be entered. |
-| **Settle** (every lot has a result; every sold lot a price and buyer) | One transaction. **Sold** lots: one order per buyer (usernames compared case-insensitively, R17) holding their lots, with fees and shares, as Record a sale. **Unsold / withdrawn**: as End -- lot dissolved, paused store listings resume at their old price, other members `held`. Consigned coins return to the chosen location. Status `settled`. |
+| **Settle** (every lot has a result; every sold lot a price and buyer) | One transaction. **Sold** lots: one order per buyer (usernames compared case-insensitively) holding their lots, with fees and shares, as Record a sale. **Unsold / withdrawn**: as End -- lot dissolved, paused store listings resume at their old price, other members `held`. Consigned coins return to the chosen location. Status `settled`. |
 
 **Concurrency.** Row locks as above; the `offer_claim` partial unique index
 is the backstop if two requests still race. Platform, lot, auction and order

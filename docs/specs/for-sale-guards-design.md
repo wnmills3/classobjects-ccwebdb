@@ -99,17 +99,17 @@ safe. `app.photo_import` instead reports which linked items are for sale.
 (path, body list, image join, vocabulary join), so a dependency would need
 bespoke extraction each time and buys nothing over a plain call.
 
-**API-only paths are guarded too.** No console component calls split, and
-image deletion is not in `management/api.js`; both are guarded anyway, because a
-guard that exists only where a button exists is the wrong invariant.
+**API-only paths are guarded too.** Image deletion is not in
+`management/api.js`, but it is guarded anyway, because a guard that exists only
+where a button exists is the wrong invariant.
 
 ## The console
 
 - **`ForSaleNotice`** -- an inline notice with an acknowledgement checkbox,
-  shared by `ItemEditForm`, `BulkEditBar`, `ErrorsPanel`, `PhotosPanel` and
-  the Photos page. In `ErrorsPanel`, which saves on every change, the
-  acknowledgement is **per editing session, not per save**: re-asking on
-  each change would train the operator to tick it blind.
+  shared by `ItemEditForm`, `BulkEditBar`, `ErrorsPanel`, `PhotosPanel`,
+  `SplitDialog` and the Photos page. In `ErrorsPanel`, which saves on every
+  change, the acknowledgement is **per editing session, not per save**:
+  re-asking on each change would train the operator to tick it blind.
 - **`ForSaleConfirm`** -- a modal driven by the 409, used by `ReceiptPanel`,
   which holds no `sale_state` for what it receives. It names the items and
   says the listing will be ended; confirming resubmits with
@@ -138,6 +138,5 @@ that breaks between StrictMode and a non-strict harness.
 
 ## Not built
 
-- **A split screen in the console.** Splitting is API-only.
 - **Image deletion in the console.** `DELETE /api/images/{id}` is guarded but
   not exposed; the console detaches instead.

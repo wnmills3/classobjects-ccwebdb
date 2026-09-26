@@ -11,10 +11,11 @@ It exits non-zero if anything fails. Gate on that exit code; do not pipe the
 output through a filter that replaces it. Every gate is at zero findings, so
 any finding is new -- there is no backlog to read past.
 
-From Git Bash, run it as `cmd //c scripts\\ccweb_check.cmd`: a single `/c` is
-rewritten into a path and cmd exits 0 having run nothing. The gate is also a
-machine-wide mutex in practice -- never run two at once, since both pytest
-runs use the same `ccwebdb_test` database.
+From Git Bash, see the `cmd //c` form in
+[environment-setup.md](environment-setup.md) (*Gotchas*): a single `/c` runs
+nothing and exits 0. The gate is also a machine-wide mutex in practice --
+never run two at once, since both pytest runs use the same `ccwebdb_test`
+database.
 
 ---
 
@@ -51,8 +52,8 @@ bugbear, comprehensions, simplification, return hygiene, pathlib preference,
 and **`D` (every public class, method and function carries a docstring)** and
 **`ANN` (every function is annotated)**.
 
-Three exceptions exist (`pyproject.toml`), each because the rule does not
-describe the code:
+Three rule exceptions exist (`pyproject.toml`), each because the rule does not
+describe the code, plus Alembic's generated files:
 
 **`D203` and `D213` are mutually exclusive with rules that are enabled.**
 `D203` wants a blank line before a class docstring and `D211` none; `D213`
@@ -68,6 +69,12 @@ docstring.
 **Routers are exempt from `B008`.** FastAPI declares parameters by calling
 `File()`, `Form()` and `Depends()` in the default. B008 is right in general
 and wrong for this framework.
+
+**Alembic's generated files are not linted as project code.**
+`backend/alembic/versions` is excluded from ruff and lies outside mypy's
+`files`: a revision is written from Alembic's template, so checking it
+checks the template. `backend/alembic/env.py`, also generated, is exempt
+from `D`, `ANN` and `I`.
 
 ---
 
@@ -107,10 +114,10 @@ putting the runtime guard and its use in the same place.
 
 ## Frontend bundle isolation
 
-One source tree builds two applications, the shop (`src/store/`) and the owner
-console (`src/management/`); shared code lives in `src/shared/`. Neither
-application may ship the other's code. That is checked on two channels,
-because each catches what the other cannot:
+One source tree builds two applications, the shop (`src/store/`) and the
+management console (`src/management/`); shared code lives in `src/shared/`.
+Neither application may ship the other's code. That is checked on two
+channels, because each catches what the other cannot:
 
 1. **The source, by `eslint`.** `no-restricted-imports` catches a static
    `import ... from '../management/...'` in shop code or the reverse;
@@ -127,7 +134,7 @@ because each catches what the other cannot:
 
 It does **not** use Vite's `manifest.json` or grep the built JavaScript. The
 manifest never lists a chunk's modules, so it cannot say whether the chunk
-shared by both entries holds an console module -- exactly the case to catch.
+shared by both entries holds a console module -- exactly the case to catch.
 Minification renames identifiers, so a text search can pass for the wrong
 reason. The gate deletes `dist` before building so a failed build cannot leave
 a stale graph for the check to read.
