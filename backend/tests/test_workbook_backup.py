@@ -350,6 +350,63 @@ def test_the_live_database_is_refused_however_its_url_is_spelled(
         target.dispose()
 
 
+def _unreachable_live(target_url: str, *, database: str | None = None) -> str:
+    """The target's server under `localhost`, as a role that does not exist.
+
+    Connecting fails -- the role is refused before any database is opened --
+    so the live database cannot be asked who it is, while the URL still names
+    the target's host, port and (unless `database` says otherwise) database.
+    """
+    url = make_url(target_url)
+    return url.set(
+        host="localhost",
+        port=url.port or 5432,
+        username="ccwebdb_no_such_role",
+        database=database or url.database,
+    ).render_as_string(hide_password=False)
+
+
+def test_an_unreachable_live_database_is_refused_by_its_url(
+    pair: tuple[Engine, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The live server cannot answer, so its URL, normalised, is compared.
+
+    The target is spelled `127.0.0.1` with the default port left out; the live
+    URL says `localhost` and the port. Both name one host, port and database.
+    """
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    live = _unreachable_live(target_url)
+    monkeypatch.setattr(wb.settings, "database_url", live)
+    port = make_url(live).port
+    respelled = (
+        make_url(target_url)
+        .set(host="127.0.0.1", port=None if port == 5432 else port)
+        .render_as_string(hide_password=False)
+    )
+    with pytest.raises(wb.WorkbookError, match="is the live database"):
+        wb.import_workbook(path, respelled)
+    target = create_engine(target_url)
+    try:
+        with target.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM parent")).scalar() == 1
+    finally:
+        target.dispose()
+
+
+def test_an_unreachable_live_database_does_not_block_another(
+    pair: tuple[Engine, str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restore still runs while the live database is down, into another one."""
+    source, target_url = pair
+    path = tmp_path / "backup.xlsx"
+    wb.export_workbook(source, path)
+    live = _unreachable_live(target_url, database="ccwebdb_test_wb_elsewhere")
+    monkeypatch.setattr(wb.settings, "database_url", live)
+    wb.import_workbook(path, target_url)
+
+
 def test_a_database_that_already_holds_items_is_refused(
     pair: tuple[Engine, str], tmp_path: Path
 ) -> None:
