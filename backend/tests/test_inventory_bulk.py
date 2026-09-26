@@ -7,7 +7,10 @@ the UI should ever have to answer.
 
 from __future__ import annotations
 
-from app.models import Denomination, ItemKind, Metal
+import pytest
+from app import offering_writes
+from app.models import Denomination, ItemKind, Listing, Metal
+from app.routers import inventory
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -223,3 +226,19 @@ def test_bulk_refuses_an_empty_selection(
         headers=admin_headers,
     )
     assert response.status_code == 422
+
+
+def test_an_offer_holding_none_of_the_edited_items_names_every_change(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An offer the edit ends is noted with the edit's changes, not a 500.
+
+    `offers_holding` found the offer through the edited items, so its pieces
+    missing from them means a lot read differently; the note still names
+    what the edit did.
+    """
+    monkeypatch.setattr(offering_writes, "offered_items", lambda _db, _listing: [])
+    code = inventory._offer_standing_code(
+        db, Listing(id=7), {1: "sold", 2: "held", 3: "sold"}
+    )
+    assert code == "held, sold"

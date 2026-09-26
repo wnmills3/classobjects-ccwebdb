@@ -536,17 +536,16 @@ def _offer_standing_code(
 
     Per offer, because one request can change one item's status and
     another's disposition (an item that already holds the status sent).
-    A lot whose members changed differently names each change.
+    A lot whose members changed differently names each change. An offer
+    whose items read as none of the edited ones -- it was found through
+    them, so this is a lot read differently -- is named by every change
+    the edit made, rather than failing the request.
     """
     codes = {
         standing[item.id]
         for item in offering_writes.offered_items(db, listing)
         if item.id in standing
-    }
-    if not codes:
-        raise LookupError(
-            f"listing #{listing.id} holds none of the items this edit changes"
-        )
+    } or set(standing.values())
     return ", ".join(sorted(codes))
 
 
@@ -554,7 +553,7 @@ def _end_offers_holding(
     db: Session,
     item_ids: Sequence[int],
     locked: offering_writes.LockedForSale,
-    code_of: Callable[[Listing], str],
+    standing_of: Callable[[Listing], str],
     verb: str,
 ) -> None:
     """End every live offer still holding these items, after the caller's writes.
@@ -587,14 +586,14 @@ def _end_offers_holding(
       the offers ended, and nothing is written when one fires -- the router
       commits once, at the end.
 
-    `code_of` names the change each listing's items went through, and each
+    `standing_of` names the change each listing's items went through, and each
     offer is ended with the note `item {verb} {code}`. Ended through
     `offering_writes`, the only writer of listing status and claims.
     """
     db.flush()
     live_offers = list(offering_writes.offers_holding(db, item_ids))
     offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
-    codes = {live.id: code_of(live) for live in live_offers}
+    codes = {live.id: standing_of(live) for live in live_offers}
     for code in sorted(set(codes.values())):
         _refuse_auction_lots(
             db, [live for live in live_offers if codes[live.id] == code], code
@@ -1668,7 +1667,8 @@ def _note_changes(
     Resolved before anything is written, like every other code here, so an
     unknown seal color is a 422 that leaves the item untouched. `held` is
     the one note being edited, when there is one: a retired value it already
-    holds stays saveable (ruling S5). A bulk edit passes none.
+    holds stays saveable, so an old record can be saved back as it reads
+    (see `app.references`). A bulk edit passes none.
     """
     changes: dict[str, object] = {}
     for field, model in NOTE_CLASSIFIERS.items():
@@ -2251,8 +2251,9 @@ def update_item(
     # this comparison, against the value the caller actually sent, does.
     #
     # With a `base`, the save is merged field by field instead: a change made
-    # since only stops it where it touched a field this save changes (owner's
-    # ruling, 2026-09-23). The version is then not compared -- the base is
+    # since only stops it where it touched a field this save changes, so two
+    # people editing different fields of one item both keep their work. The
+    # version is then not compared -- the base is
     # the finer check -- and the version column still guards the narrow
     # window between this read and the commit, below.
     if base is not None:
@@ -2308,7 +2309,8 @@ def update_item(
             value = data[field]
             resolved: int | None
             # `keep`: a value this item already holds stays saveable after it
-            # is retired (ruling S5); only a new use of one is refused.
+            # is retired, so the form can save back what it loaded; only a
+            # new use of one is refused.
             held = getattr(item, f"{field}_id")
             if field in REQUIRED_CLASSIFIERS:
                 resolved = require_code(db, model, value, field, keep=held)
