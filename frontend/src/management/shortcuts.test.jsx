@@ -46,4 +46,31 @@ describe('useSaveShortcut', () => {
     fireEvent.keyDown(document, { key: 's' })
     expect(onSave).not.toHaveBeenCalled()
   })
+
+  it('answers only in the window opened last, even while that one is busy', () => {
+    const under = vi.fn()
+    const over = vi.fn()
+    const { rerender } = render(
+      <>
+        <Probe onSave={under} enabled />
+      </>,
+    )
+    rerender(
+      <>
+        <Probe onSave={under} enabled />
+        <Probe onSave={over} enabled={false} />
+      </>,
+    )
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    expect(under).not.toHaveBeenCalled()
+    expect(over).not.toHaveBeenCalled()
+
+    rerender(
+      <>
+        <Probe onSave={under} enabled />
+      </>,
+    )
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    expect(under).toHaveBeenCalledTimes(1)
+  })
 })

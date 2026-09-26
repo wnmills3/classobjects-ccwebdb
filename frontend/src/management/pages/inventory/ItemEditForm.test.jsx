@@ -994,6 +994,30 @@ describe('ItemEditForm keyboard accelerators', () => {
     fireEvent.keyDown(document, { key: 's', ctrlKey: true })
     await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
   })
+
+  it('leaves Ctrl+S to the offer dialog open on top of it', async () => {
+    api.updateInventoryItem.mockResolvedValue({})
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    await user.type(screen.getByRole('textbox', { name: /Description/ }), '!')
+
+    await user.click(await screen.findByRole('button', { name: 'Offer for sale...' }))
+    const dialog = await screen.findByRole('dialog', { name: /Offer 1 item/ })
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+
+    // The dialog on top took the shortcut: with no platform chosen it says
+    // so, and the edit form underneath saved nothing.
+    expect(
+      await within(dialog).findByText('Choose a platform to offer these on.'),
+    ).toBeInTheDocument()
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+
+    // Closed again, the shortcut is the form's once more.
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+  })
 })
 
 describe('field labels in the grid', () => {
