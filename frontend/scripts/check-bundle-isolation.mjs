@@ -12,9 +12,9 @@
  * minifies identifiers, so a grep can pass because the name it looked for was
  * renamed -- and a check that passes for the wrong reason is worse than none.
  *
- * Symmetric, unlike the one-directional check the spec describes. The lint
- * rules are symmetric and the extra direction costs nothing, so this closes
- * the case where console code reaches shop code by a route eslint cannot see.
+ * Symmetric, as the lint rules are: it also fails when the console's bundle
+ * reaches shop code, which closes the case where that happens by a route
+ * eslint cannot see.
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -60,9 +60,9 @@ const entries = Object.entries(chunks).filter(([, c]) => c.isEntry)
 const find = (name) => entries.find(([, c]) => c.name === name)?.[0]
 
 const store = find('store')
-const owner = find('management')
+const management = find('management')
 
-if (!store || !owner) {
+if (!store || !management) {
   console.error('Could not find both entry chunks in the bundle graph.')
   console.error(
     `  entry chunks present: ${entries.map(([f, c]) => `${f} (name=${c.name})`).join(', ') || '(none)'}`,
@@ -78,7 +78,7 @@ if (!store || !owner) {
 const failures = []
 for (const [entryFile, label, forbidden] of [
   [store, 'shop', 'src/management/'],
-  [owner, 'console', 'src/store/'],
+  [management, 'console', 'src/store/'],
 ]) {
   for (const file of reachable(chunks, entryFile)) {
     for (const module of chunks[file]?.modules ?? []) {
@@ -95,7 +95,7 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-const counted = new Set([...reachable(chunks, store), ...reachable(chunks, owner)])
+const counted = new Set([...reachable(chunks, store), ...reachable(chunks, management)])
 console.log(
   `Bundle isolation OK: neither entry reaches the other tree (${counted.size} chunks inspected).`,
 )

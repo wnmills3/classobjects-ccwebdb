@@ -87,7 +87,7 @@ popd
 
 if exist "frontend\node_modules\eslint" (
     echo === frontend lint ===
-    "%NODE%" frontend\node_modules\eslint\bin\eslint.js frontend
+    "%NODE%" frontend\node_modules\eslint\bin\eslint.js --max-warnings 0 frontend
     if errorlevel 1 set "FAILED=!FAILED! eslint"
 
     echo === frontend format ===
