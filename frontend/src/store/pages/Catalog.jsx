@@ -1,70 +1,55 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { api } from '../../shared/api'
 import { useReference } from '../../shared/reference-context'
+import { useDebounced } from '../../shared/useDebounced'
+import { useRequest } from '../../shared/useRequest'
 import { useCart } from '../cart-context'
 import { money } from '../../shared/format'
 import { summarize, thumbnail } from './lot-entry'
 
 const PAGE_SIZE = 12
 
+//: How long the search box must sit still before the catalog is asked.
+const SEARCH_DELAY_MS = 250
+
+const NO_RESULTS = { items: [], total: 0, limit: PAGE_SIZE, offset: 0 }
+
 /**
  * The catalog grid. Some cards are a coin; some are a LOT of coins.
  *
  * A lot carries no photograph and no country, year or grade of its own -- no
- * single value of any of them describes a group -- so a card that read only
- * those fields showed a lot as an untitled-looking, unpriced-looking,
- * pictureless box with a blank line where the description goes. `lot-entry.js`
- * answers both questions from `members` instead.
+ * single value of any of them describes a group -- so a card cannot describe
+ * it from those fields. `lot-entry.js` answers both what to show and how to
+ * describe it from `members` instead.
  *
- * The item filters above cannot match a lot at all, and that is deliberate
- * rather than a gap: each one compares a column of the inventory row a lot
- * listing does not have, so a page filtered by grade or year holds no lots.
- * `q` still finds one, through the listing's own title.
+ * The type filter cannot match a lot at all, and that is deliberate rather
+ * than a gap: it compares the kind of the inventory item behind a listing,
+ * which a lot listing does not have, so a page filtered by type holds no
+ * lots. The search box still finds one, through the listing's own title.
  */
-
 export default function Catalog() {
-  const [result, setResult] = useState(null)
   const [filters, setFilters] = useState({ q: '', kind: '', in_stock: false })
   const kinds = useReference('item_kind')
   const [offset, setOffset] = useState(0)
-  const [error, setError] = useState('')
+  const q = useDebounced(filters.q, SEARCH_DELAY_MS)
 
   const { add } = useCart()
 
-  // The request is keyed by what was asked for, so "loading" can be derived
-  // rather than tracked separately, and a slow response for an old filter
-  // cannot land after a newer one and overwrite it.
-  const key = JSON.stringify({ ...filters, offset })
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listCatalog({ ...filters, limit: PAGE_SIZE, offset })
-      .then((result) => {
-        if (cancelled) return
-        setResult({ key, page: result })
-        setError('')
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message)
-      })
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  // Keyed by everything the request asks for, so a slow response for an old
+  // filter cannot land after a newer one and overwrite it.
+  const params = { ...filters, q, limit: PAGE_SIZE, offset }
+  const { data, error, busy } = useRequest(JSON.stringify(params), () =>
+    api.listCatalog(params),
+  )
 
   function applyFilter(patch) {
     setOffset(0)
     setFilters((f) => ({ ...f, ...patch }))
   }
 
-  // Derived rather than stored: loading is exactly "the page on screen is not
-  // the one being asked for".
-  const busy = result?.key !== key
-  const page = result?.page ?? { items: [], total: 0, limit: PAGE_SIZE, offset: 0 }
+  const page = data ?? NO_RESULTS
   const shown = page.offset + page.items.length
 
   return (
@@ -74,7 +59,8 @@ export default function Catalog() {
       <div className="filters">
         <input
           type="search"
-          placeholder="Search title, SKU, country..."
+          aria-label="Search the catalog"
+          placeholder="Search titles and descriptions..."
           value={filters.q}
           onChange={(e) => applyFilter({ q: e.target.value })}
         />

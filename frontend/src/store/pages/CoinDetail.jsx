@@ -1,27 +1,15 @@
-import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { api } from '../../shared/api'
+import { useReference } from '../../shared/reference-context'
+import { useRequest } from '../../shared/useRequest'
 import { useCart } from '../cart-context'
 import { money } from '../../shared/format'
 import { coverImage, describeMember, isLot, summarize } from './lot-entry'
 
-/**
- * One catalog entry: a coin, or a LOT of coins sold as one thing.
- *
- * A lot carries none of the fields below -- no code, no kind, no grade, no
- * year -- because no single value of any of them describes a group, and no
- * photograph of its own. Rendered as a coin it came out as a title, a price
- * and an empty specifications table: nothing said it was several coins, and
- * nothing said which ones. Its `members` say both, and they keep saying it
- * after the lot has sold, which is the case this page has to get right --
- * the detail endpoint serves an ended listing on purpose, so a page someone
- * bookmarked can say the offer is over rather than that it never existed.
- */
-
 // Classifier values arrive as codes -- 'bullion', 'MS64', 'US' -- because
-// codes are the stable contract across installations. Human labels come later,
-// when the reference tables are exposed to the UI.
+// codes are the stable contract across installations. The type is shown by
+// its label from the `item_kind` vocabulary; the rest are shown as sent.
 const FIELDS = [
   ['Item code', 'item_code'],
   ['Type', 'item_kind'],
@@ -36,29 +24,31 @@ const FIELDS = [
   ['Weight (ozt)', 'gross_weight_ozt'],
 ]
 
+/**
+ * One catalog entry: a coin, or a LOT of coins sold as one thing.
+ *
+ * A lot carries none of the fields above -- no code, no kind, no grade, no
+ * year -- because no single value of any of them describes a group, and no
+ * photograph of its own. Its `members` say what it is and which coins, and
+ * they keep saying it after the lot has sold, which is the case this page has
+ * to get right: the detail endpoint serves an ended listing on purpose, so a
+ * page someone bookmarked can say the offer is over rather than that it never
+ * existed.
+ */
 export default function CoinDetail() {
   const { id } = useParams()
-  const [coin, setCoin] = useState(null)
-  const [error, setError] = useState('')
+  const { data: coin, error, busy } = useRequest(id, () => api.getCatalogItem(id))
+  const kinds = useReference('item_kind')
   const { add } = useCart()
 
-  useEffect(() => {
-    let cancelled = false
-    api
-      .getCatalogItem(id)
-      .then((data) => {
-        if (!cancelled) setCoin(data)
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [id])
-
+  // Following a link to another entry changes `id` without remounting, so
+  // the previous entry is still in `coin` until the new one arrives.
+  if (busy) return <p className="muted">Loading...</p>
   if (error) return <p className="error">{error}</p>
-  if (!coin) return <p className="muted">Loading...</p>
+
+  const kindLabel = (code) => kinds?.find((entry) => entry.code === code)?.label ?? code
+  const shown = (key) =>
+    key === 'item_kind' ? kindLabel(coin[key]) : String(coin[key])
 
   // A lot has no picture of its own; one of its coins does. `coverImage`
   // decides which and says so in the alt text.
@@ -88,7 +78,7 @@ export default function CoinDetail() {
             coin[key] ? (
               <tr key={key}>
                 <th>{label}</th>
-                <td>{String(coin[key])}</td>
+                <td>{shown(key)}</td>
               </tr>
             ) : null,
           )}
