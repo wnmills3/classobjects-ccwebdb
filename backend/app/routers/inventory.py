@@ -32,6 +32,7 @@ from .. import (
     sale_state,
     serial_patterns,
 )
+from ..auction_holding import auction_ids_by_listing
 from ..classifier_defaults import refresh_items
 from ..config import settings
 from ..deps import AdminUser, DbSession
@@ -55,7 +56,6 @@ from ..item_history import timeline
 from ..lifecycle_writes import record_initial_status, set_location, set_status
 from ..models import (
     AppliesTo,
-    AuctionLot,
     Authenticity,
     BullionForm,
     CoinDetail,
@@ -81,7 +81,6 @@ from ..models import (
     ItemStatus,
     ItemStatusHistory,
     Listing,
-    ListingFormat,
     Metal,
     Mint,
     NoteType,
@@ -388,18 +387,7 @@ def _refuse_auction_lots(
     `test_settling_a_consigned_auction_races_a_coin_going_missing` a race
     test rather than a refusal test.
     """
-    lots = [live for live in listings if live.format is ListingFormat.auction]
-    if not lots:
-        return
-    auctions_by_listing: dict[int, int] = dict(
-        db.execute(
-            select(AuctionLot.listing_id, AuctionLot.auction_id).where(
-                AuctionLot.listing_id.in_([live.id for live in lots])
-            )
-        )
-        .tuples()
-        .all()
-    )
+    auctions_by_listing = auction_ids_by_listing(db, listings)
     if not auctions_by_listing:
         return
     named = ", ".join(
