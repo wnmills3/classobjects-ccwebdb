@@ -203,6 +203,10 @@ FilterPanel.jsx         text, facet selects, issue checks
 BulkEditBar.jsx         appears with a selection
 ReviewPane.jsx          one item at a time, previous/next
 ItemEditForm.jsx        fields, lot claims, review marks
+AttributesField.jsx     the item's attributes, with where each was read
+NoteFields.jsx          a note's own classifiers and printing facts
+SaleHistory.jsx         every sale of the item, each as it was sold
+ConflictList.jsx        fields changed elsewhere meanwhile: keep mine or theirs
 specs.js                coin and currency column and filter specifications
 ```
 

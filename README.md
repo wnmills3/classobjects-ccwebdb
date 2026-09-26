@@ -48,10 +48,14 @@ backend/
                          conventions), core, reference, identification,
                          valuation, lifecycle, images, sales, auctions,
                          views, scaffold (the users table)
-    routers/             the HTTP API (see below)
+    routers/             the HTTP API (see below); _resolve.py turns what a
+                         client sent into rows or the error naming what is
+                         missing, _tx.py is the shared commit-or-roll-back
     *_writes.py          the single writers: lifecycle (status, location),
                          offering (listings, claims, disposition), orders,
                          sales, lots
+    auction_holding.py   which listings are lots of an auction, for the
+                         guards that refuse ending or selling one directly
     inventory_search.py  owner search and facets over the base tables
     issues.py            named diagnostics (no year, no grade, ...)
     classifier_defaults.py, series_match.py, series_classify.py,
@@ -68,7 +72,8 @@ frontend/
   index.html, management.html two entries, built as two isolated bundles
   src/store/             the shop
   src/management/        the management console
-  src/shared/            API client, auth, formatting, vocabularies
+  src/shared/            API client, auth, formatting, vocabularies, the
+                         request and debounce hooks
 scripts/                 ccweb_*.cmd: startup, shutdown, status, check, psql,
                          pgadmin, claude, sonar
 docs/                    project, operations and design documents; designs
