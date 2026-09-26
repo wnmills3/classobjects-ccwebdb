@@ -50,7 +50,7 @@ echo === tests with coverage ===
 rem  Non-zero coverage needs all three of: relative_files = true under
 rem  [tool.coverage.run] in pyproject.toml, running from the repository root
 rem  (this "pushd" above), and --cov=backend/app. Running from backend, the
-rem  way ccweb_check.cmd does, records paths like app/db.py, which sonar.sources
+rem  way ccweb_check.cmd does, records paths like app/database.py, which sonar.sources
 rem  (backend/app) cannot map - a silent 0% that looks like clean code.
 "%PY%" -m pytest -q --cov=backend/app --cov-report=xml:coverage.xml
 if errorlevel 1 (

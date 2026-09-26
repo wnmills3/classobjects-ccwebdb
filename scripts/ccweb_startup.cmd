@@ -62,9 +62,9 @@ if not exist "%LOGS%" mkdir "%LOGS%"
 
 rem --- 1. PostgreSQL --------------------------------------------------------
 rem  Started into a console of its own, like the backend and frontend below;
-rem  ccweb_pgstart.cmd says why. On 2026-09-10 this script started all three
-rem  from Claude Code's shell; the backend and frontend survived that session
-rem  ending, and PostgreSQL did not.
+rem  ccweb_pgstart.cmd says why. Started from the caller's console instead,
+rem  it would break when that console closes -- Claude Code's shell, say --
+rem  while the backend and frontend kept running.
 "%PGBIN%\pg_isready.exe" -h localhost -p 5432 >nul 2>&1
 if not errorlevel 1 (
     echo [1/3] postgresql   already running

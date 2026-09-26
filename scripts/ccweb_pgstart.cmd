@@ -13,7 +13,7 @@ rem  Why a console of its own: the postmaster spawns a process for every
 rem  connection and background task, each inheriting its console. Started from
 rem  a shell that later goes away - Claude Code's, or a window someone closes -
 rem  it keeps running while every process it spawns afterwards dies with
-rem  0xC0000142 (2026-09-10).
+rem  0xC0000142.
 rem ---------------------------------------------------------------------------
 
 if not exist "%LOGS%" mkdir "%LOGS%"
