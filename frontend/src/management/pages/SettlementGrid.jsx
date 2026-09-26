@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import ConfirmDialog from '../ConfirmDialog'
 import { RESULTS } from './auction-labels'
-import { fromCents, isMoney, toCents } from '../../shared/cents'
+import { centsOrZero, signedFromCents } from '../../shared/cents'
 import { subjectOf, UNKNOWN } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
 import { orNull } from '../../shared/text'
@@ -29,18 +29,6 @@ import { useMounted } from '../useMounted'
  * a per-row map is to show that refusal on the row it is about rather than
  * as one sentence the owner has to match back to the grid by hand.
  */
-
-/** Whole cents as a decimal string, negative ones included -- a settlement
- * can net less than zero once fees are counted. */
-function money(cents) {
-  return cents < 0 ? `-${fromCents(-cents)}` : fromCents(cents)
-}
-
-/** A typed amount, in cents, or zero when it is blank or not an amount. */
-function centsOf(text) {
-  const trimmed = String(text ?? '').trim()
-  return isMoney(trimmed) ? toCents(trimmed) : 0
-}
 
 /** What the grid holds for one lot before anything is typed. */
 const EMPTY_LINE = { result: '', hammer_price: '', buyer_username: '' }
@@ -152,15 +140,15 @@ export default function SettlementGrid({
 
   const grossCents = auction.lots.reduce((sum, lot) => {
     const line = lineFor(lot)
-    return line.result === 'sold' ? sum + centsOf(line.hammer_price) : sum
+    return line.result === 'sold' ? sum + centsOrZero(line.hammer_price) : sum
   }, 0)
   const feesCents = Object.values(feeAmounts).reduce(
-    (sum, kinds) => sum + Object.values(kinds).reduce((s, v) => s + centsOf(v), 0),
+    (sum, kinds) => sum + Object.values(kinds).reduce((s, v) => s + centsOrZero(v), 0),
     0,
   )
   const netCents = grossCents - feesCents
   const costBasisCents = auction.lots.reduce(
-    (sum, lot) => sum + centsOf(lot.listing.cost_basis),
+    (sum, lot) => sum + centsOrZero(lot.listing.cost_basis),
     0,
   )
 
@@ -350,19 +338,19 @@ export default function SettlementGrid({
       <dl className="summary">
         <div>
           <dt>Gross</dt>
-          <dd>{money(grossCents)}</dd>
+          <dd>{signedFromCents(grossCents)}</dd>
         </div>
         <div>
           <dt>Fees</dt>
-          <dd>{money(feesCents)}</dd>
+          <dd>{signedFromCents(feesCents)}</dd>
         </div>
         <div>
           <dt>Net</dt>
-          <dd>{money(netCents)}</dd>
+          <dd>{signedFromCents(netCents)}</dd>
         </div>
         <div>
           <dt>Cost basis</dt>
-          <dd>{money(costBasisCents)}</dd>
+          <dd>{signedFromCents(costBasisCents)}</dd>
         </div>
       </dl>
 

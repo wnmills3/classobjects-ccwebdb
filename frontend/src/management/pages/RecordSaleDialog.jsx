@@ -4,7 +4,7 @@ import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
 import ModalDialog from '../ModalDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
-import { fromCents, isMoney, toCents } from '../../shared/cents'
+import { centsOrZero, isMoney, signedFromCents, toCents } from '../../shared/cents'
 import { UNKNOWN, subjectOf } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
 import { useMounted } from '../useMounted'
@@ -42,18 +42,6 @@ const KEYS = {
   buyer: 'b',
   orderId: 'n',
   save: 'c',
-}
-
-/** Whole cents as a decimal string, negative ones included -- a lot priced
- * under a platform's fixed fee can genuinely net less than zero. */
-function money(cents) {
-  return cents < 0 ? `-${fromCents(-cents)}` : fromCents(cents)
-}
-
-/** A typed amount, in cents, or zero when it is blank or not an amount. */
-function centsOf(text) {
-  const trimmed = String(text ?? '').trim()
-  return isMoney(trimmed) ? toCents(trimmed) : 0
 }
 
 export default function RecordSaleDialog({
@@ -150,9 +138,9 @@ export default function RecordSaleDialog({
     }
   }
 
-  const priceCents = isMoney(price.trim()) ? centsOf(price) : null
+  const priceCents = isMoney(price.trim()) ? centsOrZero(price) : null
   const feeTotalCents = feeKinds.reduce(
-    (sum, k) => sum + centsOf(feeAmounts[k.code]),
+    (sum, k) => sum + centsOrZero(feeAmounts[k.code]),
     0,
   )
   const netCents = priceCents === null ? null : priceCents - feeTotalCents
@@ -234,15 +222,15 @@ export default function RecordSaleDialog({
       <dl className="summary">
         <div>
           <dt>Gross</dt>
-          <dd>{priceCents === null ? UNKNOWN : money(priceCents)}</dd>
+          <dd>{priceCents === null ? UNKNOWN : signedFromCents(priceCents)}</dd>
         </div>
         <div>
           <dt>Fees</dt>
-          <dd>{money(feeTotalCents)}</dd>
+          <dd>{signedFromCents(feeTotalCents)}</dd>
         </div>
         <div>
           <dt>Net</dt>
-          <dd>{netCents === null ? UNKNOWN : money(netCents)}</dd>
+          <dd>{netCents === null ? UNKNOWN : signedFromCents(netCents)}</dd>
         </div>
         <div>
           <dt>Margin</dt>
