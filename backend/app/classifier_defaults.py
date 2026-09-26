@@ -42,7 +42,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import attribute_rules
+from . import aliases, attribute_rules
 from .database import SessionLocal
 from .field_sources import (
     COMPOSITION,
@@ -65,7 +65,6 @@ from .models import (
     NoteIssue,
     NoteType,
     ProvenanceSource,
-    ReferenceAlias,
 )
 from .serial_patterns import WELL_FORMED
 
@@ -355,15 +354,10 @@ def load_facts(db: Session) -> Facts:
     names: dict[int, list[str]] = {
         type_id: [label] for type_id, label in labels.items()
     }
-    for row_id, alias in db.execute(
-        select(ReferenceAlias.row_id, ReferenceAlias.alias).where(
-            ReferenceAlias.table_name == NoteType.__tablename__,
-            ReferenceAlias.is_active.is_(True),
-        )
-    ).tuples():
-        names.setdefault(row_id, []).append(alias)
+    for row_id, row_aliases in aliases.aliases_by_row(db, NoteType).items():
+        names.setdefault(row_id, []).extend(row_aliases)
     class_names = [
-        (type_id, re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE))
+        (type_id, aliases.word_pattern(name))
         for type_id, words in names.items()
         for name in words
     ]
