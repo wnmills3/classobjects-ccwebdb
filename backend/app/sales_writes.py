@@ -35,17 +35,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import offering_writes, order_writes
 from .allocation import allocate
+from .auction_holding import auction_ids_by_listing
 from .buyers import venue_buyer
 from .models import (
-    AuctionLot,
     InventoryItem,
     Listing,
-    ListingFormat,
     ListingStatus,
     SalesFeeKind,
     SalesOrder,
@@ -273,12 +271,8 @@ def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
     `test_auction_settlement.py` that settles a sold lot exercises that path
     unchanged, which is the proof the guard does not reach it.
     """
-    if listing.format is ListingFormat.auction:
-        auction_id = db.scalar(
-            select(AuctionLot.auction_id).where(AuctionLot.listing_id == listing.id)
-        )
-        if auction_id is None:
-            return
+    auction_id = auction_ids_by_listing(db, [listing]).get(listing.id)
+    if auction_id is not None:
         raise SaleRefused(
             f"listing #{listing.id} is a lot of auction #{auction_id}; it sells "
             "through settlement, not Record sale"

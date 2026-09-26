@@ -29,9 +29,9 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from .. import lot_writes, offering_writes, sales_writes
 from .. import offer_titles as offer_titles_module
+from ..auction_holding import auction_ids_by_listing
 from ..deps import AdminUser, DbSession
 from ..models import (
-    AuctionLot,
     InventoryItem,
     Listing,
     ListingFormat,
@@ -654,12 +654,8 @@ def _refuse_auction_lot(db: Session, listing: Listing) -> None:
     format left a directly offered auction listing with no way to be ended
     at all (review of the final fix wave, Important #1).
     """
-    if listing.format is ListingFormat.auction:
-        auction_id = db.scalar(
-            select(AuctionLot.auction_id).where(AuctionLot.listing_id == listing.id)
-        )
-        if auction_id is None:
-            return
+    auction_id = auction_ids_by_listing(db, [listing]).get(listing.id)
+    if auction_id is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
