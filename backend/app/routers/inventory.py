@@ -48,6 +48,7 @@ from ..inventory_search import (
     UnknownIssue,
     count_facets,
     count_issues,
+    names_matching,
     plain,
     search,
 )
@@ -224,6 +225,8 @@ def search_inventory(
             detail=f"No item has code {lot_code!r}.",
         )
 
+    # Read once for the page, the facets and the issue counts alike.
+    names = names_matching(db, spec, q)
     try:
         rows, total = search(
             db,
@@ -234,6 +237,7 @@ def search_inventory(
             descending=desc,
             limit=limit,
             offset=offset,
+            names=names,
         )
     except UnknownIssue as exc:
         raise HTTPException(
@@ -265,8 +269,16 @@ def search_inventory(
         sort=sort or spec.default_sort,
         descending=desc,
         sortable=sorted(spec.sortable),
-        facets=count_facets(db, spec, params=params, query=q) if facets else {},
-        issues=count_issues(db, spec, params=params, query=q) if facets else {},
+        facets=(
+            count_facets(db, spec, params=params, query=q, names=names)
+            if facets
+            else {}
+        ),
+        issues=(
+            count_issues(db, spec, params=params, query=q, names=names)
+            if facets
+            else {}
+        ),
         issue_descriptions=(
             {name: issue.description for name, issue in spec.issues.items()}
             if facets

@@ -61,6 +61,7 @@ __all__ = [
     "ViewSpec",
     "count_facets",
     "count_issues",
+    "names_matching",
     "plain",
     "search",
 ]
@@ -488,6 +489,10 @@ def names_matching(
 ) -> list[tuple[Named, list[int]]]:
     """The rows of each named vocabulary whose name or alias the search contains.
 
+    One read per vocabulary, so a request that runs `search`, `count_facets`
+    and `count_issues` for one query asks this once and passes the answer
+    to each as `names`.
+
     This is what makes aliases do anything in search. The formal name and the
     colloquial one are often disjoint in practice -- nothing in this
     collection's descriptions says "Winged Liberty Head", and 104 rows say
@@ -498,6 +503,16 @@ def names_matching(
         return []
     found = [(named, aliases.ids_named(db, named.model, query)) for named in spec.named]
     return [(named, ids) for named, ids in found if ids]
+
+
+def _names(
+    db: Session,
+    spec: ViewSpec,
+    query: str | None,
+    names: list[tuple[Named, list[int]]] | None,
+) -> list[tuple[Named, list[int]]]:
+    """`names` as given, or `names_matching` read now when the caller had none."""
+    return names_matching(db, spec, query) if names is None else names
 
 
 #: How a filter's `op` becomes SQL. Comparing a column to a value differs only
@@ -738,14 +753,18 @@ def search(
     descending: bool = False,
     limit: int = 50,
     offset: int = 0,
+    names: list[tuple[Named, list[int]]] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
-    """One page of rows, and how many matched in total."""
+    """One page of rows, and how many matched in total.
+
+    `names` is `names_matching(db, spec, query)`, read here when not given.
+    """
     sort_key = sort or spec.default_sort
     if sort_key not in spec.sortable:
         raise ValueError(f"cannot sort by {sort_key!r}")
 
     clauses, joins, bound = _conditions(
-        spec, params, query, names_matching(db, spec, query)
+        spec, params, query, _names(db, spec, query, names)
     )
     where = " WHERE " + " AND ".join(clauses)
 
@@ -795,7 +814,12 @@ def search(
 
 
 def count_facets(
-    db: Session, spec: ViewSpec, *, params: dict[str, Any], query: str | None = None
+    db: Session,
+    spec: ViewSpec,
+    *,
+    params: dict[str, Any],
+    query: str | None = None,
+    names: list[tuple[Named, list[int]]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """How many rows each classifier value would match.
 
@@ -806,16 +830,17 @@ def count_facets(
 
     Grouped by foreign key id, which uses the existing indexes, then resolved
     to codes in one small lookup per table. Grouping by the code instead would
-    force every join first, which was most of the old cost.
+    force every join first.
+
+    `names` is `names_matching(db, spec, query)`, read here when not given.
     """
     clauses, joins, bound = _conditions(
-        spec, params, query, names_matching(db, spec, query)
+        spec, params, query, _names(db, spec, query, names)
     )
     where = " WHERE " + " AND ".join(clauses)
 
     results: dict[str, list[dict[str, Any]]] = {}
     for name, facet in spec.facets.items():
-        source = spec.base
         facet_joins = list(joins)
         if facet.join:
             facet_joins.append(facet.join)
@@ -824,7 +849,7 @@ def count_facets(
         counts = db.execute(
             text(
                 f"SELECT {column} AS fid, count(*) AS n "
-                f"FROM {source} {spec.joins_for(facet_joins)}{where} "
+                f"FROM {spec.base} {spec.joins_for(facet_joins)}{where} "
                 f"AND {column} IS NOT NULL "
                 f"GROUP BY {column} ORDER BY n DESC LIMIT 60"
             ),
@@ -871,7 +896,12 @@ def count_facets(
 
 
 def count_issues(
-    db: Session, spec: ViewSpec, *, params: dict[str, Any], query: str | None = None
+    db: Session,
+    spec: ViewSpec,
+    *,
+    params: dict[str, Any],
+    query: str | None = None,
+    names: list[tuple[Named, list[int]]] | None = None,
 ) -> dict[str, int]:
     """How many rows in the current result set hit each named check.
 
@@ -881,10 +911,12 @@ def count_issues(
     `issue` itself is dropped from the filters first. Counting within the
     selected check would collapse every other count to zero or to a subset,
     and the panel would stop being a way to see what work is left.
+
+    `names` is `names_matching(db, spec, query)`, read here when not given.
     """
     params = {k: v for k, v in params.items() if k != "issue"}
     clauses, joins, bound = _conditions(
-        spec, params, query, names_matching(db, spec, query)
+        spec, params, query, _names(db, spec, query, names)
     )
     # All checks are counted at once, so every check's joins must be present.
     joins = list(joins) + [issue.join for issue in spec.issues.values()]
