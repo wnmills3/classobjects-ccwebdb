@@ -26,7 +26,7 @@ function withNoEmptyDetails(rows) {
  * Mint and printing errors recorded against one item -- a bill is commonly
  * miscut AND misprinted, so this is a set, each entry carrying its own note.
  *
- * Two modes, since Task 6 mounts this in three places. With an `itemId` the
+ * Two modes, since it is mounted in three places. With an `itemId` the
  * panel is self-loading and self-saving: it fetches its own set on mount and
  * PUTs the whole set again whenever a row is added, removed, or edited --
  * there is no separate "Save" step for an item that already has one. With
