@@ -15,11 +15,6 @@
   font-size: 13px;
 }
 
-/* --- tables ------------------------------------------------------------- */
-.table tr.dim {
-  opacity: 0.55;
-}
-
 /* --- forms -------------------------------------------------------------- */
 .admin-form {
   background: var(--surface);
@@ -39,17 +34,11 @@
   gap: 0 16px;
 }
 
-button.link.danger {
-  color: var(--danger);
-}
-
 /* Inventory search panel and results grid.
 
-   Every color here comes from the theme variables. Hardcoded near-white
-   values were used originally, which looked right in light mode and rendered
-   the panel's labels as white text on a white background under
-   `prefers-color-scheme: dark` -- `--text` flips to #ece9e4 while a literal
-   #fafaf8 does not flip at all. */
+   Every color here comes from the theme variables: a literal near-white
+   background does not flip under `prefers-color-scheme: dark` while `--text`
+   does, which leaves light text on a light panel. */
 .search-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -144,37 +133,25 @@ button.link.danger {
   font-size: 0.8rem;
   padding-top: 0;
 }
-/* Adding a vocabulary value inline, from the picker that needed it. */
-.add-reference {
-  display: flex;
-  gap: 0.3rem;
+/* A row of small controls that wraps when the field is narrow: an item's
+   attributes as removable chips with the picker after them, its recorded
+   errors and the row adding one, and a vocabulary value's aliases. */
+.attribute-list,
+.error-list li,
+.add-error,
+.alias-list {
   align-items: center;
-  flex-wrap: wrap;
-}
-.add-reference input {
-  min-width: 0;
-  flex: 1 1 6rem;
-}
-/* A long vocabulary's find box sits beside its select and wraps under it
-   when the field is narrow. */
-.reference-select {
   display: flex;
-  gap: 0.3rem;
   flex-wrap: wrap;
-}
-.reference-select select {
-  min-width: 0;
-  flex: 1 1 8rem;
-}
-.reference-find {
-  min-width: 0;
-  flex: 0 1 7rem;
+  gap: 0.3rem;
 }
 
-/* An item that is for sale: said before anything is changed. */
+/* An item that is for sale: said before anything is changed. The surface
+   tinted rather than a fixed color, so the text on it reads in either
+   scheme. */
 .for-sale {
-  background: #fff4e0;
-  border: 1px solid #e0b060;
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--surface));
   border-radius: 4px;
   margin: 0.5rem 0;
   padding: 0.5rem 0.75rem;
@@ -183,14 +160,6 @@ button.link.danger {
   margin: 0.25rem 0;
   padding-left: 1.2rem;
 }
-/* An item's attributes, as removable chips with the picker after them. */
-.attribute-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  align-items: center;
-}
-
 /* An item's mint and printing errors: the recorded ones, each with its own
    note, then the row being added. A sub-panel, not a page -- it borrows the
    `.field` row shape from the form it usually sits in and adds only what it
@@ -208,40 +177,16 @@ button.link.danger {
   margin: 0;
   padding: 0;
 }
-.error-list li {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
 .error-list li input {
   flex: 1 1 8rem;
   min-width: 0;
-}
-.add-error {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
 }
 .add-error input {
   flex: 1 1 6rem;
   min-width: 0;
 }
-/* The code a typed label will actually be stored as, shown before saving. */
-.derived-code {
-  color: var(--muted);
-  font-family: monospace;
-  font-size: 0.85rem;
-}
 
 /* Vocabularies: each value's aliases, as removable chips. */
-.alias-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  align-items: center;
-}
 .alias-chip {
   cursor: default;
   display: inline-flex;
@@ -282,17 +227,6 @@ button.link.danger {
 .alias-add input {
   min-width: 0;
   width: 9rem;
-}
-
-/* Inventory description column.
-   `title` holds the denomination the spreadsheet recorded ("0.25", "Mint
-   Set"), so the browse screens show `description` instead -- which is long,
-   and would otherwise stretch the table past the viewport. */
-.inventory-table td.wide {
-  max-width: 34rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Two-tab pages. Accounts and customers are separate tables, so they get
@@ -415,27 +349,28 @@ button.link.danger {
 }
 /* The lot's claim must read as context, not as a value someone typed. */
 .lot-claim {
-  color: #8a6d3b;
+  color: var(--warn);
   font-size: 0.85rem;
   font-style: italic;
 }
 /* A value the facts filled in: context too, until someone changes it. */
 .suggested {
-  color: #3b6a8a;
+  color: var(--info);
   font-size: 0.8rem;
   font-style: italic;
   margin-left: 0.4rem;
 }
 .review-mark {
-  color: #2b6a2b;
+  color: var(--ok);
   display: flex;
   font-size: 0.85rem;
   gap: 0.25rem;
 }
+/* Tinted from the surface, like .for-sale, so it reads in either scheme. */
 .bulk-bar {
   align-items: center;
-  background: #eef3f8;
-  border: 1px solid #c3d4e5;
+  background: color-mix(in srgb, var(--info) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--info) 30%, var(--surface));
   border-radius: 4px;
   display: flex;
   flex-wrap: wrap;
@@ -476,15 +411,6 @@ button.link.danger {
   padding: 0.5rem 0.8rem;
 }
 .order-row:hover {
-  background: var(--surface);
-}
-/* Receiving: a line that can still be received opens its receipt dialog.
-   The whole row is a click target for the mouse; the item code inside it is
-   a real button, which is what makes the row reachable by keyboard. */
-.row-pick {
-  cursor: pointer;
-}
-.row-pick:hover {
   background: var(--surface);
 }
 
