@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../api'
 import ModalDialog from '../ModalDialog'
@@ -6,6 +6,7 @@ import { RESULTS } from './auction-labels'
 import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { subjectOf, UNKNOWN } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
+import { useMounted } from '../useMounted'
 
 /**
  * The settlement grid: every lot's outcome, every buyer's fees, applied to a
@@ -94,16 +95,8 @@ export default function SettlementGrid({
   // The same guard every other console form carries: Cancel or Escape can
   // close the confirmation while the settle request is still in flight, and
   // the grid can be swapped out from under this component the moment
-  // `onSettled` moves the auction off `closed` -- see the module docstring
-  // and `Lots.jsx`'s `LotForm` for the StrictMode reasoning this pattern
-  // exists to satisfy.
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  // `onSettled` moves the auction off `closed` -- see the module docstring.
+  const mounted = useMounted()
 
   const lineFor = (lot) => lines[lot.id] ?? EMPTY_LINE
   const setLine = (lot, field, value) =>

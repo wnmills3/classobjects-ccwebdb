@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
@@ -6,6 +6,7 @@ import ModalDialog from '../ModalDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { fractionToPercent, percentToFraction } from './platform-rates'
 import { useReference } from '../../shared/reference-context'
+import { useMounted } from '../useMounted'
 
 /**
  * The platforms the business sells through.
@@ -155,20 +156,7 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
   // cancelled would still land the instant it resolves -- onSaved would
   // mutate the parent's list behind the closed dialog. Mirrors the
   // `cancelled` flag Platforms' own effect uses for the same reason.
-  //
-  // The setup ARMS it; only the cleanup disarms it. That is not decoration:
-  // the console runs in StrictMode (`management/main.jsx`), where React runs every
-  // effect setup, cleanup, setup on mount. A ref only initialized at
-  // `useRef(true)` would be left false by that first cleanup for the rest of
-  // the dialog's life, and a save that succeeded would never call `onSaved`,
-  // never close the dialog, and leave the button reading "Saving..." forever.
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const mounted = useMounted()
 
   // `save` is a function declaration below, hoisted for the whole component
   // scope, so naming it here is safe. Disabled while a save is in flight, so

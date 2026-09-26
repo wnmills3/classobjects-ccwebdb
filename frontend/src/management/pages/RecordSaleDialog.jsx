@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
@@ -7,6 +7,7 @@ import { accel, useSaveShortcut } from '../shortcuts'
 import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { UNKNOWN, subjectOf } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
+import { useMounted } from '../useMounted'
 
 /**
  * Recording a sale that happened on an outside platform -- eBay, Whatnot, an
@@ -75,20 +76,7 @@ export default function RecordSaleDialog({
   // Guards save()'s continuation once the request settles: Cancel (and
   // Escape, which ModalDialog routes to onClose) can unmount this dialog
   // while a save is still in flight.
-  //
-  // The setup ARMS it; only the cleanup disarms it. The console runs in
-  // StrictMode (`management/main.jsx`), where React runs every effect setup,
-  // cleanup, setup on mount: a ref only initialized at `useRef(true)` would
-  // be left false by that first cleanup for the rest of the dialog's life,
-  // and a sale the server accepted would never reach `onRecorded`, leaving
-  // the button reading "Recording..." forever.
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const mounted = useMounted()
 
   // `save` is a function declaration below, hoisted for the whole component
   // scope. Disabled while a save is in flight, so holding Ctrl+S cannot fire

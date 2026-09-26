@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { AccessLabel } from '../AccessLabel'
 import { api } from '../api'
@@ -8,6 +8,7 @@ import { RESULT_LABEL } from './auction-labels'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { subjectOf, UNKNOWN } from './listing-labels'
 import { date } from '../../shared/format'
+import { useMounted } from '../useMounted'
 
 /**
  * The Auctions page: running an auction from draft to settled.
@@ -73,15 +74,8 @@ function AuctionForm({ venues, onSaved, onClose }) {
   const [saving, setSaving] = useState(false)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
 
-  // Guards save()'s continuation once the request settles -- see `Lots.jsx`'s
-  // `LotForm` for the full StrictMode reasoning this pattern satisfies.
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  // Guards save()'s continuation once the request settles.
+  const mounted = useMounted()
 
   useSaveShortcut(save, !saving)
 
@@ -235,13 +229,7 @@ function AddLotDialog({ auction, onSaved, onClose }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const mounted = useMounted()
 
   useEffect(() => {
     let cancelled = false
@@ -395,13 +383,7 @@ function ConsignDialog({ auction, onSaved, onClose }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const mounted = useMounted()
 
   useSaveShortcut(save, !saving)
 
@@ -567,13 +549,7 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
   // Guards every async continuation below: switching to a different auction
   // remounts this component (`key={auction.id}` in `Auctions`, below), which
   // can happen while one of these requests is still in flight.
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
+  const mounted = useMounted()
 
   const venue = venues.find((v) => v.code === auction.venue) ?? null
   const isAuctionHouse = venue?.kind === 'auction_house'
