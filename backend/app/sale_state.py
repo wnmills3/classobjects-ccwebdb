@@ -49,6 +49,7 @@ __all__ = [
     "ever_offered",
     "for_sale",
     "guard",
+    "orders_holding",
     "refusal",
     "sold_this_item",
 ]
@@ -158,14 +159,33 @@ def for_sale(db: Session, item_ids: Collection[int]) -> dict[int, list[SaleUse]]
                 found.setdefault(item_id, []).append(
                     SaleUse("listing", listing_id, described[listing_id])
                 )
-    # Reached through `sales_order_item_share`, which names every item on
-    # every line -- one share for an item listing, one per member for a lot.
-    # The direct link (`listing.inventory_item_id`) cannot do this: a lot
-    # listing names no item, and after a sale the claim is `released`, so
-    # neither the claim nor the link finds the pieces that were sold. A share
-    # is permanent, which is why every line has them, a single-item store
-    # sale included (`order_writes._sync_shares`). Decided 2026-09-20; this
-    # is the rule the module previously deferred to phase 3.
+    for item_id, held in orders_holding(db, ids).items():
+        found.setdefault(item_id, []).extend(held)
+    for uses in found.values():
+        uses.sort(key=lambda use: (use.kind, use.id))
+    return found
+
+
+def orders_holding(db: Session, item_ids: Collection[int]) -> dict[int, list[SaleUse]]:
+    """The open orders holding each of `item_ids`, by ascending order id.
+
+    `for_sale`'s order half on its own, for the writers that refuse an item
+    an unshipped order holds and have their own answer for a listing
+    (`offering_writes._refuse_sold`, `lot_writes._refuse_partial`): one
+    query instead of `for_sale`'s listing reads as well.
+
+    Reached through `sales_order_item_share`, which names every item on
+    every line -- one share for an item listing, one per member for a lot.
+    The direct link (`listing.inventory_item_id`) cannot do this: a lot
+    listing names no item, and after a sale the claim is `released`, so
+    neither the claim nor the link finds the pieces that were sold. A share
+    is permanent, which is why every line has them, a single-item store sale
+    included (`order_writes._sync_shares`).
+    """
+    ids = list(item_ids)
+    found: dict[int, list[SaleUse]] = {}
+    if not ids:
+        return found
     orders = db.execute(
         select(
             SalesOrderItemShare.inventory_item_id,
@@ -189,7 +209,7 @@ def for_sale(db: Session, item_ids: Collection[int]) -> dict[int, list[SaleUse]]
             SaleUse("order", order_id, f"order #{order_id} ({status})")
         )
     for uses in found.values():
-        uses.sort(key=lambda use: (use.kind, use.id))
+        uses.sort(key=lambda use: use.id)
     return found
 
 
@@ -327,7 +347,7 @@ def guard(
     if not found:
         return
     codes = {item.id: item.item_code for item in wanted}
-    # A bare 409 rather than `status.HTTP_409_CONFLICT`: `for_sale` above
+    # A bare 409 rather than `status.HTTP_409_CONFLICT`: `orders_holding` above
     # binds a local named `status` in its order loop, and importing fastapi's
     # `status` into this module would put a shadowed name one function away
     # from a live one. Both spellings are already used in this codebase.
