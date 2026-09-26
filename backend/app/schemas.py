@@ -30,6 +30,12 @@ from pydantic import (
 from . import plates
 from .models import UserRole
 
+#: A price, cost, fee or reserve in dollars and cents. Never negative, and
+#: held to the `NUMERIC(12,2)` columns it is stored in: `decimal_places` must
+#: be given alongside `max_digits`, or `1E+11` passes pydantic and fails in
+#: PostgreSQL as a `DataError` that nothing turns into a 422.
+Money = Annotated[Decimal, Field(ge=Decimal("0"), max_digits=12, decimal_places=2)]
+
 # --------------------------------------------------------------------------
 # Auth / users
 # --------------------------------------------------------------------------
@@ -318,9 +324,7 @@ class AdminOrderLineIn(BaseModel):
 
     listing_id: int
     quantity: int = Field(ge=1)
-    unit_price: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    unit_price: Money | None = None
 
 
 class AdminOrderCreate(BaseModel):
@@ -398,7 +402,7 @@ class OrderRevisionLineIn(BaseModel):
 
     listing_id: int
     quantity: int = Field(ge=1)
-    unit_price: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
+    unit_price: Money
 
 
 class OrderRevision(BaseModel):
@@ -822,12 +826,8 @@ class InventoryItemUpdate(BaseModel):
     gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
     fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
     piece_count: int | None = Field(default=None, ge=1)
-    item_cost: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
-    shipping_cost: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    item_cost: Money | None = None
+    shipping_cost: Money | None = None
     #: A fraction, not a percentage: 0.0635 is 6.35%. Zero records a purchase
     #: that was charged no sales tax. Bounded, so 6.35 typed for 6.35% is a
     #: 422 rather than a cost multiplied by 7.35.
@@ -975,12 +975,8 @@ class ItemCreate(BaseModel):
     #: it into individually tracked pieces is a later step.
     piece_count: int = Field(default=1, ge=1)
 
-    item_cost: Decimal = Field(
-        default=Decimal("0.00"), ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
-    shipping_cost: Decimal = Field(
-        default=Decimal("0.00"), ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    item_cost: Money = Decimal("0.00")
+    shipping_cost: Money = Decimal("0.00")
     #: None means "use the configured default". Unlike `item_cost`, this has
     #: no default of its own: `Decimal("0")` is a real, different answer -- a
     #: purchase charged no sales tax at all -- so the caller must say so
@@ -1509,7 +1505,7 @@ class OfferItemIn(BaseModel):
     #: the response still reports what was sent, and twelve integer digits
     #: raise `DataError` -- which is not `IntegrityError` and is caught
     #: nowhere. Both become a 422 here instead.
-    price: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
+    price: Money
     title: str = Field(default="", max_length=500)
     description: str = ""
     external_id: str | None = Field(default=None, max_length=128)
@@ -1558,9 +1554,7 @@ class OfferIn(BaseModel):
     lot_id: int | None = None
     #: The lot's price. The precision limits of `OfferItemIn.price`, for the
     #: same two reasons. Required with `lot_id`, refused without it.
-    price: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    price: Money | None = None
     #: The lot's wording, as `OfferItemIn` carries an item's.
     title: str = Field(default="", max_length=500)
     description: str = ""
@@ -1689,9 +1683,7 @@ class ListingUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     #: The precision limits of `OfferItemIn.price`, for the same two reasons.
-    price: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    price: Money | None = None
     title: str | None = Field(default=None, max_length=500)
     description: str | None = None
     external_id: str | None = Field(default=None, max_length=128)
@@ -1794,7 +1786,7 @@ class FeeLineIn(BaseModel):
     #: checks a fee's sign itself too, for auction settlement, which does
     #: not pass through this schema; here the schema refuses a negative fee
     #: before the request reaches it.
-    amount: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
+    amount: Money
     note: str | None = Field(default=None, max_length=255)
 
 
@@ -1804,7 +1796,7 @@ class RecordSaleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     #: Same bound as `FeeLineIn.amount`, for the same reason.
-    price: Decimal = Field(ge=Decimal("0"), max_digits=12, decimal_places=2)
+    price: Money
     buyer_username: str | None = Field(default=None, max_length=128)
     external_order_id: str | None = Field(default=None, max_length=128)
     fees: list[FeeLineIn] = Field(default_factory=list)
@@ -1878,14 +1870,10 @@ class AuctionLotIn(BaseModel):
     lot_number: str = Field(min_length=1, max_length=32)
     item_id: int | None = None
     lot_id: int | None = None
-    reserve: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    reserve: Money | None = None
     #: The starting bid. Defaults to 0 when omitted, `add_lot`'s own meaning
     #: for "none given".
-    price: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    price: Money | None = None
     title: str | None = Field(default=None, max_length=500)
     description: str | None = None
     external_id: str | None = Field(default=None, max_length=128)
@@ -1904,9 +1892,7 @@ class AuctionLotUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lot_number: str | None = Field(default=None, min_length=1, max_length=32)
-    reserve: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    reserve: Money | None = None
 
 
 class AuctionConsignIn(BaseModel):
@@ -1980,9 +1966,7 @@ class SettlementLineIn(BaseModel):
     #: `sold`, `unsold` or `withdrawn`.
     result: str
     #: Same precision limits as `OfferItemIn.price`, for the same two reasons.
-    hammer_price: Decimal | None = Field(
-        default=None, ge=Decimal("0"), max_digits=12, decimal_places=2
-    )
+    hammer_price: Money | None = None
     buyer_username: str | None = Field(default=None, max_length=128)
 
 
