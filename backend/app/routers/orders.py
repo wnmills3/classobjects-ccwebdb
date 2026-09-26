@@ -11,7 +11,6 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.orm.exc import StaleDataError
 
 from ..deps import AdminUser, CurrentUser, DbSession
 from ..models import (
@@ -45,6 +44,7 @@ from ..schemas import (
     OrderStatusUpdate,
 )
 from ._resolve import found_or_404, get_or_404
+from ._tx import commit, committing
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -411,10 +411,11 @@ def update_order_status(
         )
 
     # The status write, its history row and (on a cancellation) returning
-    # stock all sit inside this try. `return_stock` can autoflush a write to
-    # `InventoryItem.disposition`, which carries its own version column, so a
-    # concurrent edit to that item raised `StaleDataError` here and not only
-    # at `db.commit()`. `return_stock` takes its rows through
+    # stock all sit inside `committing`, whose `StaleDataError` clause turns
+    # a moved version into the 409 below. `return_stock` can autoflush a
+    # write to `InventoryItem.disposition`, which carries its own version
+    # column, so a concurrent edit to that item raised `StaleDataError` here
+    # and not only at `db.commit()`. `return_stock` takes its rows through
     # `order_writes._lock_listings` and so through
     # `offering_writes.lock_for_sale`, which locks and re-reads every item it
     # will write, so this is defense in depth
@@ -422,12 +423,16 @@ def update_order_status(
     # The clause itself is still covered, by
     # `test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500`,
     # which forces the failure from a patched flush at exactly the autoflush
-    # this comment names: make this clause re-raise and that test goes red.
+    # this comment names: make that clause re-raise and that test goes red.
     # `order_id` (the path parameter), not `order.id`, appears in every
     # message below: once a flush has failed, every instance in the session
     # is expired, and reading an attribute off one issues a SELECT that
     # raises `PendingRollbackError` instead of the value.
-    try:
+    with committing(
+        db,
+        f"Order #{order_id} or one of its items was changed while saving. "
+        "Reload and retry.",
+    ):
         order.sales_order_status_id = require_code(
             db, SalesOrderStatus, payload.status, "status"
         )
@@ -435,15 +440,6 @@ def update_order_status(
 
         if returns_stock:
             return_stock(db, order)
-
-        db.commit()
-    except StaleDataError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Order #{order_id} or one of its items was changed while "
-            "saving. Reload and retry.",
-        ) from exc
     return order_out(db, order_id, for_admin=True)
 
 
@@ -464,12 +460,5 @@ def revise(
         version=payload.version,
         by=admin,
     )
-    try:
-        db.commit()
-    except StaleDataError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Order #{order_id} was changed while saving. Reload and retry.",
-        ) from exc
+    commit(db, f"Order #{order_id} was changed while saving. Reload and retry.")
     return order_out(db, order_id, for_admin=True)

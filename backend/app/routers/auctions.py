@@ -22,14 +22,11 @@ its own from the grid, and `sales_writes`' from the `record_sale_lines`
 call inside it.
 
 **A write is all or nothing.** Every endpoint that calls into
-`app.auctions` commits inside a `try` that rolls back on any exception and
-re-raises, so a refusal leaves the session clean for whatever uses it next.
-In production `database.get_db` closes the session after the request
-anyway; the `client` fixture in `tests/conftest.py` shares one session
-across every request in a test, so there the rollback is what keeps the
-next request's reads sound.
+`app.auctions` does so inside `routers._tx.committing`, which rolls back on
+any exception and re-raises, so a refusal leaves the session clean for
+whatever uses it next.
 
-Plain ids are read into locals before each `try`, and every implicit
+Plain ids are read into locals before each such block, and every implicit
 autoflush stays inside it, the same discipline `routers.lots.update_sales_lot`
 documents: after a failed flush, reading any ORM attribute raises
 `PendingRollbackError` instead of the refusal a handler was trying to send.
@@ -43,7 +40,6 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.orm.exc import StaleDataError
 
 from .. import auctions, lot_writes, offering_writes, sales_writes
 from ..deps import AdminUser, DbSession
@@ -83,6 +79,7 @@ from ._resolve import (
     refuse_stale_version,
     venue_by_code,
 )
+from ._tx import commit, committing
 from .offers import listing_out, sale_recorded
 
 router = APIRouter(prefix="/auctions", tags=["selling"])
@@ -259,13 +256,7 @@ def update_auction(
     for field, value in data.items():
         setattr(auction, field, value)
 
-    try:
-        db.commit()
-    except StaleDataError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from exc
+    commit(db, _STALE)
     return _out(_get_auction(db, auction_id))
 
 
@@ -319,50 +310,39 @@ def add_auction_lot(
         )
 
     try:
-        auctions.add_lot(
-            db,
-            auction,
-            subject,
-            lot_number=lot_number,
-            reserve=payload.reserve,
-            price=payload.price,
-            title=payload.title,
-            description=payload.description,
-            external_id=payload.external_id,
-        )
-        db.commit()
+        with committing(db, _STALE):
+            auctions.add_lot(
+                db,
+                auction,
+                subject,
+                lot_number=lot_number,
+                reserve=payload.reserve,
+                price=payload.price,
+                title=payload.title,
+                description=payload.description,
+                external_id=payload.external_id,
+            )
     # ----------------------------------------------------------------
     # ORDER-SENSITIVE. `EmptyLot` is a subclass of `LotRefused`, so it must
     # be caught first -- the identical trap, and the identical fix,
     # `routers.offers.create_offers` documents at its own matching clauses.
+    # `committing` has already rolled back by the time any of these runs.
     # ----------------------------------------------------------------
     except lot_writes.EmptyLot as empty:
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(empty)
         ) from empty
     except lot_writes.LotRefused as refused_lot:
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(refused_lot)
         ) from refused_lot
     except offering_writes.OfferRefused as refused:
-        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{refused.item_code}: {refused.reason}",
         ) from refused
     except IntegrityError as exc:
-        db.rollback()
         raise _duplicate_lot_number(lot_number) from exc
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
-    except Exception:
-        db.rollback()
-        raise
     return _out(_get_auction(db, auction_id))
 
 
@@ -388,22 +368,13 @@ def remove_auction_lot(
     auction_lot = _auction_lot_by_id(db, auction, lot_id)
     if returned_to_location_id is not None:
         _location_by_id(db, returned_to_location_id)
-    try:
+    with committing(db, _STALE):
         auctions.remove_lot(
             db,
             auction_lot,
             returned_to_location_id=returned_to_location_id,
             user_id=admin.id,
         )
-        db.commit()
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
-    except Exception:
-        db.rollback()
-        raise
     return _out(_get_auction(db, auction_id))
 
 
@@ -455,18 +426,9 @@ def update_auction_lot(
         setattr(auction_lot, field, value)
 
     try:
-        db.commit()
+        commit(db, _STALE)
     except IntegrityError as exc:
-        db.rollback()
         raise _duplicate_lot_number(lot_number) from exc
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
-    except Exception:
-        db.rollback()
-        raise
     return _out(_get_auction(db, auction_id))
 
 
@@ -479,17 +441,8 @@ def update_auction_lot(
 def schedule_auction(auction_id: int, db: DbSession, _admin: AdminUser) -> AuctionOut:
     """Move a draft auction to scheduled."""
     auction = _get_auction(db, auction_id)
-    try:
+    with committing(db, _STALE):
         auctions.schedule(db, auction)
-        db.commit()
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
-    except Exception:
-        db.rollback()
-        raise
     return _out(_get_auction(db, auction_id))
 
 
@@ -506,17 +459,8 @@ def consign_auction(
     message in a 500 instead of a bare one (see that handler's docstring).
     """
     auction = _get_auction(db, auction_id)
-    try:
+    with committing(db, _STALE):
         auctions.consign(db, auction, on_date=payload.on_date, user_id=admin.id)
-        db.commit()
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
-    except Exception:
-        db.rollback()
-        raise
     return _out(_get_auction(db, auction_id))
 
 
@@ -524,17 +468,8 @@ def consign_auction(
 def close_auction(auction_id: int, db: DbSession, _admin: AdminUser) -> AuctionOut:
     """Close the auction: lot results may now be entered."""
     auction = _get_auction(db, auction_id)
-    try:
+    with committing(db, _STALE):
         auctions.close(db, auction)
-        db.commit()
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
-    except Exception:
-        db.rollback()
-        raise
     return _out(_get_auction(db, auction_id))
 
 
@@ -546,22 +481,13 @@ def cancel_auction(
     auction = _get_auction(db, auction_id)
     if payload.returned_to_location_id is not None:
         _location_by_id(db, payload.returned_to_location_id)
-    try:
+    with committing(db, _STALE):
         auctions.cancel(
             db,
             auction,
             returned_to_location_id=payload.returned_to_location_id,
             user_id=admin.id,
         )
-        db.commit()
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
-    except Exception:
-        db.rollback()
-        raise
     return _out(_get_auction(db, auction_id))
 
 
@@ -596,7 +522,7 @@ def settle_auction(
         ]
         for group in payload.fees
     }
-    try:
+    with committing(db, _STALE):
         orders = auctions.settle(
             db,
             auction,
@@ -605,15 +531,6 @@ def settle_auction(
             settled_by=admin,
             returned_to_location_id=payload.returned_to_location_id,
         )
-        db.commit()
-    except StaleDataError as stale:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from stale
-    except Exception:
-        db.rollback()
-        raise
     return SettleOut(
         auction=_out(_get_auction(db, auction_id)),
         orders=[sale_recorded(db, order) for order in orders],

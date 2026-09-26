@@ -67,6 +67,7 @@ from ._resolve import (
     refuse_stale_version,
     venue_by_code,
 )
+from ._tx import commit, committing
 
 router = APIRouter(tags=["selling"])
 
@@ -550,13 +551,7 @@ def update_listing(
     for field, value in data.items():
         setattr(listing, field, value)
 
-    try:
-        db.commit()
-    except StaleDataError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from exc
+    commit(db, _STALE)
     return listing_out(_get_listing(db, listing_id))
 
 
@@ -616,14 +611,8 @@ def end_listing(listing_id: int, db: DbSession, _admin: AdminUser) -> ListingOut
     """
     listing = _get_listing(db, listing_id)
     _refuse_auction_lot(db, listing)
-    try:
+    with committing(db, _STALE):
         offering_writes.end_offer(db, listing, sold=False)
-        db.commit()
-    except StaleDataError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_STALE
-        ) from exc
     return listing_out(_get_listing(db, listing_id))
 
 
