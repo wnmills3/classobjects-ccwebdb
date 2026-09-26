@@ -1044,14 +1044,24 @@ def get_item(item_id: int, db: DbSession, _admin: AdminUser) -> ItemDetailOut:
     return item_detail(db, _get_item(db, item_id))
 
 
-def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
-    """The editor's whole view of one item; also what a sale snapshot copies."""
+def item_detail(
+    db: Session, item: InventoryItem, *, editing: bool = True
+) -> ItemDetailOut:
+    """The editor's whole view of one item; also what a sale snapshot copies.
+
+    `editing=False` leaves out what describes the editing rather than the
+    item -- the lot's claims, review marks, derived defaults, who last
+    changed each field and the sale warning -- which `app.sale_snapshot`
+    drops from its copy anyway; they keep their empty defaults instead of
+    being read.
+    """
     parent_code: str | None = None
     claims: dict[str, object] = {}
     if item.parent_item_id is not None:
         parent = db.get(InventoryItem, item.parent_item_id)
         if parent is not None:
             parent_code = parent.item_code
+        if parent is not None and editing:
             # Every inherited field, not only the ones that now differ. A
             # piece that still agrees with its lot is the important case, not
             # the boring one: it agrees *because* it inherited the seller's
@@ -1158,22 +1168,31 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
                 .order_by(InventoryItem.id)
             )
         ),
-        lot_claims=claims,
-        reviewed=_reviewed_fields(db, item.id),
-        derived=derived_fields(db, item.id),
-        last_changes={
-            field: FieldChangeOut(by=change.by, at=change.at)
-            for field, change in field_changes.latest(db, item.id).items()
-        },
         attributes=[
             ItemAttributeOut(**vars(held))
             for held in item_attributes.held_attributes(db, item.id)
         ],
-        sale_state=[
+        **(_editing_fields(db, item, claims) if editing else {}),
+    )
+
+
+def _editing_fields(
+    db: Session, item: InventoryItem, claims: dict[str, object]
+) -> dict[str, Any]:
+    """The parts of `item_detail` that describe the editing, not the item."""
+    return {
+        "lot_claims": claims,
+        "reviewed": _reviewed_fields(db, item.id),
+        "derived": derived_fields(db, item.id),
+        "last_changes": {
+            field: FieldChangeOut(by=change.by, at=change.at)
+            for field, change in field_changes.latest(db, item.id).items()
+        },
+        "sale_state": [
             SaleUseOut(**vars(use))
             for use in sale_state.for_sale(db, [item.id]).get(item.id, [])
         ],
-    )
+    }
 
 
 def _cert_numbers(db: Session, item_id: int) -> list[str]:

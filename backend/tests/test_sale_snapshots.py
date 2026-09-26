@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from app import sale_snapshot
 from app.models import Listing, SalesOrderItem, User
+from app.routers.inventory import item_detail
 from app.sales_writes import record_sale
 from fastapi.testclient import TestClient
 from httpx import Response
@@ -259,6 +260,27 @@ def test_a_snapshot_keeps_the_item_not_who_edited_it(
     assert item["cert_numbers"] == ["12345678"]
     assert item["mint"] == detail["mint"]
     assert item["variety"] == detail["variety"]
+
+
+def test_a_snapshot_is_the_editor_s_whole_view_less_the_editing(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """The copy skips reading the editing fields, and still stores the same keys.
+
+    `_detail` asks `item_detail(editing=False)`; this compares it with the
+    full editor's view minus `_EDITING_ONLY`, key for key and value for
+    value, on a split piece -- the case with lot claims to leave out.
+    """
+    parent = make_item(description="The lot")
+    piece = make_item(parent_item_id=parent.id, description="One piece")
+    full = item_detail(db, piece).model_dump(
+        mode="json", exclude=set(sale_snapshot._EDITING_ONLY)
+    )
+    assert item_detail(db, piece).lot_claims
+    assert sale_snapshot._detail(db, piece) == {
+        **full,
+        "certificates": full["cert_numbers"],
+    }
 
 
 def test_a_lot_listing_snapshots_every_member(
