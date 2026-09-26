@@ -11,10 +11,10 @@ import { money } from '../../shared/format'
  * A line's quantity box.
  *
  * It holds what is typed, and the cart takes it only when it is a whole
- * number of at least one. Read straight through, clearing the box to type a
- * new number was a quantity of zero -- a removal -- and "1.5" was a quantity.
- * Leaving the box shows the cart's quantity again; Remove is the way to drop
- * a line.
+ * number of at least one. Passed straight through, clearing the box to type
+ * a new number would be a quantity of zero -- a removal -- and "1.5" would be
+ * a quantity. Leaving the box shows the cart's quantity again; Remove is the
+ * way to drop a line.
  */
 function QuantityInput({ coin, quantity, onChange }) {
   const [draft, setDraft] = useState(null)
