@@ -3,20 +3,17 @@
  *
  * Paired with the `accel` attributes and `useSaveShortcut` hook in
  * `./shortcuts.js` -- see that module for the accelerator scheme these
- * labels advertise.
+ * labels advertise. With no `accessKey`, or one whose letter is not in the
+ * text, it is the plain label.
  *
- * **One element, always.** This returned a bare fragment of three children
- * ("T", `<u>i</u>`, "tle"), and its callers put it straight inside a
- * `.field`, which is `display: grid` with four columns. Each piece of the
- * word therefore became its own grid item -- "T" in the 9rem first column,
- * the underlined letter in the 12-24rem second, the rest in the third --
- * rendering "T      i      tle" and pushing the input out of place. A label
- * whose letter was not found returned a plain string, one item, and looked
- * correct, which is why only some of them broke. Wrapping in a span makes
- * the label a single item either way.
+ * **One element, always.** Its callers put it straight inside a `.field`,
+ * which is `display: grid` with four columns, so loose text around a `<u>`
+ * would make each piece of the word its own grid item -- "T      i      tle"
+ * -- and push the input out of place. Wrapped in a span, the label is a
+ * single item whichever way it renders.
  */
 export function AccessLabel({ text, accessKey }) {
-  const at = text.toLowerCase().indexOf(accessKey.toLowerCase())
+  const at = accessKey ? text.toLowerCase().indexOf(accessKey.toLowerCase()) : -1
   if (at < 0) return <span>{text}</span>
   return (
     <span>
