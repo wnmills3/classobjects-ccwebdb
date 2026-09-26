@@ -124,17 +124,14 @@ __all__ = [
 class AuctionRefusal:
     """One problem an `AuctionRefused` named, structured for a caller to read.
 
-    Ruling R21 (Task 5 follow-up): `str(exc)` -- the message every existing
-    `except AuctionRefused` clause, log line and test already reads -- stays
-    exactly what it always was; this is *additional* structure carried
-    alongside it, not a replacement, so nothing that reads the message
-    changes. `lot_number` is set when the problem names one lot in
-    particular, which is most of them, and `None` for a problem that does
-    not -- a buyer's fees, or the auction as a whole. A caller serving this
-    over HTTP (`routers.auctions`) reads this instead of re-parsing the
-    message text, so the console can mark a settlement grid's offending rows
-    without depending on `"; "` never appearing inside one problem's own
-    words, which the text it replaces could not promise.
+    Structure carried alongside `str(exc)`, not in place of it: the message
+    is what every `except AuctionRefused` clause, log line and test reads.
+    `lot_number` is set when the problem names one lot in particular, which
+    is most of them, and `None` for a problem that does not -- a buyer's
+    fees, or the auction as a whole. A caller serving this over HTTP
+    (`routers.auctions`) reads this instead of re-parsing the message text,
+    so the console can mark a settlement grid's offending rows without
+    depending on `"; "` never appearing inside one problem's own words.
     """
 
     reason: str
@@ -144,7 +141,7 @@ class AuctionRefusal:
 class AuctionRefused(Exception):
     """One auction transition cannot happen now, with the reason for a person.
 
-    `refusals` (ruling R21) is the same information `str(exc)` carries,
+    `refusals` is the same information `str(exc)` carries,
     structured: one `AuctionRefusal` per problem, in the order `settle`
     found them. Every raise site but `settle`'s own grid refusal names
     exactly one problem, so passing nothing here defaults `refusals` to that
@@ -228,17 +225,15 @@ class SettlementInputInvalid(AuctionRefused):
 #: public `remove_lot`: before the sale has closed. `consigned` is included
 #: -- an auction house may still need a lot pulled back after physical
 #: custody moved, before the sale itself runs. `closed` is deliberately
-#: **not** included, and stays that way even when the house still holds the
-#: lot's coins (`auction.consigned_on is not None`) -- ruling R14, fix round
-#: 3, reverting fix round 2's own widening. Once closed, the sale has
-#: happened; the only ways out are `settle` and `cancel`, and a lot that did
-#: not sell is `AuctionLotResult.withdrawn`, a **settlement** result Task 3's
-#: `settle` will record, not a removal with no record at all. `cancel` has
-#: its own, wider status boundary (ruling R8) and reaches lot removal
-#: through `_remove_lot` directly, bypassing this gate entirely -- see
-#: `cancel`'s own docstring; `_remove_lot` itself still keys its
-#: custody-return logic on `auction.consigned_on`, never on this tuple (see
-#: its own docstring).
+#: **not** included, even when the house still holds the lot's coins
+#: (`auction.consigned_on is not None`). Once closed, the sale has happened;
+#: the only ways out are `settle` and `cancel`, and a lot that did not sell
+#: is `AuctionLotResult.withdrawn`, a **settlement** result `settle`
+#: records, not a removal with no record at all. `cancel` has its own, wider
+#: status boundary and reaches lot removal through `_remove_lot` directly,
+#: bypassing this gate entirely -- see `cancel`'s own docstring;
+#: `_remove_lot` keys its custody-return logic on `auction.consigned_on`,
+#: never on this tuple (see its own docstring).
 _LOTS_REMOVABLE = (
     AuctionStatus.draft,
     AuctionStatus.scheduled,
@@ -280,8 +275,7 @@ def add_lot(
     `InventoryItem`, which this wraps in a fresh lot of one -- "a single item
     offered in an auction is a sales lot of one" (spec, *Three kinds of
     lot*). `offering_writes.offer` requires `title`, `description` and
-    `external_id`, which the brief's original signature omits and gives no
-    defaults for; they default here to the lot's own title and description
+    `external_id`; they default here to the lot's own title and description
     (the item's own, for a lot of one) and to `None`, and a caller may
     override any of them.
 
@@ -297,10 +291,10 @@ def add_lot(
     so a session that had already read `auction.lots` before this call would
     keep seeing the old, short list for the rest of the session, and a
     caller iterating it could silently skip the very lot this call just
-    added. Fixed in fix round 1 (Important #1). `consign`, `cancel` and
-    `settle` now all read `_lots_of` instead, which is the stronger of the
-    two answers -- the relationship fix keeps a loaded collection honest, a
-    fresh read never asks it to be.
+    added. `consign`, `cancel` and `settle` also read `_lots_of` rather than
+    the collection, which is the stronger of the two answers -- the
+    relationship keeps a loaded collection honest, a fresh read never asks it
+    to be.
 
     Takes the `auction` row first (`_lock_auction`), like every transition
     that reaches an auction's coins -- see that function for why.
@@ -501,11 +495,9 @@ def _move_lot_items(
 def refuse_unless_lot_editable(db: Session, auction_lot: AuctionLot) -> None:
     """Raise `AuctionRefused` unless this lot's number or reserve may still change.
 
-    Ruling R22 (Task 5 follow-up): nothing owned this decision before --
-    `routers.auctions.update_auction_lot` wrote `lot_number` and `reserve`
-    with a plain `setattr` and no gate at all, the same way it still writes
-    them, just unconditionally until now. The boundary is `_LOTS_REMOVABLE`,
-    the identical tuple `remove_lot` uses: `draft`, `scheduled` or
+    `routers.auctions.update_auction_lot` writes `lot_number` and `reserve`
+    with a plain `setattr` after asking this. The boundary is
+    `_LOTS_REMOVABLE`, the identical tuple `remove_lot` uses: `draft`, `scheduled` or
     `consigned`, never `closed`, `settled` or `cancelled`. A lot number and a
     reserve are both things set *before* the sale runs -- once the auction is
     `closed`, the lot numbers are part of the record the house's statement is
@@ -522,8 +514,8 @@ def refuse_unless_lot_editable(db: Session, auction_lot: AuctionLot) -> None:
     itself for this module to own (see `routers.auctions.update_auction_lot`'s
     own docstring).
 
-    **Takes `(db, auction_lot)`, the module's own convention** (Minor #9,
-    Task 5 fix round 1), and reads the auction's status through `db` and
+    **Takes `(db, auction_lot)`, the module's own convention**, and reads
+    the auction's status through `db` and
     `auction_lot.auction_id` -- a plain column, always present -- rather
     than through the `auction_lot.auction` relationship: that attribute is a
     lazy load, which emits a `SELECT` of its own on a cold instance and
@@ -563,12 +555,12 @@ def consign(
     item moves through `lifecycle_writes.set_location`, never by assigning
     `inventory_item.storage_location_id` here, so the location history stays
     the single source of truth `lifecycle_writes.py`'s own docstring
-    describes. The move is noted with the auction it belongs to (fix round 1,
-    Minor #8), so the history says *why* the item went, not only where.
+    describes. The move is noted with the auction it belongs to, so the
+    history says *why* the item went, not only where.
 
     Raises `AuctionRefused` if the platform is not an auction house, or if
     the auction is not `scheduled`. Raises `errors.ReferenceDataMissing` (a
-    narrow `RuntimeError`, ruling R24, Task 5 fix round 1) if the `consigned`
+    narrow `RuntimeError`) if the `consigned`
     storage-location kind is not seeded: a database that has been migrated
     but not loaded with `python -m app.seeding load` is a real, expected
     state, and this is the message that tells the owner what to do. Nothing
@@ -577,9 +569,9 @@ def consign(
     missing `own_store` platform kind.
 
     Takes the `auction` row first (`_lock_auction`), like every transition
-    that reaches an auction's coins: its item moves used to flush *before*
-    its `UPDATE auction`, the inverse of `cancel`, so the two could deadlock
-    on a scheduled auction. Reads its lots through `_lots_of`, not
+    that reaches an auction's coins: otherwise its item moves would flush
+    *before* its `UPDATE auction`, the inverse of `cancel`, and the two could
+    deadlock on a scheduled auction. Reads its lots through `_lots_of`, not
     `auction.lots`, for the reason that function gives.
     """
     auction = _lock_auction(db, auction)
@@ -605,7 +597,7 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
     One row per auction-house platform, `institution` the platform's name,
     `identifier` always `NULL` -- the reference vocabulary's own note on the
     `consigned` code (`data/reference/operations.json`). The lookup filters
-    on `identifier IS NULL` explicitly (fix round 1, Minor #5): the table's
+    on `identifier IS NULL` explicitly: the table's
     actual uniqueness key, `uq_storage_location_identity`, is
     `(kind_id, institution, identifier)`, and without this predicate a
     "Consigned: Heritage" row that also happened to carry an `identifier` --
@@ -615,13 +607,13 @@ def _consigned_location(db: Session, institution: str) -> StorageLocation:
 
     **Created with `INSERT ... ON CONFLICT DO NOTHING`, then read back.**
     Postgres treats two `NULL` `identifier` values as distinct, so
-    `uq_storage_location_identity` never covered this row, and two
-    concurrent first consignments to one house, from two different
-    auctions, could each find nothing and insert a duplicate location --
-    coins split across two "Consigned: Heritage" entries (auctions fix round
-    1, Minor #6). `uq_storage_location_identity_no_identifier` closes that
-    for the `identifier IS NULL` case, and the
-    upsert is what turns the loser of that race into a reader of the
+    `uq_storage_location_identity` does not cover this row, and two
+    concurrent first consignments to one house, from two different auctions,
+    could each find nothing and insert a duplicate location -- coins split
+    across two "Consigned: Heritage" entries.
+    `uq_storage_location_identity_no_identifier` closes that for the
+    `identifier IS NULL` case, and the upsert is what turns the loser of
+    that race into a reader of the
     winner's row instead of an `IntegrityError` and a 500: it waits for the
     first insert to commit, does nothing, and the `SELECT` below finds the
     one row.
@@ -658,13 +650,11 @@ def close(db: Session, auction: Auction) -> None:
 
     Raises `AuctionRefused` unless the auction is `scheduled` or `consigned`.
 
-    **Not `draft` (ruling R8, fix round 1).** A `draft` auction never
-    happened -- there is nothing to close, and accepting it made `close` a
-    one-way door: `cancel` refused `closed` outright (before this same
-    ruling widened it), so one mis-click on an unscheduled auction produced
-    one that could never be cancelled, un-closed, or have its lots touched
-    again, with `settle` as the only exit for a sale that never ran. A
-    `draft` auction that should not proceed is `cancel`led, not closed.
+    **Not `draft`.** A `draft` auction never happened -- there is nothing to
+    close, and a closed auction's only exits are `settle` and `cancel`, so
+    one mis-click on an unscheduled auction would leave a sale that never ran
+    needing a settlement or a cancellation to undo. A `draft` auction that
+    should not proceed is `cancel`led, not closed.
     """
     _refuse_unless(
         auction,
@@ -790,11 +780,11 @@ def _buyer_key(username: str | None) -> str | None:
     many *customers* exist -- and that one matches on
     `func.lower(venue_username) == stored.lower()`, case-insensitively, with
     a case-insensitive partial unique index (`uq_customer_venue_username`)
-    behind it. Grouping case-sensitively while the customer lookup folds is
-    how a grid spelling one buyer `CoinFan88` on one row and `coinfan88` on
-    the next wrote **two orders against one customer** (ruling R17): the
-    orders reconcile against the house's statement one short, and nothing in
-    the schema says they belong together.
+    behind it. Grouping case-sensitively while the customer lookup folds
+    would let a grid spelling one buyer `CoinFan88` on one row and
+    `coinfan88` on the next write **two orders against one customer**: the
+    orders would reconcile against the house's statement one short, and
+    nothing in the schema would say they belong together.
 
     `casefold`, not `lower`: it is the operation defined for caseless
     matching rather than for display, it handles the cases `lower` does not,
@@ -814,23 +804,22 @@ def _buyer_key(username: str | None) -> str | None:
 def _lock_auction(db: Session, auction: Auction) -> Auction:
     """Take the auction row FOR UPDATE and re-read it. The outermost lock.
 
-    **A new, outermost level above `offering_writes`' canonical order**
+    **An outermost level above `offering_writes`' canonical order**
     (`docs/specs/lock-order-design.md`), and it must be taken strictly
     *before* `lock_for_sale`, never after or between. Nothing else in the
     codebase ever takes an `auction` row, so this level is contended only by
     other auction transitions and cannot invert against lots, items or
-    listings -- which is what makes adding a level here safe at all.
+    listings -- which is what makes a level here safe at all.
 
     **Taken first by every transition that reaches an auction's coins** --
     `add_lot`, `remove_lot`, `consign`, `cancel` and `settle` -- and by all
     of them or by none. One taking this level and another not is the "caller
-    that bypasses the owner" shape, one level up: `settle` alone took it
-    until the whole-branch review measured a real `DeadlockDetected` and an
-    HTTP 500 against `cancel` (Critical #1, proven by
-    `test_cancelling_an_auction_races_settling_it`), and the review of that
-    fix found the same inversion between the newly-locking `cancel` and
-    `consign`, whose item moves flushed before its `UPDATE auction`. Any
-    future transition that reaches a coin must take this first as well.
+    that bypasses the owner" shape, one level up: a `settle` that took it
+    while `cancel` did not would deadlock against it, an HTTP 500
+    (`test_cancelling_an_auction_races_settling_it`), and so would a
+    `cancel` that took it against a `consign` whose item moves flushed
+    before its `UPDATE auction`. Any transition that reaches a coin must
+    take this first as well.
     `schedule` and `close` touch only the auction row and rely on its
     `version` column.
 
@@ -851,8 +840,9 @@ def _lock_auction(db: Session, auction: Auction) -> Auction:
     identity map comes back locked but stale without it.
 
     Deliberately one statement, and deliberately not folded into `settle`:
-    Task 4's race test mutates exactly this, and a lock spread across three
-    lines of another function is one a mutation can silently half-remove.
+    the settlement race tests mutate exactly this, and a lock spread across
+    three lines of another function is one a mutation can silently
+    half-remove.
     """
     db.flush()
     return db.scalars(
@@ -868,8 +858,8 @@ def _lots_of(db: Session, auction: Auction) -> list[AuctionLot]:
 
     Never `auction.lots`: that collection carries no `order_by` of its own
     (`app/models/auctions.py`), and a session that read it before a lot was
-    added keeps the short list for the rest of the session -- the defect fix
-    round 1 found in `add_lot`. `settle` writes a result to every one of
+    added keeps the short list for the rest of the session. `settle` writes
+    a result to every one of
     these rows, so a stale collection here is a lot left unsettled inside a
     transaction that then marks the auction `settled`; `cancel` removes every
     one of them, so a stale collection there is a lot left live under an
@@ -895,19 +885,18 @@ class _Problem:
     """One thing wrong with a settlement grid, and which refusal it belongs to.
 
     `bad_input` marks the `SettlementInputInvalid` half -- a number that is
-    not money -- as against a genuine conflict with the auction's state
-    (ruling R15). Carried per problem rather than decided at the end from the
+    not money -- as against a genuine conflict with the auction's state.
+    Carried per problem rather than decided at the end from the
     message text, because `settle` reports every problem in one message and
     matching on a string to pick an HTTP status is exactly the
     "default silently to the wrong status" shape `sales_writes.SaleInputInvalid`
     was made a subclass to avoid.
 
-    `lot_number` (ruling R21) is this problem's own lot, when it has exactly
-    one -- most problems do -- and `None` for one that spans several lots or
-    none at all (a buyer's fees, or the whole auction). It is what
-    `settle` copies onto the `AuctionRefusal` it raises with, alongside
-    `text`; nothing here is thrown away the way the old semicolon-joined
-    message alone would have.
+    `lot_number` is this problem's own lot, when it has exactly one -- most
+    problems do -- and `None` for one that spans several lots or none at all
+    (a buyer's fees, or the whole auction). It is what `settle` copies onto
+    the `AuctionRefusal` it raises with, alongside `text`, so the lot survives
+    beside the semicolon-joined message.
     """
 
     text: str
@@ -921,7 +910,7 @@ class _BuyerGroup:
 
     `key` is the casefolded form (`_buyer_key`) that every lookup uses --
     the grouping itself, and the `fees` mapping -- so one buyer spelled two
-    ways in the grid is one order (ruling R17).
+    ways in the grid is one order.
 
     `username` is the **first spelling the grid used** for that key, passed
     to `buyers.venue_buyer` unchanged: a customer record carries the name the
@@ -1135,8 +1124,8 @@ def settle(
        old price**, and coins nothing else offers go back to `held`.
     6. `consigned_on` cleared, status `settled`.
 
-    **Custody is keyed on `auction.consigned_on is not None`** (ruling R13),
-    never on the status: `close` accepts a `consigned` auction without
+    **Custody is keyed on `auction.consigned_on is not None`**, never on
+    the status: `close` accepts a `consigned` auction without
     clearing the date, so a settled sale's coins may still be sitting at the
     house while the status reads `closed`. This is one of the two places the
     date is cleared -- `cancel` is the other -- and it clears it once every
@@ -1151,7 +1140,7 @@ def settle(
     A `withdrawn` lot is returned exactly as an `unsold` one is.
     `AuctionLotResult.withdrawn` is what "was in a closed auction and did not
     sell" means, which is why the public `remove_lot` refuses a closed
-    auction outright (ruling R14): pulling a lot out after the sale is a
+    auction outright: pulling a lot out after the sale is a
     settlement result, not a removal with no record of what became of it.
     The `auction_lot` rows are **kept**, unlike `remove_lot`, which deletes
     them -- `result`, `hammer_price` and `buyer_customer_id` are exactly what
@@ -1165,7 +1154,7 @@ def settle(
     `test_a_failure_part_way_through_leaves_nothing_written`, whose docstring
     records what removing it looks like.
 
-    **One buyer spelled two ways is still one buyer** (ruling R17). Lots are
+    **One buyer spelled two ways is still one buyer.** Lots are
     grouped on a casefolded username, the same question
     `buyers.venue_buyer` answers when it decides how many *customers* exist,
     so a grid saying `CoinFan88` on one row and `coinfan88` on the next
@@ -1183,9 +1172,9 @@ def settle(
     Raises the narrower `SettlementInputInvalid` -- still an
     `AuctionRefused`, so nothing catching the wider one changes -- when every
     problem found is a **number that is not money**: a negative or sub-cent
-    hammer price or fee. Task 5 maps that to 422 and the wider one to 409, so
-    the same bad figure refuses the same way here as it does through the
-    Listings page's Record sale (ruling R15). A grid holding both kinds
+    hammer price or fee. The API maps that to 422 and the wider one to 409,
+    so the same bad figure refuses the same way here as it does through the
+    Listings page's Record sale. A grid holding both kinds
     refuses as the wider one; see `SettlementInputInvalid`.
 
     The refusals `record_sale_lines` raises -- `sales_writes.SaleRefused` and
@@ -1214,8 +1203,8 @@ def settle(
         auction, lots, by_lot, unplaced, duplicated, fees, returned_to_location_id
     )
     if problems:
-        # The narrower class only when *every* problem is bad input (ruling
-        # R15). A message that also names a real conflict is not merely a
+        # The narrower class only when *every* problem is bad input. A
+        # message that also names a real conflict is not merely a
         # badly filled form, and 409 is the safer of the two answers to give
         # about a mixture -- see `SettlementInputInvalid`.
         refusal = (
@@ -1232,7 +1221,7 @@ def settle(
             ],
         )
 
-    # Keyed the same casefolded way the lots are grouped (ruling R17), so a
+    # Keyed the same casefolded way the lots are grouped, so a
     # fee entered against `COINFAN88` reaches the order built from lots that
     # said `coinfan88`. `_grid_problems` has already refused two keys that
     # casefold to one, so nothing is silently overwritten here.
@@ -1279,10 +1268,10 @@ def settle(
                 ],
                 # The first spelling the grid used, not the casefolded key:
                 # a customer record carries the name the owner typed
-                # (ruling R17, and `_BuyerGroup`).
+                # (`_BuyerGroup`).
                 buyer_username=group.username,
                 # The sale number, and deliberately the same one on every
-                # buyer's order (ruling R18): it identifies the **sale**,
+                # buyer's order: it identifies the **sale**,
                 # which is what the owner reconciles an auction house's
                 # statement against, and the house's statement names the sale
                 # rather than one order per buyer inside it. Nothing

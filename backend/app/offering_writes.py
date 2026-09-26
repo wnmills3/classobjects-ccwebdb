@@ -267,7 +267,7 @@ def ever_claimed(db: Session, item_ids: Collection[int]) -> set[int]:
     offered" -- a lot listing itself names no item, but its members' claims
     do and outlive the lot's dissolution.
 
-    `app.sale_state.ever_offered` is the one caller today, for a delete's
+    `app.sale_state.ever_offered` is its caller, for a delete's
     permanent refusal: once a coin has been offered the offer is sales
     history, so that refusal must not clear just because the offer ended or
     the lot dissolved. Kept here, not there, because "is this item spoken
