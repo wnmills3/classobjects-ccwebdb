@@ -101,7 +101,7 @@ from ..models import (
     Vendor,
 )
 from ..models.base import ReferenceMixin
-from ..references import code_to_id, require_code
+from ..references import code_of, code_to_id, require_code
 from ..schemas import (
     RECEIVE_OUTCOMES,
     BulkEditRequest,
@@ -303,21 +303,6 @@ LOT_CLAIM_FIELDS: tuple[str, ...] = (
 )
 
 
-def _classifier_code(db: Session, model: type, fk: int | None) -> str | None:
-    """The code a classifier's foreign key resolves to, or None when unset.
-
-    Looked up by id rather than through an ORM relationship, because not
-    every entry in ITEM_CLASSIFIERS has one -- `series` is set and read as a
-    plain `series_id` column with no `InventoryItem.series` relationship
-    declared -- and one lookup path that works for all of them is simpler
-    than two.
-    """
-    if fk is None:
-        return None
-    row = db.get(model, fk)
-    return row.code if row is not None else None
-
-
 def _refuse_auction_lots(
     db: Session, listings: Sequence[Listing], outcome: str
 ) -> None:
@@ -445,10 +430,10 @@ def _sent_values(
     for field in fields:
         if field in ITEM_CLASSIFIERS:
             fk = getattr(item, f"{field}_id")
-            values[field] = _classifier_code(db, ITEM_CLASSIFIERS[field], fk)
+            values[field] = code_of(db, ITEM_CLASSIFIERS[field], fk)
         elif field in NOTE_CLASSIFIERS:
             fk = getattr(detail, f"{field}_id") if detail else None
-            values[field] = _classifier_code(db, NOTE_CLASSIFIERS[field], fk)
+            values[field] = code_of(db, NOTE_CLASSIFIERS[field], fk)
         elif field in NOTE_SCALARS:
             values[field] = plain(getattr(detail, field)) if detail else None
         else:
@@ -1102,7 +1087,7 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
             for name in LOT_CLAIM_FIELDS:
                 value: object
                 if name in ITEM_CLASSIFIERS:
-                    value = _classifier_code(
+                    value = code_of(
                         db, ITEM_CLASSIFIERS[name], getattr(parent, f"{name}_id")
                     )
                 else:
@@ -1111,19 +1096,19 @@ def item_detail(db: Session, item: InventoryItem) -> ItemDetailOut:
                     claims[name] = value
 
     classifiers = {
-        field: _classifier_code(db, model, getattr(item, f"{field}_id"))
+        field: code_of(db, model, getattr(item, f"{field}_id"))
         for field, model in ITEM_CLASSIFIERS.items()
     }
     coin: dict[str, object] = {}
     if (struck := item.coin_detail) is not None:
         coin = {
-            "mint": _classifier_code(db, Mint, struck.mint_id),
+            "mint": code_of(db, Mint, struck.mint_id),
             "variety": struck.variety,
         }
     note: dict[str, object] = {}
     if (detail := item.currency_detail) is not None:
         note = {
-            field: _classifier_code(db, model, getattr(detail, f"{field}_id"))
+            field: code_of(db, model, getattr(detail, f"{field}_id"))
             for field, model in NOTE_CLASSIFIERS.items()
         }
         note.update({field: getattr(detail, field) for field in NOTE_SCALARS})
@@ -1751,7 +1736,7 @@ def _set_notes_and_detail(
     remain. The second call leaves a banknote made by the first as it is.
     """
     if kind_changed:
-        currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+        currency_id = item_kinds.currency_kind_id(db)
         for item in items:
             if item.item_kind_id == currency_id:
                 _match_detail(db, item)
@@ -1808,7 +1793,7 @@ def _refuse_coin_only_fields(
     """
     if "item_kind" not in data and not any(f in data for f in _COIN_ONLY_FIELDS):
         return
-    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    currency_id = item_kinds.currency_kind_id(db)
     sent_fields = [field for field in _COIN_ONLY_FIELDS if data.get(field) is not None]
     sent_on: list[str] = []
     carried_on: list[str] = []
@@ -1863,7 +1848,7 @@ def _refuse_coin_detail_on_a_note(
     sent = [field for field, value in coin_changes.items() if value not in (None, "")]
     if not sent:
         return
-    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    currency_id = item_kinds.currency_kind_id(db)
     if _effective_is_currency(data, item, currency_id):
         raise HTTPException(
             status_code=422,
@@ -1912,7 +1897,7 @@ def _refuse_mismatched_designation(
     """
     if "item_kind" not in data and "grade_designation" not in data:
         return
-    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    currency_id = item_kinds.currency_kind_id(db)
     # Comprehensions, not dict(result): a result has `.keys()`, so dict()
     # takes it for a mapping and indexes it by column name.
     rows = db.execute(
@@ -1961,7 +1946,7 @@ def _refuse_mismatched_denomination(
     """
     if "item_kind" not in data and "denomination" not in data:
         return
-    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    currency_id = item_kinds.currency_kind_id(db)
 
     sending_denomination = "denomination" in data
     sent_kind: DenominationKind | None = None
@@ -2583,7 +2568,7 @@ def _item_errors(db: Session, item_id: int) -> list[ItemErrorOut]:
     ).all()
     return [
         ItemErrorOut(
-            error_type=_classifier_code(db, ErrorType, row.error_type_id) or "",
+            error_type=code_of(db, ErrorType, row.error_type_id) or "",
             details=row.details,
             source=row.source.value,
             noted_by_id=row.noted_by_id,

@@ -32,12 +32,11 @@ from ..models import (
     NoteIssue,
     NoteType,
     ProvenanceSource,
-    ReferenceMixin,
     SealColor,
     SignatureCombination,
     utcnow,
 )
-from ..references import code_to_id
+from ..references import code_of, code_to_id
 from ..schemas import (
     FriedbergAttachIn,
     FriedbergAttachOut,
@@ -61,26 +60,16 @@ item_router = APIRouter(prefix="/inventory", tags=["friedberg"])
 FRIEDBERG_STATUSES = frozenset({"unknown", "proposed", "confirmed", "conflicting"})
 
 
-def _resolved_code(
-    db: Session, model: type[ReferenceMixin], row_id: int | None
-) -> str | None:
-    """The code of a classifier row referenced by id, for building a response."""
-    if row_id is None:
-        return None
-    row = db.get(model, row_id)
-    return row.code if row is not None else None
-
-
 def _to_out(db: Session, row: FriedbergNumber) -> FriedbergNumberOut:
     return FriedbergNumberOut(
         id=row.id,
         fr_number=row.fr_number,
-        note_type=_resolved_code(db, NoteType, row.note_type_id),
-        denomination=_resolved_code(db, Denomination, row.denomination_id),
+        note_type=code_of(db, NoteType, row.note_type_id),
+        denomination=code_of(db, Denomination, row.denomination_id),
         series_year=row.series_year,
         series_letter=row.series_letter,
-        seal_color=_resolved_code(db, SealColor, row.seal_color_id),
-        signature_combination=_resolved_code(
+        seal_color=code_of(db, SealColor, row.seal_color_id),
+        signature_combination=code_of(
             db, SignatureCombination, row.signature_combination_id
         ),
         district_letter=row.district_letter,

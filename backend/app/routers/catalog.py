@@ -44,7 +44,7 @@ from ..models import (
     SalesLot,
     SalesLotItem,
 )
-from ..references import code_to_id
+from ..references import code_to_id, id_to_code
 from ..schemas import CatalogItemOut, CatalogMemberOut, CatalogPage
 from ._resolve import found_or_404
 from .images import image_urls
@@ -101,11 +101,6 @@ def _eager(stmt: Select[Any]) -> Select[Any]:
     )
 
 
-def _code(row: object) -> str | None:
-    """A classifier row's code, or None when there is no row."""
-    return getattr(row, "code", None)
-
-
 def version_token(listing: Listing, item: InventoryItem | None) -> str:
     """One token for a resource that is two rows.
 
@@ -159,15 +154,15 @@ def to_catalog_member(item: InventoryItem) -> CatalogMemberOut:
         item_code=item.item_code,
         title=item.source_title,
         description=item.description,
-        item_kind=_code(item.item_kind),
-        country=_code(item.country),
-        denomination=_code(item.denomination),
-        bullion_form=_code(item.bullion_form),
-        grade=_code(item.grade),
-        strike_type=_code(item.strike_type),
+        item_kind=id_to_code(item.item_kind),
+        country=id_to_code(item.country),
+        denomination=id_to_code(item.denomination),
+        bullion_form=id_to_code(item.bullion_form),
+        grade=id_to_code(item.grade),
+        strike_type=id_to_code(item.strike_type),
         grade_display=grades.display_item(item),
-        grading_service=_code(item.grading_service),
-        metal=_code(item.metal),
+        grading_service=id_to_code(item.grading_service),
+        metal=id_to_code(item.metal),
         year_start=_years(item)[0],
         year_end=_years(item)[1],
         fineness=item.fineness,
@@ -224,7 +219,7 @@ def _lot_entry(listing: Listing) -> CatalogItemOut:
         title=listing.title or (lot.title if lot is not None else ""),
         description=listing.description or (lot.description if lot is not None else ""),
         price=listing.price,
-        currency=_code(listing.currency) or "USD",
+        currency=id_to_code(listing.currency) or "USD",
         quantity_available=listing.quantity_available,
         is_active=listing.is_active,
         created_at=listing.created_at,
@@ -257,15 +252,15 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         image_url=urls.get("image_url"),
         title=listing.title or item.source_title,
         description=listing.description or item.description,
-        item_kind=_code(item.item_kind),
-        country=_code(item.country),
-        denomination=_code(item.denomination),
-        bullion_form=_code(item.bullion_form),
-        grade=_code(item.grade),
-        strike_type=_code(item.strike_type),
+        item_kind=id_to_code(item.item_kind),
+        country=id_to_code(item.country),
+        denomination=id_to_code(item.denomination),
+        bullion_form=id_to_code(item.bullion_form),
+        grade=id_to_code(item.grade),
+        strike_type=id_to_code(item.strike_type),
         grade_display=grades.display_item(item),
-        grading_service=_code(item.grading_service),
-        metal=_code(item.metal),
+        grading_service=id_to_code(item.grading_service),
+        metal=id_to_code(item.metal),
         year_start=_years(item)[0],
         year_end=_years(item)[1],
         fineness=item.fineness,
@@ -273,7 +268,7 @@ def to_catalog_item(listing: Listing) -> CatalogItemOut:
         fine_weight_ozt=item.fine_weight_ozt,
         piece_count=item.piece_count,
         price=listing.price,
-        currency=_code(listing.currency) or "USD",
+        currency=id_to_code(listing.currency) or "USD",
         quantity_available=listing.quantity_available,
         is_active=listing.is_active,
         created_at=listing.created_at,
