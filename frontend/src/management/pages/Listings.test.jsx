@@ -334,16 +334,31 @@ describe('Listings', () => {
   })
 
   it('keeps the listings when only the platform list fails to load', async () => {
-    // Two independent loads share one `error`. The platforms are needed for
-    // the filter dropdown and nothing else, so losing them is no reason to
-    // withhold the listings -- but the page used to return the error instead
-    // of itself, and a failure in the lesser of the two blanked the whole
-    // page. The rows are what the operator came for.
+    // The platforms are needed for the filter dropdown and nothing else, so
+    // losing them is no reason to withhold the listings: a failure in the
+    // lesser of the two loads must not blank the whole page. The rows are
+    // what the operator came for.
     api.listSalesVenues.mockRejectedValue(new Error('cannot load platforms'))
     renderPage()
 
     expect(await screen.findByText('cannot load platforms')).toBeInTheDocument()
     expect(await screen.findByRole('row', { name: /^eBay/ })).toBeInTheDocument()
+  })
+
+  it('takes a failed load back once the listings load again', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByRole('row', { name: /^eBay/ })
+
+    api.listListings.mockRejectedValueOnce(new Error('cannot load listings'))
+    await user.selectOptions(screen.getByLabelText('Status'), 'all')
+    expect(await screen.findByText('cannot load listings')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Status'), '')
+    await waitFor(() =>
+      expect(screen.queryByText('cannot load listings')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByRole('row', { name: /^eBay/ })).toBeInTheDocument()
   })
 
   it('shows a refusal in place and keeps the form open', async () => {

@@ -11,6 +11,7 @@ import { FORMATS, STATUSES, UNKNOWN, labelFor, subjectOf } from './listing-label
 import { marginPercent } from './platform-rates'
 import { date } from '../../shared/format'
 import { useMounted } from '../useMounted'
+import { useSalesVenues } from '../useSalesVenues'
 import { orNull } from '../../shared/text'
 
 /**
@@ -171,12 +172,15 @@ function ListingForm({ listing, onSaved, onClose }) {
  */
 export default function Listings() {
   const [listings, setListings] = useState(null)
-  const [venues, setVenues] = useState([])
-  // A load failed. Shared by both loads below, so it does NOT mean there is
-  // nothing to show: the platforms can fail while the listings arrive, and
-  // the platforms are only wanted for the filter dropdown. An action's
-  // refusal is `refusal` below instead, which leaves the table where it is.
-  const [error, setError] = useState('')
+  // The platforms are only wanted for the filter dropdown and the store
+  // check, so failing to read them withholds nothing else.
+  const { venues, error: venuesError } = useSalesVenues()
+  // The latest listings load failed. Cleared by the next one that succeeds.
+  const [listingsError, setListingsError] = useState('')
+  // A load failed, which does NOT mean there is nothing to show: the
+  // platforms can fail while the listings arrive. An action's refusal is
+  // `refusal` below instead, which leaves the table where it is.
+  const error = listingsError || venuesError
   const [refusal, setRefusal] = useState('')
   // A one-line confirmation of what was just recorded, cleared by the next
   // action so it cannot outlive the row it described.
@@ -193,17 +197,8 @@ export default function Listings() {
   // page did not touch.
   const [reloads, setReloads] = useState(0)
 
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listSalesVenues()
-      .then((rows) => !cancelled && setVenues(rows))
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
+  // Held here rather than in a `useRequest`, which would own the list: a
+  // save puts its row back in place without asking again.
   useEffect(() => {
     let cancelled = false
     api
@@ -212,8 +207,12 @@ export default function Listings() {
         format: filters.format,
         status: filters.status,
       })
-      .then((rows) => !cancelled && setListings(rows))
-      .catch((err) => !cancelled && setError(err.message))
+      .then((rows) => {
+        if (cancelled) return
+        setListings(rows)
+        setListingsError('')
+      })
+      .catch((err) => !cancelled && setListingsError(err.message))
     return () => {
       cancelled = true
     }
@@ -271,12 +270,10 @@ export default function Listings() {
     setReloads((n) => n + 1)
   }
 
-  // Only when there is nothing to show. `error` is also where a failed
-  // *action* lands -- an end-offer refusal, a stale-version 409 -- and
-  // returning it instead of the page unmounted the table, the filters and
-  // any open confirmation. The operator lost their place and their work at
-  // the exact moment they needed both to react to the refusal, and nothing
-  // clears `error` except a later successful load.
+  // Only when there is nothing to show. With rows on screen a failed load
+  // is said above them instead: returning it in place of the page would
+  // unmount the table, the filters and any open confirmation, and the
+  // operator would lose their place at the moment they need it.
   if (error && listings === null) return <p className="error">{error}</p>
   if (listings === null) return <p className="muted">Loading...</p>
 
