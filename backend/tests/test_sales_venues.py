@@ -13,7 +13,7 @@ from app.models import (
     SalesVenueKind,
     Vendor,
 )
-from app.routers.reference import retirable
+from app.references import retirable
 from app.sales_venues import STORE_CODE, ensure_store_venue, store_venue_id
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
