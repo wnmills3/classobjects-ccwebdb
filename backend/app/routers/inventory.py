@@ -129,6 +129,7 @@ from ..schemas import (
 )
 from ..splitting import SplitError, SplitPiece, split_item
 from ..years import YEAR_FIELDS, backwards, refuse_backwards, resolve_years
+from ._resolve import get_or_404
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -142,12 +143,7 @@ PIECE_CLASSIFIERS: dict[str, type] = {
 
 
 def _get_item(db: Session, item_id: int) -> InventoryItem:
-    item = db.get(InventoryItem, item_id)
-    if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
-        )
-    return item
+    return get_or_404(db, InventoryItem, item_id, "Inventory item not found")
 
 
 def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
@@ -869,12 +865,12 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     that route's own function, so a freshly entered item is described no
     differently from one read back later.
     """
-    order = db.get(PurchaseOrder, payload.purchase_order_id)
-    if order is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown purchase_order_id: {payload.purchase_order_id}",
-        )
+    order = get_or_404(
+        db,
+        PurchaseOrder,
+        payload.purchase_order_id,
+        f"Unknown purchase_order_id: {payload.purchase_order_id}",
+    )
 
     # A year given alone is a single year; an explicit end before the start
     # is refused rather than silently swapped. There is no existing item to

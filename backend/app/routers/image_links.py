@@ -13,13 +13,14 @@ a filing error, and a filing error must not be data loss.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Response, status
 from sqlalchemy.orm import Session
 
 from .. import image_links, sale_state
 from ..deps import AdminUser, DbSession
 from ..models import InventoryItem, ItemImage
 from ..schemas import ImageLinkOut, ImageLinkUpdate
+from ._resolve import get_or_404
 from .images import _link_out
 
 router = APIRouter(prefix="/image-links", tags=["images"])
@@ -27,9 +28,7 @@ router = APIRouter(prefix="/image-links", tags=["images"])
 
 def _guarded_link(db: Session, link_id: int, *, acknowledged: bool) -> ItemImage:
     """The link, with its item's for-sale warning already answered."""
-    link = db.get(ItemImage, link_id)
-    if link is None:
-        raise HTTPException(status_code=404, detail="Link not found")
+    link = get_or_404(db, ItemImage, link_id, "Link not found")
     item = (
         db.get(InventoryItem, link.inventory_item_id)
         if link.inventory_item_id is not None

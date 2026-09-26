@@ -46,10 +46,12 @@ from ..schemas import (
     SignatureChoice,
     SignatureChoicesOut,
 )
+from ._resolve import get_or_404
 
 #: Endpoints 1 and 2 live under `/friedberg`; endpoint 3 attaches a result to
 #: an item, which is inventory-shaped, so it gets its own router the same way
 #: `acquisitions.py` splits purchase orders from storage locations.
+
 friedberg_router = APIRouter(prefix="/friedberg", tags=["friedberg"])
 item_router = APIRouter(prefix="/inventory", tags=["friedberg"])
 
@@ -376,11 +378,7 @@ def _note_detail(db: Session, item_id: int) -> CurrencyDetail:
     number, and silently doing nothing would hide that mistake rather than
     report it.
     """
-    item = db.get(InventoryItem, item_id)
-    if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Inventory item not found"
-        )
+    item = get_or_404(db, InventoryItem, item_id, "Inventory item not found")
     detail = item.currency_detail
     if detail is None:
         raise HTTPException(
@@ -429,12 +427,12 @@ def attach_friedberg(
 
     detail = _note_detail(db, item_id)
 
-    friedberg = db.get(FriedbergNumber, payload.friedberg_id)
-    if friedberg is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No Friedberg catalog row with id {payload.friedberg_id}",
-        )
+    friedberg = get_or_404(
+        db,
+        FriedbergNumber,
+        payload.friedberg_id,
+        f"No Friedberg catalog row with id {payload.friedberg_id}",
+    )
 
     detail.friedberg_id = friedberg.id
     detail.friedberg_status = payload.status

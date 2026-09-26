@@ -24,6 +24,7 @@ from ..models import Customer, User, UserRole
 from ..order_writes import customer_for_user
 from ..schemas import UserOut
 from ..security import hash_password
+from ._resolve import get_or_404
 from .customers import CustomerOut
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -154,11 +155,7 @@ def create_user(body: AccountCreate, db: DbSession, _: AdminUser) -> User:
 @router.patch("/{user_id}", response_model=UserOut)
 def update_user(user_id: int, update: UserUpdate, db: DbSession, _: AdminUser) -> User:
     """Change a name, a role, or whether the account may sign in."""
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such account"
-        )
+    user = get_or_404(db, User, user_id, "No such account")
 
     _refuse_last_admin(db, user, update)
 
@@ -183,11 +180,7 @@ def set_password(user_id: int, body: PasswordSet, db: DbSession, _: AdminUser) -
     until it expires -- which is precisely no use when the reason for the reset
     is that someone should no longer have access.
     """
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such account"
-        )
+    user = get_or_404(db, User, user_id, "No such account")
 
     user.hashed_password = hash_password(body.password)
     user.token_version += 1
@@ -203,11 +196,7 @@ def customer_for_account(user_id: int, db: DbSession, _: AdminUser) -> Customer:
     Lets an administrator place an order for an account holder who has never
     bought anything, and so has no customer record to choose.
     """
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such account"
-        )
+    user = get_or_404(db, User, user_id, "No such account")
     customer = customer_for_user(db, user)
     db.commit()
     db.refresh(customer)

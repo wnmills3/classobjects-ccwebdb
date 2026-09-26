@@ -57,6 +57,16 @@ from ..schemas import (
     RecordSaleIn,
     SaleRecordedOut,
 )
+from ._resolve import (
+    enum_member,
+    found_or_404,
+    get_or_404,
+    item_by_id,
+    lot_by_id,
+    refuse_null_required,
+    refuse_stale_version,
+    venue_by_code,
+)
 
 router = APIRouter(tags=["selling"])
 
@@ -65,57 +75,6 @@ _STALE = "This offer was changed by someone else. Reload and reapply your change
 #: `status=all` on the listing list: every status, ended ones included. Any
 #: other value is one `ListingStatus`; the default is what is on offer now.
 _ALL = "all"
-
-
-# --------------------------------------------------------------------------
-# Resolving what the client sent
-# --------------------------------------------------------------------------
-
-
-def _venue_by_code(db: Session, code: str) -> SalesVenue:
-    """Resolve a `sales_venue` code. An unknown platform is a 422."""
-    venue = db.scalar(select(SalesVenue).where(SalesVenue.code == code))
-    if venue is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown venue: {code!r}",
-        )
-    return venue
-
-
-def _listing_format(code: str) -> ListingFormat:
-    """Resolve a listing format code, naming the ones that exist."""
-    try:
-        return ListingFormat(code)
-    except ValueError as exc:
-        allowed = ", ".join(member.value for member in ListingFormat)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown format: {code!r}. Use one of: {allowed}",
-        ) from exc
-
-
-def _listing_status(code: str) -> ListingStatus:
-    """Resolve a listing status code, naming the ones that exist."""
-    try:
-        return ListingStatus(code)
-    except ValueError as exc:
-        allowed = ", ".join([*(member.value for member in ListingStatus), _ALL])
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown status: {code!r}. Use one of: {allowed}",
-        ) from exc
-
-
-def _item_by_id(db: Session, item_id: int) -> InventoryItem:
-    """The item to offer. An id no item wears is a 422, like an unknown code."""
-    item = db.get(InventoryItem, item_id)
-    if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown item_id: {item_id}",
-        )
-    return item
 
 
 # --------------------------------------------------------------------------
@@ -231,12 +190,10 @@ def _reload(db: Session, listing_ids: list[int]) -> list[ListingOut]:
 
 def _get_listing(db: Session, listing_id: int) -> Listing:
     """One offer, or a 404."""
-    listing = db.scalar(_eager(select(Listing).where(Listing.id == listing_id)))
-    if listing is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="No such offer"
-        )
-    return listing
+    return found_or_404(
+        db.scalar(_eager(select(Listing).where(Listing.id == listing_id))),
+        "No such offer",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -270,17 +227,6 @@ def _refused(detail: str, refused: list[OfferRefusalOut]) -> JSONResponse:
     )
 
 
-def _lot_by_id(db: Session, lot_id: int) -> SalesLot:
-    """The lot to offer. An id no lot wears is a 422, like an unknown code."""
-    lot = db.get(SalesLot, lot_id)
-    if lot is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Unknown lot_id: {lot_id}",
-        )
-    return lot
-
-
 def _offer_lot(
     db: Session,
     payload: OfferIn,
@@ -299,7 +245,7 @@ def _offer_lot(
     but 1 on a lot body, and `offer` caps a lot listing at one unit
     regardless, as `ck_listing_lot_quantity_one` requires.
     """
-    lot = _lot_by_id(db, lot_id)
+    lot = lot_by_id(db, lot_id)
     price = payload.price
     if price is None:
         # A backstop, not a branch a request can reach: `_one_subject`
@@ -367,8 +313,8 @@ def create_offers(
     asserts on the **body** -- an empty lot's 422 must name the lot -- rather
     than on the status alone, which pydantic would produce anyway.
     """
-    venue = _venue_by_code(db, payload.venue)
-    listing_format = _listing_format(payload.format)
+    venue = venue_by_code(db, payload.venue)
+    listing_format = enum_member(ListingFormat, payload.format, "format")
 
     listing_ids: list[int] = []
     refusals: list[OfferRefusalOut] = []
@@ -398,7 +344,7 @@ def create_offers(
                 )
             listing_ids.append(listing.id)
         for line in payload.items:
-            item = _item_by_id(db, line.item_id)
+            item = item_by_id(db, line.item_id)
             # Read before the write that may fail: after a failed flush the
             # session refuses further SQL, and this is what names the item in
             # the refusal below.
@@ -506,9 +452,11 @@ def list_listings(
     """What is offered. Active and paused by default; `status=all` adds ended."""
     stmt = select(Listing)
     if venue is not None:
-        stmt = stmt.where(Listing.sales_venue_id == _venue_by_code(db, venue).id)
+        stmt = stmt.where(Listing.sales_venue_id == venue_by_code(db, venue).id)
     if listing_format is not None:
-        stmt = stmt.where(Listing.format == _listing_format(listing_format))
+        stmt = stmt.where(
+            Listing.format == enum_member(ListingFormat, listing_format, "format")
+        )
     if item_id is not None:
         # Not `Listing.inventory_item_id == item_id`: that column is NULL on
         # a **lot** listing, so a coin offered inside a lot matched nothing
@@ -530,7 +478,10 @@ def list_listings(
         # about what "offered" means.
         stmt = stmt.where(Listing.status.in_(offering_writes.ON_OFFER))
     elif wanted_status != _ALL:
-        stmt = stmt.where(Listing.status == _listing_status(wanted_status))
+        stmt = stmt.where(
+            Listing.status
+            == enum_member(ListingStatus, wanted_status, "status", also=[_ALL])
+        )
 
     rows = db.scalars(_eager(stmt).order_by(Listing.id)).all()
     return [listing_out(row) for row in rows]
@@ -539,16 +490,6 @@ def list_listings(
 #: Columns that are `NOT NULL` on `Listing` but optional on `ListingUpdate` --
 #: omitting one leaves it alone, but an explicit null is a client mistake.
 _REQUIRED_ON_UPDATE = frozenset({"price", "title", "description"})
-
-
-def _refuse_null_required(data: dict[str, Any]) -> None:
-    """Raise a 422 naming every required column a PATCH sent as an explicit null."""
-    nulled = sorted(f for f in _REQUIRED_ON_UPDATE if f in data and data[f] is None)
-    if nulled:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"{', '.join(nulled)} cannot be null",
-        )
 
 
 #: What may still change on an offer that has ended: the platform's own
@@ -599,13 +540,11 @@ def update_listing(
     listing = _get_listing(db, listing_id)
 
     # exclude_unset: an omitted field is left alone, an explicit null clears
-    # it -- except the NOT NULL columns, which _refuse_null_required rejects
+    # it -- except the NOT NULL columns, which refuse_null_required rejects
     # rather than silently leaving unchanged.
     data: dict[str, Any] = payload.model_dump(exclude_unset=True)
-    expected = data.pop("version", None)
-    if expected is not None and expected != listing.version:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_STALE)
-    _refuse_null_required(data)
+    refuse_stale_version(data.pop("version", None), listing.version, _STALE)
+    refuse_null_required(data, _REQUIRED_ON_UPDATE)
     _refuse_rewriting_an_ended_offer(listing, data)
 
     for field, value in data.items():
@@ -792,9 +731,7 @@ def record_listing_sale(
     (`tests/test_record_sale_api.py`) proves the dispatch.
     """
     try:
-        listing = db.get(Listing, listing_id)
-        if listing is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No listing {listing_id}")
+        listing = get_or_404(db, Listing, listing_id, f"No listing {listing_id}")
         order = sales_writes.record_sale(
             db,
             listing,

@@ -46,6 +46,7 @@ from ..models import (
 )
 from ..references import code_to_id
 from ..schemas import CatalogItemOut, CatalogMemberOut, CatalogPage
+from ._resolve import found_or_404
 from .images import image_urls
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
@@ -393,12 +394,10 @@ def list_catalog(
 
 
 def _get_listing(db: Session, listing_id: int) -> Listing:
-    listing = db.scalar(_eager(select(Listing).where(Listing.id == listing_id)))
-    if listing is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Catalog item not found"
-        )
-    return listing
+    return found_or_404(
+        db.scalar(_eager(select(Listing).where(Listing.id == listing_id))),
+        "Catalog item not found",
+    )
 
 
 @router.get("/{listing_id}")
