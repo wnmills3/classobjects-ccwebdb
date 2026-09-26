@@ -10,7 +10,7 @@ changed elsewhere: who, and when.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -90,17 +90,22 @@ def record(
     *,
     user_id: int | None,
     at: datetime | None = None,
+    text_fields: Collection[str] = (),
 ) -> int:
     """Log each of `fields` whose value differs between `before` and `after`.
 
     Returns how many rows it logged. `at` stamps every row with one moment --
     a pass that changes many items at once passes its start -- and defaults
-    to now.
+    to now. A field in `text_fields` is compared as text rather than by
+    `same_value`: an identifier such as an order number `0123` is not `123`.
     """
     logged = 0
     for field in fields:
         old, new = before.get(field), after.get(field)
-        if same_value(old, new):
+        if field in text_fields:
+            if (old or None) == (new or None):
+                continue
+        elif same_value(old, new):
             continue
         logged += 1
         db.add(

@@ -182,6 +182,23 @@ def test_a_listing_of_an_order_already_recorded_joins_that_purchase(
     assert moved == [held.id]
 
 
+def test_an_order_number_is_compared_as_text(db: Session) -> None:
+    """`0123` and `123` are two order numbers, so the change is in the History."""
+    order = _purchase(db, "444444444441", DAY, number="0123")
+    ebay_orders.apply(db, ebay_orders.Plan(orders={"123": (order.id, [])}), _admin(db))
+    db.flush()
+    item_id = db.scalar(
+        select(InventoryItem.id).where(InventoryItem.purchase_order_id == order.id)
+    )
+    logged = db.execute(
+        select(ItemFieldChange.old_value, ItemFieldChange.new_value).where(
+            ItemFieldChange.inventory_item_id == item_id,
+            ItemFieldChange.field_name == "order_number",
+        )
+    ).all()
+    assert [tuple(r) for r in logged] == [("0123", "123")]
+
+
 def test_what_cannot_be_decided_is_left_and_listed(db: Session, tmp_path: Path) -> None:
     twice = _purchase(db, "444444444441", DAY)
     absent = _purchase(db, "444444444449", DAY)
