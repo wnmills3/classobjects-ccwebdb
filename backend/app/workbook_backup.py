@@ -92,6 +92,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.types import TypeEngine
 
+from .backup import resync_sequence
 from .config import REPO_ROOT, settings
 
 __all__ = [
@@ -760,7 +761,7 @@ def _load(engine: Engine, book: Workbook, *, unknown_for_missing: bool) -> Impor
         for part in loaded:
             _second_pass(conn, part)
         for table in tables:
-            _resync(conn, table)
+            resync_sequence(conn, conn.dialect, table)
     return Imported(counts, substituted)
 
 
@@ -795,25 +796,6 @@ def _second_pass(conn: Connection, part: _Loaded) -> None:
                 f"{part.table.name}: the database refused a link -- "
                 f"{' '.join(reason[:2])}"
             ) from exc
-
-
-def _resync(conn: Connection, table: Table) -> None:
-    """Move an id sequence past the highest id loaded, as `app.backup` does."""
-    primary = list(table.primary_key.columns)
-    if len(primary) != 1 or primary[0].name != "id":
-        return
-    sequence = conn.execute(
-        text("SELECT pg_get_serial_sequence(:t, 'id')"), {"t": table.name}
-    ).scalar()
-    if sequence is None:
-        return
-    quoted = conn.dialect.identifier_preparer.quote(table.name)
-    conn.execute(
-        text(
-            "SELECT setval(:s, coalesce((SELECT max(id) FROM " + quoted + "), 1), true)"
-        ),
-        {"s": sequence},
-    )
 
 
 # -- compare --------------------------------------------------------------------

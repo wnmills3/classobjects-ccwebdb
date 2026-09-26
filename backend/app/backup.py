@@ -49,7 +49,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.engine import Connection, Dialect, Engine, make_url
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -150,47 +150,58 @@ def copy_rows(
 
 
 def _resync_sequences(session: Session, table: Table) -> None:
-    """Point each serial sequence past the ids just copied.
+    """Point the table's id sequence past the ids just copied, and commit.
 
-    Without this the copy accepts existing rows and then collides on the first
-    insert, which would make a restored backup look fine until someone used it.
+    Commits only when a sequence was set: a dialect without sequences, or a
+    table whose id is not backed by one, has nothing to commit.
+    """
+    if resync_sequence(session, session.get_bind().dialect, table):
+        session.commit()
 
-    **A failure here is raised, not swallowed.** This used to sit under a bare
-    `except Exception: session.rollback()`, which produced exactly the state
-    the paragraph above warns about, silently -- the restore reported success
-    and the first insert into it collided. The two cases that are genuinely
-    not failures are checked for instead: a dialect with no sequences, and a
+
+def resync_sequence(
+    executor: Connection | Session, dialect: Dialect, table: Table
+) -> bool:
+    """Point the table's id sequence past its highest id; whether one was set.
+
+    Without this a copy or an import accepts the existing rows and then
+    collides on the first insert, which would make a restored database look
+    fine until someone used it. `app.backup` and `app.workbook_backup` both
+    call it after loading a table.
+
+    **A failure here is raised, not swallowed** -- swallowing it would leave
+    exactly that state, silently. The two cases that are genuinely not
+    failures are checked for instead: a dialect with no sequences, and a
     table whose id is not backed by one.
     """
     name = getattr(table, "name", None)
     primary = list(table.primary_key.columns)
     if name is None or len(primary) != 1 or primary[0].name != "id":
-        return
-    bind = session.get_bind()
-    if bind.dialect.name != "postgresql":
-        return
+        return False
+    if dialect.name != "postgresql":
+        return False
 
     # NULL when the column has no owned sequence -- an id the application
     # assigns rather than the database. Asked separately so that case can be
     # told from a sequence that exists and could not be set.
-    sequence = session.execute(
+    sequence = executor.execute(
         text("SELECT pg_get_serial_sequence(:t, 'id')"), {"t": name}
     ).scalar()
     if sequence is None:
-        return
+        return False
 
     # The table name is interpolated because an identifier cannot be a bind
     # parameter. It comes from SQLAlchemy's own metadata, never from input,
     # and is quoted by the dialect's preparer so a reserved or mixed-case
     # name survives.
-    quoted = bind.dialect.identifier_preparer.quote(name)
-    session.execute(
+    quoted = dialect.identifier_preparer.quote(name)
+    executor.execute(
         text(
             "SELECT setval(:s, coalesce((SELECT max(id) FROM " + quoted + "), 1), true)"
         ),
         {"s": sequence},
     )
-    session.commit()
+    return True
 
 
 #: Reported as the copy's row count for a table the copy does not have. A
