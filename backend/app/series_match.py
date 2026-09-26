@@ -40,6 +40,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import aliases
 from .database import SessionLocal
 from .field_sources import SERIES_MATCH, record_derived
 from .models import (
@@ -48,7 +49,6 @@ from .models import (
     ItemKind,
     ProvenanceSource,
     Series,
-    SeriesAlias,
 )
 
 #: Terms that identify a series only once the denomination is known. The value
@@ -106,6 +106,12 @@ EXTRA: dict[str, list[str]] = {
     "presidential_dollar": [r"presidential\s+dollar"],
 }
 
+#: `AMBIGUOUS`'s terms, compiled once rather than on every description.
+_AMBIGUOUS_PATTERNS = [
+    (aliases.word_pattern(term), by_denomination)
+    for term, by_denomination in AMBIGUOUS.items()
+]
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -139,21 +145,14 @@ def build_rules(db: Session) -> list[Rule]:
     rows = db.execute(
         select(Series.id, Series.code, Series.label, Series.applies_to)
     ).all()
-    aliases: dict[int, list[str]] = {}
-    for series_id, alias in db.execute(
-        select(SeriesAlias.series_id, SeriesAlias.alias).where(
-            SeriesAlias.is_active.is_(True)
-        )
-    ).all():
-        aliases.setdefault(series_id, []).append(alias)
+    named = aliases.aliases_by_row(db, Series)
 
     for series_id, code, label, applies_to in rows:
-        terms = [label, *aliases.get(series_id, [])]
+        terms = [label, *named.get(series_id, [])]
         for term in terms:
             if term.lower() in ambiguous_terms:
                 continue  # handled by denomination, below
-            pattern = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
-            rules.append(Rule(code, pattern, applies_to))
+            rules.append(Rule(code, aliases.word_pattern(term), applies_to))
         for extra in EXTRA.get(code, []):
             rules.append(Rule(code, re.compile(extra, re.IGNORECASE), applies_to))
     return rules
@@ -175,8 +174,8 @@ def match(
         return found  # the ambiguous families are all coin designs
 
     # The ambiguous families, resolved by denomination or else abandoned.
-    for term, by_denomination in AMBIGUOUS.items():
-        if not re.search(rf"\b{re.escape(term)}\b", text, re.IGNORECASE):
+    for pattern, by_denomination in _AMBIGUOUS_PATTERNS:
+        if not pattern.search(text):
             continue
         if not denomination:
             continue

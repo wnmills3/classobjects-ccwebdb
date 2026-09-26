@@ -13,6 +13,7 @@ shipped one would bring it back on the next load. A seeded alias is retired
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import cast
@@ -37,6 +38,7 @@ __all__ = [
     "normalise",
     "remove_alias",
     "resolve",
+    "word_pattern",
 ]
 
 #: The longest alias either table stores.
@@ -107,6 +109,16 @@ def _alias_table(model: type[ReferenceMixin]) -> _AliasTable:
         (ReferenceAlias.table_name == table,),
         table,
     )
+
+
+def word_pattern(name: str) -> re.Pattern[str]:
+    """A name as a whole word or phrase anywhere in free text, ignoring case.
+
+    How a label or alias is looked for in a description or a rating: "Mercury"
+    matches "a Mercury dime" but not "Mercurys". The name is escaped, so its
+    punctuation is literal.
+    """
+    return re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
 
 
 def aliases_by_row(
