@@ -147,11 +147,11 @@ def listing_out(listing: Listing) -> ListingOut:
     see and end -- not as a 500. `routers/orders._listing_title` handles the
     same impossible case the same way.
 
-    **Public, not private** (ruling R26, Task 5 fix round 1):
-    `routers.auctions` shapes an auction lot's own listing through this same
-    function, since an auction lot's listing is a listing like any other and
-    a second, copied implementation would have had to be told by hand every
-    time this one changed. Import this rather than reimplementing it.
+    **Public, not private:** `routers.auctions` shapes an auction lot's own
+    listing through this same function, since an auction lot's listing is a
+    listing like any other and a second, copied implementation would have to
+    be told by hand every time this one changed. Import this rather than
+    reimplementing it.
     """
     item = listing.inventory_item
     lot = listing.sales_lot
@@ -315,11 +315,10 @@ def create_offers(
     `lot_writes.EmptyLot` is a subclass of `lot_writes.LotRefused`, so its
     clause must come first: reversing the two would route every 422 into the
     409 branch, silently, and the only sign would be an empty lot reported as
-    a conflict. `record_listing_sale` used to carry the identical trap with
-    `SaleInputInvalid` and `SaleRefused`; ruling R23 (Task 5 fix round 1)
-    moved that pair to handlers `app.main` registers by class instead, which
-    is what this `EmptyLot`/`LotRefused` pair would be the next candidate
-    for, not yet done. Nothing in the type system, the linter or the test
+    a conflict. `record_listing_sale` avoids the identical trap with
+    `SaleInputInvalid` and `SaleRefused` by leaving that pair to handlers
+    `app.main` registers by class; this `EmptyLot`/`LotRefused` pair is not
+    handled that way. Nothing in the type system, the linter or the test
     names would catch a later reordering here, so the test that proves it
     asserts on the **body** -- an empty lot's 422 must name the lot -- rather
     than on the status alone, which pydantic would produce anyway.
@@ -411,11 +410,10 @@ def create_offers(
     # be caught FIRST. Swap these two clauses and every empty-lot 422 turns
     # into a 409 with no error anywhere: mypy does not check `except` order,
     # ruff does not either, and both clauses would still be "reachable".
-    # `record_listing_sale` below no longer carries this shape of trap --
-    # ruling R23 (Task 5 fix round 1) moved its `SaleInputInvalid`/
-    # `SaleRefused` pair to handlers `app.main` registers by class, which is
-    # what makes that particular reversal unwritable there. This pair has
-    # not been migrated the same way.
+    # `record_listing_sale` below carries no trap of this shape: its
+    # `SaleInputInvalid`/`SaleRefused` pair goes to handlers `app.main`
+    # registers by class, which makes that particular reversal unwritable
+    # there. This pair is not handled that way.
     # ------------------------------------------------------------------
     except lot_writes.EmptyLot as empty:
         # Bad input, not a conflict: a lot with nothing in it is a request
@@ -566,7 +564,7 @@ def update_listing(
 
 
 def _refuse_auction_lot(db: Session, listing: Listing) -> None:
-    """Refuse to end an auction-format listing directly. Task 5, defect 1.
+    """Refuse to end an auction lot's listing directly.
 
     An auction-format listing has **at most one** `auction_lot`
     (`uq_auction_lot_listing_id`), and `app.auctions` is that row's sole
@@ -585,18 +583,18 @@ def _refuse_auction_lot(db: Session, listing: Listing) -> None:
     also go on showing the lot as `ended`, with no auction transition ever
     having produced that state.
 
-    The fix is a guard, not a rewrite: an auction lot is ended through its
+    So this guard holds: an auction lot is ended through its
     auction -- `remove_lot`, `cancel` (both a withdrawal) or `settle` (a
     result) -- never directly, the same way `routers.auctions` has no
     endpoint that writes `listing.status` for an auction lot itself.
 
     **Keyed on the `auction_lot` row, not on `format` alone.** An
     auction-format listing need not belong to an auction: the Offer dialog
-    offers a coin directly on eBay by auction, and ruling R11's `remove_lot`
-    deletes the row while the listing keeps `format = auction`. Neither has
-    an auction to end it through, so both take the ordinary path -- keying on
-    format left a directly offered auction listing with no way to be ended
-    at all (review of the final fix wave, Important #1).
+    offers a coin directly on eBay by auction, and `remove_lot` deletes the
+    row while the listing keeps `format = auction`. Neither has an auction
+    to end it through, so both take the ordinary path -- keying on format
+    would leave a directly offered auction listing with no way to be ended
+    at all.
     """
     auction_id = auction_ids_by_listing(db, [listing]).get(listing.id)
     if auction_id is not None:
@@ -646,12 +644,12 @@ def sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
 
     `net_amount` is computed here and only here: `record_sale`'s module
     docstring says net payout is never stored, so this is the one place the
-    subtraction happens. **Public, not private** (ruling R26, Task 5 fix
-    round 1): `routers.auctions.settle_auction` shapes every order a
-    settlement writes through this same function -- one buyer's purchase
-    looks identical whether it came from Record sale or from a settled
-    auction lot, and a second, copied implementation is exactly how that
-    claim would have quietly stopped being true. Import this rather than
+    subtraction happens. **Public, not private:**
+    `routers.auctions.settle_auction` shapes every order a settlement writes
+    through this same function -- one buyer's purchase looks identical
+    whether it came from Record sale or from a settled auction lot, and a
+    second, copied implementation is exactly how that claim would quietly
+    stop being true. Import this rather than
     reimplementing it; a caller with a different shape needs a different
     function, not a fork of this one.
     """
@@ -690,15 +688,13 @@ def sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
     "/listings/{listing_id}/sale",
     response_model=SaleRecordedOut,
     status_code=status.HTTP_201_CREATED,
-    # Ruling R23 (Task 5 fix round 1) moved `SaleInputInvalid`/`SaleRefused`
-    # to the handlers `app.main` registers by class, which answer
-    # `{detail, refused: [...]}` (`main._refusal_body`'s single-entry
-    # fallback for a `sales_writes` exception, which carries no `refusals`
-    # attribute of its own) -- the same shape `AuctionRefusedOut` already
-    # names for `routers.auctions`. Declared here (Minor #4) so this
-    # endpoint's OpenAPI contract matches what it has answered since R23,
-    # not the plain `{detail}` `HTTPException` shape it lost when the local
-    # `except` clauses for that pair were removed.
+    # `SaleInputInvalid`/`SaleRefused` go to the handlers `app.main`
+    # registers by class, which answer `{detail, refused: [...]}`
+    # (`main._refusal_body`'s single-entry fallback for a `sales_writes`
+    # exception, which carries no `refusals` attribute of its own) -- the
+    # same shape `AuctionRefusedOut` names for `routers.auctions`. Declared
+    # here so this endpoint's OpenAPI contract matches what it answers, not
+    # the plain `{detail}` shape of an `HTTPException`.
     responses={
         status.HTTP_409_CONFLICT: {"model": AuctionRefusedOut},
         status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": AuctionRefusedOut},

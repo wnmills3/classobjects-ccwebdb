@@ -139,12 +139,11 @@ def _auction_lot_by_id(db: Session, auction: Auction, lot_id: int) -> AuctionLot
 def _lot_out(auction_lot: AuctionLot) -> AuctionLotOut:
     """Shape one auction lot: its slot in the sale, and the listing behind it.
 
-    The listing itself is shaped by `routers.offers.listing_out` (ruling
-    R26, Task 5 fix round 1) -- imported, not copied, so the Listings page
-    and the Auctions page show the very same listing through one
-    implementation rather than two that can drift apart. It was private
-    (`_out`) until this ruling made it public expressly so this could import
-    it instead of duplicating it.
+    The listing itself is shaped by `routers.offers.listing_out` --
+    imported, not copied, so the Listings page and the Auctions page show
+    the very same listing through one implementation rather than two that
+    can drift apart. It is public expressly so this can import it instead of
+    duplicating it.
     """
     return AuctionLotOut(
         id=auction_lot.id,
@@ -256,7 +255,7 @@ def _duplicate_lot_number(lot_number: str | None) -> HTTPException:
     """The 409 a repeated `lot_number` within one auction produces.
 
     `lot_number` is `str | None` only so `update_auction_lot`'s captured
-    `payload.lot_number` (Minor #7, Task 5 fix round 1) can be passed
+    `payload.lot_number` can be passed
     straight through without an assertion: a reserve-only PATCH cannot
     trigger this in practice, since `uq_auction_lot_auction_lot_number`
     has nothing to do with `reserve`, but the type says so honestly rather
@@ -375,8 +374,8 @@ def update_auction_lot(
 ) -> AuctionOut:
     """Renumber a lot, or change its reserve.
 
-    Gated by `app.auctions.refuse_unless_lot_editable` (ruling R22, Task 5
-    follow-up): `draft`, `scheduled` or `consigned` only, the same boundary
+    Gated by `app.auctions.refuse_unless_lot_editable`: `draft`,
+    `scheduled` or `consigned` only, the same boundary
     `remove_lot` already uses -- a lot number and a reserve are both set
     *before* the sale, and once `closed` the lot numbers are part of the
     record a house's statement is reconciled against. The write itself is
@@ -388,12 +387,12 @@ def update_auction_lot(
     is left to propagate to the handler `app.main` registers for it, the
     same as every other transition in this router.
 
-    `payload.lot_number` is captured into a local before the `try` (Minor
-    #7, Task 5 fix round 1): the `IntegrityError` clause used to read
-    `auction_lot.lot_number` as `dict.get`'s default, which Python evaluates
-    unconditionally -- a live ORM attribute read on the common path, after a
-    failed flush on the error path, which is exactly what this module's own
-    docstring says every other endpoint avoids. A repeated `lot_number` can
+    `payload.lot_number` is captured into a local before the `try`: reading
+    `auction_lot.lot_number` in the `IntegrityError` clause, as `dict.get`'s
+    default, which Python evaluates unconditionally, would be a live ORM
+    attribute read on the common path, after a failed flush on the error
+    path, which is exactly what this module's own docstring says every
+    other endpoint avoids. A repeated `lot_number` can
     only be the one this request just tried to set -- a reserve-only change
     cannot violate `uq_auction_lot_auction_lot_number` -- so the captured
     value is always the right one to name.

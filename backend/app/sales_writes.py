@@ -16,9 +16,9 @@ buyer's whole purchase -- several listings on one order -- and `record_sale`
 is that function called with a list of one. The Listings page's Record sale
 (`app.routers.offers`) still calls `record_sale`; shop checkout writes its
 orders through `order_writes.place_order` directly, without fees, and never
-calls either. The second caller this single entry point was built for
-(spec, *Where record-a-sale lives*) is phase-4 auction settlement, and it
-arrived in Task 3: an auction settling four lots to two buyers is **two**
+calls either. The second caller this single entry point serves
+(spec, *Where record-a-sale lives*) is auction settlement: an auction
+settling four lots to two buyers is **two**
 calls, one per buyer, not four and not a second implementation of fees and
 shares that can drift from this one.
 
@@ -72,7 +72,7 @@ __all__ = [
 #: not name must be refused, not silently treated as "paid" -- the one
 #: default that would misreport a sale as money already collected.
 #:
-#: `own_store` is deliberately absent (ruling S4, 2026-09-22): a shop item
+#: `own_store` is deliberately absent: a shop item
 #: sells through checkout, and an in-person sale of one is an order placed
 #: on the customer's behalf -- `_refuse_store_sale` says so in words, and
 #: this absence keeps `record_sale_lines` failing closed behind it.
@@ -221,11 +221,11 @@ def _weights(items: Sequence[InventoryItem], *, equal: bool) -> list[Decimal]:
 def _refuse_store_sale(listing: Listing) -> None:
     """Refuse Record sale on a web-store listing: it sells through checkout.
 
-    Ruling S4 (2026-09-22), settling the spec's open decision *Record-a-sale
-    on a store listing*. The Listings page already hid the button on store
-    rows; the API still took the request, which made it a second way to sell
-    a shop item -- past the cart and past checkout, minting an "Undisclosed
-    buyer (store)" when the username was blank. An in-person sale of a shop
+    The spec's *Record-a-sale on a store listing*. The Listings page hides
+    the button on store rows, and the API refuses too: taking the request
+    would make it a second way to sell a shop item -- past the cart and past
+    checkout, minting an "Undisclosed buyer (store)" when the username was
+    blank. An in-person sale of a shop
     item is entered as an order on the customer's behalf (the Sales page),
     which goes through checkout's own rules.
     """
@@ -240,7 +240,7 @@ def _refuse_store_sale(listing: Listing) -> None:
 def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
     """Refuse to record a manual sale against an auction-format listing.
 
-    Ruling R25 (Task 5 fix round 1): an auction lot sells through
+    An auction lot sells through
     **settlement** (`app.auctions.settle`), never through Record sale --
     settlement is the only thing that produces the fees, the shares and the
     lot's dissolution or `sold` result together, in one transaction, and
@@ -249,7 +249,7 @@ def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
     would end it and write an order outside settlement entirely, leaving the
     `auction_lot` row live and pointing at a listing no longer offered --
     the same failure `routers.offers._refuse_auction_lot` closes for
-    `POST /api/listings/{id}/end` (defect 1) -- and additionally strands the
+    `POST /api/listings/{id}/end` -- and additionally strands the
     auction for good: `settle`'s own call to `record_sale_lines` would then
     refuse that lot's listing as "not on offer", so the auction could never
     be settled after.
@@ -258,8 +258,8 @@ def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
     auction-format listing need not belong to an auction: the Offer dialog
     offers a coin directly on eBay by auction, and that sale is recorded
     through Record sale like any other. A listing whose lot was removed
-    (ruling R11 deletes the row) is ended, so the ordinary "not on offer"
-    refusal already answers it (review of the final fix wave, Important #1).
+    (`remove_lot` deletes the row) is ended, so the ordinary "not on offer"
+    refusal already answers it.
 
     **Placed in `record_sale`, not in `record_sale_lines`.** The single-sale
     convenience wrapper is what `routers.offers.record_listing_sale` --

@@ -209,8 +209,8 @@ def _refuse_unless_assembling(db: Session, lot: SalesLot) -> None:
 
     Flushed first, because `Session.refresh` expires the instance *before* it
     autoflushes: a pending change to this lot would be discarded rather than
-    written. No caller can do that today, and this is the line that keeps it
-    that way once Task 5 gives lots a router.
+    written. The flush keeps a caller that changed the lot first -- a router
+    among them -- from losing that change.
     """
     db.flush()
     db.refresh(lot, with_for_update=True)

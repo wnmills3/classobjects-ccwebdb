@@ -424,10 +424,10 @@ def ever_named_any(item_ids: Collection[int]) -> ColumnElement[bool]:
     offer that has ended is still where this coin has been offered.
 
     `routers.offers.list_listings` is the caller, for one item's offer
-    history in the console's offers panel. It filtered on
-    `Listing.inventory_item_id == item_id` alone until Task 14, which is
-    NULL on a lot listing: a coin sold inside a lot got an empty list and
-    the panel said "Not offered anywhere yet" about a coin that was on sale.
+    history in the console's offers panel. `Listing.inventory_item_id ==
+    item_id` alone would not do: it is NULL on a lot listing, so a coin sold
+    inside a lot would get an empty list and the panel would say "Not
+    offered anywhere yet" about a coin that was on sale.
 
     Public, and here rather than in the router, for the reason `ever_claimed`
     gives: "is this item spoken for", present or past, is this module's
@@ -1055,8 +1055,8 @@ def _lot_members(db: Session, lot: SalesLot) -> list[InventoryItem]:
 
     # Flushed first, because `Session.refresh` expires the instance *before*
     # it autoflushes: a pending change to this lot would be discarded rather
-    # than written. No caller can do that today, and this is the line that
-    # keeps it that way once Task 5 gives lots a router.
+    # than written. The flush keeps a caller that changed the lot first -- a
+    # router among them -- from losing that change.
     db.flush()
     db.refresh(lot, with_for_update=True)
     if lot.status is not SalesLotStatus.assembling:

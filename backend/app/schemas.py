@@ -2130,7 +2130,7 @@ class SettleIn(BaseModel):
 
         Two groups whose spelling merely *casefolds* to the same buyer --
         `CoinFan88` and `coinfan88` -- are `app.auctions.settle`'s own job to
-        catch and name (ruling R17): each survives into the `Mapping` this
+        catch and name: each survives into the `Mapping` this
         schema builds, because a `dict` keyed on the literal strings keeps
         both. An **exact** repeat of one spelling would not: building that
         `Mapping` from this list would let the second entry silently
@@ -2176,12 +2176,12 @@ class AuctionRefusedOut(BaseModel):
     """The 409 or 422 body an `AuctionRefused`-family exception produces.
 
     `refused` always holds at least one entry: most transitions refuse for
-    one reason, and `settle` may refuse for several. Ruling R21 (Task 5
-    follow-up): built directly from the raised exception's own `refusals`
-    attribute (`app.auctions.AuctionRefused.refusals`, a list of
+    one reason, and `settle` may refuse for several. Built directly from the
+    raised exception's own `refusals` attribute
+    (`app.auctions.AuctionRefused.refusals`, a list of
     `app.auctions.AuctionRefusal`) rather than by splitting `str(exc)` on
-    `"; "` -- a text convention that broke the moment a problem's own words
-    contained a semicolon, and that nothing type-checked. A
+    `"; "` -- a text convention that would break the moment a problem's own
+    words contained a semicolon, and that nothing type-checks. A
     `sales_writes.SaleRefused`/`SaleInputInvalid`, which carries no such
     attribute, still produces a `refused` list of exactly one entry, built
     from its plain message.

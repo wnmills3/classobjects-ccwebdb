@@ -7,8 +7,8 @@ are the stable contract. Two rules make that safe:
 the caller believed in produces an item that is quietly unclassified, and the
 caller is never told. It raises 422 naming the field and the value.
 
-**A retired code is refused -- unless the row already holds it** (ruling
-S5, 2026-09-22). `routers.reference.get_table` serves retired values so a
+**A retired code is refused -- unless the row already holds it.**
+`routers.reference.get_table` serves retired values so a
 form can render an old record (`include_inactive`), and saving that record
 back sends the same code. Refusing it would make every save of an affected
 item fail once its classifier was retired, with a message saying its own
