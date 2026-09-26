@@ -141,6 +141,29 @@ def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
     return found
 
 
+def _refuse_unless_on_sale_in_shop(db: Session, listing: Listing) -> None:
+    """Refuse a listing a shop order cannot take stock from. 409.
+
+    Two questions in this order, each with its own message: whether the
+    listing is this shop's at all, and whether it is on offer this minute.
+    `active_only=False` keeps the first from answering the second;
+    `offering_writes` owns both halves. `place_order` asks this of every
+    shop line, and `revise_order` of every line whose quantity grows.
+    """
+    if not sellable_in_shop(listing, active_only=False):
+        _refuse(
+            db,
+            status.HTTP_409_CONFLICT,
+            f"Listing {listing.id} is not sold in this shop",
+        )
+    if not listing.is_active:
+        _refuse(
+            db,
+            status.HTTP_409_CONFLICT,
+            f"Listing {listing.id} is not currently for sale",
+        )
+
+
 def _after_stock_change(db: Session, listing: Listing, before: int) -> None:
     """Move every offered item's disposition when the stock crosses zero.
 
@@ -381,21 +404,7 @@ def place_order(
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]
         if venue is None:
-            # `active_only=False`: whether the listing is this shop's at all is
-            # one question, and whether it is on offer this minute is another
-            # with its own message below. `offering_writes` owns both halves.
-            if not sellable_in_shop(listing, active_only=False):
-                _refuse(
-                    db,
-                    status.HTTP_409_CONFLICT,
-                    f"Listing {listing.id} is not sold in this shop",
-                )
-            if not listing.is_active:
-                _refuse(
-                    db,
-                    status.HTTP_409_CONFLICT,
-                    f"Listing {listing.id} is not currently for sale",
-                )
+            _refuse_unless_on_sale_in_shop(db, listing)
         if listing.quantity_available < line.quantity:
             _refuse(
                 db,
@@ -577,18 +586,7 @@ def revise_order(
             deltas[listing_id] = want - have
             listing = listings[listing_id]
             if deltas[listing_id] > 0:
-                if not sellable_in_shop(listing, active_only=False):
-                    _refuse(
-                        db,
-                        status.HTTP_409_CONFLICT,
-                        f"Listing {listing_id} is not sold in this shop",
-                    )
-                if not listing.is_active:
-                    _refuse(
-                        db,
-                        status.HTTP_409_CONFLICT,
-                        f"Listing {listing_id} is not currently for sale",
-                    )
+                _refuse_unless_on_sale_in_shop(db, listing)
                 if listing.quantity_available < deltas[listing_id]:
                     _refuse(
                         db,
