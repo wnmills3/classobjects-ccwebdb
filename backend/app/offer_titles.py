@@ -28,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from . import grades
 from .models import (
@@ -188,6 +188,13 @@ def suggested_title(db: Session, item: InventoryItem) -> str:
 def suggested_titles(db: Session, item_ids: Sequence[int]) -> dict[int, str]:
     """`suggested_title` for each of these items that exists, keyed by id."""
     items = db.scalars(
-        select(InventoryItem).where(InventoryItem.id.in_(item_ids))
+        select(InventoryItem)
+        .where(InventoryItem.id.in_(item_ids))
+        # A title reads each item's own detail row: one query each for the
+        # set rather than one per item.
+        .options(
+            selectinload(InventoryItem.coin_detail),
+            selectinload(InventoryItem.currency_detail),
+        )
     ).all()
     return {item.id: suggested_title(db, item) for item in items}

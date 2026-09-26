@@ -422,7 +422,7 @@ def attach_friedberg(
     """
     if payload.status not in FRIEDBERG_STATUSES:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown friedberg_status {payload.status!r}. Expected one "
             f"of {sorted(FRIEDBERG_STATUSES)}",
         )

@@ -7,10 +7,13 @@ sold again; each sale's line keeps what that sale was. A quantity or price
 change to an existing line keeps its snapshot -- it is the same sale.
 
 The copy is the console's own view of the item (`routers.inventory`,
-everything the editor shows) less what describes the editing rather than the
-item, plus what that view leaves out -- mint, variety, certificates -- and
-the listing: title, description, price, currency. It holds costs, so only the
-console ever sees it.
+everything the editor shows, mint, variety and certificates included) less
+what describes the editing rather than the item (`_EDITING_ONLY`: the lot's
+claims, review marks, derived defaults, the default tax rate, the sale
+warning, the row version, and who last changed each field), plus the
+listing: title, description, price, currency. The certificates are
+kept under `certificates` as well as the view's own `cert_numbers`. It holds
+costs, so only the console ever sees it.
 
 A **lot** listing offers several items, so its copy carries `items` -- the
 same per-item detail, one entry per member, in item id order -- and `lot`
@@ -36,10 +39,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import CoinDetail, InventoryItem, ItemCertification, Listing, Mint, utcnow
+from .models import InventoryItem, Listing, utcnow
 from .offering_writes import offered_items
 
 __all__ = ["SNAPSHOT_VERSION", "take"]
@@ -53,30 +55,24 @@ SNAPSHOT_VERSION = 2
 
 #: Fields of the editor's view that describe the editing, not the item.
 _EDITING_ONLY = frozenset(
-    {"lot_claims", "reviewed", "derived", "default_tax_rate", "sale_state", "version"}
+    {
+        "lot_claims",
+        "reviewed",
+        "derived",
+        "default_tax_rate",
+        "sale_state",
+        "version",
+        "last_changes",
+    }
 )
 
 
 def _detail(db: Session, item: InventoryItem) -> dict[str, Any]:
-    """One item's copy: the editor's view, less the editing, plus what it omits."""
+    """One item's copy: the editor's view, less the editing."""
     from .routers.inventory import item_detail
 
     detail = item_detail(db, item).model_dump(mode="json", exclude=set(_EDITING_ONLY))
-    coin = db.scalar(select(CoinDetail).where(CoinDetail.inventory_item_id == item.id))
-    mint = db.get(Mint, coin.mint_id) if coin and coin.mint_id else None
-    certificates = list(
-        db.scalars(
-            select(ItemCertification.cert_number)
-            .where(ItemCertification.inventory_item_id == item.id)
-            .order_by(ItemCertification.id)
-        )
-    )
-    return {
-        **detail,
-        "mint": mint.code if mint else None,
-        "variety": coin.variety if coin else None,
-        "certificates": certificates,
-    }
+    return {**detail, "certificates": detail["cert_numbers"]}
 
 
 def take(db: Session, listing: Listing) -> dict[str, Any]:

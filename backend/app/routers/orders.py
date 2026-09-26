@@ -164,14 +164,18 @@ _ORDER_DETAIL = (
     selectinload(SalesOrder.items)
     .selectinload(SalesOrderItem.listing)
     .selectinload(Listing.inventory_item),
+    # A lot line is titled by its lot (`_sold_as`).
+    selectinload(SalesOrder.items)
+    .selectinload(SalesOrderItem.listing)
+    .selectinload(Listing.sales_lot),
     selectinload(SalesOrder.placed_by),
     selectinload(SalesOrder.changes),
 )
 
 
 def _status_code(db: Session, order: SalesOrder) -> str:
-    row = db.get(SalesOrderStatus, order.sales_order_status_id)
-    return row.code if row else "pending"
+    # `get_one`: a status id naming no row is a broken database, not `pending`.
+    return db.get_one(SalesOrderStatus, order.sales_order_status_id).code
 
 
 def _load(db: Session, order_id: int) -> SalesOrder | None:
@@ -383,23 +387,24 @@ def update_order_status(
         )
 
     previous = _status_code(db, order)
+    # Cancelling an order that has not shipped returns its stock to the
+    # catalog; a shipped order's goods have left, so cancelling it moves no
+    # stock and is how a refund is recorded. Re-sending `cancelled` on an
+    # already-cancelled order is a no-op.
+    returns_stock = payload.status == "cancelled" and previous not in (
+        SHIPPED_STATUSES | {"cancelled"}
+    )
     # An order whose stock cannot be put back cannot be cancelled here --
     # `_no_stock_to_return` says which shape it is and why, and is where the
     # whole argument lives. Refusing the transition is the only option that
     # leaves nothing stranded; undoing such a sale needs a path that re-offers
     # what it sold, which nothing has yet.
     #
-    # Asked only when this cancellation would actually return stock, which is
-    # the same condition `return_stock` is called under below -- and the
-    # reason has to match the danger or the refusal is just an obstruction.
-    # A **shipped** order returns no stock when it is cancelled: the goods
-    # have left, and cancelling is how a refund is recorded. Nothing can be
-    # stranded by a call that moves no stock, so a shipped order is
-    # cancellable whatever state its listing is in. Re-sending `cancelled` on
-    # an already-cancelled order stays the harmless no-op it is below.
-    if payload.status == "cancelled" and previous not in SHIPPED_STATUSES | {
-        "cancelled"
-    }:
+    # Asked only when this cancellation returns stock -- `returns_stock`,
+    # the condition `return_stock` is called under below -- because nothing
+    # can be stranded by a call that moves no stock: a shipped order is
+    # cancellable whatever state its listing is in.
+    if returns_stock:
         blocked = _no_stock_to_return(db, order)
         if blocked is not None:
             raise HTTPException(
@@ -420,9 +425,8 @@ def update_order_status(
     # stock all sit inside this try. `return_stock` can autoflush a write to
     # `InventoryItem.disposition`, which carries its own version column, so a
     # concurrent edit to that item raised `StaleDataError` here and not only
-    # at `db.commit()` -- and that item used to go unlocked, which made this
-    # clause a live path and a false conflict. `return_stock` now takes its
-    # rows through `order_writes._lock_listings` and so through
+    # at `db.commit()`. `return_stock` takes its rows through
+    # `order_writes._lock_listings` and so through
     # `offering_writes.lock_for_sale`, which locks and re-reads every item it
     # will write, so this is defense in depth
     # (`test_a_concurrently_edited_item_no_longer_refuses_a_cancellation`).
@@ -440,11 +444,7 @@ def update_order_status(
         )
         record_status_change(db, order, previous, payload.status, admin)
 
-        # Cancelling an order that had not shipped returns stock to the
-        # catalog.
-        if payload.status == "cancelled" and previous not in SHIPPED_STATUSES | {
-            "cancelled"
-        }:
+        if returns_stock:
             return_stock(db, order)
 
         db.commit()

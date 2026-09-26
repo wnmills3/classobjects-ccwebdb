@@ -23,9 +23,10 @@ config = context.config
 # Fall back to the application's configured database, but let a caller that
 # already supplied a URL (tests, or `alembic -x`) keep theirs. Overwriting
 # unconditionally would silently point every programmatic run at the
-# development database.
+# development database. The config is a ConfigParser, which reads `%` as
+# interpolation, so a URL-encoded password's `%` is doubled to arrive intact.
 if not config.get_main_option("sqlalchemy.url", None):
-    config.set_main_option("sqlalchemy.url", settings.database_url)
+    config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

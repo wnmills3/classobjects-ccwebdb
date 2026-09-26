@@ -54,13 +54,13 @@ def _kind_id(db: Session, code: str) -> int:
     """Resolve a `sales_venue_kind` code, refusing `own_store` -- there is only one."""
     if code == "own_store":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="There is only one web store; choose another kind",
         )
     found = code_to_id(db, SalesVenueKind, code, "kind")
     if found is None:  # code_to_id returns None only for an empty code
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="kind is required"
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="kind is required"
         )
     return found
 
@@ -76,7 +76,7 @@ def _refuse_null_required(data: dict[str, Any]) -> None:
     nulled = sorted(f for f in _REQUIRED_ON_UPDATE if f in data and data[f] is None)
     if nulled:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{', '.join(nulled)} cannot be null",
         )
 
@@ -87,7 +87,7 @@ def _check_vendor(db: Session, vendor_id: int | None, venue_id: int | None) -> N
         return
     if db.get(Vendor, vendor_id) is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown vendor_id: {vendor_id}",
         )
     other = db.scalar(
@@ -162,12 +162,12 @@ def update_sales_venue(
     if venue.is_own_store:
         if "kind" in data:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="The web store's kind cannot change",
             )
         if data.get("is_active") is False:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="The web store cannot be retired",
             )
     if "kind" in data:

@@ -158,7 +158,7 @@ def _bad_input(_request: Request, exc: Exception) -> JSONResponse:
     handles the wide half of.
     """
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=_refusal_body(exc)
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content=_refusal_body(exc)
     )
 
 

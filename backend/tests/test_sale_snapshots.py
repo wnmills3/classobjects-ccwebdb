@@ -178,6 +178,89 @@ def test_a_revision_snapshots_a_new_line_and_keeps_an_old_one(
     assert added_snapshot["item"]["source_title"] == "Added"
 
 
+def test_a_revision_snapshots_an_added_line_as_it_was_offered(
+    client: TestClient,
+    db: Session,
+    make_listing: ListingFactory,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """The copy is taken before the stock change, as at checkout.
+
+    Taken after it, an added line's item already reads as sold -- by the
+    very sale the copy is meant to describe the item before.
+    """
+    kept = make_listing(title="Kept", quantity_available=1)
+    added = make_listing(title="Added", quantity_available=1)
+    order = _order(client, customer_headers, kept)
+    placed = db.scalar(
+        select(SalesOrderItem.item_snapshot).where(SalesOrderItem.listing_id == kept.id)
+    )
+    assert placed is not None
+
+    body = _admin_order(client, admin_headers, order["id"])
+    response = client.put(
+        f"/api/orders/{order['id']}",
+        json={
+            "version": body["version"],
+            "customer_id": body["customer_id"],
+            "items": [
+                {"listing_id": kept.id, "quantity": 1, "unit_price": "189.00"},
+                {"listing_id": added.id, "quantity": 1, "unit_price": "10.00"},
+            ],
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 200, response.text
+
+    db.expire_all()
+    added_snapshot = db.scalar(
+        select(SalesOrderItem.item_snapshot).where(
+            SalesOrderItem.listing_id == added.id
+        )
+    )
+    assert added_snapshot is not None
+    assert added_snapshot["item"]["disposition"] != "sold"
+    assert added_snapshot["item"]["disposition"] == placed["item"]["disposition"]
+
+
+def test_a_snapshot_keeps_the_item_not_who_edited_it(
+    client: TestClient,
+    make_listing: ListingFactory,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """The editor's `last_changes` names people; a sale's copy has no use for it.
+
+    Mint, variety and certificates are the editor's own values, under the
+    snapshot's keys.
+    """
+    listing = make_listing(quantity_available=1)
+    item_id = item_id_of(listing)
+    edited = _edit(
+        client,
+        admin_headers,
+        item_id,
+        description="Edited before the sale",
+        cert_numbers=["12345678"],
+        acknowledge_for_sale=True,
+    )
+    assert edited.status_code == 200, edited.text
+    detail = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()
+    assert detail["last_changes"]
+    order = _order(client, customer_headers, listing)
+
+    item = _admin_order(client, admin_headers, order["id"])["items"][0]["snapshot"][
+        "item"
+    ]
+    assert "last_changes" not in item
+    assert item["description"] == "Edited before the sale"
+    assert item["certificates"] == ["12345678"]
+    assert item["cert_numbers"] == ["12345678"]
+    assert item["mint"] == detail["mint"]
+    assert item["variety"] == detail["variety"]
+
+
 def test_a_lot_listing_snapshots_every_member(
     db: Session, offered_lot_listing: Listing
 ) -> None:

@@ -7,9 +7,19 @@ pass while it is present.
 
 from __future__ import annotations
 
+import threading
+import time
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 from app.models import User, UserRole
+from app.routers import users
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, func, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
 
 
 def _login(client: TestClient, email: str, password: str) -> dict[str, str] | None:
@@ -194,3 +204,77 @@ def test_deactivated_account_cannot_sign_in(
     assert stored is not None
     assert stored.is_active is False
     assert stored.role is UserRole.customer
+
+
+@pytest.fixture
+def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """Real, committing sessions; removes the accounts it made."""
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    yield factory
+    with factory() as cleanup:
+        cleanup.execute(delete(User).where(User.email.like("lastmanager%@example.com")))
+        cleanup.commit()
+
+
+def test_two_managers_deactivating_each_other_leave_one(
+    committed: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two concurrent saves, each removing one of the last two managers.
+
+    Each counts the managers before either commits; without the manager rows
+    locked, both see two and both go through, leaving nobody. The count is
+    slowed so the two genuinely overlap.
+    """
+    with committed() as session:
+        assert (
+            session.scalar(
+                select(func.count())
+                .select_from(User)
+                .where(User.role == UserRole.manager, User.is_active.is_(True))
+            )
+            == 0
+        )
+        managers = [
+            User(
+                email=f"lastmanager{n}@example.com",
+                hashed_password="x",
+                role=UserRole.manager,
+            )
+            for n in range(2)
+        ]
+        session.add_all(managers)
+        session.commit()
+        ids = [m.id for m in managers]
+
+    counted = users._admin_count
+
+    def slow_count(db: Session) -> int:
+        result = counted(db)
+        time.sleep(0.5)
+        return result
+
+    monkeypatch.setattr(users, "_admin_count", slow_count)
+    barrier = threading.Barrier(2)
+
+    def deactivate(user_id: int) -> int | str:
+        with committed() as session:
+            actor = session.get_one(User, ids[0] if user_id == ids[1] else ids[1])
+            barrier.wait(timeout=10)
+            try:
+                users.update_user(
+                    user_id, users.UserUpdate(is_active=False), session, actor
+                )
+            except HTTPException as exc:
+                session.rollback()
+                return exc.status_code
+            return "ok"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = sorted(pool.map(deactivate, ids), key=str)
+
+    assert outcomes == [409, "ok"]
+    with committed() as session:
+        active = session.scalars(
+            select(User).where(User.id.in_(ids), User.is_active.is_(True))
+        ).all()
+    assert len(active) == 1

@@ -28,8 +28,9 @@ create one and run `alembic upgrade head` against it. Any rows the
 migrations put there are removed first, the tables are loaded in
 foreign-key order (a column that points at its own table, or at one loaded
 later, is filled in a second pass), and every id sequence is moved past the
-highest id. It refuses the live database: restore into a new one, compare
-it, then switch to it.
+highest id. It refuses the live database -- identified by the server, not
+by how the URL is spelled -- and any database that already holds inventory
+items: restore into a new one, compare it, then switch to it.
 
 **A broken link is refused, all of them at once.** Every foreign key is
 checked against the workbook's own rows before anything is written, and the
@@ -87,7 +88,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Connection, Engine, make_url
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.types import TypeEngine
 
@@ -492,17 +493,56 @@ def _read_sheet(book: Workbook, table: Table, later: set[str]) -> _Loaded:
     return _Loaded(table, out, deferred)
 
 
-def _refuse_live(url: str) -> None:
-    live = make_url(settings.database_url)
-    target = make_url(url)
-    if (target.host, target.port, target.database) == (
-        live.host,
-        live.port,
-        live.database,
-    ):
+def _identity(engine: Engine) -> tuple[int, str]:
+    """The server's cluster identifier and the database's name, as the server says.
+
+    One server answers to many URL spellings (`localhost`, `127.0.0.1`, an
+    omitted default port), so only the server itself can say two URLs name
+    the same database.
+    """
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT (SELECT system_identifier FROM pg_control_system()), "
+                "current_database()"
+            )
+        ).one()
+    return int(row[0]), str(row[1])
+
+
+def _refuse_live(target: Engine) -> None:
+    """Refuse `target` if it is the database the app runs on.
+
+    When the live database cannot be reached, `target` -- which can be -- is
+    not it; `_refuse_occupied` still refuses a target that holds a collection.
+    """
+    live = create_engine(settings.database_url)
+    try:
+        live_identity = _identity(live)
+    except OperationalError:
+        return
+    finally:
+        live.dispose()
+    if _identity(target) == live_identity:
         raise WorkbookError(
-            f"{target.database} is the live database: import into a new one, "
+            f"{live_identity[1]} is the live database: import into a new one, "
             "compare it, then switch to it"
+        )
+
+
+def _refuse_occupied(conn: Connection, tables: list[Table]) -> None:
+    """Refuse a target that already holds inventory items.
+
+    A new database holds none -- the migrations seed vocabularies, not
+    items -- so rows there mean the target is somebody's collection.
+    """
+    if not any(t.name == "inventory_item" for t in tables):
+        return
+    held = conn.execute(text("SELECT count(*) FROM inventory_item")).scalar_one()
+    if held:
+        raise WorkbookError(
+            f"the database already holds {held} inventory item(s): import into "
+            "a new one"
         )
 
 
@@ -535,15 +575,17 @@ def import_workbook(
     and the link is into a vocabulary: then it points at that vocabulary's
     Unknown row, and the substitution is returned.
     """
-    _refuse_live(url)
-    book = load_workbook(path, read_only=True, data_only=True)
     engine = create_engine(url)
+    book: Workbook | None = None
     try:
+        _refuse_live(engine)
+        book = load_workbook(path, read_only=True, data_only=True)
         return _load(engine, book, unknown_for_missing=unknown_for_missing)
     finally:
         # Closed whether it loaded or was refused: a pooled connection left
         # open holds the database, and nothing can drop or rename it.
-        book.close()
+        if book is not None:
+            book.close()
         engine.dispose()
 
 
@@ -685,6 +727,7 @@ def _load(engine: Engine, book: Workbook, *, unknown_for_missing: bool) -> Impor
                 column.type = JSONB(none_as_null=True)
     counts: dict[str, int] = {}
     with engine.begin() as conn:
+        _refuse_occupied(conn, tables)
         revision = _revision(conn)
         if revision != about.get("migration revision"):
             raise WorkbookError(
@@ -837,7 +880,7 @@ def _lines(differences: Iterable[Difference]) -> Iterator[str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Export, import or compare."""
+    """Export, import or compare, or remember a workbook's column widths."""
     parser = argparse.ArgumentParser(prog="workbook_backup", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     exp = sub.add_parser("export", help="write the live database to a workbook")

@@ -34,10 +34,12 @@ from app.models import (
     InventoryItem,
     Listing,
     ListingStatus,
+    LocationHistory,
     SalesOrder,
     SalesVenue,
     StorageLocation,
     StorageLocationKind,
+    User,
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
@@ -815,6 +817,92 @@ def test_an_unrelated_runtime_error_is_not_swallowed(
             headers=admin_headers,
             json={"on_date": "2026-10-01"},
         )
+
+
+def _consigned_item(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    auction: Auction,
+    make_item: ItemFactory,
+) -> tuple[InventoryItem, int]:
+    """One item in a lot of `auction`, consigned through the API; its lot's id."""
+    item = make_item()
+    added = client.post(
+        f"/api/auctions/{auction.id}/lots",
+        headers=admin_headers,
+        json={"lot_number": "1", "item_id": item.id, "price": "1.00"},
+    )
+    assert added.status_code == 201, added.text
+    consigned = client.post(
+        f"/api/auctions/{auction.id}/consign",
+        headers=admin_headers,
+        json={"on_date": "2026-10-01"},
+    )
+    assert consigned.status_code == 200, consigned.text
+    return item, added.json()["lots"][0]["id"]
+
+
+def _home(db: Session) -> StorageLocation:
+    """A plain location to bring consigned items back to."""
+    kind = db.scalars(
+        select(StorageLocationKind).where(StorageLocationKind.code == "home")
+    ).one()
+    location = StorageLocation(storage_location_kind_id=kind.id)
+    db.add(location)
+    db.commit()
+    return location
+
+
+def _last_move(db: Session, item: InventoryItem) -> LocationHistory:
+    db.expire_all()
+    return db.scalars(
+        select(LocationHistory)
+        .where(LocationHistory.inventory_item_id == item.id)
+        .order_by(LocationHistory.id.desc())
+        .limit(1)
+    ).one()
+
+
+def test_removing_a_consigned_lot_records_who_brought_it_back(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    admin_user: User,
+    scheduled_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    item, lot_id = _consigned_item(client, admin_headers, scheduled_auction, make_item)
+    home = _home(db)
+    response = client.delete(
+        f"/api/auctions/{scheduled_auction.id}/lots/{lot_id}",
+        headers=admin_headers,
+        params={"returned_to_location_id": home.id},
+    )
+    assert response.status_code == 200, response.text
+    move = _last_move(db, item)
+    assert move.storage_location_id == home.id
+    assert move.moved_by_id == admin_user.id
+
+
+def test_cancelling_a_consigned_auction_records_who_brought_it_back(
+    client: TestClient,
+    db: Session,
+    admin_headers: dict[str, str],
+    admin_user: User,
+    scheduled_auction: Auction,
+    make_item: ItemFactory,
+) -> None:
+    item, _ = _consigned_item(client, admin_headers, scheduled_auction, make_item)
+    home = _home(db)
+    response = client.post(
+        f"/api/auctions/{scheduled_auction.id}/cancel",
+        headers=admin_headers,
+        json={"returned_to_location_id": home.id},
+    )
+    assert response.status_code == 200, response.text
+    move = _last_move(db, item)
+    assert move.storage_location_id == home.id
+    assert move.moved_by_id == admin_user.id
 
 
 def test_closing_and_cancelling_an_auction(

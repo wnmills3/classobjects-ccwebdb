@@ -9,12 +9,14 @@ are the checks that make it a guarantee.
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 # piexif ships neither stubs nor a py.typed marker, so there is nothing for the
 # checker to read. The alternative is a `[[tool.mypy.overrides]]` entry in
 # pyproject.toml; this keeps the statement next to the one import that needs it.
 import piexif  # type: ignore[import-untyped]
 import pytest
+from app.config import settings
 from app.imaging import MetadataRemainsError, cleanse, make_derivative
 from app.models import DerivativeKind, Image, ImageRole, ItemImage, Listing
 from fastapi.testclient import TestClient
@@ -597,3 +599,75 @@ def test_listing_with_both_filters_at_once_is_refused(
         headers=admin_headers,
     )
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Stored bytes follow the database
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def media_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An empty media directory of the test's own, where storage writes."""
+    monkeypatch.setattr(settings, "media_root", tmp_path)
+    return tmp_path
+
+
+def _stored(root: Path) -> list[Path]:
+    return [path for path in root.rglob("*") if path.is_file()]
+
+
+def test_an_upload_for_an_unknown_item_stores_nothing(
+    client: TestClient, admin_headers: dict[str, str], media_root: Path
+) -> None:
+    """Refused before the bytes are written, so no file is left without a row."""
+    response = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", make_jpeg(color=(1, 2, 3)), "image/jpeg")},
+        data={"inventory_item_id": "999999"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 404, response.text
+    assert _stored(media_root) == []
+
+
+def test_an_unacknowledged_upload_for_an_item_for_sale_stores_nothing(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    listing: Listing,
+    media_root: Path,
+) -> None:
+    response = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", make_jpeg(color=(4, 5, 6)), "image/jpeg")},
+        data={"inventory_item_id": str(listing.inventory_item_id)},
+        headers=admin_headers,
+    )
+    assert response.status_code == 409, response.text
+    assert _stored(media_root) == []
+
+
+def test_a_deletion_that_fails_to_commit_keeps_the_bytes(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rows still point at the files until the deletion is committed."""
+    uploaded = client.post(
+        "/api/images",
+        files={"file": ("coin.jpg", make_jpeg(color=(7, 7, 7)), "image/jpeg")},
+        headers=admin_headers,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    stored = _stored(media_root)
+    assert stored
+
+    def refuse() -> None:
+        raise RuntimeError("the commit failed")
+
+    monkeypatch.setattr(db, "commit", refuse)
+    with pytest.raises(RuntimeError, match="the commit failed"):
+        client.delete(f"/api/images/{uploaded.json()['id']}", headers=admin_headers)
+    assert _stored(media_root) == stored

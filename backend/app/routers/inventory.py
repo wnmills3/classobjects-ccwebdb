@@ -17,7 +17,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.sql.selectable import ScalarSelect
 
@@ -225,7 +225,7 @@ def search_inventory(
         select(InventoryItem.id).where(InventoryItem.item_code == lot_code)
     ):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"No item has code {lot_code!r}.",
         )
 
@@ -242,13 +242,13 @@ def search_inventory(
         )
     except UnknownIssue as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown issue {exc.args[0]!r} for {view}. Available: "
             f"{sorted(spec.issues)}",
         ) from exc
     except KeyError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown filter {exc.args[0]!r} for {view}. Available: "
             f"{sorted(spec.filters)}",
         ) from exc
@@ -258,7 +258,7 @@ def search_inventory(
         # sends the wrong person looking in the wrong place.
         hint = f" Sortable: {sorted(spec.sortable)}" if "sort" in str(exc) else ""
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{exc}{hint}"
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{exc}{hint}"
         ) from exc
 
     return InventoryPageOut(
@@ -491,7 +491,7 @@ def _refuse_field_conflicts(
     unbased = sorted(field for field in sent if field not in base)
     if unbased:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"base must hold every field sent; missing: {', '.join(unbased)}",
         )
     clashing = [
@@ -552,6 +552,27 @@ def _standing_code(item: InventoryItem, data: dict[str, Any]) -> str | None:
     return None
 
 
+def _offer_standing_code(
+    db: Session, listing: Listing, standing: dict[int, str]
+) -> str:
+    """The standing change a bulk edit gives the items `listing` offers.
+
+    Per offer, because one request can change one item's status and
+    another's disposition (an item that already holds the status sent).
+    A lot whose members changed differently names each change.
+    """
+    codes = {
+        standing[item.id]
+        for item in offering_writes.offered_items(db, listing)
+        if item.id in standing
+    }
+    if not codes:
+        raise LookupError(
+            f"listing #{listing.id} holds none of the items this edit changes"
+        )
+    return ", ".join(sorted(codes))
+
+
 @router.post("/receive")
 def receive_items(
     payload: ReceiveRequest, db: DbSession, admin: AdminUser
@@ -607,7 +628,14 @@ def receive_items(
         )
 
     items = db.scalars(
-        select(InventoryItem).where(InventoryItem.id.in_(payload.item_ids))
+        select(InventoryItem)
+        .where(InventoryItem.id.in_(payload.item_ids))
+        # Each item's detail row is read per item below: one query each
+        # for the set rather than one per item.
+        .options(
+            selectinload(InventoryItem.currency_detail),
+            selectinload(InventoryItem.coin_detail),
+        )
     ).all()
     missing = sorted(set(payload.item_ids) - {i.id for i in items})
     if missing:
@@ -928,7 +956,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
     unknown_suggestions = sorted(set(payload.suggested) - SUGGESTABLE_FIELDS)
     if unknown_suggestions:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Not a suggestable field: {unknown_suggestions}. "
             f"Available: {sorted(SUGGESTABLE_FIELDS)}",
         )
@@ -1321,7 +1349,7 @@ def _refuse_note_year(items: Sequence[InventoryItem], data: dict[str, object]) -
     notes = sorted(i.item_code for i in items if _is_note_after(i, data))
     if notes:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"{' and '.join(sent)}: a note's year is its series year -- "
                 f"send series_year instead ({', '.join(notes[:10])})"
@@ -1432,7 +1460,7 @@ def _draft_errors(db: Session, draft: ItemDraftIn) -> list[tuple[str, str | None
     unknown = sorted(codes - set(types))
     if unknown:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown error_type: {', '.join(unknown)}",
         )
     ordered = sorted(
@@ -1669,7 +1697,7 @@ def _facility(face: str, sent: object) -> str:
     facility = plates.facility_of(face)
     if sent is not None and sent != facility:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"printing_facility {sent}: face plate {face} was printed in "
                 f"{plates.FACILITIES[facility]}"
@@ -1690,7 +1718,7 @@ def _apply_note_changes(items: list[InventoryItem], changes: dict[str, object]) 
     if not_notes:
         fields = sorted(c.removesuffix("_id") for c in changes)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{', '.join(fields)}: only a banknote has these, and "
             f"{not_notes} are not banknotes. Nothing was changed.",
         )
@@ -1996,7 +2024,7 @@ def _refuse_null_scalars(data: dict[str, object]) -> None:
     nulled = sorted(f for f in REQUIRED_SCALARS if f in data and data[f] is None)
     if nulled:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{', '.join(nulled)} cannot be null.",
         )
 
@@ -2034,7 +2062,14 @@ def bulk_edit(
     _split_grade(data)
 
     items = db.scalars(
-        select(InventoryItem).where(InventoryItem.id.in_(payload.ids))
+        select(InventoryItem)
+        .where(InventoryItem.id.in_(payload.ids))
+        # Each item's detail row is read per item below: one query each
+        # for the set rather than one per item.
+        .options(
+            selectinload(InventoryItem.currency_detail),
+            selectinload(InventoryItem.coin_detail),
+        )
     ).all()
     found = {item.id for item in items}
     missing = sorted(set(payload.ids) - found)
@@ -2091,7 +2126,7 @@ def bulk_edit(
     )
     if broken:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"That year would end a range before it starts on {broken}. "
             "Nothing was changed.",
         )
@@ -2128,10 +2163,15 @@ def bulk_edit(
         db.flush()
         live_offers = list(offering_writes.offers_holding(db, changing))
         offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
-        code = next(iter(standing.values()))
-        _refuse_auction_lots(db, live_offers, code)
+        codes = {
+            live.id: _offer_standing_code(db, live, standing) for live in live_offers
+        }
+        for code in sorted(set(codes.values())):
+            _refuse_auction_lots(
+                db, [live for live in live_offers if codes[live.id] == code], code
+            )
         for live in live_offers:
-            offering_writes.end_offer(db, live, note=f"item edited to {code}")
+            offering_writes.end_offer(db, live, note=f"item edited to {codes[live.id]}")
 
     # What a person sets is theirs from now on: no pass refreshes it. What
     # follows from the new facts is refreshed now.
@@ -2505,7 +2545,7 @@ def set_item_review(
     unknown = sorted(set(payload.fields) - REVIEWABLE_FIELDS)
     if unknown:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Not reviewable: {unknown}. Available: {sorted(REVIEWABLE_FIELDS)}",
         )
 
