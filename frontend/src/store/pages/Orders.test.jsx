@@ -7,13 +7,7 @@ vi.mock('../../shared/api', () => ({
 
 import { api } from '../../shared/api'
 import Orders from './Orders'
-import { adminAuth, anonymousAuth, renderWithProviders } from '../../test/helpers'
-
-const customerAuth = () =>
-  anonymousAuth({
-    user: { id: 2, email: 'buyer@example.com', role: 'customer' },
-    isAdmin: false,
-  })
+import { adminAuth, customerAuth, renderWithProviders } from '../../test/helpers'
 
 const ORDER = {
   id: 42,

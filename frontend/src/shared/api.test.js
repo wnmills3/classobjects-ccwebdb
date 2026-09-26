@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, api, clearTokens, loadTokens, saveTokens, send } from './api'
+import {
+  ApiError,
+  api,
+  clearTokens,
+  loadTokens,
+  saveTokens,
+  send,
+  withQuery,
+} from './api'
 
 describe("the shop's api object", () => {
   // Everything here ships to every anonymous visitor of the shop. Listing
@@ -143,6 +151,106 @@ describe('send', () => {
     // The message is exactly what it was before the body was added.
     expect(err.message).toBe('2 item(s) cannot be offered')
     expect(err.body).toEqual(body)
+  })
+
+  it('reports an error body that is not JSON as an ApiError, not a SyntaxError', async () => {
+    // A proxy in front of the API answers a 502 with an HTML page. Parsed as
+    // JSON it throws a SyntaxError, and the caller sees "Unexpected token '<'"
+    // with no status to act on.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 502,
+        ok: false,
+        statusText: 'Bad Gateway',
+        text: () => Promise.resolve('<html>proxy error</html>'),
+      }),
+    )
+
+    const err = await send('/api/catalog', { auth: false }).catch((caught) => caught)
+
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.status).toBe(502)
+    expect(err.message).toBe('Bad Gateway')
+    expect(err.body).toBeNull()
+  })
+
+  it('refuses a successful response whose body is not JSON', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        statusText: 'OK',
+        text: () => Promise.resolve('<html>index</html>'),
+      }),
+    )
+
+    const err = await send('/api/catalog', { auth: false }).catch((caught) => caught)
+
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.status).toBe(200)
+  })
+
+  it('refreshes once for requests that are refused together', async () => {
+    // A page that loads three things at once on an expired access token gets
+    // three 401s. Each refreshing on its own spends the refresh token three
+    // times over.
+    saveTokens({ access_token: 'old', refresh_token: 'r' })
+    const fetchMock = vi.fn((path, init) => {
+      if (path === '/api/auth/refresh') {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          json: () => Promise.resolve({ access_token: 'new', refresh_token: 'r2' }),
+        })
+      }
+      const fresh = init.headers.Authorization === 'Bearer new'
+      return Promise.resolve({
+        status: fresh ? 200 : 401,
+        ok: fresh,
+        text: () => Promise.resolve(fresh ? '{}' : '{"detail":"expired"}'),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await Promise.all([send('/api/a'), send('/api/b'), send('/api/c')])
+
+    const refreshes = fetchMock.mock.calls.filter(
+      ([path]) => path === '/api/auth/refresh',
+    )
+    expect(refreshes).toHaveLength(1)
+    expect(loadTokens()).toEqual({ access_token: 'new', refresh_token: 'r2' })
+  })
+})
+
+describe('withQuery', () => {
+  it('leaves a path alone when there is nothing to ask', () => {
+    expect(withQuery('/api/catalog')).toBe('/api/catalog')
+    expect(withQuery('/api/catalog', { q: '', kind: null, grade: undefined })).toBe(
+      '/api/catalog',
+    )
+  })
+
+  it('appends what is given, encoded', () => {
+    expect(withQuery('/api/catalog', { q: 'Morgan & Peace', limit: 12 })).toBe(
+      '/api/catalog?q=Morgan+%26+Peace&limit=12',
+    )
+  })
+
+  it('keeps false and zero unless asked to drop false', () => {
+    expect(withQuery('/p', { in_stock: false, offset: 0 })).toBe(
+      '/p?in_stock=false&offset=0',
+    )
+    expect(withQuery('/p', { in_stock: false, offset: 0 }, { dropFalse: true })).toBe(
+      '/p?offset=0',
+    )
+  })
+
+  it('repeats a key for each value of an array', () => {
+    expect(withQuery('/api/offers/titles', { item_ids: [3, 5] })).toBe(
+      '/api/offers/titles?item_ids=3&item_ids=5',
+    )
   })
 })
 

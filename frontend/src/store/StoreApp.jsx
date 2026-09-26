@@ -1,4 +1,4 @@
-import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 
 import { useAuth } from '../shared/auth-context'
 import { useCart } from './cart-context'
@@ -10,20 +10,27 @@ import Orders from './pages/Orders'
 import Register from './pages/Register'
 
 /**
- * The public shop.
- *
- * There is no `adminOnly` branch here and no console route. A visitor who types
- * an owner URL gets the same "not found" as any other unknown path -- the
- * previous "Manager privileges are required" told a stranger the page
- * existed, which is the leak this split closes.
+ * A page for signed-in shoppers only. Anyone else is sent to sign in, with
+ * the page they asked for as `from`, so signing in brings them back to it.
  */
 function RequireAuth({ children }) {
   const { user, loading } = useAuth()
+  const location = useLocation()
   if (loading) return <p className="muted">Loading...</p>
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) {
+    const from = location.pathname + location.search
+    return <Navigate to="/login" replace state={{ from }} />
+  }
   return children
 }
 
+/**
+ * The public shop.
+ *
+ * There is no admin-only branch here and no console route. A visitor who
+ * types a console URL gets the same "not found" as any other unknown path:
+ * a "privileges are required" answer would tell a stranger the page exists.
+ */
 export default function StoreApp() {
   const { user, logout } = useAuth()
   const { count } = useCart()

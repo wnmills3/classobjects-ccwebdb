@@ -7,6 +7,39 @@ import { useCart } from '../cart-context'
 import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { money } from '../../shared/format'
 
+/**
+ * A line's quantity box.
+ *
+ * It holds what is typed, and the cart takes it only when it is a whole
+ * number of at least one. Read straight through, clearing the box to type a
+ * new number was a quantity of zero -- a removal -- and "1.5" was a quantity.
+ * Leaving the box shows the cart's quantity again; Remove is the way to drop
+ * a line.
+ */
+function QuantityInput({ coin, quantity, onChange }) {
+  const [draft, setDraft] = useState(null)
+
+  function change(event) {
+    const text = event.target.value
+    setDraft(text)
+    if (/^\d+$/.test(text) && Number(text) >= 1) onChange(Number(text))
+  }
+
+  return (
+    <input
+      type="number"
+      min="1"
+      step="1"
+      max={coin.quantity_available}
+      value={draft ?? quantity}
+      onChange={change}
+      onBlur={() => setDraft(null)}
+      className="qty"
+      aria-label={`Quantity of ${coin.title}`}
+    />
+  )
+}
+
 export default function Cart() {
   const { lines, setQuantity, remove, clear, total } = useCart()
   // The total is in the lines' own currency. Lines in two currencies have no
@@ -82,13 +115,10 @@ export default function Cart() {
               </td>
               <td>{money(coin.price, coin.currency)}</td>
               <td>
-                <input
-                  type="number"
-                  min="1"
-                  max={coin.quantity_available}
-                  value={quantity}
-                  onChange={(e) => setQuantity(coin.id, Number(e.target.value))}
-                  className="qty"
+                <QuantityInput
+                  coin={coin}
+                  quantity={quantity}
+                  onChange={(next) => setQuantity(coin.id, next)}
                 />
               </td>
               <td>
