@@ -71,7 +71,9 @@ def _detail(db: Session, item: InventoryItem) -> dict[str, Any]:
     """One item's copy: the editor's view, less the editing."""
     from .routers.inventory import item_detail
 
-    detail = item_detail(db, item).model_dump(mode="json", exclude=set(_EDITING_ONLY))
+    detail = item_detail(db, item, editing=False).model_dump(
+        mode="json", exclude=set(_EDITING_ONLY)
+    )
     return {**detail, "certificates": detail["cert_numbers"]}
 
 
