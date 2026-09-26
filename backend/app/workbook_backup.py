@@ -392,13 +392,14 @@ def export_workbook(
             sheet.append(header)
             n = 0
             everything = [*stored, *computed]
+            kinds = [_read_type(column) for column in everything]
             result = conn.execution_options(yield_per=CHUNK).execute(
                 select(*(_as_read(c) for c in everything)).order_by(*_order(table))
             )
             for row in result:
                 cells = [
-                    _text_cell(sheet, to_cell(value, _read_type(column)))
-                    for value, column in zip(row, everything, strict=True)
+                    _text_cell(sheet, to_cell(value, kind))
+                    for value, kind in zip(row, kinds, strict=True)
                 ]
                 sheet.append(cells)
                 n += 1
@@ -609,7 +610,7 @@ def _unknown_row(part: _Loaded, column: str) -> object:
             f"{table.name}: links point at {column}, not its integer id, so no "
             f"Unknown row can be added: add a row coded {UNKNOWN_CODE!r} to its sheet"
         )
-    filled = {"code", "label", "sort_order", "is_active", "source", column}
+    filled = _VOCABULARY_COLUMNS | {column}
     needed = [
         c.name
         for c in stored_columns(table)
@@ -762,10 +763,19 @@ def _insert(conn: Connection, table: Table, rows: list[dict[str, object]]) -> No
     try:
         conn.execute(table.insert(), rows)
     except DBAPIError as exc:
-        reason = str(exc.orig).strip().splitlines()
-        raise WorkbookError(
-            f"{table.name}: the database refused a row -- {' '.join(reason[:2])}"
-        ) from exc
+        raise _refused(table, "a row", exc) from exc
+
+
+def _refused(table: Table, what: str, exc: DBAPIError) -> WorkbookError:
+    """The refusal for a write the database turned down, in its own words.
+
+    The first two lines of the driver's message: the reason, and the detail
+    that names the offending value.
+    """
+    reason = str(exc.orig).strip().splitlines()
+    return WorkbookError(
+        f"{table.name}: the database refused {what} -- {' '.join(reason[:2])}"
+    )
 
 
 def _second_pass(conn: Connection, part: _Loaded) -> None:
@@ -783,11 +793,7 @@ def _second_pass(conn: Connection, part: _Loaded) -> None:
         try:
             conn.execute(update(part.table).where(*where).values(**values))
         except DBAPIError as exc:
-            reason = str(exc.orig).strip().splitlines()
-            raise WorkbookError(
-                f"{part.table.name}: the database refused a link -- "
-                f"{' '.join(reason[:2])}"
-            ) from exc
+            raise _refused(part.table, "a link", exc) from exc
 
 
 # -- compare --------------------------------------------------------------------
