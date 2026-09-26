@@ -247,7 +247,9 @@ def _refuse_unofferable(item: InventoryItem) -> None:
     """Refuse an item that is not, right now, an item this module can claim.
 
     The same asks `offering_writes._refuse_unofferable` makes, in the same
-    order and the same words, minus its venue check -- a lot has no venue.
+    order and the same words -- `offering_writes.not_ours_reason`, then
+    `offering_writes.sold_away_reason` -- minus its venue check, since a lot
+    has no venue.
 
     The already-sold check is **not** among the things left out, and
     `_refuse_partial` does not cover it: its order half asks
@@ -259,20 +261,11 @@ def _refuse_unofferable(item: InventoryItem) -> None:
     deliberately excludes `returned_by_buyer`: that coin came back and
     offering it again -- alone or in a group -- is what happens next.
     """
-    if item.deleted_at is not None:
-        raise LotRefused(f"{item.item_code}: has been deleted")
-    if item.split_at is not None:
-        raise LotRefused(
-            f"{item.item_code}: has been split into pieces; offer the pieces"
-        )
-    status = item.status.code
-    if status != "received":
-        raise LotRefused(f"{item.item_code}: is not received (it is {status})")
-    disposition = item.disposition.code
-    if disposition in offering_writes.SOLD_AWAY:
-        raise LotRefused(
-            f"{item.item_code}: has already been sold (it is {disposition})"
-        )
+    reason = offering_writes.not_ours_reason(item)
+    if reason is None:
+        reason = offering_writes.sold_away_reason(item)
+    if reason is not None:
+        raise LotRefused(f"{item.item_code}: {reason}")
 
 
 def _refuse_partial(db: Session, item: InventoryItem) -> None:
