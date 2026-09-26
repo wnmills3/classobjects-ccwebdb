@@ -92,7 +92,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.types import TypeEngine
 
-from .backup import resync_sequence
+from .backup import generated_columns, resync_sequence, stored_columns
 from .config import REPO_ROOT, settings
 
 __all__ = [
@@ -234,14 +234,6 @@ def _tables(meta: MetaData) -> list[Table]:
 
 def _revision(conn: Connection) -> str | None:
     return conn.execute(text(f"SELECT version_num FROM {VERSION_TABLE}")).scalar()
-
-
-def _stored(table: Table) -> list[Column[Any]]:
-    return [c for c in table.columns if c.computed is None]
-
-
-def _computed(table: Table) -> list[Column[Any]]:
-    return [c for c in table.columns if c.computed is not None]
 
 
 def _order(table: Table) -> list[Column[Any]]:
@@ -394,7 +386,7 @@ def export_workbook(
                 )
         for table in tables:
             sheet = book.create_sheet(table.name)
-            stored, computed = _stored(table), _computed(table)
+            stored, computed = stored_columns(table), generated_columns(table)
             header = [c.name for c in stored] + [c.name + COMPUTED for c in computed]
             _size(sheet, header, sizes.get(table.name, {}))
             sheet.append(header)
@@ -465,7 +457,7 @@ def _read_sheet(book: Workbook, table: Table, later: set[str]) -> _Loaded:
         raise WorkbookError(f"no sheet for table {table.name}")
     rows = book[table.name].iter_rows(values_only=True)
     header = [str(h) if h is not None else "" for h in next(rows, ())]
-    stored = {c.name: c for c in _stored(table)}
+    stored = {c.name: c for c in stored_columns(table)}
     kept = [(i, name) for i, name in enumerate(header) if name in stored]
     unknown = [n for n in header if n and n not in stored and not n.endswith(COMPUTED)]
     if unknown:
@@ -620,7 +612,7 @@ def _unknown_row(part: _Loaded, column: str) -> object:
     filled = {"code", "label", "sort_order", "is_active", "source", column}
     needed = [
         c.name
-        for c in _stored(table)
+        for c in stored_columns(table)
         if not c.nullable and c.server_default is None and c.name not in filled
     ]
     if needed:

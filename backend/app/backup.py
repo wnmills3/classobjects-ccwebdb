@@ -38,8 +38,10 @@ import argparse
 import sys
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import (
+    Column,
     MetaData,
     Table,
     create_engine,
@@ -60,19 +62,27 @@ from .models import Base
 CHUNK = 1000
 
 
-def generated_columns(table: Table) -> set[str]:
-    """The columns this table computes for itself.
+def generated_columns(table: Table) -> list[Column[Any]]:
+    """The columns this table computes for itself, in the table's order.
 
-    Asked of the model rather than listed here. A hardcoded set went stale the
-    moment `currency_detail.series_designation` was added: the backup then
-    tried to insert it, PostgreSQL refused, and the copy aborted partway --
-    silently leaving five tables empty in every backup taken afterwards.
+    Asked of the table rather than listed here: a hardcoded list goes stale
+    the moment a generated column is added, and the copy then tries to
+    insert it, is refused, and aborts partway.
 
     The destination recomputes these from their own expressions, so writing
-    them would either be refused, as it was, or accepted and then disagree with
-    the expression that is supposed to define them.
+    them would either be refused or accepted and then disagree with the
+    expression that is supposed to define them.
     """
-    return {c.name for c in table.columns if c.computed is not None}
+    return [c for c in table.columns if c.computed is not None]
+
+
+def stored_columns(table: Table) -> list[Column[Any]]:
+    """Every column but the generated ones, in the table's order: what is written.
+
+    What `copy_rows` copies and `app.workbook_backup` exports and imports as
+    editable cells; `generated_columns` is the rest.
+    """
+    return [c for c in table.columns if c.computed is None]
 
 
 def unmodelled_tables(source: Engine) -> list[Table]:
@@ -126,7 +136,7 @@ def copy_rows(
     """
     with Session(source) as read, Session(target) as write:
         for table in tables if tables is not None else all_tables(source):
-            columns = [c for c in table.columns if c.computed is None]
+            columns = stored_columns(table)
             names = [c.name for c in columns]
             total = 0
             offset = 0
