@@ -83,8 +83,8 @@ export default defineConfig({
   plugins: [react(), twoAppDevFallback(), bundleGraph()],
   server: {
     // Bind IPv4 loopback explicitly. Left unset, Vite binds only [::1] on this
-    // machine, and every documented URL in docs/runtime-operations.md and in
-    // this plan says 127.0.0.1 -- so the documented commands fail with
+    // machine, and every documented URL in docs/runtime-operations.md says
+    // 127.0.0.1 -- so the documented commands would fail with
     // "connection refused" against a server that is running perfectly well.
     host: '127.0.0.1',
     port: 5173,
