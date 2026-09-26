@@ -18,13 +18,30 @@ export const accel = (key) => ({
   'aria-keyshortcuts': `Alt+${key.toUpperCase()}`,
 })
 
+//: Every mounted `useSaveShortcut`, oldest first. Only the last one answers.
+const saveHandlers = []
+
+function handleSaveKey(e) {
+  if (!(e.ctrlKey || e.metaKey)) return
+  if (e.key !== 's' && e.key !== 'S' && e.key !== 'Enter') return
+  e.preventDefault()
+  const top = saveHandlers.at(-1).current
+  if (top.enabled) top.onSave()
+}
+
 /**
  * Ctrl+S or Ctrl+Enter (Cmd on macOS) saves while the editor is open.
  *
- * On `document` rather than the form: the edit windows are modal, so one is
- * open at a time, and a listener on the form would miss the shortcut before
- * focus has entered it. The latest `onSave` is read through a ref, so the
- * listener is attached once rather than on every render.
+ * On `document` rather than the form, since a listener on the form would miss
+ * the shortcut before focus has entered it. Edit windows nest -- the item
+ * editor opens the offer dialog over itself -- so the editors register on a
+ * stack and only the one opened last answers: Ctrl+S in the offer dialog
+ * offers, and does not also save the edit form behind it. The top one takes
+ * the key even while it is disabled, so a busy dialog never lets it fall
+ * through to the window underneath.
+ *
+ * The latest `onSave` is read through a ref, so an editor registers once
+ * rather than on every render.
  */
 export function useSaveShortcut(onSave, enabled) {
   const latest = useRef({ onSave, enabled })
@@ -33,13 +50,13 @@ export function useSaveShortcut(onSave, enabled) {
   })
 
   useEffect(() => {
-    function handle(e) {
-      if (!(e.ctrlKey || e.metaKey)) return
-      if (e.key !== 's' && e.key !== 'S' && e.key !== 'Enter') return
-      e.preventDefault()
-      if (latest.current.enabled) latest.current.onSave()
+    saveHandlers.push(latest)
+    if (saveHandlers.length === 1) document.addEventListener('keydown', handleSaveKey)
+    return () => {
+      saveHandlers.splice(saveHandlers.indexOf(latest), 1)
+      if (saveHandlers.length === 0) {
+        document.removeEventListener('keydown', handleSaveKey)
+      }
     }
-    document.addEventListener('keydown', handle)
-    return () => document.removeEventListener('keydown', handle)
   }, [])
 }
