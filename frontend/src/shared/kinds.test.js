@@ -5,6 +5,7 @@ import {
   CURRENCY_ONLY_FIELDS,
   fieldFitsKind,
   fitsKind,
+  gradeFitsKind,
   isCurrencyKind,
   sideFor,
 } from './kinds'
@@ -105,6 +106,21 @@ describe('fieldFitsKind', () => {
   it('names no field on both sides', () => {
     for (const field of COIN_ONLY_FIELDS) {
       expect(CURRENCY_ONLY_FIELDS.has(field)).toBe(false)
+    }
+  })
+})
+
+describe('gradeFitsKind', () => {
+  it('offers a note grade only to a note', () => {
+    expect(gradeFitsKind(entry({ grade_scale: 'note' }), 'currency')).toBe(true)
+    expect(gradeFitsKind(entry({ grade_scale: 'note' }), 'coin')).toBe(false)
+  })
+
+  it('offers every other scale to everything but a note', () => {
+    for (const scale of ['mint_state', 'proof', undefined]) {
+      expect(gradeFitsKind(entry({ grade_scale: scale }), 'coin')).toBe(true)
+      expect(gradeFitsKind(entry({ grade_scale: scale }), 'medal')).toBe(true)
+      expect(gradeFitsKind(entry({ grade_scale: scale }), 'currency')).toBe(false)
     }
   })
 })

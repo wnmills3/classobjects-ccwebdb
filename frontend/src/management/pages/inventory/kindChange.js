@@ -11,7 +11,12 @@
  * Kinds on the same side -- a coin becoming a set -- give up nothing.
  */
 
-import { fieldFitsKind, fitsKind, isCurrencyKind } from '../../../shared/kinds'
+import {
+  fieldFitsKind,
+  fitsKind,
+  gradeFitsKind,
+  isCurrencyKind,
+} from '../../../shared/kinds'
 
 //: The editor's pickers that belong to one side only.
 const SIDED_CLASSIFIERS = [
@@ -83,10 +88,9 @@ export function clearedByKind(kind, current, vocab) {
     const entry = vocab[table]?.find((candidate) => candidate.code === code)
     if (isSet(code) && entry && !fitsKind(entry, kind)) fields[key] = code
   }
-  // A note is graded on its own scale; every other scale is a coin's.
   const grade = current('grade')
   const graded = vocab.grade?.find((candidate) => candidate.code === grade)
-  if (isSet(grade) && graded && (graded.extra?.grade_scale === 'note') !== toNote) {
+  if (isSet(grade) && graded && !gradeFitsKind(graded, kind)) {
     fields.grade = grade
   }
 

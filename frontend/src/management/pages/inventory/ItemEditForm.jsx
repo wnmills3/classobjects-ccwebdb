@@ -2,7 +2,14 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { dateTime } from '../../../shared/format'
 import { api } from '../../api'
-import { fieldFitsKind, fitsKind, isCurrencyKind, sideFor } from '../../../shared/kinds'
+import {
+  PRINTING_FACILITIES,
+  fieldFitsKind,
+  fitsKind,
+  gradeFitsKind,
+  isCurrencyKind,
+  sideFor,
+} from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { AccessLabel } from '../../AccessLabel'
@@ -1039,13 +1046,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 // Status is NOT NULL on the item, so there is no blank to pick:
                 // clearing it would be a 422 the operator cannot act on.
                 allowBlank={key !== 'status'}
-                // Paper money is graded on its own scale: a note is offered only
-                // note grades, and anything else only the coin scales.
                 filter={
                   key === 'grade'
-                    ? (grade) =>
-                        (grade.extra?.grade_scale === 'note') ===
-                        (value('item_kind') === 'currency')
+                    ? (grade) => gradeFitsKind(grade, value('item_kind'))
                     : key === 'denomination' || key === 'grade_designation'
                       ? (entry) => fitsKind(entry, value('item_kind'))
                       : undefined
@@ -1156,8 +1159,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 }
               >
                 <option value="">--</option>
-                <option value="dc">Washington, DC</option>
-                <option value="fw">Fort Worth, TX</option>
+                {PRINTING_FACILITIES.map(([code, label]) => (
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
+                ))}
               </select>
               {side('printing_facility', 'printing_facility')}
               <span />
