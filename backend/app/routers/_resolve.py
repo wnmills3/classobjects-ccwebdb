@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Iterable, Mapping
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -100,6 +101,31 @@ def refuse_null_required(data: Mapping[str, Any], required: Iterable[str]) -> No
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"{', '.join(nulled)} cannot be null",
+        )
+
+
+def refuse_future(field: str, value: date | None) -> None:
+    """422 when a date that records something already done is in the future.
+
+    An arrival or an order date that has not happened yet is a data-entry
+    error, not a fact. "Today" is inherently local, but this check has only
+    UTC to compare against. A caller's local calendar date can be a day ahead
+    of UTC's (anywhere east of it, into the evening) or a day behind
+    (anywhere west), so a bound of exactly UTC's today would refuse a
+    genuine same-day entry for a large share of the world for several hours
+    every day. The bound is UTC's today plus one day: that accepts every
+    timezone's honest "today" -- the largest offset either side of UTC is a
+    day -- while still refusing anything two or more days out, which is what
+    an actual fat-fingered date looks like. The tradeoff: a typo exactly one
+    day ahead of the true date is not caught, because it is
+    indistinguishable from a legitimate ahead-of-UTC today.
+    """
+    limit: date = datetime.now(UTC).date() + timedelta(days=1)
+    if value is not None and value > limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{field} {value.isoformat()} is too far "
+            f"in the future. Latest accepted: {limit.isoformat()}.",
         )
 
 

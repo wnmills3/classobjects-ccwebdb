@@ -10,7 +10,6 @@ item sits in, are neither a customer's business.
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import and_, case, func, select
@@ -38,7 +37,7 @@ from ..schemas import (
     VendorCreate,
     VendorOut,
 )
-from ._resolve import found_or_404, get_or_404
+from ._resolve import found_or_404, get_or_404, refuse_future
 
 vendors_router = APIRouter(prefix="/vendors", tags=["acquisitions"])
 purchase_orders_router = APIRouter(prefix="/purchase-orders", tags=["acquisitions"])
@@ -302,7 +301,7 @@ def create_purchase_order(
         db, Vendor, payload.vendor_id, f"Unknown vendor_id: {payload.vendor_id}"
     )
 
-    _refuse_future(payload.ordered_on)
+    refuse_future("ordered_on", payload.ordered_on)
     number = payload.order_number or next_order_number(db)
     _refuse_duplicate(db, vendor, number, None)
 
@@ -335,7 +334,7 @@ def update_purchase_order(
     order = found_or_404(order, _ORDER_NOT_FOUND)
     sent = payload.model_fields_set
     if "ordered_on" in sent:
-        _refuse_future(payload.ordered_on)
+        refuse_future("ordered_on", payload.ordered_on)
         order.ordered_on = payload.ordered_on
     if "order_number" in sent:
         number = payload.order_number or next_order_number(db)
@@ -347,22 +346,6 @@ def update_purchase_order(
         order.notes = payload.notes
     _commit_order(db, order.vendor, order.order_number)
     return get_purchase_order(order.id, db, admin)
-
-
-def _refuse_future(ordered_on: date | None) -> None:
-    """A future order date is a data-entry error, not a fact.
-
-    The same reasoning `POST /api/inventory/receive` applies to arrived_on,
-    widened by a day so a caller's honest "today" is never refused just
-    because it is ahead of UTC's.
-    """
-    limit: date = datetime.now(UTC).date() + timedelta(days=1)
-    if ordered_on is not None and ordered_on > limit:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"ordered_on {ordered_on.isoformat()} is too far "
-            f"in the future. Latest accepted: {limit.isoformat()}.",
-        )
 
 
 def _refuse_duplicate(
