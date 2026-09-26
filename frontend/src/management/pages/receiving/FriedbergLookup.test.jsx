@@ -103,6 +103,24 @@ describe('FriedbergLookup', () => {
     expect(select).toHaveTextContent('Test Treasurer A / Test Secretary A')
   })
 
+  it('asks for the pairs once on opening, and once more per year typed', async () => {
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    const select = await screen.findByLabelText(/signature combination/i)
+    await waitFor(() =>
+      expect(select).toHaveTextContent('Test Treasurer A / Test Secretary A'),
+    )
+    expect(api.getSignatureChoices).toHaveBeenCalledTimes(1)
+
+    await userEvent.type(screen.getByLabelText(/series year/i), '1963')
+    await waitFor(() =>
+      expect(api.getSignatureChoices).toHaveBeenCalledWith(
+        expect.objectContaining({ series_year: 1963 }),
+      ),
+    )
+    // Not one request per keystroke: "1", "19", "196" were never asked.
+    expect(api.getSignatureChoices).toHaveBeenCalledTimes(2)
+  })
+
   it('sends the codes the pulldowns hold when the owner looks up a match', async () => {
     renderWithProviders(<FriedbergLookup itemId={412} />)
 
