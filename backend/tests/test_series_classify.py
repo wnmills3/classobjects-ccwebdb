@@ -7,7 +7,6 @@ under test are the ones that ship in data/reference/series.json.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -17,7 +16,6 @@ from app.models import (
     Denomination,
     InventoryItem,
     PurchaseOrder,
-    ReferenceMixin,
     SealColor,
     Series,
     SeriesYearRange,
@@ -29,14 +27,10 @@ from app.series_match import run as match_run
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
+from tests.builders import ItemFactory, build_purchase_order, code_id
 
 DIME, QUARTER, DOLLAR = "usd_coin_0_10", "usd_coin_0_25", "usd_coin_1_00"
 NOTE_1, NOTE_5 = "usd_note_1", "usd_note_5"
-
-
-def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
 def _series_code(db: Session, item: InventoryItem) -> str | None:
@@ -51,7 +45,9 @@ def _coin(
 ) -> InventoryItem:
     extra.setdefault("title", "Plain coin")
     return make_item(
-        denomination_id=_id(db, Denomination, denomination), year_start=year, **extra
+        denomination_id=code_id(db, Denomination, denomination),
+        year_start=year,
+        **extra,
     )
 
 
@@ -68,7 +64,7 @@ def _note(
     extra.setdefault("title", "Plain note")
     item = make_item(
         kind="currency",
-        denomination_id=_id(db, Denomination, denomination),
+        denomination_id=code_id(db, Denomination, denomination),
         year_start=series,
         **extra,
     )
@@ -77,7 +73,7 @@ def _note(
             inventory_item_id=item.id,
             series_year=series,
             series_letter=letter,
-            seal_color_id=_id(db, SealColor, seal) if seal else None,
+            seal_color_id=code_id(db, SealColor, seal) if seal else None,
         )
     )
     db.commit()
@@ -109,7 +105,7 @@ def test_a_dry_run_writes_nothing(db: Session, make_item: ItemFactory) -> None:
 
     report = run(db, commit=False)
 
-    assert report.assignments.get(dime.id) == _id(
+    assert report.assignments.get(dime.id) == code_id(
         db, Series, "winged_liberty_head_dime"
     )
     assert _series_code(db, dime) is None
@@ -119,7 +115,7 @@ def test_an_item_with_a_series_is_never_touched(
     db: Session, make_item: ItemFactory
 ) -> None:
     # The "wrong" series on purpose: a hand correction always stands.
-    barber = _id(db, Series, "barber_dime")
+    barber = code_id(db, Series, "barber_dime")
     dime = _coin(db, make_item, DIME, 1942, series_id=barber)
 
     run(db, commit=True)
@@ -268,14 +264,13 @@ def test_a_commemorative_needs_its_word(db: Session, make_item: ItemFactory) -> 
 def test_a_lot_of_commemoratives_sends_its_pieces_to_review(
     db: Session, make_item: ItemFactory
 ) -> None:
-    vendor = Vendor(name="Commem seller")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(
-        vendor_id=vendor.id, order_number="LOT-2", ordered_on=date(2024, 12, 1)
+    order = build_purchase_order(
+        db,
+        vendor_name="Commem seller",
+        order_number="LOT-2",
+        ordered_on=date(2024, 12, 1),
+        commit=False,
     )
-    db.add(order)
-    db.flush()
     lot = "Lot of 3 Washington/Carver Commemorative Half Dollars"
     pieces = [
         _coin(
@@ -302,7 +297,7 @@ def test_a_series_the_facts_rule_out_is_reported_not_changed(
     db: Session, make_item: ItemFactory
 ) -> None:
     # Real case: "2010-D Franklin Pierce $1.00 Coin" matched as a Franklin half.
-    franklin = _id(db, Series, "franklin_half")
+    franklin = code_id(db, Series, "franklin_half")
     dollar = _coin(db, make_item, DOLLAR, 2010, series_id=franklin)
     agrees = _coin(db, make_item, "usd_coin_0_50", 1955, series_id=franklin)
 
@@ -475,7 +470,7 @@ def _class(db: Session, item: InventoryItem, code: str) -> None:
     detail = db.execute(
         select(CurrencyDetail).where(CurrencyDetail.inventory_item_id == item.id)
     ).scalar_one()
-    detail.note_type_id = _id(db, NoteType, code)
+    detail.note_type_id = code_id(db, NoteType, code)
     db.commit()
 
 
@@ -522,7 +517,7 @@ def test_a_federal_reserve_bank_note_is_never_a_national(
 def test_a_national_recorded_as_another_class_is_reported(
     db: Session, make_item: ItemFactory
 ) -> None:
-    national = _id(db, Series, "national_bank_note_1929")
+    national = code_id(db, Series, "national_bank_note_1929")
     note = _note(db, make_item, "usd_note_10", 1929, seal="brown", series_id=national)
     _class(db, note, "frbn")
 
@@ -532,7 +527,7 @@ def test_a_national_recorded_as_another_class_is_reported(
 def test_brown_seal_finds_the_1929_nationals(
     db: Session, make_item: ItemFactory
 ) -> None:
-    national = _id(db, Series, "national_bank_note_1929")
+    national = code_id(db, Series, "national_bank_note_1929")
     note = _note(db, make_item, "usd_note_5", 1929, seal="brown", series_id=national)
 
     rows, _ = search(db, CURRENCY_VIEW, params={}, query="brown seal")

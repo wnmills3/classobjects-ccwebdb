@@ -6,8 +6,6 @@ seeded, so these read it.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from app import aliases
 from app.inventory_search import COIN_VIEW, CURRENCY_VIEW, search
 from app.models import (
@@ -22,7 +20,7 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
+from tests.builders import ItemFactory
 
 #: A star and nothing else: no ladder, repeater or fancy digits.
 STAR_SERIAL = "A38164927*"

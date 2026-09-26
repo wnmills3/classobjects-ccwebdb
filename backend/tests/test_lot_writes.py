@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
@@ -10,7 +9,6 @@ from app import lot_writes
 from app.buyers import venue_buyer
 from app.lot_writes import LotRefused, add_member, create_lot, remove_member
 from app.models import (
-    Disposition,
     InventoryItem,
     Listing,
     SalesLot,
@@ -27,20 +25,13 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from tests.builders import ItemFactory, set_disposition
 from tests.conftest import item_id_of, item_of
-
-ItemFactory = Callable[..., InventoryItem]
 
 
 def _lot(db: Session, title: str = "Three Morgan Dollars") -> SalesLot:
     """An empty assembling lot, through the writer rather than by hand."""
     return create_lot(db, title=title, description="")
-
-
-def _set_disposition(db: Session, item: InventoryItem, code: str) -> None:
-    """Move an item's disposition the way another write path would."""
-    item.disposition_id = require_code(db, Disposition, code, "disposition")
-    db.flush()
 
 
 def test_a_new_lot_is_assembling_and_empty(db: Session) -> None:
@@ -286,7 +277,7 @@ def test_a_sold_item_cannot_be_grouped(
     cases a single sale cannot reach.
     """
     lot = _lot(db)
-    _set_disposition(db, received_item, disposition)
+    set_disposition(db, received_item, disposition)
 
     with pytest.raises(LotRefused, match="has already been sold"):
         add_member(db, lot, received_item)
@@ -338,7 +329,7 @@ def test_a_returned_item_can_still_be_grouped(
     and `offering_writes._refuse_sold` lets this one through.
     """
     lot = _lot(db)
-    _set_disposition(db, received_item, "returned_by_buyer")
+    set_disposition(db, received_item, "returned_by_buyer")
 
     row = add_member(db, lot, received_item)
 

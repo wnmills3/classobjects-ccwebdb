@@ -34,10 +34,10 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.types import Enum, TypeEngine
 
-from tests.conftest import TEST_URL
+from tests.conftest import TEST_URL, drop_database
 
 SCHEMA = """
 CREATE TYPE shade AS ENUM ('red', 'blue');
@@ -108,40 +108,49 @@ def _url(name: str) -> str:
     return TEST_URL.set(database=name).render_as_string(hide_password=False)
 
 
-def _drop(conn: Connection, name: str) -> None:
-    """Drop a scratch database, ending only client sessions on it first.
-
-    Not `WITH (FORCE)`: that also signals an autovacuum worker, which the
-    application's role may not do, and the drop then fails at random. The
-    worker exits by itself when the database goes (conftest does the same).
-    """
-    conn.execute(
-        text(
-            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-            "WHERE datname = :name AND pid <> pg_backend_pid() "
-            "AND backend_type = 'client backend'"
-        ),
-        {"name": name},
+def _admin() -> Engine:
+    """A connection to the server's maintenance database, for CREATE/DROP."""
+    return create_engine(
+        TEST_URL.set(database="postgres"), isolation_level="AUTOCOMMIT"
     )
-    conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+
+
+@pytest.fixture(scope="module")
+def source() -> Iterator[Engine]:
+    """The filled source database, built once for the module.
+
+    Every test only reads it -- exports it, compares against it, lists its
+    tables -- so one copy serves them all.
+    """
+    admin = _admin()
+    name = "ccwebdb_test_wb_source"
+    with admin.connect() as conn:
+        drop_database(conn, name)
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    engine = create_engine(_url(name))
+    with engine.begin() as conn:
+        conn.execute(text(SCHEMA))
+        conn.execute(text(ROWS))
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+        with admin.connect() as conn:
+            drop_database(conn, name)
+        admin.dispose()
 
 
 @pytest.fixture
-def pair(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Engine, str]]:
-    """A filled source database and an empty target with the same schema."""
-    admin = create_engine(
-        TEST_URL.set(database="postgres"), isolation_level="AUTOCOMMIT"
-    )
-    names = ("ccwebdb_test_wb_source", "ccwebdb_test_wb_target")
+def pair(
+    source: Engine, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[Engine, str]]:
+    """The filled source database and a fresh, empty target with its schema."""
+    admin = _admin()
+    name = "ccwebdb_test_wb_target"
     with admin.connect() as conn:
-        for name in names:
-            _drop(conn, name)
-            conn.execute(text(f'CREATE DATABASE "{name}"'))
-    source = create_engine(_url(names[0]))
-    target = create_engine(_url(names[1]))
-    with source.begin() as conn:
-        conn.execute(text(SCHEMA))
-        conn.execute(text(ROWS))
+        drop_database(conn, name)
+        conn.execute(text(f'CREATE DATABASE "{name}"'))
+    target = create_engine(_url(name))
     with target.begin() as conn:
         conn.execute(text(SCHEMA))
         conn.execute(text("INSERT INTO alembic_version VALUES ('rev_1')"))
@@ -150,13 +159,11 @@ def pair(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Engine, str]]:
     # The live database is neither of these.
     monkeypatch.setattr(wb.settings, "database_url", _url("ccwebdb_test_live_stand_in"))
     try:
-        yield source, _url(names[1])
+        yield source, _url(name)
     finally:
-        source.dispose()
         target.dispose()
         with admin.connect() as conn:
-            for name in names:
-                _drop(conn, name)
+            drop_database(conn, name)
         admin.dispose()
 
 

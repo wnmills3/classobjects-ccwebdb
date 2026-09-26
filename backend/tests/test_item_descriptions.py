@@ -34,11 +34,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tests.builders import code_id
 from tests.conftest import build_item
-
-
-def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
 def _label(db: Session, model: type[ReferenceMixin], code: str) -> str:
@@ -52,10 +49,10 @@ def _short(grade_label: str) -> str:
 def _note(db: Session, **overrides: object) -> InventoryItem:
     fields: dict[str, object] = {
         "kind": "currency",
-        "denomination_id": _id(db, Denomination, "usd_note_1"),
-        "grade_id": _id(db, Grade, "N67"),
-        "grade_designation_id": _id(db, GradeDesignation, "EPQ"),
-        "grading_service_id": _id(db, GradingService, "PMG"),
+        "denomination_id": code_id(db, Denomination, "usd_note_1"),
+        "grade_id": code_id(db, Grade, "N67"),
+        "grade_designation_id": code_id(db, GradeDesignation, "EPQ"),
+        "grading_service_id": code_id(db, GradingService, "PMG"),
         "year_start": None,
     }
     item = build_item(db, **{**fields, **overrides})
@@ -64,9 +61,9 @@ def _note(db: Session, **overrides: object) -> InventoryItem:
     db.add(
         CurrencyDetail(
             inventory_item_id=item.id,
-            note_type_id=_id(db, NoteType, "frn"),
-            seal_color_id=_id(db, SealColor, "green"),
-            fed_district_id=_id(db, FedDistrict, "F"),
+            note_type_id=code_id(db, NoteType, "frn"),
+            seal_color_id=code_id(db, SealColor, "green"),
+            fed_district_id=code_id(db, FedDistrict, "F"),
             signature_combination_id=signers.id,
             series_year=1999,
             serial_number="F06566560R",
@@ -143,8 +140,8 @@ def test_a_coin_leads_with_its_name_then_its_metal(db: Session) -> None:
     item = build_item(
         db,
         year_start=1947,
-        series_id=_id(db, Series, "morgan_dollar"),
-        metal_id=_id(db, Metal, "silver"),
+        series_id=code_id(db, Series, "morgan_dollar"),
+        metal_id=code_id(db, Metal, "silver"),
         fine_weight_ozt=Decimal("0.773400"),
         grading_service_id=None,
         grade_id=None,

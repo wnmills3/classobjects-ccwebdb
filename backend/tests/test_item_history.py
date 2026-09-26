@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 
 def _history(
@@ -59,7 +59,7 @@ def _location(db: Session, institution: str, identifier: str) -> StorageLocation
 def test_the_three_logs_are_merged_newest_first(
     client: TestClient, admin_headers: dict[str, str], admin_user: User, db: Session
 ) -> None:
-    item = make_item(db, status_id=code_id(db, ItemStatus, "ordered"))
+    item = build_bare_item(db, status_id=code_id(db, ItemStatus, "ordered"))
     record_initial_status(db, item, user_id=admin_user.id, note="entered")
     set_status(
         db,
@@ -136,7 +136,7 @@ def test_the_three_logs_are_merged_newest_first(
 def test_attributes_are_shown_by_label_and_a_vanished_code_as_logged(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     at = datetime.now(UTC)
     db.add_all(
         [
@@ -169,7 +169,7 @@ def test_error_changes_are_in_the_history(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Errors are another table, so the errors endpoint logs the whole set."""
-    note = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
+    note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
     url = f"/api/inventory/{note.id}/errors"
     offset = {"error_type": "offset_printing", "details": "Back to Front"}
     assert client.put(url, json={"errors": [offset]}, headers=admin_headers).is_success
@@ -191,7 +191,7 @@ def test_error_changes_are_in_the_history(
 def test_another_item_s_history_is_not_shown(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    mine, other = make_item(db), make_item(db)
+    mine, other = build_bare_item(db), build_bare_item(db)
     client.patch(
         f"/api/inventory/{other.id}", json={"description": "x"}, headers=admin_headers
     )
@@ -204,7 +204,7 @@ def test_history_is_admin_only_and_404s_for_a_missing_item(
     customer_headers: dict[str, str],
     db: Session,
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     url = f"/api/inventory/{item.id}/history"
     assert client.get(url).status_code == 401
     assert client.get(url, headers=customer_headers).status_code == 403

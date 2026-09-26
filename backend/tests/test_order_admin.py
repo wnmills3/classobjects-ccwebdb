@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy.orm import Session
 
+from tests.builders import foreign_order, post_order
 from tests.conftest import item_of
-from tests.test_orders import foreign_order, place
 
 
 def _set(
@@ -32,7 +32,7 @@ def test_an_ordinary_shop_order_s_listing_has_not_ended(
     Without this, a regression that always answered `listing_ended: true`
     would gray out Cancel on every shop order and pass the suite.
     """
-    placed = place(client, customer_headers, listing.id, 1)
+    placed = post_order(client, customer_headers, listing.id, 1)
     assert placed.status_code == 201, placed.text
     assert placed.json()["items"][0]["listing_ended"] is False
 
@@ -58,7 +58,7 @@ def test_cancelling_a_shop_order_that_bought_a_lot_is_refused(
     listing_id = store_lot_listing.id
     lot = store_lot_listing.sales_lot
     assert lot is not None
-    placed = place(client, customer_headers, listing_id, 1)
+    placed = post_order(client, customer_headers, listing_id, 1)
     assert placed.status_code == 201, placed.text
     order_id = placed.json()["id"]
     # What the console reads to gray Cancel out rather than offer it.
@@ -97,7 +97,7 @@ def test_a_shipped_lot_order_can_still_be_cancelled_as_a_refund(
     whatever the order's status.
     """
     listing_id = store_lot_listing.id
-    placed = place(client, customer_headers, listing_id, 1)
+    placed = post_order(client, customer_headers, listing_id, 1)
     assert placed.status_code == 201, placed.text
     order_id = placed.json()["id"]
     assert _set(client, admin_headers, order_id, "shipped").status_code == 200
@@ -120,7 +120,7 @@ def test_an_order_names_its_customer_and_what_was_bought(
     customer_headers: dict[str, str],
     admin_headers: dict[str, str],
 ) -> None:
-    place(client, customer_headers, listing.id, 2)
+    post_order(client, customer_headers, listing.id, 2)
 
     order = client.get("/api/orders", headers=admin_headers).json()[0]
 
@@ -136,7 +136,7 @@ def test_a_customer_still_sees_only_their_own_orders_with_the_new_fields(
     db: Session,
 ) -> None:
     """The added names must not open a window onto anyone else's order."""
-    place(client, customer_headers, listing.id, 1)
+    post_order(client, customer_headers, listing.id, 1)
     foreign_order(db, "somebody.else@example.com")
 
     mine = client.get("/api/orders", headers=customer_headers).json()
@@ -152,8 +152,8 @@ def test_mine_is_only_the_callers_own_orders_even_for_an_administrator(
     admin_headers: dict[str, str],
 ) -> None:
     """The shop's "Your orders" asks for mine; for an admin it listed everyone's."""
-    place(client, customer_headers, listing.id, 1)
-    place(client, admin_headers, listing.id, 1)
+    post_order(client, customer_headers, listing.id, 1)
+    post_order(client, admin_headers, listing.id, 1)
 
     everything = client.get("/api/orders", headers=admin_headers).json()
     admins_own = client.get("/api/orders?mine=true", headers=admin_headers).json()
@@ -177,7 +177,7 @@ def test_a_cancelled_order_cannot_be_revived_after_its_stock_returned(
     order to paid afterwards used to succeed with the 5 still listed -- an
     order for 2 standing on stock already offered to the next buyer.
     """
-    order = place(client, customer_headers, listing.id, 2).json()
+    order = post_order(client, customer_headers, listing.id, 2).json()
     assert _set(client, admin_headers, order["id"], "cancelled").status_code == 200
 
     for status in ("pending", "paid", "shipped"):

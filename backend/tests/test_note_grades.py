@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Row, text
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, code_id
 
 #: The points the graders use, Poor 1 to 70 (PCGS Banknote grades 1-3).
 NOTE_NUMBERS = {1, 2, 3, 4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50, 53, 55, 58}
@@ -71,7 +71,7 @@ def test_the_currency_inventory_shows_a_grade_by_its_label(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A note's grade code is `N64`; what the owner reads is its label."""
-    item = make_item(
+    item = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "currency"),
         grade_id=code_id(db, Grade, "N64"),

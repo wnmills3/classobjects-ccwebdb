@@ -15,17 +15,16 @@ from app.models import (
     ItemKind,
     PurchaseOrder,
     SealColor,
-    Vendor,
 )
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, build_purchase_order, code_id
 
 
 def coin(db: Session, **overrides: object) -> InventoryItem:
-    return make_item(db, item_kind_id=code_id(db, ItemKind, "coin"), **overrides)
+    return build_bare_item(db, item_kind_id=code_id(db, ItemKind, "coin"), **overrides)
 
 
 def note(
@@ -35,7 +34,9 @@ def note(
     serial: str | None = None,
     **overrides: object,
 ) -> InventoryItem:
-    item = make_item(db, item_kind_id=code_id(db, ItemKind, "currency"), **overrides)
+    item = build_bare_item(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), **overrides
+    )
     db.add(
         CurrencyDetail(
             inventory_item_id=item.id,
@@ -105,16 +106,9 @@ def test_each_view_returns_the_columns_that_matter_to_it(
 def _order(
     db: Session, *, number: str, vendor_name: str, ordered_on: date
 ) -> PurchaseOrder:
-    vendor = Vendor(name=vendor_name)
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(
-        vendor_id=vendor.id, order_number=number, ordered_on=ordered_on
+    return build_purchase_order(
+        db, vendor_name=vendor_name, order_number=number, ordered_on=ordered_on
     )
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-    return order
 
 
 def test_a_coin_row_carries_its_purchase_order(

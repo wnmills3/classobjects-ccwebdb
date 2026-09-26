@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.builders import build_bare_item
 
 
 def configure(monkeypatch: pytest.MonkeyPatch, rate: str, *, shipping: bool) -> None:
@@ -46,7 +46,9 @@ def test_shipping_is_taxed_when_the_row_says_so(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configure(monkeypatch, "0.0635", shipping=True)
-    item = make_item(db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00"))
+    item = build_bare_item(
+        db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00")
+    )
 
     # 110.00 x 0.0635 = 6.985 -> 6.99
     assert item.sales_tax == Decimal("6.99")
@@ -57,7 +59,9 @@ def test_shipping_is_left_out_when_the_row_says_so(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configure(monkeypatch, "0.0635", shipping=False)
-    item = make_item(db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00"))
+    item = build_bare_item(
+        db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00")
+    )
 
     # 100.00 x 0.0635 = 6.35; the 10.00 of shipping carries no tax but is
     # still part of what was paid.
@@ -74,7 +78,9 @@ def test_a_new_item_takes_the_configured_rate_and_rule(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     configure(monkeypatch, "0.0700", shipping=False)
-    item = make_item(db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00"))
+    item = build_bare_item(
+        db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00")
+    )
 
     assert item.tax_rate == Decimal("0.0700")
     assert item.tax_includes_shipping is False
@@ -94,7 +100,9 @@ def test_changing_the_setting_later_leaves_existing_items_alone(
     row nobody touches could not be affected by any default either way.
     """
     configure(monkeypatch, "0.0635", shipping=True)
-    item = make_item(db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00"))
+    item = build_bare_item(
+        db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00")
+    )
 
     configure(monkeypatch, "0.0800", shipping=False)
     response = client.patch(
@@ -118,7 +126,9 @@ def test_changing_the_setting_later_leaves_existing_items_alone(
 def test_no_tax_charged_is_a_rate_of_zero(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, item_cost=Decimal("179.00"), shipping_cost=Decimal("0.00"))
+    item = build_bare_item(
+        db, item_cost=Decimal("179.00"), shipping_cost=Decimal("0.00")
+    )
 
     response = client.patch(
         f"/api/inventory/{item.id}", json={"tax_rate": "0"}, headers=admin_headers
@@ -137,7 +147,9 @@ def test_shipping_can_be_left_untaxed_on_one_item(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     configure(monkeypatch, "0.0635", shipping=True)
-    item = make_item(db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00"))
+    item = build_bare_item(
+        db, item_cost=Decimal("100.00"), shipping_cost=Decimal("10.00")
+    )
 
     response = client.patch(
         f"/api/inventory/{item.id}",
@@ -153,7 +165,7 @@ def test_many_items_can_be_marked_untaxed_at_once(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """How a batch of orders known to be untaxed gets corrected in one go."""
-    first, second = make_item(db), make_item(db)
+    first, second = build_bare_item(db), build_bare_item(db)
 
     response = client.post(
         "/api/inventory/bulk",
@@ -172,7 +184,7 @@ def test_nulling_a_tax_field_is_refused_naming_it(
     client: TestClient, admin_headers: dict[str, str], db: Session, field: str
 ) -> None:
     """Both columns are NOT NULL: a null must be a 422, not a database 500."""
-    item = make_item(db)
+    item = build_bare_item(db)
 
     response = client.patch(
         f"/api/inventory/{item.id}", json={field: None}, headers=admin_headers
@@ -186,7 +198,7 @@ def test_a_rate_above_one_is_refused(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A rate is a fraction. 6.35 typed for 6.35% would multiply cost by 7.35."""
-    item = make_item(db)
+    item = build_bare_item(db)
 
     response = client.patch(
         f"/api/inventory/{item.id}", json={"tax_rate": "6.35"}, headers=admin_headers
@@ -208,7 +220,7 @@ def test_the_edit_form_is_told_the_configured_rate(
 ) -> None:
     """Unticking "No sales tax charged" restores this rate, so it must be sent."""
     configure(monkeypatch, "0.0700", shipping=True)
-    item = make_item(db, tax_rate=Decimal("0.0000"))
+    item = build_bare_item(db, tax_rate=Decimal("0.0000"))
 
     body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
 
@@ -229,7 +241,7 @@ def test_a_piece_keeps_the_lots_tax_rule(
     a piece that took the default instead of inheriting would be caught.
     """
     configure(monkeypatch, "0.0635", shipping=True)
-    lot = make_item(
+    lot = build_bare_item(
         db,
         source_title="Two rounds",
         piece_count=2,

@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import make_item
+from tests.builders import build_bare_item
 
 
 def _changes(db: Session, item_id: int) -> list[ItemFieldChange]:
@@ -46,7 +46,7 @@ def test_an_edit_logs_each_field_it_changes_and_who_changed_it(
     autoflush: bool,
 ) -> None:
     """Run both ways: production's session does not autoflush."""
-    item = make_item(db, source_title="Dime", description="as bought")
+    item = build_bare_item(db, source_title="Dime", description="as bought")
     db.autoflush = autoflush
     try:
         response = client.patch(
@@ -73,7 +73,7 @@ def test_an_edit_logs_each_field_it_changes_and_who_changed_it(
 def test_the_item_detail_names_each_field_s_latest_change(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db)
+    item = build_bare_item(db)
     client.patch(
         f"/api/inventory/{item.id}", json={"description": "x"}, headers=admin_headers
     )
@@ -86,7 +86,7 @@ def test_the_item_detail_names_each_field_s_latest_change(
 def test_a_bulk_edit_logs_each_item(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    first, second = make_item(db), make_item(db)
+    first, second = build_bare_item(db), build_bare_item(db)
     response = client.post(
         "/api/inventory/bulk",
         json={"ids": [first.id, second.id], "changes": {"description": "lot of two"}},
@@ -100,7 +100,7 @@ def test_a_bulk_edit_logs_each_item(
 def test_a_conflict_says_who_made_the_other_change(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, description="as bought")
+    item = build_bare_item(db, description="as bought")
     mine = _detail(client, admin_headers, item.id)
     theirs = _detail(client, admin_headers, item.id)
     first = client.patch(

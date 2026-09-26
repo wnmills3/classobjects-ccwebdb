@@ -15,18 +15,21 @@ from app.models import (
     ItemStatus,
     ItemStatusHistory,
     LocationHistory,
-    PurchaseOrder,
     StorageLocation,
     StorageLocationKind,
-    Vendor,
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
-from tests.test_split import TUBE, do_split
-from tests.test_split import lot as split_lot
+from tests.builders import (
+    TUBE,
+    build_bare_item,
+    build_purchase_order,
+    build_split_lot,
+    code_id,
+    do_split,
+)
 
 
 def _status_id(db: Session, code: str) -> int:
@@ -34,7 +37,7 @@ def _status_id(db: Session, code: str) -> int:
 
 
 def test_a_status_change_records_where_it_came_from(db: Session) -> None:
-    item = make_item(db, status_id=_status_id(db, "ordered"))
+    item = build_bare_item(db, status_id=_status_id(db, "ordered"))
     was = item.status_id
     set_status(db, item, _status_id(db, "received"), note="unpacked")
     db.commit()
@@ -52,7 +55,7 @@ def test_the_arrival_date_is_kept_apart_from_when_it_was_logged(
     db: Session,
 ) -> None:
     """A box that sat over a weekend arrived before anyone typed anything."""
-    item = make_item(db, status_id=_status_id(db, "ordered"))
+    item = build_bare_item(db, status_id=_status_id(db, "ordered"))
     friday = date(2026, 9, 4)
     set_status(db, item, _status_id(db, "received"), arrived_on=friday)
     db.commit()
@@ -72,7 +75,7 @@ def test_setting_the_same_status_records_nothing(db: Session) -> None:
 
     Re-asserting a value is not a change.
     """
-    item = make_item(db)
+    item = build_bare_item(db)
     before = len(
         db.scalars(
             select(ItemStatusHistory).where(
@@ -94,7 +97,7 @@ def test_setting_the_same_status_records_nothing(db: Session) -> None:
 
 def test_record_initial_status_writes_an_opening_row(db: Session) -> None:
     """The opening row has no `from`: there was no status before this one."""
-    item = make_item(db, status_id=_status_id(db, "ordered"))
+    item = build_bare_item(db, status_id=_status_id(db, "ordered"))
     db.flush()
     record_initial_status(db, item, note="entered on a purchase")
     db.commit()
@@ -116,7 +119,7 @@ def test_a_location_change_records_where_it_went(db: Session) -> None:
     db.add(location)
     db.commit()
     db.refresh(location)
-    item = make_item(db, storage_location_id=location.id)
+    item = build_bare_item(db, storage_location_id=location.id)
     set_location(db, item, None, note="out of the box")
     db.commit()
 
@@ -130,7 +133,7 @@ def test_editing_the_status_through_the_api_records_it(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """The gap this module exists to close: before it, this wrote nothing."""
-    item = make_item(db, status_id=_status_id(db, "ordered"))
+    item = build_bare_item(db, status_id=_status_id(db, "ordered"))
     db.commit()
 
     res = client.patch(
@@ -155,7 +158,7 @@ def test_bulk_editing_the_status_through_the_api_records_it_per_item(
     An owner marks a whole order received at once, not one coin at a time.
     """
     ordered = _status_id(db, "ordered")
-    items = [make_item(db, status_id=ordered) for _ in range(2)]
+    items = [build_bare_item(db, status_id=ordered) for _ in range(2)]
     db.commit()
 
     res = client.post(
@@ -191,12 +194,7 @@ def test_no_item_lacks_history_across_every_creation_path_a_test_can_drive(
     path does: after exercising both, no `inventory_item` row anywhere is
     missing its opening `item_status_history` row.
     """
-    vendor = Vendor(name="Lifecycle Test Vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id)
-    db.add(order)
-    db.commit()
+    order = build_purchase_order(db, vendor_name="Lifecycle Test Vendor")
 
     client.post(
         "/api/inventory",
@@ -212,12 +210,12 @@ def test_no_item_lacks_history_across_every_creation_path_a_test_can_drive(
         headers=admin_headers,
     )
 
-    # `split_lot` is test scaffolding built directly with `make_item`, which
+    # `split_lot` is test scaffolding built directly with `build_bare_item`, which
     # deliberately bypasses these helpers so tests can set up arbitrary
     # starting states -- it is not one of the four creation paths under
     # test, so it is excluded from the check below rather than expected to
     # satisfy it.
-    parent = split_lot(db)
+    parent = build_split_lot(db)
     db.commit()
     split_res = do_split(client, admin_headers, parent.id, TUBE)
     assert split_res.status_code == 200

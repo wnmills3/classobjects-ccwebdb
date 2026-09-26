@@ -21,14 +21,7 @@ from fastapi.testclient import TestClient
 from PIL import Image as PILImage
 from sqlalchemy.orm import Session
 
-
-def make_jpeg(
-    size: tuple[int, int] = (800, 600),
-    color: tuple[int, int, int] = (180, 140, 40),
-) -> bytes:
-    buffer = io.BytesIO()
-    PILImage.new("RGB", size, color).save(buffer, format="JPEG", quality=90)
-    return buffer.getvalue()
+from tests.builders import make_jpeg
 
 
 def make_jpeg_with_gps(size: tuple[int, int] = (800, 600)) -> bytes:

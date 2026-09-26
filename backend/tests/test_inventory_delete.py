@@ -12,15 +12,14 @@ from app.models import InventoryItem, Listing, SalesLot, SalesLotStatus
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from tests.builders import TUBE, build_bare_item, build_split_lot, do_split
 from tests.conftest import build_listing
-from tests.test_schema import make_item
-from tests.test_split import TUBE, do_split, lot
 
 
 def test_a_deleted_item_leaves_search(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    item = make_item(db, source_title="MISTAKE")
+    item = build_bare_item(db, source_title="MISTAKE")
 
     assert (
         client.delete(f"/api/inventory/{item.id}", headers=admin_headers).status_code
@@ -37,7 +36,7 @@ def test_a_deleted_item_is_findable_when_asked_for(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Otherwise a mistaken delete is unrecoverable through the UI."""
-    item = make_item(db, source_title="MISTAKE")
+    item = build_bare_item(db, source_title="MISTAKE")
     client.delete(f"/api/inventory/{item.id}", headers=admin_headers)
 
     only = client.get(
@@ -69,9 +68,9 @@ def test_the_lot_filter_finds_a_lot_s_pieces(
     By item code rather than id: the code is what is printed on the flip and
     what a person has in front of them.
     """
-    parent = lot(db)
+    parent = build_split_lot(db)
     pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
-    make_item(db, source_title="unrelated")
+    build_bare_item(db, source_title="unrelated")
 
     body = client.get(
         f"/api/inventory/coins/search?lot={parent.item_code}", headers=admin_headers
@@ -98,7 +97,7 @@ def test_a_lot_with_pieces_cannot_be_deleted(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Its pieces hold cost basis allocated from it and would be orphaned."""
-    parent = lot(db)
+    parent = build_split_lot(db)
     do_split(client, admin_headers, parent.id, TUBE)
 
     response = client.delete(f"/api/inventory/{parent.id}", headers=admin_headers)
@@ -269,7 +268,7 @@ def test_detaching_leaves_a_standalone_item(
     Every item in the collection has none until a lot is split, so nothing
     may treat a null parent as a problem to be repaired.
     """
-    parent = lot(db)
+    parent = build_split_lot(db)
     pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
     child_id = pieces[0]["id"]
 
@@ -283,7 +282,7 @@ def test_detaching_does_not_move_money(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """A detached piece keeps the cost it was allocated."""
-    parent = lot(db)
+    parent = build_split_lot(db)
     pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
     before = pieces[0]["item_cost"]
 
@@ -298,7 +297,7 @@ def test_detaching_an_item_with_no_parent_is_harmless(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Idempotent, because the end state is what was asked for."""
-    item = make_item(db)
+    item = build_bare_item(db)
     response = client.delete(f"/api/inventory/{item.id}/parent", headers=admin_headers)
     assert response.status_code == 200
     assert response.json()["parent_item_id"] is None
@@ -308,7 +307,7 @@ def test_a_lot_can_be_deleted_once_its_last_piece_is_detached(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """The round trip the guard in Task 6 would otherwise make impossible."""
-    parent = lot(db)
+    parent = build_split_lot(db)
     pieces = do_split(client, admin_headers, parent.id, TUBE).json()["pieces"]
 
     for piece in pieces:

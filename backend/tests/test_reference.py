@@ -157,7 +157,9 @@ def test_every_listed_vocabulary_can_actually_be_fetched(
     client: TestClient,
 ) -> None:
     """Guards against the index and the handler drifting apart."""
-    for table in client.get("/api/reference").json():
+    tables = client.get("/api/reference").json()
+    assert tables, "the index lists no vocabularies, so nothing here is checked"
+    for table in tables:
         response = client.get(f"/api/reference/{table}")
         assert response.status_code == 200, f"{table} listed but not fetchable"
         assert response.json()["table"] == table
@@ -497,9 +499,9 @@ def test_renaming_a_label_takes_effect_everywhere_at_once(
     """
     from app.models import InventoryItem, ItemKind
 
-    from tests.test_schema import code_id, make_item
+    from tests.builders import build_bare_item, code_id
 
-    item = make_item(
+    item = build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "coin"),
         grade_id=code_id(db, Grade, "65"),
@@ -546,9 +548,9 @@ def test_a_value_can_be_retired_without_breaking_existing_records(
     """
     from app.models import ItemKind
 
-    from tests.test_schema import code_id, make_item
+    from tests.builders import build_bare_item, code_id
 
-    make_item(
+    build_bare_item(
         db,
         item_kind_id=code_id(db, ItemKind, "coin"),
         grade_id=code_id(db, Grade, "8"),

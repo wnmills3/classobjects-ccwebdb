@@ -22,7 +22,7 @@ from app.models.views import ALL_VIEWS
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from tests.conftest import TEST_URL
+from tests.conftest import TEST_URL, drop_database
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -35,38 +35,30 @@ def _upgrade(url: str) -> None:
     upgrade(config, "head")
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def migrated_url() -> Iterator[str]:
-    """A throwaway database built purely by running the migrations."""
+    """A throwaway database built purely by running the migrations.
+
+    Built and upgraded once for the module: every test here only reads it.
+    `_normalised` creates temporary views, but inside a transaction it rolls
+    back, so nothing a test does is seen by the next.
+    """
     url = TEST_URL
     name = f"{url.database}_migrations"
     admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
 
     with admin.connect() as conn:
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+        drop_database(conn, name)
         conn.execute(text(f'CREATE DATABASE "{name}"'))
 
     # hide_password=False is essential: str(url) would render it as "***".
     target = url.set(database=name).render_as_string(hide_password=False)
     try:
+        _upgrade(target)
         yield target
     finally:
         with admin.connect() as conn:
-            conn.execute(
-                text(
-                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                    "WHERE datname = :name AND pid <> pg_backend_pid() "
-                    # Client sessions only. An autovacuum worker may be running
-                    # on this database, and signalling one needs the
-                    # pg_signal_autovacuum_worker role -- which the application
-                    # user does not have, so the attempt raises and the teardown
-                    # fails intermittently. Workers exit when the database is
-                    # dropped, so there is nothing to terminate here anyway.
-                    "AND backend_type = 'client backend'"
-                ),
-                {"name": name},
-            )
-            conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+            drop_database(conn, name)
         admin.dispose()
 
 
@@ -76,8 +68,6 @@ def test_migrations_match_models(migrated_url: str) -> None:
     If this fails, a model changed without a matching migration -- generate one
     with `alembic revision --autogenerate`.
     """
-    _upgrade(migrated_url)
-
     engine = create_engine(migrated_url)
     try:
         with engine.connect() as connection:
@@ -112,8 +102,6 @@ def test_the_baseline_seeds_the_fee_kinds(migrated_url: str) -> None:
     deleted entirely. Only a database built purely by running the migrations
     can catch that, which is what `migrated_url` is for.
     """
-    _upgrade(migrated_url)
-
     engine = create_engine(migrated_url)
     try:
         with engine.connect() as connection:
@@ -198,8 +186,6 @@ def test_the_migration_carries_every_check_constraint(migrated_url: str) -> None
     same `migrated_url` database, this also asserts `uq_sales_lot_item_open`'s
     partial-index predicate, which no comparator here checks at all.
     """
-    _upgrade(migrated_url)
-
     engine = create_engine(migrated_url)
     try:
         with engine.connect() as connection:
@@ -320,7 +306,6 @@ def test_the_baseline_views_and_functions_are_the_apps(
     a view edited in `views.py` with no migration would pass every test and
     never reach the real database.
     """
-    _upgrade(migrated_url)
     # `engine` is the session's test database, built from the app's own
     # definitions by conftest. Both sides are normalized in the migrated
     # database, whose tables are the same.

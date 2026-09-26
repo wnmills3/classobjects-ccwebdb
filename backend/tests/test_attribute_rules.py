@@ -6,7 +6,6 @@ are built by each test, as in test_classifier_defaults.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
@@ -19,16 +18,14 @@ from app.models import (
     ItemAttribute,
     ItemAttributeLink,
     NoteIssue,
-    NoteType,
     ProvenanceSource,
-    ReferenceMixin,
-    SealColor,
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
+from tests.builders import ItemFactory, add_note_issue, code_id, review_cases
+
 NO_MOTTO = RULES[0]
 
 
@@ -37,33 +34,12 @@ def _issues(db: Session) -> None:
     """Only the issues these tests are about: $1 Silver Certificates, a $1 FRN."""
     db.execute(delete(NoteIssue))
     for year, letter in ((1928, None), (1935, "F"), (1935, "G"), (1957, None)):
-        _issue(db, "usd_note_1", year, letter, "silver_certificate", "blue")
-    _issue(db, "usd_note_1", 1963, None, "frn", "green")
-    _issue(db, "usd_note_5", 1934, None, "silver_certificate", "blue")
-    db.flush()
-
-
-def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
-
-
-def _issue(
-    db: Session,
-    denomination: str,
-    year: int,
-    letter: str | None,
-    note_type: str,
-    seal: str,
-) -> None:
-    db.add(
-        NoteIssue(
-            denomination_id=_id(db, Denomination, denomination),
-            series_year=year,
-            series_letter=letter,
-            note_type_id=_id(db, NoteType, note_type),
-            seal_color_id=_id(db, SealColor, seal),
+        add_note_issue(
+            db, "usd_note_1", year, "silver_certificate", "blue", letter=letter
         )
-    )
+    add_note_issue(db, "usd_note_1", 1963, "frn", "green")
+    add_note_issue(db, "usd_note_5", 1934, "silver_certificate", "blue")
+    db.flush()
 
 
 def _note(
@@ -79,7 +55,7 @@ def _note(
         title="Plain note",
         grade_id=None,
         strike_type_id=None,
-        denomination_id=_id(db, Denomination, denomination),
+        denomination_id=code_id(db, Denomination, denomination),
         year_start=year,
     )
     db.add(
@@ -98,17 +74,10 @@ def _link(db: Session, item: InventoryItem) -> ItemAttributeLink | None:
     return db.scalar(
         select(ItemAttributeLink).where(
             ItemAttributeLink.inventory_item_id == item.id,
-            ItemAttributeLink.item_attribute_id == _id(db, ItemAttribute, "no_motto"),
+            ItemAttributeLink.item_attribute_id
+            == code_id(db, ItemAttribute, "no_motto"),
         )
     )
-
-
-def _cases(db: Session, item: InventoryItem) -> list[tuple[str, str]]:
-    return [
-        (c.reason, c.detail)
-        for c in classify(db).review
-        if c.item_code == item.item_code
-    ]
 
 
 # --- the rule --------------------------------------------------------------------
@@ -186,7 +155,7 @@ def test_the_class_must_be_known_first(db: Session, make_item: ItemFactory) -> N
 
 def test_a_1935g_note_is_left_for_evidence(db: Session, make_item: ItemFactory) -> None:
     note = _note(db, make_item, 1935, "G")
-    assert _cases(db, note) == [("needs evidence", "1935G: No Motto?")]
+    assert review_cases(db, note) == [("needs evidence", "1935G: No Motto?")]
     run(db, commit=True)
     assert _link(db, note) is None
 
@@ -198,13 +167,13 @@ def test_a_1935g_note_rated_no_motto_needs_nothing_more(
     db.add(
         ItemAttributeLink(
             inventory_item_id=note.id,
-            item_attribute_id=_id(db, ItemAttribute, "no_motto"),
+            item_attribute_id=code_id(db, ItemAttribute, "no_motto"),
             source=ProvenanceSource.derived,
             derived_by="rating",
         )
     )
     db.commit()
-    assert _cases(db, note) == []
+    assert review_cases(db, note) == []
 
 
 def test_no_motto_on_a_later_note_is_reported_not_removed(
@@ -214,12 +183,12 @@ def test_no_motto_on_a_later_note_is_reported_not_removed(
     db.add(
         ItemAttributeLink(
             inventory_item_id=note.id,
-            item_attribute_id=_id(db, ItemAttribute, "no_motto"),
+            item_attribute_id=code_id(db, ItemAttribute, "no_motto"),
             source=ProvenanceSource.manual,
         )
     )
     db.commit()
-    assert _cases(db, note) == [("disagrees", "1957 is never No Motto")]
+    assert review_cases(db, note) == [("disagrees", "1957 is never No Motto")]
     run(db, commit=True)
     assert _link(db, note) is not None
 
@@ -293,7 +262,7 @@ def test_a_link_someone_else_made_is_never_taken_back(
     db.add(
         ItemAttributeLink(
             inventory_item_id=note.id,
-            item_attribute_id=_id(db, ItemAttribute, "no_motto"),
+            item_attribute_id=code_id(db, ItemAttribute, "no_motto"),
             source=ProvenanceSource.derived,
             derived_by="rating",
         )

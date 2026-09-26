@@ -17,7 +17,7 @@ from app.models import ItemKind
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from tests.test_schema import code_id, make_item
+from tests.builders import build_bare_item, build_purchase_order, code_id
 
 #: Pulls a `k.code = 'x'` or `k.code <> 'x'` constraint out of a predicate,
 #: if it states one at all. Both a view's own WHERE and an issue's SQL are
@@ -41,8 +41,8 @@ def search(client: TestClient, headers: dict[str, str], query: str) -> dict:
 def test_a_named_check_finds_only_its_own_anomaly(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    missing = make_item(db, year_start=None)
-    make_item(db, year_start=1881)
+    missing = build_bare_item(db, year_start=None)
+    build_bare_item(db, year_start=1881)
 
     rows = search(client, admin_headers, "issue=no_year")["rows"]
     assert [r["id"] for r in rows] == [missing.id]
@@ -55,8 +55,8 @@ def test_no_grade_ignores_bullion(
 
     Counting it as an anomaly buries the 2,965 coins that should have one.
     """
-    coin = make_item(db, grade_id=None)
-    make_item(db, grade_id=None, item_kind_id=code_id(db, ItemKind, "bullion"))
+    coin = build_bare_item(db, grade_id=None)
+    build_bare_item(db, grade_id=None, item_kind_id=code_id(db, ItemKind, "bullion"))
 
     rows = search(client, admin_headers, "issue=no_grade")["rows"]
     assert [r["id"] for r in rows] == [coin.id]
@@ -66,10 +66,10 @@ def test_no_weight_applies_only_to_bullion(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """The mirror image: a Morgan's weight is not the interesting gap."""
-    round_ = make_item(
+    round_ = build_bare_item(
         db, fine_weight_ozt=None, item_kind_id=code_id(db, ItemKind, "bullion")
     )
-    make_item(db, fine_weight_ozt=None)
+    build_bare_item(db, fine_weight_ozt=None)
 
     rows = search(client, admin_headers, "issue=no_weight_bullion")["rows"]
     assert [r["id"] for r in rows] == [round_.id]
@@ -78,8 +78,8 @@ def test_no_weight_applies_only_to_bullion(
 def test_zero_cost_catches_null_and_zero_alike(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    zero = make_item(db, item_cost=Decimal("0.00"))
-    make_item(db, item_cost=Decimal("19.99"))
+    zero = build_bare_item(db, item_cost=Decimal("0.00"))
+    build_bare_item(db, item_cost=Decimal("19.99"))
 
     rows = search(client, admin_headers, "issue=zero_cost")["rows"]
     assert [r["id"] for r in rows] == [zero.id]
@@ -89,7 +89,7 @@ def test_unreviewed_is_the_default_state(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """Absent means unconfirmed, which is right for an item nobody examined."""
-    item = make_item(db)
+    item = build_bare_item(db)
     assert search(client, admin_headers, "issue=unreviewed")["total"] == 1
 
     client.post(
@@ -115,23 +115,22 @@ def test_a_near_duplicate_serial_is_found_within_one_order(
     requires the two serials to differ in length. That is what a dropped or
     duplicated character does and a consecutive run does not.
     """
-    from app.models import CurrencyDetail, PurchaseOrder, Vendor
+    from app.models import CurrencyDetail
 
-    vendor = Vendor(name="test-vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id, order_number="X1")
-    db.add(order)
-    db.flush()
+    order = build_purchase_order(
+        db, vendor_name="test-vendor", order_number="X1", commit=False
+    )
 
     kind = code_id(db, ItemKind, "currency")
     pair = [
-        make_item(db, item_kind_id=kind, purchase_order_id=order.id) for _ in range(2)
+        build_bare_item(db, item_kind_id=kind, purchase_order_id=order.id)
+        for _ in range(2)
     ]
     consecutive = [
-        make_item(db, item_kind_id=kind, purchase_order_id=order.id) for _ in range(2)
+        build_bare_item(db, item_kind_id=kind, purchase_order_id=order.id)
+        for _ in range(2)
     ]
-    apart = make_item(db, item_kind_id=kind, purchase_order_id=order.id)
+    apart = build_bare_item(db, item_kind_id=kind, purchase_order_id=order.id)
     db.add_all(
         [
             # A dropped '0': ten characters against nine, one edit apart.
@@ -179,8 +178,8 @@ def test_issue_counts_come_back_with_the_page(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     """So the size of a job is visible before committing to it."""
-    make_item(db, year_start=None)
-    make_item(db, year_start=None, country_id=None)
+    build_bare_item(db, year_start=None)
+    build_bare_item(db, year_start=None, country_id=None)
 
     body = client.get(
         "/api/inventory/coins/search?facets=true", headers=admin_headers
@@ -197,8 +196,8 @@ def test_issue_counts_ignore_the_issue_filter_itself(
 
     The panel stops being a way to choose the next job.
     """
-    make_item(db, year_start=None)
-    make_item(db, country_id=None)
+    build_bare_item(db, year_start=None)
+    build_bare_item(db, country_id=None)
 
     body = client.get(
         "/api/inventory/coins/search?issue=no_year&facets=true", headers=admin_headers
@@ -227,7 +226,7 @@ def test_an_unclassified_item_is_reachable_and_flagged(
     on any screen, and `issue=kind_unknown` would read as a clean bill of
     health while never actually running.
     """
-    unknown = make_item(db, item_kind_id=code_id(db, ItemKind, "unknown"))
+    unknown = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "unknown"))
 
     rows = search(client, admin_headers, "")["rows"]
     assert unknown.id in [r["id"] for r in rows]

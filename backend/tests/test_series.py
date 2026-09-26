@@ -9,16 +9,14 @@ which also means a mistake in `series.json` shows up here.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from app.aliases import ids_named
 from app.inventory_search import COIN_VIEW, count_facets, search
-from app.models import InventoryItem, Series
+from app.models import Series
 from app.series_match import build_rules, match
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-ItemFactory = Callable[..., InventoryItem]
+from tests.builders import ItemFactory
 
 
 def _series(db: Session, code: str) -> Series:

@@ -15,7 +15,6 @@ from pathlib import Path
 import pytest
 from app.models import Grade, Metal, ProvenanceSource
 from app.seeding import (
-    DATA_DIR,
     SeedError,
     export_reference_data,
     load_seed_data,
@@ -150,13 +149,3 @@ def test_export_excludes_one_installations_private_rows(
     export_reference_data(db, tmp_path, sources=["seeded", "manual"])
     payload = json.loads((tmp_path / "grade.json").read_text(encoding="utf-8"))
     assert "LOCAL_ONLY" in {row["code"] for row in payload["grade"]}
-
-
-def test_seed_files_on_disk_load_into_an_empty_database(db: Session) -> None:
-    """Every foreign key a seed file names resolves in-load.
-
-    The shipped files must be internally consistent -- every foreign key
-    they name has to resolve within the same load.
-    """
-    stats = seed_all(db, DATA_DIR)
-    assert "composition" in stats

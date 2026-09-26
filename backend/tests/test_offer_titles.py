@@ -16,20 +16,15 @@ from app.models import (
     GradingService,
     Mint,
     NoteType,
-    ReferenceMixin,
     Series,
     SetForm,
 )
 from app.offer_titles import suggested_title
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from tests.builders import code_id
 from tests.conftest import build_item
-
-
-def _id(db: Session, model: type[ReferenceMixin], code: str) -> int:
-    return db.execute(select(model.id).where(model.code == code)).scalar_one()
 
 
 def test_a_graded_coin_is_titled_as_a_collector_writes_it(db: Session) -> None:
@@ -38,11 +33,11 @@ def test_a_graded_coin_is_titled_as_a_collector_writes_it(db: Session) -> None:
         db,
         title="1",
         year_start=1921,
-        series_id=_id(db, Series, "morgan_dollar"),
-        denomination_id=_id(db, Denomination, "usd_coin_1_00"),
-        grading_service_id=_id(db, GradingService, "PCGS"),
+        series_id=code_id(db, Series, "morgan_dollar"),
+        denomination_id=code_id(db, Denomination, "usd_coin_1_00"),
+        grading_service_id=code_id(db, GradingService, "PCGS"),
     )
-    db.add(CoinDetail(inventory_item_id=item.id, mint_id=_id(db, Mint, "S")))
+    db.add(CoinDetail(inventory_item_id=item.id, mint_id=code_id(db, Mint, "S")))
     db.flush()
 
     assert suggested_title(db, item) == "1921-S Morgan Dollar PCGS MS64"
@@ -54,9 +49,9 @@ def test_a_span_of_years_carries_no_mint_mark(db: Session) -> None:
         db,
         year_start=1878,
         year_end=1904,
-        series_id=_id(db, Series, "morgan_dollar"),
+        series_id=code_id(db, Series, "morgan_dollar"),
     )
-    db.add(CoinDetail(inventory_item_id=item.id, mint_id=_id(db, Mint, "S")))
+    db.add(CoinDetail(inventory_item_id=item.id, mint_id=code_id(db, Mint, "S")))
     db.flush()
 
     assert suggested_title(db, item) == "1878-1904 Morgan Dollar MS64"
@@ -66,7 +61,7 @@ def test_the_denomination_names_a_coin_with_no_series(db: Session) -> None:
     item = build_item(
         db,
         year_start=1964,
-        denomination_id=_id(db, Denomination, "usd_coin_0_50"),
+        denomination_id=code_id(db, Denomination, "usd_coin_0_50"),
         grade_id=None,
         strike_type_id=None,
     )
@@ -81,8 +76,8 @@ def test_a_self_graded_coin_does_not_name_the_owner_as_a_service(
     item = build_item(
         db,
         year_start=1921,
-        series_id=_id(db, Series, "morgan_dollar"),
-        grading_service_id=_id(db, GradingService, "SELF"),
+        series_id=code_id(db, Series, "morgan_dollar"),
+        grading_service_id=code_id(db, GradingService, "SELF"),
     )
 
     assert suggested_title(db, item) == "1921 Morgan Dollar MS64"
@@ -94,7 +89,7 @@ def test_a_set_is_named_by_its_form(db: Session) -> None:
         kind="set",
         title="Mint Set",
         year_start=1988,
-        set_form_id=_id(db, SetForm, "mint_set"),
+        set_form_id=code_id(db, SetForm, "mint_set"),
         grade_id=None,
         strike_type_id=None,
     )
@@ -109,17 +104,17 @@ def test_a_note_is_titled_by_series_face_value_and_type(db: Session) -> None:
         kind="currency",
         title="$1 Bill",
         year_start=1935,
-        denomination_id=_id(db, Denomination, "usd_note_1"),
+        denomination_id=code_id(db, Denomination, "usd_note_1"),
         grade_id=None,
         strike_type_id=None,
-        grading_service_id=_id(db, GradingService, "PMG"),
+        grading_service_id=code_id(db, GradingService, "PMG"),
     )
     db.add(
         CurrencyDetail(
             inventory_item_id=item.id,
             series_year=1935,
             series_letter="A",
-            note_type_id=_id(db, NoteType, "silver_certificate"),
+            note_type_id=code_id(db, NoteType, "silver_certificate"),
         )
     )
     db.flush()
@@ -143,7 +138,7 @@ def test_an_unclassified_item_keeps_the_seller_wording(db: Session) -> None:
 def test_a_date_and_mint_mark_alone_do_not_make_a_title(db: Session) -> None:
     """A date, mint mark and grade name nothing a buyer searches for."""
     item = build_item(db, title="Silver dollar, S mint", year_start=1921)
-    db.add(CoinDetail(inventory_item_id=item.id, mint_id=_id(db, Mint, "S")))
+    db.add(CoinDetail(inventory_item_id=item.id, mint_id=code_id(db, Mint, "S")))
     db.flush()
 
     assert suggested_title(db, item) == "Silver dollar, S mint"
@@ -166,7 +161,9 @@ def test_a_note_known_only_by_its_years_keeps_the_wording(db: Session) -> None:
 def test_the_endpoint_answers_per_item_and_skips_unknown_ids(
     client: TestClient, db: Session, admin_headers: dict[str, str]
 ) -> None:
-    item = build_item(db, year_start=1921, series_id=_id(db, Series, "morgan_dollar"))
+    item = build_item(
+        db, year_start=1921, series_id=code_id(db, Series, "morgan_dollar")
+    )
 
     response = client.get(
         "/api/offers/titles",

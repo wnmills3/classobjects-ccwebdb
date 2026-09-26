@@ -30,7 +30,6 @@ from app.models import (
     ListingFormat,
     ListingStatus,
     OfferClaim,
-    ReferenceMixin,
     SalesLot,
     SalesLotItem,
     SalesLotStatus,
@@ -56,13 +55,10 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
+from tests.builders import code_id
 from tests.conftest import (
     ClaimInvariantViolation,
-    check_auction_invariant,
-    check_claim_invariant,
-    check_disposition_invariant,
-    check_listing_history_invariant,
-    check_lot_invariant,
+    check_all_invariants,
 )
 
 RACE_TITLE = "RACE Offer Contested Item"
@@ -78,17 +74,15 @@ Outcome = str
 
 
 def _cleanup_race_rows(cleanup: Session) -> None:
-    """Check all three suite invariants against these rows, then delete regardless.
+    """Check all five suite invariants against these rows, then delete regardless.
 
-    All three -- `check_claim_invariant`, `check_lot_invariant` and
-    `check_disposition_invariant` -- are called here explicitly, for one
-    reason that applies equally to each: every test in this file takes
-    `committed`, not `db`, so `conftest.py`'s autouse `_claim_invariant`
-    fixture (which runs all three) does not run for any of them at all. An
-    invariant not called here is an invariant this file is exempt from --
-    and this is the one file in the suite that commits claims, lot
-    memberships and dispositions for real, so it is exactly the file where
-    an exemption would matter most.
+    `check_all_invariants` is called here explicitly because every test in
+    this file takes `committed`, not `db`, so `conftest.py`'s autouse
+    `_claim_invariant` fixture (which runs the same five checks) does not run
+    for any of them at all. An invariant not checked here is an invariant
+    this file is exempt from -- and this file commits claims, lot memberships
+    and dispositions for real, so it is exactly where an exemption would
+    matter most.
 
     The check runs in a `try` and the deletes in its `finally` on purpose: a
     real violation must still fail the suite (the `raise` propagates once the
@@ -165,11 +159,7 @@ def _cleanup_race_rows(cleanup: Session) -> None:
         SalesOrderItem.sales_order_id.in_(race_order_ids)
     )
     try:
-        check_claim_invariant(cleanup)
-        check_lot_invariant(cleanup)
-        check_disposition_invariant(cleanup)
-        check_listing_history_invariant(cleanup)
-        check_auction_invariant(cleanup)
+        check_all_invariants(cleanup)
     finally:
         lot_ids = list(cleanup.scalars(race_lot_ids).all())
         cleanup.query(SalesOrderItemShare).filter(
@@ -213,7 +203,7 @@ def _cleanup_race_rows(cleanup: Session) -> None:
 def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     """Real, committing sessions; removes every row the race creates.
 
-    Checks the three suite-wide invariants against these rows *before*
+    Checks the five suite-wide invariants against these rows *before*
     deleting them, not after (see `_cleanup_race_rows`). `_claim_invariant`
     (conftest.py) is autouse, but this fixture is requested explicitly by
     name, and pytest tears an explicitly-requested fixture down before an
@@ -230,10 +220,6 @@ def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
         _cleanup_race_rows(cleanup)
 
 
-def _code_id(session: Session, model: type[ReferenceMixin], code: str) -> int:
-    return session.execute(select(model.id).where(model.code == code)).scalar_one()
-
-
 def _seed_item(factory: sessionmaker[Session], *, title: str = RACE_TITLE) -> int:
     """One received, unheld item, real and committed.
 
@@ -245,12 +231,12 @@ def _seed_item(factory: sessionmaker[Session], *, title: str = RACE_TITLE) -> in
     with factory() as session:
         item = InventoryItem(
             source_title=title,
-            item_kind_id=_code_id(session, ItemKind, "coin"),
-            storage_form_id=_code_id(session, StorageForm, "single"),
-            authenticity_id=_code_id(session, Authenticity, "unverified"),
-            status_id=_code_id(session, ItemStatus, "received"),
-            disposition_id=_code_id(session, Disposition, "held"),
-            valuation_basis_id=_code_id(session, ValuationBasis, "numismatic"),
+            item_kind_id=code_id(session, ItemKind, "coin"),
+            storage_form_id=code_id(session, StorageForm, "single"),
+            authenticity_id=code_id(session, Authenticity, "unverified"),
+            status_id=code_id(session, ItemStatus, "received"),
+            disposition_id=code_id(session, Disposition, "held"),
+            valuation_basis_id=code_id(session, ValuationBasis, "numismatic"),
         )
         session.add(item)
         session.commit()
@@ -260,7 +246,7 @@ def _seed_item(factory: sessionmaker[Session], *, title: str = RACE_TITLE) -> in
 def _venue(factory: sessionmaker[Session], code: str) -> int:
     """A non-store marketplace platform to offer on, real and committed."""
     with factory() as session:
-        kind_id = _code_id(session, SalesVenueKind, "marketplace")
+        kind_id = code_id(session, SalesVenueKind, "marketplace")
         venue = SalesVenue(code=code, name=code.title(), sales_venue_kind_id=kind_id)
         session.add(venue)
         session.commit()

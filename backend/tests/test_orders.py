@@ -12,57 +12,19 @@ from collections.abc import Callable
 from decimal import Decimal
 
 from app.models import (
-    Customer,
     Listing,
-    SalesOrder,
     SalesOrderItemShare,
-    SalesOrderStatus,
     SalesVenue,
     User,
 )
 from app.sales_venues import store_venue_id
 from app.sales_writes import record_sale
-from app.security import hash_password
 from fastapi.testclient import TestClient
-from httpx import Response
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from tests.builders import foreign_order, post_order
 from tests.conftest import item_of
-
-
-def place(
-    client: TestClient, headers: dict[str, str], listing_id: int, quantity: int
-) -> Response:
-    return client.post(
-        "/api/orders",
-        json={"items": [{"listing_id": listing_id, "quantity": quantity}]},
-        headers=headers,
-    )
-
-
-def foreign_order(db: Session, email: str) -> SalesOrder:
-    """An order belonging to somebody else."""
-    other = User(email=email, hashed_password=hash_password("otherpassword"))
-    db.add(other)
-    db.flush()
-    customer = Customer(user_id=other.id, display_name="Other", email=email)
-    db.add(customer)
-    db.flush()
-    pending = db.execute(
-        select(SalesOrderStatus.id).where(SalesOrderStatus.code == "pending")
-    ).scalar_one()
-    order = SalesOrder(
-        customer_id=customer.id,
-        sales_venue_id=store_venue_id(db),
-        sales_order_status_id=pending,
-        total_amount=Decimal("1.00"),
-    )
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-    return order
-
 
 # --------------------------------------------------------------------------
 # Placing orders
@@ -79,7 +41,7 @@ def test_order_requires_authentication(client: TestClient, listing: Listing) -> 
 def test_place_order_computes_exact_total(
     client: TestClient, listing: Listing, customer_headers: dict[str, str]
 ) -> None:
-    response = place(client, customer_headers, listing.id, 2)
+    response = post_order(client, customer_headers, listing.id, 2)
     assert response.status_code == 201
     body = response.json()
     # 2 x 189.00 -- exact decimal arithmetic, no float rounding
@@ -118,7 +80,7 @@ def test_a_checkout_line_carries_a_share(
     Without this, `sale_state` would find store orders through shares and
     outside orders not at all -- two query shapes and one of them wrong.
     """
-    response = place(client, customer_headers, listing.id, 1)
+    response = post_order(client, customer_headers, listing.id, 1)
     assert response.status_code == 201
     order_item_id = response.json()["items"][0]["id"]
 
@@ -178,7 +140,7 @@ def test_order_decrements_availability(
     client: TestClient, listing: Listing, customer_headers: dict[str, str], db: Session
 ) -> None:
     assert listing.quantity_available == 5
-    place(client, customer_headers, listing.id, 2)
+    post_order(client, customer_headers, listing.id, 2)
     db.refresh(listing)
     assert listing.quantity_available == 3
 
@@ -191,7 +153,7 @@ def test_selling_the_last_unit_marks_the_item_sold(
 ) -> None:
     """Disposition is the sales axis, independent of how the item came in."""
     only_one = make_listing(quantity_available=1)
-    place(client, customer_headers, only_one.id, 1)
+    post_order(client, customer_headers, only_one.id, 1)
 
     db.expire_all()
     refreshed = db.get(Listing, only_one.id)
@@ -207,7 +169,7 @@ def test_selling_the_last_unit_marks_the_item_sold(
 def test_cannot_order_more_than_available(
     client: TestClient, listing: Listing, customer_headers: dict[str, str], db: Session
 ) -> None:
-    response = place(client, customer_headers, listing.id, 6)
+    response = post_order(client, customer_headers, listing.id, 6)
     assert response.status_code == 409
     db.refresh(listing)
     assert listing.quantity_available == 5, "a rejected order must not change stock"
@@ -219,7 +181,7 @@ def test_cannot_order_sold_out_item(
     customer_headers: dict[str, str],
 ) -> None:
     sold_out = make_listing(quantity_available=0)
-    assert place(client, customer_headers, sold_out.id, 1).status_code == 409
+    assert post_order(client, customer_headers, sold_out.id, 1).status_code == 409
 
 
 def test_cannot_order_withdrawn_listing(
@@ -228,7 +190,7 @@ def test_cannot_order_withdrawn_listing(
     customer_headers: dict[str, str],
 ) -> None:
     withdrawn = make_listing(is_active=False, quantity_available=5)
-    response = place(client, customer_headers, withdrawn.id, 1)
+    response = post_order(client, customer_headers, withdrawn.id, 1)
     assert response.status_code == 409
     assert "not currently for sale" in response.json()["detail"]
 
@@ -236,7 +198,7 @@ def test_cannot_order_withdrawn_listing(
 def test_unknown_listing_rejected(
     client: TestClient, customer_headers: dict[str, str]
 ) -> None:
-    assert place(client, customer_headers, 999999, 1).status_code == 404
+    assert post_order(client, customer_headers, 999999, 1).status_code == 404
 
 
 def test_duplicate_line_rejected(
@@ -265,7 +227,7 @@ def test_empty_order_rejected(
 def test_zero_quantity_rejected(
     client: TestClient, listing: Listing, customer_headers: dict[str, str]
 ) -> None:
-    assert place(client, customer_headers, listing.id, 0).status_code == 422
+    assert post_order(client, customer_headers, listing.id, 0).status_code == 422
 
 
 def test_partially_unavailable_order_is_all_or_nothing(
@@ -303,7 +265,7 @@ def test_unit_price_is_frozen_at_purchase_time(
     admin_headers: dict[str, str],
 ) -> None:
     """Editing the catalog must not rewrite order history."""
-    order = place(client, customer_headers, listing.id, 1).json()
+    order = post_order(client, customer_headers, listing.id, 1).json()
     assert order["items"][0]["unit_price"] == "189.00"
 
     client.patch(
@@ -323,7 +285,7 @@ def test_unit_price_is_frozen_at_purchase_time(
 def test_customer_sees_only_own_orders(
     client: TestClient, listing: Listing, customer_headers: dict[str, str], db: Session
 ) -> None:
-    place(client, customer_headers, listing.id, 1)
+    post_order(client, customer_headers, listing.id, 1)
     foreign_order(db, "other@example.com")
 
     mine = client.get("/api/orders", headers=customer_headers).json()
@@ -337,7 +299,7 @@ def test_admin_sees_all_orders(
     admin_headers: dict[str, str],
     db: Session,
 ) -> None:
-    place(client, customer_headers, listing.id, 1)
+    post_order(client, customer_headers, listing.id, 1)
     foreign_order(db, "other3@example.com")
     assert len(client.get("/api/orders", headers=admin_headers).json()) == 2
 
@@ -354,7 +316,7 @@ def test_notes_and_placed_by_email_are_admin_only(
     an order an admin has annotated must show neither, even though the
     fields stay in the response shape for everyone.
     """
-    order = place(client, customer_headers, listing.id, 1).json()
+    order = post_order(client, customer_headers, listing.id, 1).json()
     assert order["placed_by_email"] is None
     revised = client.put(
         f"/api/orders/{order['id']}",
@@ -433,7 +395,7 @@ def test_an_order_says_which_platform_it_was_sold_on(
 def test_customer_cannot_change_status(
     client: TestClient, listing: Listing, customer_headers: dict[str, str]
 ) -> None:
-    order = place(client, customer_headers, listing.id, 1).json()
+    order = post_order(client, customer_headers, listing.id, 1).json()
     response = client.patch(
         f"/api/orders/{order['id']}", json={"status": "paid"}, headers=customer_headers
     )
@@ -446,7 +408,7 @@ def test_admin_can_advance_status(
     customer_headers: dict[str, str],
     admin_headers: dict[str, str],
 ) -> None:
-    order = place(client, customer_headers, listing.id, 1).json()
+    order = post_order(client, customer_headers, listing.id, 1).json()
     response = client.patch(
         f"/api/orders/{order['id']}", json={"status": "paid"}, headers=admin_headers
     )
@@ -460,7 +422,7 @@ def test_invalid_status_rejected(
     customer_headers: dict[str, str],
     admin_headers: dict[str, str],
 ) -> None:
-    order = place(client, customer_headers, listing.id, 1).json()
+    order = post_order(client, customer_headers, listing.id, 1).json()
     response = client.patch(
         f"/api/orders/{order['id']}",
         json={"status": "not-a-real-status"},
@@ -476,7 +438,7 @@ def test_cancelling_restores_stock(
     admin_headers: dict[str, str],
     db: Session,
 ) -> None:
-    order = place(client, customer_headers, listing.id, 2).json()
+    order = post_order(client, customer_headers, listing.id, 2).json()
     db.refresh(listing)
     assert listing.quantity_available == 3
 
@@ -513,7 +475,7 @@ def test_cancelling_with_no_store_platform_is_a_500_naming_the_fix(
     one column `store_venue_id` actually asks about reproduces "no web store
     platform" without disturbing anything that references the row.
     """
-    order = place(client, customer_headers, listing.id, 1).json()
+    order = post_order(client, customer_headers, listing.id, 1).json()
     db.execute(
         update(SalesVenue)
         .where(SalesVenue.id == store_venue_id(db))
@@ -538,7 +500,7 @@ def test_cancelling_twice_does_not_double_restore(
     db: Session,
 ) -> None:
     """Re-sending 'cancelled' must be idempotent for stock."""
-    order = place(client, customer_headers, listing.id, 2).json()
+    order = post_order(client, customer_headers, listing.id, 2).json()
     for _ in range(2):
         client.patch(
             f"/api/orders/{order['id']}",
@@ -597,7 +559,7 @@ def test_cancelling_after_shipping_does_not_return_stock(
     Stock that has already been posted is gone; returning it to the
     catalog would oversell the next buyer.
     """
-    order = place(client, customer_headers, listing.id, 2).json()
+    order = post_order(client, customer_headers, listing.id, 2).json()
     for state in ("paid", "shipped", "cancelled"):
         client.patch(
             f"/api/orders/{order['id']}", json={"status": state}, headers=admin_headers

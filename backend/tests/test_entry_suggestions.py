@@ -10,10 +10,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 import pytest
-from app.models import AppliesTo, ErrorType, InventoryItem, PurchaseOrder, Vendor
+from app.models import AppliesTo, ErrorType, InventoryItem, PurchaseOrder
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
+
+from tests.builders import build_purchase_order
 
 DRAFT = "/api/inventory/suggested-description"
 
@@ -43,14 +45,7 @@ NOTE = {
 
 
 def _order(db: Session) -> PurchaseOrder:
-    vendor = Vendor(name="Draft Test Vendor")
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id)
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-    return order
+    return build_purchase_order(db, vendor_name="Draft Test Vendor")
 
 
 def _error_code(db: Session, side: AppliesTo) -> str:

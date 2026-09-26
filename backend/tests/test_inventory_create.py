@@ -16,22 +16,16 @@ from app.models import (
     ItemStatusHistory,
     Mint,
     PurchaseOrder,
-    Vendor,
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from tests.builders import build_purchase_order
+
 
 def _purchase_order(db: Session, name: str = "Item Test Vendor") -> PurchaseOrder:
-    vendor = Vendor(name=name)
-    db.add(vendor)
-    db.flush()
-    order = PurchaseOrder(vendor_id=vendor.id)
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-    return order
+    return build_purchase_order(db, vendor_name=name)
 
 
 def _coin_payload(order_id: int, **overrides: object) -> dict[str, object]:
