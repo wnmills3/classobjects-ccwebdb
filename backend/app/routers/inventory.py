@@ -308,55 +308,52 @@ def _refuse_auction_lots(
 ) -> None:
     """Refuse a receipt that would end an auction lot's offer. 409.
 
-    The third door onto an orphaned `auction_lot`, after
-    `routers.offers.end_listing` and `sales_writes.record_sale`, and the one
-    a whole-branch review found still open. `app.auctions` is the sole writer
-    of `auction_lot`, and `remove_lot`, `cancel` and `settle` each end the
-    lot's listing *and* delete or resolve its row in one transaction. This
-    endpoint calls `offering_writes.end_offer`, which has never heard of
-    `auction_lot`.
+    One of three doors onto an orphaned `auction_lot`, with
+    `routers.offers.end_listing` and `sales_writes.record_sale`, each closed
+    the same way. `app.auctions` is the sole writer of `auction_lot`, and
+    `remove_lot`, `cancel` and `settle` each end the lot's listing *and*
+    delete or resolve its row in one transaction. This endpoint calls
+    `offering_writes.end_offer`, which has never heard of `auction_lot`.
 
-    **The premise that made this look unreachable was false by one line.**
-    The "already received" refusal in `receive_items` is conditioned on
-    `payload.outcome == "received"`, so the three outcomes that end an offer
-    -- `missing`, `returned`, `canceled` -- skip it entirely; an
-    already-received coin is exactly this path's input. And
-    `offering_writes.offers_holding` filters on claims and listing status
-    only. It is **format-blind**, so an `active` auction lot listing comes
-    back through the *derived* half and is ended like any other.
+    **Reachable, though it looks otherwise.** The "already received" refusal
+    in `receive_items` is conditioned on `payload.outcome == "received"`, so
+    the three outcomes that end an offer -- `missing`, `returned`,
+    `canceled` -- skip it entirely; an already-received coin is exactly this
+    path's input. And `offering_writes.offers_holding` filters on claims and
+    listing status only. It is **format-blind**, so an `active` auction lot
+    listing comes back through the *derived* half and would be ended like
+    any other.
 
-    What that costs, all three measured against this branch rather than
-    imagined:
+    What ending it would cost:
 
-    - **Before the auction closes**, one missing coin ends the whole lot
-      listing, dissolves its `sales_lot` and releases **every other member**
-      back to `held`, while the `auction_lot` row keeps its lot number.
-      `app.auctions.consign` then reads `offering_writes.offered_items` ->
-      `[]` and silently skips the lot: the auction reports itself consigned
-      and those coins never left.
+    - **Before the auction closes**, one missing coin would end the whole
+      lot listing, dissolve its `sales_lot` and release **every other
+      member** back to `held`, while the `auction_lot` row kept its lot
+      number. `app.auctions.consign` would then read
+      `offering_writes.offered_items` -> `[]` and silently skip the lot: the
+      auction would report itself consigned and those coins never left.
     - **After it closes, consigned**, `settle`'s `_return_from_consignment`
-      reads the same empty list, returns nothing, and then clears
+      would read the same empty list, return nothing, and then clear
       `auction.consigned_on` on the claim that everything came home. The
-      lot's healthy members are left filed at the auction house with nothing
-      linking them to the auction -- the stranding rulings R9 and R13 exist
-      to prevent, through a third door.
-    - **After it closes, sold**, `sales_writes.record_sale_lines` refuses
-      that lot "not on offer" and the auction cannot be settled until the
-      lot is re-entered as withdrawn.
+      lot's healthy members would be left filed at the auction house with
+      nothing linking them to the auction -- the stranding custody tracking
+      exists to prevent.
+    - **After it closes, sold**, `sales_writes.record_sale_lines` would
+      refuse that lot "not on offer" and the auction could not be settled
+      until the lot was re-entered as withdrawn.
 
     **The trade this makes, deliberately:** a coin in an auction that goes
-    missing is now a **two-step** operation -- take the lot out of the
-    auction (remove it before the auction closes; settle it as withdrawn, or
-    cancel, after), then record the loss -- which is the same trade ruling
-    R25 already accepted for Record sale. The message says so, because the
-    operator is the one who has to do the second step.
+    missing is a **two-step** operation -- take the lot out of the auction
+    (remove it before the auction closes; settle it as withdrawn, or cancel,
+    after), then record the loss -- the same trade Record sale makes. The
+    message says so, because the operator is the one who has to do the
+    second step.
 
     **Keyed on the `auction_lot` row, not on `format` alone.** The Offer
     dialog offers a coin directly on eBay by auction, with no auction behind
     it; `offers_holding` returns only live listings, so a live
     auction-format listing with no `auction_lot` row is always such a direct
-    offer, and it is ended here like any other (review of the final fix
-    wave, Important #1).
+    offer, and it is ended here like any other.
 
     Placed beside `offering_writes.refuse_if_lot_unheld`, over the
     *authoritative* `offers_holding` read and under the locks, not at the top
