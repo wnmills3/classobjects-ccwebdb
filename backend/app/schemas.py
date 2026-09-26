@@ -18,6 +18,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     EmailStr,
@@ -35,6 +36,34 @@ from .models import UserRole
 #: be given alongside `max_digits`, or `1E+11` passes pydantic and fails in
 #: PostgreSQL as a `DataError` that nothing turns into a 422.
 Money = Annotated[Decimal, Field(ge=Decimal("0"), max_digits=12, decimal_places=2)]
+
+#: The bounds of a banknote's series year, wherever one is sent. 1690 is the
+#: first paper money issued in America, and the collection holds notes back
+#: to 1801; 2200 is the same far bound the item years use.
+SERIES_YEAR_MIN = 1690
+SERIES_YEAR_MAX = 2200
+SeriesYear = Annotated[int, Field(ge=SERIES_YEAR_MIN, le=SERIES_YEAR_MAX)]
+
+
+def _strip_or_none(value: str | None) -> str | None:
+    """Surrounding space is not part of it; nothing left is None."""
+    return (value or "").strip() or None
+
+
+#: The seller's id for the listing an item was bought from -- eBay's item
+#: number. Text, as the seller prints it; blank clears it.
+SellersItemId = Annotated[
+    str | None, Field(max_length=64), AfterValidator(_strip_or_none)
+]
+#: A face plate in its stored form (`app.plates.face_plate`): `E82`, `153`,
+#: or `FW E82` for a Fort Worth note.
+FacePlate = Annotated[
+    str | None, Field(max_length=16), AfterValidator(plates.face_plate)
+]
+#: A back plate, digits only (`app.plates.back_plate`).
+BackPlate = Annotated[
+    str | None, Field(max_length=16), AfterValidator(plates.back_plate)
+]
 
 # --------------------------------------------------------------------------
 # Auth / users
@@ -812,13 +841,7 @@ class InventoryItemUpdate(BaseModel):
     description: str | None = None
     #: The seller's id for the listing it was bought from -- eBay's item
     #: number. Text, as the seller prints it; blank clears it.
-    sellers_item_id: str | None = Field(default=None, max_length=64)
-
-    @field_validator("sellers_item_id")
-    @classmethod
-    def _sellers_item_id(cls, value: str | None) -> str | None:
-        """Surrounding space is not part of it; nothing left is None."""
-        return (value or "").strip() or None
+    sellers_item_id: SellersItemId = None
 
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
     year_end: int | None = Field(default=None, ge=-3000, le=2200)
@@ -865,27 +888,15 @@ class InventoryItemUpdate(BaseModel):
     seal_color: str | None = Field(default=None, max_length=64)
     fed_district: str | None = Field(default=None, max_length=64)
     signature_combination: str | None = Field(default=None, max_length=64)
-    series_year: int | None = Field(default=None, ge=1861, le=2200)
+    series_year: SeriesYear | None = None
     series_letter: str | None = Field(default=None, max_length=4)
     serial_number: str | None = Field(default=None, max_length=64)
     #: `E82`, `153`, or `FW E82` for a Fort Worth note (`app.plates`).
-    face_plate_number: str | None = Field(default=None, max_length=16)
+    face_plate_number: FacePlate = None
     #: Digits, as printed on the back.
-    back_plate_number: str | None = Field(default=None, max_length=16)
+    back_plate_number: BackPlate = None
     #: `dc` or `fw`; read from the face plate when that is sent.
     printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
-
-    @field_validator("face_plate_number")
-    @classmethod
-    def _face_plate(cls, value: str | None) -> str | None:
-        """A face plate in its stored form (`app.plates.face_plate`)."""
-        return plates.face_plate(value)
-
-    @field_validator("back_plate_number")
-    @classmethod
-    def _back_plate(cls, value: str | None) -> str | None:
-        """Digits only (`app.plates.back_plate`)."""
-        return plates.back_plate(value)
 
     #: Required, as true, to change an item that is up for sale: a listing
     #: offers it or an unshipped order holds it (app.sale_state).
@@ -1017,13 +1028,7 @@ class ItemCreate(BaseModel):
 
     #: The seller's id for the listing it was bought from -- eBay's item
     #: number. Text, as the seller prints it; blank clears it.
-    sellers_item_id: str | None = Field(default=None, max_length=64)
-
-    @field_validator("sellers_item_id")
-    @classmethod
-    def _sellers_item_id(cls, value: str | None) -> str | None:
-        """Surrounding space is not part of it; nothing left is None."""
-        return (value or "").strip() or None
+    sellers_item_id: SellersItemId = None
 
     #: Coin detail. Refused with a 422 when `item_kind` is `currency`.
     mint: str | None = Field(default=None, max_length=64)
@@ -1032,30 +1037,18 @@ class ItemCreate(BaseModel):
     #: Currency detail. Refused with a 422 for every `item_kind` but
     #: `currency`.
     serial_number: str | None = Field(default=None, max_length=64)
-    series_year: int | None = Field(default=None, ge=-3000, le=2200)
+    series_year: SeriesYear | None = None
     series_letter: str | None = Field(default=None, max_length=4)
     seal_color: str | None = Field(default=None, max_length=64)
     fed_district: str | None = Field(default=None, max_length=64)
     note_type: str | None = Field(default=None, max_length=64)
     signature_combination: str | None = Field(default=None, max_length=64)
     #: `E82`, `153`, or `FW E82` for a Fort Worth note (`app.plates`).
-    face_plate_number: str | None = Field(default=None, max_length=16)
+    face_plate_number: FacePlate = None
     #: Digits, as printed on the back.
-    back_plate_number: str | None = Field(default=None, max_length=16)
+    back_plate_number: BackPlate = None
     #: `dc` or `fw`; read from the face plate when that is sent.
     printing_facility: str | None = Field(default=None, pattern="^(dc|fw)$")
-
-    @field_validator("face_plate_number")
-    @classmethod
-    def _face_plate(cls, value: str | None) -> str | None:
-        """A face plate in its stored form (`app.plates.face_plate`)."""
-        return plates.face_plate(value)
-
-    @field_validator("back_plate_number")
-    @classmethod
-    def _back_plate(cls, value: str | None) -> str | None:
-        """Digits only (`app.plates.back_plate`)."""
-        return plates.back_plate(value)
 
     #: Fields whose value is a suggestion the form filled from the facts and
     #: the person left as it was, by field name. They are recorded as derived
@@ -1182,7 +1175,7 @@ class ItemDraftIn(BaseModel):
     mint: str | None = Field(default=None, max_length=64)
     variety: str | None = Field(default=None, max_length=255)
     serial_number: str | None = Field(default=None, max_length=64)
-    series_year: int | None = None
+    series_year: SeriesYear | None = None
     series_letter: str | None = Field(default=None, max_length=4)
     note_type: str | None = Field(default=None, max_length=64)
     seal_color: str | None = Field(default=None, max_length=64)
@@ -2251,7 +2244,7 @@ class FriedbergNumberCreate(BaseModel):
     fr_number: str = Field(min_length=1, max_length=32)
     note_type: str | None = None
     denomination: str | None = None
-    series_year: int | None = Field(default=None, ge=1861, le=2100)
+    series_year: SeriesYear | None = None
     series_letter: str | None = Field(default=None, max_length=4)
     seal_color: str | None = None
     signature_combination: str | None = None

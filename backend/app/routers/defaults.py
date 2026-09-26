@@ -33,7 +33,12 @@ from ..models import (
     SignatureCombination,
 )
 from ..references import code_to_id
-from ..schemas import CoinSuggestionOut, NoteSuggestionOut
+from ..schemas import (
+    SERIES_YEAR_MAX,
+    SERIES_YEAR_MIN,
+    CoinSuggestionOut,
+    NoteSuggestionOut,
+)
 from ..serial_patterns import SMALL_SIZE_FROM
 
 router = APIRouter(prefix="/defaults", tags=["defaults"])
@@ -55,7 +60,9 @@ def suggest_note(
     db: DbSession,
     _admin: AdminUser,
     denomination: Code = None,
-    series_year: Annotated[int | None, Query(ge=1861, le=2200)] = None,
+    series_year: Annotated[
+        int | None, Query(ge=SERIES_YEAR_MIN, le=SERIES_YEAR_MAX)
+    ] = None,
     series_letter: Annotated[str | None, Query(max_length=4)] = None,
     serial_number: Annotated[str | None, Query(max_length=64)] = None,
     rating: Annotated[str | None, Query(max_length=500)] = None,
