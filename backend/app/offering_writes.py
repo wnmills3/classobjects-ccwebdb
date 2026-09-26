@@ -99,12 +99,14 @@ __all__ = [
     "ever_claimed",
     "ever_named_any",
     "lock_for_sale",
+    "not_ours_reason",
     "offer",
     "offered_items",
     "offers_holding",
     "refuse_if_lot_unheld",
     "sellable_in_shop",
     "shop_listing_filters",
+    "sold_away_reason",
 ]
 
 #: Claim states that hold an item: it is offered now, or set aside for an
@@ -912,6 +914,37 @@ def _locked_offers(db: Session, item_id: int) -> Sequence[Listing]:
 SOLD_AWAY = frozenset({"sold", "shipped", "delivered"})
 
 
+def not_ours_reason(item: InventoryItem) -> str | None:
+    """Why the item is not the business's to offer or group now, or None.
+
+    Deleted, split into pieces, or not received -- asked in that order, and
+    the first that applies is the answer. Shared with
+    `lot_writes._refuse_unofferable`, so an offer and a lot refuse the same
+    item in the same words.
+    """
+    if item.deleted_at is not None:
+        return "has been deleted"
+    if item.split_at is not None:
+        return "has been split into pieces; offer the pieces"
+    status = item.status.code
+    if status != "received":
+        return f"is not received (it is {status})"
+    return None
+
+
+def sold_away_reason(item: InventoryItem) -> str | None:
+    """Why the item's disposition says it has been sold, or None.
+
+    `SOLD_AWAY` read from the item alone, with no query: the disposition a
+    settled sale wrote. An order that has not shipped yet is the other way
+    to be spoken for, and `_refuse_sold` asks that separately.
+    """
+    disposition = item.disposition.code
+    if disposition in SOLD_AWAY:
+        return f"has already been sold (it is {disposition})"
+    return None
+
+
 def _refuse_sold(db: Session, item: InventoryItem) -> None:
     """Refuse an item a buyer has already bought, naming what holds it.
 
@@ -932,11 +965,9 @@ def _refuse_sold(db: Session, item: InventoryItem) -> None:
     """
     from . import sale_state
 
-    disposition = item.disposition.code
-    if disposition in SOLD_AWAY:
-        raise OfferRefused(
-            item.item_code, f"has already been sold (it is {disposition})"
-        )
+    sold = sold_away_reason(item)
+    if sold is not None:
+        raise OfferRefused(item.item_code, sold)
     held_by = sale_state.orders_holding(db, [item.id]).get(item.id)
     if held_by:
         raise OfferRefused(item.item_code, f"is held by {held_by[0].text}")
@@ -944,15 +975,9 @@ def _refuse_sold(db: Session, item: InventoryItem) -> None:
 
 def _refuse_unofferable(db: Session, item: InventoryItem, venue: SalesVenue) -> None:
     """Refuse an item that is not the business's to offer, naming which reason."""
-    if item.deleted_at is not None:
-        raise OfferRefused(item.item_code, "has been deleted")
-    if item.split_at is not None:
-        raise OfferRefused(
-            item.item_code, "has been split into pieces; offer the pieces"
-        )
-    status = item.status.code
-    if status != "received":
-        raise OfferRefused(item.item_code, f"is not received (it is {status})")
+    reason = not_ours_reason(item)
+    if reason is not None:
+        raise OfferRefused(item.item_code, reason)
     if not venue.is_active:
         raise OfferRefused(item.item_code, f"{venue.name} is retired")
     _refuse_sold(db, item)
