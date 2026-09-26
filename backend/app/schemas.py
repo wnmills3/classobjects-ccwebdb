@@ -148,7 +148,35 @@ class ImageLinkIn(BaseModel):
     acknowledge_for_sale: bool = False
 
 
-class CatalogMemberOut(BaseModel):
+class CatalogDescription(BaseModel):
+    """What describes a coin to a buyer: its classifiers, grade, years and metal.
+
+    Shared by `CatalogItemOut` and `CatalogMemberOut`, so a coin sold on its
+    own and the same coin inside a lot are described by one set of fields.
+    Every one is a fact a customer may see; cost basis and storage location
+    are not here, and must not be added. Null throughout on a lot listing's
+    own entry, because no single value of any of them describes a group.
+    """
+
+    item_kind: str | None = None
+    country: str | None = None
+    denomination: str | None = None
+    bullion_form: str | None = None
+    grade: str | None = None
+    strike_type: str | None = None
+    #: As collectors write it: MS65, PR69+. `grade` is the code alone.
+    grade_display: str | None = None
+    grading_service: str | None = None
+    metal: str | None = None
+
+    year_start: int | None = None
+    year_end: int | None = None
+    fineness: Decimal | None = None
+    gross_weight_ozt: Decimal | None = None
+    fine_weight_ozt: Decimal | None = None
+
+
+class CatalogMemberOut(CatalogDescription):
     """One coin inside a lot, as a buyer sees it.
 
     The descriptive half of `CatalogItemOut` and nothing else: a member has
@@ -167,23 +195,6 @@ class CatalogMemberOut(BaseModel):
     item_code: str
     title: str
     description: str
-
-    item_kind: str | None = None
-    country: str | None = None
-    denomination: str | None = None
-    bullion_form: str | None = None
-    grade: str | None = None
-    strike_type: str | None = None
-    #: As collectors write it: MS65, PR69+. `grade` is the code alone.
-    grade_display: str | None = None
-    grading_service: str | None = None
-    metal: str | None = None
-
-    year_start: int | None = None
-    year_end: int | None = None
-    fineness: Decimal | None = None
-    gross_weight_ozt: Decimal | None = None
-    fine_weight_ozt: Decimal | None = None
     piece_count: int = 1
 
     #: Renditions of this member's primary photograph, null when it has none
@@ -192,7 +203,7 @@ class CatalogMemberOut(BaseModel):
     image_url: str | None = None
 
 
-class CatalogItemOut(BaseModel):
+class CatalogItemOut(CatalogDescription):
     """What a buyer sees: one coin, or one lot of them.
 
     Deliberately carries no cost basis, storage location or internal catalog
@@ -222,23 +233,6 @@ class CatalogItemOut(BaseModel):
     item_code: str | None = None
     title: str
     description: str
-
-    item_kind: str | None = None
-    country: str | None = None
-    denomination: str | None = None
-    bullion_form: str | None = None
-    grade: str | None = None
-    strike_type: str | None = None
-    #: As collectors write it: MS65, PR69+. `grade` is the code alone.
-    grade_display: str | None = None
-    grading_service: str | None = None
-    metal: str | None = None
-
-    year_start: int | None = None
-    year_end: int | None = None
-    fineness: Decimal | None = None
-    gross_weight_ozt: Decimal | None = None
-    fine_weight_ozt: Decimal | None = None
     #: How many objects this entry is: the item's own count for a coin, and
     #: the **sum** of its members' for a lot. Summed rather than counted
     #: because a member may itself be a multi-piece row, and never left at 1
