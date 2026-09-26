@@ -49,9 +49,7 @@ from ..models import (
     AuctionLotResult,
     AuctionStatus,
     InventoryItem,
-    Listing,
     SalesLot,
-    SalesLotItem,
     SalesVenue,
     StorageLocation,
 )
@@ -80,7 +78,7 @@ from ._resolve import (
     venue_by_code,
 )
 from ._tx import commit, committing
-from .offers import listing_out, sale_recorded
+from .offers import listing_loads, listing_out, sale_recorded
 
 router = APIRouter(prefix="/auctions", tags=["selling"])
 
@@ -113,18 +111,7 @@ def _eager(stmt: Select[tuple[Auction]]) -> Select[tuple[Auction]]:
         selectinload(Auction.sales_venue).selectinload(SalesVenue.kind),
         selectinload(Auction.lots)
         .selectinload(AuctionLot.listing)
-        .selectinload(Listing.inventory_item),
-        selectinload(Auction.lots)
-        .selectinload(AuctionLot.listing)
-        .selectinload(Listing.sales_venue),
-        selectinload(Auction.lots)
-        .selectinload(AuctionLot.listing)
-        .selectinload(Listing.currency),
-        selectinload(Auction.lots)
-        .selectinload(AuctionLot.listing)
-        .selectinload(Listing.sales_lot)
-        .selectinload(SalesLot.members)
-        .selectinload(SalesLotItem.item),
+        .options(*listing_loads()),
         selectinload(Auction.lots).selectinload(AuctionLot.buyer),
     )
 
