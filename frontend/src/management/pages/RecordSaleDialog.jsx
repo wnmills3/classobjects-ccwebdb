@@ -8,6 +8,7 @@ import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { UNKNOWN, subjectOf } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
 import { useMounted } from '../useMounted'
+import { orNull } from '../../shared/text'
 
 /**
  * Recording a sale that happened on an outside platform -- eBay, Whatnot, an
@@ -116,8 +117,8 @@ export default function RecordSaleDialog({
     try {
       const sale = await api.recordSale(listing.id, {
         price: trimmedPrice,
-        buyer_username: buyer.trim() === '' ? null : buyer.trim(),
-        external_order_id: orderId.trim() === '' ? null : orderId.trim(),
+        buyer_username: orNull(buyer),
+        external_order_id: orNull(orderId),
         fees: entered.map(({ kind, text }) => ({ kind: kind.code, amount: text })),
         // `false` is the spec's default: a line's money is divided among the
         // items it carried by each one's cost basis, and **equal** is only

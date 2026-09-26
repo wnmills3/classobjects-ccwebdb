@@ -143,6 +143,8 @@ export default function OrderEditor({ order, onSaved, onClose }) {
         quantity: Number(l.quantity),
         unit_price: fromCents(toCents(l.unit_price)),
       }))
+      // Not `orNull`: notes go as typed, surrounding whitespace and all;
+      // only a box with nothing but whitespace in it is no notes at all.
       const notesValue = notes.trim() === '' ? null : notes
       if (order) {
         await api.reviseOrder(order.id, {

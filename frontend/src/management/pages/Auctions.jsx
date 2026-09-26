@@ -10,6 +10,7 @@ import { accel, useSaveShortcut } from '../shortcuts'
 import { subjectOf, UNKNOWN } from './listing-labels'
 import { date } from '../../shared/format'
 import { useMounted } from '../useMounted'
+import { orNull } from '../../shared/text'
 
 /**
  * The Auctions page: running an auction from draft to settled.
@@ -95,10 +96,10 @@ function AuctionForm({ venues, onSaved, onClose }) {
       const saved = await api.createAuction({
         venue: form.venue,
         title,
-        external_id: form.external_id.trim() === '' ? null : form.external_id.trim(),
-        starts_at: form.starts_at.trim() === '' ? null : form.starts_at.trim(),
-        ends_at: form.ends_at.trim() === '' ? null : form.ends_at.trim(),
-        notes: form.notes.trim() === '' ? null : form.notes.trim(),
+        external_id: orNull(form.external_id),
+        starts_at: orNull(form.starts_at),
+        ends_at: orNull(form.ends_at),
+        notes: orNull(form.notes),
       })
       if (!mounted.current) return
       onSaved(saved)
@@ -263,8 +264,8 @@ function AddLotDialog({ auction, onSaved, onClose }) {
     try {
       const payload = {
         lot_number: number,
-        reserve: reserve.trim() === '' ? null : reserve.trim(),
-        price: price.trim() === '' ? null : price.trim(),
+        reserve: orNull(reserve),
+        price: orNull(price),
       }
       if (mode === 'item') {
         const code = itemCode.trim()
@@ -554,7 +555,7 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
     try {
       const saved = await api.updateAuctionLot(auction.id, lot.id, {
         lot_number: draft.lot_number.trim(),
-        reserve: draft.reserve.trim() === '' ? null : draft.reserve.trim(),
+        reserve: orNull(draft.reserve),
       })
       if (!mounted.current) return
       onChanged(saved)
