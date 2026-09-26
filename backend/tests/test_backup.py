@@ -42,9 +42,9 @@ def test_generated_columns_are_read_from_the_models() -> None:
     generated column appears.
     """
     found = {
-        f"{table.name}.{name}"
+        f"{table.name}.{column.name}"
         for table in Base.metadata.sorted_tables
-        for name in generated_columns(table)
+        for column in generated_columns(table)
     }
 
     assert found == {
@@ -57,7 +57,7 @@ def test_generated_columns_are_read_from_the_models() -> None:
 
     # And the derivation is genuinely reading the schema, not returning a
     # constant: a table with no computed column must come back empty.
-    assert generated_columns(Base.metadata.tables["vendor"]) == set()
+    assert generated_columns(Base.metadata.tables["vendor"]) == []
 
 
 def test_the_backup_url_keeps_its_password() -> None:
