@@ -238,6 +238,8 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
             [field_name],
             user_id=user_id,
             at=now,
+            # Both fields this pass logs are identifiers, compared as text.
+            text_fields=[field_name],
         )
 
     for item_id, listing in todo.listing_ids.items():
