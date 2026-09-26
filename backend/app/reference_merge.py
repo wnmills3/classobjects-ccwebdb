@@ -116,7 +116,7 @@ def _new_names(
 ) -> list[str]:
     names = [source.label, source.code]
     names += aliases.aliases_by_row(db, model).get(source.id, [])
-    return list(dict.fromkeys(" ".join(n.split()) for n in names if n.strip()))
+    return list(dict.fromkeys(aliases.normalise(n) for n in names if n.strip()))
 
 
 def plan(

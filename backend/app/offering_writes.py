@@ -38,30 +38,26 @@ statements are not a sorted acquisition, and the listing half is where a lot
 makes that a real hazard (`_lock_listing_rows`).
 
 **That order lives in exactly one function, `_acquire`, and every writer that
-takes more than one kind of row reaches it through `lock_for_sale`** --
-`offer` and `end_offer` here, `order_writes.place_order`, `revise_order` and
-`return_stock`, `sales_writes.record_sale`, and
-`routers.inventory.receive_items`, and `splitting.split_item`. That is eight,
-listed rather than asserted because the list has already been wrong twice:
-`receive_items` wrote its item rows before calling `end_offer`, and so took
-items before lots, until fix round 1 gave it the pass too; and
-`split_item` was filed as single-kind when it is not -- it holds the parent
-`inventory_item` row across an `end_offer` call, the same shape as `offer`'s
-lot lock, and reaches the order only through that call. `_acquire`'s own
-docstring carries the rest, and `docs/specs/lock-order-design.md` enumerates
-every `with_for_update` in the package. `order_writes` used to take
-listings first, because `place_order` is handed listing ids, and the two
-orders together were a real deadlock. The order that carries a guarantee is
-this one -- the listing set here is *derived* from claims this module alone
-writes, and `_lock_listing_rows` says why that needs the items held first --
-so the incidental order moved. `docs/specs/lock-order-design.md` is the
-record of the decision.
+takes more than one kind of row reaches it through `lock_for_sale`.** Eight
+call sites call `lock_for_sale` itself: `offer` and `end_offer` here,
+`order_writes._lock_listings` (for `place_order`, `revise_order` and
+`return_stock`), `sales_writes.record_sale_lines`, `auctions.settle`, and
+`routers.inventory`'s `receive_items`, `bulk_edit` and `update_item`. Others
+reach it through `offer` or `end_offer` while holding a row of their own:
+`splitting.split_item` holds the parent `inventory_item` row, the same
+shape as `offer`'s lot lock, and `auctions.add_lot`, `remove_lot` and
+`cancel` hold the `auction` row. `_acquire`'s own docstring carries the
+rest, and `docs/specs/lock-order-design.md` lists every writer and every
+`with_for_update` in the package. The order is this one because it is the
+one that carries a guarantee: the listing set here is *derived* from claims
+this module alone writes, and `_lock_listing_rows` says why that needs the
+items held first. `place_order` is handed listing ids, and nothing of its
+own rests on which kind it takes first.
 
 **It owns the rule for what the shop may sell** -- our own store, fixed price,
 active -- in both the Python form (`sellable_in_shop`) and the SQL form
-(`shop_listing_filters`). Phase 1 left that rule written out in three places:
-checkout, the catalog's detail endpoint and the catalog's list query. They
-now all ask here.
+(`shop_listing_filters`). Checkout, the catalog's detail endpoint and the
+catalog's list query all ask here.
 
 Functions flush and never commit; the caller's request owns the transaction.
 """
@@ -451,10 +447,11 @@ def offers_holding(db: Session, item_ids: Collection[int]) -> Sequence[Listing]:
     no listing of its own, so asking only the first half silently ignores
     exactly the case the claim table exists for.
 
-    Public because `routers.inventory.receive_items` needs it and asked the
-    first half only -- marking a piece missing left the lot holding it still
-    on sale. One definition of "holds this item" or there are two, and the
-    pair drift.
+    Public because `routers.inventory`'s `receive_items`, `bulk_edit` and
+    `update_item` end whatever holds the items they change; asking only the
+    first half would leave a lot holding a piece marked missing still on
+    sale. One definition of "holds this item" or there are two, and the pair
+    drift.
     """
     ids = set(item_ids)
     if not ids:
@@ -561,13 +558,12 @@ def _acquire(
 
     Lot rows, then items, then listings -- each kind in one statement, each
     ascending id. Every writer that takes more than one kind of row comes
-    through here: `offer` and `end_offer` in this module, and, through
-    `lock_for_sale`, `order_writes.place_order`, `revise_order` and
-    `return_stock`, `sales_writes.record_sale`,
-    `routers.inventory.receive_items` and `splitting.split_item`.
+    through here, by way of `lock_for_sale`; this module's docstring lists
+    them. A row that sits above a sale -- an `auction` or a `sales_order` --
+    is taken before this pass, by the rule.
 
-    **Two of those hold a row taken outside this pass, and say so here rather
-    than leaving a reader to find out.** `offer` holds the lot row, which
+    **Two writers hold a row of this pass's own kinds taken outside it.**
+    `offer` holds the lot row, which
     `_lot_members` must take before it can read the membership that produces
     the item ids -- so the lot is still first and the rule holds. And
     `split_item` holds the parent `inventory_item` row (`db.refresh(...,
@@ -580,12 +576,10 @@ def _acquire(
     without the refusal, `end_offer`'s pass would reach the lot listing
     through `offers_holding` and take a lot row after an item row.
 
-    They used to agree by hand and two of them disagreed --
-    `order_writes` took listings first because `place_order` is handed
-    listing ids, this module took items first because its listing set is
-    *derived* from claims it is the only writer of. The claim-uniqueness
-    guarantee rests on that second order, nothing rested on the first, so the
-    first moved. `docs/specs/lock-order-design.md` is the record.
+    Items before listings because this module's listing set is *derived*
+    from claims it is the only writer of, and the claim-uniqueness guarantee
+    rests on holding the items first; nothing rests on the other direction
+    (`docs/specs/lock-order-design.md`).
 
     **Two different mutations, and it is worth being exact about which does
     what, because the obvious guess is wrong.** Swapping two of the three
@@ -593,18 +587,18 @@ def _acquire(
     `test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`
     (`tests/test_offering_writes.py`) is what fails -- it measures the
     sequence of kinds on one connection. It does **not** bring the deadlock
-    back: measured, the cross-writer race test passes eight of eight with
-    these lines inverted, because there is only one copy of them and
-    inverting it moves every writer at once. A deadlock needs *disagreement*,
-    not a particular direction.
+    back: the cross-writer race test passes with these lines inverted,
+    because there is only one copy of them and inverting it moves every
+    writer at once. A deadlock needs *disagreement*, not a particular
+    direction.
 
     What re-creates the deadlock is a caller that **bypasses this function**
-    and takes a kind of row on its own -- which is what `order_writes.
-    _lock_listings` did before the fix, and what
+    and takes a kind of row on its own -- `order_writes._lock_listings`
+    locking listings itself, say -- and that is what
     `test_buying_a_lot_races_offering_one_of_its_coins`
-    (`tests/test_offer_races.py`) fails on, also eight of eight. That is the
-    non-obvious half, and the reason the rule this function enforces is
-    "come through here", not "prefer this direction".
+    (`tests/test_offer_races.py`) fails on. That is the non-obvious half, and
+    the reason the rule this function enforces is "come through here", not
+    "prefer this direction".
     """
     _lock_lots(db, lot_ids)
     _lock_items(db, item_ids)
@@ -677,10 +671,10 @@ def _refuse_if_changed(
     violation rather than resolve it. See `LockSetChanged` for why a 500 and
     not a 409.
 
-    **One change is ordinary and is not refused: the offer ending.** The
-    design note this work came from said an offered lot's membership is
-    frozen outright, and it is not -- `_refuse_unless_assembling` guards
-    `lot_writes`, but `_end` in this module is a second writer of
+    **One change is ordinary and is not refused: the offer ending.** An
+    offered lot's membership is not frozen outright:
+    `_refuse_unless_assembling` guards `lot_writes`, but `_end` in this
+    module is a second writer of
     `sales_lot_item.released_at` and releases every open membership the
     moment the lot is sold or dissolved. The losing side of two checkouts
     racing one lot sees exactly that: it reads two members, waits, and finds
@@ -721,9 +715,10 @@ def refuse_if_lot_unheld(listings: Iterable[Listing], lot_ids: Collection[int]) 
     It only becomes the inversion again if the caller goes on to call
     `end_offer` on that listing, whose own pass takes the lot row *late*,
     while items and listings are already held. So the refusal belongs at the
-    site that ends derived listings, which today is exactly one:
-    `routers.inventory.receive_items`. Making `lock_for_sale` refuse instead
-    turns an ordinary lost race into a 500 -- measured, it reds
+    sites that end derived listings: `routers.inventory`'s `receive_items`,
+    `bulk_edit` and `update_item`, each of which ends whatever
+    `offers_holding` returns. Making `lock_for_sale` refuse instead turns an
+    ordinary lost race into a 500 -- measured, it reds
     `test_offering_a_lot_races_offering_one_of_its_members`.
 
     A lot row can only be taken first, so a lot listing that arrived in the
@@ -765,7 +760,7 @@ def lock_for_sale(
     **Two entry points, one closure.** `offer` enters from *items* -- one
     item, or a lot's members, already frozen under the lot's own row lock by
     `_lot_members` -- and passes them as `item_ids`; the listings are then
-    derived, which is what this module has always done. `order_writes` and
+    derived. `order_writes` and
     `sales_writes` enter from *listings*, because `place_order` is handed
     `Line(listing_id=...)`; they pass `listing_ids` and this function resolves
     the closure the other way, listing to lot to member.
@@ -780,13 +775,14 @@ def lock_for_sale(
     `_refuse_if_changed` treats as the ordinary outcome it is rather than a
     violation.
 
-    The re-read below confirms that rather than trusting it -- exactly what
-    `end_offer`'s item pass has always done, and for the reason this module's
-    docstring gives: it is what makes "locked before the claims are read"
-    true rather than nearly true.
+    The re-read below confirms that rather than trusting it, for the reason
+    this module's docstring gives: it is what makes "locked before the
+    claims are read" true rather than nearly true.
 
     `including_paused` widens the derived item set from `offered_items` to
-    `_affected_items`; `end_offer` is its one caller (see `_items_of`).
+    `_affected_items` (see `_items_of`). Four callers pass it, each because
+    it ends offers: `end_offer`, and `routers.inventory`'s `receive_items`,
+    `bulk_edit` and `update_item`.
 
     **The one obligation this function does not discharge, and the only rule
     in this design a caller has to remember.** The listing rows it hands back
@@ -803,18 +799,18 @@ def lock_for_sale(
     which is the inversion this whole module exists to prevent, one level
     down. So: **a caller that may call `end_offer` on a listing it did not
     name must first pass that set through `refuse_if_lot_unheld` with
-    `lot_ids`.** Today exactly one does --
-    `routers.inventory.receive_items`, which ends whatever `offers_holding`
-    returns rather than a list of ids. Every other caller ends only listings
-    it named, whose lot rows are always held.
+    `lot_ids`.** Three do -- `routers.inventory`'s `receive_items`,
+    `bulk_edit` and `update_item`, each of which ends whatever
+    `offers_holding` returns rather than a list of ids. Every other caller
+    ends only listings it named, whose lot rows are always held.
 
     It is not enforced here, and that is measured rather than lazy: refusing
     inside this function turns ordinary lost races into 500s -- keyed on the
     derived half it reds `test_offering_a_lot_races_offering_one_of_its_
     members`, keyed on `listing_ids` it would catch `place_order`, keyed on
     `including_paused` it would catch `end_offer`. The obligation is stated
-    here, at the door, because the failure mode if a second caller forgets it
-    is a Postgres deadlock under concurrency -- a 500 on a money path, not
+    here, at the door, because the failure mode if a caller forgets it is a
+    Postgres deadlock under concurrency -- a 500 on a money path, not
     reproducible from a single request.
 
     Raises `LockSetChanged` if a still-live listing's set disagrees. Writes
@@ -829,15 +825,15 @@ def lock_for_sale(
         items.update(reachable)
 
     # Lot rows for **both** halves of the listing set, not just the named
-    # half, and this cost a defect to learn. `_lock_listing_rows` also takes
-    # every live offer holding one of these items, and one of those can be a
-    # lot listing the caller never named -- a coin whose own store listing is
-    # paused while an offered lot holds it, which `routers.inventory.
-    # receive_items` reaches by asking `offers_holding` rather than by naming
-    # ids. Locking such a listing without its lot row leaves the caller to
-    # take that lot row *later*, through `end_offer`, while already holding
-    # items and listings: the original inversion, one level down, against a
-    # checkout that holds the lot row and waits on a member.
+    # half. `_lock_listing_rows` also takes every live offer holding one of
+    # these items, and one of those can be a lot listing the caller never
+    # named -- a coin whose own store listing is paused while an offered lot
+    # holds it, which `routers.inventory`'s writers reach by asking
+    # `offers_holding` rather than by naming ids. Locking such a listing
+    # without its lot row leaves the caller to take that lot row *later*,
+    # through `end_offer`, while already holding items and listings: the
+    # inversion, one level down, against a checkout that holds the lot row
+    # and waits on a member.
     #
     # `offers_holding` rather than a predicate of its own, so "which live
     # offers hold these items" has the one definition `_lock_listing_rows`
@@ -846,8 +842,8 @@ def lock_for_sale(
     # row held here.
     #
     # Nothing in this function covers that window. `refuse_if_lot_unheld`
-    # does -- and only for the caller that asks it, which today is
-    # `routers.inventory.receive_items` alone. `lock_for_sale` reports the
+    # does -- for the callers that ask it, the three `routers.inventory`
+    # writers the docstring names. `lock_for_sale` reports the
     # lot rows it holds in `LockedForSale.lot_ids` and leaves the question
     # there, because asking it here refuses a real path: see that function.
     lot_ids = {row.sales_lot_id for row in chosen if row.sales_lot_id is not None}
@@ -1197,11 +1193,12 @@ def offered_items(db: Session, listing: Listing) -> list[InventoryItem]:
     """The items this listing itself offers, in item id order.
 
     One for an item listing; a lot listing's open members for a lot. The
-    one answer in the codebase to "which items": `_affected_items` below,
-    `order_writes._after_stock_change`, `sales_writes._shared_items` and
-    `sale_snapshot.take` all ask here rather than each deciding for
-    themselves, because four answers to one question is four places for
-    a lot's members to be silently skipped.
+    one answer in the codebase to "which items": `lock_for_sale` (through
+    `_items_of`), `order_writes._after_stock_change` and `_sync_shares`,
+    `sales_writes._shared_items`, `sale_snapshot.take`, and `auctions`'
+    `consign`, `settle` and `_return_from_consignment` all ask here rather
+    than each deciding for themselves, because several answers to one
+    question are several places for a lot's members to be silently skipped.
 
     Deliberately *narrower* than `_affected_items`, which also carries the
     items of listings this one paused: moving a paused listing's item is
@@ -1365,11 +1362,8 @@ def _end(
     about. The cost is that this cannot tell a caller its request did
     nothing; nothing today wants to know.
 
-    A third reason was offered and withdrawn: that a refusal would abort the
-    `paused_by_it` batch over one member. It would not -- that loop filters
-    `Listing.status == ListingStatus.paused`, so its `_end` calls can never
-    reach this guard. The placement in `_end` rather than `end_offer` still
-    stands on single-writer grounds, which is the argument above.
+    The `paused_by_it` loop never reaches this guard: it filters
+    `Listing.status == ListingStatus.paused`.
     """
     if listing.status is ListingStatus.ended:
         return

@@ -20,13 +20,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .models import InventoryItem
 
-#: Strike type codes.
+#: The strike type codes this module decides by.
 BUSINESS = "business"
 PROOF = "proof"
 SPECIMEN = "specimen"
-REVERSE_PROOF = "reverse_proof"
-ENHANCED_REVERSE_PROOF = "enhanced_reverse_proof"
-SMS = "sms"
 
 #: The prefix a compound grade is written with, to its strike type.
 _PREFIX_STRIKE = {

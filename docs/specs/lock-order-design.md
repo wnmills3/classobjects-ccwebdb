@@ -51,9 +51,10 @@ the `lot_ids` it holds). It writes nothing.
 
 **Two entry points, one closure.** `offer` enters from items -- one item, or
 a lot's members, which `_lot_members` froze under the lot's own row lock
-before reading them. Checkout, revision, stock return, record-a-sale and
-receiving enter from listings, and the function resolves listing → lot →
-members itself. `including_paused=True` widens the derived item set from
+before reading them. Checkout, revision, stock return and record-a-sale
+enter from listings, and the function resolves listing → lot → members
+itself; settlement enters from items, and receiving and the item edits
+from both. `including_paused=True` widens the derived item set from
 `offered_items` (what a *sale* touches) to `_affected_items` (also the items
 of the store listings an offer paused, which an *ending* must move).
 
@@ -89,9 +90,10 @@ lot offered between that read and the item lock is held without its lot row.
 **A caller that may call `end_offer` on a listing it did not name must first
 pass that set through `refuse_if_lot_unheld`.** Otherwise `end_offer` would
 take the lot row late, after items and listings -- the inversion one level
-down. Exactly one caller does this: `routers.inventory.receive_items`, which
-ends whatever `offers_holding` returns. Every other caller ends only
-listings it named, whose lot rows are always taken first.
+down. Three callers do this, all in `routers.inventory`: `receive_items`,
+`bulk_edit` and `update_item`, each of which ends whatever `offers_holding`
+returns for the items it changes. Every other caller ends only listings it
+named, whose lot rows are always taken first.
 
 It is not enforced inside `lock_for_sale` because every narrower key turns
 an ordinary lost race into a 500: keyed on the derived half it refuses
@@ -112,12 +114,14 @@ in `refuse_if_lot_unheld`, and here.
 | `order_writes.return_stock` | `_lock_listings`, after the caller's `sales_order` row lock |
 | `sales_writes.record_sale_lines` | `lock_for_sale(listing_ids=...)` |
 | `routers.inventory.receive_items` | `lock_for_sale(listing_ids=..., item_ids=..., including_paused=True)` before its first write, then `refuse_if_lot_unheld` |
+| `routers.inventory.bulk_edit`, `update_item` | the same, when the edit changes an offered item's status or disposition |
 | `splitting.split_item` | `end_offer`, while holding the parent item row |
 | `auctions.settle` | `_lock_auction`, then `lock_for_sale(item_ids=...)` over every coin in the auction |
 | `auctions.add_lot`, `remove_lot`, `cancel` | `_lock_auction`, then `offer` / `end_offer` |
 
 **Receiving** takes its locks before it writes any `inventory_item` row, and
 its `offers_holding` read *above* the locks only chooses what to lock. The
+item edits (`bulk_edit`, `update_item`) follow the same pattern. The
 authoritative read is a second `offers_holding` call after the writes, under
 the locks. Acting on the first read could end a listing a concurrent
 checkout had already ended, and for a lot listing that would rewrite
@@ -149,6 +153,7 @@ to compare; that is safe because `add_lot` refuses any auction that is not
 | `routers.orders.update_order_status` | `sales_order` | taken before `return_stock` |
 | `auctions._lock_auction` | `auction` | outermost row for every auction transition |
 | `splitting.split_item` | `inventory_item` | the parent, held across the `end_offer` call |
+| `routers.users._admin_count` | `user` | single kind, no selling rows: the active managers, locked so two saves cannot remove the last two |
 
 ## Related rules
 

@@ -104,17 +104,14 @@ class SaleInputInvalid(SaleRefused):
     `SaleRefused` -- 409 -- because both are true conflicts the caller could
     not have known about from the request alone.
 
-    A subclass, not a field on `SaleRefused`, on purpose: every existing
-    `except SaleRefused` and `pytest.raises(SaleRefused)` keeps catching this
-    too, unchanged, and an HTTP layer dispatches on it by `except` clause
-    order rather than an `if` on a message string that can default silently
-    to the wrong status. **mypy does not check that ordering** -- a reversed
-    `except SaleRefused` before `except SaleInputInvalid` still type-checks
-    cleanly, since the narrower type is still assignable to the wider one.
-    The only thing standing between that reversal and every 422 silently
-    becoming a 409 is `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409`
-    in `test_record_sale_api.py`. A reader reordering those clauses will not
-    be stopped by anything else.
+    A subclass, not a field on `SaleRefused`, so every `except SaleRefused`
+    and `pytest.raises(SaleRefused)` catches this too. `app.main` registers a
+    handler for each class, and Starlette picks the handler by walking the
+    raised exception's MRO, so the narrower class's handler wins whatever
+    order the two are registered in -- the status comes from the class, not
+    from an `except` ordering or a message string.
+    `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409`
+    (`tests/test_record_sale_api.py`) checks it at the API.
     """
 
 
