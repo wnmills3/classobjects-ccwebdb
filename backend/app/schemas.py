@@ -29,7 +29,7 @@ from pydantic import (
 )
 
 from . import plates
-from .models import UserRole
+from .models import AddressKind, UserRole
 
 #: A price, cost, fee or reserve in dollars and cents. Never negative, and
 #: held to the `NUMERIC(12,2)` columns it is stored in: `decimal_places` must
@@ -103,6 +103,46 @@ class RefreshRequest(BaseModel):
     """Exchange a refresh token for a new access token."""
 
     refresh_token: str
+
+
+class UserUpdate(BaseModel):
+    """The fields an administrator may change on someone else's account."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    full_name: str | None = None
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+
+class AccountCreate(BaseModel):
+    """An account an administrator opens for someone else.
+
+    The role has no default. Self-registration can only ever produce a
+    customer; here either role is possible, so an administrator is never made
+    by a field left out. The password is the administrator's to set and pass
+    on out of band, the same as `PasswordSet` -- there is no mail to send an
+    invitation with.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    full_name: Annotated[str, Field(max_length=255)] = ""
+    role: UserRole
+    password: Annotated[str, Field(min_length=8, max_length=128)]
+
+
+class PasswordSet(BaseModel):
+    """A new password, chosen by an administrator.
+
+    There is no mail configuration, so a reset link is not possible. An
+    administrator sets the password and tells the person out of band.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    password: Annotated[str, Field(min_length=8, max_length=128)]
 
 
 # --------------------------------------------------------------------------
@@ -309,6 +349,94 @@ class CatalogPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# --------------------------------------------------------------------------
+# Customers
+# --------------------------------------------------------------------------
+
+
+#: E.164: a leading +, a country code that cannot start with 0, then digits.
+#: Stored whole rather than split into a country code and the rest, because two
+#: columns can disagree and this one cannot. The default country code is a
+#: presentation concern and belongs in the form, not the database.
+_E164 = re.compile(r"^\+[1-9]\d{6,14}$")
+
+
+class AddressOut(BaseModel):
+    """An address as the API returns it.
+
+    The country is not included. `valid_to` is the date the address was
+    superseded, null while it is current.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    address_kind: AddressKind
+    line1: str
+    line2: str | None
+    city: str
+    region: str | None
+    postal_code: str | None
+    is_default: bool
+    valid_to: object | None
+
+
+class CustomerOut(BaseModel):
+    """A customer and their addresses."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int | None
+    display_name: str
+    email: EmailStr | None
+    phone: str | None
+    notes: str | None
+    addresses: list[AddressOut] = []
+
+
+class CustomerUpdate(BaseModel):
+    """The fields an administrator may correct on a customer record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    notes: str | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def _e164(cls, value: str | None) -> str | None:
+        """Require E.164, so a number is dialable from anywhere.
+
+        A bare '555 1234' is ambiguous the moment a customer is not in the
+        same country as the seller, and this collection already has overseas
+        buyers in prospect. Empty clears the number.
+        """
+        if value is None or value.strip() == "":
+            return None
+        compact = re.sub(r"[\s()\-.]", "", value.strip())
+        if not _E164.match(compact):
+            raise ValueError("phone must be in international form, e.g. +12125551234")
+        return compact
+
+
+class AddressIn(BaseModel):
+    """A new address. Supersedes the previous default of the same kind."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    address_kind: AddressKind = AddressKind.shipping
+    line1: Annotated[str, Field(min_length=1, max_length=255)]
+    line2: str | None = None
+    city: Annotated[str, Field(min_length=1, max_length=128)]
+    region: str | None = None
+    postal_code: str | None = None
+    country: str | None = None
+    is_default: bool = True
 
 
 # --------------------------------------------------------------------------
