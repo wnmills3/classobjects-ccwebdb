@@ -9,24 +9,6 @@ import { isMoney } from '../../../shared/cents'
 import ErrorsPanel from '../inventory/ErrorsPanel'
 import { withSuggestions, without } from './suggestions'
 
-/**
- * One coin, banknote or lot bought on a purchase.
- *
- * Mirrors `POST /api/inventory`: classifier fields cross as codes through
- * `ReferenceSelect`, money as decimal-string text, and the coin/banknote
- * detail blocks are mutually exclusive by kind, exactly as the backend
- * rejects sending both at once.
- *
- * A purchase is rarely one item, so "Save and add another" exists beside
- * "Save": it keeps the exact fields listed in `SHARED_ON_REPEAT` -- kind,
- * status, country, denomination, series, series year/letter, seal, district,
- * note type, grading service, metal and mint -- and clears everything that
- * varies piece to piece (title, description, year, grade, serial number,
- * certificate, cost, shipping, piece count), then focuses the title box for
- * the next one. Plain "Save" clears the whole form -- the next item is not
- * assumed to be like this one.
- */
-
 //: Kept across "Save and add another"; everything else in BLANK is cleared.
 //: This exact set is a controller ruling (see the "Repeated entry" row in
 //: `docs/specs/entry-panels-design.md`), not a guess at what "feels shared":
@@ -103,9 +85,46 @@ const NO_SUGGESTIONS = Object.fromEntries(
 /** How long typing must pause before the facts are looked up again. */
 const SUGGEST_DELAY_MS = 250
 
-/** An emptied number box clears the year rather than sending "". */
-const yearValue = (text) => (text === '' ? '' : text)
+//: Classifiers an item of either kind may carry, sent when one is chosen.
+const CLASSIFIER_KEYS = [
+  'country',
+  'denomination',
+  'strike_type',
+  'grade',
+  'grade_designation',
+  'grading_service',
+  'series',
+]
 
+/**
+ * The years the form gives, as the API takes them: a start with no end is
+ * one year, sent as both ends. None for a note, whose year is its series
+ * year -- set by the server from it, so a Year typed while this was a coin
+ * is not sent for it.
+ */
+function yearsOf(form, isCurrency) {
+  if (isCurrency || form.year_start === '') return {}
+  const start = Number(form.year_start)
+  return {
+    year_start: start,
+    year_end: form.year_end === '' ? start : Number(form.year_end),
+  }
+}
+
+/**
+ * One coin, banknote or lot bought on a purchase.
+ *
+ * Mirrors `POST /api/inventory`: classifier fields cross as codes through
+ * `ReferenceSelect`, money as decimal-string text, and the coin/banknote
+ * detail blocks are mutually exclusive by kind, exactly as the backend
+ * rejects sending both at once.
+ *
+ * A purchase is rarely one item, so "Save and add another" exists beside
+ * "Save": it keeps exactly the fields in `SHARED_ON_REPEAT` and clears
+ * everything that varies piece to piece, then focuses the title box for the
+ * next one. Plain "Save" clears the whole form -- the next item is not
+ * assumed to be like this one.
+ */
 export default function NewItemForm({
   purchaseOrderId,
   defaults,
@@ -213,7 +232,7 @@ export default function NewItemForm({
   // One year is both ends, as in the item editor: sending both is what keeps
   // an item with a start and no end reading as one year.
   function setYear(e) {
-    const year = yearValue(e.target.value)
+    const year = e.target.value
     setForm((f) => ({ ...f, year_start: year, year_end: year }))
   }
 
@@ -251,23 +270,9 @@ export default function NewItemForm({
       item_kind: form.item_kind,
       piece_count: Number.isInteger(pieces) && pieces >= 1 ? pieces : 1,
       errors,
+      ...yearsOf(form, isCurrency),
     }
-    if (!isCurrency && form.year_start !== '') {
-      draft.year_start = Number(form.year_start)
-      draft.year_end =
-        form.year_end === '' ? Number(form.year_start) : Number(form.year_end)
-    }
-    for (const key of [
-      'country',
-      'denomination',
-      'strike_type',
-      'grade',
-      'grade_designation',
-      'grading_service',
-      'series',
-    ]) {
-      if (form[key]) draft[key] = form[key]
-    }
+    for (const key of CLASSIFIER_KEYS) if (form[key]) draft[key] = form[key]
     const side = isCurrency
       ? ['serial_number', 'series_letter', 'note_type', 'seal_color']
       : ['metal', 'mint', 'variety']
@@ -313,14 +318,7 @@ export default function NewItemForm({
       // it -- not something this form asks about item by item.
       tax_rate: defaults?.tax_rate ?? null,
       tax_includes_shipping: defaults?.tax_includes_shipping ?? null,
-    }
-
-    // A note's year is its series year, set by the server from it; a Year
-    // typed while this was a coin is not sent for it.
-    if (!isCurrency && form.year_start !== '') {
-      payload.year_start = Number(form.year_start)
-      payload.year_end =
-        form.year_end === '' ? Number(form.year_start) : Number(form.year_end)
+      ...yearsOf(form, isCurrency),
     }
 
     for (const [key, label] of [
@@ -334,17 +332,7 @@ export default function NewItemForm({
       payload[key] = form[key]
     }
 
-    for (const key of [
-      'country',
-      'denomination',
-      'strike_type',
-      'grade',
-      'grade_designation',
-      'grading_service',
-      'series',
-    ]) {
-      if (form[key]) payload[key] = form[key]
-    }
+    for (const key of CLASSIFIER_KEYS) if (form[key]) payload[key] = form[key]
     if (!isCurrency && form.set_form) payload.set_form = form.set_form
     if (form.cert_number) payload.cert_number = form.cert_number
 
