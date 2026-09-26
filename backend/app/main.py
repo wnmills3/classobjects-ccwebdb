@@ -70,7 +70,7 @@ app.include_router(auctions_router.router, prefix=settings.api_prefix)
 
 
 # ---------------------------------------------------------------------------
-# Exception handlers -- ruling R20 (docs/specs/selling-design.md, Task 5)
+# Exception handlers (docs/specs/selling-design.md)
 #
 # Registered **per class**, not decided by an `except` clause's position.
 # `sales_writes.SaleInputInvalid` subclasses `sales_writes.SaleRefused`, and
@@ -94,28 +94,25 @@ app.include_router(auctions_router.router, prefix=settings.api_prefix)
 # way `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409` stands
 # behind this module's own registration for `sales_writes`' identical pair.
 #
-# Ruling R23 (Task 5 follow-up): `routers/offers.py`'s `record_listing_sale`
-# used to carry its own ordered `except SaleInputInvalid` / `except
-# SaleRefused` clauses -- a live production path where reversing the two
-# would have silently turned every 422 into a 409, with mypy accepting the
-# reversal cleanly either way. That endpoint now lets both propagate to the
-# handlers registered here instead, the same as every `app.auctions` caller
-# already did; the hazard is unwritable there too, not merely documented.
+# `routers/offers.py`'s `record_listing_sale` carries no `except
+# SaleInputInvalid` / `except SaleRefused` clauses of its own: it lets both
+# propagate to the handlers registered here, as every `app.auctions` caller
+# does, so the reversed-clause hazard is unwritable there too, not merely
+# documented.
 # ---------------------------------------------------------------------------
 
 
 def _refusal_body(exc: Exception) -> dict[str, object]:
     """The `{detail, refused: [...]}` body every refusal in this API answers with.
 
-    Ruling R21 (Task 5 follow-up): built from the raised exception's own
-    `refusals` attribute when it has one -- `auctions.AuctionRefused` and its
-    narrower `SettlementInputInvalid` both do, one `auctions.AuctionRefusal`
-    per problem `auctions.settle` found, `lot_number` included where the
-    problem named one. This **replaces** splitting `str(exc)` on `"; "`,
-    which was a text convention standing in for this structure: it broke
-    silently the moment any one problem's own words held a semicolon, and
-    nothing type-checked it. `str(exc)` itself -- `detail` here -- is
-    untouched; only where `refused` comes from has changed.
+    Built from the raised exception's own `refusals` attribute when it has
+    one -- `auctions.AuctionRefused` and its narrower `SettlementInputInvalid`
+    both do, one `auctions.AuctionRefusal` per problem `auctions.settle`
+    found, `lot_number` included where the problem named one. Splitting
+    `str(exc)` on `"; "` instead would be a text convention standing in for
+    this structure: it breaks silently the moment any one problem's own
+    words hold a semicolon, and nothing type-checks it. `str(exc)` itself is
+    `detail`.
 
     `sales_writes.SaleRefused` and its narrower `SaleInputInvalid` carry no
     `refusals` attribute -- `record_sale_lines` stops at the first problem
@@ -169,31 +166,30 @@ def _server_misconfigured(request: Request, exc: Exception) -> JSONResponse:
     each raise `errors.ReferenceDataMissing`, naming exactly what is missing
     and the command that fixes it -- a migrated-but-unseeded database, the
     real state this project's own live database is in today. With no handler
-    registered for it, that message reached only the server log: Starlette's
-    default handler for an exception nothing catches answers a bare, bodyless
-    500, and an operator staring at the console learned nothing actionable
-    from "Internal Server Error". This handler is what makes the message
+    registered for it, that message would reach only the server log:
+    Starlette's default handler for an exception nothing catches answers a
+    bare, bodyless 500, and an operator staring at the console learns nothing
+    actionable from "Internal Server Error". This handler makes the message
     reach them instead -- still a 500, because this is a server-side
     precondition and not something the request itself got wrong, but with the
     same `{"detail": ...}` shape every other refusal in this API answers
     with.
 
     **Registered on `errors.ReferenceDataMissing`, never on `RuntimeError`
-    itself** (ruling R24, Task 5 fix round 1, reverting an earlier version of
-    this handler that was). `RuntimeError` is also the base of
-    `NotImplementedError` and `RecursionError`, and of every incidental
-    `RuntimeError` anywhere in the app, shop routes included -- handling the
-    base class handed a stranger's internal message to an anonymous caller,
-    and because `ExceptionMiddleware` had already handled the exception, it
-    never reached `ServerErrorMiddleware`: no logged traceback, and
-    `TestClient` stopped re-raising it, so a genuine bug that happened to be
-    a `RuntimeError` became a tidy, misleadingly-labeled 500 instead of the
-    crash it was. `test_an_unrelated_runtime_error_is_not_swallowed`
+    itself.** `RuntimeError` is also the base of `NotImplementedError` and
+    `RecursionError`, and of every incidental `RuntimeError` anywhere in the
+    app, shop routes included -- handling the base class would hand a
+    stranger's internal message to an anonymous caller, and because
+    `ExceptionMiddleware` would already have handled the exception, it would
+    never reach `ServerErrorMiddleware`: no logged traceback, and
+    `TestClient` would stop re-raising it, so a genuine bug that happened to
+    be a `RuntimeError` would become a tidy, misleadingly-labeled 500 instead
+    of the crash it was. `test_an_unrelated_runtime_error_is_not_swallowed`
     (`test_auctions_api.py`) is the regression test: a plain `RuntimeError`
     from a monkeypatched writer must still escape `TestClient` unhandled.
 
-    **Only an administrator's request is told what is missing** (auctions
-    whole-branch review, Minor #6). `sales_venues.store_venue_id` raises this
+    **Only an administrator's request is told what is missing.**
+    `sales_venues.store_venue_id` raises this
     from the shop's public routes too, and "run `alembic upgrade head` on
     this database" is an operator's instruction, not a stranger's business.
     `deps.require_admin` marks an admin request; everyone else gets a

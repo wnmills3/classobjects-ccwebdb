@@ -77,7 +77,7 @@ class Auction(TimestampMixin, Base):
     since it is a rule about *when* a status may be set, not about the shape
     of a row -- see `app.auctions.consign`, its sole writer, which is also
     where custody is tracked by `consigned_on is not None` rather than by the
-    status column (ruling R13).
+    status column.
     """
 
     __tablename__ = "auction"

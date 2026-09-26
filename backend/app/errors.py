@@ -9,7 +9,7 @@ seed load is a separate step -- so it is told to the person who hit it, not
 left to look like an ordinary crash.
 
 **A narrow subclass of `RuntimeError`, not `RuntimeError` itself, is what
-`app.main` registers a handler for** (ruling R24, Task 5 fix round 1).
+`app.main` registers a handler for.**
 `RuntimeError` is also the base of `NotImplementedError` and
 `RecursionError`, and of every incidental `RuntimeError` a library or a
 generator's teardown can raise anywhere in the app, including on the shop's

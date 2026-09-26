@@ -23,7 +23,7 @@ STORE_CODE = "store"
 def store_venue_id(db: Session) -> int:
     """The web store platform's id; it must exist.
 
-    Raises `errors.ReferenceDataMissing` (ruling R24, Task 5 fix round 1) --
+    Raises `errors.ReferenceDataMissing` --
     a narrow `RuntimeError` `app.main` registers a handler for -- rather than
     the base class, so an unrelated `RuntimeError` anywhere else in the app
     keeps crashing loudly instead of being mistaken for this.
