@@ -22,6 +22,21 @@ YEAR_FIELDS: frozenset[str] = frozenset({"year_start", "year_end"})
 Years = tuple[int | None, int | None]
 
 
+def is_single(years: Years) -> bool:
+    """Whether the years are one year: no end, or an end equal to the start."""
+    start, end = years
+    return end is None or end == start
+
+
+def single_year(years: Years) -> int | None:
+    """The one year these years are, or None for a range or no year at all.
+
+    What a rule that needs a coin's year reads: `app.series_classify` matches
+    a design by it, and a range spans designs, so it has none.
+    """
+    return years[0] if is_single(years) else None
+
+
 def resolve_years(current: Years, changes: Mapping[str, object]) -> Years | None:
     """The years an item should hold after `changes`, or None if untouched.
 
@@ -32,7 +47,7 @@ def resolve_years(current: Years, changes: Mapping[str, object]) -> Years | None
     if not YEAR_FIELDS & changes.keys():
         return None
     start, end = current
-    single = end is None or end == start
+    single = is_single(current)
 
     new_start = changes.get("year_start", start)
     if "year_end" in changes:
