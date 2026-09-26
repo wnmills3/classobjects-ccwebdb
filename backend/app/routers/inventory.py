@@ -9,7 +9,7 @@ Staff-only throughout: everything here exposes cost basis.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
@@ -572,6 +572,59 @@ def _offer_standing_code(
     return ", ".join(sorted(codes))
 
 
+def _end_offers_holding(
+    db: Session,
+    item_ids: Sequence[int],
+    locked: offering_writes.LockedForSale,
+    code_of: Callable[[Listing], str],
+    verb: str,
+) -> None:
+    """End every live offer still holding these items, after the caller's writes.
+
+    The post-write half of the lock discipline `receive_items`, `bulk_edit`
+    and `update_item` share. Each caller takes `lock_for_sale` itself, under
+    its own condition, **before its first write**; `locked` is what that pass
+    returned. This runs after the writes, and every step is load-bearing:
+
+    - **Flushed first.** `end_offer` re-reads the items -- `lock_for_sale`
+      locks them with `populate_existing=True`, which overwrites whatever the
+      session holds and clears the attribute's dirty flag. Production's
+      `SessionLocal` sets `autoflush=False`, so without the flush a status
+      assigned by the caller is still pending when that re-read lands, is
+      silently thrown away, and the commit writes the history row and the
+      ended listing while leaving `inventory_item.status_id` untouched -- a
+      history asserting a transition the item never made.
+    - **The authoritative read.** `offers_holding` rather than a query on
+      `inventory_item_id`: a piece of a lot is offered by the *lot's* listing
+      and has no listing of its own. This read, not the caller's unlocked one
+      above the locks, is what is acted on: every listing row it can return is
+      already held, so it costs a SELECT and guarantees nothing here ends an
+      offer another transaction has already ended (for a lot listing that
+      would rewrite `sales_lot.status` from `sold` to `dissolved`).
+    - **Refused as a set before the first `end_offer`.** `refuse_if_lot_unheld`
+      (a lot listing whose lot row this pass does not hold -- see
+      `offering_writes.refuse_if_lot_unheld`) and `_refuse_auction_lots` (an
+      auction lot is ended through its auction), once per standing code. All
+      or nothing like the rest of the request: a refusal must not leave half
+      the offers ended, and nothing is written when one fires -- the router
+      commits once, at the end.
+
+    `code_of` names the change each listing's items went through, and each
+    offer is ended with the note `item {verb} {code}`. Ended through
+    `offering_writes`, the only writer of listing status and claims.
+    """
+    db.flush()
+    live_offers = list(offering_writes.offers_holding(db, item_ids))
+    offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
+    codes = {live.id: code_of(live) for live in live_offers}
+    for code in sorted(set(codes.values())):
+        _refuse_auction_lots(
+            db, [live for live in live_offers if codes[live.id] == code], code
+        )
+    for live in live_offers:
+        offering_writes.end_offer(db, live, note=f"item {verb} {codes[live.id]}")
+
+
 @router.post("/receive")
 def receive_items(
     payload: ReceiveRequest, db: DbSession, admin: AdminUser
@@ -723,11 +776,12 @@ def receive_items(
     # this transaction already held listings.
     #
     # The `offers_holding` read here **chooses what to lock and nothing
-    # else**; the authoritative one is the second call, below, after the
-    # writes and under these locks. That split is the same read-lock-re-read
-    # discipline `lock_for_sale` applies to a listing's member set, and it is
-    # needed here for the same reason: this read is unlocked, so between it
-    # and the locks a concurrent checkout can end one of these offers, or a
+    # else**; the authoritative one is the second call, in
+    # `_end_offers_holding` after the writes and under these locks. That
+    # split is the same read-lock-re-read discipline `lock_for_sale` applies
+    # to a listing's member set, and it is needed here for the same reason:
+    # this read is unlocked, so between it and the locks a concurrent
+    # checkout can end one of these offers, or a
     # concurrent `offer` can create a new one. Acting on this list would then
     # end a listing somebody else had already ended -- which for a lot
     # listing rewrites `sales_lot.status` from `sold` to `dissolved`, two
@@ -749,8 +803,9 @@ def receive_items(
     # `end_offer` -> `lock_for_sale` -> `_lock_lots` -- while this
     # transaction already holds items and listings, which is the original
     # inversion one level down, against a checkout holding that lot row and
-    # waiting on a member. `refuse_if_lot_unheld` below is the check, and
-    # `lot_ids` is why this keeps the result rather than discarding it.
+    # waiting on a member. `refuse_if_lot_unheld`, in `_end_offers_holding`,
+    # is the check, and `lot_ids` is why this keeps the result rather than
+    # discarding it.
     locked = None
     if ends_offer:
         locked = offering_writes.lock_for_sale(
@@ -783,35 +838,9 @@ def receive_items(
                 note=payload.note,
             )
 
-    # Load-bearing, not tidiness. `end_offer` below re-reads exactly these
-    # rows -- `offering_writes.lock_for_sale` locks them with
-    # `populate_existing=True`, which overwrites whatever the session holds
-    # and clears the attribute's dirty flag. Production's `SessionLocal` sets
-    # `autoflush=False`, so without this the status assigned just above is
-    # still pending when that re-read lands, is silently thrown away, and the
-    # commit writes the history row and the ended listing while leaving
-    # `inventory_item.status_id` untouched -- a history asserting a
-    # transition the item never made.
-    db.flush()
-
-    # A coin that cannot be delivered must not stay offered. Ended through
-    # `offering_writes`, the only writer of listing status and claims -- never
-    # by assigning `listing.status` here.
-    #
-    # `offers_holding` rather than a query on `inventory_item_id`: a piece of
-    # a lot is offered by the *lot's* listing and has no listing of its own,
-    # so the direct query left the lot on sale after one of its pieces went
-    # missing.
-    #
-    # This is the *authoritative* read of that set, not the one above, which
-    # only chose what to lock -- see there. Every listing row it can return is
-    # already held, so re-reading costs a SELECT and buys the guarantee that
-    # nothing here ends an offer another transaction has already ended.
-    #
-    # Checked before the first `end_offer`, not per listing: this is all or
-    # nothing like the rest of the receipt, and a refusal must not leave half
-    # the offers ended. Nothing is written when it fires -- the router commits
-    # once, at the end.
+    # A coin that cannot be delivered must not stay offered: the flush,
+    # the authoritative re-read under the locks, the refusals and the endings
+    # are `_end_offers_holding`.
     if ends_offer:
         # Asserted, not tolerated. `locked` is set by the pass above under
         # exactly this condition, so `is not None` is true today -- and an
@@ -820,19 +849,15 @@ def receive_items(
         # had just marked `missing`**, leaving it on sale with no error
         # anywhere. That is the worst outcome this endpoint has, and it is
         # not one to guard against by doing nothing. The assert is also what
-        # gives `locked.lot_ids` below a non-optional type.
+        # gives `locked` a non-optional type.
         assert locked is not None
-        live_offers = list(
-            offering_writes.offers_holding(db, [item.id for item in items])
+        _end_offers_holding(
+            db,
+            [item.id for item in items],
+            locked,
+            lambda _live: payload.outcome,
+            "recorded",
         )
-        offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
-        # An auction lot is ended through its auction, never here -- see
-        # `_refuse_auction_lots`. Beside `refuse_if_lot_unheld` and for the
-        # same reason: both are "this set cannot be ended by this endpoint",
-        # asked once over the whole set before the first `end_offer`.
-        _refuse_auction_lots(db, live_offers, payload.outcome)
-        for live in live_offers:
-            offering_writes.end_offer(db, live, note=f"item recorded {payload.outcome}")
 
     db.commit()
     # The outcome as well as the count. This endpoint records `missing`,
@@ -2157,19 +2182,13 @@ def bulk_edit(
             set_status(db, item, status_id, user_id=admin.id)
 
     if locked is not None:
-        # Flushed first, then re-read under the locks -- see `update_item`.
-        db.flush()
-        live_offers = list(offering_writes.offers_holding(db, changing))
-        offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
-        codes = {
-            live.id: _offer_standing_code(db, live, standing) for live in live_offers
-        }
-        for code in sorted(set(codes.values())):
-            _refuse_auction_lots(
-                db, [live for live in live_offers if codes[live.id] == code], code
-            )
-        for live in live_offers:
-            offering_writes.end_offer(db, live, note=f"item edited to {codes[live.id]}")
+        _end_offers_holding(
+            db,
+            changing,
+            locked,
+            lambda live: _offer_standing_code(db, live, standing),
+            "edited to",
+        )
 
     # What a person sets is theirs from now on: no pass refreshes it. What
     # follows from the new facts is refreshed now.
@@ -2357,19 +2376,8 @@ def update_item(
         item.updated_at = datetime.now(UTC)
 
     if standing is not None:
-        # As in `receive_items`: flushed first, because `end_offer` re-reads
-        # this row with `populate_existing` and production does not
-        # autoflush -- the new status would otherwise be thrown away. Then
-        # the authoritative read of what still holds the item, under the
-        # locks taken above, and the refusals checked over the whole set
-        # before the first offer is ended.
         assert locked is not None
-        db.flush()
-        live_offers = list(offering_writes.offers_holding(db, [item.id]))
-        offering_writes.refuse_if_lot_unheld(live_offers, locked.lot_ids)
-        _refuse_auction_lots(db, live_offers, standing)
-        for live in live_offers:
-            offering_writes.end_offer(db, live, note=f"item edited to {standing}")
+        _end_offers_holding(db, [item.id], locked, lambda _live: standing, "edited to")
 
     forget(db, [item.id], [_column(field) for field in data])
     hold(db, [item.id], _emptied(data))
