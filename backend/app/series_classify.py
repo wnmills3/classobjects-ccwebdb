@@ -38,8 +38,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import exists, select
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy import ColumnElement, Select, exists, select
+from sqlalchemy.orm import QueryableAttribute, Session, aliased
 
 from .database import SessionLocal
 from .field_sources import SERIES_CLASSIFY
@@ -52,6 +52,7 @@ from .models import (
     SeriesYearRange,
 )
 from .series_match import build_rules, inventory_of, match, record_series
+from .years import single_year
 
 #: A range as the pass uses it: denomination, first year, last year (None is
 #: still issued), and the allowed series letters (None is any).
@@ -201,6 +202,41 @@ def decide(
     return None, "boundary", tuple(sorted(d.code for d in eligible))
 
 
+def _with_facts(*columns: ColumnElement[Any] | QueryableAttribute[Any]) -> Select[Any]:
+    """`columns` of every live item, joined to its kind and currency detail.
+
+    The shape both `_items` and `disagreements` read; each adds its own
+    columns and its own condition on `series_id`.
+    """
+    return (
+        select(*columns)
+        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
+        .join(
+            CurrencyDetail,
+            CurrencyDetail.inventory_item_id == InventoryItem.id,
+            isouter=True,
+        )
+        .where(InventoryItem.split_at.is_(None))
+        .order_by(InventoryItem.item_code)
+    )
+
+
+def _design_year(
+    inventory: str,
+    years: tuple[int | None, int | None],
+    series_year: int | None,
+    series_letter: str | None,
+) -> tuple[int | None, str | None]:
+    """The year and letter a design is matched by.
+
+    A note's series year and letter; a coin's single year, and no letter --
+    a coin whose years are a range spans designs, so it has no year here.
+    """
+    if inventory == "currency":
+        return series_year, series_letter
+    return single_year(years), None
+
+
 def _items(db: Session) -> Sequence[tuple[Any, ...]]:
     """Every unclassified item, with the facts and text the pass reads.
 
@@ -221,7 +257,7 @@ def _items(db: Session) -> Sequence[tuple[Any, ...]]:
     )
     return (
         db.execute(
-            select(
+            _with_facts(
                 InventoryItem.id,
                 InventoryItem.item_code,
                 ItemKind.code,
@@ -238,19 +274,12 @@ def _items(db: Session) -> Sequence[tuple[Any, ...]]:
                 lot_text,
                 CurrencyDetail.note_type_id,
             )
-            .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
             .join(
                 Denomination,
                 Denomination.id == InventoryItem.denomination_id,
                 isouter=True,
             )
-            .join(
-                CurrencyDetail,
-                CurrencyDetail.inventory_item_id == InventoryItem.id,
-                isouter=True,
-            )
-            .where(InventoryItem.split_at.is_(None), InventoryItem.series_id.is_(None))
-            .order_by(InventoryItem.item_code)
+            .where(InventoryItem.series_id.is_(None))
         )
         .tuples()
         .all()
@@ -267,7 +296,7 @@ def disagreements(db: Session, designs: list[Design]) -> list[Case]:
     """
     by_id = {d.id: d for d in designs}
     rows = db.execute(
-        select(
+        _with_facts(
             InventoryItem.item_code,
             ItemKind.code,
             InventoryItem.series_id,
@@ -277,15 +306,7 @@ def disagreements(db: Session, designs: list[Design]) -> list[Case]:
             CurrencyDetail.series_year,
             CurrencyDetail.series_letter,
             CurrencyDetail.note_type_id,
-        )
-        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
-        .join(
-            CurrencyDetail,
-            CurrencyDetail.inventory_item_id == InventoryItem.id,
-            isouter=True,
-        )
-        .where(InventoryItem.split_at.is_(None), InventoryItem.series_id.is_not(None))
-        .order_by(InventoryItem.item_code)
+        ).where(InventoryItem.series_id.is_not(None))
     ).tuples()
 
     cases = []
@@ -303,10 +324,7 @@ def disagreements(db: Session, designs: list[Design]) -> list[Case]:
         design = None if series_id is None else by_id.get(series_id)
         if design is None or denomination_id is None:
             continue  # a design without facts, or an item without them
-        if inventory_of(kind) == "currency":
-            year, letter = s_year, s_letter
-        else:
-            year, letter = (start if end is None or end == start else None), None
+        year, letter = _design_year(inventory_of(kind), (start, end), s_year, s_letter)
         if year is None:
             continue
         wrong_class = (
@@ -348,11 +366,9 @@ def classify(db: Session) -> Report:
         note_type_id,
     ) in _items(db):
         inventory = inventory_of(kind)
-        if inventory == "currency":
-            year, letter = series_year, series_letter
-        else:
-            single = year_end is None or year_end == year_start
-            year, letter = (year_start if single else None), None
+        year, letter = _design_year(
+            inventory, (year_start, year_end), series_year, series_letter
+        )
         if denomination_id is None or year is None:
             report.counts["no_facts"] += 1
             continue
