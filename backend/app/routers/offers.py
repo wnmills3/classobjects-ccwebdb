@@ -26,6 +26,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.orm.strategy_options import _AbstractLoad
 
 from .. import lot_writes, offering_writes, sales_writes
 from .. import offer_titles as offer_titles_module
@@ -83,14 +84,18 @@ _ALL = "all"
 # --------------------------------------------------------------------------
 
 
-def _eager(stmt: Select[tuple[Listing]]) -> Select[tuple[Listing]]:
-    """Load what `listing_out` reads, so a list of offers is not a query per row.
+def listing_loads() -> tuple[_AbstractLoad, ...]:
+    """The loader options for what `listing_out` reads from a listing.
+
+    Relative to `Listing`, so a caller that reaches listings through another
+    row -- `routers.auctions`, through each auction lot -- chains them with
+    `.options(*listing_loads())` and loads exactly what this module does.
 
     The lot chain is loaded for every listing, item listings included: a
     `selectinload` of a null foreign key costs nothing, and branching the
     options on a per-row value is not something one statement can do.
     """
-    return stmt.options(
+    return (
         selectinload(Listing.inventory_item),
         selectinload(Listing.sales_venue),
         selectinload(Listing.currency),
@@ -98,6 +103,11 @@ def _eager(stmt: Select[tuple[Listing]]) -> Select[tuple[Listing]]:
         .selectinload(SalesLot.members)
         .selectinload(SalesLotItem.item),
     )
+
+
+def _eager(stmt: Select[tuple[Listing]]) -> Select[tuple[Listing]]:
+    """Load what `listing_out` reads, so a list of offers is not a query per row."""
+    return stmt.options(*listing_loads())
 
 
 def external_url(listing: Listing, venue: SalesVenue) -> str | None:
