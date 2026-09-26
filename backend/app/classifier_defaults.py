@@ -96,12 +96,7 @@ BANK_LETTERS = frozenset("ABCDEFGHIJKL")
 RETRACT = "retract"
 
 #: A note's columns the pass fills, the Bank included.
-NOTE_FILLED: tuple[str, ...] = (
-    "note_type_id",
-    "seal_color_id",
-    "signature_combination_id",
-    "fed_district_id",
-)
+NOTE_FILLED: tuple[str, ...] = (*NOTE_COLUMNS, "fed_district_id")
 
 #: One issue, as the facts table records it.
 IssueKey = tuple[int, int, str | None]
@@ -305,19 +300,23 @@ def _items(
 
 @dataclass
 class Facts:
-    """The published facts, loaded once per run."""
+    """The published facts, loaded once per run.
 
-    issues: dict[IssueKey, list[Issue]]
-    compositions: list[Composition]
-    note_type_labels: dict[int, str]
-    note_type_codes: dict[int, str]
+    `load_facts` fills only the halves a run needs: a run over coins alone
+    leaves the note facts empty, and one over notes alone the compositions.
+    """
+
+    issues: dict[IssueKey, list[Issue]] = field(default_factory=dict)
+    compositions: list[Composition] = field(default_factory=list)
+    note_type_labels: dict[int, str] = field(default_factory=dict)
+    note_type_codes: dict[int, str] = field(default_factory=dict)
     #: The attributes the rules name, by code.
-    rule_attributes: dict[str, tuple[int, str]]
+    rule_attributes: dict[str, tuple[int, str]] = field(default_factory=dict)
     #: Patterns naming each class, from its label and aliases.
-    class_names: list[tuple[int, re.Pattern[str]]]
-    frn_id: int | None
-    districts: dict[str, int]
-    first_issue_year: int
+    class_names: list[tuple[int, re.Pattern[str]]] = field(default_factory=list)
+    frn_id: int | None = None
+    districts: dict[str, int] = field(default_factory=dict)
+    first_issue_year: int = 9999
 
 
 @dataclass(frozen=True)
@@ -347,48 +346,55 @@ class Outcome:
     count: str = ""
 
 
-def load_facts(db: Session) -> Facts:
-    """Everything the defaults are decided from."""
-    issues = load_issues(db)
-    labels = dict(db.execute(select(NoteType.id, NoteType.label)).tuples().all())
+def load_facts(db: Session, *, notes: bool = True, coins: bool = True) -> Facts:
+    """Everything the defaults are decided from, for notes, coins or both.
+
+    Read fresh on every call -- the facts are seed data an administrator can
+    edit, so nothing is kept between requests. `notes=False` skips the
+    issues, classes, attributes and districts; `coins=False` the
+    compositions. `classify` asks only for the kinds among its items, so
+    saving one coin reads no note facts at all.
+    """
+    facts = Facts()
+    if coins:
+        facts.compositions = list(
+            db.execute(
+                select(Composition).order_by(Composition.year_from.desc())
+            ).scalars()
+        )
+    if not notes:
+        return facts
+    facts.issues = load_issues(db)
+    facts.first_issue_year = min((key[1] for key in facts.issues), default=9999)
+    for type_id, code, label in db.execute(
+        select(NoteType.id, NoteType.code, NoteType.label)
+    ).tuples():
+        facts.note_type_codes[type_id] = code
+        facts.note_type_labels[type_id] = label
+        if code == "frn":
+            facts.frn_id = type_id
     names: dict[int, list[str]] = {
-        type_id: [label] for type_id, label in labels.items()
+        type_id: [label] for type_id, label in facts.note_type_labels.items()
     }
     for row_id, row_aliases in aliases.aliases_by_row(db, NoteType).items():
         names.setdefault(row_id, []).extend(row_aliases)
-    class_names = [
+    facts.class_names = [
         (type_id, aliases.word_pattern(name))
         for type_id, words in names.items()
         for name in words
     ]
-    return Facts(
-        issues=issues,
-        compositions=list(
-            db.execute(
-                select(Composition).order_by(Composition.year_from.desc())
-            ).scalars()
-        ),
-        note_type_labels=labels,
-        note_type_codes=dict(
-            db.execute(select(NoteType.id, NoteType.code)).tuples().all()
-        ),
-        rule_attributes={
-            code: (row_id, label)
-            for row_id, code, label in db.execute(
-                select(ItemAttribute.id, ItemAttribute.code, ItemAttribute.label).where(
-                    ItemAttribute.code.in_([r.attribute for r in attribute_rules.RULES])
-                )
-            ).tuples()
-        },
-        class_names=class_names,
-        frn_id=db.execute(
-            select(NoteType.id).where(NoteType.code == "frn")
-        ).scalar_one_or_none(),
-        districts=dict(
-            db.execute(select(FedDistrict.letter, FedDistrict.id)).tuples().all()
-        ),
-        first_issue_year=min((key[1] for key in issues), default=9999),
+    facts.rule_attributes = {
+        code: (row_id, label)
+        for row_id, code, label in db.execute(
+            select(ItemAttribute.id, ItemAttribute.code, ItemAttribute.label).where(
+                ItemAttribute.code.in_([r.attribute for r in attribute_rules.RULES])
+            )
+        ).tuples()
+    }
+    facts.districts = dict(
+        db.execute(select(FedDistrict.letter, FedDistrict.id)).tuples().all()
     )
+    return facts
 
 
 def note_outcome(
@@ -549,7 +555,6 @@ def coin_outcome(
 def _note_facts(
     item: InventoryItem, detail: CurrencyDetail, face: Decimal | None
 ) -> NoteFacts:
-    columns = (*NOTE_COLUMNS, "fed_district_id")
     return NoteFacts(
         denomination_id=item.denomination_id,
         face=face,
@@ -557,7 +562,7 @@ def _note_facts(
         series_letter=detail.series_letter,
         serial_number=detail.serial_number,
         rating=item.rating,
-        current={column: getattr(detail, column) for column in columns},
+        current={column: getattr(detail, column) for column in NOTE_FILLED},
     )
 
 
@@ -621,11 +626,14 @@ def attribute_outcome(
 
 def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
     """Decide the defaults of every item, or of the given ones, writing nothing."""
-    facts = load_facts(db)
+    rows = _items(db, item_ids)
+    kinds = {kind for _, kind, _, _ in rows}
+    has_notes = "currency" in kinds
+    facts = load_facts(db, notes=has_notes, coins=bool(kinds - {"currency"}))
     sources = sources_by_item(db, item_ids)
-    links = _links(db, facts, item_ids)
+    links = _links(db, facts, item_ids) if has_notes else {}
     report = Report()
-    for item, kind, face, detail in _items(db, item_ids):
+    for item, kind, face, detail in rows:
         recorded = sources.get(item.id, {})
         mine = {f for f, rule in recorded.items() if rule != HELD}
         held = frozenset(f for f, rule in recorded.items() if rule == HELD)
@@ -737,7 +745,7 @@ def suggest(db: Session, note: NoteFacts) -> dict[str, int]:
     `note.current` holds only what the person has chosen, so their choices
     narrow the suggestion exactly as a recorded value does.
     """
-    outcome = note_outcome(load_facts(db), note, set())
+    outcome = note_outcome(load_facts(db, coins=False), note, set())
     return {
         column: value for column, value, _ in outcome.writes if isinstance(value, int)
     }
