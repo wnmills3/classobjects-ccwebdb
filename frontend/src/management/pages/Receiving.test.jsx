@@ -138,6 +138,19 @@ describe('Receiving', () => {
     expect(screen.queryByText('Purchase order not found')).toBeNull()
   })
 
+  it('drops a failed link’s error once the address names no order at all', async () => {
+    api.getPurchaseOrder.mockRejectedValue(new Error('Purchase order not found'))
+    renderOnOrder(<NavigateButton to="/receiving" />)
+    expect(await screen.findByText('Purchase order not found')).toBeInTheDocument()
+
+    screen.getByText('go').click()
+    await waitFor(() =>
+      expect(screen.queryByText('Purchase order not found')).toBeNull(),
+    )
+    // The page is usable, not held on the old order: the search form is there.
+    expect(await screen.findByRole('button', { name: /^find/i })).toBeInTheDocument()
+  })
+
   it('follows the route to another order, as Back/Forward would', async () => {
     renderOnOrder(<NavigateButton to="/receiving?order=43" />)
     await waitFor(() => expect(api.getPurchaseOrder).toHaveBeenCalledWith(1))

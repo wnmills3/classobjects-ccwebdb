@@ -394,6 +394,35 @@ describe('ReferenceProvider', () => {
     expect(api.getReference).toHaveBeenCalledTimes(2)
   })
 
+  it('still delivers a vocabulary invalidated while its first load is in flight', async () => {
+    // The first answer is dropped as stale; the vocabulary must not then be
+    // left missing with nothing asking for it again.
+    const user = userEvent.setup()
+    let answerFirst
+    api.getReference
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answerFirst = resolve
+          }),
+      )
+      .mockResolvedValueOnce({ values: [value('a', 'A'), value('b', 'B')] })
+    render(
+      <ReferenceProvider>
+        <Codes />
+        <Invalidate />
+      </ReferenceProvider>,
+    )
+    await waitFor(() => expect(api.getReference).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('loading')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'invalidate' }))
+    answerFirst({ values: [value('a', 'A')] })
+
+    expect(await screen.findByText('a,b')).toBeInTheDocument()
+    expect(api.getReference).toHaveBeenCalledTimes(2)
+  })
+
   it('settles on an empty list, once, when the vocabulary cannot be fetched', async () => {
     // Empty, so the picker falls back to a text box; once, so a table the
     // server refuses is not asked for again on every render.

@@ -30,18 +30,6 @@ export function ReferenceProvider({ children }) {
   //: table -> a token for its latest request, loaded or still in flight.
   const requested = useRef(new Map())
 
-  // After adding a value the cached vocabulary is stale, so it is dropped and
-  // refetched rather than patched locally -- the server decides sort order and
-  // provenance, and guessing at them here is how a cache starts lying.
-  const invalidate = useCallback((table) => {
-    requested.current.delete(table)
-    setTables((t) => {
-      const next = { ...t }
-      delete next[table]
-      return next
-    })
-  }, [])
-
   const load = useCallback(async (table) => {
     if (requested.current.has(table)) return
     const token = {}
@@ -59,6 +47,28 @@ export function ReferenceProvider({ children }) {
       setTables((t) => ({ ...t, [table]: values }))
     }
   }, [])
+
+  // After adding a value the cached vocabulary is stale, so it is dropped and
+  // refetched rather than patched locally -- the server decides sort order and
+  // provenance, and guessing at them here is how a cache starts lying.
+  //
+  // The refetch starts here, not from the consumers: a table invalidated
+  // while its first load is still out was never in `tables`, so its
+  // consumers' "missing" does not change and their effects do not run again.
+  // Only a table already asked for is fetched again; one nobody has used
+  // stays unrequested until something asks for it.
+  const invalidate = useCallback(
+    (table) => {
+      const wasRequested = requested.current.delete(table)
+      setTables((t) => {
+        const next = { ...t }
+        delete next[table]
+        return next
+      })
+      if (wasRequested) load(table)
+    },
+    [load],
+  )
 
   const value = useMemo(
     () => ({ tables, load, invalidate }),

@@ -47,12 +47,14 @@ export default function Receiving() {
   const [lastReceipt, setLastReceipt] = useState({})
   const [epoch, setEpoch] = useState(0)
 
-  // Only the answer for the order the address names now counts: another
-  // link's order, or its error, must not stay on screen or hold the page
-  // once the address names a different one (code review, 2026-09-23).
+  // Only the answer for the order the address names now counts. `useRequest`
+  // reports an error only for the current key, so another link's failure
+  // leaves the page once the address names a different order or none. Its
+  // `data` is kept while the next order loads, so `order` also waits on
+  // `busy` rather than showing the previous order's header.
   const link = useRequest(orderId, () => api.getPurchaseOrder(orderId))
   const waitingForOrder = link.busy
-  const linkError = waitingForOrder ? '' : link.error
+  const linkError = link.error
   const order = orderId != null && !waitingForOrder && !linkError ? link.data : null
 
   const scope = `order:${orderId}`

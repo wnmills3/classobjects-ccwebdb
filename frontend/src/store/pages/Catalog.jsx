@@ -32,8 +32,19 @@ const NO_RESULTS = { items: [], total: 0, limit: PAGE_SIZE, offset: 0 }
 export default function Catalog() {
   const [filters, setFilters] = useState({ q: '', kind: '', in_stock: false })
   const kinds = useReference('item_kind')
-  const [offset, setOffset] = useState(0)
   const q = useDebounced(filters.q, SEARCH_DELAY_MS)
+  // The page offset belongs to the search it was paged through. A new search
+  // starts from its first page when the debounced `q` changes, not when a key
+  // is pressed: resetting at the keystroke would ask for the old search again
+  // at offset 0 while the new one is still being typed. The reset happens in
+  // this render, so no request is made with the new `q` and the old offset.
+  const [paging, setPaging] = useState({ q, offset: 0 })
+  if (paging.q !== q) setPaging({ q, offset: 0 })
+  const offset = paging.q === q ? paging.offset : 0
+
+  function setOffset(next) {
+    setPaging({ q, offset: next })
+  }
 
   const { add } = useCart()
 
@@ -44,6 +55,8 @@ export default function Catalog() {
     api.listCatalog(params),
   )
 
+  // Type and stock are not debounced, so a change to either starts from the
+  // first page at once.
   function applyFilter(patch) {
     setOffset(0)
     setFilters((f) => ({ ...f, ...patch }))
@@ -62,7 +75,7 @@ export default function Catalog() {
           aria-label="Search the catalog"
           placeholder="Search titles and descriptions..."
           value={filters.q}
-          onChange={(e) => applyFilter({ q: e.target.value })}
+          onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
         />
         {/* Read from the vocabulary rather than repeated here, so a new
             item_kind shows up in the filter without a frontend change. */}

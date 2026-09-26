@@ -90,6 +90,40 @@ describe('useRequest', () => {
     expect(result.current.busy).toBe(false)
   })
 
+  it("does not report an earlier key's failure for the current key", async () => {
+    const next = deferred()
+    const answers = {
+      bad: () => Promise.reject(new Error('order 999 not found')),
+      good: () => next.promise,
+    }
+    const { result, rerender } = renderHook(
+      ({ key }) => useRequest(key, answers[key] ?? (() => Promise.resolve())),
+      { initialProps: { key: 'bad' } },
+    )
+    await waitFor(() => expect(result.current.error).toBe('order 999 not found'))
+
+    // A null key asks nothing, so there is nothing to report at all.
+    rerender({ key: null })
+    expect(result.current).toMatchObject({ data: undefined, error: '', busy: false })
+
+    // A new key is in flight: the old failure is not its failure.
+    rerender({ key: 'good' })
+    expect(result.current).toMatchObject({ error: '', busy: true })
+    await act(async () => next.resolve('rows'))
+    expect(result.current).toMatchObject({ data: 'rows', error: '', busy: false })
+  })
+
+  it('reports no data for a null key, even after an earlier answer', async () => {
+    const { result, rerender } = renderHook(
+      ({ key }) => useRequest(key, () => Promise.resolve(`page ${key}`)),
+      { initialProps: { key: 1 } },
+    )
+    await waitFor(() => expect(result.current.data).toBe('page 1'))
+
+    rerender({ key: null })
+    expect(result.current).toMatchObject({ data: undefined, error: '', busy: false })
+  })
+
   it('asks again for the same key on reload', async () => {
     let n = 0
     const { result } = renderHook(() => useRequest('a', () => Promise.resolve(++n)))
