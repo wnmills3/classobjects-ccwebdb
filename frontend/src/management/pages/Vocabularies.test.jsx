@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../api', () => ({
   api: {
     listReferenceTables: vi.fn(),
-    getReferenceForEditing: vi.fn(),
+    getReference: vi.fn(),
     addReferenceAlias: vi.fn(),
     renameReferenceValue: vi.fn(),
     mergeReferenceValue: vi.fn(),
@@ -47,7 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   reference = emptyReference()
   api.listReferenceTables.mockResolvedValue(['series', 'note_type'])
-  api.getReferenceForEditing.mockImplementation(async (table) => ({
+  api.getReference.mockImplementation(async (table) => ({
     table,
     values:
       table === 'note_type'
@@ -74,7 +74,7 @@ describe('Vocabularies', () => {
   it('opens on the series and lists each value with its aliases', async () => {
     renderWithProviders(<Vocabularies />, { auth: adminAuth(), reference })
     expect(await screen.findByText('Walker')).toBeInTheDocument()
-    expect(api.getReferenceForEditing).toHaveBeenCalledWith('series')
+    expect(api.getReference).toHaveBeenCalledWith('series')
   })
 
   it('marks an alias two values share, and a retired value', async () => {
@@ -214,7 +214,7 @@ describe('Vocabularies', () => {
     const ms63 = value('MS63', 'MS63', [], { sort_order: 10 })
     const ms64 = value('MS64', 'MS64', [], { sort_order: 20 })
     api.listReferenceTables.mockResolvedValue(['series', 'grade'])
-    api.getReferenceForEditing.mockImplementation(async (table) =>
+    api.getReference.mockImplementation(async (table) =>
       table === 'grade'
         ? { table, sequenced: true, values: [ms63, ms64] }
         : {
@@ -357,7 +357,7 @@ describe('Vocabularies', () => {
       await screen.findByText('Merged national_bank_note into us_note: 3 items moved.'),
     ).toBeVisible()
     // The list is read again, and pickers elsewhere are told.
-    expect(api.getReferenceForEditing).toHaveBeenCalledTimes(3)
+    expect(api.getReference).toHaveBeenCalledTimes(3)
     expect(reference.invalidate).toHaveBeenCalledWith('note_type')
   })
 
