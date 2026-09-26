@@ -7,6 +7,12 @@
   --accent: #7a5c2e;
   --accent-text: #ffffff;
   --danger: #a12f2f;
+  /* Text that marks a state rather than a value: a caution, a suggestion,
+     a check passed. Also the tint for a panel in that state, mixed into
+     --surface so it flips with the scheme. */
+  --warn: #8a6d3b;
+  --info: #24507a;
+  --ok: #2b6a2b;
   --radius: 8px;
   color-scheme: light;
 }
@@ -21,6 +27,9 @@
     --accent: #c8a464;
     --accent-text: #17161a;
     --danger: #e08585;
+    --warn: #d9b77a;
+    --info: #8cb8e0;
+    --ok: #8fcf8f;
     color-scheme: dark;
   }
 }
@@ -232,4 +241,43 @@ button.link {
   color: var(--accent);
   padding: 0;
   text-decoration: underline;
+}
+
+/* --- vocabulary pickers (shared/reference.jsx) ---------------------------- */
+/* A long vocabulary's find box sits beside its select and wraps under it
+   when the field is narrow. */
+.reference-select {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.reference-select select {
+  min-width: 0;
+  flex: 1 1 8rem;
+}
+
+.reference-find {
+  min-width: 0;
+  flex: 0 1 7rem;
+}
+
+/* Adding a vocabulary value inline, from the picker that needed it. */
+.add-reference {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.add-reference input {
+  min-width: 0;
+  flex: 1 1 6rem;
+}
+
+/* The code a typed label will actually be stored as, shown before saving. */
+.derived-code {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 0.85rem;
 }
