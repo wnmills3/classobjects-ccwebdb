@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
@@ -6,6 +6,7 @@ import ItemFinder from './receiving/ItemFinder'
 import ModalDialog from '../ModalDialog'
 import ReceiptPanel from './receiving/ReceiptPanel'
 import { date } from '../../shared/format'
+import { useRequest } from '../../shared/useRequest'
 
 /** A positive integer `order` query parameter, or null when absent or bad. */
 function orderIdFromParams(params) {
@@ -42,36 +43,17 @@ function orderIdFromParams(params) {
 export default function Receiving() {
   const [params] = useSearchParams()
   const orderId = orderIdFromParams(params)
-  const [linked, setLinked] = useState(null)
-  // Keyed by the order it is about, like `linked`: an error for one link
-  // must not stay on screen, or hold the page, once the address names
-  // another order (code review, 2026-09-23).
-  const [linkFailure, setLinkFailure] = useState(null)
   const [receiving, setReceiving] = useState(null)
   const [lastReceipt, setLastReceipt] = useState({})
   const [epoch, setEpoch] = useState(0)
 
-  useEffect(() => {
-    if (orderId == null) return undefined
-    let cancelled = false
-    api
-      .getPurchaseOrder(orderId)
-      .then((body) => {
-        if (!cancelled) setLinked({ id: orderId, order: body })
-      })
-      .catch((err) => {
-        if (!cancelled) setLinkFailure({ id: orderId, message: err.message })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [orderId])
-
-  // Derived, not synchronised: the stored answer counts only for the order
-  // the address names now.
-  const order = linked?.id === orderId ? linked.order : null
-  const linkError = linkFailure?.id === orderId ? linkFailure.message : ''
-  const waitingForOrder = orderId != null && order == null && !linkError
+  // Only the answer for the order the address names now counts: another
+  // link's order, or its error, must not stay on screen or hold the page
+  // once the address names a different one (code review, 2026-09-23).
+  const link = useRequest(orderId, () => api.getPurchaseOrder(orderId))
+  const waitingForOrder = link.busy
+  const linkError = waitingForOrder ? '' : link.error
+  const order = orderId != null && !waitingForOrder && !linkError ? link.data : null
 
   const scope = `order:${orderId}`
   const openLine = receiving?.scope === scope ? receiving.line : null

@@ -8,6 +8,7 @@ import ModalDialog from '../ModalDialog'
 import OfferDialog from './inventory/OfferDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { UNKNOWN } from './listing-labels'
+import { ASSEMBLING_LOTS } from './assembling-lots'
 import { useMounted } from '../useMounted'
 
 /**
@@ -180,10 +181,6 @@ function DiscardConfirm({ lot, busy, onConfirm, onCancel }) {
   )
 }
 
-//: At most this many open lots are read at once -- far beyond any real
-//: afternoon's assembling, and the API's own ceiling.
-const OPEN_LIMIT = 500
-
 /** The Lots page: what is being assembled, and what has already gone out. */
 export default function Lots() {
   const [lots, setLots] = useState(null)
@@ -213,10 +210,7 @@ export default function Lots() {
     // Two reads: every open lot, whatever its age, and the newest page of
     // everything for the history below it. Merged, the open ones from the
     // first read -- the second may have cut some of them off.
-    Promise.all([
-      api.listLots({ status: 'assembling', limit: OPEN_LIMIT }),
-      api.listLots(),
-    ])
+    Promise.all([api.listLots(ASSEMBLING_LOTS), api.listLots()])
       .then(([open, page]) => {
         if (cancelled) return
         const past = (page?.lots ?? []).filter((lot) => lot.status !== 'assembling')

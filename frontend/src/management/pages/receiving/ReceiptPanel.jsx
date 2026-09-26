@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../../api'
 import ErrorsPanel from '../inventory/ErrorsPanel'
 import ReviewPane from '../inventory/ReviewPane'
 import ForSaleConfirm from '../ForSaleConfirm'
 import FriedbergLookup from './FriedbergLookup'
+import { useRequest } from '../../../shared/useRequest'
 
 //: Outcome value the backend expects, paired with the button's label. The
 //: backend spells the fourth one with a single L (`canceled`); the button
@@ -51,7 +52,8 @@ function todayLocal() {
  * the friction that stops people writing notes at all.
  */
 export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
-  const [locations, setLocations] = useState([])
+  // A failed read leaves the select empty; a location is optional on a receipt.
+  const locations = useRequest('locations', () => api.listStorageLocations()).data ?? []
   // `initial` seeds the fields once, at mount. One panel is mounted per item
   // now, so "once at mount" is exactly "per line" -- what the previous line
   // was recorded against is offered again rather than re-picked.
@@ -72,38 +74,9 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // out from under an index `ReviewPane` never clamps. Snapshotting here,
   // once, is what "frozen" actually requires.
   const [reviewIds, setReviewIds] = useState(null)
-  // The one selected item's `item_kind`, so the Friedberg section can be
-  // offered only for a banknote -- a coin has no Friedberg number, and
-  // offering the lookup there is an invitation to the 404 `POST
-  // .../friedberg` returns for an item with no `currency_detail`. Null both
-  // before this loads and whenever no single item is selected.
-  const [itemKind, setItemKind] = useState(null)
-  // The item's `sale_state`, carried alongside `itemKind` from the same
-  // fetch -- ErrorsPanel needs it to warn before recording an error against
-  // an item a buyer is looking at, and a second request for the same body
-  // just to get one more field it already has would be wasted.
-  const [itemSaleState, setItemSaleState] = useState([])
-  // The whole body of that same fetch, so the Friedberg lookup can start
-  // from what the note already records instead of blank fields.
-  const [itemDetail, setItemDetail] = useState(null)
   const [friedbergOpen, setFriedbergOpen] = useState(false)
   // The refusal the server sent, held while the operator answers it.
   const [forSaleRefusal, setForSaleRefusal] = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listStorageLocations()
-      .then((body) => {
-        if (!cancelled) setLocations(body)
-      })
-      .catch(() => {
-        /* the select just stays empty; a location is optional on a receipt */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const disabled = itemIds.length === 0 || busy
   // A photograph is evidence of one physical object. With several items
@@ -119,45 +92,36 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // `null` whenever the selection is not exactly one item.
   const singleItemId = singleItemSelected ? itemIds[0] : null
 
-  // Resets `itemKind`/`friedbergOpen` the moment the single-item selection
-  // changes, adjusted during render rather than in the effect below --
-  // calling setState synchronously in an effect body forces an extra render
-  // for every change; doing it here costs nothing extra, since a change to
+  // Closes the Friedberg lookup the moment the single-item selection
+  // changes, adjusted during render rather than in an effect -- calling
+  // setState synchronously in an effect body forces an extra render for
+  // every change; doing it here costs nothing extra, since a change to
   // `singleItemId` was already about to re-render this component anyway.
   const [trackedItemId, setTrackedItemId] = useState(singleItemId)
   if (trackedItemId !== singleItemId) {
     setTrackedItemId(singleItemId)
-    setItemKind(null)
-    setItemSaleState([])
-    setItemDetail(null)
     setFriedbergOpen(false)
   }
 
-  useEffect(() => {
-    if (singleItemId == null) return undefined
-    let cancelled = false
-    api
-      .getInventoryItem(singleItemId)
-      .then((body) => {
-        if (!cancelled) {
-          setItemKind(body.item_kind ?? null)
-          setItemSaleState(body.sale_state ?? [])
-          setItemDetail(body)
-        }
-      })
-      .catch(() => {
-        // Unknown kind, not currency: the section just stays hidden rather
-        // than offered against a fetch that failed.
-        if (!cancelled) {
-          setItemKind(null)
-          setItemSaleState([])
-          setItemDetail(null)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [singleItemId])
+  // The one selected item, so the Friedberg lookup can start from what the
+  // note already records instead of blank fields. Null while it loads, when
+  // the read failed, and whenever no single item is selected: the request
+  // keeps an earlier item's answer while the next one loads, and that answer
+  // must not stand in for this item.
+  const selected = useRequest(singleItemId, () => api.getInventoryItem(singleItemId))
+  const itemDetail =
+    singleItemId != null && !selected.busy && !selected.error
+      ? (selected.data ?? null)
+      : null
+  // Its `item_kind`, so the Friedberg section can be offered only for a
+  // banknote -- a coin has no Friedberg number, and offering the lookup
+  // there is an invitation to the 404 `POST .../friedberg` returns for an
+  // item with no `currency_detail`. Unknown, not currency, when the read
+  // failed: the section stays hidden rather than offered against it.
+  const itemKind = itemDetail?.item_kind ?? null
+  // Its `sale_state` -- ErrorsPanel needs it to warn before recording an
+  // error against an item a buyer is looking at.
+  const itemSaleState = itemDetail?.sale_state ?? []
 
   const isCurrency = singleItemId != null && itemKind === 'currency'
   // Named so the render below can tell the operator exactly what is about to

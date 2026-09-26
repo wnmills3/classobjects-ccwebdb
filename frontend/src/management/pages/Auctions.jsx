@@ -10,6 +10,9 @@ import { accel, useSaveShortcut } from '../shortcuts'
 import { subjectOf, UNKNOWN } from './listing-labels'
 import { date } from '../../shared/format'
 import { useMounted } from '../useMounted'
+import { useSalesVenues } from '../useSalesVenues'
+import { useRequest } from '../../shared/useRequest'
+import { ASSEMBLING_LOTS } from './assembling-lots'
 import { orNull } from '../../shared/text'
 
 /**
@@ -226,22 +229,13 @@ function AddLotDialog({ auction, onSaved, onClose }) {
   const [lotId, setLotId] = useState('')
   const [reserve, setReserve] = useState('')
   const [price, setPrice] = useState('')
-  const [assemblingLots, setAssemblingLots] = useState([])
-  const [error, setError] = useState('')
+  const open = useRequest('assembling', () => api.listLots(ASSEMBLING_LOTS))
+  const assemblingLots = open.data?.lots ?? []
+  const [saveError, setError] = useState('')
+  const error = saveError || open.error
   const [saving, setSaving] = useState(false)
 
   const mounted = useMounted()
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listLots({ status: 'assembling', limit: 500 })
-      .then((page) => !cancelled && setAssemblingLots(page?.lots ?? []))
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useSaveShortcut(save, !saving)
 
@@ -830,45 +824,22 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
 /** The Auctions page: every sale event, and the one selected for detail. */
 export default function Auctions() {
   const [auctions, setAuctions] = useState(null)
-  const [venues, setVenues] = useState([])
-  const [locations, setLocations] = useState([])
-  const [error, setError] = useState('')
+  const { venues, error: venuesError } = useSalesVenues()
+  const storage = useRequest('locations', () => api.listStorageLocations())
+  const locations = storage.data ?? []
+  const [auctionsError, setAuctionsError] = useState('')
   const [notice, setNotice] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   const [creating, setCreating] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listSalesVenues()
-      .then((rows) => !cancelled && setVenues(rows))
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listStorageLocations()
-      .then((rows) => !cancelled && setLocations(rows))
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
+  // Set in place by every write below, so held here rather than in a
+  // `useRequest`, which would own it.
   useEffect(() => {
     let cancelled = false
     api
       .listAuctions()
-      .then((page) => {
-        if (cancelled) return
-        setAuctions(page?.auctions ?? [])
-        setError('')
-      })
-      .catch((err) => !cancelled && setError(err.message))
+      .then((page) => !cancelled && setAuctions(page?.auctions ?? []))
+      .catch((err) => !cancelled && setAuctionsError(err.message))
     return () => {
       cancelled = true
     }
@@ -887,11 +858,11 @@ export default function Auctions() {
     setNotice(`${saved.title} started as a draft.`)
   }
 
-  // `error` also carries a failed venues or storage-location load, never
-  // just a failed auctions load, and the page keeps its own shell either
-  // way -- per 872e219, losing the whole page (the heading, "New
-  // auction...", any open dialog) is not an acceptable answer to a load
-  // failure the owner still needs to see and react to.
+  // Any of the three loads failing is said at the top, and the page keeps
+  // its own shell either way -- per 872e219, losing the whole page (the
+  // heading, "New auction...", any open dialog) is not an acceptable answer
+  // to a load failure the owner still needs to see and react to.
+  const error = auctionsError || venuesError || storage.error
   const selected = (auctions ?? []).find((a) => a.id === selectedId) ?? null
 
   return (

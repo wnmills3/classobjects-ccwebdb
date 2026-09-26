@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../../api'
 import ForSaleNotice from '../ForSaleNotice'
 import ModalDialog from '../../ModalDialog'
 import OfferDialog from './OfferDialog'
 import { useMounted } from '../../useMounted'
+import { useRequest } from '../../../shared/useRequest'
+import { ASSEMBLING_LOTS } from '../assembling-lots'
 
 /**
  * Set one field across a selection, or offer it for sale.
@@ -67,28 +69,19 @@ const BULK_FIELDS = [
  * new lot needs none of them -- rather than replacing it with an error.
  */
 function GroupIntoLot({ ids, codes, onGrouped, onClose }) {
-  const [lots, setLots] = useState(null)
+  const assembling = useRequest('assembling', () => api.listLots(ASSEMBLING_LOTS))
+  const lots = assembling.data?.lots ?? null
   // 'new', or the id of an assembling lot as the select's string value.
   const [target, setTarget] = useState('new')
   const [title, setTitle] = useState('')
-  const [error, setError] = useState('')
+  const [groupError, setError] = useState('')
+  const error = groupError || assembling.error
   const [busy, setBusy] = useState(false)
 
   // Guards group()'s continuation once the request settles: Cancel (and
   // Escape, which ModalDialog routes to onClose) can unmount this dialog
   // while a write is still in flight.
   const mounted = useMounted()
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listLots({ status: 'assembling', limit: 500 })
-      .then((page) => !cancelled && setLots(page?.lots ?? []))
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   async function group() {
     const wanted = title.trim()

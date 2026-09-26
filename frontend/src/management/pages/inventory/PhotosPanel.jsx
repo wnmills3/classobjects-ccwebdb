@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../../api'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import ForSaleNotice from '../ForSaleNotice'
+import { useRequest } from '../../../shared/useRequest'
 
 /**
  * Every photograph filed against this item, and the place a new one is
@@ -34,44 +35,26 @@ import ForSaleNotice from '../ForSaleNotice'
  * the box without reading it.
  */
 export default function PhotosPanel({ itemId, saleState }) {
-  const [links, setLinks] = useState(null)
-  const [error, setError] = useState('')
+  // Read again after every write -- the server, not this panel's own guess,
+  // decides sort order, primacy and which photograph a link now points at.
+  const photos = useRequest(itemId, () => api.listItemImages(itemId))
+  // A load failure must not leave the panel stuck on "Loading...": an empty,
+  // still-usable panel with the error shown is recoverable, a dead end is not.
+  const links = photos.error
+    ? []
+    : photos.data
+      ? [...photos.data].sort((a, b) => a.sort_order - b.sort_order)
+      : null
+  const [actionError, setError] = useState('')
+  const error = actionError || photos.error
   const [acknowledged, setAcknowledged] = useState(false)
-  // Bumped after every write, to read the item's photographs again -- the
-  // server, not this panel's own guess, decides sort order, primacy and
-  // which photograph a link now points at.
-  const [reloads, setReloads] = useState(0)
   // Retired roles included, the same reason `ErrorsPanel` asks for them: a
   // role recorded on a link may since have been retired, and without it the
   // row would fall back to showing the raw code instead of its label.
   const vocabulary = useReference('image_role', { includeRetired: true }) ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
 
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listItemImages(itemId)
-      .then((rows) => {
-        if (cancelled) return
-        setLinks([...rows].sort((a, b) => a.sort_order - b.sort_order))
-        setError('')
-      })
-      .catch((err) => {
-        // A load failure must not leave the panel stuck on "Loading...":
-        // an empty, still-usable panel with the error shown is recoverable,
-        // a dead end is not.
-        if (cancelled) return
-        setError(err.message)
-        setLinks([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [itemId, reloads])
-
-  function reload() {
-    setReloads((n) => n + 1)
-  }
+  const reload = photos.reload
 
   function roleLabel(code) {
     if (!code) return 'Unfiled role'
