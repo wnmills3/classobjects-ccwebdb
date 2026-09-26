@@ -14,6 +14,7 @@ import {
   netMarginPercent,
 } from '../platform-rates'
 import { useMounted } from '../../useMounted'
+import { useSalesVenues } from '../../useSalesVenues'
 
 /**
  * Offering items for sale: one platform, one format, a price per item.
@@ -119,7 +120,7 @@ export default function OfferDialog({
   onOffered,
   onClose,
 }) {
-  const [venues, setVenues] = useState([])
+  const { venues, error: venuesError } = useSalesVenues()
   const [venue, setVenue] = useState('')
   const [format, setFormat] = useState(FORMATS[0][0])
   const [rows, setRows] = useState(() =>
@@ -127,7 +128,8 @@ export default function OfferDialog({
       subjectsFor(items, lot).map((subject) => [subject.key, draftFor(subject)]),
     ),
   )
-  const [error, setError] = useState('')
+  const [offerError, setError] = useState('')
+  const error = offerError || venuesError
   const [refused, setRefused] = useState([])
   const [offering, setOffering] = useState(false)
 
@@ -135,17 +137,6 @@ export default function OfferDialog({
   // Escape, which ModalDialog routes to onClose) can unmount this dialog
   // while the batch is still in flight.
   const mounted = useMounted()
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listSalesVenues()
-      .then((found) => !cancelled && setVenues(found))
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   // The public title each item starts from, composed from what the record
   // says it is (`app/offer_titles.py`) -- not `source_title`, the seller's

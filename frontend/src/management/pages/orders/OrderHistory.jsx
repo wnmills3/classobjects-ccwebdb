@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
-
 import { dateTime } from '../../../shared/format'
+import { useRequest } from '../../../shared/useRequest'
 import { api } from '../../api'
 import { describeChange } from './describeChange'
 
@@ -10,19 +9,9 @@ import { describeChange } from './describeChange'
  * entry, read oldest change first.
  */
 export default function OrderHistory({ order, onClose }) {
-  const [rows, setRows] = useState(null)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listOrderChanges(order.id)
-      .then((body) => !cancelled && setRows(body))
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [order.id])
+  const { data: rows, error } = useRequest(order.id, () =>
+    api.listOrderChanges(order.id),
+  )
 
   const groups = []
   for (const row of rows ?? []) {

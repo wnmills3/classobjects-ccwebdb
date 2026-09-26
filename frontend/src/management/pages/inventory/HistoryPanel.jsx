@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { dateTime } from '../../../shared/format'
+import { useRequest } from '../../../shared/useRequest'
 import { api } from '../../api'
 import { fieldName, shown } from './fieldMerge'
 
@@ -27,24 +28,10 @@ function subject(event) {
  * otherwise read as "never changed".
  */
 export default function HistoryPanel({ itemId, version }) {
-  const [events, setEvents] = useState(null)
-  const [error, setError] = useState('')
+  const history = useRequest(`${itemId}:${version}`, () => api.getItemHistory(itemId))
+  const events = history.data ?? null
+  const error = history.error
   const [all, setAll] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .getItemHistory(itemId)
-      .then((rows) => {
-        if (cancelled) return
-        setEvents(rows)
-        setError('')
-      })
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [itemId, version])
 
   const rows = events === null ? [] : all ? events : events.slice(0, FIRST_ROWS)
 

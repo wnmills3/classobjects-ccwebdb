@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../../api'
 import EndOfferConfirm from '../EndOfferConfirm'
@@ -13,6 +13,8 @@ import {
 } from '../listing-labels'
 import OfferDialog from './OfferDialog'
 import { date } from '../../../shared/format'
+import { useRequest } from '../../../shared/useRequest'
+import { useSalesVenues } from '../../useSalesVenues'
 
 /**
  * Where this item is offered, where it has been, and the two things that may
@@ -35,52 +37,34 @@ import { date } from '../../../shared/format'
  * carry on with what it read before.
  */
 export default function OffersPanel({ item, onChanged }) {
-  const [listings, setListings] = useState(null)
-  // The codes of the platforms that are the business's own store. `null` until
-  // they are known -- see `heldElsewhere` below, which reads that as "not
-  // known to be held anywhere else" rather than as "nowhere".
-  const [ownStore, setOwnStore] = useState(null)
-  const [error, setError] = useState('')
-  const [ending, setEnding] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [offering, setOffering] = useState(false)
-  // Bumped to read the offers again after a write: ending one offer can
-  // resume another, and both rows are on this panel.
-  const [reloads, setReloads] = useState(0)
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      // Ended ones included: where this item has been offered before, and for
-      // how much, is half of what this panel is for.
-      .listListings({ item_id: item.id, status: 'all' })
-      .then((rows) => !cancelled && setListings(rows))
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [item.id, reloads])
+  // Read again after a write: ending one offer can resume another, and both
+  // rows are on this panel. Ended ones included: where this item has been
+  // offered before, and for how much, is half of what this panel is for.
+  const offers = useRequest(item.id, () =>
+    api.listListings({ item_id: item.id, status: 'all' }),
+  )
+  const listings = offers.data ?? null
 
   // Which platforms are the business's own store. `ListingOut` says which
   // platform a listing is on but not whether that platform is the shop, and
   // the difference decides whether this item may be offered at all -- so it
   // is read from the platforms themselves rather than guessed from a code.
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listSalesVenues()
-      .then((venues) => {
-        if (cancelled) return
-        setOwnStore(new Set(venues.filter((v) => v.is_own_store).map((v) => v.code)))
-      })
-      // Left unknown rather than assumed empty, and said out loud: a platform
-      // list that did not arrive must not quietly decide that this item can
-      // be offered nowhere.
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  //
+  // `null` until they are known -- see `heldElsewhere` below, which reads
+  // that as "not known to be held anywhere else" rather than as "nowhere".
+  // A platform list that did not arrive stays unknown, and its error is said
+  // out loud: it must not quietly decide that this item can be offered
+  // nowhere.
+  const platforms = useSalesVenues()
+  const ownStore = platforms.loaded
+    ? new Set(platforms.venues.filter((v) => v.is_own_store).map((v) => v.code))
+    : null
+
+  const [endError, setError] = useState('')
+  const error = endError || offers.error || platforms.error
+  const [ending, setEnding] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [offering, setOffering] = useState(false)
 
   async function end() {
     setBusy(true)
@@ -88,7 +72,7 @@ export default function OffersPanel({ item, onChanged }) {
     try {
       await api.endListing(ending.id)
       setEnding(null)
-      setReloads((n) => n + 1)
+      offers.reload()
       onChanged?.()
     } catch (err) {
       setError(err.message)
@@ -236,7 +220,7 @@ export default function OffersPanel({ item, onChanged }) {
           items={[item]}
           onOffered={() => {
             setOffering(false)
-            setReloads((n) => n + 1)
+            offers.reload()
             onChanged?.()
           }}
           onClose={() => setOffering(false)}

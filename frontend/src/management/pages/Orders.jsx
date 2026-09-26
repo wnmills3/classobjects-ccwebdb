@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../api'
 import { date, money } from '../../shared/format'
+import { useRequest } from '../../shared/useRequest'
 import ModalDialog from '../ModalDialog'
 import OrderEditor from './orders/OrderEditor'
 import OrderHistory from './orders/OrderHistory'
@@ -33,30 +34,17 @@ const STATUSES = [
 const SHIPPED_STATUSES = ['packed', 'shipped', 'delivered']
 
 export default function Orders() {
-  const [orders, setOrders] = useState(null)
-  const [error, setError] = useState('')
+  // Read again after every write; this is the only place the list is set.
+  const list = useRequest('orders', () => api.listOrders())
+  const orders = list.data ?? null
+  // A failed status change, which stays said while the list reloads.
+  const [actionError, setActionError] = useState('')
+  const error = actionError || list.error
   const [show, setShow] = useState('')
-  // Bumped to fetch again; the effect is the only place the list is set.
-  const [reloads, setReloads] = useState(0)
   // 'new' or an order being placed or revised; null when the editor is closed.
   const [editing, setEditing] = useState(null)
   // The order whose history dialog is open; null when it is closed.
   const [historyOf, setHistoryOf] = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-    api
-      .listOrders()
-      .then((rows) => {
-        if (!cancelled) setOrders(rows)
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [reloads])
 
   async function changeStatus(order, status) {
     // Cancelling an unshipped order puts its stock back on sale, and the
@@ -72,11 +60,11 @@ export default function Orders() {
     }
     try {
       await api.setOrderStatus(order.id, status)
-      setError('')
+      setActionError('')
     } catch (err) {
-      setError(err.message)
+      setActionError(err.message)
     }
-    setReloads((n) => n + 1)
+    list.reload()
   }
 
   if (!orders && error) return <p className="error">{error}</p>
@@ -242,7 +230,7 @@ export default function Orders() {
             onClose={() => setEditing(null)}
             onSaved={() => {
               setEditing(null)
-              setReloads((n) => n + 1)
+              list.reload()
             }}
           />
         </ModalDialog>
