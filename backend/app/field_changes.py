@@ -1,8 +1,9 @@
 """Who changed which field of an item, and when: the `item_field_change` log.
 
-The sole writer of `item_field_change`. The item edit and bulk edit call
-`record` with the item's values before and after, and one row is written per
-field whose value actually moved -- a field sent unchanged leaves no trace.
+The sole writer of `item_field_change`. The item edit, bulk edit, the
+errors endpoint and the eBay order pass (`app.ebay_orders`) call `record`
+with the item's values before and after, and one row is written per field
+whose value actually moved -- a field sent unchanged leaves no trace.
 `latest` answers the item editor's question when it warns about a field
 changed elsewhere: who, and when.
 """
@@ -18,7 +19,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import ErrorType, ItemError, ItemFieldChange, User
+from .models import ErrorType, ItemError, ItemFieldChange, User, utcnow
 
 __all__ = [
     "LatestChange",
@@ -88,12 +89,20 @@ def record(
     fields: Iterable[str],
     *,
     user_id: int | None,
-) -> None:
-    """Log each of `fields` whose value differs between `before` and `after`."""
+    at: datetime | None = None,
+) -> int:
+    """Log each of `fields` whose value differs between `before` and `after`.
+
+    Returns how many rows it logged. `at` stamps every row with one moment --
+    a pass that changes many items at once passes its start -- and defaults
+    to now.
+    """
+    logged = 0
     for field in fields:
         old, new = before.get(field), after.get(field)
         if same_value(old, new):
             continue
+        logged += 1
         db.add(
             ItemFieldChange(
                 inventory_item_id=item_id,
@@ -101,8 +110,10 @@ def record(
                 old_value=old,
                 new_value=new,
                 changed_by_id=user_id,
+                changed_at=utcnow() if at is None else at,
             )
         )
+    return logged
 
 
 def latest(db: Session, item_id: int) -> dict[str, LatestChange]:

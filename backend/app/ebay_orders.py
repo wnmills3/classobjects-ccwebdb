@@ -53,8 +53,9 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import field_changes
 from .database import SessionLocal
-from .models import InventoryItem, ItemFieldChange, PurchaseOrder, User, Vendor
+from .models import InventoryItem, PurchaseOrder, User, Vendor
 
 __all__ = [
     "Line",
@@ -219,20 +220,24 @@ def plan(db: Session, lines: Sequence[Line]) -> Plan:
 
 
 def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
-    """Make the planned changes and log each item's; the caller commits."""
+    """Make the planned changes and log each item's; the caller commits.
+
+    Each item's change goes into its history through `field_changes.record`,
+    that table's one writer, every row stamped with this run's start.
+    """
     now = datetime.now(UTC)
-    logged: list[ItemFieldChange] = []
+    logged = 0
 
     def log(item_id: int, field_name: str, old: object, new: object) -> None:
-        logged.append(
-            ItemFieldChange(
-                inventory_item_id=item_id,
-                field_name=field_name,
-                old_value=old,
-                new_value=new,
-                changed_by_id=user_id,
-                changed_at=now,
-            )
+        nonlocal logged
+        logged += field_changes.record(
+            db,
+            item_id,
+            {field_name: old},
+            {field_name: new},
+            [field_name],
+            user_id=user_id,
+            at=now,
         )
 
     for item_id, listing in todo.listing_ids.items():
@@ -282,14 +287,13 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
                     )
                 db.delete(gone)
                 deleted += 1
-    db.add_all(logged)
     db.flush()
     return {
         "listing ids set": len(todo.listing_ids),
         "purchases numbered": numbered,
         "items moved": moved,
         "purchases merged away": deleted,
-        "history rows": len(logged),
+        "history rows": logged,
     }
 
 
