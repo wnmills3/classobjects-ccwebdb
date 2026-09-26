@@ -25,7 +25,7 @@ import { orNull } from '../../shared/text'
  * for their own single-list pages.
  *
  * **Two rules the API enforces that this page does not let the owner walk
- * into blindly** (the Task 6 brief): a lot's number and reserve can only be
+ * into blindly**: a lot's number and reserve can only be
  * edited while the auction is `draft`, `scheduled` or `consigned`
  * (`app.auctions.refuse_unless_lot_editable`), so the inputs below are
  * disabled outside that window rather than left live for a refusal to

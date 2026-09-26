@@ -33,9 +33,10 @@ export function useInventorySearch(view) {
   const query = params.toString()
 
   useEffect(() => {
-    // Not only tidiness: typing in the search box fires a request per
-    // keystroke, and without this an early slow response can land after a
-    // later fast one and overwrite newer results with older ones.
+    // Not only tidiness: filters change in quick succession -- a picker
+    // changed twice, pages clicked through -- and without this an early slow
+    // response can land after a later fast one and overwrite newer results
+    // with older ones.
     let cancelled = false
 
     api

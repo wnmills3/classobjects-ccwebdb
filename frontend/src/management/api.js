@@ -193,10 +193,10 @@ export const api = {
   // `err.body?.refused` to mark every offending lot, not just the first.
   listAuctions: (params = {}) => send(withQuery('/api/auctions', params)),
   createAuction: (payload) => send('/api/auctions', { method: 'POST', body: payload }),
-  // No `updateAuction` here: this task adds no UI that edits an auction's
-  // own title, dates or notes (`AuctionUpdate` in `schemas.py`), and a call
+  // No `updateAuction` here: nothing in the console edits an auction's own
+  // title, dates or notes (`AuctionUpdate` in `schemas.py`), and a call
   // nothing sends is dead surface with no request-body test of its own to
-  // keep it honest -- add it back with the task that actually needs it.
+  // keep it honest.
   scheduleAuction: (id) => send(`/api/auctions/${id}/schedule`, { method: 'POST' }),
   consignAuction: (id, payload) =>
     send(`/api/auctions/${id}/consign`, { method: 'POST', body: payload }),
@@ -300,7 +300,7 @@ export const api = {
       method: 'DELETE',
     }),
 
-  // accounts -- who can sign in
+  // orders -- every customer's, placed and revised for them, and moved on
   listOrders: () => send('/api/orders'),
   setOrderStatus: (id, status) =>
     send(`/api/orders/${id}`, { method: 'PATCH', body: { status } }),
@@ -309,6 +309,8 @@ export const api = {
   reviseOrder: (orderId, payload) =>
     send(`/api/orders/${orderId}`, { method: 'PUT', body: payload }),
   listOrderChanges: (orderId) => send(`/api/orders/${orderId}/changes`),
+
+  // accounts -- who can sign in
   customerForUser: (userId) =>
     send(`/api/users/${userId}/customer`, { method: 'POST' }),
   listUsers: () => send('/api/users'),
