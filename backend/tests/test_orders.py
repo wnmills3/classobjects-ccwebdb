@@ -458,14 +458,14 @@ def test_cancelling_with_no_store_platform_is_a_500_naming_the_fix(
     admin_headers: dict[str, str],
     db: Session,
 ) -> None:
-    """Task 5 follow-up: the live `routers/orders.py` case of defect 2's fix.
+    """The live `routers/orders.py` case of the missing-reference-data handler.
 
     `update_order_status` -> `_no_stock_to_return` -> `store_venue_id` is a
     **live** path: any admin cancelling an unshipped store order runs it,
     with no code change needed to reach it, unlike `app.auctions.consign`
     which needs an auction house auction first. Before `app.main` registered
     a handler for `RuntimeError`, this reached the console as a bodyless
-    500; now the same handler that closes defect 2 for `consign` closes it
+    500; now the same handler that serves `consign` closes it
     here too, in one place, exactly as the ruling asked.
 
     Simulated by flipping the seeded store platform's `is_own_store` rather

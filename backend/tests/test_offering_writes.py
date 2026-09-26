@@ -777,7 +777,7 @@ def test_a_sold_item_is_not_put_back_to_held(
 
     A shop sale marks the item `sold` while its listing stays active at zero
     stock (`order_writes._after_stock_change`). Ending that listing afterwards
-    -- which Task 4's end endpoint does -- must not report it as held again.
+    -- which the end endpoint does -- must not report it as held again.
     """
     item = make_item()
     ebay = _venue(db, "ebay-sold-item")

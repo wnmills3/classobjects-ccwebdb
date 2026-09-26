@@ -886,16 +886,17 @@ def test_two_checkouts_race_for_one_lot(
     (`tests/test_offering_writes.py`) measures, because no single-lock
     mutation can reach it.
 
-    **This is not the race the task specified**, and the substitution is
-    deliberate. The specified one was a checkout racing a *pause* of the same
+    **This is not the obvious race**, and the substitution is
+    deliberate. The obvious one is a checkout racing a *pause* of the same
     lot, the pause coming from offering one member elsewhere. No such pause
     exists any more: `offering_writes._refuse_grouped` refuses offering a
     member of an `offered` lot at all, and a lot cannot be re-offered
     (`_lot_members` refuses a lot that is not `assembling`) nor can a member
     join a second open lot (`uq_sales_lot_item_open`) -- so nothing in the
-    code can pause an offered lot's store listing. Written as specified, the
-    race passed because the pause was simply refused, which is a Task 7
-    guarantee and not a concurrency one; and in the fuller run it instead hit
+    code can pause an offered lot's store listing. Written that way, the
+    race passed because the pause was simply refused, which is
+    `_refuse_grouped`'s guarantee and not a concurrency one; and in the
+    fuller run it instead hit
     a genuine Postgres deadlock, because `place_order` took listings before
     items while `offering_writes.offer` took items before listings. That
     deadlock was reported as a defect, and is now fixed and pinned by
@@ -958,8 +959,7 @@ def test_two_checkouts_race_for_one_lot(
     # `"stale"` named apart from `"refused"`, the idiom this file already uses
     # two tests above: the loser of a checkout is entitled to a 409 saying
     # what is left, never to an optimistic-lock failure. Folding
-    # `StaleDataError` in with the refusals -- which is how the brief's
-    # version of this race caught it -- is what makes the test pass with the
+    # `StaleDataError` in with the refusals is what makes the test pass with the
     # listing lock removed, because `Listing.version` then refuses the second
     # writer instead of the lock serializing them.
     assert "stale" not in outcomes, outcomes

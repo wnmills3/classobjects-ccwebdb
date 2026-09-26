@@ -1,4 +1,4 @@
-"""The auctions API (selling design, phase 4, Task 5).
+"""The auctions API (selling design, phase 4).
 
 The HTTP face of `app.auctions`: creating and editing auctions, adding and
 removing lots, the transitions, and settlement. The writer's own rules are
@@ -138,7 +138,7 @@ def test_auction_transitions_are_admin_only(
 ) -> None:
     """The guard runs before the handler, so no auction needs to exist.
 
-    Minor #8 (Task 5 fix round 1): every transition, not just schedule and
+    Every transition, not just schedule and
     close -- consign, cancel and settle each take a body, so each is sent a
     schema-valid one to isolate the admin gate from request validation.
     """
@@ -511,7 +511,7 @@ def test_renumbering_a_lot_in_a_closed_auction_is_refused(
     is reconciled against, and a reserve is meaningless -- the same boundary
     `remove_lot` already draws (`_LOTS_REMOVABLE`). The other side of this --
     that the change is allowed before close -- is `test_renumbering_a_lot`
-    (`draft`) and, below (Minor #8, Task 5 fix round 1),
+    (`draft`) and, below,
     `test_renumbering_a_lot_while_scheduled` and
     `test_renumbering_a_lot_while_consigned`.
     """
@@ -727,14 +727,14 @@ def test_consign_with_no_seed_is_a_500_naming_the_seeder(
     admin_headers: dict[str, str],
     scheduled_auction: Auction,
 ) -> None:
-    """Task 5, defect 2: the operator sees the actionable message, not a bare 500.
+    """The operator sees the actionable message, not a bare 500.
 
     The live database is in exactly this state today -- migrated to this
     branch's revision, but `python -m app.seeding load` has not run. Before
     `app.main` registered a handler for this, it reached the console as a
     bodyless "Internal Server Error"; the message `app.auctions.consign`
     raises never left the server log. Registered on
-    `errors.ReferenceDataMissing` since ruling R24 (Task 5 fix round 1), not
+    `errors.ReferenceDataMissing` since ruling R24, not
     on `RuntimeError` itself -- see `test_an_unrelated_runtime_error_is_not_swallowed`
     for the regression that ruling closed.
     """
@@ -793,7 +793,7 @@ def test_an_unrelated_runtime_error_is_not_swallowed(
     scheduled_auction: Auction,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ruling R24 (Task 5 fix round 1): only `errors.ReferenceDataMissing` is caught.
+    """Ruling R24: only `errors.ReferenceDataMissing` is caught.
 
     Before this ruling, the 500 handler was registered on `RuntimeError`
     itself -- also the base of `NotImplementedError` and `RecursionError`,
@@ -1035,7 +1035,7 @@ def test_a_plain_auction_refused_from_settle_is_still_a_409(
     assert response.status_code == 409, response.text
     body = response.json()
     assert body["detail"] == "a real conflict, for the test"
-    # Minor #8 (Task 5 fix round 1): the other three dispatch tests in this
+    # The other three dispatch tests in this
     # section check `refused` as well as `detail`; this one had not.
     assert body["refused"] == [
         {"reason": "a real conflict, for the test", "lot_number": None}
