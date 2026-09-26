@@ -11,7 +11,7 @@
  * component: the numbers are money, they are easy to get subtly wrong, and a
  * helper can be tested against its own table of cases.
  */
-import { fromCents, isMoney, toCents } from '../../shared/cents'
+import { centsOrZero, isMoney, signedFromCents, toCents } from '../../shared/cents'
 
 /** "13.25" (percent, as typed) -> "0.1325"; blank -> null. */
 export function percentToFraction(text) {
@@ -48,9 +48,6 @@ function rateUnits(rate) {
   return Number(whole) * 10000 + Number(`${frac}0000`.slice(0, 4))
 }
 
-/** A money amount as stored, or zero when the platform records none. */
-const fixedCents = (amount) => (isMoney(amount) ? toCents(amount) : 0)
-
 /**
  * What the platform takes out of a sale at this price, in whole cents.
  *
@@ -62,13 +59,8 @@ const fixedCents = (amount) => (isMoney(amount) ? toCents(amount) : 0)
 function feeCents(cents, venue) {
   if (!venue) return 0
   const rate = rateUnits(venue.commission_rate) + rateUnits(venue.processing_rate)
-  const fixed = fixedCents(venue.processing_fixed) + fixedCents(venue.listing_fee)
+  const fixed = centsOrZero(venue.processing_fixed) + centsOrZero(venue.listing_fee)
   return Math.round((cents * rate) / 10000) + fixed
-}
-
-/** Whole cents as a decimal string, negative ones included. */
-function money(cents) {
-  return cents < 0 ? `-${fromCents(-cents)}` : fromCents(cents)
 }
 
 /**
@@ -98,7 +90,7 @@ export function hasDefaultFees(venue) {
  */
 export function estimatedFees(price, venue) {
   if (!isMoney(price) || !hasDefaultFees(venue)) return ''
-  return money(feeCents(toCents(price), venue))
+  return signedFromCents(feeCents(toCents(price), venue))
 }
 
 /**
@@ -110,7 +102,7 @@ export function estimatedFees(price, venue) {
 export function netAfterFees(price, venue) {
   if (!isMoney(price) || !hasDefaultFees(venue)) return ''
   const cents = toCents(price)
-  return money(cents - feeCents(cents, venue))
+  return signedFromCents(cents - feeCents(cents, venue))
 }
 
 /**
