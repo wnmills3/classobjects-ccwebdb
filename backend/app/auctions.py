@@ -88,7 +88,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from . import lifecycle_writes, lot_writes, offering_writes, sales_writes
+from . import buyers, lifecycle_writes, lot_writes, offering_writes, sales_writes
 from .errors import ReferenceDataMissing
 from .models import (
     Auction,
@@ -782,26 +782,8 @@ class SettlementLine:
     buyer_username: str | None = None
 
 
-def _buyer_name(username: str | None) -> str | None:
-    """The username as the owner typed it, minus surrounding whitespace.
-
-    What goes **into the customer record**, through `buyers.venue_buyer`.
-    Empty and whitespace-only both become `None`, which is that function's
-    own rule for the undisclosed buyer -- an untouched optional form field
-    sends `""`, not a missing field, and `venue_username = ''` is a distinct
-    non-null value the partial unique index cannot catch.
-
-    Deliberately **not** casefolded: a customer row must carry the name the
-    owner actually typed, `CoinFan88`, not a flattening of it. The folding
-    belongs to `_buyer_key` below, which decides only how the grid is
-    grouped.
-    """
-    stripped = username.strip() if username else None
-    return stripped or None
-
-
 def _buyer_key(username: str | None) -> str | None:
-    """The grouping key for a buyer: `_buyer_name`, casefolded.
+    """The grouping key for a buyer: `buyers.buyer_name`, casefolded.
 
     This is what decides how many *orders* a settlement writes, so it has to
     answer the same question `buyers.venue_buyer` answers when it decides how
@@ -825,7 +807,7 @@ def _buyer_key(username: str | None) -> str | None:
     spelling the grid used alongside it, and that is what reaches
     `venue_buyer`.
     """
-    name = _buyer_name(username)
+    name = buyers.buyer_name(username)
     return None if name is None else name.casefold()
 
 
@@ -1098,7 +1080,7 @@ def _sold_by_buyer(
         group = grouped.get(key)
         if group is None:
             group = _BuyerGroup(
-                key=key, username=_buyer_name(line.buyer_username), lots=[]
+                key=key, username=buyers.buyer_name(line.buyer_username), lots=[]
             )
             grouped[key] = group
         group.lots.append((row, line.hammer_price))
