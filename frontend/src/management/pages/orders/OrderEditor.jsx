@@ -4,7 +4,8 @@ import { api } from '../../api'
 import { money } from '../../../shared/format'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
-import { fromCents, isMoney, toCents, totalCents } from './cents'
+import { fromCents, isMoney, toCents } from '../../../shared/cents'
+import { totalCents } from './cents'
 
 /**
  * Placing or revising an order on a customer's behalf.

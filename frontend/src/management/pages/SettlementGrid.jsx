@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import ModalDialog from '../ModalDialog'
 import { RESULTS } from './auction-labels'
-import { fromCents, isMoney, toCents } from './orders/cents'
+import { fromCents, isMoney, toCents } from '../../shared/cents'
 import { subjectOf, UNKNOWN } from './listing-labels'
 import { useReference } from '../../shared/reference-context'
 
@@ -17,7 +17,7 @@ import { useReference } from '../../shared/reference-context'
  * single sale in. Money crosses this component exactly as it is typed and
  * exactly as it is sent: a decimal string, never rounded through a
  * JavaScript number. The only arithmetic here -- gross, fees, net and cost
- * basis -- is done in whole cents via `./orders/cents.js`, for the totals
+ * basis -- is done in whole cents via `shared/cents.js`, for the totals
  * shown on screen, and none of it is what gets sent.
  *
  * **A lot with no result chosen is simply left out of `lines`.** That is not

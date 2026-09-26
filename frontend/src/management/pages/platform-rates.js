@@ -11,7 +11,7 @@
  * component: the numbers are money, they are easy to get subtly wrong, and a
  * helper can be tested against its own table of cases.
  */
-import { fromCents, isMoney, toCents } from './orders/cents'
+import { fromCents, isMoney, toCents } from '../../shared/cents'
 
 /** "13.25" (percent, as typed) -> "0.1325"; blank -> null. */
 export function percentToFraction(text) {
@@ -123,7 +123,7 @@ export function netAfterFees(price, venue) {
  * when only the second is true. A platform with no recorded fees is charged
  * none, which makes this the gross margin rather than a guess.
  *
- * Whole cents throughout, via `orders/cents.js` and for the reason written
+ * Whole cents throughout, via `shared/cents.js` and for the reason written
  * there: money crosses the API as a decimal string, and a float cannot hold
  * cents exactly. Only the final division is inexact, and its result is
  * rounded immediately and used for display alone.

@@ -4,7 +4,7 @@ import { AccessLabel } from '../../AccessLabel'
 import { api } from '../../api'
 import ModalDialog from '../../ModalDialog'
 import { accel, useSaveShortcut } from '../../shortcuts'
-import { isMoney } from '../orders/cents'
+import { isMoney } from '../../../shared/cents'
 import { FORMATS, UNKNOWN } from '../listing-labels'
 import {
   estimatedFees,

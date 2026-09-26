@@ -5,7 +5,7 @@ import { fieldFitsKind, fitsKind, isCurrencyKind } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
-import { isMoney } from '../orders/cents'
+import { isMoney } from '../../../shared/cents'
 import ErrorsPanel from '../inventory/ErrorsPanel'
 import { withSuggestions, without } from './suggestions'
 
