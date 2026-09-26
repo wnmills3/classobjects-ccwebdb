@@ -42,6 +42,15 @@ _NOTE_COLUMNS: tuple[str, ...] = (
 )
 
 
+def currency_kind_id(db: Session) -> int:
+    """The id of the `currency` item kind: what makes an item a banknote.
+
+    `.one()`: the row is seeded, and a database without it fails loudly here
+    rather than treating every banknote as a coin.
+    """
+    return db.scalars(select(ItemKind.id).where(ItemKind.code == "currency")).one()
+
+
 class KindChangeRefused(ValueError):
     """A kind change that would throw away a banknote's own facts."""
 
@@ -59,7 +68,7 @@ def match_detail_to_kind(db: Session, item: InventoryItem) -> None:
     because the kind moved is the loss this module exists to prevent; the
     caller clears the note's fields first, deliberately.
     """
-    currency_id = db.scalar(select(ItemKind.id).where(ItemKind.code == "currency"))
+    currency_id = currency_kind_id(db)
     # Through the relationships, whose delete-orphan cascade removes the row
     # let go of: no flush here, so an edit still reaches the database as one
     # UPDATE and moves the item's version once.

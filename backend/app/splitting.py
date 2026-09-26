@@ -39,7 +39,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import lot_writes, offering_writes, sale_state
+from . import item_kinds, lot_writes, offering_writes, sale_state
 from .allocation import allocate
 from .lifecycle_writes import record_initial_status
 from .models import (
@@ -47,7 +47,6 @@ from .models import (
     CurrencyDetail,
     Disposition,
     InventoryItem,
-    ItemKind,
     Listing,
     ListingStatus,
     ProvenanceSource,
@@ -276,9 +275,7 @@ def split_item(
 
     # Resolved once rather than per piece: a fifty-way split would otherwise
     # run fifty identical lookups.
-    currency_kind_id = db.scalars(
-        select(ItemKind.id).where(ItemKind.code == "currency")
-    ).one()
+    currency_kind_id = item_kinds.currency_kind_id(db)
 
     children: list[InventoryItem] = []
     for piece, cost, ship in zip(pieces, costs, shipping, strict=True):

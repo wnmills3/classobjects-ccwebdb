@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from .models import ReferenceMixin
 
-__all__ = ["code_to_id", "id_to_code", "require_code"]
+__all__ = ["code_of", "code_to_id", "id_to_code", "require_code"]
 
 
 def code_to_id(
@@ -83,3 +83,18 @@ def require_code(
 def id_to_code(row: object | None) -> str | None:
     """The code of a related reference row, for building a response."""
     return getattr(row, "code", None) if row is not None else None
+
+
+def code_of(db: Session, model: type[ReferenceMixin], row_id: int | None) -> str | None:
+    """The code a classifier's foreign key resolves to, or None when unset.
+
+    Looked up by id rather than through an ORM relationship, because not
+    every classifier column has one -- `inventory_item.series_id` is set and
+    read as a plain column with no `InventoryItem.series` relationship
+    declared -- and one lookup path that works for all of them is simpler
+    than two.
+    """
+    if row_id is None:
+        return None
+    row = db.get(model, row_id)
+    return row.code if row is not None else None
