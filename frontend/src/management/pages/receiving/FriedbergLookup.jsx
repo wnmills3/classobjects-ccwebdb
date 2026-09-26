@@ -5,6 +5,8 @@ import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { PRINTING_FACILITIES } from '../../../shared/kinds'
 import { webSearchText } from './webSearchText'
+import { useDebounced } from '../../../shared/useDebounced'
+import { useRequest } from '../../../shared/useRequest'
 import HelpScope from '../../HelpScope'
 
 //: A matched row's classifiers, rendered as one readable line -- only the
@@ -68,6 +70,11 @@ function filtersOf(fields) {
   if (fields.printing) filters.printing_facility = fields.printing
   return filters
 }
+
+/** How long typing must pause before the signature pairs are narrowed again. */
+const NARROW_DELAY_MS = 250
+
+const upper = (text) => text.toUpperCase()
 
 /** A vocabulary's values as a code -> label map; empty while it loads. */
 function labelsOf(values) {
@@ -135,21 +142,26 @@ export default function FriedbergLookup({
 }) {
   const [initial] = useState(() => fromItem(item))
   const [showFields, setShowFields] = useState(!searchNow)
-  const [denomination, setDenomination] = useState(initial.denomination)
-  const [noteType, setNoteType] = useState(initial.noteType)
-  const [sealColor, setSealColor] = useState(initial.sealColor)
-  const [seriesYear, setSeriesYear] = useState(initial.seriesYear)
-  const [seriesLetter, setSeriesLetter] = useState(initial.seriesLetter)
-  const [signatureCombination, setSignatureCombination] = useState(
-    initial.signatureCombination,
-  )
-  const [district, setDistrict] = useState(initial.district)
-  const [press, setPress] = useState(initial.press)
-  const [printing, setPrinting] = useState(initial.printing)
-  const [facePlate, setFacePlate] = useState(initial.facePlate)
-  const [backPlate, setBackPlate] = useState(initial.backPlate)
-  const [signatureOptions, setSignatureOptions] = useState([])
-  const [allSignatures, setAllSignatures] = useState([])
+  // The search fields, shaped as `fromItem` makes them.
+  const [fields, setFields] = useState(initial)
+  const {
+    denomination,
+    noteType,
+    sealColor,
+    seriesYear,
+    seriesLetter,
+    signatureCombination,
+    district,
+    press,
+    printing,
+    facePlate,
+    backPlate,
+  } = fields
+  /** A change handler for one field, the typed value passed through `clean`. */
+  const field =
+    (key, clean = (text) => text) =>
+    (e) =>
+      setFields((current) => ({ ...current, [key]: clean(e.target.value) }))
 
   const [results, setResults] = useState(null)
   const [searchError, setSearchError] = useState('')
@@ -198,77 +210,51 @@ export default function FriedbergLookup({
   const [attachMessage, setAttachMessage] = useState('')
 
   // Every pair, once, so a choice the narrowed list leaves out can still be
-  // shown by its name rather than its code.
-  useEffect(() => {
-    let cancelled = false
-    api
-      .getSignatureChoices()
-      .then((body) => {
-        if (!cancelled) setAllSignatures(body.values)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  // shown by its name rather than its code -- and the pulldown's list while
+  // no series year is entered.
+  const everyPair = useRequest('all', () => api.getSignatureChoices({}))
+  const allSignatures = everyPair.data?.values ?? []
 
   // Narrows to the pairs a note of this series can carry -- the seeded
   // `note_issue` facts, the public-fact half of this feature. Not the pairs
   // in office in the series year: that hid every lettered series' later
-  // signers (1963-A is Granahan / Fowler). With no year entered the backend
-  // returns every pair rather than an empty pulldown.
+  // signers (1963-A is Granahan / Fowler). Asked once typing pauses, not per
+  // keystroke of the year.
   //
   // A choice the narrowed list leaves out is **kept**, never cleared: it is
   // usually what the note itself records, and clearing it silently is how a
   // right answer vanished before. The pulldown shows it marked instead.
-  useEffect(() => {
-    let cancelled = false
-    api
-      .getSignatureChoices(
-        seriesYear
-          ? {
-              denomination,
-              note_type: noteType,
-              seal_color: sealColor,
-              series_year: Number(seriesYear),
-              series_letter: seriesLetter,
-            }
-          : {},
-      )
-      .then((body) => {
-        if (!cancelled) setSignatureOptions(body.values)
-      })
-      .catch(() => {
-        if (!cancelled) setSignatureOptions([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [denomination, noteType, sealColor, seriesYear, seriesLetter])
+  const narrowKey = useDebounced(
+    seriesYear
+      ? JSON.stringify({
+          denomination,
+          note_type: noteType,
+          seal_color: sealColor,
+          series_year: Number(seriesYear),
+          series_letter: seriesLetter,
+        })
+      : null,
+    NARROW_DELAY_MS,
+  )
+  const narrowed = useRequest(narrowKey, () =>
+    api.getSignatureChoices(JSON.parse(narrowKey)),
+  )
+  const signatureOptions =
+    narrowKey === null
+      ? allSignatures
+      : narrowed.error
+        ? []
+        : (narrowed.data?.values ?? [])
 
   const denominations = useReference('denomination')
   const noteTypes = useReference('note_type')
   const districts = useReference('fed_district')
-  const searchText = webSearchText(
-    {
-      denomination,
-      noteType,
-      seriesYear,
-      seriesLetter,
-      signatureCombination,
-      district,
-      press,
-      printing,
-      facePlate,
-      backPlate,
-    },
-    {
-      denomination: labelsOf(denominations),
-      note_type: labelsOf(noteTypes),
-      fed_district: labelsOf(districts),
-      signature_combination: labelsOf([...allSignatures, ...signatureOptions]),
-    },
-  )
+  const searchText = webSearchText(fields, {
+    denomination: labelsOf(denominations),
+    note_type: labelsOf(noteTypes),
+    fed_district: labelsOf(districts),
+    signature_combination: labelsOf([...allSignatures, ...signatureOptions]),
+  })
   // The latest search text, for a search whose answer lands after the
   // vocabularies finish loading -- its question then uses their labels, not
   // the codes the first render had.
@@ -302,19 +288,7 @@ export default function FriedbergLookup({
     searchCancelRef.current = null
   }
 
-  function currentFilters() {
-    return filtersOf({
-      denomination,
-      noteType,
-      sealColor,
-      seriesYear,
-      seriesLetter,
-      signatureCombination,
-      district,
-      press,
-      printing,
-    })
-  }
+  const currentFilters = () => filtersOf(fields)
 
   async function search() {
     invalidatePendingSearch()
@@ -442,7 +416,7 @@ export default function FriedbergLookup({
                 <ReferenceSelect
                   table="denomination"
                   value={denomination}
-                  onChange={(e) => setDenomination(e.target.value)}
+                  onChange={field('denomination')}
                   placeholder="usd_note_5_00"
                 />
               </label>
@@ -451,7 +425,7 @@ export default function FriedbergLookup({
                 <ReferenceSelect
                   table="note_type"
                   value={noteType}
-                  onChange={(e) => setNoteType(e.target.value)}
+                  onChange={field('noteType')}
                   placeholder="federal_reserve_note"
                 />
               </label>
@@ -460,7 +434,7 @@ export default function FriedbergLookup({
                 <ReferenceSelect
                   table="seal_color"
                   value={sealColor}
-                  onChange={(e) => setSealColor(e.target.value)}
+                  onChange={field('sealColor')}
                   placeholder="green"
                 />
               </label>
@@ -470,7 +444,7 @@ export default function FriedbergLookup({
                   type="text"
                   inputMode="numeric"
                   value={seriesYear}
-                  onChange={(e) => setSeriesYear(e.target.value)}
+                  onChange={field('seriesYear')}
                 />
               </label>
               <label data-help="series_letter">
@@ -479,14 +453,14 @@ export default function FriedbergLookup({
                   type="text"
                   maxLength={1}
                   value={seriesLetter}
-                  onChange={(e) => setSeriesLetter(e.target.value.toUpperCase())}
+                  onChange={field('seriesLetter', upper)}
                 />
               </label>
               <label data-help="signature_combination">
                 Signature combination
                 <select
                   value={signatureCombination}
-                  onChange={(e) => setSignatureCombination(e.target.value)}
+                  onChange={field('signatureCombination')}
                 >
                   <option value="">--</option>
                   {signatureCombination && !signatureListed && (
@@ -506,13 +480,13 @@ export default function FriedbergLookup({
                 <ReferenceSelect
                   table="fed_district"
                   value={district}
-                  onChange={(e) => setDistrict(e.target.value)}
+                  onChange={field('district')}
                   placeholder="B"
                 />
               </label>
               <label data-help="web_press">
                 Web press
-                <select value={press} onChange={(e) => setPress(e.target.value)}>
+                <select value={press} onChange={field('press')}>
                   <option value="">Not known</option>
                   <option value="yes">Yes</option>
                   <option value="no">No, sheet-fed</option>
@@ -520,7 +494,7 @@ export default function FriedbergLookup({
               </label>
               <label data-help="printing_facility">
                 Printed at
-                <select value={printing} onChange={(e) => setPrinting(e.target.value)}>
+                <select value={printing} onChange={field('printing')}>
                   <option value="">Not known</option>
                   {PRINTING_FACILITIES.map(([code, label]) => (
                     <option key={code} value={code}>
@@ -534,7 +508,7 @@ export default function FriedbergLookup({
                 <input
                   type="text"
                   value={facePlate}
-                  onChange={(e) => setFacePlate(e.target.value.toUpperCase())}
+                  onChange={field('facePlate', upper)}
                 />
               </label>
               <label data-help="back_plate_number">
@@ -543,7 +517,7 @@ export default function FriedbergLookup({
                   type="text"
                   inputMode="numeric"
                   value={backPlate}
-                  onChange={(e) => setBackPlate(e.target.value)}
+                  onChange={field('backPlate')}
                 />
               </label>
             </div>
