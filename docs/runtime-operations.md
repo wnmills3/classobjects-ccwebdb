@@ -28,11 +28,9 @@ scripts\ccweb_pgadmin.cmd              pgAdmin on http://127.0.0.1:5050
 `ccwebdb` in play itself (below). The scripts locate the repository from
 their own path, so they work from any directory when called by full path.
 
-> This machine sets `NoDefaultCurrentDirectoryInExePath=1`, so a **bare**
-> script name is not found even in its own directory. Always include a path
-> separator: `scripts\ccweb_startup.cmd`, or `.\ccweb_startup.cmd` inside
-> `scripts\`. From Git Bash use `cmd //c scripts\\ccweb_startup.cmd`, and
-> `--keepdb` rather than `/keepdb`.
+> A **bare** script name is not found, even in its own directory, and Git
+> Bash needs `cmd //c` and `--keepdb`; see
+> [environment-setup.md](environment-setup.md) (*Gotchas*).
 
 | | |
 |---|---|
@@ -173,11 +171,9 @@ logs\postgres.log              pg_ctl start output, then the server log
 logs\pg_stop.log               pg_ctl stop output
 ```
 
-The log directory is `CCWEB_LOG_DIR`, `.\logs` when unset; a relative path is
-taken from the repo root. Each type keeps its last three files
-(`backend.log`, `backend.1.log`, `backend.2.log`), none past 1 GB.
-[logs/README.md](../logs/README.md) describes every file and the
-`CCWEB_LOG_KEEP` and `CCWEB_LOG_MAX_BYTES` settings. `.runtime\`, `.pgdata\`
+[logs/README.md](../logs/README.md) describes every log file, how they
+rotate, and the `CCWEB_LOG_DIR`, `CCWEB_LOG_KEEP` and `CCWEB_LOG_MAX_BYTES`
+settings. `.runtime\`, `.pgdata\`
 and everything in `logs\` but its README are gitignored. When something fails
 to start, the scripts print the log to read first.
 
@@ -211,10 +207,10 @@ http://localhost:9000/account/security. The scan runs the test suite first and
 refuses to publish if it fails.
 
 `scripts\ccweb_sonar_mcp.cmd` launches the SonarQube MCP server behind the
-`mcp__sonarqube__*` tools. `sonar run mcp` cannot reach a local server (its
-container's `localhost` is itself, and it has no `--network` flag); the script
-joins `sonar-net` and uses `http://sonarqube:9000`. It also needs
-`SONAR_TOKEN`. `.mcp.json` at the repo root points Claude Code at it; it is
+`mcp__sonarqube__*` tools, and also needs `SONAR_TOKEN`; why it exists rather
+than `sonar run mcp` is in
+[specs/self-hosted-sonarqube-design.md](specs/self-hosted-sonarqube-design.md).
+`.mcp.json` at the repo root points Claude Code at it; it is
 gitignored and hand-managed. **Re-running `sonar integrate claude` overwrites
 it** with the broken invocation; restore it to:
 
@@ -242,11 +238,10 @@ log directory before anything writes there -- a failed redirect in cmd skips
 the command attached to it and reports the redirect's exit code -- and
 shutdown trusts `pg_isready` over `pg_ctl`'s exit code.
 
-**Every server writes through a pipe.** Backend, frontend and PostgreSQL
-output goes to `backend\app\logpipe.py`, which rolls files over at the size
-limit. PostgreSQL's own logging collector is turned off because it can cap a
-file's size but not how many files it leaves. `pg_ctl stop` writes to
-`pg_stop.log` because the running server holds the start pipe.
+**Every server writes through a pipe** into `backend\app\logpipe.py`, which
+rotates the files ([logs/README.md](../logs/README.md), *How the files
+rotate*). `pg_ctl stop` writes to `pg_stop.log` because the running server
+holds the start pipe.
 `PYTHONUNBUFFERED=1` keeps uvicorn's lines from lagging.
 
 **No `--reload`.** uvicorn runs as one process so the PID holding the port is

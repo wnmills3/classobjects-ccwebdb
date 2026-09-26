@@ -59,7 +59,7 @@ item_field_review
   inventory_item_id  -> inventory_item, cascade
   field_name         the column confirmed, e.g. 'grade_id'
   reviewed_at        timestamptz
-  reviewed_by        -> users
+  reviewed_by_id     -> users
   unique (inventory_item_id, field_name)
 ```
 
@@ -131,12 +131,12 @@ available ones for that view.
 
 | Check | Views | Finds |
 |---|---|---|
-| `no_year` | both | no year |
+| `no_year` | both | coin view: no year; currency view: no series year |
 | `no_country` | both | no country |
 | `no_grade` | both | a coin or banknote with no grade |
 | `no_denomination` | both | a coin or banknote with no denomination |
 | `zero_cost` | both | cost missing or zero |
-| `mixed_marker` | both | `mixed` in the grade text or description |
+| `mixed_marker` | both | `mixed` in the rating or description |
 | `unreviewed` | both | no field confirmed by anyone |
 | `kind_unknown` | coin | its kind is not recorded (`unknown`) |
 | `no_weight_bullion` | coin | bullion with no fine weight |
@@ -224,7 +224,17 @@ serves the owner's private catalog: `GET /api/friedberg` searches it by what
 is visible on a note, `POST /api/friedberg` records a number, and
 `POST|DELETE /api/inventory/{id}/friedberg` attaches or clears one on an item.
 `GET /api/friedberg/signatures` returns the signature choices, drawn from
-`note_issue` facts.
+`note_issue` facts. The lookup also filters by printing location: a note
+printed in Washington or Fort Worth matches rows of that location or of none
+recorded, and an exact match ranks first.
+
+When the catalog has no match, the lookup's **Search the web** opens a
+question for Google's AI Mode built from the form (`webSearchText`): the
+series, denomination, note class, district, signatures, web press, printing
+location and plates, asking for the mule suffix when plates are given. The
+owner reads the answer and types the number in. Nothing is fetched or stored
+from the search: a machine collecting Friedberg numbers is the harvesting
+the reference-data rule forbids.
 
 ## Valuation inputs (not built)
 

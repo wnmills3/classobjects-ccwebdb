@@ -72,18 +72,21 @@ convention is not a recorded fact.
   picker is marked with. It is the exact inverse of `fitsKind`'s test; marked
   by one rule and offered by another, a new value would vanish from the
   picker that created it.
-- `COIN_ONLY_FIELDS` (strike type, metal, mint, bullion form),
-  `CURRENCY_ONLY_FIELDS` (note class, seal color, Fed district, signature
-  combination) and `fieldFitsKind(field, itemKind)`, which answers true for a
-  field in neither set.
+- `COIN_ONLY_FIELDS` (strike type, metal, mint, bullion form, set form,
+  variety, and the years -- a note's year is its series year),
+  `CURRENCY_ONLY_FIELDS` (face and back plate, printing location, note class,
+  seal color, Fed district, signature combination) and
+  `fieldFitsKind(field, itemKind)`, which answers true for a field in neither
+  set.
 
-The item editor filters its classifier table through `fieldFitsKind`; the New
-item form gates its strike type, metal and Mint/Variety blocks on it.
-**Known gap:** the currency side is not yet wired through the helper. A note's
-own fields are listed by hand -- the editor's `NOTE_CLASSIFIERS`, the entry
-form's note block and suggestion lists -- gated on the item kind directly. Both
-forms show the same four today, but that consistency is kept by hand until
-those lists read `CURRENCY_ONLY_FIELDS`.
+The item editor filters its classifier table and its variety box through
+`fieldFitsKind`, and a kind change empties what no longer fits through it
+(`kindChange.js`); the New item form gates its set form, strike type, metal
+and Mint/Variety blocks on it. **Known gap:** the forms do not show a note's
+own fields through the helper. They are listed by hand -- the editor's
+`NOTE_CLASSIFIERS` and `NOTE_TEXT_FIELDS`, the entry form's note block and
+suggestion lists -- and shown on the item kind directly, so their agreement
+with `CURRENCY_ONLY_FIELDS` is kept by hand.
 
 **The API enforces the denomination rule too.** A denomination whose `kind`
 contradicts the item's kind is a 422 naming the items, on create, edit and bulk
@@ -133,7 +136,7 @@ recorded is not offered again, and the type picker is filtered by `applies_to`.
 
 | Where | Saving |
 |---|---|
-| Item editor, Receiving | The item exists; the panel `PUT`s the whole set when the form saves. |
+| Item editor, Receiving | The item exists; the panel `PUT`s the whole set on every change (a note's text when its box loses focus), independent of the form's Save, so an error is neither held back by nor lost to a discarded edit. |
 | New item | The item is created first, then its errors are saved. |
 
 **The two-step case is designed, not assumed.** If the create succeeds and the

@@ -79,7 +79,8 @@ skill specifies a different path, format, or workflow, this file wins.
   because every annotation of the literal fails either ruff or mypy.
 - **No ignored lint issues.** Every public class, method and function carries a
   docstring and every function is annotated (ruff `D` and `ANN`). Only three
-  documented exceptions exist, each because the rule does not describe the code.
+  documented exceptions exist, each because the rule does not describe the code,
+  plus Alembic's generated files.
 - Line endings are pinned in `.gitattributes`: `* text=auto eol=lf`, but `*.cmd`
   and `*.bat` stay `eol=crlf` — cmd.exe mishandles labels and `goto` inside
   parenthesised blocks in an LF-only file.

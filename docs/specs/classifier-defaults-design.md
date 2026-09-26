@@ -114,6 +114,17 @@ to seed. No Friedberg number is involved or implied.
 The Bank letter means something only on a **Federal Reserve Note**; a Silver
 Certificate's prefix letter says nothing about a district.
 
+### Plate numbers and printing location
+
+`app.plates` holds the rules. A **face plate** is a check letter and digits
+(`E82`), or digits alone on older notes (`153`); a Fort Worth note has `FW`
+before it (`FW E82`), a Washington note nothing. A **back plate** is digits.
+The **printing location** (`dc` or `fw`) is read from the face plate when one
+is given, so the two cannot disagree, and set by hand only where no face
+plate is recorded. The location tells two Friedberg numbers apart (a 2017-A
+$1 from each facility), and a face and back from different eras is how a
+mule is found.
+
 ## The pass
 
 ```

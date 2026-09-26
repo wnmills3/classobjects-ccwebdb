@@ -2,7 +2,7 @@
 
 Numismatic and Currency Web Platform for Inventory and Sales.
 
-A FastAPI backend and two React applications over one PostgreSQL database: an
+A FastAPI backend and two React applications over one PostgreSQL database: a
 **management console** for cataloging, receiving, photographing and selling a coin
 and banknote collection, and a **shop** where customers browse and order. Why
 it exists and what it deliberately does not do is in
@@ -33,15 +33,10 @@ command starts the database, the API and both applications:
 scripts\ccweb_startup.cmd
 ```
 
-| | |
-|---|---|
-| Shop | http://127.0.0.1:5173 |
-| Management console | http://127.0.0.1:5173/management |
-| API docs (OpenAPI) | http://127.0.0.1:8000/docs |
-
 Stop with `scripts\ccweb_shutdown.cmd`; see what is running with
 `scripts\ccweb_status.cmd`. [docs/runtime-operations.md](docs/runtime-operations.md)
-covers every script.
+covers every script, and its *Quick reference* lists the addresses of the
+shop, the console and the API.
 
 ## Layout
 
@@ -49,9 +44,10 @@ covers every script.
 backend/
   app/
     main.py, config.py, database.py, deps.py, security.py, schemas.py
-    models/              the schema by subject area: core, reference,
-                         identification, valuation, lifecycle, images,
-                         sales, auctions, views
+    models/              the schema by subject area: base (shared
+                         conventions), core, reference, identification,
+                         valuation, lifecycle, images, sales, auctions,
+                         views, scaffold (the users table)
     routers/             the HTTP API (see below)
     *_writes.py          the single writers: lifecycle (status, location),
                          offering (listings, claims, disposition), orders,
@@ -59,7 +55,7 @@ backend/
     inventory_search.py  owner search and facets over the base tables
     issues.py            named diagnostics (no year, no grade, ...)
     classifier_defaults.py, series_match.py, series_classify.py,
-    serial_patterns.py, photo_import.py, vendor_cleanup.py
+    serial_patterns.py, photo_import.py, vendor_cleanup.py, ebay_orders.py
                          passes over stored items; dry run unless --commit
     seeding.py           load and export reference data (backend/data/reference/)
     seed.py              first administrator plus demo items (never on live)
@@ -86,15 +82,15 @@ reference. By area:
 
 | Area | Prefix | Access |
 |---|---|---|
-| Accounts | `/auth`, `/users`, `/customers` | sign-in public; administration admin |
+| Accounts | `/auth`, `/users`, `/customers` | sign-in public; administration manager |
 | Shop catalog | `/catalog` | public, read only |
-| Customer orders | `/orders` | customers their own; admins all |
-| Inventory | `/inventory` (search, create, bulk, edit, receive, split, errors, reviews, delete) | admin |
-| Purchases | `/vendors`, `/purchase-orders`, `/storage-locations` | admin |
-| Vocabularies | `/reference` (read public; add, rename, alias, merge admin), `/defaults` | mixed |
+| Customer orders | `/orders` | customers their own; managers all |
+| Inventory | `/inventory` (search, create, bulk, edit, receive, split, errors, reviews, delete) | manager |
+| Purchases | `/vendors`, `/purchase-orders`, `/storage-locations` | manager |
+| Vocabularies | `/reference` (read public; add, rename, alias, merge manager), `/defaults` | mixed |
 | Photographs | `/images`, `/image-links` (renditions public, by content hash) | mixed |
-| Selling | `/sales-venues`, `/offers`, `/listings` (end, record a sale), `/sales-lots`, `/auctions` | admin |
-| Friedberg numbers | `/friedberg`, `/inventory/{id}/friedberg` | admin; the owner's own numbers only |
+| Selling | `/sales-venues`, `/offers`, `/listings` (end, record a sale), `/sales-lots`, `/auctions` | manager |
+| Friedberg numbers | `/friedberg`, `/inventory/{id}/friedberg` | manager; the owner's own numbers only |
 
 Rules that hold across the API:
 
@@ -128,9 +124,8 @@ scripts\ccweb_pgadmin.cmd
 
 It opens pgAdmin on http://127.0.0.1:5050 with the `ccwebdb` connection
 already registered (password `devpassword`). pgAdmin is not a project
-dependency; install it once into its own uv tool environment, pinned to 3.13
-because `pywinpty` has no wheel for the newer interpreter uv would otherwise
-pick:
+dependency; install it once into its own uv tool environment, pinned to
+Python 3.13 (the script header says why):
 
 ```cmd
 uv tool install --python 3.13 pgadmin4

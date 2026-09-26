@@ -102,9 +102,11 @@ for coins `year_min`/`year_max` and `mint` (the mint mark); for currency
 `vendor` and `purchase_order_id`.
 
 **Storage locations are never customer-visible.** `storage_location` is an
-authorization boundary enforced by the `public_catalog` view and by tests:
-a public listing that leaked the safe-deposit box holding an item would be a
-security failure.
+authorization boundary: a public listing that leaked the safe-deposit box
+holding an item would be a security failure. `routers/catalog.py`
+(`to_catalog_item`) builds every public response field by field, and
+`test_catalogue_never_exposes_cost_basis_or_location` tests it; the
+`public_catalog` view only states the rule (see `database-design.md` §10).
 
 ## The page
 

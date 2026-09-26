@@ -109,9 +109,11 @@ the way in. The shop shows only an item's primary photograph.
 
 ### 6. Offer and sell
 
-An item must be `received` to be offered. From the item editor or
-**Listings**, offer it on a platform (the store, eBay, Whatnot, an auction
-house) at a price; group items into a **sales lot** on **Lots**; assemble and
+An item must be `received` to be offered. Offer it on a platform (the store,
+eBay, Whatnot, an auction house) at a price with **Offer for sale...**, from
+the Coins or Currency page's bulk bar for a selection or from the item
+editor's Offers panel; **Listings** shows every offer and edits or ends it.
+Group items into a **sales lot** on **Lots**; assemble and
 settle auctions on **Auctions**. Store sales arrive as orders; a sale on an
 outside platform is recorded against its listing. An item has at most one
 active offer at a time. [specs/selling-design.md](specs/selling-design.md)

@@ -25,7 +25,7 @@ needs no change to anything here.
 frontend/
   index.html              -> /src/store/main.jsx   served at /
   management.html         -> /src/management/main.jsx   served at /management
-  vite.config.js          build.rollupOptions.input = { store, owner }
+  vite.config.js          build.rollupOptions.input = { store, management }
   scripts/check-bundle-isolation.mjs
   src/
     shared/   transport and calls both use (api.js), auth, reference pickers,

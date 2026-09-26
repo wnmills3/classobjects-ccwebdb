@@ -87,7 +87,7 @@ One row per acquired item or lot (`models/core.py`).
 | `storage_form_id` | fk | single, roll, tube, box, bag, album, … |
 | `piece_count` | int, default 1 | how many objects the row stands for; every weight and value multiplies by it |
 | `country_id` | fk null | issuer |
-| `year_start`, `year_end` | int null | a range, for sets and rolls |
+| `year_start`, `year_end` | int null | a coin's year, or a range for sets and rolls; always empty on a banknote, whose year is `currency_detail.series_year` |
 | `series_id` | fk null | design series (Morgan Dollar); on the item so facets group on an indexed column of the scanned table |
 | `strike_type_id` | fk null | business, proof, specimen, … — the "PR" of PR69 |
 | `grade_id` | fk null | the number (`65`, `64+`), or a non-numeric grade |
@@ -104,6 +104,7 @@ One row per acquired item or lot (`models/core.py`).
 | `source_title` | varchar(500) | what the seller called the item, kept verbatim |
 | `description` | text | what a person recognizes the item by |
 | `listing_url` | varchar null | where it was bought |
+| `sellers_item_id` | varchar(64) null, indexed | the seller's own id for the listing it was bought from -- eBay's item number; every piece of one listing carries it, and one listing can be bought in several orders, so **not unique** |
 | `rating` | text null | the owner's rating in their own words ("66EPQ Double Quad"); searched and read as evidence, never shown to a buyer |
 | `weight_note` | text null | a weight as written where it is not a single number ("1 oz each") |
 | `item_cost`, `shipping_cost` | numeric(12,2) | cost basis inputs (§6) |
@@ -167,6 +168,7 @@ banknote is refused while the note row holds a value.
 | `friedberg_id` | fk `friedberg_number` (§5) |
 | `friedberg_status` | same four values as `pcgs_status` |
 | `face_plate_number`, `back_plate_number`, `plate_position` | text; needed to identify a mule, and carry check letters |
+| `printing_facility` | `dc` \| `fw` (check constraint), null when not known; read from the face plate when there is one -- `FW` before it is Fort Worth (`app.plates`) |
 
 A series letter (`1957-B`) and a mint mark (`1921-D`) look alike and mean
 different things, so they are separate columns on separate tables.
@@ -328,11 +330,13 @@ trust the row.
 | `note_type_id`, `denomination_id`, `series_year`, `series_letter`, `seal_color_id`, `signature_combination_id` | |
 | `size_class` | `large` \| `small` \| `fractional` (check constraint) |
 | `web_press` | boolean null: web-press and sheet-fed printings are different types |
+| `printing_facility` | `dc` \| `fw` (check constraint), null when not known: a 2017-A $1 printed in Washington and one printed in Fort Worth are different types |
 | `description`, `source`, `verified_by_id`, `verified_at` | |
 
 **Identity is partially unique.** `uq_friedberg_number_identity` is unique on
 `(denomination_id, series_year, series_letter, note_type_id, district_letter,
-web_press, signature_combination_id, seal_color_id)` **`NULLS NOT DISTINCT`**,
+web_press, signature_combination_id, seal_color_id, printing_facility)`
+**`NULLS NOT DISTINCT`**,
 only where denomination, year and note type are known. Partial, because a
 plain unique index would reject two differently half-known types, which is
 normal in a catalog built by hand. `NULLS NOT DISTINCT`, because most series
@@ -741,7 +745,8 @@ removing a member of staff never erases the record of what they did.
 `shipping_cost`, prices, fees, share amounts and shipment costs;
 `piece_count > 0`; year ranges ordered; fineness a fraction; fine weight
 within gross; `pcgs_status`, `friedberg_status` and `size_class`
-vocabularies; `ck_listing_item_xor_lot`; address validity ordered.
+vocabularies; `printing_facility` (`dc` or `fw`) on `currency_detail` and
+`friedberg_number`; `ck_listing_item_xor_lot`; address validity ordered.
 
 **Partial and special unique indexes.**
 
@@ -840,7 +845,9 @@ shipped default — and a merged code (`reference_merge`) is skipped.
 
 Closed vocabularies the product defines rather than the world —
 `sales_venue_kind`, `sales_fee_kind` — are seeded by the baseline
-migration, as is the own-store `sales_venue` row.
+migration, as are the own-store `sales_venue` row and the six `strike_type`
+rows (business, proof, specimen, reverse proof, enhanced reverse proof,
+special mint set).
 
 Seed files hold facts only, never a catalog publisher's numbering or prices
 (`CLAUDE.md`, *Reference data*).
@@ -851,7 +858,7 @@ Seed files hold facts only, never a catalog publisher's numbering or prices
 
 `users` is the login table: `email` (unique), `full_name`, `hashed_password`,
 `role` (`manager` \| `customer`), `is_active`, `token_version`, `created_at`.
-Administrators see cost basis; customers do not. Tokens are stateless JWTs
+Managers see cost basis; customers do not. Tokens are stateless JWTs
 carrying `token_version`, which is bumped on every password change so that a
 reset revokes every token issued before it.
 

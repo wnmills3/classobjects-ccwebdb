@@ -140,8 +140,7 @@ any API client sending `MS65`), `display` composes it, mirrored
 by the database's `grade_display()` used by the views and search. The API
 returns `grade` (the code, `65`), `strike_type` and `grade_display` (`MS65`); a
 strike type the client names wins over one a compound grade implies. The item
-editor, New item form and shop console offer a strike type for anything but a
-note.
+editor and New item form offer a strike type for anything but a note.
 
 **Equivalences are aliases, not rows**: Ultra Cameo and UC are UCAM; DPL is
 DMPL. UCAM and DCAM are separate rows, not aliases of one another: each is
