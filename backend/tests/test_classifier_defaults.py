@@ -602,6 +602,7 @@ def test_the_form_is_told_what_a_note_would_be(
         "seal_color": None,  # the person's own choice is not suggested back
         "signature_combination": "woods_woodin",
         "fed_district": None,
+        "series": "funnyback",  # every 1928 $1 is one
         "warning": None,  # Series 1928 is on record for $1
     }
     frn = ask(denomination="usd_note_1", series_year=1969, serial_number="L12345678A")
@@ -617,7 +618,7 @@ def test_the_form_is_told_a_coins_metal(
         headers=admin_headers,
     )
 
-    assert response.json() == {"metal": "silver"}
+    assert response.json() == {"metal": "silver", "series": "roosevelt_dime"}
 
 
 def test_suggestions_are_staff_only(client: TestClient) -> None:

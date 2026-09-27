@@ -40,6 +40,7 @@ from ..schemas import (
     NoteSuggestionOut,
 )
 from ..serial_patterns import SMALL_SIZE_FROM
+from ..series_classify import suggest_series
 
 router = APIRouter(prefix="/defaults", tags=["defaults"])
 
@@ -115,8 +116,22 @@ def suggest_note(
             if row_id is not None
             else None
         )
+    # A seal or class the person chose, or else the one the facts gave, is
+    # evidence for the design: a brown seal makes a $5 1934A a Hawaii note.
+    letter = (series_letter or "").strip().upper() or None
+    series = suggest_series(
+        db,
+        "currency",
+        denomination_id,
+        series_year,
+        letter,
+        current["seal_color_id"] or ids.get("seal_color_id"),
+        current["note_type_id"] or ids.get("note_type_id"),
+    )
     return NoteSuggestionOut(
-        **found, warning=_issue_warning(db, denomination_id, series_year, series_letter)
+        **found,
+        series=series,
+        warning=_issue_warning(db, denomination_id, series_year, series_letter),
     )
 
 
@@ -164,10 +179,11 @@ def suggest_coin(
     country: Code = None,
     year: Annotated[int | None, Query(ge=-3000, le=2200)] = None,
 ) -> CoinSuggestionOut:
-    """The metal a coin of this denomination, country and year is struck in."""
+    """The metal and design series of a coin of this denomination and year."""
+    denomination_id = code_to_id(db, Denomination, denomination, "denomination")
     composition = composition_for(
         db,
-        code_to_id(db, Denomination, denomination, "denomination"),
+        denomination_id,
         code_to_id(db, Country, country, "country"),
         year,
     )
@@ -178,4 +194,6 @@ def suggest_coin(
         if composition is not None and composition.metal_id is not None
         else None
     )
-    return CoinSuggestionOut(metal=metal)
+    return CoinSuggestionOut(
+        metal=metal, series=suggest_series(db, "coin", denomination_id, year, None)
+    )
