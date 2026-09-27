@@ -11,8 +11,8 @@ Two identifiers name the listing an item was bought from: its web address
 At an auction house or a shop -- any vendor but eBay and Whatnot, whose
 pages are orders of many listings -- a purchase is usually one lot, so the
 lot's page is the purchase's web address too. An item with no address takes
-its purchase's, and a purchase with none takes the one address its items
-share. A purchase whose items name several lots gives none and takes none.
+its purchase's when that is recognisably a lot's page (it carries a lot id),
+and a purchase with none takes the one address its items share. A purchase whose items name several lots gives none and takes none.
 
 Nothing already recorded is replaced. `create_item` applies the purchase
 rule as each item is entered; this module's pass fills what older records
@@ -119,6 +119,9 @@ def plan(db: Session) -> Plan:
             if (
                 own is not None
                 and not is_marketplace(vendor)
+                # Only a page that is recognisably a lot's: a shop's location
+                # page is the purchase's, but no listing.
+                and listing_id_from(own) is not None
                 and lots <= {own}  # one lot: no item names another
             ):
                 url = own

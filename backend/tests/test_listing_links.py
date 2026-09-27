@@ -89,6 +89,21 @@ def test_the_pass_fills_each_from_the_other(
     assert show.id not in todo.listing_urls
 
 
+def test_a_shops_page_is_not_copied_onto_its_items(
+    db: Session, make_item: ItemFactory
+) -> None:
+    # A pawn shop's location page names no lot: the pass leaves the items be.
+    order = build_purchase_order(
+        db,
+        vendor_name="silasdeanepawn.com",
+        source_url="https://silasdeanepawn.com/locations/manchester/",
+    )
+    item = _item(db, make_item, order)
+    db.commit()
+
+    assert item.id not in plan(db).listing_urls
+
+
 def test_a_purchase_of_several_lots_takes_no_single_address(
     db: Session, make_item: ItemFactory
 ) -> None:
