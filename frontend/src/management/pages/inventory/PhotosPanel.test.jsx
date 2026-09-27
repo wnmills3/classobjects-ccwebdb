@@ -243,24 +243,64 @@ describe('PhotosPanel: adding another photograph', () => {
     })
   }
 
-  it('asks what a second photograph shows before taking it', async () => {
+  it('asks what a photograph shows once both sides are there', async () => {
     const user = userEvent.setup()
     api.uploadImage.mockResolvedValue({})
-    withOne()
+    api.listItemImages.mockResolvedValue([
+      link({
+        link_id: 9,
+        image_id: 50,
+        image_role: 'obverse',
+        is_primary: true,
+        sort_order: 1,
+      }),
+      link({ link_id: 10, image_id: 51, image_role: 'reverse', sort_order: 2 }),
+    ])
+    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+      reference: roles,
+    })
     const what = await screen.findByRole('combobox', { name: /what it shows/i })
     expect(what).toHaveValue('')
     expect(screen.getByLabelText('Photo')).toBeDisabled()
     expect(screen.getByRole('button', { name: /add from web address/i })).toBeDisabled()
     expect(screen.getByText(/choose what the photograph shows/i)).toBeInTheDocument()
 
-    await user.selectOptions(what, 'reverse')
-    const file = new File(['x'], 'back.jpg', { type: 'image/jpeg' })
+    await user.selectOptions(what, 'obverse')
+    const file = new File(['x'], 'another.jpg', { type: 'image/jpeg' })
     await user.upload(screen.getByLabelText('Photo'), file)
 
     expect(api.uploadImage).toHaveBeenCalledWith(12, file, {
+      imageRole: 'obverse',
+      acknowledgeForSale: false,
+    })
+  })
+
+  it('offers the reverse for an item with only its obverse, and adds it at once', async () => {
+    const user = userEvent.setup()
+    api.addImageFromUrl.mockResolvedValue({})
+    withOne()
+    expect(await screen.findByRole('combobox', { name: /what it shows/i })).toHaveValue(
+      'reverse',
+    )
+    await user.type(screen.getByRole('textbox', { name: /photo web address/i }), EBAY)
+    const add = screen.getByRole('button', { name: /add from web address/i })
+    expect(add).toBeEnabled()
+    await user.click(add)
+
+    expect(api.addImageFromUrl).toHaveBeenCalledWith(12, EBAY, {
       imageRole: 'reverse',
       acknowledgeForSale: false,
     })
+  })
+
+  it('takes a pasted address as a typed one', async () => {
+    const user = userEvent.setup()
+    withOne()
+    const address = await screen.findByRole('textbox', { name: /photo web address/i })
+    address.focus()
+    await user.paste(EBAY)
+    expect(address).toHaveValue(EBAY)
+    expect(screen.getByRole('button', { name: /add from web address/i })).toBeEnabled()
   })
 
   it('fetches a photograph from a pasted web address', async () => {

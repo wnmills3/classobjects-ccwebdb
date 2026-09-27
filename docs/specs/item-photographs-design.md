@@ -120,9 +120,9 @@ stored; only the *link* is withheld.
   upload, change role, make primary, and **Remove**, which detaches and
   never deletes the photograph. It reads from the server after every write,
   never from the editor's draft. A new photograph is added from a file or
-  from a **pasted web address**, and says **what it shows**: an item's first
-  defaults to Obverse; once it has one, a role must be chosen before either
-  add is offered.
+  from a **pasted web address**, and says **what it shows**: Obverse, then
+  Reverse, whichever the item lacks, is chosen for it; once it has both, a
+  role must be chosen -- the panel says so -- before either add is offered.
 - **`/management/photos`**: unattached photographs, most recent capture first
   (nulls last), each with an item picker that searches by item code across
   coins and currency. Where the pass's leftovers are filed, and where a

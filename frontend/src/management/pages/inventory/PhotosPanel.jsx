@@ -55,14 +55,15 @@ export default function PhotosPanel({ itemId, saleState }) {
   // row would fall back to showing the raw code instead of its label.
   const vocabulary = useReference('image_role', { includeRetired: true }) ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
-  // What the next photograph shows. An item's first is its obverse unless
-  // told otherwise; once it has one, the next must be named -- a second
-  // photograph filed without a role is a reverse nobody can find.
+  // What the next photograph shows: the obverse, then the reverse, whichever
+  // the item lacks; once it has both, the person must say -- a photograph
+  // filed without a role is one nobody can find.
   const [chosenRole, setChosenRole] = useState('')
   const [address, setAddress] = useState('')
-  const hasPhotos = (links?.length ?? 0) > 0
-  const newRole = chosenRole || (hasPhotos ? '' : 'obverse')
-  const roleMissing = hasPhotos && !newRole
+  const held = new Set((links ?? []).map((row) => row.image_role))
+  const nextSide = ['obverse', 'reverse'].find((code) => !held.has(code)) ?? ''
+  const newRole = chosenRole || nextSide
+  const roleMissing = !newRole
 
   const reload = photos.reload
 
@@ -201,7 +202,9 @@ export default function PhotosPanel({ itemId, saleState }) {
             </select>
           </label>
           {roleMissing && (
-            <span className="muted">Choose what the photograph shows first.</span>
+            <p className="notice" role="status">
+              Choose what the photograph shows first.
+            </p>
           )}
           <label>
             Photo
