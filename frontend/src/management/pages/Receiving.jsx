@@ -95,6 +95,15 @@ export default function Receiving() {
               </a>
             </>
           )}
+          {order.seller_url && (
+            <>
+              {' '}
+              &middot;{' '}
+              <a href={order.seller_url} target="_blank" rel="noopener noreferrer">
+                Seller&apos;s store
+              </a>
+            </>
+          )}
         </h2>
       )}
       {!waitingForOrder && (

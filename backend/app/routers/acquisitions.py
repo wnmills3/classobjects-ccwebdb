@@ -271,6 +271,7 @@ def get_purchase_order(
             else None
         ),
         source_text=order.source_url,
+        seller_url=order.seller_url,
         notes=order.notes,
         lines=[
             PurchaseOrderLineOut(
@@ -310,6 +311,7 @@ def create_purchase_order(
         order_number=number,
         ordered_on=payload.ordered_on,
         source_url=payload.source_url,
+        seller_url=payload.seller_url,
         notes=payload.notes,
     )
     db.add(order)
@@ -321,7 +323,7 @@ def create_purchase_order(
 def update_purchase_order(
     order_id: int, payload: PurchaseOrderUpdate, db: DbSession, admin: AdminUser
 ) -> PurchaseOrderDetailOut:
-    """Change a purchase's number, date, web address or notes.
+    """Change a purchase's number, date, web address, seller or notes.
 
     Only the fields sent change. An order number sent blank is given the next
     generated one: a purchase is never left without a number to find it by.
@@ -342,6 +344,8 @@ def update_purchase_order(
         order.order_number = number
     if "source_url" in sent:
         order.source_url = payload.source_url
+    if "seller_url" in sent:
+        order.seller_url = payload.seller_url
     if "notes" in sent:
         order.notes = payload.notes
     _commit_order(db, order.vendor, order.order_number)
