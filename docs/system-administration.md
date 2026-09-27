@@ -318,7 +318,9 @@ The **Coins** and **Currency** screens (`/management/inventory/coins`,
 `/management/inventory/currency`) share one search panel.
 
 **The search box has no field syntax.** What you type is one term, matched
-anywhere in an item's title, description, rating or item code, ignoring case.
+anywhere in an item's title, description, rating, item code or its purchase's
+order number, ignoring case -- so an eBay order number pasted into the box
+(`11-15110-51877`, or part of it) finds what was bought on that order.
 It also matches the **name or alias of what the item is**: design series,
 strike type, grade designation, attributes and, on coins, mint; on currency,
 note class and serial features. So `mercury` finds Winged Liberty Head dimes

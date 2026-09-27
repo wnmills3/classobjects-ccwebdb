@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from app.models import (
@@ -250,6 +250,40 @@ def test_free_text_searches_title_and_item_code(
 
     by_code = search(client, "coins", admin_headers, q=wanted.item_code).json()
     assert {r["id"] for r in by_code["rows"]} == {wanted.id}
+
+
+def test_free_text_finds_items_by_their_purchase_order_number(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    ebay = build_purchase_order(
+        db, vendor_name="ebay.com", order_number="11-15110-51877"
+    )
+    other = build_purchase_order(db, vendor_name="hibid.com", order_number="H-2")
+    wanted_note = note(db, purchase_order_id=ebay.id)
+    wanted_coin = coin(db, purchase_order_id=ebay.id)
+    note(db, purchase_order_id=other.id)
+
+    notes = search(client, "currency", admin_headers, q="11-15110-51877").json()
+    coins = search(client, "coins", admin_headers, q="11-15110-51877").json()
+    partial = search(client, "currency", admin_headers, q="15110-518").json()
+
+    assert {r["id"] for r in notes["rows"]} == {wanted_note.id}
+    assert {r["id"] for r in coins["rows"]} == {wanted_coin.id}
+    assert {r["id"] for r in partial["rows"]} == {wanted_note.id}
+
+
+def test_an_order_number_search_still_honours_the_other_filters(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = build_purchase_order(db, vendor_name="ebay.com", order_number="22-1")
+    kept = coin(db, purchase_order_id=order.id, source_title="1881 Morgan")
+    deleted = coin(db, purchase_order_id=order.id, source_title="1882 Morgan")
+    deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    db.commit()
+
+    found = search(client, "coins", admin_headers, q="22-1").json()
+
+    assert {r["id"] for r in found["rows"]} == {kept.id}
 
 
 def test_free_text_searches_the_rating_as_recorded(
