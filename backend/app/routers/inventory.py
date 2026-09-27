@@ -978,6 +978,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
             db, ValuationBasis, "numismatic", "valuation_basis"
         ),
         sellers_item_id=payload.sellers_item_id,
+        listing_url=payload.listing_url,
         source=ProvenanceSource.manual,
         **tax_kwargs,
     )
@@ -1148,6 +1149,7 @@ def item_detail(
         order_number=order.order_number if order is not None else None,
         vendor=vendor.name if vendor is not None else None,
         sellers_item_id=item.sellers_item_id,
+        listing_url=item.listing_url,
         **{
             column: plain(getattr(item, column))
             for column in (
@@ -1583,6 +1585,7 @@ EDITABLE_SCALARS: tuple[str, ...] = (
     "tax_rate",
     "tax_includes_shipping",
     "sellers_item_id",
+    "listing_url",
 )
 
 #: EDITABLE_SCALARS refused by name when sent as null. Both columns are NOT

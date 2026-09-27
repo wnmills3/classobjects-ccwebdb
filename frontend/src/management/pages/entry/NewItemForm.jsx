@@ -27,6 +27,7 @@ const SHARED_ON_REPEAT = [
   'item_kind',
   // The pieces entered one after another usually came from one listing.
   'sellers_item_id',
+  'listing_url',
   'status',
   'country',
   'denomination',
@@ -46,6 +47,7 @@ const BLANK = {
   item_kind: 'coin',
   source_title: '',
   sellers_item_id: '',
+  listing_url: '',
   description: '',
   year_start: '',
   year_end: '',
@@ -330,6 +332,7 @@ export default function NewItemForm({
       ...(form.sellers_item_id.trim() && {
         sellers_item_id: form.sellers_item_id.trim(),
       }),
+      ...(form.listing_url.trim() && { listing_url: form.listing_url.trim() }),
       piece_count: form.piece_count === '' ? 1 : Number(form.piece_count),
       status: form.status,
       // The purchase's tax defaults, resolved once for every item entered on
@@ -837,6 +840,16 @@ export default function NewItemForm({
             type="text"
             value={form.sellers_item_id}
             onChange={set('sellers_item_id')}
+          />
+        </label>
+
+        <label data-help="listing_url">
+          Listing web address
+          <input
+            type="url"
+            placeholder="https://"
+            value={form.listing_url}
+            onChange={set('listing_url')}
           />
         </label>
 

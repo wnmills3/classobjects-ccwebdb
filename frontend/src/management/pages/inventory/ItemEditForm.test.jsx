@@ -1677,3 +1677,45 @@ describe('An item for sale', () => {
     expect(api.listListings).toHaveBeenCalledWith({ item_id: 12, status: 'all' })
   })
 })
+
+describe('ItemEditForm: the listing web address', () => {
+  const LISTING = 'https://www.hibid.com/lot/307575524/1898-morgan-dollar'
+
+  it('links the listing it was bought from', async () => {
+    api.getInventoryItem.mockResolvedValue({ ...item, listing_url: LISTING })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const link = await screen.findByRole('link', { name: 'Listing' })
+    expect(link).toHaveAttribute('href', LISTING)
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.getByRole('textbox', { name: /listing web address/i })).toHaveValue(
+      LISTING,
+    )
+  })
+
+  it('offers no link for an address that is not a web address', async () => {
+    api.getInventoryItem.mockResolvedValue({
+      ...item,
+      listing_url: 'javascript:alert(1)',
+    })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    expect(screen.queryByRole('link', { name: 'Listing' })).toBeNull()
+  })
+
+  it('saves a new one', async () => {
+    const user = userEvent.setup()
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    await user.type(
+      screen.getByRole('textbox', { name: /listing web address/i }),
+      LISTING,
+    )
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    expect(api.updateInventoryItem.mock.calls[0][1]).toMatchObject({
+      listing_url: LISTING,
+    })
+  })
+})

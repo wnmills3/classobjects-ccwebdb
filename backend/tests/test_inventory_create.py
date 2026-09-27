@@ -524,3 +524,65 @@ def test_an_unknown_attribute_is_named(
 
     assert res.status_code == 422, res.text
     assert "no_such_thing" in res.json()["detail"]
+
+
+LISTING = "https://www.hibid.com/lot/307575524/1898-morgan-dollar"
+
+
+def test_an_item_is_entered_with_its_listing_web_address(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(order.id, listing_url=f"  {LISTING}  "),
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 201, res.text
+    assert res.json()["listing_url"] == LISTING
+
+
+def test_a_listing_web_address_that_is_not_one_is_a_422(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(order.id, listing_url="javascript:alert(1)"),
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 422, res.text
+
+
+def test_the_listing_web_address_is_edited_and_cleared(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    item_id = client.post(
+        "/api/inventory", json=_coin_payload(order.id), headers=admin_headers
+    ).json()["id"]
+
+    set_it = client.patch(
+        f"/api/inventory/{item_id}",
+        json={"listing_url": LISTING},
+        headers=admin_headers,
+    )
+    assert set_it.status_code == 200, set_it.text
+    body = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()
+    assert body["listing_url"] == LISTING
+
+    refused = client.patch(
+        f"/api/inventory/{item_id}",
+        json={"listing_url": "ftp://x"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 422, refused.text
+
+    cleared = client.patch(
+        f"/api/inventory/{item_id}", json={"listing_url": ""}, headers=admin_headers
+    )
+    assert cleared.status_code == 200, cleared.text
+    body = client.get(f"/api/inventory/{item_id}", headers=admin_headers).json()
+    assert body["listing_url"] is None

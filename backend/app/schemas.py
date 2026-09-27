@@ -55,6 +55,22 @@ def _strip_or_none(value: str | None) -> str | None:
 SellersItemId = Annotated[
     str | None, Field(max_length=64), AfterValidator(_strip_or_none)
 ]
+
+
+def _web_address_or_none(value: str | None) -> str | None:
+    """Trimmed; blank is None; otherwise it must be an http(s) address."""
+    address = _strip_or_none(value)
+    if address is not None and not re.match(r"^https?://", address, re.IGNORECASE):
+        raise ValueError("must start with http:// or https://")
+    return address
+
+
+#: The web address of the listing an item was bought from -- an eBay, HiBid
+#: or Whatnot page. Only http(s), so it can be offered as a link; blank
+#: clears it.
+ListingUrl = Annotated[
+    str | None, Field(max_length=1000), AfterValidator(_web_address_or_none)
+]
 #: A face plate in its stored form (`app.plates.face_plate`): `E82`, `153`,
 #: or `FW E82` for a Fort Worth note.
 FacePlate = Annotated[
@@ -848,6 +864,8 @@ class ItemDetailOut(InventoryItemOut):
     #: The seller's id for the listing it was bought from -- eBay's item
     #: number (`app.ebay_orders`). Read-only here.
     sellers_item_id: str | None = None
+    #: The web address of the listing it was bought from.
+    listing_url: str | None = None
 
     # -- the rest of EDITABLE_SCALARS: not on InventoryItemOut, which is the
     # shape a split's pieces come back as and has no reason to carry these.
@@ -970,6 +988,7 @@ class InventoryItemUpdate(BaseModel):
     #: The seller's id for the listing it was bought from -- eBay's item
     #: number. Text, as the seller prints it; blank clears it.
     sellers_item_id: SellersItemId = None
+    listing_url: ListingUrl = None
 
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
     year_end: int | None = Field(default=None, ge=-3000, le=2200)
@@ -1157,6 +1176,8 @@ class ItemCreate(BaseModel):
     #: The seller's id for the listing it was bought from -- eBay's item
     #: number. Text, as the seller prints it; blank clears it.
     sellers_item_id: SellersItemId = None
+    #: The web address of the listing it was bought from.
+    listing_url: ListingUrl = None
 
     #: Coin detail. Refused with a 422 when `item_kind` is `currency`.
     mint: str | None = Field(default=None, max_length=64)

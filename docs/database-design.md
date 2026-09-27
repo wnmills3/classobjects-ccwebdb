@@ -103,7 +103,7 @@ One row per acquired item or lot (`models/core.py`).
 | `local_catalog_number` | varchar null | the owner's own earlier numbering; not unique |
 | `source_title` | varchar(500) | what the seller called the item, kept verbatim |
 | `description` | text | what a person recognizes the item by |
-| `listing_url` | varchar null | where it was bought |
+| `listing_url` | varchar null | the web address of the listing it was bought from; http(s) only when entered or edited |
 | `sellers_item_id` | varchar(64) null, indexed | the seller's own id for the listing it was bought from -- eBay's item number; every piece of one listing carries it, and one listing can be bought in several orders, so **not unique** |
 | `rating` | text null | the owner's rating in their own words ("66EPQ Double Quad"); searched and read as evidence, never shown to a buyer |
 | `weight_note` | text null | a weight as written where it is not a single number ("1 oz each") |
