@@ -84,7 +84,9 @@
 
 **Files:** `frontend/src/management/pages/Reports.jsx`, `Reports.test.jsx`; `api.js` (`listReports`, `runReport`, report workbook URL); `ManagementApp.jsx` (menu item and route); `fieldHelp.js` (each parameter).
 
-**Tests:** the catalog by group; a report runs from the address and its parameters round-trip through it; columns sort; money shown from strings; Export requests the workbook with the same parameters; a drill-down links to the right search.
+**Also:** a Print button and the print stylesheet (`@media print` in `management/styles.css`): report alone, print-only heading (title, parameters in words, run time, row count), repeating header row, rows unsplit, landscape for a wide report, no meaning in colour alone -- spec, Printing.
+
+**Tests:** the catalog by group; a report runs from the address and its parameters round-trip through it; columns sort; money shown from strings; Export requests the workbook with the same parameters; Print calls `window.print`; the print-only heading shows the title, parameters in words and run time; an overdue row is marked in words; a drill-down links to the right search.
 
 ### Task 9: Performance guard and docs
 
@@ -97,7 +99,3 @@
 One task per group, each adding its reports to the module Phase 1 created, with tests of the same kind: `dq_photos`, `dq_derived`, `dq_purchases`, `dq_locations`; `cb_designs`, `cb_notes`, `cb_grades`, `cb_metal`, `cb_attributes`; `pr_spend`, `pr_sources`, `pr_received`; `sl_sales`, `sl_fulfilment`, `sl_aging`, `sl_auctions`; `mn_basis`, `mn_tax`, `mn_value`. The console needs no change per report: it renders any catalog entry.
 
 The spec's Decisions settle the parameters these use: overdue after 21 days, gain per item, numeric grade bands.
-
-## Outside the reports, recorded here so it is not lost
-
-Storage location on entry and in the editor (spec, Decisions): New item and the item editor gain an optional storage location, written through the same path Receiving uses so each change is kept in the item's location history. It is its own change, with its own branch, and does not block the reports.

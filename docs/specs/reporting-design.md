@@ -152,6 +152,31 @@ script or before the console is open. Read-only, so no `--commit`.
 - A row with a drill-down links to the page that fixes or shows it, in the
   same tab.
 - The help band explains each parameter, as every console form does.
+- **Print** sits beside Export workbook; see Printing.
+
+### Printing
+
+Every report prints on paper as well as showing on the screen, from the
+same page, with no report-specific code:
+
+- **Print** opens the browser's print dialog (`window.print()`) for the
+  report as shown -- the same rows, sort and parameters.
+- A print stylesheet (`@media print`) prints the report alone: the
+  console menu, the help band, the parameter form and the buttons are
+  hidden.
+- A heading printed only on paper names the report, its parameters in
+  words ("Overdue after 21 days"), when it was run, and its row count.
+- The table's header row repeats on every page (`thead` as a table
+  header group), a row is never split across pages, and the totals row
+  and the report's notes follow the last row.
+- A report wider than a portrait page is marked so the page prints
+  landscape (`@page` size set by a class on the report).
+- Black on white: nothing is carried by colour alone (an overdue row is
+  marked in words, not only red); money is right-aligned; a drill-down
+  link prints as its plain text.
+- Page numbers and the date come from the browser's own print header and
+  footer.
+
 
 ### What the inventory search needs
 
@@ -195,7 +220,8 @@ completeness report, and is useful in the search on its own.
 | How is a sale's gain worked out? | **Per item** (specific identification): each sold item's share of the sale (`sales_order_item_share`) less that item's own cost basis. `sl_sales` uses this; no other method is offered. |
 | What grade bands does `cb_grades` use? | **Numbers**, not names: 1-49, 50-59, 60-64, 65-70, and ungraded. The strike type (MS, PR) and the grading service are separate columns, not folded into the band. |
 | Which reports come first? | The five marked **v1**. |
-| Storage locations | **Optional.** A location can be chosen when an item is entered -- on its own or on a purchase -- and changed at any time afterwards, each change kept in its location history. Today only Receiving sets one (New item and the item editor do not), and no live item has one; `dq_locations` reports "none recorded" as a row, not as an error. |
+| Printed as well as shown? | **Yes**: every report prints (see Printing). |
+| Storage locations | **Optional.** A location is chosen on New item, in Receiving, or in the item editor, and changed whenever the piece moves; every move is kept in its location history. `dq_locations` reports "none recorded" as a row, not as an error. |
 
 ## Testing
 
@@ -205,6 +231,8 @@ completeness report, and is useful in the search on its own.
 - The API: catalog shape, a parameter default, a 422, a 404, manager only.
 - The workbook: a report round-trips -- the sheet's rows equal the JSON's.
 - The console: the page lists the catalog, runs a report from the address,
-  sorts, exports, and drills down.
+  sorts, exports, prints (the Print button calls the browser's print; the
+  print-only heading carries the title, parameters and run time), and drills
+  down.
 - Performance: a test that runs every report against the test database and
   fails if any takes over a second -- a guard, not a benchmark.
