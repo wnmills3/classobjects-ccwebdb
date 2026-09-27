@@ -96,4 +96,8 @@
 
 One task per group, each adding its reports to the module Phase 1 created, with tests of the same kind: `dq_photos`, `dq_derived`, `dq_purchases`, `dq_locations`; `cb_designs`, `cb_notes`, `cb_grades`, `cb_metal`, `cb_attributes`; `pr_spend`, `pr_sources`, `pr_received`; `sl_sales`, `sl_fulfilment`, `sl_aging`, `sl_auctions`; `mn_basis`, `mn_tax`, `mn_value`. The console needs no change per report: it renders any catalog entry.
 
-Before `sl_sales` and `mn_value` are built, the owner answers the spec's open questions 2 and 3, or the defaults stand, labelled.
+The spec's Decisions settle the parameters these use: overdue after 21 days, gain per item, numeric grade bands.
+
+## Outside the reports, recorded here so it is not lost
+
+Storage location on entry and in the editor (spec, Decisions): New item and the item editor gain an optional storage location, written through the same path Receiving uses so each change is kept in the item's location history. It is its own change, with its own branch, and does not block the reports.
