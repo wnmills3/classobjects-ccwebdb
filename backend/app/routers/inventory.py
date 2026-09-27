@@ -413,6 +413,14 @@ class FieldConflicts(Exception):
         self.conflicts = conflicts
 
 
+def _require_location(db: Session, location_id: int) -> None:
+    """422 for a storage location that does not exist."""
+    if db.get(StorageLocation, location_id) is None:
+        raise HTTPException(
+            status_code=422, detail=f"Unknown storage_location_id: {location_id}"
+        )
+
+
 def field_values(db: Session, item: InventoryItem) -> dict[str, Any]:
     """The item's fields as the editor holds them: `item_detail`, JSON-shaped.
 
@@ -945,6 +953,10 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
             f"Available: {sorted(SUGGESTABLE_FIELDS)}",
         )
 
+    # Before anything is built: a refused location leaves nothing behind.
+    if payload.storage_location_id is not None:
+        _require_location(db, payload.storage_location_id)
+
     tax_kwargs: dict[str, object] = {}
     if payload.tax_rate is not None:
         tax_kwargs["tax_rate"] = payload.tax_rate
@@ -1020,6 +1032,15 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
                 grading_service_id=grading_service_id,
                 cert_number=payload.cert_number,
             )
+        )
+
+    if payload.storage_location_id is not None:
+        set_location(
+            db,
+            item,
+            payload.storage_location_id,
+            user_id=admin.id,
+            note="entered in the console",
         )
 
     # The same rules as an edit: a code unknown, or of the other kind (a star
@@ -1161,6 +1182,7 @@ def item_detail(
         vendor=vendor.name if vendor is not None else None,
         sellers_item_id=item.sellers_item_id,
         listing_url=item.listing_url,
+        storage_location_id=item.storage_location_id,
         **{
             column: plain(getattr(item, column))
             for column in (
@@ -2267,6 +2289,12 @@ def update_item(
     # The item as it stands, in those same terms: the merge compares against
     # it, and the change log records it as each changed field's old value.
     before = field_values(db, item)
+    # Where it is kept moves through `set_location`, which keeps the move in
+    # its location history; it is not a field the generic writes below set.
+    moves = "storage_location_id" in data
+    to_location = data.pop("storage_location_id", None)
+    if moves and to_location is not None:
+        _require_location(db, to_location)
     # The coin's own fields live on its detail row, not on the item.
     coin_changes = {f: data.pop(f) for f in COIN_DETAIL_FIELDS if f in data}
     _refuse_coin_detail_on_a_note(data, item, coin_changes, db)
@@ -2388,6 +2416,11 @@ def update_item(
     # this same save sets; another table, so touched like the links above.
     if certs is not None and _set_certifications(db, item, certs):
         item.updated_at = datetime.now(UTC)
+    if moves and item.storage_location_id != to_location:
+        set_location(
+            db, item, to_location, user_id=admin.id, note="edited in the console"
+        )
+        item.updated_at = datetime.now(UTC)
 
     if standing is not None:
         assert locked is not None
@@ -2405,8 +2438,14 @@ def update_item(
         # this edit's own writes (attribute links included) under
         # production's autoflush=False because `refresh_items` above has
         # flushed -- measured: an extra flush here changed nothing.
+        # A move is kept in the location history already, not again here.
         field_changes.record(
-            db, item.id, before, field_values(db, item), sent, user_id=admin.id
+            db,
+            item.id,
+            before,
+            field_values(db, item),
+            [field for field in sent if field != "storage_location_id"],
+            user_id=admin.id,
         )
         db.commit()
     except StaleDataError as exc:

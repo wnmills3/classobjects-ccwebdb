@@ -866,6 +866,8 @@ class ItemDetailOut(InventoryItemOut):
     sellers_item_id: str | None = None
     #: The web address of the listing it was bought from.
     listing_url: str | None = None
+    #: Where it is kept (`/api/storage-locations`); None when not recorded.
+    storage_location_id: int | None = None
 
     # -- the rest of EDITABLE_SCALARS: not on InventoryItemOut, which is the
     # shape a split's pieces come back as and has no reason to carry these.
@@ -989,6 +991,10 @@ class InventoryItemUpdate(BaseModel):
     #: number. Text, as the seller prints it; blank clears it.
     sellers_item_id: SellersItemId = None
     listing_url: ListingUrl = None
+    #: Where it is kept; null means not recorded. A move is kept in its
+    #: location history, and never needs `acknowledge_for_sale`: it does
+    #: not show to a buyer.
+    storage_location_id: int | None = None
 
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
     year_end: int | None = Field(default=None, ge=-3000, le=2200)
@@ -1178,6 +1184,8 @@ class ItemCreate(BaseModel):
     sellers_item_id: SellersItemId = None
     #: The web address of the listing it was bought from.
     listing_url: ListingUrl = None
+    #: Where it is kept, if that is known as it is entered.
+    storage_location_id: int | None = None
 
     #: Coin detail. Refused with a 422 when `item_kind` is `currency`.
     mint: str | None = Field(default=None, max_length=64)
