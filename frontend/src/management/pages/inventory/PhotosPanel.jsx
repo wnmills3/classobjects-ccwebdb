@@ -8,7 +8,9 @@ import { useRequest } from '../../../shared/useRequest'
 
 /**
  * Every photograph filed against this item, and the place a new one is
- * attached.
+ * attached -- from a file, or from a web address the server fetches,
+ * converts and names for its place (`CC-000412_02.jpg`). A new photograph
+ * says what it shows; once the item has one, it must.
  *
  * Until now `api.uploadImage` had exactly one caller: the receiving screen,
  * so a photograph could only ever be attached at the moment an item
@@ -53,6 +55,14 @@ export default function PhotosPanel({ itemId, saleState }) {
   // row would fall back to showing the raw code instead of its label.
   const vocabulary = useReference('image_role', { includeRetired: true }) ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
+  // What the next photograph shows. An item's first is its obverse unless
+  // told otherwise; once it has one, the next must be named -- a second
+  // photograph filed without a role is a reverse nobody can find.
+  const [chosenRole, setChosenRole] = useState('')
+  const [address, setAddress] = useState('')
+  const hasPhotos = (links?.length ?? 0) > 0
+  const newRole = chosenRole || (hasPhotos ? '' : 'obverse')
+  const roleMissing = hasPhotos && !newRole
 
   const reload = photos.reload
 
@@ -66,11 +76,31 @@ export default function PhotosPanel({ itemId, saleState }) {
     e.target.value = ''
     if (!file) return
     api
-      .uploadImage(itemId, file, { acknowledgeForSale: acknowledged })
+      .uploadImage(itemId, file, {
+        imageRole: newRole,
+        acknowledgeForSale: acknowledged,
+      })
       .then(() => {
         setError('')
+        setChosenRole('')
         reload()
       })
+      .catch((err) => setError(err.message))
+  }
+
+  function addFromAddress() {
+    api
+      .addImageFromUrl(itemId, address.trim(), {
+        imageRole: newRole,
+        acknowledgeForSale: acknowledged,
+      })
+      .then(() => {
+        setError('')
+        setAddress('')
+        setChosenRole('')
+        reload()
+      })
+      // The address is kept, to be corrected rather than pasted again.
       .catch((err) => setError(err.message))
   }
 
@@ -156,10 +186,49 @@ export default function PhotosPanel({ itemId, saleState }) {
         </ul>
       )}
       {!loading && (
-        <label>
-          Photo
-          <input type="file" accept="image/*" onChange={upload} />
-        </label>
+        <div className="photo-add">
+          <label>
+            What it shows{/* */}
+            <select value={newRole} onChange={(e) => setChosenRole(e.target.value)}>
+              <option value="">--</option>
+              {vocabulary
+                .filter((entry) => entry.is_active !== false)
+                .map((entry) => (
+                  <option key={entry.code} value={entry.code}>
+                    {entry.label}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {roleMissing && (
+            <span className="muted">Choose what the photograph shows first.</span>
+          )}
+          <label>
+            Photo
+            <input
+              type="file"
+              accept="image/*"
+              onChange={upload}
+              disabled={roleMissing}
+            />
+          </label>
+          <label>
+            Photo web address{/* */}
+            <input
+              type="url"
+              placeholder="https://"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={addFromAddress}
+            disabled={roleMissing || !address.trim()}
+          >
+            Add from web address
+          </button>
+        </div>
       )}
     </div>
   )

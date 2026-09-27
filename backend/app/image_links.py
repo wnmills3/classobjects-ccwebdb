@@ -51,6 +51,16 @@ def _clear_primary(db: Session, item_id: int, keep: int | None = None) -> None:
     db.flush()
 
 
+def next_position(db: Session, item_id: int) -> int:
+    """The place after the item's last photograph: 1 for its first."""
+    last = db.scalar(
+        select(func.max(ItemImage.sort_order)).where(
+            ItemImage.inventory_item_id == item_id
+        )
+    )
+    return (last or 0) + 1
+
+
 def attach(
     db: Session,
     *,
@@ -102,12 +112,7 @@ def attach(
         is_primary = incumbent is None
 
     if sort_order is None:
-        last = db.scalar(
-            select(func.max(ItemImage.sort_order)).where(
-                ItemImage.inventory_item_id == item.id
-            )
-        )
-        sort_order = (last or 0) + 1
+        sort_order = next_position(db, item.id)
 
     link = ItemImage(
         inventory_item_id=item.id,

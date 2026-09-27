@@ -227,6 +227,19 @@ class ImageLinkUpdate(BaseModel):
     acknowledge_for_sale: bool = False
 
 
+class ImageFromUrl(BaseModel):
+    """A photograph to fetch from a web address and file against an item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2000)
+    inventory_item_id: int
+    image_role: str | None = None
+    is_primary: bool = False
+    #: Set after a refusal to say the caller knows the item is for sale.
+    acknowledge_for_sale: bool = False
+
+
 class ImageLinkIn(BaseModel):
     """Filing a photograph against an item."""
 

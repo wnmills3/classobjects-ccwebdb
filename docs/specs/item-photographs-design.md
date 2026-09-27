@@ -119,7 +119,10 @@ stored; only the *link* is withheld.
   `ErrorsPanel`: thumbnails in `sort_order` with role and primary shown;
   upload, change role, make primary, and **Remove**, which detaches and
   never deletes the photograph. It reads from the server after every write,
-  never from the editor's draft.
+  never from the editor's draft. A new photograph is added from a file or
+  from a **pasted web address**, and says **what it shows**: an item's first
+  defaults to Obverse; once it has one, a role must be chosen before either
+  add is offered.
 - **`/management/photos`**: unattached photographs, most recent capture first
   (nulls last), each with an item picker that searches by item code across
   coins and currency. Where the pass's leftovers are filed, and where a
@@ -152,6 +155,19 @@ otherwise be separated from them only by route declaration order.
 
 Detach and delete are separate endpoints so that correcting a filing error
 can never destroy a photograph.
+
+### From a web address
+
+`POST /api/images/from-url` -- `url`, `inventory_item_id`, `image_role`,
+`is_primary`, `acknowledge_for_sale`. The server fetches the address
+(`app/image_fetch.py`), stores it as any upload is (converted, stripped), names
+it for its place on the item -- `CC-000412_02.jpg` -- and files it there, after
+the item's other photographs. Only `http(s)` is fetched, only from a host whose
+every address is public (not loopback, private, link-local, multicast or
+reserved), each redirect checked the same way and at most three, the body no
+larger than the upload limit, with a 15-second timeout. A refused fetch is a
+422 naming why, and stores nothing; 404 for an unknown item; the for-sale
+acknowledgement as for an upload.
 
 ## Tests
 
