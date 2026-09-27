@@ -1615,6 +1615,7 @@ DEFAULTED_COLUMNS: frozenset[str] = frozenset(
         "signature_combination_id",
         "fed_district_id",
         "metal_id",
+        "series_id",
         "fineness",
         "gross_weight_ozt",
         "fine_weight_ozt",
@@ -1624,7 +1625,14 @@ DEFAULTED_COLUMNS: frozenset[str] = frozenset(
 #: Fields the New item form may fill from `/api/defaults` and
 #: report back as suggestions the person left alone.
 SUGGESTABLE_FIELDS: frozenset[str] = frozenset(
-    {"note_type", "seal_color", "fed_district", "signature_combination", "metal"}
+    {
+        "note_type",
+        "seal_color",
+        "fed_district",
+        "signature_combination",
+        "metal",
+        "series",
+    }
 )
 
 

@@ -20,8 +20,12 @@ are the lot's, not the piece's, so for those only the rating counts. Then:
     several, otherwise                    review: a boundary year
     text names only designs it cannot be  review: a conflict, nothing assigned
 
-Items that already have a series are never touched, so a hand correction or a
-`series_match` result always stands. Writes are recorded as `derived`.
+A hand correction or a `series_match` result always stands, and a series a
+person emptied (`held`) stays empty. Writes are recorded as `derived`.
+
+`refresh_series` runs this for one item on every save, and also takes back a
+series it or an accepted entry suggestion wrote once the facts no longer
+support it; `suggest_series` answers the entry forms from the facts alone.
 
     python -m app.series_classify            report, touching nothing
     python -m app.series_classify --commit   write the assignments

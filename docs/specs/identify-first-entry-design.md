@@ -55,8 +55,10 @@ transaction (`app.series_classify.refresh_series`):
 
 A series a person chose, or one `series_match` read from the text, is never
 cleared by this; one the facts contradict is left for the batch pass's
-disagreement report. A series the person emptied (`held`) stays empty -- and
-the batch pass now respects `held` too, which it did not.
+disagreement report. A series the person emptied is recorded as `held` and
+stays empty through every save and both batch passes. Cases the refresh
+cannot decide (a boundary year, text naming a design the facts rule out) are
+left unassigned without a message; the batch pass's report lists them.
 
 ## Receiving
 
