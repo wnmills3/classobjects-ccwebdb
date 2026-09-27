@@ -458,3 +458,21 @@ describe('useReference', () => {
     expect(screen.getByText('a,b')).toBeInTheDocument()
   })
 })
+
+describe('ReferenceSelect: disabled', () => {
+  it('disables the select and its find box', () => {
+    renderPicker({ disabled: true })
+    expect(screen.getByRole('combobox', { name: 'series' })).toBeDisabled()
+    expect(screen.getByRole('searchbox', { name: 'Find series' })).toBeDisabled()
+  })
+
+  it('disables the text box shown before the vocabulary loads', () => {
+    renderPicker({ disabled: true }, [])
+    expect(screen.getByRole('textbox', { name: 'series' })).toBeDisabled()
+  })
+
+  it('is enabled unless asked', () => {
+    renderPicker()
+    expect(screen.getByRole('combobox', { name: 'series' })).toBeEnabled()
+  })
+})

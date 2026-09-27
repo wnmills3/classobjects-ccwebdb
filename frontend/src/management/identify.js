@@ -1,4 +1,4 @@
-import { isCurrencyKind } from '../shared/kinds'
+import { fieldFitsKind, isCurrencyKind } from '../shared/kinds'
 
 /**
  * The fields that identify a piece of this kind, in the order they are
@@ -6,7 +6,8 @@ import { isCurrencyKind } from '../shared/kinds'
  * $1" for anything else. Entry starts with these, and most other classifiers
  * follow from them (`docs/specs/identify-first-entry-design.md`).
  *
- * Mint is not asked of the kind: every kind but a note has one.
+ * Whether the kind has a mint is asked of `fieldFitsKind`, the one list of
+ * which fields are a coin's.
  */
 export function identifyKeys(kind) {
   return isCurrencyKind(kind)
@@ -18,7 +19,7 @@ export function identifyKeys(kind) {
         'face_plate_number',
         'back_plate_number',
       ]
-    : ['year_start', 'mint', 'denomination']
+    : ['year_start', ...(fieldFitsKind('mint', kind) ? ['mint'] : []), 'denomination']
 }
 
 //: The facts that are numbers; the rest cross as text.

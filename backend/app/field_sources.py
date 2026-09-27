@@ -84,6 +84,13 @@ def record_derived(
     _record(db, [item_id], fields, derived_by)
 
 
+def record_derived_many(
+    db: Session, item_ids: Iterable[int], fields: Iterable[str], derived_by: str
+) -> None:
+    """Mark fields of many items as filled by `derived_by`, in bulk."""
+    _record(db, item_ids, fields, derived_by)
+
+
 def forget(db: Session, item_ids: Iterable[int], fields: Iterable[str]) -> None:
     """A person has set these fields: they are no longer derived."""
     ids, names = list(item_ids), list(fields)
