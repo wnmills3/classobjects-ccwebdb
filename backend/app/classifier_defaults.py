@@ -67,6 +67,7 @@ from .models import (
     ProvenanceSource,
 )
 from .serial_patterns import WELL_FORMED
+from .series_classify import refresh_series
 
 #: The note columns an issue decides, in the order they are reported.
 NOTE_COLUMNS: tuple[str, ...] = (
@@ -737,6 +738,8 @@ def refresh_items(db: Session, item_ids: Collection[int]) -> None:
         return
     db.flush()
     apply(db, classify(db, item_ids), commit=False)
+    # The design series follows from the same facts.
+    refresh_series(db, item_ids)
 
 
 def suggest(db: Session, note: NoteFacts) -> dict[str, int]:

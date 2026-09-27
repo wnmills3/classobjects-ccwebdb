@@ -429,3 +429,22 @@ def test_a_signed_out_caller_cannot_create_an_item(
         .where(InventoryItem.purchase_order_id == order.id)
     )
     assert count == 0
+
+
+def test_a_coin_entered_gets_its_design_series_from_the_facts(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(
+            order.id,
+            source_title="1942 dime",
+            year_start=1942,
+            denomination="usd_coin_0_10",
+            mint="P",
+        ),
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["series"] == "winged_liberty_head_dime"
