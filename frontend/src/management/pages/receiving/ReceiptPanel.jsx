@@ -1,10 +1,12 @@
 import { useState } from 'react'
 
 import { api } from '../../api'
+import { identifyChanges, identifyValues } from '../../identify'
 import ErrorsPanel from '../inventory/ErrorsPanel'
 import ReviewPane from '../inventory/ReviewPane'
 import ForSaleConfirm from '../ForSaleConfirm'
 import FriedbergLookup from './FriedbergLookup'
+import IdentifySection from './IdentifySection'
 import { useRequest } from '../../../shared/useRequest'
 
 //: Outcome value the backend expects, paired with the button's label. The
@@ -124,6 +126,25 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   const itemSaleState = itemDetail?.sale_state ?? []
 
   const isCurrency = singleItemId != null && itemKind === 'currency'
+
+  // The Identify section's text, and the item as last saved (`baseline`),
+  // which its changes are measured against and sent as `base`. Taken afresh
+  // whenever a new read of the item arrives -- another item, or a reload
+  // after the full editor saved -- adjusted during render like the
+  // Friedberg reset above.
+  const [identify, setIdentify] = useState({ source: null, values: {}, baseline: null })
+  if (itemDetail && identify.source !== itemDetail) {
+    setIdentify({
+      source: itemDetail,
+      values: identifyValues(itemDetail),
+      baseline: itemDetail,
+    })
+  }
+  const identified =
+    identify.baseline && singleItemId != null
+      ? identifyChanges(identify.baseline, identify.values)
+      : { changes: {}, base: {} }
+  const identifyDirty = Object.keys(identified.changes).length > 0
   // Named so the render below can tell the operator exactly what is about to
   // be silently dropped, rather than only that photos and multiple items
   // don't mix.
@@ -132,6 +153,22 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   async function submit(outcome, acknowledged = false) {
     setBusy(true)
     try {
+      // What the person identified is a fact about the piece in hand, so it
+      // is saved only when the piece is received -- before the receipt, so a
+      // refused save leaves nothing half-recorded. Once saved it is the new
+      // baseline: a receipt that then fails is retried without resending it.
+      if (outcome === 'received' && identifyDirty) {
+        const { changes, base } = identified
+        await api.updateInventoryItem(singleItemId, {
+          ...changes,
+          base,
+          ...(acknowledged ? { acknowledge_for_sale: true } : {}),
+        })
+        setIdentify((current) => ({
+          ...current,
+          baseline: { ...current.baseline, ...changes },
+        }))
+      }
       await api.receiveItems({
         item_ids: itemIds,
         outcome,
@@ -240,6 +277,24 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
 
   return (
     <div className="receipt-panel">
+      {/* Hidden while the full editor is open: it edits the same fields. */}
+      {identify.baseline && singleItemId != null && reviewIds === null && (
+        <>
+          <IdentifySection
+            item={identify.baseline}
+            values={identify.values}
+            onChange={(values) => setIdentify((current) => ({ ...current, values }))}
+            disabled={disabled}
+          />
+          {identifyDirty && (
+            <p className="muted">
+              Identify changes are saved only with Receive: Missing, Returned and
+              Cancelled leave the item as it was.
+            </p>
+          )}
+        </>
+      )}
+
       <div className="filter-grid">
         <label>
           Arrived
@@ -319,12 +374,32 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           what a reviewable field is. */}
       <div className="review-toggle">
         {reviewIds === null && (
-          <button type="button" onClick={() => setReviewIds(itemIds)}>
-            Confirm or correct fields
-          </button>
+          <>
+            {/* The editor would open over Identify values it cannot see. */}
+            <button
+              type="button"
+              disabled={identifyDirty}
+              onClick={() => setReviewIds(itemIds)}
+            >
+              Confirm or correct fields
+            </button>
+            {identifyDirty && (
+              <span className="muted">
+                {' '}
+                Receive or undo the Identify changes first.
+              </span>
+            )}
+          </>
         )}
         {reviewIds !== null && (
-          <ReviewPane ids={reviewIds} onClose={() => setReviewIds(null)} />
+          <ReviewPane
+            ids={reviewIds}
+            onClose={() => {
+              setReviewIds(null)
+              // Whatever the editor saved is the item's now: Identify reads it.
+              selected.reload()
+            }}
+          />
         )}
       </div>
 

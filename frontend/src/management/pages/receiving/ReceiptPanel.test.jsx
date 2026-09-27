@@ -13,6 +13,9 @@ vi.mock('../../api', () => ({
     getItemSales: vi.fn(),
     setItemReview: vi.fn(),
     updateInventoryItem: vi.fn(),
+    // The Identify section's look-up of what the facts decide.
+    suggestNote: vi.fn(),
+    suggestCoin: vi.fn(),
     // Reachable once a currency item is selected -- FriedbergLookup calls
     // these itself, but it only mounts after "Look up Friedberg number" is
     // pressed, so most tests here never touch them.
@@ -80,6 +83,8 @@ beforeEach(() => {
   api.getInventoryItem.mockResolvedValue(ITEM)
   api.setItemReview.mockResolvedValue({ reviewed: [] })
   api.updateInventoryItem.mockResolvedValue({})
+  api.suggestNote.mockResolvedValue({})
+  api.suggestCoin.mockResolvedValue({})
   api.getSignatureChoices.mockResolvedValue({
     table: 'signature_combination',
     values: [],
@@ -361,12 +366,13 @@ describe('ReceiptPanel', () => {
 
     const toggle = await screen.findByRole('button', { name: /look up friedberg/i })
     // Collapsed by default: nothing about the lookup form is on screen, and
-    // nothing about it has run, until the toggle is pressed.
-    expect(screen.queryByLabelText(/denomination/i)).not.toBeInTheDocument()
+    // nothing about it has run, until the toggle is pressed. (Web press is
+    // the lookup's own: Identify asks a note's denomination too.)
+    expect(screen.queryByLabelText(/web press/i)).not.toBeInTheDocument()
     expect(api.searchFriedberg).not.toHaveBeenCalled()
 
     await userEvent.click(toggle)
-    expect(await screen.findByLabelText(/denomination/i)).toBeInTheDocument()
+    expect(await screen.findByLabelText(/web press/i)).toBeInTheDocument()
   })
 
   it('offers the errors panel for the one selected item', async () => {
@@ -561,5 +567,161 @@ describe('ReceiptPanel', () => {
       expect.any(File),
       expect.objectContaining({ acknowledgeForSale: true }),
     )
+  })
+})
+
+describe('ReceiptPanel: Identify', () => {
+  const NOTE = {
+    ...ITEM,
+    item_kind: 'currency',
+    denomination: 'usd_note_1',
+    series_year: 1957,
+    series_letter: 'B',
+    serial_number: 'A1B',
+    face_plate_number: null,
+    back_plate_number: null,
+  }
+
+  async function openNote() {
+    api.getInventoryItem.mockResolvedValue(NOTE)
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    return screen.findByRole('textbox', { name: /serial number/i })
+  }
+
+  async function retypeSerial(serial, text) {
+    await userEvent.clear(serial)
+    await userEvent.type(serial, text)
+  }
+
+  it("shows a note's identifying facts first, filled from the item", async () => {
+    const serial = await openNote()
+    expect(screen.getByRole('spinbutton', { name: /series year/i })).toHaveValue(1957)
+    expect(serial).toHaveValue('A1B')
+    // Above the parcel's own fields.
+    const arrived = screen.getByLabelText(/arrived/i)
+    expect(
+      serial.compareDocumentPosition(arrived) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('saves only what changed, with what it was, before the receipt', async () => {
+    const serial = await openNote()
+    await retypeSerial(serial, 'A12345678B')
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.updateInventoryItem).toHaveBeenCalledWith(412, {
+      serial_number: 'A12345678B',
+      base: { serial_number: 'A1B' },
+    })
+    expect(api.updateInventoryItem.mock.invocationCallOrder[0]).toBeLessThan(
+      api.receiveItems.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('sends nothing to the item when nothing changed', async () => {
+    await openNote()
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it('does not save Identify edits for Missing, and says so beforehand', async () => {
+    const serial = await openNote()
+    await retypeSerial(serial, 'A12345678B')
+    expect(screen.getByText(/saved only with receive/i)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /missing/i }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it('a refused save receives nothing and keeps what was typed', async () => {
+    api.updateInventoryItem.mockRejectedValueOnce(new Error('serial_number: too long'))
+    const serial = await openNote()
+    await retypeSerial(serial, 'A12345678B')
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    expect(await screen.findByText('serial_number: too long')).toBeInTheDocument()
+    expect(api.receiveItems).not.toHaveBeenCalled()
+    expect(serial).toHaveValue('A12345678B')
+  })
+
+  it('a receipt that fails after the save does not send the save again', async () => {
+    api.receiveItems
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ received: 1 })
+    const serial = await openNote()
+    await retypeSerial(serial, 'A12345678B')
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    expect(await screen.findByText('network down')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalledTimes(2))
+    expect(api.updateInventoryItem).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds back the full editor while Identify has unsaved edits', async () => {
+    const serial = await openNote()
+    const confirm = screen.getByRole('button', { name: /confirm or correct fields/i })
+    expect(confirm).toBeEnabled()
+
+    await retypeSerial(serial, 'A12345678B')
+
+    expect(confirm).toBeDisabled()
+    expect(
+      screen.getByText(/receive or undo the identify changes first/i),
+    ).toBeInTheDocument()
+  })
+
+  it('sends the for-sale acknowledgement with the save as well', async () => {
+    const detail = 'For sale -- CC-000412: listing #3 at 189.00.'
+    api.updateInventoryItem
+      .mockRejectedValueOnce(
+        Object.assign(new Error(detail), { status: 409, body: { detail } }),
+      )
+      .mockResolvedValueOnce({})
+    const serial = await openNote()
+    await retypeSerial(serial, 'A12345678B')
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    expect(await screen.findByRole('dialog')).toHaveTextContent('CC-000412')
+    expect(api.receiveItems).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Record it anyway' }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalledTimes(1))
+    expect(api.updateInventoryItem.mock.calls[1][1]).toMatchObject({
+      serial_number: 'A12345678B',
+      acknowledge_for_sale: true,
+    })
+    expect(api.receiveItems.mock.calls[0][0]).toMatchObject({
+      acknowledge_for_sale: true,
+    })
+  })
+
+  it('says what the facts decide', async () => {
+    api.suggestNote.mockResolvedValue({
+      note_type: 'silver_certificate',
+      seal_color: 'blue',
+      signature_combination: null,
+      fed_district: null,
+      series: null,
+      warning: null,
+    })
+    await openNote()
+
+    await waitFor(() =>
+      expect(api.suggestNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          denomination: 'usd_note_1',
+          series_year: '1957',
+          series_letter: 'B',
+        }),
+      ),
+    )
+    expect(await screen.findByText(/silver_certificate/)).toBeInTheDocument()
   })
 })
