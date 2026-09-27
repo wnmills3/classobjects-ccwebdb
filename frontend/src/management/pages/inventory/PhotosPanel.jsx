@@ -10,7 +10,9 @@ import { useRequest } from '../../../shared/useRequest'
  * Every photograph filed against this item, and the place a new one is
  * attached -- from a file, or from a web address the server fetches,
  * converts and names for its place (`CC-000412_02.jpg`). A new photograph
- * says what it shows; once the item has one, it must.
+ * says what it shows, and is held -- listed as not saved yet -- until the
+ * editor's Save files it, like every other change in the editor. Re-roling,
+ * promoting and removing a photograph already filed still write at once.
  *
  * Until now `api.uploadImage` had exactly one caller: the receiving screen,
  * so a photograph could only ever be attached at the moment an item
@@ -36,10 +38,21 @@ import { useRequest } from '../../../shared/useRequest'
  * Save button, so asking again on each one would teach the operator to tick
  * the box without reading it.
  */
-export default function PhotosPanel({ itemId, saleState }) {
+export default function PhotosPanel({
+  itemId,
+  saleState,
+  // Photographs added here and held for the editor's Save, and the
+  // editor's handlers for adding and discarding one.
+  pending = [],
+  onAdd = () => {},
+  onDiscard = () => {},
+  // Bumped by the editor once it has filed what was held, to read the
+  // photographs again.
+  reloadKey = 0,
+}) {
   // Read again after every write -- the server, not this panel's own guess,
   // decides sort order, primacy and which photograph a link now points at.
-  const photos = useRequest(itemId, () => api.listItemImages(itemId))
+  const photos = useRequest(`${itemId}:${reloadKey}`, () => api.listItemImages(itemId))
   // A load failure must not leave the panel stuck on "Loading...": an empty,
   // still-usable panel with the error shown is recoverable, a dead end is not.
   const links = photos.error
@@ -60,10 +73,11 @@ export default function PhotosPanel({ itemId, saleState }) {
   // filed without a role is one nobody can find.
   const [chosenRole, setChosenRole] = useState('')
   const [address, setAddress] = useState('')
-  // Said after an add: the photograph is filed at once, and the editor's
-  // Save -- greyed out when no field changed -- has nothing to do with it.
-  const [added, setAdded] = useState(false)
-  const held = new Set((links ?? []).map((row) => row.image_role))
+  // A held photograph counts: two added at once are an obverse and a reverse.
+  const held = new Set([
+    ...(links ?? []).map((row) => row.image_role),
+    ...pending.map((entry) => entry.role),
+  ])
   const nextSide = ['obverse', 'reverse'].find((code) => !held.has(code)) ?? ''
   const newRole = chosenRole || nextSide
   const roleMissing = !newRole
@@ -79,41 +93,15 @@ export default function PhotosPanel({ itemId, saleState }) {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
-    api
-      .uploadImage(itemId, file, {
-        imageRole: newRole,
-        acknowledgeForSale: acknowledged,
-      })
-      .then(() => {
-        setError('')
-        setChosenRole('')
-        setAdded(true)
-        reload()
-      })
-      .catch((err) => {
-        setAdded(false)
-        setError(err.message)
-      })
+    // Held, not sent: the editor's Save files it with everything else.
+    onAdd({ kind: 'file', file, role: newRole })
+    setChosenRole('')
   }
 
   function addFromAddress() {
-    api
-      .addImageFromUrl(itemId, address.trim(), {
-        imageRole: newRole,
-        acknowledgeForSale: acknowledged,
-      })
-      .then(() => {
-        setError('')
-        setAddress('')
-        setChosenRole('')
-        setAdded(true)
-        reload()
-      })
-      // The address is kept, to be corrected rather than pasted again.
-      .catch((err) => {
-        setAdded(false)
-        setError(err.message)
-      })
+    onAdd({ kind: 'url', url: address.trim(), role: newRole })
+    setAddress('')
+    setChosenRole('')
   }
 
   function setRole(row, code) {
@@ -167,11 +155,25 @@ export default function PhotosPanel({ itemId, saleState }) {
       />
       {loading && <p className="muted">Loading...</p>}
       {!loading && error && <p className="error">{error}</p>}
-      {added && !error && (
-        <p className="muted" role="status">
-          Photograph added and saved. The editor&apos;s Save is only for the fields
-          above; photographs save as they are added.
-        </p>
+      {pending.length > 0 && (
+        <ul className="photo-pending">
+          {pending.map((entry) => (
+            <li key={entry.key}>
+              <span>
+                {entry.kind === 'file' ? entry.file.name : entry.url} --{' '}
+                {roleLabel(entry.role)}, not saved yet
+              </span>
+              {entry.error && <span className="error"> {entry.error}</span>}
+              <button
+                type="button"
+                className="link"
+                onClick={() => onDiscard(entry.key)}
+              >
+                Discard
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
       {!loading && links.length === 0 && (
         <p className="muted">No photographs filed yet.</p>

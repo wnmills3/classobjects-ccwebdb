@@ -125,7 +125,10 @@ function fromItem(item) {
  * `item` is the note's detail (`GET /inventory/{id}`), when the caller has
  * it: the fields start from what the note records. `onAttached` is told
  * after a number is attached, so a caller showing the current number can
- * read it again.
+ * read it again. With `onChoose` (the item editor) nothing is attached: the
+ * choice -- `{friedberg_id, status, fr_number}` -- is handed back for the
+ * editor's Save. A number typed in and recorded is still recorded in the
+ * catalog at once; only attaching it to the note waits.
  *
  * `searchNow` (the item editor) searches at once with what the note records
  * and hides the fields: the owner asked for the answer, not a form to press
@@ -138,6 +141,7 @@ export default function FriedbergLookup({
   item,
   onClose,
   onAttached,
+  onChoose,
   searchNow = false,
 }) {
   const [initial] = useState(() => fromItem(item))
@@ -325,7 +329,12 @@ export default function FriedbergLookup({
   // attach response on success or null on failure, so a caller that needs to
   // know which happened (recording clears its input only on success) can
   // tell without the failure being swallowed.
-  async function attach(friedbergId, status) {
+  async function attach(friedbergId, status, frNumber) {
+    if (onChoose) {
+      onChoose({ friedberg_id: friedbergId, status, fr_number: frNumber })
+      setAttachMessage(`Chose ${frNumber} as ${status}: attached when you Save.`)
+      return { fr_number: frNumber }
+    }
     setAttachingKey(`${friedbergId}:${status}`)
     setAttachError('')
     setAttachMessage('')
@@ -360,7 +369,7 @@ export default function FriedbergLookup({
     const known = (results ?? []).find((row) => row.fr_number === number)
     if (known) {
       setRecordError('')
-      if (await attach(known.id, status)) setRecordFrNumber('')
+      if (await attach(known.id, status, known.fr_number)) setRecordFrNumber('')
       return
     }
     await recordAndAttach(number, status)
@@ -378,7 +387,7 @@ export default function FriedbergLookup({
       // a retry after a failed attach only attaches, instead of recording it
       // again and being refused as a duplicate (code review, 2026-09-23).
       setResults((rows) => [...(rows ?? []), created])
-      const attached = await attach(created.id, status)
+      const attached = await attach(created.id, status, created.fr_number)
       if (attached) {
         setRecordFrNumber('')
         setResults(null)

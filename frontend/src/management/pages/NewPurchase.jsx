@@ -549,8 +549,8 @@ export default function NewPurchase() {
   // it was made rather than found again on the inventory screens.
   const [editing, setEditing] = useState(null)
 
-  // Saved or only closed, the purchase is read again: errors and photographs
-  // save on their own inside the editor.
+  // Saved or only closed, the purchase is read again: an error recorded, or
+  // a filed photograph re-roled or removed, saves on its own in the editor.
   function closeEditor() {
     setEditing(null)
     reloadPurchase()
