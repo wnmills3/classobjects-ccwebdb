@@ -50,7 +50,7 @@ follow in the plan's later phases.
 | `dq_photos` | Photographs | Items without a photograph, by kind and status; unfiled photographs | Inventory search `?missing=photo`; Photos page |
 | `dq_derived` | Filled by a rule, not yet confirmed | One per field and rule (`item_field_source` rows with no `item_field_review`) | Inventory search `?issue=unreviewed` narrowed to the field |
 | `dq_purchases` | Purchases with gaps | Purchases with a generated number (`Order-0001`), no date, no web address, a zero-cost item, or no items | The purchase page |
-| `dq_locations` | Where items are | Items by storage location, including "none recorded" -- measured: every live item today | Inventory search by location |
+| `dq_locations` | Where items are | Items by storage location, including "none recorded" (optional, so not an error) -- measured: every live item today | Inventory search by location |
 
 ### Collection -- what it is made of
 
@@ -59,7 +59,7 @@ follow in the plan's later phases.
 | `cb_holdings` **v1** | Holdings | Kind x denomination: items, pieces, total cost; totals per kind and overall. Parameters: status (default held and received), disposition. |
 | `cb_designs` | Coins by design | Design series (Morgan dollar, Winged Liberty Head dime, ...): items, year span held, total cost; "no series" as its own row |
 | `cb_notes` | Notes | Note class x series year (and letter): items, seal colours present, Reserve Banks present, total cost; star notes and fancy serials counted from attributes |
-| `cb_grades` | Grades | Grade band (circulated, AU, MS/UNC 60-64, 65+, proof) x grading service (raw counted separately): items, total cost |
+| `cb_grades` | Grades | Grade band (1-49, 50-59, 60-64, 65-70, ungraded) x strike type x grading service (raw counted separately): items, total cost |
 | `cb_metal` | Precious metal | Metal x form (coin, bar, round): items, fine troy ounces, total cost; melt value at the latest recorded spot price when one is recorded |
 | `cb_attributes` | Attributes and errors | Each attribute and error type: items carrying it |
 
@@ -183,25 +183,19 @@ completeness report, and is useful in the search on its own.
   without changing its shape.
 - Scheduled or emailed reports, dashboards on the landing page, and a
   free-form query builder.
-- Realized gain for a tax return. `sl_sales` shows gain per sale from the
-  per-item shares (specific identification, the default). Which method the
-  return uses, and how fees and shipping are counted, is the owner's decision
-  (`selling-design.md`); the report is labelled until it is made.
+- A tax-return form of realized gain: `sl_sales` shows gain per item (see
+  Decisions); how fees and shipping are presented on a return is outside it.
 - Snapshots over time (the collection's value by month).
 
-## Open questions for the owner
+## Decisions
 
-Recorded, not blocking: each has a default the build uses.
-
-1. **Overdue** -- after how many days is an outstanding purchase late? Default
-   21, a parameter.
-2. **Gain method** -- specific identification (default) or FIFO for
-   `sl_sales`.
-3. **Grade bands** -- the bands `cb_grades` uses. Default: circulated (1-49),
-   AU (50-59), MS/UNC 60-64, MS/UNC 65+, proof, ungraded.
-4. **Which reports first** -- default: the five marked v1.
-5. **Storage locations** -- none is recorded on any live item today. Is that
-   expected (locations not yet used), or should Receiving require one?
+| Question | Decision |
+|---|---|
+| When is an outstanding purchase overdue? | After **21 days** from its order date -- `pr_outstanding`'s default, still a parameter. |
+| How is a sale's gain worked out? | **Per item** (specific identification): each sold item's share of the sale (`sales_order_item_share`) less that item's own cost basis. `sl_sales` uses this; no other method is offered. |
+| What grade bands does `cb_grades` use? | **Numbers**, not names: 1-49, 50-59, 60-64, 65-70, and ungraded. The strike type (MS, PR) and the grading service are separate columns, not folded into the band. |
+| Which reports come first? | The five marked **v1**. |
+| Storage locations | **Optional.** A location can be chosen when an item is entered -- on its own or on a purchase -- and changed at any time afterwards, each change kept in its location history. Today only Receiving sets one (New item and the item editor do not), and no live item has one; `dq_locations` reports "none recorded" as a row, not as an error. |
 
 ## Testing
 
