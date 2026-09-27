@@ -21,6 +21,14 @@ describe('SaveButton', () => {
   })
 })
 
+describe('SaveButton: the underlined S', () => {
+  it('underlines the S that Ctrl+S names, keeping its name', () => {
+    render(<SaveButton label="Save order" onClick={vi.fn()} />)
+    const button = screen.getByRole('button', { name: 'Save order' })
+    expect(button.querySelector('u')).toHaveTextContent(/^S$/)
+  })
+})
+
 describe('SaveShortcut', () => {
   it('saves on Ctrl+S while it is mounted, and not after', () => {
     const onSave = vi.fn()
