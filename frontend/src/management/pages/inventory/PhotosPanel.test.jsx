@@ -323,6 +323,21 @@ describe('PhotosPanel: adding another photograph', () => {
     expect(api.listItemImages).toHaveBeenCalledTimes(2)
   })
 
+  it("says the photograph is saved, since the editor's Save does not do it", async () => {
+    const user = userEvent.setup()
+    api.addImageFromUrl.mockResolvedValue({})
+    withOne()
+    await user.type(
+      await screen.findByRole('textbox', { name: /photo web address/i }),
+      EBAY,
+    )
+    await user.click(screen.getByRole('button', { name: /add from web address/i }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /photograph added and saved/i,
+    )
+  })
+
   it('keeps a refused address, and says why', async () => {
     const user = userEvent.setup()
     api.addImageFromUrl.mockRejectedValue(new Error('the address answered 404'))

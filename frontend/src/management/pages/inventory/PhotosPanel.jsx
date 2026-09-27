@@ -60,6 +60,9 @@ export default function PhotosPanel({ itemId, saleState }) {
   // filed without a role is one nobody can find.
   const [chosenRole, setChosenRole] = useState('')
   const [address, setAddress] = useState('')
+  // Said after an add: the photograph is filed at once, and the editor's
+  // Save -- greyed out when no field changed -- has nothing to do with it.
+  const [added, setAdded] = useState(false)
   const held = new Set((links ?? []).map((row) => row.image_role))
   const nextSide = ['obverse', 'reverse'].find((code) => !held.has(code)) ?? ''
   const newRole = chosenRole || nextSide
@@ -84,9 +87,13 @@ export default function PhotosPanel({ itemId, saleState }) {
       .then(() => {
         setError('')
         setChosenRole('')
+        setAdded(true)
         reload()
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => {
+        setAdded(false)
+        setError(err.message)
+      })
   }
 
   function addFromAddress() {
@@ -99,10 +106,14 @@ export default function PhotosPanel({ itemId, saleState }) {
         setError('')
         setAddress('')
         setChosenRole('')
+        setAdded(true)
         reload()
       })
       // The address is kept, to be corrected rather than pasted again.
-      .catch((err) => setError(err.message))
+      .catch((err) => {
+        setAdded(false)
+        setError(err.message)
+      })
   }
 
   function setRole(row, code) {
@@ -156,6 +167,12 @@ export default function PhotosPanel({ itemId, saleState }) {
       />
       {loading && <p className="muted">Loading...</p>}
       {!loading && error && <p className="error">{error}</p>}
+      {added && !error && (
+        <p className="muted" role="status">
+          Photograph added and saved. The editor&apos;s Save is only for the fields
+          above; photographs save as they are added.
+        </p>
+      )}
       {!loading && links.length === 0 && (
         <p className="muted">No photographs filed yet.</p>
       )}
