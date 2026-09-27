@@ -16,6 +16,18 @@ vi.mock('../api', () => ({
   },
 }))
 
+// The editor itself is tested on its own; here it stands in for the dialog
+// the purchase page opens, and says which item it was given.
+vi.mock('./inventory/ItemEditDialog', () => ({
+  default: ({ itemId, onSaved, onClose }) => (
+    <div role="dialog" aria-label="Edit item">
+      editing item {itemId}
+      <button onClick={onSaved}>stub save</button>
+      <button onClick={onClose}>stub close</button>
+    </div>
+  ),
+}))
+
 import { api } from '../api'
 import { renderWithProviders } from '../../test/helpers'
 import NewPurchase from './NewPurchase'
@@ -866,5 +878,57 @@ describe("NewPurchase: a lot's page as the item's listing", () => {
     expect(
       await screen.findByRole('textbox', { name: /listing web address/i }),
     ).toHaveValue('')
+  })
+})
+
+describe('NewPurchase: fixing an item already entered', () => {
+  const WITH_LINE = {
+    ...FRESH_PURCHASE,
+    lines: [
+      {
+        id: 501,
+        item_code: 'CC-000501',
+        source_title: '1942 dime',
+        description: '',
+        item_kind: 'coin',
+        item_cost: '3.00',
+        status: 'ordered',
+      },
+    ],
+  }
+
+  it('opens the editor from the item code, and shows the fix once saved', async () => {
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(WITH_LINE)
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+
+    await user.click(await screen.findByRole('button', { name: 'CC-000501' }))
+    expect(screen.getByRole('dialog', { name: 'Edit item' })).toHaveTextContent(
+      'editing item 501',
+    )
+    const reads = api.getPurchaseOrder.mock.calls.length
+
+    await user.click(screen.getByRole('button', { name: 'stub save' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Edit item' })).toBeNull()
+    await waitFor(() =>
+      expect(api.getPurchaseOrder.mock.calls.length).toBeGreaterThan(reads),
+    )
+  })
+
+  it('reads the purchase again when the editor is closed without a save', async () => {
+    // Errors and photographs save on their own inside the editor.
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(WITH_LINE)
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    await user.click(await screen.findByRole('button', { name: 'CC-000501' }))
+    const reads = api.getPurchaseOrder.mock.calls.length
+
+    await user.click(screen.getByRole('button', { name: 'stub close' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Edit item' })).toBeNull()
+    await waitFor(() =>
+      expect(api.getPurchaseOrder.mock.calls.length).toBeGreaterThan(reads),
+    )
   })
 })
