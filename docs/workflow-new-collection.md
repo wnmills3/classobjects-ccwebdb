@@ -61,7 +61,9 @@ Two shapes of purchase:
 **Receive** (`/management/receiving`) finds what has not arrived, by any part of an
 order number or by what the item is, and records one of received, missing,
 returned or canceled, with an arrival date and a storage location. The
-receipt dialog also takes a note, photographs, field reviews and, for a
+receipt dialog opens with the facts that identify the piece -- a note's series,
+face value, serial and plates, a coin's year, mint and face value -- saved with
+Receive, and says what they decide. It also takes a note, photographs, field reviews and, for a
 banknote, its Friedberg number (the owner's own, read off the note; nothing is
 fetched). Receipt is the best moment to record what only the object shows --
 seal, signatures, district, plate numbers, errors -- but nothing there is

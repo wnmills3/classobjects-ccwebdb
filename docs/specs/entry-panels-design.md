@@ -102,21 +102,25 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
 
 **New item** (`management/pages/entry/NewItemForm.jsx`):
 
-- Kind, title, seller's item id, description, year (with "Range of years";
-  not for a note), piece count, cost, shipping, status (ordered / received),
-  country, denomination, set form (not for a note), strike type (not for a
-  note), grade, grade designation, grading service, certificate number,
-  metal (not for a note), series.
-- Coin block (not currency): mint, variety. Banknote block (currency): serial
-  number, face plate, back plate, printing location ("Printed at"), series
-  year and letter, note class, seal, signatures, Reserve Bank.
+- **The facts first** (`identify-first-entry-design.md`). Kind, then what
+  identifies the piece: a note's series year, series letter, denomination,
+  serial number, face plate, back plate and printing location ("Printed
+  at"); anything else's year (with "Range of years"), mint and denomination.
+- Then what those facts decide, marked *suggested* while it is the form's:
+  series, and a note's class, seal, signatures and Reserve Bank or anything
+  else's metal. Then country; strike type (not for a note), grade, grade
+  designation, grading service, certificate number, set form and variety
+  (not for a note).
+- Last the purchase line: title, seller's item id, piece count, cost,
+  shipping, status (ordered / received), description.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
   boundary clears a picked grade, a change within one side keeps it.
 - **Suggestions.** As facts are entered the form asks `GET /api/defaults/note`
-  or `/coin` and fills what the facts decide, marked *suggested*
-  (`classifier-defaults-design.md`).
+  or `/coin` and fills what the facts decide -- the design series included --
+  marked *suggested* (`classifier-defaults-design.md`). The series is never
+  sent as a fact.
 - **Errors** are recorded with `ErrorsPanel`, saved after the item is created,
   with a Retry if that second step fails.
 - Money is validated with `isMoney` before sending.
@@ -126,7 +130,8 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   signatures, grading service, metal, mint -- clears everything that varies
   piece to piece (title,
   description, years, grade, designation, serial, certificate, variety, cost,
-  shipping, piece count back to 1) and focuses the title.
+  shipping, piece count back to 1) and focuses the first identifying field
+  it cleared: a note's serial number, anything else's year.
 - Keyboard accelerators via `accel` / `AccessLabel` (Alt+letter, avoiding D,
   E and F, which the browser claims) and `useSaveShortcut` (Ctrl+S /
   Ctrl+Enter saves).
