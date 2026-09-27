@@ -164,7 +164,7 @@ recover the other, and at most vendors a purchase's web address is its lot's.
 |---|---|
 | The id is read from the address where the site puts it: eBay `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot. An order page (Whatnot's `/order/`, order.ebay.com) carries none. | New item suggests it as the address is typed (`management/listing.js`); the pass fills it (`app/listing_links.py`). |
 | An eBay id rebuilds its address, `https://www.ebay.com/itm/<id>`. | The pass. |
-| At any vendor but eBay and Whatnot -- whose orders hold many listings -- the purchase's web address is its lot's page. | New item starts with it as the listing, suggested (with the id it carries); a purchase with no web address takes the first item's listing when the item is entered (`create_item`); the pass fills an item with no address from its purchase, and a purchase with none from the one address its items share. |
+| At any vendor but eBay and Whatnot -- whose orders hold many listings -- the purchase's web address is its lot's page. | New item starts with it as the listing, suggested (with the id it carries); a purchase with no web address takes the first item's listing when the item is entered (`create_item`); the pass fills an item with no address from its purchase only when that address carries a lot id (a shop's location page is no listing), and a purchase with none from the one address its items share. |
 | A purchase whose items name several lots gives no address to its items and takes none from them. | The pass. |
 
 Nothing already recorded is replaced. The pass reports by default;
