@@ -1020,6 +1020,17 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
             )
         )
 
+    # The same rules as an edit: a code unknown, or of the other kind (a star
+    # on a coin), refuses the whole entry -- nothing has been committed yet.
+    if payload.attributes:
+        try:
+            item_attributes.set_attributes(
+                db, item, payload.attributes, user_id=admin.id
+            )
+        except item_attributes.AttributeRefused as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     record_initial_status(db, item, user_id=admin.id, note="entered in the console")
     # Only a suggestion that was actually filled is a derived default.
     record_derived(

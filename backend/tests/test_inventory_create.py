@@ -471,3 +471,56 @@ def test_a_suggested_series_is_accepted_and_recorded_as_one(
     assert res.status_code == 201, res.text
     assert res.json()["series"] == "winged_liberty_head_dime"
     assert derived_fields(db, res.json()["id"])["series_id"] == SUGGESTION
+
+
+def _attribute_codes(
+    client: TestClient, headers: dict[str, str], item_id: int
+) -> list[str]:
+    body = client.get(f"/api/inventory/{item_id}", headers=headers).json()
+    return sorted(held["code"] for held in body["attributes"])
+
+
+def test_an_item_is_entered_with_its_attributes(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_currency_payload(order.id, attributes=["binary"]),
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 201, res.text
+    assert "binary" in _attribute_codes(client, admin_headers, res.json()["id"])
+
+
+def test_an_attribute_of_the_other_kind_refuses_the_whole_item(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    before = db.scalar(select(func.count()).select_from(InventoryItem))
+
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(order.id, attributes=["star"]),
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 422, res.text
+    assert "star" in res.json()["detail"]
+    db.expire_all()
+    assert db.scalar(select(func.count()).select_from(InventoryItem)) == before
+
+
+def test_an_unknown_attribute_is_named(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(order.id, attributes=["cac", "no_such_thing"]),
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 422, res.text
+    assert "no_such_thing" in res.json()["detail"]

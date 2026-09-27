@@ -1182,6 +1182,9 @@ class ItemCreate(BaseModel):
     #: the person left as it was, by field name. They are recorded as derived
     #: defaults; everything else sent is the person's.
     suggested: list[str] = Field(default_factory=list)
+    #: What the piece is beyond its grade -- Binary, Star, CAC -- by code,
+    #: fitting its kind (app.item_attributes).
+    attributes: list[str] = Field(default_factory=list, max_length=64)
 
     @field_validator("status")
     @classmethod

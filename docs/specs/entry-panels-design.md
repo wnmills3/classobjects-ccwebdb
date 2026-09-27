@@ -71,6 +71,7 @@ Request bodies forbid unknown fields (422). Money crosses as decimal strings.
 | `mint`, `variety` | coin detail; refused for `currency` |
 | `serial_number`, `series_year`, `series_letter` (<= 4), `seal_color`, `fed_district`, `note_type`, `signature_combination`, `face_plate_number`, `back_plate_number`, `printing_facility` | currency detail; refused for any other kind. A face plate is a check letter and digits (`E82`), digits alone, or either with `FW` before it; a back plate is digits; `printing_facility` is `dc` or `fw`, read from the face plate when one is sent |
 | `suggested` | field names whose value the form filled from the facts and the person left alone; recorded as derived defaults |
+| `attributes` | codes (Binary, Star, CAC), set as an edit sets them (`app.item_attributes`); one unknown or of the other kind is a 422 naming it, and nothing is created |
 
 A detail field for the other kind is a 422 naming the field: a silently
 dropped serial number is data loss. A denomination whose `kind` contradicts
@@ -113,7 +114,8 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   series, and a note's class, seal, signatures and Reserve Bank or anything
   else's metal. Then country; strike type (not for a note), grade, grade
   designation, grading service, certificate number, set form and variety
-  (not for a note).
+  (not for a note), attributes (the editor's `AttributesField`, offering
+  the kind's own; changing kind across note and coin drops them).
 - Last the purchase line: title, seller's item id, piece count, cost,
   shipping, status (ordered / received), description.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
@@ -131,7 +133,7 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   `SHARED_ON_REPEAT` -- kind, seller's item id, status, country,
   denomination, series, series year and letter, seal, district, note class,
   signatures, grading service, metal, mint -- clears everything that varies
-  piece to piece (title,
+  piece to piece (attributes, title,
   description, years, grade, designation, serial, certificate, variety, cost,
   shipping, piece count back to 1) and focuses the first identifying field
   it cleared: a note's serial number, anything else's year.
