@@ -1,8 +1,10 @@
+import { AccessLabel } from './AccessLabel'
 import { useSaveShortcut } from './shortcuts'
 
 /**
  * The console's Save button: Ctrl+S (Cmd+S on macOS) is its shortcut on
- * every form, named to assistive technology and shown beside it.
+ * every form, named to assistive technology, shown beside it, and marked by
+ * the underlined S of its label.
  *
  * It only says so. The form's own `useSaveShortcut`, or a `SaveShortcut`
  * rendered while the form is open, is what answers the key -- a form knows
@@ -12,7 +14,10 @@ export function SaveButton({ label = 'Save', saving = false, ...button }) {
   return (
     <>
       <button type="button" {...button} aria-keyshortcuts="Control+S" title="Ctrl+S">
-        {saving ? 'Saving...' : label}
+        {/* The S that Ctrl+S names is underlined. An underline elsewhere
+            means Alt plus the letter, so the hint beside the button says
+            which key goes with this one. */}
+        <AccessLabel text={saving ? 'Saving...' : label} accessKey="s" />
       </button>
       <span className="key-hint" aria-hidden="true">
         Ctrl+S
