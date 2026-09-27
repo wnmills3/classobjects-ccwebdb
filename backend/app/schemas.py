@@ -233,7 +233,8 @@ class ImageLinkIn(BaseModel):
     inventory_item_id: int
     image_role: str | None = None
     is_primary: bool = False
-    sort_order: int = 0
+    #: Its place among the item's photographs; none goes after the last.
+    sort_order: int | None = None
     #: Set after a refusal to say the caller knows the item is for sale
     #: (app.sale_state). The shop serves an item's primary photograph.
     acknowledge_for_sale: bool = False

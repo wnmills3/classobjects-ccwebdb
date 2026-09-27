@@ -21,7 +21,15 @@ sees.
   **nullable on purpose**: a photograph exists before anyone has decided what
   it shows, and must be storable and browsable in that state.
   `uq_item_image_primary` (partial unique) allows at most one primary per
-  item; `uq_item_image_pair` one link per image and item.
+  item; `uq_item_image_pair` one link per image and item. A photograph
+  filed with no `sort_order` -- every console upload, and an attach that
+  names none -- goes after the item's last one, so a reverse lists after its
+  obverse.
+- Every file is re-encoded as it is stored (JPEG, or PNG where it has
+  transparency), so any format Pillow reads -- WebP, HEIC -- can be filed.
+  `image.source_ref` keeps the file's name, with the stored format's
+  extension when it was converted: `CC-007595_02.webp` is kept as
+  `CC-007595_02.jpg`; `DSC00417.JPG` stays as it is.
 - `image_store.ingest` stores a photograph -- original and both derivatives
   -- and is shared by the upload endpoint and the import pass.
 
@@ -93,9 +101,10 @@ stored; only the *link* is withheld.
   choose between them, linking one is a coin flip presented as a fact.
 - **An occupied slot is never replaced silently**, and **an existing primary
   is never taken away**: a re-shoot or a change to what a buyer sees is a
-  decision, and the console is where decisions are made. Console uploads
-  file at `sort_order` 0, so the primary check is separate from the slot
-  check.
+  decision, and the console is where decisions are made. A console upload
+  files after the item's last photograph, not at slot 1, so the primary
+  check is separate from the slot check; an upload that took slot 2 is
+  reported as occupying it.
 - **Idempotent**: a second run re-finds images by hash and existing links,
   and changes nothing.
 - `sort_order` is the sequence number, so the console lists photographs in

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from .models import Image, ImageRole, InventoryItem, ItemImage
@@ -58,7 +58,7 @@ def attach(
     item: InventoryItem,
     role: str | None,
     is_primary: bool,
-    sort_order: int = 0,
+    sort_order: int | None = None,
 ) -> ItemImage:
     """Link `image` to `item`. Raises `LinkRefused` if it is already linked.
 
@@ -71,6 +71,9 @@ def attach(
 
     Filling a vacancy is never a demotion: an incumbent is displaced only when
     the caller asked for `is_primary`.
+
+    With no `sort_order` it goes after the item's last photograph, so a
+    reverse added to an item lists after its obverse.
 
     So `is_primary` is an input *and* an output: passing False may still
     produce a primary link, and the caller learns that only from
@@ -97,6 +100,14 @@ def attach(
             )
         )
         is_primary = incumbent is None
+
+    if sort_order is None:
+        last = db.scalar(
+            select(func.max(ItemImage.sort_order)).where(
+                ItemImage.inventory_item_id == item.id
+            )
+        )
+        sort_order = (last or 0) + 1
 
     link = ItemImage(
         inventory_item_id=item.id,

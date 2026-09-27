@@ -40,6 +40,7 @@ __all__ = [
     "MetadataRemainsError",
     "cleanse",
     "derivative_key",
+    "file_extension",
     "make_derivative",
     "original_key",
 ]
@@ -226,7 +227,8 @@ def make_derivative(data: bytes, longest_edge: int) -> tuple[bytes, int, int, st
     return encoded, rendition.width, rendition.height, media_type
 
 
-def _extension(media_type: str) -> str:
+def file_extension(media_type: str) -> str:
+    """The extension a stored file of this type carries: `png` or `jpg`."""
     return "png" if media_type == "image/png" else "jpg"
 
 
@@ -237,9 +239,9 @@ def original_key(sha256: str, media_type: str) -> str:
     entries, which some filesystems handle poorly and every `ls` handles
     badly.
     """
-    return f"originals/{sha256[:2]}/{sha256}.{_extension(media_type)}"
+    return f"originals/{sha256[:2]}/{sha256}.{file_extension(media_type)}"
 
 
 def derivative_key(sha256: str, kind: str, media_type: str) -> str:
     """Storage key for one rendition of an image, fanned out by hash."""
-    return f"derivatives/{kind}/{sha256[:2]}/{sha256}.{_extension(media_type)}"
+    return f"derivatives/{kind}/{sha256[:2]}/{sha256}.{file_extension(media_type)}"

@@ -208,10 +208,11 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
             is_primary = parsed.is_primary
             if is_primary:
                 # An `_01` is the item's obverse and would be promoted, which
-                # demotes whatever is primary now. Every console upload files
-                # at sort_order 0, so a hand-attached photograph is invisible
-                # to the occupied check above -- without this, the import
-                # takes the primary away from it with no line in any bucket.
+                # demotes whatever is primary now. A console upload files
+                # after the item's last photograph, not at slot 1, so the
+                # occupied check above does not see a hand-attached primary --
+                # without this, the import takes the primary away from it
+                # with no line in any bucket.
                 incumbent = db.scalar(
                     select(ItemImage).where(
                         ItemImage.inventory_item_id == item.id, ItemImage.is_primary

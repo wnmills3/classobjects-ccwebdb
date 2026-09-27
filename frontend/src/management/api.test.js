@@ -300,3 +300,27 @@ describe('getOfferTitles', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/offers/titles?item_ids=7&item_ids=9')
   })
 })
+
+describe('attachImage', () => {
+  it('leaves the place to the server, which files it after the last', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.attachImage(4, { inventoryItemId: 12, imageRole: 'reverse' })
+
+    const body = sentBody(fetchMock)
+    expect(body.inventory_item_id).toBe(12)
+    // A place of 0 here put every photograph filed from the Photos page
+    // ahead of the item's obverse.
+    expect('sort_order' in body).toBe(false)
+  })
+
+  it('sends a place when one is given', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.attachImage(4, { inventoryItemId: 12, sortOrder: 3 })
+
+    expect(sentBody(fetchMock).sort_order).toBe(3)
+  })
+})
