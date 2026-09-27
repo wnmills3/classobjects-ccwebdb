@@ -257,6 +257,23 @@ describe('FriedbergLookup', () => {
     expect(api.createFriedbergNumber).not.toHaveBeenCalled()
   })
 
+  it('in the item editor, hands the choice back instead of attaching it', async () => {
+    const onChoose = vi.fn()
+    api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
+    renderWithProviders(<FriedbergLookup itemId={412} onChoose={onChoose} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Copy FR-TEST-2' }))
+    await userEvent.click(screen.getByRole('button', { name: /save as confirmed/i }))
+
+    expect(onChoose).toHaveBeenCalledWith({
+      friedberg_id: 2,
+      status: 'confirmed',
+      fr_number: 'FR-TEST-2',
+    })
+    expect(api.attachFriedberg).not.toHaveBeenCalled()
+    expect(screen.getByText(/attached when you save/i)).toBeInTheDocument()
+  })
+
   it('starts from what the note records, district and web press included', async () => {
     const item = {
       id: 412,

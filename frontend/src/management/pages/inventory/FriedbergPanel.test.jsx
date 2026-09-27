@@ -38,52 +38,77 @@ beforeEach(() => {
 
 describe('FriedbergPanel', () => {
   it('shows the attached number and its status', () => {
-    renderWithProviders(<FriedbergPanel item={PROPOSED} onChanged={vi.fn()} />)
+    renderWithProviders(<FriedbergPanel item={PROPOSED} onHold={vi.fn()} />)
     expect(screen.getByText('FR-TEST-9')).toBeInTheDocument()
     expect(screen.getByText(/proposed, not yet verified/i)).toBeInTheDocument()
   })
 
-  it('confirms the attached number, then asks the editor to reload', async () => {
-    const onChanged = vi.fn()
-    renderWithProviders(<FriedbergPanel item={PROPOSED} onChanged={onChanged} />)
+  it('holds a confirmation for the editor to save', async () => {
+    const onHold = vi.fn()
+    renderWithProviders(<FriedbergPanel item={PROPOSED} onHold={onHold} />)
     await userEvent.click(screen.getByRole('button', { name: /^confirm$/i }))
 
-    // The same catalog row, now as confirmed -- not a new lookup.
-    await waitFor(() =>
-      expect(api.attachFriedberg).toHaveBeenCalledWith(412, {
-        friedberg_id: 9,
-        status: 'confirmed',
-      }),
-    )
-    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    // The same catalog row, now as confirmed -- held, not sent.
+    expect(onHold).toHaveBeenCalledWith({
+      action: 'attach',
+      friedberg_id: 9,
+      status: 'confirmed',
+      fr_number: 'FR-TEST-9',
+    })
+    expect(api.attachFriedberg).not.toHaveBeenCalled()
   })
 
   it('offers no Confirm once the number is confirmed', () => {
     renderWithProviders(
       <FriedbergPanel
         item={{ ...PROPOSED, friedberg_status: 'confirmed', friedberg_verified: true }}
-        onChanged={vi.fn()}
+        onHold={vi.fn()}
       />,
     )
     expect(screen.queryByRole('button', { name: /^confirm$/i })).not.toBeInTheDocument()
     expect(screen.getByText(/confirmed, verified/i)).toBeInTheDocument()
   })
 
-  it('clears the number off the note', async () => {
-    const onChanged = vi.fn()
-    renderWithProviders(<FriedbergPanel item={PROPOSED} onChanged={onChanged} />)
+  it('holds clearing the number for the editor to save', async () => {
+    const onHold = vi.fn()
+    renderWithProviders(<FriedbergPanel item={PROPOSED} onHold={onHold} />)
     await userEvent.click(screen.getByRole('button', { name: /^clear$/i }))
-    await waitFor(() => expect(api.clearFriedberg).toHaveBeenCalledWith(412))
-    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    expect(onHold).toHaveBeenCalledWith({ action: 'clear' })
+    expect(api.clearFriedberg).not.toHaveBeenCalled()
   })
 
-  it('shows a failure instead of reloading as if it worked', async () => {
-    const onChanged = vi.fn()
-    api.clearFriedberg.mockRejectedValue(new Error('Inventory item not found'))
-    renderWithProviders(<FriedbergPanel item={PROPOSED} onChanged={onChanged} />)
-    await userEvent.click(screen.getByRole('button', { name: /^clear$/i }))
-    expect(await screen.findByText('Inventory item not found')).toBeInTheDocument()
-    expect(onChanged).not.toHaveBeenCalled()
+  it('shows a held number as not saved yet, and undoes it', async () => {
+    const onUndo = vi.fn()
+    renderWithProviders(
+      <FriedbergPanel
+        item={PROPOSED}
+        onHold={vi.fn()}
+        onUndo={onUndo}
+        pending={{
+          action: 'attach',
+          friedberg_id: 10,
+          status: 'proposed',
+          fr_number: 'FR-TEST-10',
+        }}
+      />,
+    )
+    expect(screen.getByText(/FR-TEST-10/)).toBeInTheDocument()
+    expect(screen.getByText(/not saved yet/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^undo$/i }))
+    expect(onUndo).toHaveBeenCalled()
+  })
+
+  it('shows a held clearing, and why it failed if it did', () => {
+    renderWithProviders(
+      <FriedbergPanel
+        item={PROPOSED}
+        onHold={vi.fn()}
+        onUndo={vi.fn()}
+        pending={{ action: 'clear', error: 'Inventory item not found' }}
+      />,
+    )
+    expect(screen.getByText(/cleared when you save/i)).toBeInTheDocument()
+    expect(screen.getByText('Inventory item not found')).toBeInTheDocument()
   })
 
   it('one press of Look up searches with what the note records', async () => {
@@ -96,7 +121,7 @@ describe('FriedbergPanel', () => {
       friedberg_verified: null,
       fed_district: 'B',
     }
-    renderWithProviders(<FriedbergPanel item={note} onChanged={vi.fn()} />)
+    renderWithProviders(<FriedbergPanel item={note} onHold={vi.fn()} />)
     expect(screen.getByText(/no number attached/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^clear$/i })).not.toBeInTheDocument()
 

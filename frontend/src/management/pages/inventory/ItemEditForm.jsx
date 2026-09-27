@@ -147,6 +147,13 @@ const FIXED_VOCABULARIES = new Set([
  */
 const certsFrom = (text) => text.split(',').map((part) => part.trim())
 
+/** What Save says when held photographs could not be filed. */
+function photosFailed(failed) {
+  const what =
+    failed.length === 1 ? 'A photograph was' : `${failed.length} photographs were`
+  return `${what.toLowerCase()} not added: ${failed.map((entry) => entry.error).join('; ')}. Fix or discard ${failed.length === 1 ? 'it' : 'them'} below, then Save again`
+}
+
 export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const [item, setItem] = useState(null)
   const [draft, setDraft] = useState({})
@@ -161,6 +168,13 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const [reviewed, setReviewed] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  // Photographs added in the Photos panel, held until Save files them with
+  // the rest of the edit. Each keeps the error its filing met, if any.
+  const [pendingPhotos, setPendingPhotos] = useState([])
+  const [photoKey, setPhotoKey] = useState(0)
+  // A Friedberg number confirmed, chosen or cleared in its panel, held for
+  // Save the same way.
+  const [pendingFriedberg, setPendingFriedberg] = useState(null)
   const [ranged, setRanged] = useState(false)
   // Ticked to change an item that is for sale; reset whenever it is loaded.
   const [acknowledged, setAcknowledged] = useState(false)
@@ -195,9 +209,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // Fields edited here that someone else has changed since: each waits for a
   // choice before the form can be saved.
   const conflicts = item && baseItem ? conflictsOf(item, baseItem, draft) : []
+  const hasFields = Object.keys(draft).length > 0
   const canSave =
     !saving &&
-    Object.keys(draft).length > 0 &&
+    (hasFields || pendingPhotos.length > 0 || pendingFriedberg !== null) &&
     (!forSale || acknowledged) &&
     conflicts.length === 0
   useSaveShortcut(save, canSave)
@@ -499,43 +514,124 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     }
   }
 
+  /**
+   * File each held photograph; those that fail stay held with their reason.
+   * Returns how many failed.
+   */
+  async function filePhotos() {
+    const ack = forSale && acknowledged
+    const left = []
+    for (const entry of pendingPhotos) {
+      try {
+        if (entry.kind === 'file') {
+          await api.uploadImage(itemId, entry.file, {
+            imageRole: entry.role,
+            acknowledgeForSale: ack,
+          })
+        } else {
+          await api.addImageFromUrl(itemId, entry.url, {
+            imageRole: entry.role,
+            acknowledgeForSale: ack,
+          })
+        }
+      } catch (err) {
+        left.push({ ...entry, error: err.message })
+      }
+    }
+    setPendingPhotos(left)
+    if (pendingPhotos.length > 0) setPhotoKey((n) => n + 1)
+    return left
+  }
+
+  /** Apply a held Friedberg change; its failure is kept on it and returned. */
+  async function applyFriedberg(held) {
+    try {
+      if (held.action === 'clear') await api.clearFriedberg(itemId)
+      else
+        await api.attachFriedberg(itemId, {
+          friedberg_id: held.friedberg_id,
+          status: held.status,
+        })
+      setPendingFriedberg(null)
+      return null
+    } catch (err) {
+      setPendingFriedberg({ ...held, error: err.message })
+      return err.message
+    }
+  }
+
+  /**
+   * Save everything held: a Friedberg number cleared first (the server
+   * refuses a note that stops being one while it has a number), then the
+   * fields, then a Friedberg number attached, then the photographs. What
+   * fails stays held with its reason; the editor closes only when all of it
+   * is saved.
+   */
   async function save() {
     setSaving(true)
-    try {
-      // `base` makes the save field by field: a change made elsewhere since
-      // stops it only where it touched a field changed here (409 naming
-      // them). `version` goes too, for any caller without a base.
-      const payload = {
-        ...draft,
-        version: item.version,
-        base: baseFor(baseItem, draft),
+    const heldFriedberg = pendingFriedberg
+    const problems = []
+
+    if (heldFriedberg?.action === 'clear') {
+      const failed = await applyFriedberg(heldFriedberg)
+      if (failed) {
+        setError(
+          `The Friedberg number was not cleared: ${failed}. Nothing else was saved.`,
+        )
+        setSaving(false)
+        return
       }
-      if (Array.isArray(payload.cert_numbers)) {
-        payload.cert_numbers = payload.cert_numbers.filter(Boolean)
-      }
-      if (forSale && acknowledged) payload.acknowledge_for_sale = true
-      await api.updateInventoryItem(itemId, payload)
-      setError('')
-    } catch (err) {
-      setError(err.message)
-      setSaving(false)
-      // Someone changed one of these fields between the last check and this
-      // save: read the item again, and the conflicts show for a choice.
-      if (err.body?.conflicts) reloadItem()
-      return
     }
+
+    if (hasFields) {
+      try {
+        // `base` makes the save field by field: a change made elsewhere since
+        // stops it only where it touched a field changed here (409 naming
+        // them). `version` goes too, for any caller without a base.
+        const payload = {
+          ...draft,
+          version: item.version,
+          base: baseFor(baseItem, draft),
+        }
+        if (Array.isArray(payload.cert_numbers)) {
+          payload.cert_numbers = payload.cert_numbers.filter(Boolean)
+        }
+        if (forSale && acknowledged) payload.acknowledge_for_sale = true
+        await api.updateInventoryItem(itemId, payload)
+        setError('')
+      } catch (err) {
+        setError(err.message)
+        setSaving(false)
+        // Someone changed one of these fields between the last check and this
+        // save: read the item again, and the conflicts show for a choice.
+        if (err.body?.conflicts) reloadItem()
+        return
+      }
+    }
+
+    if (heldFriedberg?.action === 'attach') {
+      const failed = await applyFriedberg(heldFriedberg)
+      if (failed) problems.push(`the Friedberg number was not attached: ${failed}`)
+    }
+    const failedPhotos = await filePhotos()
+    if (failedPhotos.length > 0) problems.push(photosFailed(failedPhotos))
+
     // Read the item back: the saved values, and the version the save made.
     // A form that stays open after a save -- the last item of a review, or
     // Receiving's one-item review -- otherwise kept the old version and the
-    // spent draft, and its next save was refused as a conflict with itself
-    // (code review, 2026-09-23).
+    // spent draft, and its next save was refused as a conflict with itself.
     try {
       adopt(await api.getInventoryItem(itemId))
     } catch (err) {
-      setError(`Saved, but could not read it back: ${err.message}`)
+      problems.push(`saved, but could not read it back: ${err.message}`)
     } finally {
       setSaving(false)
     }
+    if (problems.length > 0) {
+      setError(`Not all was saved -- ${problems.join('; ')}`)
+      return
+    }
+    setError('')
     onSaved?.()
   }
 
@@ -858,7 +954,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
             : saving clears them. Choose {kindLabel(item.item_kind)} again to keep them.
           </p>
         )}
-        {leavingNote && item.friedberg_id && (
+        {leavingNote && item.friedberg_id && pendingFriedberg?.action !== 'clear' && (
           <p className="error">
             It has a Friedberg number: clear it below before saving, or the save is
             refused.
@@ -951,17 +1047,36 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           saleState={item.sale_state ?? []}
         />
 
-        {/* Self-loading and self-saving, the same as the errors panel above:
-          a photograph attached, re-roled or removed here is independent of
-          the form's own Save. This is the only moment other than receiving
-          that an item can gain a photograph -- see PhotosPanel's docstring. */}
-        <PhotosPanel itemId={itemId} saleState={item.sale_state ?? []} />
+        {/* A photograph added here is held until this form's Save files it;
+          re-roling, promoting or removing one already filed writes at once.
+          This is the only moment other than receiving that an item can gain
+          a photograph -- see PhotosPanel's docstring. */}
+        <PhotosPanel
+          itemId={itemId}
+          saleState={item.sale_state ?? []}
+          pending={pendingPhotos}
+          reloadKey={photoKey}
+          onAdd={(entry) =>
+            setPendingPhotos((list) => [
+              ...list,
+              { ...entry, key: crypto.randomUUID() },
+            ])
+          }
+          onDiscard={(key) =>
+            setPendingPhotos((list) => list.filter((entry) => entry.key !== key))
+          }
+        />
 
         {/* The saved kind: a Friedberg number hangs on the note's stored row,
             so it can be looked up only once that row exists -- and cleared
             before the note stops being one. */}
         {item.item_kind === 'currency' && (
-          <FriedbergPanel item={item} onChanged={reloadItem} />
+          <FriedbergPanel
+            item={item}
+            pending={pendingFriedberg}
+            onHold={setPendingFriedberg}
+            onUndo={() => setPendingFriedberg(null)}
+          />
         )}
 
         <div className="row">

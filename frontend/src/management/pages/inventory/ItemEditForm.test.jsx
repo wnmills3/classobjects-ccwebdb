@@ -21,6 +21,13 @@ vi.mock('../../api', () => ({
     // PhotosPanel's own calls: it reads the item's photographs on mount.
     listItemImages: vi.fn(),
     uploadImage: vi.fn(),
+    addImageFromUrl: vi.fn(),
+    // FriedbergPanel's, through Save.
+    attachFriedberg: vi.fn(),
+    clearFriedberg: vi.fn(),
+    getSignatureChoices: vi.fn(),
+    searchFriedberg: vi.fn(),
+    createFriedbergNumber: vi.fn(),
     updateImageLink: vi.fn(),
     detachImage: vi.fn(),
     splitItem: vi.fn(),
@@ -1793,5 +1800,159 @@ describe('ItemEditForm: a note is identified first', () => {
     // Well above the panels that used to push them off the bottom.
     expect(at('back_plate_number')).toBeLessThan(at('grade'))
     expect(at('back_plate_number')).toBeLessThan(at('errors'))
+  })
+})
+
+describe('ItemEditForm: photographs wait for Save', () => {
+  const EBAY = 'https://i.ebayimg.com/images/g/bJgAAeSwrAtp0lb2/s-l1600.webp'
+
+  async function holdAPhoto(user) {
+    const address = await screen.findByRole('textbox', { name: /photo web address/i })
+    await user.type(address, EBAY)
+    await user.click(screen.getByRole('button', { name: /add from web address/i }))
+  }
+
+  it('holds an added photograph until Save, then files it', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    api.addImageFromUrl.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toBeDisabled()
+
+    await holdAPhoto(user)
+
+    expect(api.addImageFromUrl).not.toHaveBeenCalled()
+    expect(screen.getByText(/not saved yet/i)).toBeInTheDocument()
+    expect(save).toBeEnabled()
+
+    await user.click(save)
+
+    await waitFor(() =>
+      expect(api.addImageFromUrl).toHaveBeenCalledWith(12, EBAY, {
+        imageRole: 'obverse',
+        acknowledgeForSale: false,
+      }),
+    )
+    // Nothing else changed, so no field save is sent.
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(screen.queryByText(/not saved yet/i)).toBeNull()
+  })
+
+  it('saves the fields first, then the photographs', async () => {
+    const user = userEvent.setup()
+    api.updateInventoryItem.mockResolvedValue({})
+    api.addImageFromUrl.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    await user.type(screen.getByRole('textbox', { name: /Description/ }), '!')
+    await holdAPhoto(user)
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.addImageFromUrl).toHaveBeenCalled())
+    expect(api.updateInventoryItem.mock.invocationCallOrder[0]).toBeLessThan(
+      api.addImageFromUrl.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('keeps a photograph that could not be added, with its reason', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    api.addImageFromUrl.mockRejectedValue(new Error('the address answered 404'))
+    render(<ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    await holdAPhoto(user)
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findAllByText(/the address answered 404/)).not.toHaveLength(0)
+    expect(screen.getByText(/not saved yet/i)).toBeInTheDocument()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('discards a held photograph without filing it', async () => {
+    const user = userEvent.setup()
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    await holdAPhoto(user)
+
+    await user.click(screen.getByRole('button', { name: /discard/i }))
+
+    expect(screen.queryByText(/not saved yet/i)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+})
+
+describe('ItemEditForm: a Friedberg number waits for Save', () => {
+  const NOTE = {
+    item_kind: 'currency',
+    friedberg_id: 9,
+    friedberg_number: 'FR-TEST-9',
+    friedberg_status: 'proposed',
+    friedberg_verified: false,
+  }
+
+  it('holds a confirmation until Save, then applies it', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    api.getInventoryItem.mockResolvedValue({ ...item, ...NOTE })
+    api.attachFriedberg.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: /^confirm$/i }))
+
+    expect(api.attachFriedberg).not.toHaveBeenCalled()
+    expect(save).toBeEnabled()
+    await user.click(save)
+
+    await waitFor(() =>
+      expect(api.attachFriedberg).toHaveBeenCalledWith(12, {
+        friedberg_id: 9,
+        status: 'confirmed',
+      }),
+    )
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+  })
+
+  it('clears the number before saving the note as another kind', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue({ ...item, ...NOTE })
+    api.clearFriedberg.mockResolvedValue(null)
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    await user.click(screen.getByRole('button', { name: /^clear$/i }))
+    await user.type(screen.getByRole('textbox', { name: /Description/ }), '!')
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    // The server refuses a note that stops being one while it has a number.
+    expect(api.clearFriedberg.mock.invocationCallOrder[0]).toBeLessThan(
+      api.updateInventoryItem.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('keeps a held number that could not be applied, with its reason', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    api.getInventoryItem.mockResolvedValue({ ...item, ...NOTE })
+    api.attachFriedberg.mockRejectedValue(new Error('Unknown friedberg_id: 9'))
+    render(<ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    await user.click(screen.getByRole('button', { name: /^confirm$/i }))
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findAllByText(/Unknown friedberg_id: 9/)).not.toHaveLength(0)
+    expect(screen.getByText(/not saved yet/i)).toBeInTheDocument()
+    expect(onSaved).not.toHaveBeenCalled()
   })
 })

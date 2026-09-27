@@ -5,7 +5,8 @@ console: **Purchases** records a vendor and a purchase order, and **New
 item** records a coin, banknote or lot bought on it. Splitting a lot,
 attributing its pieces, editing a vendor and editing a purchase order happen
 elsewhere; a Friedberg number is attached afterwards from Receiving or the item
-editor.
+editor, where -- like a photograph added there -- it is held until the editor's
+Save.
 
 ## Rules
 
