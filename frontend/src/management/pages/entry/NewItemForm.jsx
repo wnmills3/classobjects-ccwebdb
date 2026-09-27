@@ -78,12 +78,13 @@ const BLANK = {
 //: Fields the facts can fill in, by kind. What the form fills is marked as a
 //: suggestion and sent back as one; what the person picks is theirs.
 const NOTE_SUGGESTED = [
+  'series',
   'note_type',
   'seal_color',
   'signature_combination',
   'fed_district',
 ]
-const COIN_SUGGESTED = ['metal']
+const COIN_SUGGESTED = ['series', 'metal']
 const NO_SUGGESTIONS = Object.fromEntries(
   [...NOTE_SUGGESTED, ...COIN_SUGGESTED].map((key) => [key, null]),
 )
@@ -127,8 +128,8 @@ function yearsOf(form, isCurrency) {
  *
  * A purchase is rarely one item, so "Save and add another" exists beside
  * "Save": it keeps exactly the fields in `SHARED_ON_REPEAT` and clears
- * everything that varies piece to piece, then focuses the title box for the
- * next one. Plain "Save" clears the whole form -- the next item is not
+ * everything that varies piece to piece, then focuses the first identifying
+ * field that was cleared -- a coin's year, a note's serial number. Plain "Save" clears the whole form -- the next item is not
  * assumed to be like this one.
  */
 export default function NewItemForm({
@@ -163,7 +164,7 @@ export default function NewItemForm({
   const [issueWarning, setIssueWarning] = useState({ key: '', text: '' })
   // The line beside Suggest description: what it did, or why it could not.
   const [describeNote, setDescribeNote] = useState('')
-  const titleRef = useRef(null)
+  const firstRef = useRef(null)
   const yearId = useId()
   const yearEndId = useId()
 
@@ -187,9 +188,12 @@ export default function NewItemForm({
 
   // The facts that decide the suggestions. Only the person's own picks are
   // sent with them: a value the form filled in must not narrow the next one.
+  // The series is only ever an answer -- the lookups take no series.
   const fields = isCurrency ? NOTE_SUGGESTED : COIN_SUGGESTED
   const chosen = Object.fromEntries(
-    fields.filter((k) => form[k] && !(k in suggested)).map((k) => [k, form[k]]),
+    fields
+      .filter((k) => k !== 'series' && form[k] && !(k in suggested))
+      .map((k) => [k, form[k]]),
   )
   const facts = isCurrency
     ? {
@@ -397,7 +401,7 @@ export default function NewItemForm({
         suggested: marks,
       })
       setRanged(false)
-      titleRef.current?.focus()
+      firstRef.current?.focus()
     } else {
       setEntry({ form: BLANK, suggested: {} })
       setRanged(false)
@@ -484,6 +488,10 @@ export default function NewItemForm({
       )}
       {disabledReason && <p className="error">{disabledReason}</p>}
 
+      {/* The facts that identify the piece come first, in the order they
+          are written ("Series 1934-A $5", "1921-D $1"); what they decide
+          follows, then grading, then the purchase line. See
+          docs/specs/identify-first-entry-design.md. */}
       <div className="form-grid">
         <label data-help="item_kind">
           <AccessLabel text="Kind" accessKey="k" />
@@ -496,69 +504,81 @@ export default function NewItemForm({
           />
         </label>
 
-        <label data-help="source_title">
-          <AccessLabel text="Title" accessKey="t" />
-          <input
-            ref={titleRef}
-            type="text"
-            value={form.source_title}
-            onChange={set('source_title')}
-            {...accel('t')}
-          />
-        </label>
+        {/* Divs, not a wrapping label: the range checkbox needs its own label,
+            which a <label> may not contain, so each box is named through
+            htmlFor instead -- the same layout the item editor uses.
 
-        <label data-help="sellers_item_id">
-          Seller&apos;s item id
-          <input
-            type="text"
-            value={form.sellers_item_id}
-            onChange={set('sellers_item_id')}
-          />
-        </label>
+            Not on a note: its year is its Series year, and a second year box
+            is where a series year got typed by mistake (owner, 2026-09-24). */}
+        {!isCurrency && (
+          <>
+            <div data-help="year_start">
+              <label htmlFor={yearId}>
+                <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
+              </label>
+              <span className="year-input">
+                <input
+                  id={yearId}
+                  ref={firstRef}
+                  type="number"
+                  value={form.year_start}
+                  onChange={ranged ? set('year_start') : setYear}
+                  {...accel('y')}
+                />
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={ranged}
+                    onChange={toggleRange}
+                    {...accel('r')}
+                  />
+                  {/* */}
+                  <AccessLabel text="Range of years" accessKey="r" />
+                </label>
+              </span>
+            </div>
+            {ranged && (
+              <div data-help="year_end">
+                <label htmlFor={yearEndId}>
+                  <AccessLabel text="Year to" accessKey="o" />
+                </label>
+                <input
+                  id={yearEndId}
+                  type="number"
+                  value={form.year_end}
+                  onChange={set('year_end')}
+                  {...accel('o')}
+                />
+              </div>
+            )}
+            <label data-help="mint">
+              Mint
+              <ReferenceSelect table="mint" value={form.mint} onChange={set('mint')} />
+            </label>
+          </>
+        )}
 
-        <label data-help="piece_count">
-          <AccessLabel text="Pieces" accessKey="p" />
-          <input
-            type="number"
-            min="1"
-            value={form.piece_count}
-            onChange={set('piece_count')}
-            {...accel('p')}
-          />
-        </label>
-
-        <label data-help="item_cost">
-          <AccessLabel text="Item cost" accessKey="i" />
-          <input
-            type="text"
-            inputMode="decimal"
-            value={form.item_cost}
-            onChange={set('item_cost')}
-            {...accel('i')}
-          />
-        </label>
-
-        <label data-help="shipping_cost">
-          <AccessLabel text="Shipping" accessKey="h" />
-          <input
-            type="text"
-            inputMode="decimal"
-            value={form.shipping_cost}
-            onChange={set('shipping_cost')}
-            {...accel('h')}
-          />
-        </label>
-
-        <label data-help="country">
-          <AccessLabel text="Country" accessKey="u" />
-          <ReferenceSelect
-            table="country"
-            value={form.country}
-            onChange={set('country')}
-            placeholder="US"
-            {...accel('u')}
-          />
-        </label>
+        {isCurrency && (
+          <>
+            <label data-help="series_year">
+              Series year
+              <input
+                type="number"
+                value={form.series_year}
+                onChange={set('series_year')}
+              />
+            </label>
+            <label data-help="series_letter">
+              Series letter
+              <input
+                type="text"
+                maxLength={4}
+                value={form.series_letter}
+                onChange={set('series_letter')}
+              />
+            </label>
+          </>
+        )}
 
         <label data-help="denomination">
           <AccessLabel text="Denomination" accessKey="m" />
@@ -575,16 +595,135 @@ export default function NewItemForm({
           />
         </label>
 
-        {fieldFitsKind('set_form', form.item_kind) && (
-          <label data-help="set_form">
-            Set form
+        {isCurrency && (
+          <>
+            <label data-help="serial_number">
+              Serial number
+              <input
+                ref={firstRef}
+                type="text"
+                value={form.serial_number}
+                onChange={set('serial_number')}
+              />
+            </label>
+            <label data-help="face_plate_number">
+              Face plate
+              <input
+                type="text"
+                value={form.face_plate_number}
+                onChange={set('face_plate_number')}
+              />
+            </label>
+            <label data-help="back_plate_number">
+              Back plate
+              <input
+                type="text"
+                inputMode="numeric"
+                value={form.back_plate_number}
+                onChange={set('back_plate_number')}
+              />
+            </label>
+            <label data-help="printing_facility">
+              Printed at
+              <select
+                value={form.printing_facility}
+                onChange={set('printing_facility')}
+              >
+                <option value="">--</option>
+                {PRINTING_FACILITIES.map(([code, label]) => (
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {issueWarning.key === factsKey && issueWarning.text && (
+              <p className="notice" role="status">
+                {issueWarning.text}
+              </p>
+            )}
+          </>
+        )}
+
+        {/* What the facts above decide, marked while it is the form's. */}
+        <label data-help="series">
+          <AccessLabel text="Series" accessKey="s" />
+          <ReferenceSelect
+            table="series"
+            value={form.series}
+            onChange={set('series')}
+            filter={(entry) => fitsKind(entry, form.item_kind)}
+            {...accel('s')}
+          />
+          {mark('series')}
+        </label>
+
+        {isCurrency && (
+          <>
+            <label data-help="note_type">
+              <AccessLabel text="Note class" accessKey="a" />
+              <ReferenceSelect
+                table="note_type"
+                value={form.note_type}
+                onChange={set('note_type')}
+                {...accel('a')}
+              />
+              {mark('note_type')}
+            </label>
+            <label data-help="seal_color">
+              Seal color
+              <ReferenceSelect
+                table="seal_color"
+                value={form.seal_color}
+                onChange={set('seal_color')}
+              />
+              {mark('seal_color')}
+            </label>
+            <label data-help="signature_combination">
+              Signatures
+              <ReferenceSelect
+                table="signature_combination"
+                value={form.signature_combination}
+                onChange={set('signature_combination')}
+              />
+              {mark('signature_combination')}
+            </label>
+            <label data-help="fed_district">
+              <AccessLabel text="Reserve Bank" accessKey="b" />
+              <ReferenceSelect
+                table="fed_district"
+                value={form.fed_district}
+                onChange={set('fed_district')}
+                {...accel('b')}
+              />
+              {mark('fed_district')}
+            </label>
+          </>
+        )}
+
+        {fieldFitsKind('metal', form.item_kind) && (
+          <label data-help="metal">
+            <AccessLabel text="Metal" accessKey="l" />
             <ReferenceSelect
-              table="set_form"
-              value={form.set_form}
-              onChange={set('set_form')}
+              table="metal"
+              value={form.metal}
+              onChange={set('metal')}
+              {...accel('l')}
             />
+            {mark('metal')}
           </label>
         )}
+
+        <label data-help="country">
+          <AccessLabel text="Country" accessKey="u" />
+          <ReferenceSelect
+            table="country"
+            value={form.country}
+            onChange={set('country')}
+            placeholder="US"
+            {...accel('u')}
+          />
+        </label>
 
         {/* A coin's grade is a number and its strike type says whether 65
             is MS65 or PR65. A note has none. No free accelerator letter is
@@ -643,199 +782,79 @@ export default function NewItemForm({
           <input type="text" value={form.cert_number} onChange={set('cert_number')} />
         </label>
 
-        {fieldFitsKind('metal', form.item_kind) && (
-          <label data-help="metal">
-            <AccessLabel text="Metal" accessKey="l" />
+        {fieldFitsKind('set_form', form.item_kind) && (
+          <label data-help="set_form">
+            Set form
             <ReferenceSelect
-              table="metal"
-              value={form.metal}
-              onChange={set('metal')}
-              {...accel('l')}
+              table="set_form"
+              value={form.set_form}
+              onChange={set('set_form')}
             />
-            {mark('metal')}
           </label>
         )}
 
-        <label data-help="series">
-          <AccessLabel text="Series" accessKey="s" />
-          <ReferenceSelect
-            table="series"
-            value={form.series}
-            onChange={set('series')}
-            filter={(entry) => fitsKind(entry, form.item_kind)}
-            {...accel('s')}
+        {/* Gated on Mint, the coin-only field it has always been shown
+            beside: Variety is not in COIN_ONLY_FIELDS. */}
+        {fieldFitsKind('mint', form.item_kind) && (
+          <label data-help="variety">
+            Variety
+            <input type="text" value={form.variety} onChange={set('variety')} />
+          </label>
+        )}
+
+        {/* The purchase line: what the seller called it and what it cost. */}
+        <label data-help="source_title">
+          <AccessLabel text="Title" accessKey="t" />
+          <input
+            type="text"
+            value={form.source_title}
+            onChange={set('source_title')}
+            {...accel('t')}
           />
         </label>
 
-        {/* Gated on Mint, the coin-only field of the pair: Variety is not in
-            COIN_ONLY_FIELDS but has always been shown beside it, and moving
-            it is a change to the form, not to this fix. */}
-        {fieldFitsKind('mint', form.item_kind) && (
-          <>
-            <label data-help="mint">
-              Mint
-              <ReferenceSelect table="mint" value={form.mint} onChange={set('mint')} />
-            </label>
-            <label data-help="variety">
-              Variety
-              <input type="text" value={form.variety} onChange={set('variety')} />
-            </label>
-          </>
-        )}
+        <label data-help="sellers_item_id">
+          Seller&apos;s item id
+          <input
+            type="text"
+            value={form.sellers_item_id}
+            onChange={set('sellers_item_id')}
+          />
+        </label>
 
-        {isCurrency && (
-          <>
-            <label data-help="serial_number">
-              Serial number
-              <input
-                type="text"
-                value={form.serial_number}
-                onChange={set('serial_number')}
-              />
-            </label>
-            <label data-help="face_plate_number">
-              Face plate
-              <input
-                type="text"
-                value={form.face_plate_number}
-                onChange={set('face_plate_number')}
-              />
-            </label>
-            <label data-help="back_plate_number">
-              Back plate
-              <input
-                type="text"
-                inputMode="numeric"
-                value={form.back_plate_number}
-                onChange={set('back_plate_number')}
-              />
-            </label>
-            <label data-help="printing_facility">
-              Printed at
-              <select
-                value={form.printing_facility}
-                onChange={set('printing_facility')}
-              >
-                <option value="">--</option>
-                {PRINTING_FACILITIES.map(([code, label]) => (
-                  <option key={code} value={code}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label data-help="series_year">
-              Series year
-              <input
-                type="number"
-                value={form.series_year}
-                onChange={set('series_year')}
-              />
-            </label>
-            <label data-help="series_letter">
-              Series letter
-              <input
-                type="text"
-                maxLength={4}
-                value={form.series_letter}
-                onChange={set('series_letter')}
-              />
-            </label>
-            {issueWarning.key === factsKey && issueWarning.text && (
-              <p className="notice" role="status">
-                {issueWarning.text}
-              </p>
-            )}
-            <label data-help="note_type">
-              <AccessLabel text="Note class" accessKey="a" />
-              <ReferenceSelect
-                table="note_type"
-                value={form.note_type}
-                onChange={set('note_type')}
-                {...accel('a')}
-              />
-              {mark('note_type')}
-            </label>
-            <label data-help="seal_color">
-              Seal color
-              <ReferenceSelect
-                table="seal_color"
-                value={form.seal_color}
-                onChange={set('seal_color')}
-              />
-              {mark('seal_color')}
-            </label>
-            <label data-help="signature_combination">
-              Signatures
-              <ReferenceSelect
-                table="signature_combination"
-                value={form.signature_combination}
-                onChange={set('signature_combination')}
-              />
-              {mark('signature_combination')}
-            </label>
-            <label data-help="fed_district">
-              <AccessLabel text="Reserve Bank" accessKey="b" />
-              <ReferenceSelect
-                table="fed_district"
-                value={form.fed_district}
-                onChange={set('fed_district')}
-                {...accel('b')}
-              />
-              {mark('fed_district')}
-            </label>
-          </>
-        )}
+        <label data-help="piece_count">
+          <AccessLabel text="Pieces" accessKey="p" />
+          <input
+            type="number"
+            min="1"
+            value={form.piece_count}
+            onChange={set('piece_count')}
+            {...accel('p')}
+          />
+        </label>
+
+        <label data-help="item_cost">
+          <AccessLabel text="Item cost" accessKey="i" />
+          <input
+            type="text"
+            inputMode="decimal"
+            value={form.item_cost}
+            onChange={set('item_cost')}
+            {...accel('i')}
+          />
+        </label>
+
+        <label data-help="shipping_cost">
+          <AccessLabel text="Shipping" accessKey="h" />
+          <input
+            type="text"
+            inputMode="decimal"
+            value={form.shipping_cost}
+            onChange={set('shipping_cost')}
+            {...accel('h')}
+          />
+        </label>
       </div>
-
-      {/* Divs, not a wrapping label: the range checkbox needs its own label,
-          which a <label> may not contain, so each box is named through
-          htmlFor instead -- the same layout the item editor uses.
-
-          Not on a note: its year is its Series year, and a second year box
-          is where a series year got typed by mistake (owner, 2026-09-24). */}
-      {!isCurrency && (
-        <>
-          <div data-help="year_start">
-            <label htmlFor={yearId}>
-              <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
-            </label>
-            <span className="year-input">
-              <input
-                id={yearId}
-                type="number"
-                value={form.year_start}
-                onChange={ranged ? set('year_start') : setYear}
-                {...accel('y')}
-              />
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={ranged}
-                  onChange={toggleRange}
-                  {...accel('r')}
-                />
-                {/* */}
-                <AccessLabel text="Range of years" accessKey="r" />
-              </label>
-            </span>
-          </div>
-          {ranged && (
-            <div data-help="year_end">
-              <label htmlFor={yearEndId}>
-                <AccessLabel text="Year to" accessKey="o" />
-              </label>
-              <input
-                id={yearEndId}
-                type="number"
-                value={form.year_end}
-                onChange={set('year_end')}
-                {...accel('o')}
-              />
-            </div>
-          )}
-        </>
-      )}
 
       <fieldset data-help="new_item_status">
         <legend>Status</legend>
