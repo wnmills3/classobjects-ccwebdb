@@ -263,6 +263,23 @@ export const api = {
     form.append('acknowledge_for_sale', String(acknowledgeForSale))
     return send('/api/images', { method: 'POST', body: form })
   },
+  // The server fetches the address, converts the picture and names it for
+  // its place on the item (CC-000412_02.jpg).
+  addImageFromUrl: (
+    inventoryItemId,
+    url,
+    { imageRole, isPrimary = false, acknowledgeForSale = false } = {},
+  ) =>
+    send('/api/images/from-url', {
+      method: 'POST',
+      body: {
+        url,
+        inventory_item_id: inventoryItemId,
+        image_role: imageRole || null,
+        is_primary: isPrimary,
+        acknowledge_for_sale: acknowledgeForSale,
+      },
+    }),
   listItemImages: (inventoryItemId) =>
     send(`/api/images?inventory_item_id=${inventoryItemId}`),
   listUnattachedImages: () => send('/api/images?unattached=true'),

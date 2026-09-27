@@ -1,11 +1,12 @@
 import userEvent from '@testing-library/user-event'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
   api: {
     listItemImages: vi.fn(),
     uploadImage: vi.fn(),
+    addImageFromUrl: vi.fn(),
     updateImageLink: vi.fn(),
     detachImage: vi.fn(),
     // Never called by this panel -- see "Remove detaches, never deletes"
@@ -93,7 +94,9 @@ describe('PhotosPanel', () => {
 
     await user.upload(await screen.findByLabelText('Photo'), file)
 
+    // An item's first photograph is its obverse unless told otherwise.
     expect(api.uploadImage).toHaveBeenCalledWith(12, file, {
+      imageRole: 'obverse',
       acknowledgeForSale: false,
     })
   })
@@ -219,5 +222,79 @@ describe('PhotosPanel, an item that is for sale', () => {
     })
     await screen.findByLabelText('Photo')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('PhotosPanel: adding another photograph', () => {
+  const EBAY = 'https://i.ebayimg.com/images/g/56AAAeSwlOZqboJk/s-l1600.webp'
+
+  function withOne() {
+    api.listItemImages.mockResolvedValue([
+      link({
+        link_id: 9,
+        image_id: 50,
+        image_role: 'obverse',
+        is_primary: true,
+        sort_order: 1,
+      }),
+    ])
+    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+      reference: roles,
+    })
+  }
+
+  it('asks what a second photograph shows before taking it', async () => {
+    const user = userEvent.setup()
+    api.uploadImage.mockResolvedValue({})
+    withOne()
+    const what = await screen.findByRole('combobox', { name: /what it shows/i })
+    expect(what).toHaveValue('')
+    expect(screen.getByLabelText('Photo')).toBeDisabled()
+    expect(screen.getByRole('button', { name: /add from web address/i })).toBeDisabled()
+    expect(screen.getByText(/choose what the photograph shows/i)).toBeInTheDocument()
+
+    await user.selectOptions(what, 'reverse')
+    const file = new File(['x'], 'back.jpg', { type: 'image/jpeg' })
+    await user.upload(screen.getByLabelText('Photo'), file)
+
+    expect(api.uploadImage).toHaveBeenCalledWith(12, file, {
+      imageRole: 'reverse',
+      acknowledgeForSale: false,
+    })
+  })
+
+  it('fetches a photograph from a pasted web address', async () => {
+    const user = userEvent.setup()
+    api.addImageFromUrl.mockResolvedValue({})
+    withOne()
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: /what it shows/i }),
+      'reverse',
+    )
+    const address = screen.getByRole('textbox', { name: /photo web address/i })
+    await user.type(address, EBAY)
+    await user.click(screen.getByRole('button', { name: /add from web address/i }))
+
+    expect(api.addImageFromUrl).toHaveBeenCalledWith(12, EBAY, {
+      imageRole: 'reverse',
+      acknowledgeForSale: false,
+    })
+    await waitFor(() => expect(address).toHaveValue(''))
+    expect(api.listItemImages).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a refused address, and says why', async () => {
+    const user = userEvent.setup()
+    api.addImageFromUrl.mockRejectedValue(new Error('the address answered 404'))
+    api.listItemImages.mockResolvedValue([])
+    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+      reference: roles,
+    })
+    const address = await screen.findByRole('textbox', { name: /photo web address/i })
+    await user.type(address, EBAY)
+    await user.click(screen.getByRole('button', { name: /add from web address/i }))
+
+    expect(await screen.findByText('the address answered 404')).toBeInTheDocument()
+    expect(address).toHaveValue(EBAY)
   })
 })

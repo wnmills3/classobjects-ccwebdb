@@ -15,7 +15,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from .. import image_links, sale_state
+from .. import image_fetch, image_links, sale_state
 from ..config import settings
 from ..deps import AdminUser, DbSession
 from ..image_store import ingest
@@ -28,7 +28,7 @@ from ..models import (
     InventoryItem,
     ItemImage,
 )
-from ..schemas import ImageLinkIn, ImageLinkOut, ImageOut
+from ..schemas import ImageFromUrl, ImageLinkIn, ImageLinkOut, ImageOut
 from ..storage import get_storage
 from ._resolve import found_or_404, get_or_404
 
@@ -149,6 +149,56 @@ async def upload_image(
             if is_primary:
                 image_links.make_primary(db, link)
 
+    db.commit()
+    db.refresh(image)
+    return to_image_out(image)
+
+
+@router.post("/from-url", status_code=status.HTTP_201_CREATED)
+def add_image_from_url(
+    payload: ImageFromUrl, db: DbSession, _admin: AdminUser
+) -> ImageOut:
+    """Fetch a photograph from a web address and file it against an item.
+
+    Fetched by `app.image_fetch` (public http(s) hosts only), then stored as
+    any upload is -- converted and stripped -- named for its place on the
+    item, `CC-000412_02.jpg`, and filed there after the item's other
+    photographs. A refused fetch stores nothing.
+    """
+    item = get_or_404(
+        db,
+        InventoryItem,
+        payload.inventory_item_id,
+        f"Unknown inventory_item_id: {payload.inventory_item_id}",
+    )
+    sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
+    try:
+        raw = image_fetch.fetch_image(payload.url)
+    except image_fetch.ImageFetchRefused as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    position = image_links.next_position(db, item.id)
+    try:
+        image = ingest(db, raw, source_ref=f"{item.item_code}_{position:02d}.jpg")
+    except ImageRejected as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    try:
+        image_links.attach(
+            db,
+            image=image,
+            item=item,
+            role=payload.image_role,
+            is_primary=payload.is_primary,
+            sort_order=position,
+        )
+    except image_links.LinkRefused as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.commit()
     db.refresh(image)
     return to_image_out(image)
