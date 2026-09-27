@@ -12,6 +12,7 @@ import { ReferenceSelect } from '../../../shared/reference'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import { isMoney } from '../../../shared/cents'
+import AttributesField from '../inventory/AttributesField'
 import ErrorsPanel from '../inventory/ErrorsPanel'
 import { withSuggestions, without } from './suggestions'
 
@@ -75,6 +76,8 @@ const BLANK = {
   fed_district: '',
   note_type: '',
   signature_combination: '',
+  // Per piece, like a serial number: Binary, Star, CAC.
+  attributes: [],
 }
 
 //: Fields the facts can fill in, by kind. What the form fills is marked as a
@@ -271,6 +274,8 @@ export default function NewItemForm({
         grade_designation: sameSide ? f.grade_designation : '',
         // A note has no strike type.
         strike_type: isCurrencyKind(kind) ? '' : f.strike_type,
+        // Attributes are one side's as well: a star is a note's, CAC a coin's.
+        attributes: sameSide ? f.attributes : [],
       }
     })
   }
@@ -347,6 +352,7 @@ export default function NewItemForm({
     for (const key of CLASSIFIER_KEYS) if (form[key]) payload[key] = form[key]
     if (!isCurrency && form.set_form) payload.set_form = form.set_form
     if (form.cert_number) payload.cert_number = form.cert_number
+    if (form.attributes.length) payload.attributes = form.attributes
 
     // Coin and currency detail never cross: sending both is a 422 naming the
     // field, so only the block that matches the kind is ever included.
@@ -803,6 +809,15 @@ export default function NewItemForm({
             <input type="text" value={form.variety} onChange={set('variety')} />
           </label>
         )}
+
+        {/* Offered for the kind only; the item does not exist yet, so none
+            is held or was read by a rule. */}
+        <AttributesField
+          item={{}}
+          kind={form.item_kind}
+          codes={form.attributes}
+          onChange={(codes) => setForm((f) => ({ ...f, attributes: codes }))}
+        />
 
         {/* The purchase line: what the seller called it and what it cost. */}
         <label data-help="source_title">

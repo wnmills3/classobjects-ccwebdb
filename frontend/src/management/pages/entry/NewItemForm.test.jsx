@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -977,6 +977,95 @@ describe('NewItemForm: the country', () => {
       expect(api.suggestCoin).toHaveBeenLastCalledWith(
         expect.objectContaining({ country: 'US', year: '1942' }),
       ),
+    )
+  })
+})
+
+describe('NewItemForm: attributes', () => {
+  const ATTRIBUTES = [
+    {
+      code: 'binary',
+      label: 'Binary',
+      source: 'seeded',
+      aliases: [],
+      extra: { applies_to: 'currency' },
+    },
+    {
+      code: 'star',
+      label: 'Star',
+      source: 'seeded',
+      aliases: [],
+      extra: { applies_to: 'currency' },
+    },
+    {
+      code: 'cac',
+      label: 'CAC',
+      source: 'seeded',
+      aliases: [],
+      extra: { applies_to: 'coin' },
+    },
+  ]
+
+  async function openNote(user) {
+    renderWithProviders(
+      <NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />,
+      {
+        reference: emptyReference({ tables: { item_attribute: ATTRIBUTES } }),
+      },
+    )
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+  }
+
+  it('designates a bill Binary and sends it with the item', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 11, item_code: 'CC-000011' })
+    await openNote(user)
+
+    await user.selectOptions(screen.getByLabelText('item_attribute'), 'binary')
+    expect(screen.getByRole('button', { name: 'Remove Binary' })).toBeInTheDocument()
+    await fillTitle(user, 'Binary note')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(api.createInventoryItem.mock.calls[0][0].attributes).toEqual(['binary'])
+  })
+
+  it("offers a note only a note's attributes", async () => {
+    const user = userEvent.setup()
+    await openNote(user)
+    const offered = within(screen.getByLabelText('item_attribute'))
+      .getAllByRole('option')
+      .map((o) => o.value)
+    expect(offered).toContain('binary')
+    expect(offered).not.toContain('cac')
+  })
+
+  it("drops a note's attributes when the piece becomes a coin", async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 12, item_code: 'CC-000012' })
+    await openNote(user)
+    await user.selectOptions(screen.getByLabelText('item_attribute'), 'binary')
+
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'coin')
+
+    expect(screen.queryByRole('button', { name: 'Remove Binary' })).toBeNull()
+    await fillTitle(user, 'A coin')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.createInventoryItem.mock.calls[0][0]).not.toHaveProperty('attributes')
+  })
+
+  it('clears them for the next piece, like a serial number', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 13, item_code: 'CC-000013' })
+    await openNote(user)
+    await user.selectOptions(screen.getByLabelText('item_attribute'), 'binary')
+    await fillTitle(user, 'Binary note')
+
+    await user.click(screen.getByRole('button', { name: /save and add another/i }))
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Remove Binary' })).toBeNull(),
     )
   })
 })
