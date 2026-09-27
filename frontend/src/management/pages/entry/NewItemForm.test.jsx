@@ -268,7 +268,7 @@ describe('NewItemForm: tax defaults from the purchase', () => {
 })
 
 describe('NewItemForm: Save and add another', () => {
-  it('keeps the shared fields and clears the per-note ones, then focuses Title', async () => {
+  it('keeps the shared fields and clears the per-note ones, then focuses the serial number', async () => {
     const user = userEvent.setup()
     api.createInventoryItem.mockResolvedValue({ id: 5, item_code: 'CC-000005' })
     const onSaved = vi.fn()
@@ -319,8 +319,25 @@ describe('NewItemForm: Save and add another', () => {
     expect(screen.getByRole('textbox', { name: /item cost/i })).toHaveValue('')
     expect(screen.getByRole('textbox', { name: /certificate number/i })).toHaveValue('')
 
-    // Focus moves to Title for the next entry.
-    expect(document.activeElement).toBe(title)
+    // The next note of the lot shares its series and face value, so entry
+    // starts again at what differs: its serial number.
+    expect(document.activeElement).toBe(
+      screen.getByRole('textbox', { name: /serial number/i }),
+    )
+  })
+
+  it('starts a coin again at its year', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 7, item_code: 'CC-000007' })
+    render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(screen.getByRole('spinbutton', { name: 'Year' }), '1942')
+    await fillTitle(user, 'A dime')
+
+    await user.click(screen.getByRole('button', { name: /save and add another/i }))
+
+    const year = screen.getByRole('spinbutton', { name: 'Year' })
+    expect(year).toHaveValue(null)
+    expect(document.activeElement).toBe(year)
   })
 
   it('plain Save clears the whole form', async () => {
@@ -831,5 +848,96 @@ describe('withSuggestions', () => {
     })
     expect(next.form).toEqual({ ...blank, note_type: 'silver_certificate' })
     expect(next.suggested).toEqual({ note_type: 'silver_certificate' })
+  })
+})
+
+//: The `data-help` keys in the order the form shows them.
+function fieldOrder(container) {
+  return [...container.querySelectorAll('[data-help]')].map((el) =>
+    el.getAttribute('data-help'),
+  )
+}
+
+function isInOrder(keys, container) {
+  const shown = fieldOrder(container)
+  const at = keys.map((key) => shown.indexOf(key))
+  return at.every((i) => i >= 0) && at.every((i, n) => n === 0 || i > at[n - 1])
+}
+
+describe('NewItemForm: the facts first', () => {
+  it('asks a coin for its year, mint and denomination before anything else', () => {
+    const { container } = render(
+      <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
+    )
+    expect(fieldOrder(container).slice(0, 4)).toEqual([
+      'item_kind',
+      'year_start',
+      'mint',
+      'denomination',
+    ])
+    expect(
+      isInOrder(
+        ['denomination', 'series', 'metal', 'country', 'grade', 'source_title'],
+        container,
+      ),
+    ).toBe(true)
+  })
+
+  it('asks a note for its series, face value, serial and plates first', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
+    )
+    await user.clear(screen.getByLabelText('item_kind'))
+    await user.type(screen.getByLabelText('item_kind'), 'currency')
+
+    expect(fieldOrder(container).slice(0, 8)).toEqual([
+      'item_kind',
+      'series_year',
+      'series_letter',
+      'denomination',
+      'serial_number',
+      'face_plate_number',
+      'back_plate_number',
+      'printing_facility',
+    ])
+    expect(
+      isInOrder(
+        [
+          'printing_facility',
+          'series',
+          'note_type',
+          'fed_district',
+          'country',
+          'grade',
+          'source_title',
+        ],
+        container,
+      ),
+    ).toBe(true)
+  })
+
+  it('fills the design series the facts decide, and sends it as a suggestion', async () => {
+    const user = userEvent.setup()
+    api.suggestCoin.mockResolvedValue({
+      metal: 'silver',
+      series: 'winged_liberty_head_dime',
+    })
+    api.createInventoryItem.mockResolvedValue({ id: 8, item_code: 'CC-000008' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(screen.getByRole('spinbutton', { name: 'Year' }), '1942')
+    await user.type(screen.getByLabelText('denomination'), 'usd_coin_0_10')
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('series')).toHaveValue('winged_liberty_head_dime'),
+    )
+    // The series is asked for, never sent as a fact to decide it by.
+    expect(api.suggestCoin.mock.calls.at(-1)[0]).not.toHaveProperty('series')
+
+    await fillTitle(user, 'A dime')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.createInventoryItem.mock.calls[0][0].suggested).toEqual(
+      expect.arrayContaining(['series', 'metal']),
+    )
   })
 })
