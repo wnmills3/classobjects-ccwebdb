@@ -9,6 +9,7 @@ vi.mock('../../api', () => ({
     suggestCoin: vi.fn(),
     suggestDraftDescription: vi.fn(),
     setItemErrors: vi.fn(),
+    listStorageLocations: vi.fn(),
   },
 }))
 
@@ -22,7 +23,13 @@ beforeEach(() => {
   vi.clearAllMocks()
   api.suggestNote.mockResolvedValue({})
   api.suggestCoin.mockResolvedValue({})
+  api.listStorageLocations.mockResolvedValue(LOCATIONS)
 })
+
+const LOCATIONS = [
+  { id: 3, label: 'Bank box 804', kind: 'safe_deposit_box' },
+  { id: 4, label: 'Home safe', kind: 'safe' },
+]
 
 async function fillTitle(user, text) {
   await user.type(screen.getByRole('textbox', { name: /title/i }), text)
@@ -1254,5 +1261,38 @@ describe('NewItemForm: the description last', () => {
     expect(at('suggest_description')).toBeGreaterThan(at('description'))
     expect(at('new_item_status')).toBeGreaterThan(at('suggest_description'))
     expect(order.at(-1)).toBe('new_item_status')
+  })
+})
+
+describe('NewItemForm: where it is kept', () => {
+  async function location() {
+    return screen.findByRole('combobox', { name: /storage location/i })
+  }
+
+  it('sends the location chosen, and keeps it for the next piece of the parcel', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 20, item_code: 'CC-000020' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.selectOptions(await location(), '3')
+    await fillTitle(user, 'In the bank')
+    await user.click(screen.getByRole('button', { name: /save and add another/i }))
+
+    expect(api.createInventoryItem.mock.calls[0][0].storage_location_id).toBe(3)
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue(''),
+    )
+    expect(await location()).toHaveValue('3')
+  })
+
+  it('is optional: none chosen is none sent', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 21, item_code: 'CC-000021' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await location()
+    await fillTitle(user, 'Anywhere')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.createInventoryItem.mock.calls[0][0]).not.toHaveProperty(
+      'storage_location_id',
+    )
   })
 })

@@ -80,6 +80,7 @@ Request bodies forbid unknown fields (422). Money crosses as decimal strings.
 | `cert_number` | creates one `item_certification`, graded by `grading_service` |
 | `sellers_item_id` | optional, <= 64; the seller's id for the listing it was bought from (eBay's item number); trimmed, blank -> null |
 | `listing_url` | optional, <= 1000; the listing's web address; trimmed, blank -> null, otherwise http(s) only (422). Editable with `PATCH` too, and offered as a "Listing" link in the item editor only when it is a web address |
+| `storage_location_id` | optional; where it is kept (422 for an unknown one). Set through `set_location`, so it is the item's first location-history row. `PATCH` moves it the same way (null: not recorded), without the for-sale acknowledgement -- no buyer sees where a piece is kept -- and a move is kept in the location history, not also as a field change |
 | `mint`, `variety` | coin detail; refused for `currency` |
 | `serial_number`, `series_year`, `series_letter` (<= 4), `seal_color`, `fed_district`, `note_type`, `signature_combination`, `face_plate_number`, `back_plate_number`, `printing_facility` | currency detail; refused for any other kind. A face plate is a check letter and digits (`E82`), digits alone, or either with `FW` before it; a back plate is digits; `printing_facility` is `dc` or `fw`, read from the face plate when one is sent |
 | `suggested` | field names whose value the form filled from the facts and the person left alone; recorded as derived defaults |
@@ -143,7 +144,8 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
 - Then the rest of the purchase line: title, piece count.
 - Last, in this order: errors, then the description with **Suggest
   description** -- which writes it from what is entered, errors included, so
-  they come first -- then status (ordered / received).
+  they come first -- then the storage location (optional) and status
+  (ordered / received). The item editor offers the storage location too.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
@@ -157,7 +159,7 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
 - Money is validated with `isMoney` before sending.
 - **Save** clears the whole form. **Save and add another** keeps
   `SHARED_ON_REPEAT` -- kind, seller's item id, listing web address,
-  status, country,
+  status, storage location (a parcel is put away in one place), country,
   denomination, series, series year and letter, seal, district, note class,
   signatures, grading service, metal, mint -- clears everything that varies
   piece to piece (attributes, title,

@@ -24,6 +24,8 @@ vi.mock('../../api', () => ({
     updateImageLink: vi.fn(),
     detachImage: vi.fn(),
     splitItem: vi.fn(),
+    // The storage location picker's list.
+    listStorageLocations: vi.fn(),
   },
 }))
 
@@ -49,6 +51,7 @@ const item = {
 beforeEach(() => {
   vi.clearAllMocks()
   api.getOfferTitles.mockResolvedValue({ titles: {} })
+  api.listStorageLocations.mockResolvedValue([])
   api.getItemSales.mockResolvedValue([])
   api.getItemHistory.mockResolvedValue([])
   api.listListings.mockResolvedValue([])
@@ -1716,6 +1719,49 @@ describe('ItemEditForm: the listing web address', () => {
     await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
     expect(api.updateInventoryItem.mock.calls[0][1]).toMatchObject({
       listing_url: LISTING,
+    })
+  })
+})
+
+describe('ItemEditForm: where it is kept', () => {
+  const LOCATIONS = [
+    { id: 3, label: 'Bank box 804', kind: 'safe_deposit_box' },
+    { id: 4, label: 'Home safe', kind: 'safe' },
+  ]
+
+  it('shows where it is, and moves it', async () => {
+    const user = userEvent.setup()
+    api.listStorageLocations.mockResolvedValue(LOCATIONS)
+    api.getInventoryItem.mockResolvedValue({ ...item, storage_location_id: 3 })
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const where = await screen.findByRole('combobox', { name: /storage location/i })
+    await waitFor(() => expect(where).toHaveValue('3'))
+
+    await user.selectOptions(where, '4')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    expect(api.updateInventoryItem.mock.calls[0][1]).toMatchObject({
+      storage_location_id: 4,
+    })
+  })
+
+  it('can say it is no longer recorded', async () => {
+    const user = userEvent.setup()
+    api.listStorageLocations.mockResolvedValue(LOCATIONS)
+    api.getInventoryItem.mockResolvedValue({ ...item, storage_location_id: 3 })
+    api.updateInventoryItem.mockResolvedValue({})
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const where = await screen.findByRole('combobox', { name: /storage location/i })
+    await waitFor(() => expect(where).toHaveValue('3'))
+
+    await user.selectOptions(where, '')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    expect(api.updateInventoryItem.mock.calls[0][1]).toMatchObject({
+      storage_location_id: null,
     })
   })
 })

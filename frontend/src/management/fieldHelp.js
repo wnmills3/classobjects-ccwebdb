@@ -224,6 +224,13 @@ export const FIELD_HELP = {
       'Denomination blank for a set of several face values -- a denomination is one ' +
       'face value. A value that is missing can be added here by its name.',
   },
+  storage_location_id: {
+    title: 'Storage location',
+    text:
+      'Where the piece is kept -- a safe, a bank box, home. Optional: choose it ' +
+      'when it is known, and change it whenever the piece moves; every move is ' +
+      "kept in the item's history. It never shows to a buyer.",
+  },
   listing_url: {
     title: 'Listing web address',
     text:

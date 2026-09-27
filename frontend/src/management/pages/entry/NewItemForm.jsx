@@ -14,6 +14,7 @@ import { accel, useSaveShortcut } from '../../shortcuts'
 import { isMoney } from '../../../shared/cents'
 import AttributesField from '../inventory/AttributesField'
 import ErrorsPanel from '../inventory/ErrorsPanel'
+import LocationSelect from '../../LocationSelect'
 import { withSuggestions, without } from './suggestions'
 import { listingIdFrom } from '../../listing'
 import { SaveButton } from '../../SaveButton'
@@ -30,6 +31,8 @@ const SHARED_ON_REPEAT = [
   'sellers_item_id',
   'listing_url',
   'status',
+  // A parcel is put away in one place.
+  'storage_location_id',
   'country',
   'denomination',
   'series',
@@ -49,6 +52,8 @@ const BLANK = {
   source_title: '',
   sellers_item_id: '',
   listing_url: '',
+  // Optional: where it is kept, if known as it is entered.
+  storage_location_id: '',
   description: '',
   year_start: '',
   year_end: '',
@@ -378,6 +383,9 @@ export default function NewItemForm({
     if (!isCurrency && form.set_form) payload.set_form = form.set_form
     if (form.cert_number) payload.cert_number = form.cert_number
     if (form.attributes.length) payload.attributes = form.attributes
+    if (form.storage_location_id) {
+      payload.storage_location_id = Number(form.storage_location_id)
+    }
 
     // Coin and currency detail never cross: sending both is a 422 naming the
     // field, so only the block that matches the kind is ever included.
@@ -944,6 +952,14 @@ export default function NewItemForm({
         </button>
         <span className="muted">{describeNote}</span>
       </div>
+
+      <label data-help="storage_location_id">
+        Storage location{/* */}
+        <LocationSelect
+          value={form.storage_location_id}
+          onChange={(id) => setForm((f) => ({ ...f, storage_location_id: id }))}
+        />
+      </label>
 
       <fieldset data-help="new_item_status">
         <legend>Status</legend>

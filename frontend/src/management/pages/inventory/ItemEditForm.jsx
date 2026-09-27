@@ -14,6 +14,7 @@ import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
 import ErrorsPanel from './ErrorsPanel'
+import LocationSelect from '../../LocationSelect'
 import AttributesField from './AttributesField'
 import ConflictList from './ConflictList'
 import { baseFor, conflictsOf, fieldName, rebase, shown } from './fieldMerge'
@@ -685,6 +686,23 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
             type="text"
             value={value('sellers_item_id') || ''}
             onChange={set('sellers_item_id')}
+          />
+          <span />
+          <span />
+        </label>
+        {/* Where it is kept: a move is kept in its location history, and
+            never needs the for-sale acknowledgement -- no buyer sees it. */}
+        <label className="field" data-help="storage_location_id">
+          <span>Storage location</span>
+          <LocationSelect
+            value={
+              value('storage_location_id') == null
+                ? ''
+                : String(value('storage_location_id'))
+            }
+            onChange={(id) =>
+              setDraft({ ...draft, storage_location_id: id ? Number(id) : null })
+            }
           />
           <span />
           <span />
