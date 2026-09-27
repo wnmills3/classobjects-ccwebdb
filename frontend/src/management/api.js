@@ -272,7 +272,8 @@ export const api = {
       inventoryItemId,
       imageRole,
       isPrimary = false,
-      sortOrder = 0,
+      // Omitted, the server files it after the item's last photograph.
+      sortOrder,
       acknowledgeForSale = false,
     },
   ) =>
@@ -282,7 +283,7 @@ export const api = {
         inventory_item_id: inventoryItemId,
         image_role: imageRole ?? null,
         is_primary: isPrimary,
-        sort_order: sortOrder,
+        ...(sortOrder !== undefined && { sort_order: sortOrder }),
         acknowledge_for_sale: acknowledgeForSale,
       },
     }),
