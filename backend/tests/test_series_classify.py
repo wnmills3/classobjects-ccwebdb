@@ -10,11 +10,13 @@ import json
 from datetime import date
 from pathlib import Path
 
+from app.field_sources import HELD, SERIES_CLASSIFY, SUGGESTION, hold, record_derived
 from app.inventory_search import CURRENCY_VIEW, search
 from app.models import (
     CurrencyDetail,
     Denomination,
     InventoryItem,
+    ItemFieldSource,
     PurchaseOrder,
     SealColor,
     Series,
@@ -22,7 +24,7 @@ from app.models import (
     Vendor,
 )
 from app.seeding import seed_all
-from app.series_classify import classify, run
+from app.series_classify import classify, refresh_series, run
 from app.series_match import run as match_run
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -533,3 +535,107 @@ def test_brown_seal_finds_the_1929_nationals(
     rows, _ = search(db, CURRENCY_VIEW, params={}, query="brown seal")
 
     assert note.item_code in {row["item_code"] for row in rows}
+
+
+def _source(db: Session, item: InventoryItem) -> str | None:
+    return db.execute(
+        select(ItemFieldSource.derived_by).where(
+            ItemFieldSource.inventory_item_id == item.id,
+            ItemFieldSource.field_name == "series_id",
+        )
+    ).scalar_one_or_none()
+
+
+def test_a_held_series_stays_empty_in_the_batch(
+    db: Session, make_item: ItemFactory
+) -> None:
+    dime = _coin(db, make_item, DIME, 1942)
+    hold(db, [dime.id], ["series_id"])
+    db.commit()
+
+    run(db, commit=True)
+
+    assert _series_code(db, dime) is None
+
+
+def test_refresh_assigns_only_the_items_named(
+    db: Session, make_item: ItemFactory
+) -> None:
+    dime = _coin(db, make_item, DIME, 1942)
+    other = _coin(db, make_item, DIME, 1942)
+
+    refresh_series(db, [dime.id])
+    db.commit()
+
+    assert _series_code(db, dime) == "winged_liberty_head_dime"
+    assert _source(db, dime) == SERIES_CLASSIFY
+    assert _series_code(db, other) is None
+
+
+def test_refresh_takes_back_its_own_guess_when_the_year_moves(
+    db: Session, make_item: ItemFactory
+) -> None:
+    dime = _coin(db, make_item, DIME, 1942)
+    refresh_series(db, [dime.id])
+    db.commit()
+
+    dime.year_start = dime.year_end = 1950
+    refresh_series(db, [dime.id])
+    db.commit()
+
+    assert _series_code(db, dime) == "roosevelt_dime"
+
+
+def test_refresh_clears_its_guess_when_the_facts_are_gone(
+    db: Session, make_item: ItemFactory
+) -> None:
+    dime = _coin(db, make_item, DIME, 1942)
+    refresh_series(db, [dime.id])
+    db.commit()
+
+    dime.denomination_id = None
+    refresh_series(db, [dime.id])
+    db.commit()
+
+    assert _series_code(db, dime) is None
+    assert _source(db, dime) is None
+
+
+def test_refresh_retracts_an_accepted_suggestion_the_facts_rule_out(
+    db: Session, make_item: ItemFactory
+) -> None:
+    wlh = code_id(db, Series, "winged_liberty_head_dime")
+    dime = _coin(db, make_item, DIME, 1942, series_id=wlh)
+    record_derived(db, dime.id, ["series_id"], SUGGESTION)
+    db.commit()
+
+    dime.year_start = dime.year_end = 1950
+    refresh_series(db, [dime.id])
+    db.commit()
+
+    assert _series_code(db, dime) == "roosevelt_dime"
+
+
+def test_refresh_never_clears_a_persons_series(
+    db: Session, make_item: ItemFactory
+) -> None:
+    barber = code_id(db, Series, "barber_dime")
+    dime = _coin(db, make_item, DIME, 1942, series_id=barber)
+
+    refresh_series(db, [dime.id])
+    db.commit()
+
+    assert _series_code(db, dime) == "barber_dime"
+
+
+def test_refresh_leaves_a_held_series_empty(
+    db: Session, make_item: ItemFactory
+) -> None:
+    dime = _coin(db, make_item, DIME, 1942)
+    hold(db, [dime.id], ["series_id"])
+
+    refresh_series(db, [dime.id])
+    db.commit()
+
+    assert _series_code(db, dime) is None
+    assert _source(db, dime) == HELD

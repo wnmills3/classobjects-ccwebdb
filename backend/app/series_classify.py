@@ -34,7 +34,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,11 +42,12 @@ from sqlalchemy import ColumnElement, Select, exists, select
 from sqlalchemy.orm import QueryableAttribute, Session, aliased
 
 from .database import SessionLocal
-from .field_sources import SERIES_CLASSIFY
+from .field_sources import HELD, SERIES_CLASSIFY, SUGGESTION, forget, record_derived
 from .models import (
     CurrencyDetail,
     Denomination,
     InventoryItem,
+    ItemFieldSource,
     ItemKind,
     Series,
     SeriesYearRange,
@@ -57,6 +58,10 @@ from .years import single_year
 #: A range as the pass uses it: denomination, first year, last year (None is
 #: still issued), and the allowed series letters (None is any).
 Span = tuple[int, int, int | None, str | None]
+
+#: Where a series came from, when a refresh may take it back: this pass's own
+#: guess, or a suggestion the entry form made and the person left alone.
+RETRACTABLE = (SERIES_CLASSIFY, SUGGESTION)
 
 
 @dataclass(frozen=True)
@@ -151,6 +156,42 @@ def load_designs(db: Session) -> list[Design]:
     return designs
 
 
+def candidates(
+    designs: list[Design],
+    inventory: str,
+    denomination_id: int,
+    year: int,
+    letter: str | None,
+) -> list[Design]:
+    """The designs an item of this inventory, denomination, year and letter can be."""
+    return [
+        d
+        for d in designs
+        if d.applies_to == inventory and d.covers(denomination_id, year, letter)
+    ]
+
+
+def _rules_out(
+    design: Design,
+    inventory: str,
+    denomination_id: int,
+    year: int,
+    letter: str | None,
+    note_type_id: int | None,
+) -> bool:
+    """Whether the facts say an item cannot be `design`."""
+    wrong_class = (
+        design.note_type_id is not None
+        and note_type_id is not None
+        and design.note_type_id != note_type_id
+    )
+    return (
+        wrong_class
+        or design.applies_to != inventory
+        or not design.covers(denomination_id, year, letter)
+    )
+
+
 def decide(
     candidates: list[Design],
     named: set[str],
@@ -237,8 +278,13 @@ def _design_year(
     return single_year(years), None
 
 
-def _items(db: Session) -> Sequence[tuple[Any, ...]]:
-    """Every unclassified item, with the facts and text the pass reads.
+def _items(
+    db: Session, item_ids: Collection[int] | None = None
+) -> Sequence[tuple[Any, ...]]:
+    """Every unclassified item, or those of `item_ids`, with what the pass reads.
+
+    An item whose series a person emptied (`held`) is not unclassified: it
+    stays empty.
 
     The last column says whether the title and description are **lot text**:
     shared, word for word, with another piece of the same order. A lot's
@@ -255,35 +301,39 @@ def _items(db: Session) -> Sequence[tuple[Any, ...]]:
         sibling.source_title.is_not_distinct_from(InventoryItem.source_title),
         sibling.description.is_not_distinct_from(InventoryItem.description),
     )
-    return (
-        db.execute(
-            _with_facts(
-                InventoryItem.id,
-                InventoryItem.item_code,
-                ItemKind.code,
-                InventoryItem.denomination_id,
-                Denomination.label,
-                InventoryItem.year_start,
-                InventoryItem.year_end,
-                CurrencyDetail.series_year,
-                CurrencyDetail.series_letter,
-                CurrencyDetail.seal_color_id,
-                InventoryItem.source_title,
-                InventoryItem.description,
-                InventoryItem.rating,
-                lot_text,
-                CurrencyDetail.note_type_id,
-            )
-            .join(
-                Denomination,
-                Denomination.id == InventoryItem.denomination_id,
-                isouter=True,
-            )
-            .where(InventoryItem.series_id.is_(None))
-        )
-        .tuples()
-        .all()
+    held = exists().where(
+        ItemFieldSource.inventory_item_id == InventoryItem.id,
+        ItemFieldSource.field_name == "series_id",
+        ItemFieldSource.derived_by == HELD,
     )
+    query = (
+        _with_facts(
+            InventoryItem.id,
+            InventoryItem.item_code,
+            ItemKind.code,
+            InventoryItem.denomination_id,
+            Denomination.label,
+            InventoryItem.year_start,
+            InventoryItem.year_end,
+            CurrencyDetail.series_year,
+            CurrencyDetail.series_letter,
+            CurrencyDetail.seal_color_id,
+            InventoryItem.source_title,
+            InventoryItem.description,
+            InventoryItem.rating,
+            lot_text,
+            CurrencyDetail.note_type_id,
+        )
+        .join(
+            Denomination,
+            Denomination.id == InventoryItem.denomination_id,
+            isouter=True,
+        )
+        .where(InventoryItem.series_id.is_(None), ~held)
+    )
+    if item_ids is not None:
+        query = query.where(InventoryItem.id.in_(item_ids))
+    return db.execute(query).tuples().all()
 
 
 def disagreements(db: Session, designs: list[Design]) -> list[Case]:
@@ -324,25 +374,21 @@ def disagreements(db: Session, designs: list[Design]) -> list[Case]:
         design = None if series_id is None else by_id.get(series_id)
         if design is None or denomination_id is None:
             continue  # a design without facts, or an item without them
-        year, letter = _design_year(inventory_of(kind), (start, end), s_year, s_letter)
+        inventory = inventory_of(kind)
+        year, letter = _design_year(inventory, (start, end), s_year, s_letter)
         if year is None:
             continue
-        wrong_class = (
-            design.note_type_id is not None
-            and note_type_id is not None
-            and design.note_type_id != note_type_id
-        )
-        if (
-            wrong_class
-            or design.applies_to != inventory_of(kind)
-            or not design.covers(denomination_id, year, letter)
-        ):
+        if _rules_out(design, inventory, denomination_id, year, letter, note_type_id):
             cases.append(Case(code, "disagrees", (design.code,)))
     return cases
 
 
-def classify(db: Session) -> Report:
-    """Decide every unclassified item, writing nothing."""
+def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
+    """Decide every unclassified item, or those of `item_ids`, writing nothing.
+
+    The disagreement report covers the whole collection, so it is made only
+    for a run over all of it.
+    """
     designs = load_designs(db)
     known = {d.code for d in designs}
     rules = build_rules(db)
@@ -364,7 +410,7 @@ def classify(db: Session) -> Report:
         rating,
         lot_text,
         note_type_id,
-    ) in _items(db):
+    ) in _items(db, item_ids):
         inventory = inventory_of(kind)
         year, letter = _design_year(
             inventory, (year_start, year_end), series_year, series_letter
@@ -373,11 +419,7 @@ def classify(db: Session) -> Report:
             report.counts["no_facts"] += 1
             continue
 
-        candidates = [
-            d
-            for d in designs
-            if d.applies_to == inventory and d.covers(denomination_id, year, letter)
-        ]
+        found = candidates(designs, inventory, denomination_id, year, letter)
         own = (rating,) if lot_text else (title, description, rating)
         text = " ".join(part for part in own if part)
         named = match(text, denomination, rules, inventory)
@@ -386,7 +428,7 @@ def classify(db: Session) -> Report:
             lot = " ".join(part for part in (title, description) if part)
             lot_named = frozenset(match(lot, denomination, rules, inventory))
         design, outcome, in_play = decide(
-            candidates, named, known, seal_color_id, lot_named, note_type_id
+            found, named, known, seal_color_id, lot_named, note_type_id
         )
 
         report.counts[outcome] += 1
@@ -396,8 +438,90 @@ def classify(db: Session) -> Report:
         elif in_play:
             report.review.append(Case(item_code, outcome, in_play))
 
-    report.review.extend(disagreements(db, designs))
+    if item_ids is None:
+        report.review.extend(disagreements(db, designs))
     return report
+
+
+def _stale(db: Session, designs: list[Design], item_ids: Collection[int]) -> list[int]:
+    """Items whose retractable series the facts no longer support.
+
+    Unsupported includes having no facts left: a guess with nothing under it
+    is not kept.
+    """
+    by_id = {d.id: d for d in designs}
+    rows = db.execute(
+        _with_facts(
+            InventoryItem.id,
+            ItemKind.code,
+            InventoryItem.series_id,
+            InventoryItem.denomination_id,
+            InventoryItem.year_start,
+            InventoryItem.year_end,
+            CurrencyDetail.series_year,
+            CurrencyDetail.series_letter,
+            CurrencyDetail.note_type_id,
+        )
+        .join(
+            ItemFieldSource,
+            (ItemFieldSource.inventory_item_id == InventoryItem.id)
+            & (ItemFieldSource.field_name == "series_id"),
+        )
+        .where(
+            InventoryItem.id.in_(item_ids),
+            InventoryItem.series_id.is_not(None),
+            ItemFieldSource.derived_by.in_(RETRACTABLE),
+        )
+    ).tuples()
+    stale = []
+    for (
+        item_id,
+        kind,
+        series_id,
+        denomination_id,
+        start,
+        end,
+        s_year,
+        s_letter,
+        cls,
+    ) in rows:
+        design = by_id.get(series_id)
+        inventory = inventory_of(kind)
+        year, letter = _design_year(inventory, (start, end), s_year, s_letter)
+        if (
+            design is None
+            or denomination_id is None
+            or year is None
+            or _rules_out(design, inventory, denomination_id, year, letter, cls)
+        ):
+            stale.append(item_id)
+    return stale
+
+
+def refresh_series(db: Session, item_ids: Collection[int]) -> None:
+    """Bring these items' design series up to date with their facts, uncommitted.
+
+    Called when an item is created or edited. A series this pass or an
+    accepted suggestion wrote, which the facts now rule out, is cleared with
+    its record; then each item left without one, and not held empty, is
+    decided as the batch decides it. A person's series is never touched.
+    """
+    if not item_ids:
+        return
+    db.flush()
+    designs = load_designs(db)
+    stale = _stale(db, designs, item_ids)
+    if stale:
+        for item in db.execute(
+            select(InventoryItem).where(InventoryItem.id.in_(stale))
+        ).scalars():
+            item.series_id = None
+        forget(db, stale, ["series_id"])
+        db.flush()
+    for item_id, series_id in classify(db, item_ids).assignments.items():
+        db.get_one(InventoryItem, item_id).series_id = series_id
+        record_derived(db, item_id, ["series_id"], SERIES_CLASSIFY)
+    db.flush()
 
 
 def run(db: Session, *, commit: bool) -> Report:
