@@ -30,12 +30,13 @@ export const FIELD_HELP = {
       'A link to the listing, auction lot or invoice, so the purchase can be ' +
       'checked later. It appears as "Vendor page" on the order.',
   },
-  seller_url: {
-    title: "Seller's store",
+  seller_id: {
+    title: 'Seller',
     text:
-      'The store or profile page of the seller on the marketplace -- the eBay ' +
-      'store, the Whatnot shop -- when the vendor is the marketplace itself. ' +
-      'It appears as "Seller\'s store" on the order and in Receiving.',
+      'Who sold it on the marketplace the vendor names -- the eBay seller, the ' +
+      'Whatnot shop. Pick one, or "+ Add a seller..." for a new one with a name ' +
+      'and store link. Shown by name, linked to their store, on the order and ' +
+      'in Receiving.',
   },
   purchase_notes: {
     title: 'Notes',

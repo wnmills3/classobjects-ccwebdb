@@ -17,8 +17,8 @@ editor.
 | Status on entry | `ordered` (default) or `received` for things already in hand. The opening status-history row is written either way. |
 | Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. The New item form starts with country United States (`US`), which the person may change or empty. |
 | Vendors | Picked from a list; a missing one is added inline. Names are unique, case-insensitively. |
-| Web addresses | A purchase's `source_url` and `seller_url` must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing them. |
-| Who sold it? | The vendor is often the marketplace (ebay.com, whatnot.com); the seller on it is recorded on the purchase as `seller_url`, the seller's store or profile page -- one seller per purchase, since a marketplace order comes from one. |
+| Web addresses | A purchase's `source_url`, and a seller's `store_url`, must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing them. |
+| Who sold it? | The vendor is often the marketplace (ebay.com, whatnot.com); the seller on it is a row of its own (`seller`: a unique name and an optional store link) that the purchase names by `seller_id` -- one seller per purchase, since a marketplace order comes from one, and many purchases per seller. |
 | Repeated entry | **Save and add another** keeps exactly what the next piece of one purchase shares (`SHARED_ON_REPEAT` in `NewItemForm.jsx`, listed under *New item* below) and clears the rest. Grade, grade designation, serial number, certificate, variety, cost, shipping and piece count are per piece and always clear, even when they often repeat. |
 
 **Tax fields are three-state.** The tax-rate box starts empty, meaning the
@@ -41,11 +41,21 @@ Request bodies forbid unknown fields (422). Money crosses as decimal strings.
   null), `vendor_kind` (code; null -> `unknown`). 201 with the vendor; 409 on a
   duplicate name; 422 for an unknown kind or non-http url.
 
+### Sellers
+
+- `GET /api/sellers` -- ordered by name, case aside: `id`, `name`, `store_url`.
+- `POST /api/sellers` -- `name` (1-255, trimmed), `store_url` (http(s) only;
+  blank or absent -> null). 201 with the seller; 409 on a name already taken,
+  whatever its case; 422 for a store that is not a web address.
+- `PATCH /api/sellers/{id}` -- `name` and/or `store_url`; only what is sent
+  changes, blank clears the store. 409 for a name another seller has.
+
 ### Purchase orders
 
 - `POST /api/purchase-orders` -- `vendor_id`, `order_number` (trimmed; "" ->
-  null), `ordered_on` (not after tomorrow), `source_url` and `seller_url`
-  (http(s) only), `notes`. 201 with `PurchaseOrderDetailOut`. 404 for an unknown vendor; 409
+  null), `ordered_on` (not after tomorrow), `source_url` (http(s) only),
+  `seller_id` (404 for an unknown one), `notes`. The detail names the seller:
+  `seller_id`, `seller` (the name) and `seller_url` (their store). 201 with `PurchaseOrderDetailOut`. 404 for an unknown vendor; 409
   when that vendor already has that order number (a partial unique index, so
   several unnumbered purchases from one vendor are allowed).
 - `GET /api/purchase-orders` and `GET /api/purchase-orders/{id}`, whose lines
@@ -99,9 +109,10 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
    button picks the purchase -- or a new one:
    vendor (with "+ Add a vendor..." opening an inline name / kind / web address
    form that never submits the outer form), order number, order date, web
-   address, seller's store, notes, **Create purchase**. **Edit details**
-   changes the same fields; the heading links "Vendor page" and "Seller's
-   store", as Receiving's does. A refusal is shown in place with the
+   address, seller (with "+ Add a seller..." opening an inline name / store
+   form, as the vendor picker does), notes, **Create purchase**. **Edit
+   details** changes the same fields; the heading links "Vendor page" and
+   names the seller, linked to their store, as Receiving's does. A refusal is shown in place with the
    input kept.
 2. **Items on this purchase.** The purchase heading, the purchase-wide tax
    values, a table of items entered so far (code, title, kind, cost, status) whose

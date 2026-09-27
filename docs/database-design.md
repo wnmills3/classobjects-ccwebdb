@@ -173,7 +173,7 @@ banknote is refused while the note row holds a value.
 A series letter (`1957-B`) and a mint mark (`1921-D`) look alike and mean
 different things, so they are separate columns on separate tables.
 
-### `vendor` and `purchase_order`
+### `vendor`, `seller` and `purchase_order`
 
 | `vendor` | Notes |
 |---|---|
@@ -181,13 +181,21 @@ different things, so they are separate columns on separate tables.
 | `host`, `url` | the site, when there is one |
 | `vendor_kind_id` | fk null: marketplace, auction, mint, dealer |
 
+| `seller` | Notes |
+|---|---|
+| `name` | unique (`uq_seller_name`); the API also refuses a name that differs only in case |
+| `store_url` | their store or profile page; http(s) only |
+
+The vendor is often the marketplace; the seller is the account on it that
+sold the pieces. One seller sells many purchases.
+
 | `purchase_order` | Notes |
 |---|---|
 | `vendor_id` | fk, not null |
 | `order_number` | **text**, nullable |
 | `ordered_on` | date |
 | `source_url`, `notes` | |
-| `seller_url` | the seller's store or profile page when the vendor is a marketplace; http(s) only |
+| `seller_id` | fk null, indexed: who sold it on the marketplace the vendor names |
 
 `order_number` is text because marketplace and auction identifiers carry
 leading zeros, letters and separators. Many channels issue none, so it is

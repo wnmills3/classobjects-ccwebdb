@@ -1525,6 +1525,59 @@ def _require_http_url(value: str | None) -> str | None:
     return value
 
 
+class SellerOut(BaseModel):
+    """A seller, for picking on a purchase."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    store_url: str | None = None
+
+
+class SellerCreate(BaseModel):
+    """A seller added inline while entering a purchase.
+
+    Names are unique, checked case-insensitively, as vendors' are.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    #: Their store or profile page; blank is none.
+    store_url: ListingUrl = None
+
+    @field_validator("name")
+    @classmethod
+    def _trimmed_name(cls, value: str) -> str:
+        """Surrounding space is never part of a seller's name."""
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("name must not be blank")
+        return trimmed
+
+
+class SellerUpdate(BaseModel):
+    """A change to a seller; only the fields sent change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    #: Blank clears it.
+    store_url: ListingUrl = None
+
+    @field_validator("name")
+    @classmethod
+    def _trimmed_name(cls, value: str | None) -> str | None:
+        """A name sent is trimmed and may not be blank."""
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("name must not be blank")
+        return trimmed
+
+
 class VendorOut(BaseModel):
     """A vendor, for picking on the entry panels."""
 
@@ -2237,8 +2290,8 @@ class PurchaseOrderCreate(BaseModel):
     #: same reason: a caller's local "today" can be a day ahead of UTC's.
     ordered_on: date | None = None
     source_url: str | None = Field(default=None, max_length=1000)
-    #: The seller's store or profile page, when the vendor is a marketplace.
-    seller_url: str | None = Field(default=None, max_length=1000)
+    #: Who sold it on the marketplace the vendor names (`/api/sellers`).
+    seller_id: int | None = None
     notes: str | None = None
 
     @field_validator("order_number")
@@ -2250,7 +2303,7 @@ class PurchaseOrderCreate(BaseModel):
         trimmed = value.strip()
         return trimmed or None
 
-    @field_validator("source_url", "seller_url")
+    @field_validator("source_url")
     @classmethod
     def _http_url(cls, value: str | None) -> str | None:
         """Only `http://` or `https://`, as `PurchaseOrderDetailOut` requires."""
@@ -2308,7 +2361,10 @@ class PurchaseOrderDetailOut(BaseModel):
     source_url: str | None = None
     #: The stored text itself, link or not, for the form that edits it.
     source_text: str | None = None
-    #: The seller's store or profile page -- always a web address.
+    #: Who sold it: the seller's id and name, and their store or profile
+    #: page (always a web address) -- all None when no seller is named.
+    seller_id: int | None = None
+    seller: str | None = None
     seller_url: str | None = None
     notes: str | None = None
     lines: list[PurchaseOrderLineOut]
@@ -2327,7 +2383,8 @@ class PurchaseOrderUpdate(BaseModel):
     order_number: str | None = Field(default=None, max_length=128)
     ordered_on: date | None = None
     source_url: str | None = Field(default=None, max_length=1000)
-    seller_url: str | None = Field(default=None, max_length=1000)
+    #: Null clears it.
+    seller_id: int | None = None
     notes: str | None = None
 
     @field_validator("order_number", "notes")
@@ -2339,7 +2396,7 @@ class PurchaseOrderUpdate(BaseModel):
         trimmed = value.strip()
         return trimmed or None
 
-    @field_validator("source_url", "seller_url")
+    @field_validator("source_url")
     @classmethod
     def _http_url(cls, value: str | None) -> str | None:
         """Blank clears it; otherwise `http://` or `https://`, as on create."""

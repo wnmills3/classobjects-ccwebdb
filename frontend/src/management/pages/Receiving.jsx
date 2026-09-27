@@ -95,13 +95,17 @@ export default function Receiving() {
               </a>
             </>
           )}
-          {order.seller_url && (
+          {order.seller && (
             <>
               {' '}
-              &middot;{' '}
-              <a href={order.seller_url} target="_blank" rel="noopener noreferrer">
-                Seller&apos;s store
-              </a>
+              &middot; Seller{' '}
+              {order.seller_url ? (
+                <a href={order.seller_url} target="_blank" rel="noopener noreferrer">
+                  {order.seller}
+                </a>
+              ) : (
+                order.seller
+              )}
             </>
           )}
         </h2>

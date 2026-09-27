@@ -22,6 +22,7 @@ from ..models import (
     InventoryItem,
     ItemStatus,
     PurchaseOrder,
+    Seller,
     StorageLocation,
     Vendor,
     VendorKind,
@@ -33,6 +34,9 @@ from ..schemas import (
     PurchaseOrderLineOut,
     PurchaseOrderOut,
     PurchaseOrderUpdate,
+    SellerCreate,
+    SellerOut,
+    SellerUpdate,
     StorageLocationOut,
     VendorCreate,
     VendorOut,
@@ -40,6 +44,7 @@ from ..schemas import (
 from ._resolve import found_or_404, get_or_404, refuse_future
 
 vendors_router = APIRouter(prefix="/vendors", tags=["acquisitions"])
+sellers_router = APIRouter(prefix="/sellers", tags=["acquisitions"])
 purchase_orders_router = APIRouter(prefix="/purchase-orders", tags=["acquisitions"])
 storage_locations_router = APIRouter(prefix="/storage-locations", tags=["acquisitions"])
 
@@ -271,7 +276,9 @@ def get_purchase_order(
             else None
         ),
         source_text=order.source_url,
-        seller_url=order.seller_url,
+        seller_id=order.seller_id,
+        seller=order.seller.name if order.seller is not None else None,
+        seller_url=order.seller.store_url if order.seller is not None else None,
         notes=order.notes,
         lines=[
             PurchaseOrderLineOut(
@@ -286,6 +293,75 @@ def get_purchase_order(
             for item in items
         ],
     )
+
+
+def _seller_id(db: Session, seller_id: int | None) -> int | None:
+    """The seller a purchase names, or None; 404 for one that does not exist."""
+    if seller_id is None:
+        return None
+    return get_or_404(db, Seller, seller_id, f"Unknown seller_id: {seller_id}").id
+
+
+def _refuse_seller_name(db: Session, name: str, keep: int | None) -> None:
+    """409 when another seller has this name, whatever its case."""
+    clash = db.scalar(
+        select(Seller.id).where(
+            func.lower(Seller.name) == name.casefold(),
+            Seller.id != (keep if keep is not None else -1),
+        )
+    )
+    if clash is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A seller named {name} already exists",
+        )
+
+
+def _commit_seller(db: Session, name: str) -> None:
+    """Commit, reading a racing duplicate name as the same 409."""
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A seller named {name} already exists",
+        ) from exc
+
+
+@sellers_router.get("")
+def list_sellers(db: DbSession, _admin: AdminUser) -> list[SellerOut]:
+    """Every seller, ordered by name (case aside), for picking on a purchase."""
+    sellers = db.scalars(select(Seller).order_by(func.lower(Seller.name))).all()
+    return [SellerOut.model_validate(seller) for seller in sellers]
+
+
+@sellers_router.post("", status_code=status.HTTP_201_CREATED)
+def create_seller(payload: SellerCreate, db: DbSession, _admin: AdminUser) -> SellerOut:
+    """Add a seller inline, while entering a purchase."""
+    _refuse_seller_name(db, payload.name, None)
+    seller = Seller(name=payload.name, store_url=payload.store_url)
+    db.add(seller)
+    _commit_seller(db, payload.name)
+    db.refresh(seller)
+    return SellerOut.model_validate(seller)
+
+
+@sellers_router.patch("/{seller_id}")
+def update_seller(
+    seller_id: int, payload: SellerUpdate, db: DbSession, _admin: AdminUser
+) -> SellerOut:
+    """Rename a seller or change their store; only the fields sent change."""
+    seller = get_or_404(db, Seller, seller_id, "Seller not found")
+    sent = payload.model_fields_set
+    if "name" in sent and payload.name is not None:
+        _refuse_seller_name(db, payload.name, seller.id)
+        seller.name = payload.name
+    if "store_url" in sent:
+        seller.store_url = payload.store_url
+    _commit_seller(db, seller.name)
+    db.refresh(seller)
+    return SellerOut.model_validate(seller)
 
 
 @purchase_orders_router.post("", status_code=status.HTTP_201_CREATED)
@@ -311,7 +387,7 @@ def create_purchase_order(
         order_number=number,
         ordered_on=payload.ordered_on,
         source_url=payload.source_url,
-        seller_url=payload.seller_url,
+        seller_id=_seller_id(db, payload.seller_id),
         notes=payload.notes,
     )
     db.add(order)
@@ -344,8 +420,8 @@ def update_purchase_order(
         order.order_number = number
     if "source_url" in sent:
         order.source_url = payload.source_url
-    if "seller_url" in sent:
-        order.seller_url = payload.seller_url
+    if "seller_id" in sent:
+        order.seller_id = _seller_id(db, payload.seller_id)
     if "notes" in sent:
         order.notes = payload.notes
     _commit_order(db, order.vendor, order.order_number)
