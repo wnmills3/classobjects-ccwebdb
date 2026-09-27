@@ -664,6 +664,35 @@ describe('ReceiptPanel: Identify', () => {
     expect(api.updateInventoryItem).toHaveBeenCalledTimes(1)
   })
 
+  it('after a save, starts again from what the server stored, not what was typed', async () => {
+    // The server writes a face plate as `FW E82`, whatever case it was typed
+    // in. A base of the typed `fw e82` would read as someone else's change.
+    api.receiveItems
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ received: 1 })
+    api.getInventoryItem.mockResolvedValueOnce(NOTE).mockResolvedValue({
+      ...NOTE,
+      face_plate_number: 'FW E82',
+      printing_facility: 'fw',
+    })
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
+    const plate = await screen.findByRole('textbox', { name: /face plate/i })
+    await userEvent.type(plate, 'fw e82')
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    expect(await screen.findByText('network down')).toBeInTheDocument()
+
+    const reread = await screen.findByDisplayValue('FW E82')
+    await userEvent.clear(reread)
+    await userEvent.type(reread, 'FW E83')
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalledTimes(2))
+    expect(api.updateInventoryItem.mock.calls[1][1]).toEqual({
+      face_plate_number: 'FW E83',
+      base: { face_plate_number: 'FW E82' },
+    })
+  })
+
   it('holds back the full editor while Identify has unsaved edits', async () => {
     const serial = await openNote()
     const confirm = screen.getByRole('button', { name: /confirm or correct fields/i })

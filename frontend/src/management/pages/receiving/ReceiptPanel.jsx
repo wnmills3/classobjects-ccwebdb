@@ -168,6 +168,11 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           ...current,
           baseline: { ...current.baseline, ...changes },
         }))
+        // The server may store a value differently from how it was typed (a
+        // face plate's case, a series letter's), and a base of the typed one
+        // would read as someone else's change. Reading the item again makes
+        // what it stored the starting point.
+        selected.reload()
       }
       await api.receiveItems({
         item_ids: itemIds,

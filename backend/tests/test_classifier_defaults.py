@@ -843,3 +843,39 @@ def test_holding_fields_on_many_items_is_one_upsert_that_tolerates_repeats(
         first.id: held,
         second.id: held,
     }
+
+
+def test_an_emptied_series_stays_empty(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    db: Session,
+    make_item: ItemFactory,
+) -> None:
+    """Emptying the design series is the person's choice, not a gap to refill."""
+    from app.field_sources import sources_by_item
+    from app.series_classify import run as classify_series
+    from app.series_match import run as match_series
+
+    dime = _dime(db, make_item, 1942)
+    dime.description = "Mercury dime"
+    db.commit()
+    classify_series(db, commit=True)
+    db.refresh(dime)
+    assert dime.series_id is not None
+
+    response = client.patch(
+        f"/api/inventory/{dime.id}", json={"series": None}, headers=admin_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = client.get(f"/api/inventory/{dime.id}", headers=admin_headers).json()
+    assert body["series"] is None
+    assert sources_by_item(db, [dime.id])[dime.id]["series_id"] == "held"
+    # Not refilled by another save, nor by either batch pass.
+    client.patch(
+        f"/api/inventory/{dime.id}", json={"variety": "FB"}, headers=admin_headers
+    )
+    classify_series(db, commit=True)
+    match_series(db, commit=True)
+    db.refresh(dime)
+    assert dime.series_id is None

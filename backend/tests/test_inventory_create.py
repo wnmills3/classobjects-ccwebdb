@@ -448,3 +448,26 @@ def test_a_coin_entered_gets_its_design_series_from_the_facts(
     )
     assert res.status_code == 201, res.text
     assert res.json()["series"] == "winged_liberty_head_dime"
+
+
+def test_a_suggested_series_is_accepted_and_recorded_as_one(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    from app.field_sources import SUGGESTION, derived_fields
+
+    order = _purchase_order(db)
+    res = client.post(
+        "/api/inventory",
+        json=_coin_payload(
+            order.id,
+            source_title="1942 dime",
+            year_start=1942,
+            denomination="usd_coin_0_10",
+            series="winged_liberty_head_dime",
+            suggested=["series"],
+        ),
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["series"] == "winged_liberty_head_dime"
+    assert derived_fields(db, res.json()["id"])["series_id"] == SUGGESTION
