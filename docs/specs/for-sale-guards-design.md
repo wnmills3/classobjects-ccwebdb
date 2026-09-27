@@ -107,9 +107,11 @@ where a button exists is the wrong invariant.
 
 - **`ForSaleNotice`** -- an inline notice with an acknowledgement checkbox,
   shared by `ItemEditForm`, `BulkEditBar`, `ErrorsPanel`, `PhotosPanel`,
-  `SplitDialog` and the Photos page. In `ErrorsPanel`, which saves on every
-  change, the acknowledgement is **per editing session, not per save**:
-  re-asking on each change would train the operator to tick it blind.
+  `SplitDialog` and the Photos page. In `ErrorsPanel` in Receiving, which
+  saves on every change, the acknowledgement is **per editing session, not
+  per save**: re-asking on each change would train the operator to tick it
+  blind. In the item editor the panel shows no notice of its own; the form's
+  one acknowledgement covers the errors its Save records.
 - **`ForSaleConfirm`** -- a modal driven by the 409, used by `ReceiptPanel`,
   which holds no `sale_state` for what it receives. It names the items and
   says the listing will be ended; confirming resubmits with

@@ -1441,6 +1441,183 @@ describe('Errors panel', () => {
   })
 })
 
+describe('ItemEditForm: errors wait for Save', () => {
+  const COIN = { ...item, item_kind: 'coin', version: 3 }
+  const vocabularies = emptyReference({
+    tables: {
+      error_type: [
+        {
+          code: 'off_center_coin',
+          label: 'Off Center',
+          source: 'seeded',
+          aliases: [],
+          extra: { applies_to: 'coin' },
+        },
+        {
+          code: 'die_crack',
+          label: 'Die Crack',
+          source: 'seeded',
+          aliases: [],
+          extra: { applies_to: 'coin' },
+        },
+      ],
+    },
+  })
+
+  async function open(props = {}) {
+    const onSaved = vi.fn()
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} {...props} />,
+      { reference: vocabularies },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    await screen.findByRole('combobox', { name: 'error_type' })
+    return onSaved
+  }
+
+  it('holds an added error until Save, then records the set', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue(COIN)
+    api.setItemErrors.mockResolvedValue({})
+    const onSaved = await open()
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toBeDisabled()
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'off_center_coin',
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: 'details for the error being added' }),
+      '10%',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+
+    expect(api.setItemErrors).not.toHaveBeenCalled()
+    expect(save).toBeEnabled()
+    await user.click(save)
+
+    await waitFor(() =>
+      expect(api.setItemErrors).toHaveBeenCalledWith(
+        12,
+        [{ error_type: 'off_center_coin', details: '10%' }],
+        { acknowledgeForSale: false },
+      ),
+    )
+    expect(api.updateInventoryItem).not.toHaveBeenCalled()
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+  })
+
+  it('holds a removal and an edited note until Save', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue(COIN)
+    api.getItemErrors.mockResolvedValue({
+      inventory_item_id: 12,
+      errors: [
+        { error_type: 'off_center_coin', details: '5%' },
+        { error_type: 'die_crack', details: null },
+      ],
+    })
+    api.setItemErrors.mockResolvedValue({})
+    await open()
+
+    await user.click(screen.getByRole('button', { name: 'Remove Die Crack' }))
+    const note = screen.getByRole('textbox', { name: 'Off Center details' })
+    await user.clear(note)
+    await user.tab()
+
+    expect(api.setItemErrors).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.setItemErrors).toHaveBeenCalledWith(
+        12,
+        [{ error_type: 'off_center_coin', details: null }],
+        { acknowledgeForSale: false },
+      ),
+    )
+  })
+
+  it('leaves Save disabled when an edit puts the set back as it was', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue(COIN)
+    await open()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'die_crack',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+    await user.click(screen.getByRole('button', { name: 'Remove Die Crack' }))
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('keeps errors that could not be recorded, with the reason', async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue(COIN)
+    api.setItemErrors.mockRejectedValue(new Error('Unknown error_type'))
+    const onSaved = await open()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'die_crack',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(
+      await screen.findByText(/errors were not recorded: Unknown error_type/i),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove Die Crack' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it("records errors for an item for sale under the form's own acknowledgement", async () => {
+    const user = userEvent.setup()
+    api.getInventoryItem.mockResolvedValue({
+      ...COIN,
+      sale_state: [{ kind: 'listing', id: 3, text: 'listing #3 at 189.00' }],
+    })
+    api.setItemErrors.mockResolvedValue({})
+    await open()
+    // One notice: the panel no longer asks separately.
+    expect(
+      screen.queryByRole('checkbox', { name: 'Record it anyway' }),
+    ).not.toBeInTheDocument()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'error_type' }),
+      'die_crack',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add error' }))
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Change it anyway' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.setItemErrors).toHaveBeenCalledWith(
+        12,
+        [{ error_type: 'die_crack', details: null }],
+        { acknowledgeForSale: true },
+      ),
+    )
+  })
+
+  it('offers no editing when the errors could not be read', async () => {
+    api.getInventoryItem.mockResolvedValue(COIN)
+    api.getItemErrors.mockRejectedValue(new Error('Server unavailable'))
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    // A set edited from nothing would replace, on Save, the one never seen.
+    expect(
+      await screen.findByText(/errors could not be read: Server unavailable/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add error' })).not.toBeInTheDocument()
+  })
+})
+
 // Task 8 gave ErrorsPanel its own `ForSaleNotice`, so a form for an item that
 // is for sale now shows two alerts with the same wording: this form's own,
 // above the fields, and the errors panel's, above its list. They read alike,

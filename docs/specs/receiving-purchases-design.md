@@ -168,8 +168,8 @@ error belongs to that order and clears when the address changes.
   page's own review component: *confirm* writes `.../reviewed`, editing
   writes `PATCH`. It is disabled while Identify has unsaved changes; Identify
   is hidden while it is open and reads the item again when it closes. While it is closed, `ErrorsPanel` records mint or printing
-  errors; only one of the two is mounted at a time, because both save the
-  item's whole error set.
+  errors; only one of the two is mounted at a time, because each replaces the
+  item's whole error set (the editor's on its Save, this one on every change).
 - For a banknote, a collapsed catalog-number lookup (`FriedbergLookup`) is
   offered.
 - Photographs upload after the receipt, the first as primary. **A failed
