@@ -93,7 +93,8 @@ above Arrived and Storage location, for a single item:
 
 ## New item
 
-`NewItemForm.jsx` is reordered so the facts come first:
+`NewItemForm.jsx` is reordered so the facts lead what describes the piece.
+The listing and its price come before them (`entry-panels-design.md`):
 
 1. Kind.
 2. The Identify fields for the kind (a coin's Year keeps its range checkbox).
@@ -102,8 +103,7 @@ above Arrived and Storage location, for a single item:
    seal, signatures and Reserve Bank, or the coin's metal.
 4. Country, then grading: strike type, grade, grade designation, grading
    service, certificate number; set form and variety where the kind has them.
-5. The purchase line: title, seller's item id, pieces, item cost, shipping,
-   status, description.
+5. The rest of the purchase line: title, pieces, status, description.
 
 `series` joins the suggested fields for both kinds and is sent in
 `suggested` when accepted. **Save and add another** focuses the first
