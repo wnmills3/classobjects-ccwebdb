@@ -254,6 +254,7 @@ const BLANK_PURCHASE = {
   order_number: '',
   ordered_on: '',
   source_url: '',
+  seller_url: '',
   notes: '',
 }
 
@@ -263,12 +264,13 @@ function detailsOf(purchase) {
     order_number: purchase.order_number ?? '',
     ordered_on: purchase.ordered_on ?? '',
     source_url: purchase.source_text ?? '',
+    seller_url: purchase.seller_url ?? '',
     notes: purchase.notes ?? '',
   }
 }
 
 /**
- * A purchase's number, date, web address and notes, shown and changed.
+ * A purchase's number, date, web address, seller and notes, shown and changed.
  *
  * Sends only what changed. An order number cleared is given the next
  * generated one by the server (`Order-0001`, ...), never left blank.
@@ -355,6 +357,15 @@ function PurchaseDetails({ purchase, onSaved }) {
             placeholder="https://"
             value={draft.source_url}
             onChange={set('source_url')}
+          />
+        </label>
+        <label data-help="seller_url">
+          Seller&apos;s store{/* */}
+          <input
+            type="url"
+            placeholder="https://"
+            value={draft.seller_url}
+            onChange={set('seller_url')}
           />
         </label>
       </div>
@@ -497,6 +508,7 @@ export default function NewPurchase() {
         order_number: orNull(form.order_number),
         ordered_on: form.ordered_on || null,
         source_url: orNull(form.source_url),
+        seller_url: orNull(form.seller_url),
         notes: orNull(form.notes),
       }
       const created = await api.createPurchaseOrder(payload)
@@ -584,6 +596,18 @@ export default function NewPurchase() {
                     rel="noopener noreferrer"
                   >
                     Vendor page
+                  </a>
+                </>
+              )}
+              {purchase.seller_url && (
+                <>
+                  {' · '}
+                  <a
+                    href={purchase.seller_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Seller&apos;s store
                   </a>
                 </>
               )}
@@ -792,6 +816,15 @@ export default function NewPurchase() {
                   placeholder="https://"
                   value={form.source_url}
                   onChange={set('source_url')}
+                />
+              </label>
+              <label data-help="seller_url">
+                Seller&apos;s store{/* */}
+                <input
+                  type="url"
+                  placeholder="https://"
+                  value={form.seller_url}
+                  onChange={set('seller_url')}
                 />
               </label>
             </div>

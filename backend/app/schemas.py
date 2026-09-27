@@ -2216,6 +2216,8 @@ class PurchaseOrderCreate(BaseModel):
     #: same reason: a caller's local "today" can be a day ahead of UTC's.
     ordered_on: date | None = None
     source_url: str | None = Field(default=None, max_length=1000)
+    #: The seller's store or profile page, when the vendor is a marketplace.
+    seller_url: str | None = Field(default=None, max_length=1000)
     notes: str | None = None
 
     @field_validator("order_number")
@@ -2227,7 +2229,7 @@ class PurchaseOrderCreate(BaseModel):
         trimmed = value.strip()
         return trimmed or None
 
-    @field_validator("source_url")
+    @field_validator("source_url", "seller_url")
     @classmethod
     def _http_url(cls, value: str | None) -> str | None:
         """Only `http://` or `https://`, as `PurchaseOrderDetailOut` requires."""
@@ -2285,6 +2287,8 @@ class PurchaseOrderDetailOut(BaseModel):
     source_url: str | None = None
     #: The stored text itself, link or not, for the form that edits it.
     source_text: str | None = None
+    #: The seller's store or profile page -- always a web address.
+    seller_url: str | None = None
     notes: str | None = None
     lines: list[PurchaseOrderLineOut]
 
@@ -2302,6 +2306,7 @@ class PurchaseOrderUpdate(BaseModel):
     order_number: str | None = Field(default=None, max_length=128)
     ordered_on: date | None = None
     source_url: str | None = Field(default=None, max_length=1000)
+    seller_url: str | None = Field(default=None, max_length=1000)
     notes: str | None = None
 
     @field_validator("order_number", "notes")
@@ -2313,7 +2318,7 @@ class PurchaseOrderUpdate(BaseModel):
         trimmed = value.strip()
         return trimmed or None
 
-    @field_validator("source_url")
+    @field_validator("source_url", "seller_url")
     @classmethod
     def _http_url(cls, value: str | None) -> str | None:
         """Blank clears it; otherwise `http://` or `https://`, as on create."""

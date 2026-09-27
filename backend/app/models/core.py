@@ -169,6 +169,9 @@ class PurchaseOrder(TimestampMixin, Base):
     order_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     ordered_on: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    #: The seller's store or profile page on the marketplace the vendor
+    #: names -- who actually sold the pieces. Always a web address.
+    seller_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     vendor: Mapped[Vendor] = relationship(back_populates="orders")

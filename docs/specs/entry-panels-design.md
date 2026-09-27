@@ -17,7 +17,8 @@ editor.
 | Status on entry | `ordered` (default) or `received` for things already in hand. The opening status-history row is written either way. |
 | Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. The New item form starts with country United States (`US`), which the person may change or empty. |
 | Vendors | Picked from a list; a missing one is added inline. Names are unique, case-insensitively. |
-| Web addresses | A purchase's `source_url` must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing it. |
+| Web addresses | A purchase's `source_url` and `seller_url` must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing them. |
+| Who sold it? | The vendor is often the marketplace (ebay.com, whatnot.com); the seller on it is recorded on the purchase as `seller_url`, the seller's store or profile page -- one seller per purchase, since a marketplace order comes from one. |
 | Repeated entry | **Save and add another** keeps exactly what the next piece of one purchase shares (`SHARED_ON_REPEAT` in `NewItemForm.jsx`, listed under *New item* below) and clears the rest. Grade, grade designation, serial number, certificate, variety, cost, shipping and piece count are per piece and always clear, even when they often repeat. |
 
 **Tax fields are three-state.** The tax-rate box starts empty, meaning the
@@ -43,8 +44,8 @@ Request bodies forbid unknown fields (422). Money crosses as decimal strings.
 ### Purchase orders
 
 - `POST /api/purchase-orders` -- `vendor_id`, `order_number` (trimmed; "" ->
-  null), `ordered_on` (not after tomorrow), `source_url` (http(s) only),
-  `notes`. 201 with `PurchaseOrderDetailOut`. 404 for an unknown vendor; 409
+  null), `ordered_on` (not after tomorrow), `source_url` and `seller_url`
+  (http(s) only), `notes`. 201 with `PurchaseOrderDetailOut`. 404 for an unknown vendor; 409
   when that vendor already has that order number (a partial unique index, so
   several unnumbered purchases from one vendor are allowed).
 - `GET /api/purchase-orders` and `GET /api/purchase-orders/{id}`, whose lines
@@ -97,7 +98,9 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
    button picks the purchase -- or a new one:
    vendor (with "+ Add a vendor..." opening an inline name / kind / web address
    form that never submits the outer form), order number, order date, web
-   address, notes, **Create purchase**. A refusal is shown in place with the
+   address, seller's store, notes, **Create purchase**. **Edit details**
+   changes the same fields; the heading links "Vendor page" and "Seller's
+   store", as Receiving's does. A refusal is shown in place with the
    input kept.
 2. **Items on this purchase.** The purchase heading, the purchase-wide tax
    values, a table of items entered so far (code, title, kind, cost, status),

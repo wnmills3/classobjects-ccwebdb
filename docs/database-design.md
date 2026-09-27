@@ -187,6 +187,7 @@ different things, so they are separate columns on separate tables.
 | `order_number` | **text**, nullable |
 | `ordered_on` | date |
 | `source_url`, `notes` | |
+| `seller_url` | the seller's store or profile page when the vendor is a marketplace; http(s) only |
 
 `order_number` is text because marketplace and auction identifiers carry
 leading zeros, letters and separators. Many channels issue none, so it is

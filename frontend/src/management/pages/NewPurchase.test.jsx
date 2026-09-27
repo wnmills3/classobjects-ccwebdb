@@ -781,3 +781,60 @@ describe('NewPurchase: Ctrl+S', () => {
     expect(api.updatePurchaseOrder).not.toHaveBeenCalled()
   })
 })
+
+describe("NewPurchase: the seller's store", () => {
+  const STORE = 'https://www.ebay.com/str/examplecoins'
+
+  it('is recorded with a new purchase', async () => {
+    const user = userEvent.setup()
+    api.createPurchaseOrder.mockResolvedValue({ ...FRESH_PURCHASE, seller_url: STORE })
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '3',
+    )
+    await user.type(
+      screen.getByRole('textbox', { name: /seller's store/i }),
+      ` ${STORE} `,
+    )
+    await user.click(screen.getByRole('button', { name: /create purchase/i }))
+
+    await waitFor(() =>
+      expect(api.createPurchaseOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ seller_url: STORE }),
+      ),
+    )
+    const link = await screen.findByRole('link', { name: "Seller's store" })
+    expect(link).toHaveAttribute('href', STORE)
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  it('shows no seller link when none is recorded', async () => {
+    api.getPurchaseOrder.mockResolvedValue({
+      ...FRESH_PURCHASE,
+      id: 22,
+      seller_url: null,
+    })
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    await screen.findByText(/PO-2/)
+    expect(screen.queryByRole('link', { name: "Seller's store" })).toBeNull()
+  })
+
+  it('is changed on its own with the details', async () => {
+    const user = userEvent.setup()
+    const purchase = { ...FRESH_PURCHASE, id: 22, seller_url: null, source_text: null }
+    api.getPurchaseOrder.mockResolvedValue(purchase)
+    api.updatePurchaseOrder.mockResolvedValue({ ...purchase, seller_url: STORE })
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    await user.click(await screen.findByRole('button', { name: 'Edit details' }))
+    const box = screen.getByRole('textbox', { name: /seller's store/i })
+    expect(box).toHaveValue('')
+
+    await user.type(box, STORE)
+    await user.click(screen.getByRole('button', { name: 'Save details' }))
+
+    await waitFor(() =>
+      expect(api.updatePurchaseOrder).toHaveBeenCalledWith(22, { seller_url: STORE }),
+    )
+  })
+})
