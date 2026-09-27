@@ -144,8 +144,8 @@ describe('Platforms', () => {
       'm',
     )
     expect(within(dialog).getByRole('button', { name: 'Save' })).toHaveAttribute(
-      'accesskey',
-      'v',
+      'aria-keyshortcuts',
+      'Control+S',
     )
 
     fireEvent.keyDown(document, { key: 's', ctrlKey: true })

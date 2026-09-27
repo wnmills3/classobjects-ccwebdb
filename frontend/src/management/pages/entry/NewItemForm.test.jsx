@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -456,18 +456,31 @@ describe('NewItemForm: disabled while the purchase-wide tax rate is invalid', ()
 })
 
 describe('NewItemForm keyboard accelerators', () => {
-  it('gives the key fields and both save buttons an access key, shown in their label', () => {
+  it('gives the key fields and Save and add another an access key, shown in their label', () => {
     render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
     const expected = [
       [screen.getByLabelText('item_kind'), 'k'],
       [screen.getByRole('textbox', { name: /title/i }), 't'],
-      [screen.getByRole('button', { name: 'Save' }), 'v'],
       [screen.getByRole('button', { name: /save and add another/i }), 'n'],
     ]
     for (const [element, key] of expected) {
       expect(element).toHaveAttribute('accesskey', key)
       expect(element).toHaveAttribute('aria-keyshortcuts', `Alt+${key.toUpperCase()}`)
     }
+  })
+
+  it('saves with Ctrl+S, which the Save button names', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 14, item_code: 'CC-000014' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toHaveAttribute('aria-keyshortcuts', 'Control+S')
+    expect(save).not.toHaveAttribute('accesskey')
+
+    await fillTitle(user, 'A dime')
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+
+    await waitFor(() => expect(api.createInventoryItem).toHaveBeenCalledTimes(1))
   })
 
   it('never uses D, E or F as an accelerator', () => {

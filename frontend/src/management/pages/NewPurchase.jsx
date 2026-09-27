@@ -7,6 +7,7 @@ import HelpScope from '../HelpScope'
 import { ReferenceSelect } from '../../shared/reference'
 import { date } from '../../shared/format'
 import { orNull } from '../../shared/text'
+import { SaveButton, SaveShortcut } from '../SaveButton'
 
 /**
  * Recording an acquisition: a vendor and a purchase, then the items bought
@@ -297,8 +298,9 @@ function PurchaseDetails({ purchase, onSaved }) {
 
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
 
+  // From the form's submit, or from Ctrl+S, which has no event to stop.
   async function save(e) {
-    e.preventDefault()
+    e?.preventDefault()
     const was = detailsOf(purchase)
     const changes = Object.fromEntries(
       Object.entries(draft)
@@ -361,9 +363,15 @@ function PurchaseDetails({ purchase, onSaved }) {
         <textarea rows={2} value={draft.notes} onChange={set('notes')} />
       </label>
       <div className="row">
-        <button type="submit" disabled={saving}>
-          {saving ? 'Saving...' : 'Save details'}
-        </button>
+        <SaveButton
+          type="submit"
+          label="Save details"
+          saving={saving}
+          disabled={saving}
+        />
+        {/* The form stays mounted while closed, so the key is held only
+            while it is open. */}
+        <SaveShortcut onSave={save} enabled={!saving} />
         <button type="button" className="link" onClick={() => setDraft(null)}>
           Cancel
         </button>

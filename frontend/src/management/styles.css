@@ -421,6 +421,12 @@ fieldset.identify {
 .order-row:hover {
   background: var(--surface);
 }
+/* "Ctrl+S" beside every Save button (SaveButton.jsx). */
+.key-hint {
+  color: var(--muted);
+  font-size: 0.8em;
+  white-space: nowrap;
+}
 /* Purchases: a whole row picks its purchase, as its order number does. */
 .purchase-row {
   cursor: pointer;

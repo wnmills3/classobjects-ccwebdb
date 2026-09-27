@@ -13,6 +13,7 @@ import { date } from '../../shared/format'
 import { useMounted } from '../useMounted'
 import { useSalesVenues } from '../useSalesVenues'
 import { orNull } from '../../shared/text'
+import { SaveButton } from '../SaveButton'
 
 /**
  * The Listings page: every offer the business has out, and the two things
@@ -45,7 +46,6 @@ const KEYS = {
   title: 't',
   description: 'i',
   externalId: 'n',
-  save: 'v',
 }
 
 /**
@@ -156,9 +156,7 @@ function ListingForm({ listing, onSaved, onClose }) {
         </label>
       </div>
       <div className="row">
-        <button disabled={saving} onClick={save} {...accel(KEYS.save)}>
-          <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey={KEYS.save} />
-        </button>
+        <SaveButton saving={saving} disabled={saving} onClick={save} />
         <button className="link" onClick={onClose}>
           Cancel
         </button>

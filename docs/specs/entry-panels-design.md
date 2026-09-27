@@ -139,7 +139,8 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   it cleared: a note's serial number, anything else's year.
 - Keyboard accelerators via `accel` / `AccessLabel` (Alt+letter, avoiding D,
   E and F, which the browser claims) and `useSaveShortcut` (Ctrl+S /
-  Ctrl+Enter saves).
+  Ctrl+Enter saves; the Save button, a `SaveButton`, shows Ctrl+S and has no
+  Alt letter).
 
 ## Field help
 

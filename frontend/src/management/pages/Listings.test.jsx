@@ -327,7 +327,12 @@ describe('Listings', () => {
     const letters = [...dialog.querySelectorAll('[accesskey]')].map((el) =>
       el.getAttribute('accesskey'),
     )
-    expect(letters).toHaveLength(5)
+    // Save is Ctrl+S, not a letter.
+    expect(letters).toHaveLength(4)
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Control+S',
+    )
     expect(new Set(letters).size).toBe(letters.length)
     // Chrome and Edge keep D, E and F for the address bar and menus.
     expect(letters.filter((l) => 'def'.includes(l))).toEqual([])

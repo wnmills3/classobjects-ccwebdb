@@ -470,9 +470,11 @@ applied to many items would wipe whatever each carried that the others do
 not.
 
 **Every console edit window** -- item, new item, order, platform, offer,
-listing, record sale, lot, auction -- takes Alt plus the underlined letter to
-jump to a field, and Ctrl+S or Ctrl+Enter to save. No letter is D, E or F,
-which the browser keeps; a Save button is Alt+V; Escape closes a dialog.
+listing, record sale, lot, auction, a purchase's details, a customer and their
+address -- takes Alt plus the underlined letter to jump to a field, and Ctrl+S
+or Ctrl+Enter to save. Every Save button shows "Ctrl+S" beside it
+(`management/SaveButton.jsx`) and has no Alt letter of its own. No letter is
+D, E or F, which the browser keeps; Escape closes a dialog.
 
 ### Status and location have one door
 

@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -180,5 +180,55 @@ describe('AdminPeople', () => {
     expect(await screen.findByText('that email is already in use')).toBeInTheDocument()
     // The typing is still there to be corrected, not retyped.
     expect(screen.getByDisplayValue('Ada King')).toBeInTheDocument()
+  })
+})
+
+describe('AdminPeople: Ctrl+S', () => {
+  it("saves a customer's edit", async () => {
+    api.updateCustomer.mockResolvedValue({})
+    const user = userEvent.setup()
+    renderWithProviders(<AdminPeople />, { auth: adminAuth() })
+    await user.click(await screen.findByRole('button', { name: 'Customers' }))
+    await user.click(await screen.findByRole('button', { name: 'Edit' }))
+    const name = screen.getByDisplayValue('Ada Lovelace')
+    await user.clear(name)
+    await user.type(name, 'Ada King')
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+
+    await waitFor(() =>
+      expect(api.updateCustomer).toHaveBeenCalledWith(
+        5,
+        expect.objectContaining({ display_name: 'Ada King' }),
+      ),
+    )
+  })
+
+  it('saves a new address', async () => {
+    api.addCustomerAddress.mockResolvedValue({})
+    const user = userEvent.setup()
+    renderWithProviders(<AdminPeople />, { auth: adminAuth() })
+    await user.click(await screen.findByRole('button', { name: 'Customers' }))
+    await user.click(await screen.findByRole('button', { name: 'New address' }))
+    expect(screen.getByRole('button', { name: 'Save address' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Control+S',
+    )
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+
+    await waitFor(() => expect(api.addCustomerAddress).toHaveBeenCalledTimes(1))
+  })
+
+  it('does nothing while no edit is open', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<AdminPeople />, { auth: adminAuth() })
+    await user.click(await screen.findByRole('button', { name: 'Customers' }))
+    await screen.findByText('ada@example.com')
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+
+    expect(api.updateCustomer).not.toHaveBeenCalled()
+    expect(api.addCustomerAddress).not.toHaveBeenCalled()
   })
 })
