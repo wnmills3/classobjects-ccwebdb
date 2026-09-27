@@ -155,6 +155,9 @@ error belongs to that order and clears when the address changes.
 
 **Receiving one item.** Choosing a row opens a dialog for that item:
 
+- First, **Identify** (`receiving/IdentifySection.jsx`): the facts that
+  identify the piece, filled from the item and saved with **Receive** only
+  (`identify-first-entry-design.md`).
 - *Arrived* (defaults to the operator's local today), *Storage location*,
   *Note*, *Photo*, and the four buttons **Receive**, **Missing**,
   **Returned**, **Cancelled**, each sending its own code in one request.
@@ -162,7 +165,8 @@ error belongs to that order and clears when the address changes.
   parcel of twenty into one location is not twenty identical picks.
 - **Confirm or correct fields** (collapsed) opens `ReviewPane`, the inventory
   page's own review component: *confirm* writes `.../reviewed`, editing
-  writes `PATCH`. While it is closed, `ErrorsPanel` records mint or printing
+  writes `PATCH`. It is disabled while Identify has unsaved changes; Identify
+  is hidden while it is open and reads the item again when it closes. While it is closed, `ErrorsPanel` records mint or printing
   errors; only one of the two is mounted at a time, because both save the
   item's whole error set.
 - For a banknote, a collapsed catalog-number lookup (`FriedbergLookup`) is

@@ -166,12 +166,14 @@ note's class as evidence.
 
 - **On every write.** Creating an item, a single edit and a bulk edit each call
   `refresh_items` in the same transaction, so a corrected series year corrects
-  the class derived from it.
+  the class derived from it. It refreshes the design series too
+  (`series_classify.refresh_series`, `series-classification-design.md`).
 - **In batch**, by the command above.
 - **At entry.** The New item form asks `GET /api/defaults/note` (denomination,
   series year and letter, serial, rating, plus any class, seal, signatures or
   Bank the person chose) or `GET /api/defaults/coin` (denomination, country,
-  year, answering the metal) after a 250 ms pause. It sends only the person's
+  year, answering the metal); both also answer the design series the facts
+  decide. The lookup runs after a 250 ms pause. It sends only the person's
   own picks -- a value sent narrows the answer and is never suggested back --
   and marks what it filled as *suggested*. Picking a value, even the suggested
   one, makes it the person's; clearing the denomination withdraws the

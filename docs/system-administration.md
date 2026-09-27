@@ -522,7 +522,9 @@ purchase's **Receive these**) opens with that order's header and its items
 already found, searched by the order's id (an order number is not unique
 across vendors and is sometimes not recorded).
 
-Clicking a line opens a dialog for that one item: arrival date, storage
+Clicking a line opens a dialog for that one item: the Identify section (a
+note's series year and letter, denomination, serial and plates, or a coin's
+year, mint and denomination, saved only with Receive), arrival date, storage
 location, note, photographs, the four outcome buttons, the "Confirm or correct
 fields" pane, the errors panel and, for a banknote, the Friedberg lookup.
 After each receipt the search repeats, so what arrived drops off the list. The

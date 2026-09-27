@@ -45,9 +45,10 @@ Creating or editing an item already refreshes its classifier defaults
 (`refresh_items`). It now also refreshes its **series**, per item, in the same
 transaction (`app.series_classify.refresh_series`):
 
-1. An item whose series was derived by `series_classify` and which the facts
-   now rule out (`disagreements`) has that series cleared and its record
-   removed -- the machine takes back its own guess.
+1. An item whose series was derived by `series_classify`, or filled by an
+   entry suggestion the person accepted, and which the facts now rule out or
+   no longer support, has that series cleared and its record removed -- the
+   machine takes back its own guess.
 2. An item with no series, and no `held` record for `series_id`, is decided
    by `decide()` with its own text as evidence (as the batch does); a design
    found is written and recorded as `series_classify`.
@@ -81,6 +82,10 @@ above Arrived and Storage location, for a single item:
   `acknowledge_for_sale` with both.
 - **Confirm or correct fields** is disabled while Identify has unsaved edits
   (saying why), so the full editor never opens over values it cannot see.
+  Identify is hidden while the editor is open, and reads the item again when
+  it closes, so its `base` is what the editor saved.
+- A coin whose years are a range shows its Year box disabled: one box cannot
+  hold a range, and the full editor can.
 - Nothing typed in Identify is carried to the next line: the facts are the
   piece's, unlike the arrival date and location.
 

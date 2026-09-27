@@ -19,9 +19,18 @@ Two passes assign series:
   a note, series letter -- and is the only pass that classifies notes.
 
 Both report by default and write only with `--commit`. Neither touches an item
-that already has a series, so a hand correction always stands. Each records
-what it wrote in `item_field_source` (`series_match`, `series_classify`), per
+that already has a series, so a hand correction always stands, nor one whose
+series a person emptied (`held`). Each records what it wrote in
+`item_field_source` (`series_match`, `series_classify`), per
 `classifier-defaults-design.md`.
+
+**On save.** Creating or editing an item runs `series_classify` for that item
+alone (`refresh_series`, from `classifier_defaults.refresh_items`): a series
+it or an accepted entry suggestion wrote, which the facts now rule out or no
+longer support, is cleared with its record, and an item left without one is
+decided as the batch decides it. The entry forms are told the design the
+facts alone decide (`suggest_series`, in `GET /api/defaults/note` and
+`/coin`), with no text read.
 
 ## What a design is
 
