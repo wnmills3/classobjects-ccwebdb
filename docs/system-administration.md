@@ -294,8 +294,8 @@ Silver and Gold Certificate, Fractional Currency, Demand Note, Treasury Note.
 `PHOTO_LIBRARY_ROOT`) and links each photograph to the item its filename
 names, through the same writer (`app.image_links.attach`) the console uses.
 The dry run decodes and validates every file, so it names one the imaging
-layer would refuse, but writes no rows and no bytes. The first real run on the
-safe-deposit photographs is a dry run the owner watches.
+layer would refuse, but writes no rows and no bytes. Every run on a new batch
+of photographs starts as a dry run the owner watches.
 
 The filename convention is `<item_code>_<nn>.<ext>` (`app.photo_names`), for
 example `CC-000412_01.jpg`. `01` is obverse and becomes the primary

@@ -1,4 +1,4 @@
-"""File the safe-deposit-box photographs against the items they show.
+"""File a directory of photographs against the items they show.
 
 Walks a directory, reads `<item_code>_<nn>.<ext>` out of each filename
 (`app.photo_names`), and links the photograph to the item it names
@@ -12,7 +12,7 @@ withheld.
 
 `--root` defaults to `settings.photo_library_root`, the real library. **Never
 point this at a real directory without `--commit` having been asked for on
-purpose** -- the owner watches the first real run personally, and every test
+purpose** -- the owner watches each real run personally, and every test
 in `tests/test_photo_import.py` builds its own library under `tmp_path`
 rather than touching it.
 
