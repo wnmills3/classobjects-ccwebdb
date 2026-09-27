@@ -103,7 +103,8 @@ The listing and its price come before them (`entry-panels-design.md`):
    seal, signatures and Reserve Bank, or the coin's metal.
 4. Country, then grading: strike type, grade, grade designation, grading
    service, certificate number; set form and variety where the kind has them.
-5. The rest of the purchase line: title, pieces, status, description.
+5. The rest of the purchase line: title, pieces.
+6. Errors, then the description with Suggest description, then status.
 
 `series` joins the suggested fields for both kinds and is sent in
 `suggested` when accepted. **Save and add another** focuses the first

@@ -1240,3 +1240,19 @@ describe("NewItemForm: a lot's page is its purchase's", () => {
     expect(listing()).toHaveValue('')
   })
 })
+
+describe('NewItemForm: the description last', () => {
+  it('asks for errors before the description, and the status after it', () => {
+    const { container } = render(
+      <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
+    )
+    const order = fieldOrder(container)
+    const at = (key) => order.indexOf(key)
+    // Suggest description reads the errors, so they are entered first.
+    expect(at('errors')).toBeGreaterThan(at('source_title'))
+    expect(at('description')).toBeGreaterThan(at('errors'))
+    expect(at('suggest_description')).toBeGreaterThan(at('description'))
+    expect(at('new_item_status')).toBeGreaterThan(at('suggest_description'))
+    expect(order.at(-1)).toBe('new_item_status')
+  })
+})
