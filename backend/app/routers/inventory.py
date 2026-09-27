@@ -26,6 +26,7 @@ from .. import (
     grades,
     item_attributes,
     item_kinds,
+    listing_links,
     lot_writes,
     offering_writes,
     plates,
@@ -1031,6 +1032,16 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         except item_attributes.AttributeRefused as exc:
             db.rollback()
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # At an auction house or a shop the lot's page is the purchase's too: a
+    # purchase entered with no web address takes its first item's listing.
+    vendor = db.get_one(Vendor, order.vendor_id)
+    if (
+        order.source_url is None
+        and payload.listing_url
+        and not listing_links.is_marketplace(vendor)
+    ):
+        order.source_url = payload.listing_url
 
     record_initial_status(db, item, user_id=admin.id, note="entered in the console")
     # Only a suggestion that was actually filled is a derived default.

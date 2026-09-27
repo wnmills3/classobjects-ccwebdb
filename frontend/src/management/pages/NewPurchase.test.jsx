@@ -838,3 +838,33 @@ describe("NewPurchase: the seller's store", () => {
     )
   })
 })
+
+describe("NewPurchase: a lot's page as the item's listing", () => {
+  const LOT = 'https://hibid.com/lot/280623476/1986-2024-american-eagle'
+
+  it("offers an auction purchase's address to the new item", async () => {
+    api.getPurchaseOrder.mockResolvedValue({
+      ...FRESH_PURCHASE,
+      id: 40,
+      vendor: 'hibid.com',
+      source_url: LOT,
+    })
+    renderWithProviders(<NewPurchase />, { route: '/?order=40' })
+    expect(
+      await screen.findByRole('textbox', { name: /listing web address/i }),
+    ).toHaveValue(LOT)
+  })
+
+  it("does not offer an eBay order's page, which is no listing", async () => {
+    api.getPurchaseOrder.mockResolvedValue({
+      ...FRESH_PURCHASE,
+      id: 41,
+      vendor: 'ebay.com',
+      source_url: 'https://order.ebay.com/ord/show?orderId=1',
+    })
+    renderWithProviders(<NewPurchase />, { route: '/?order=41' })
+    expect(
+      await screen.findByRole('textbox', { name: /listing web address/i }),
+    ).toHaveValue('')
+  })
+})
