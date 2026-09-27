@@ -104,7 +104,9 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
    store", as Receiving's does. A refusal is shown in place with the
    input kept.
 2. **Items on this purchase.** The purchase heading, the purchase-wide tax
-   values, a table of items entered so far (code, title, kind, cost, status),
+   values, a table of items entered so far (code, title, kind, cost, status) whose
+   item code opens the item editor over the page, to fix an entry where it
+   was made (the purchase is read again when the editor closes),
    the New item form, a **Receive these** link to `/receiving?order=<id>`, and
    **Start another purchase**.
 

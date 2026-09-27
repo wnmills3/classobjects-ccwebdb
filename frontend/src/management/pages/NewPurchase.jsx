@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import NewItemForm from './entry/NewItemForm'
+import ItemEditDialog from './inventory/ItemEditDialog'
 import HelpScope from '../HelpScope'
 import { ReferenceSelect } from '../../shared/reference'
 import { date } from '../../shared/format'
@@ -537,6 +538,17 @@ export default function NewPurchase() {
   // Guarded by the same token a pick takes: a reload landing after "Start
   // another purchase", another pick, or a later reload must not put an old
   // answer back on screen (code review, 2026-09-23).
+  // The item open in the editor, from the items table: an entry fixed where
+  // it was made rather than found again on the inventory screens.
+  const [editing, setEditing] = useState(null)
+
+  // Saved or only closed, the purchase is read again: errors and photographs
+  // save on their own inside the editor.
+  function closeEditor() {
+    setEditing(null)
+    reloadPurchase()
+  }
+
   function reloadPurchase() {
     if (!purchase) return
     fetchPurchase(purchase.id, setReloadError)
@@ -687,7 +699,15 @@ export default function NewPurchase() {
               <tbody>
                 {(purchase.lines ?? []).map((line) => (
                   <tr key={line.id}>
-                    <td className="mono">{line.item_code}</td>
+                    <td className="mono">
+                      <button
+                        type="button"
+                        className="link mono"
+                        onClick={() => setEditing(line.id)}
+                      >
+                        {line.item_code}
+                      </button>
+                    </td>
                     <td>{line.source_title}</td>
                     <td>{line.item_kind}</td>
                     <td>{line.item_cost}</td>
@@ -703,6 +723,16 @@ export default function NewPurchase() {
                 )}
               </tbody>
             </table>
+
+            {editing && (
+              <ItemEditDialog
+                key={editing}
+                itemId={editing}
+                onSaved={closeEditor}
+                onChanged={reloadPurchase}
+                onClose={closeEditor}
+              />
+            )}
 
             <NewItemForm
               purchaseOrderId={purchase.id}
