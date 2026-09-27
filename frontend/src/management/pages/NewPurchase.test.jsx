@@ -209,7 +209,7 @@ describe('NewPurchase: changing a purchase after it is made', () => {
     const number = screen.getByRole('textbox', { name: /order number/i })
     expect(number).toHaveValue('Order-0001')
     // The web address box holds the stored text, link or not.
-    expect(screen.getByRole('textbox', { name: /web address/i })).toHaveValue('Gift')
+    expect(screen.getByRole('textbox', { name: /^web address/i })).toHaveValue('Gift')
     await user.clear(number)
     await user.type(number, 'SD-77')
     await user.click(screen.getByRole('button', { name: 'Save details' }))

@@ -223,6 +223,14 @@ export const FIELD_HELP = {
       'Denomination blank for a set of several face values -- a denomination is one ' +
       'face value. A value that is missing can be added here by its name.',
   },
+  listing_url: {
+    title: 'Listing web address',
+    text:
+      'The web address of the listing this was bought from -- the eBay, HiBid or ' +
+      'Whatnot page. Pieces entered one after another keep it, since a lot comes ' +
+      'from one listing. Shown as "Listing" in the item editor, which opens it in ' +
+      'a new tab.',
+  },
   sellers_item_id: {
     title: "Seller's item id",
     text:

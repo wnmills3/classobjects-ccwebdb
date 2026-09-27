@@ -577,6 +577,17 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               eBay item {item.sellers_item_id}
             </a>
           )}
+          {/^https?:\/\//i.test(item.listing_url ?? '') && (
+            // Only a web address is offered as a link.
+            <a
+              href={item.listing_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-help="listing_url"
+            >
+              Listing
+            </a>
+          )}
           {onClose && (
             <button className="link" onClick={onClose}>
               Close
@@ -674,6 +685,17 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
             type="text"
             value={value('sellers_item_id') || ''}
             onChange={set('sellers_item_id')}
+          />
+          <span />
+          <span />
+        </label>
+        <label className="field" data-help="listing_url">
+          <span>Listing web address</span>
+          <input
+            type="url"
+            placeholder="https://"
+            value={value('listing_url') || ''}
+            onChange={set('listing_url')}
           />
           <span />
           <span />

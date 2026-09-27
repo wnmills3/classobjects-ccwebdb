@@ -1082,3 +1082,37 @@ describe('NewItemForm: attributes', () => {
     )
   })
 })
+
+describe('NewItemForm: the listing web address', () => {
+  const LISTING = 'https://www.hibid.com/lot/307575524/1898-morgan-dollar'
+
+  it('is sent trimmed, and kept for the next piece of the same listing', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 15, item_code: 'CC-000015' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(
+      screen.getByRole('textbox', { name: /listing web address/i }),
+      ` ${LISTING} `,
+    )
+    await fillTitle(user, 'Lot piece')
+    await user.click(screen.getByRole('button', { name: /save and add another/i }))
+
+    expect(api.createInventoryItem.mock.calls[0][0].listing_url).toBe(LISTING)
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue(''),
+    )
+    // Kept for the next piece (a URL box drops the surrounding spaces itself).
+    expect(screen.getByRole('textbox', { name: /listing web address/i })).toHaveValue(
+      LISTING,
+    )
+  })
+
+  it('is not sent when left blank', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 16, item_code: 'CC-000016' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await fillTitle(user, 'No link')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.createInventoryItem.mock.calls[0][0]).not.toHaveProperty('listing_url')
+  })
+})

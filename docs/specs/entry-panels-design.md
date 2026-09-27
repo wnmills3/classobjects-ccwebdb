@@ -69,6 +69,7 @@ Request bodies forbid unknown fields (422). Money crosses as decimal strings.
 | `authenticity` | null -> `unverified` |
 | `cert_number` | creates one `item_certification`, graded by `grading_service` |
 | `sellers_item_id` | optional, <= 64; the seller's id for the listing it was bought from (eBay's item number); trimmed, blank -> null |
+| `listing_url` | optional, <= 1000; the listing's web address; trimmed, blank -> null, otherwise http(s) only (422). Editable with `PATCH` too, and offered as a "Listing" link in the item editor only when it is a web address |
 | `mint`, `variety` | coin detail; refused for `currency` |
 | `serial_number`, `series_year`, `series_letter` (<= 4), `seal_color`, `fed_district`, `note_type`, `signature_combination`, `face_plate_number`, `back_plate_number`, `printing_facility` | currency detail; refused for any other kind. A face plate is a check letter and digits (`E82`), digits alone, or either with `FW` before it; a back plate is digits; `printing_facility` is `dc` or `fw`, read from the face plate when one is sent |
 | `suggested` | field names whose value the form filled from the facts and the person left alone; recorded as derived defaults |
@@ -119,7 +120,8 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   designation, grading service, certificate number, set form and variety
   (not for a note), attributes (the editor's `AttributesField`, offering
   the kind's own; changing kind across note and coin drops them).
-- Last the purchase line: title, seller's item id, piece count, cost,
+- Last the purchase line: title, seller's item id, listing web address,
+  piece count, cost,
   shipping, status (ordered / received), description.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
@@ -133,7 +135,8 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   with a Retry if that second step fails.
 - Money is validated with `isMoney` before sending.
 - **Save** clears the whole form. **Save and add another** keeps
-  `SHARED_ON_REPEAT` -- kind, seller's item id, status, country,
+  `SHARED_ON_REPEAT` -- kind, seller's item id, listing web address,
+  status, country,
   denomination, series, series year and letter, seal, district, note class,
   signatures, grading service, metal, mint -- clears everything that varies
   piece to piece (attributes, title,
