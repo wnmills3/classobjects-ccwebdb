@@ -7,6 +7,7 @@ import ReviewPane from '../inventory/ReviewPane'
 import ForSaleConfirm from '../ForSaleConfirm'
 import FriedbergLookup from './FriedbergLookup'
 import IdentifySection from './IdentifySection'
+import LocationSelect from '../../LocationSelect'
 import { useRequest } from '../../../shared/useRequest'
 
 //: Outcome value the backend expects, paired with the button's label. The
@@ -54,8 +55,6 @@ function todayLocal() {
  * the friction that stops people writing notes at all.
  */
 export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
-  // A failed read leaves the select empty; a location is optional on a receipt.
-  const locations = useRequest('locations', () => api.listStorageLocations()).data ?? []
   // `initial` seeds the fields once, at mount. One panel is mounted per item
   // now, so "once at mount" is exactly "per line" -- what the previous line
   // was recorded against is offered again rather than re-picked.
@@ -313,18 +312,11 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
 
         <label>
           Storage location
-          <select
+          <LocationSelect
             value={storageLocationId}
             disabled={disabled}
-            onChange={(e) => setStorageLocationId(e.target.value)}
-          >
-            <option value="">--</option>
-            {locations.map((loc) => (
-              <option key={loc.id} value={loc.id}>
-                {loc.label}
-              </option>
-            ))}
-          </select>
+            onChange={setStorageLocationId}
+          />
         </label>
 
         <label>
