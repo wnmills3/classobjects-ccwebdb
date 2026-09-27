@@ -123,6 +123,17 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
   )
 }
 
+/**
+ * The purchase's web address when it is a lot's page, or null. At eBay and
+ * Whatnot an order holds many listings and its page is no listing's; the
+ * backend's `app.listing_links` draws the same line.
+ */
+function lotPage(purchase) {
+  return /ebay|whatnot/i.test(purchase.vendor ?? '')
+    ? null
+    : (purchase.source_url ?? null)
+}
+
 /** Whether `order` matches a filter typed against its number or vendor. */
 function matchesFilter(order, filterText) {
   const q = filterText.trim().toLowerCase()
@@ -695,6 +706,7 @@ export default function NewPurchase() {
 
             <NewItemForm
               purchaseOrderId={purchase.id}
+              orderUrl={lotPage(purchase)}
               defaults={itemDefaults}
               onSaved={reloadPurchase}
               disabledReason={itemDisabledReason}

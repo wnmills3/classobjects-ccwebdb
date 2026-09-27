@@ -1,0 +1,210 @@
+"""An item's listing web address and seller's item id, each filled from the other.
+
+Two identifiers name the listing an item was bought from: its web address
+(`inventory_item.listing_url`) and the seller's own id for it
+(`sellers_item_id`). Either can recover the other:
+
+- the id is read from the address where the site puts it -- eBay's
+  `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot;
+- an eBay id rebuilds its address, `https://www.ebay.com/itm/<id>`.
+
+At an auction house or a shop -- any vendor but eBay and Whatnot, whose
+pages are orders of many listings -- a purchase is usually one lot, so the
+lot's page is the purchase's web address too. An item with no address takes
+its purchase's, and a purchase with none takes the one address its items
+share. A purchase whose items name several lots gives none and takes none.
+
+Nothing already recorded is replaced. `create_item` applies the purchase
+rule as each item is entered; this module's pass fills what older records
+lack, every item's change logged in its History under the person named.
+
+    python -m app.listing_links                          report, touching nothing
+    python -m app.listing_links --commit --by EMAIL      fill the gaps
+
+Rules: docs/specs/entry-panels-design.md, "Listing links".
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from . import field_changes
+from .database import SessionLocal
+from .models import InventoryItem, PurchaseOrder, User, Vendor
+
+#: Where each site puts a listing's own id in its web address. An order page
+#: (Whatnot's `/order/`, eBay's order.ebay.com) names an order, not a listing.
+_LISTING_IDS = (
+    re.compile(r"ebay\.[a-z.]+/itm/(?:[^/?#]*/)?(\d{9,15})", re.IGNORECASE),
+    re.compile(r"hibid\.com/lot/(\d+)", re.IGNORECASE),
+    re.compile(r"liveauctioneers\.com/item/(\d+)", re.IGNORECASE),
+    re.compile(r"proxibid\.com/lotinformation/(\d+)", re.IGNORECASE),
+)
+_EBAY_ID = re.compile(r"^\d{9,15}$")
+_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
+#: Vendors whose order holds many listings: their order page is no lot's.
+_MARKETPLACES = ("ebay", "whatnot")
+
+
+def listing_id_from(url: str | None) -> str | None:
+    """The seller's id for the listing at this web address, or None."""
+    for pattern in _LISTING_IDS:
+        found = pattern.search(url or "")
+        if found:
+            return found.group(1)
+    return None
+
+
+def ebay_listing_url(item_id: str) -> str:
+    """The web address of the eBay listing with this item number."""
+    return f"https://www.ebay.com/itm/{item_id}"
+
+
+def _vendor_key(vendor: Vendor) -> str:
+    return (vendor.host or vendor.name or "").lower()
+
+
+def is_marketplace(vendor: Vendor) -> bool:
+    """Whether the vendor's orders hold many listings: eBay and Whatnot."""
+    return any(name in _vendor_key(vendor) for name in _MARKETPLACES)
+
+
+def _is_ebay(vendor: Vendor) -> bool:
+    return "ebay" in _vendor_key(vendor)
+
+
+def _web_address(value: str | None) -> str | None:
+    return value if value and _WEB_ADDRESS.match(value) else None
+
+
+@dataclass
+class Plan:
+    """What the pass would fill: by item id, and by purchase id."""
+
+    listing_ids: dict[int, str] = field(default_factory=dict)
+    listing_urls: dict[int, str] = field(default_factory=dict)
+    order_urls: dict[int, str] = field(default_factory=dict)
+
+
+def plan(db: Session) -> Plan:
+    """Every gap the other identifier, or the purchase, can fill. Writes nothing."""
+    todo = Plan()
+    rows = db.execute(
+        select(InventoryItem, PurchaseOrder, Vendor)
+        .join(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
+        .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
+        .where(InventoryItem.deleted_at.is_(None), InventoryItem.split_at.is_(None))
+        .order_by(InventoryItem.id)
+    ).all()
+
+    # The listing addresses each purchase's items name, for the purchase rules.
+    named: dict[int, set[str]] = {}
+    for item, order, _vendor in rows:
+        if item.listing_url:
+            named.setdefault(order.id, set()).add(item.listing_url)
+
+    for item, order, vendor in rows:
+        url = item.listing_url
+        if url is None:
+            own = _web_address(order.source_url)
+            lots = named.get(order.id, set())
+            if (
+                own is not None
+                and not is_marketplace(vendor)
+                and lots <= {own}  # one lot: no item names another
+            ):
+                url = own
+            elif _is_ebay(vendor) and _EBAY_ID.match(item.sellers_item_id or ""):
+                url = ebay_listing_url(item.sellers_item_id or "")
+            if url is not None:
+                todo.listing_urls[item.id] = url
+        if item.sellers_item_id is None:
+            found = listing_id_from(url)
+            if found is not None:
+                todo.listing_ids[item.id] = found
+
+    for _item, order, vendor in rows:
+        lots = named.get(order.id, set())
+        if order.source_url is None and not is_marketplace(vendor) and len(lots) == 1:
+            (only,) = lots
+            if _web_address(only):
+                todo.order_urls[order.id] = only
+    return todo
+
+
+def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
+    """Fill the planned gaps and log each item's change; the caller commits."""
+    now = datetime.now(UTC)
+    for item_id in sorted(set(todo.listing_urls) | set(todo.listing_ids)):
+        item = db.get_one(InventoryItem, item_id)
+        before = {
+            "listing_url": item.listing_url,
+            "sellers_item_id": item.sellers_item_id,
+        }
+        if item_id in todo.listing_urls:
+            item.listing_url = todo.listing_urls[item_id]
+        if item_id in todo.listing_ids:
+            item.sellers_item_id = todo.listing_ids[item_id]
+        after = {
+            "listing_url": item.listing_url,
+            "sellers_item_id": item.sellers_item_id,
+        }
+        field_changes.record(
+            db,
+            item_id,
+            before,
+            after,
+            ["listing_url", "sellers_item_id"],
+            user_id=user_id,
+            at=now,
+            text_fields=["listing_url", "sellers_item_id"],
+        )
+    for order_id, url in todo.order_urls.items():
+        db.get_one(PurchaseOrder, order_id).source_url = url
+    db.flush()
+    return {
+        "listing_ids": len(todo.listing_ids),
+        "listing_urls": len(todo.listing_urls),
+        "order_urls": len(todo.order_urls),
+    }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Report, or with --commit fill, the listing addresses and ids."""
+    parser = argparse.ArgumentParser(prog="listing_links", description=__doc__)
+    parser.add_argument("--commit", action="store_true", help="write the changes")
+    parser.add_argument("--by", help="the person the History rows name (email)")
+    args = parser.parse_args(argv)
+    if args.commit and not args.by:
+        parser.error("--commit needs --by: every change is logged under a person")
+
+    with SessionLocal() as db:
+        todo = plan(db)
+        print(f"seller's item ids to read from addresses: {len(todo.listing_ids)}")
+        print(f"listing addresses to fill: {len(todo.listing_urls)}")
+        print(f"purchase web addresses to fill: {len(todo.order_urls)}")
+        if not args.commit:
+            print("dry run: nothing written (--commit --by EMAIL to apply)")
+            return 0
+        user_id = db.scalar(
+            select(User.id).where(func.lower(User.email) == args.by.lower())
+        )
+        if user_id is None:
+            print(f"no user {args.by}", file=sys.stderr)
+            return 1
+        counts = apply(db, todo, user_id)
+        db.commit()
+        print(f"written: {counts}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1190,3 +1190,53 @@ describe('NewItemForm: the listing first', () => {
     expect(sellersId()).toHaveValue('')
   })
 })
+
+describe("NewItemForm: a lot's page is its purchase's", () => {
+  const LOT = 'https://hibid.com/lot/280623476/1986-2024-american-eagle'
+
+  function listing() {
+    return screen.getByRole('textbox', { name: /listing web address/i })
+  }
+
+  it("starts with the purchase's address and the id it carries, both suggested", () => {
+    render(
+      <NewItemForm
+        purchaseOrderId={7}
+        orderUrl={LOT}
+        defaults={{}}
+        onSaved={vi.fn()}
+      />,
+    )
+    expect(listing()).toHaveValue(LOT)
+    expect(
+      within(listing().closest('label')).getByText('suggested'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /seller's item id/i })).toHaveValue(
+      '280623476',
+    )
+  })
+
+  it('offers it again after a plain Save', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 18, item_code: 'CC-000018' })
+    render(
+      <NewItemForm
+        purchaseOrderId={7}
+        orderUrl={LOT}
+        defaults={{}}
+        onSaved={vi.fn()}
+      />,
+    )
+    await user.clear(listing())
+    await user.type(listing(), 'https://hibid.com/lot/99/other')
+    await fillTitle(user, 'Another lot')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(listing()).toHaveValue(LOT))
+  })
+
+  it('starts empty on a purchase with no such address', () => {
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    expect(listing()).toHaveValue('')
+  })
+})

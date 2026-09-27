@@ -98,6 +98,18 @@ const NO_SUGGESTIONS = Object.fromEntries(
   [...NOTE_SUGGESTED, ...COIN_SUGGESTED].map((key) => [key, null]),
 )
 
+/**
+ * An empty form, starting from the purchase's own web address when that is
+ * a lot's page (`orderUrl`): the listing and the id it carries, suggested.
+ */
+function blankFor(orderUrl) {
+  if (!orderUrl) return { form: BLANK, suggested: {} }
+  return withSuggestions(
+    { form: BLANK, suggested: {} },
+    { listing_url: orderUrl, sellers_item_id: listingIdFrom(orderUrl) },
+  )
+}
+
 /** How long typing must pause before the facts are looked up again. */
 const SUGGEST_DELAY_MS = 250
 
@@ -143,6 +155,9 @@ function yearsOf(form, isCurrency) {
  */
 export default function NewItemForm({
   purchaseOrderId,
+  // The purchase's web address when it is a lot's page, not an order of many
+  // listings -- offered as the item's listing.
+  orderUrl = null,
   defaults,
   onSaved,
   disabledReason = '',
@@ -150,7 +165,7 @@ export default function NewItemForm({
   // The form and its suggestion marks change together, so they are one state:
   // `suggested` maps a field to the code the facts filled in, for as long as
   // the person has not changed it.
-  const [entry, setEntry] = useState({ form: BLANK, suggested: {} })
+  const [entry, setEntry] = useState(() => blankFor(orderUrl))
   const { form, suggested } = entry
   const setForm = (next) =>
     setEntry((e) => ({
@@ -421,7 +436,7 @@ export default function NewItemForm({
       setRanged(false)
       firstRef.current?.focus()
     } else {
-      setEntry({ form: BLANK, suggested: {} })
+      setEntry(blankFor(orderUrl))
       setRanged(false)
     }
     // Errors are per-piece, like grade or a serial number -- never carried
@@ -517,6 +532,7 @@ export default function NewItemForm({
             value={form.listing_url}
             onChange={set('listing_url')}
           />
+          {mark('listing_url')}
         </label>
 
         <label data-help="sellers_item_id">
