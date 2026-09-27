@@ -89,8 +89,11 @@ new `item_code`.
 Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
 (`management/pages/NewPurchase.jsx`), in two steps on one page:
 
-1. **The purchase.** Either *Add to an existing purchase* -- a list filterable
-   by order number or vendor, as keyboard-reachable buttons -- or a new one:
+1. **The purchase.** Either *Add to an existing purchase* -- a table of order
+   number, date and vendor, filterable by order number or vendor and sorted by
+   any column from a button in its header (date, newest first, until another
+   is chosen; an undated purchase always last; ties newest first). A row or its order-number
+   button picks the purchase -- or a new one:
    vendor (with "+ Add a vendor..." opening an inline name / kind / web address
    form that never submits the outer form), order number, order date, web
    address, notes, **Create purchase**. A refusal is shown in place with the
