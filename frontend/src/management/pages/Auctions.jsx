@@ -14,6 +14,7 @@ import { useSalesVenues } from '../useSalesVenues'
 import { useRequest } from '../../shared/useRequest'
 import { ASSEMBLING_LOTS } from './assembling-lots'
 import { orNull } from '../../shared/text'
+import { SaveButton } from '../SaveButton'
 
 /**
  * The Auctions page: running an auction from draft to settled.
@@ -62,7 +63,7 @@ const LOT_EDITABLE_STATUSES = ['draft', 'scheduled', 'consigned']
 //: moment the sale is scheduled to close, well before it actually closes.
 const LOTS_ADDABLE_STATUSES = ['draft', 'scheduled']
 
-const CREATE_KEYS = { venue: 'p', title: 't', externalId: 'n', save: 'v' }
+const CREATE_KEYS = { venue: 'p', title: 't', externalId: 'n' }
 
 /** Starting a new auction: its platform, its title, and its own sale number. */
 function AuctionForm({ venues, onSaved, onClose }) {
@@ -173,12 +174,7 @@ function AuctionForm({ venues, onSaved, onClose }) {
         </label>
       </div>
       <div className="row">
-        <button disabled={saving} onClick={save} {...accel(CREATE_KEYS.save)}>
-          <AccessLabel
-            text={saving ? 'Saving...' : 'Save'}
-            accessKey={CREATE_KEYS.save}
-          />
-        </button>
+        <SaveButton saving={saving} disabled={saving} onClick={save} />
         <button className="link" onClick={onClose}>
           Cancel
         </button>

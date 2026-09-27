@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -731,5 +731,53 @@ describe('NewPurchase: the purchases table', () => {
     within(table).getByRole('button', { name: 'B-9' }).focus()
     await user.keyboard('{Enter}')
     await waitFor(() => expect(api.getPurchaseOrder).toHaveBeenCalledWith(2))
+  })
+})
+
+describe('NewPurchase: Ctrl+S', () => {
+  const PURCHASE_22 = {
+    id: 22,
+    order_number: 'Order-0001',
+    vendor: 'ebay.com',
+    vendor_id: 3,
+    ordered_on: '2026-02-01',
+    source_url: null,
+    notes: null,
+    lines: [],
+  }
+
+  it("saves the purchase's details while they are being edited", async () => {
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(PURCHASE_22)
+    api.updatePurchaseOrder.mockResolvedValue({ ...PURCHASE_22, order_number: 'SD-77' })
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    await user.click(await screen.findByRole('button', { name: 'Edit details' }))
+    const number = screen.getByRole('textbox', { name: /order number/i })
+    await user.clear(number)
+    await user.type(number, 'SD-77')
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+
+    await waitFor(() =>
+      expect(api.updatePurchaseOrder).toHaveBeenCalledWith(22, {
+        order_number: 'SD-77',
+      }),
+    )
+    expect(api.createInventoryItem).not.toHaveBeenCalled()
+  })
+
+  it('saves the new item once the details editor is closed again', async () => {
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(PURCHASE_22)
+    api.createInventoryItem.mockResolvedValue({ id: 30, item_code: 'CC-000030' })
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    await user.click(await screen.findByRole('button', { name: 'Edit details' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.type(screen.getByRole('textbox', { name: /title/i }), 'A dime')
+
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+
+    await waitFor(() => expect(api.createInventoryItem).toHaveBeenCalledTimes(1))
+    expect(api.updatePurchaseOrder).not.toHaveBeenCalled()
   })
 })

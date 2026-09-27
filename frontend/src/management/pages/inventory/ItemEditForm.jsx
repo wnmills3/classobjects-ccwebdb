@@ -26,6 +26,7 @@ import OffersPanel from './OffersPanel'
 import PhotosPanel from './PhotosPanel'
 import SaleHistory from './SaleHistory'
 import SplitDialog from './SplitDialog'
+import { SaveButton } from '../../SaveButton'
 
 /**
  * One item, every field, with what the lot claimed beside each.
@@ -921,9 +922,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         )}
 
         <div className="row">
-          <button disabled={!canSave} onClick={save} {...accel('v')}>
-            <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />
-          </button>
+          <SaveButton saving={saving} disabled={!canSave} onClick={save} />
           {/* A lot is split as saved: the pieces copy the stored record, so
               an edit still waiting here would not reach them. Neither a
               split lot nor a piece of one can be split again. */}

@@ -10,6 +10,7 @@ import { accel, useSaveShortcut } from '../shortcuts'
 import { UNKNOWN } from './listing-labels'
 import { ASSEMBLING_LOTS } from './assembling-lots'
 import { useMounted } from '../useMounted'
+import { SaveButton } from '../SaveButton'
 
 /**
  * The Lots page: groups of coins being put together to sell as one thing.
@@ -57,7 +58,6 @@ const STATUS_LABEL = {
 const KEYS = {
   title: 't',
   description: 'i',
-  save: 'v',
 }
 
 /**
@@ -142,9 +142,7 @@ function LotForm({ lot, onSaved, onClose }) {
         </label>
       </div>
       <div className="row">
-        <button disabled={saving} onClick={save} {...accel(KEYS.save)}>
-          <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey={KEYS.save} />
-        </button>
+        <SaveButton saving={saving} disabled={saving} onClick={save} />
         <button className="link" onClick={onClose}>
           Cancel
         </button>

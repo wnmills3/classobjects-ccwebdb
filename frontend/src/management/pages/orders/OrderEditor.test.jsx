@@ -180,8 +180,8 @@ describe('OrderEditor', () => {
       'i',
     )
     expect(screen.getByRole('button', { name: 'Save order' })).toHaveAttribute(
-      'accesskey',
-      'v',
+      'aria-keyshortcuts',
+      'Control+S',
     )
     fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
     await waitFor(() => expect(api.reviseOrder).toHaveBeenCalled())

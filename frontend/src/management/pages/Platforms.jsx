@@ -9,6 +9,7 @@ import { useReference } from '../../shared/reference-context'
 import { orNull } from '../../shared/text'
 import { money } from '../../shared/format'
 import { useMounted } from '../useMounted'
+import { SaveButton } from '../SaveButton'
 
 /**
  * The platforms the business sells through.
@@ -52,7 +53,6 @@ const KEYS = {
   termsAsOf: 'o',
   notes: 't',
   retired: 'i',
-  save: 'v',
 }
 
 /** Whether a fee was given at all. A fee of zero was. */
@@ -333,9 +333,7 @@ function PlatformForm({ venue, venues, vendors, onSaved, onClose }) {
         </p>
       )}
       <div className="row">
-        <button disabled={saving} onClick={save} {...accel(KEYS.save)}>
-          <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey={KEYS.save} />
-        </button>
+        <SaveButton saving={saving} disabled={saving} onClick={save} />
         <button className="link" onClick={onClose}>
           Cancel
         </button>

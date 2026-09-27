@@ -15,6 +15,7 @@ import { isMoney } from '../../../shared/cents'
 import AttributesField from '../inventory/AttributesField'
 import ErrorsPanel from '../inventory/ErrorsPanel'
 import { withSuggestions, without } from './suggestions'
+import { SaveButton } from '../../SaveButton'
 
 //: Kept across "Save and add another"; everything else in BLANK is cleared.
 //: This exact set is a controller ruling (see the "Repeated entry" row in
@@ -928,14 +929,7 @@ export default function NewItemForm({
       />
 
       <div className="row">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => submit(false)}
-          {...accel('v')}
-        >
-          <AccessLabel text={saving ? 'Saving...' : 'Save'} accessKey="v" />
-        </button>
+        <SaveButton saving={saving} disabled={disabled} onClick={() => submit(false)} />
         <button
           type="button"
           disabled={disabled}

@@ -6,6 +6,7 @@ import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import { fromCents, isMoney, toCents } from '../../../shared/cents'
 import { totalCents } from './cents'
+import { SaveButton } from '../../SaveButton'
 
 /**
  * Placing or revising an order on a customer's behalf.
@@ -304,9 +305,12 @@ export default function OrderEditor({ order, onSaved, onClose }) {
 
       <div className="row">
         <strong>Total {money(fromCents(totalCents(lines)))}</strong>
-        <button disabled={saving} onClick={save} {...accel('v')}>
-          <AccessLabel text={saving ? 'Saving...' : 'Save order'} accessKey="v" />
-        </button>
+        <SaveButton
+          label="Save order"
+          saving={saving}
+          disabled={saving}
+          onClick={save}
+        />
       </div>
     </div>
   )

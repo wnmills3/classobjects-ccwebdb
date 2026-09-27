@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { useAuth } from '../../shared/auth-context'
+import { SaveButton, SaveShortcut } from '../SaveButton'
 
 /**
  * People administration, in two tabs.
@@ -320,7 +321,8 @@ function AddressForm({ customerId, onSaved, onCancel, notify, setError }) {
         </label>
       </div>
       <div className="row">
-        <button onClick={save}>Save address</button>
+        <SaveButton label="Save address" onClick={save} />
+        <SaveShortcut onSave={save} />
         <button className="link" onClick={onCancel}>
           Cancel
         </button>
@@ -440,7 +442,9 @@ function Customers({ notify }) {
                 <td>
                   {isEditing ? (
                     <span className="row">
-                      <button onClick={() => saveEdit(c.id)}>Save</button>
+                      <SaveButton onClick={() => saveEdit(c.id)} />
+                      {/* Rendered with the row's edit, so held only then. */}
+                      <SaveShortcut onSave={() => saveEdit(c.id)} />
                       <button className="link" onClick={() => setEditing(null)}>
                         Cancel
                       </button>

@@ -974,12 +974,19 @@ describe('ItemEditForm keyboard accelerators', () => {
       [screen.getByRole('textbox', { name: /Description/ }), 'c'],
       [screen.getByRole('spinbutton', { name: 'Year' }), 'y'],
       [screen.getByRole('checkbox', { name: 'Range of years' }), 'r'],
-      [screen.getByRole('button', { name: 'Save' }), 'v'],
     ]
     for (const [element, key] of expected) {
       expect(element).toHaveAttribute('accesskey', key)
       expect(element).toHaveAttribute('aria-keyshortcuts', `Alt+${key.toUpperCase()}`)
     }
+  })
+
+  it('names Ctrl+S on its Save button', async () => {
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    await screen.findByDisplayValue('Mercury Dime')
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save).toHaveAttribute('aria-keyshortcuts', 'Control+S')
+    expect(save).not.toHaveAttribute('accesskey')
   })
 
   it('saves with Ctrl+S once there is something to save', async () => {
