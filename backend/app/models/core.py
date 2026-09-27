@@ -151,6 +151,27 @@ class Vendor(TimestampMixin, Base):
     __table_args__ = (UniqueConstraint("name", name="uq_vendor_name"),)
 
 
+class Seller(TimestampMixin, Base):
+    """Who sold a purchase, on the marketplace its vendor names.
+
+    The vendor is usually the marketplace -- ebay.com, whatnot.com -- and the
+    seller is the account on it: `summer_the_cockapoo`, a Whatnot shop. One
+    seller sells many purchases. Names are unique, checked
+    case-insensitively by the API as vendors' are.
+    """
+
+    __tablename__ = "seller"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: Their store or profile page. Always a web address.
+    store_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    orders: Mapped[list[PurchaseOrder]] = relationship(back_populates="seller")
+
+    __table_args__ = (UniqueConstraint("name", name="uq_seller_name"),)
+
+
 class PurchaseOrder(TimestampMixin, Base):
     """One acquisition, commonly containing many items.
 
@@ -169,12 +190,14 @@ class PurchaseOrder(TimestampMixin, Base):
     order_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     ordered_on: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    #: The seller's store or profile page on the marketplace the vendor
-    #: names -- who actually sold the pieces. Always a web address.
-    seller_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    #: Who sold it on the marketplace the vendor names, when known.
+    seller_id: Mapped[int | None] = mapped_column(
+        ForeignKey("seller.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     vendor: Mapped[Vendor] = relationship(back_populates="orders")
+    seller: Mapped[Seller | None] = relationship(back_populates="orders")
     items: Mapped[list[InventoryItem]] = relationship(back_populates="purchase_order")
 
     __table_args__ = (

@@ -6,6 +6,8 @@ vi.mock('../api', () => ({
   api: {
     listVendors: vi.fn(),
     createVendor: vi.fn(),
+    listSellers: vi.fn(),
+    createSeller: vi.fn(),
     listPurchaseOrders: vi.fn(),
     getPurchaseOrder: vi.fn(),
     createPurchaseOrder: vi.fn(),
@@ -36,6 +38,11 @@ const VENDORS = [
   { id: 3, name: 'ebay.com', url: 'https://www.ebay.com', vendor_kind: 'marketplace' },
 ]
 
+const SELLERS = [
+  { id: 5, name: 'coind0g', store_url: 'https://www.ebay.com/usr/coind0g' },
+  { id: 6, name: 'deswin3834', store_url: null },
+]
+
 const EXISTING_ORDERS = [
   {
     id: 11,
@@ -59,6 +66,7 @@ const FRESH_PURCHASE = {
 beforeEach(() => {
   vi.clearAllMocks()
   api.listVendors.mockResolvedValue(VENDORS)
+  api.listSellers.mockResolvedValue(SELLERS)
   api.listPurchaseOrders.mockResolvedValue(EXISTING_ORDERS)
 })
 
@@ -794,59 +802,122 @@ describe('NewPurchase: Ctrl+S', () => {
   })
 })
 
-describe("NewPurchase: the seller's store", () => {
-  const STORE = 'https://www.ebay.com/str/examplecoins'
+describe('NewPurchase: the seller', () => {
+  const STORE = 'https://www.ebay.com/usr/coind0g'
 
-  it('is recorded with a new purchase', async () => {
+  it('is picked for a new purchase and linked in its heading', async () => {
     const user = userEvent.setup()
-    api.createPurchaseOrder.mockResolvedValue({ ...FRESH_PURCHASE, seller_url: STORE })
+    api.createPurchaseOrder.mockResolvedValue({
+      ...FRESH_PURCHASE,
+      seller_id: 5,
+      seller: 'coind0g',
+      seller_url: STORE,
+    })
     renderWithProviders(<NewPurchase />)
     await user.selectOptions(
       await screen.findByRole('combobox', { name: 'Vendor' }),
       '3',
     )
-    await user.type(
-      screen.getByRole('textbox', { name: /seller's store/i }),
-      ` ${STORE} `,
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '5',
     )
     await user.click(screen.getByRole('button', { name: /create purchase/i }))
 
     await waitFor(() =>
       expect(api.createPurchaseOrder).toHaveBeenCalledWith(
-        expect.objectContaining({ seller_url: STORE }),
+        expect.objectContaining({ seller_id: 5 }),
       ),
     )
-    const link = await screen.findByRole('link', { name: "Seller's store" })
+    const link = await screen.findByRole('link', { name: 'coind0g' })
     expect(link).toHaveAttribute('href', STORE)
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
-  it('shows no seller link when none is recorded', async () => {
+  it('is added inline with a name and store, and chosen', async () => {
+    const user = userEvent.setup()
+    api.createSeller.mockResolvedValue({ id: 9, name: 'newseller', store_url: STORE })
+    api.createPurchaseOrder.mockResolvedValue(FRESH_PURCHASE)
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '3',
+    )
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '__add__',
+    )
+    await user.type(screen.getByPlaceholderText('Seller name'), ' newseller ')
+    await user.type(screen.getByPlaceholderText('Store web address'), STORE)
+    await user.click(screen.getByRole('button', { name: 'Add seller' }))
+
+    await waitFor(() =>
+      expect(api.createSeller).toHaveBeenCalledWith({
+        name: 'newseller',
+        store_url: STORE,
+      }),
+    )
+    expect(await screen.findByRole('combobox', { name: 'Seller' })).toHaveValue('9')
+    await user.click(screen.getByRole('button', { name: /create purchase/i }))
+    await waitFor(() =>
+      expect(api.createPurchaseOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ seller_id: 9 }),
+      ),
+    )
+  })
+
+  it('shows a seller with no store as a name, not a link', async () => {
     api.getPurchaseOrder.mockResolvedValue({
       ...FRESH_PURCHASE,
       id: 22,
+      seller_id: 6,
+      seller: 'deswin3834',
       seller_url: null,
     })
     renderWithProviders(<NewPurchase />, { route: '/?order=22' })
-    await screen.findByText(/PO-2/)
-    expect(screen.queryByRole('link', { name: "Seller's store" })).toBeNull()
+    expect(await screen.findByText(/deswin3834/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'deswin3834' })).toBeNull()
   })
 
-  it('is changed on its own with the details', async () => {
+  it('is changed and cleared under Edit details', async () => {
     const user = userEvent.setup()
-    const purchase = { ...FRESH_PURCHASE, id: 22, seller_url: null, source_text: null }
+    const purchase = { ...FRESH_PURCHASE, id: 22, seller_id: null, source_text: null }
     api.getPurchaseOrder.mockResolvedValue(purchase)
-    api.updatePurchaseOrder.mockResolvedValue({ ...purchase, seller_url: STORE })
+    api.updatePurchaseOrder.mockResolvedValue({
+      ...purchase,
+      seller_id: 5,
+      seller: 'coind0g',
+    })
     renderWithProviders(<NewPurchase />, { route: '/?order=22' })
     await user.click(await screen.findByRole('button', { name: 'Edit details' }))
-    const box = screen.getByRole('textbox', { name: /seller's store/i })
-    expect(box).toHaveValue('')
-
-    await user.type(box, STORE)
+    const pick = await screen.findByRole('combobox', { name: 'Seller' })
+    await user.selectOptions(pick, '5')
     await user.click(screen.getByRole('button', { name: 'Save details' }))
 
     await waitFor(() =>
-      expect(api.updatePurchaseOrder).toHaveBeenCalledWith(22, { seller_url: STORE }),
+      expect(api.updatePurchaseOrder).toHaveBeenCalledWith(22, { seller_id: 5 }),
+    )
+  })
+
+  it('is cleared by choosing none', async () => {
+    const user = userEvent.setup()
+    const purchase = { ...FRESH_PURCHASE, id: 22, seller_id: 5, seller: 'coind0g' }
+    api.getPurchaseOrder.mockResolvedValue(purchase)
+    api.updatePurchaseOrder.mockResolvedValue({
+      ...purchase,
+      seller_id: null,
+      seller: null,
+    })
+    renderWithProviders(<NewPurchase />, { route: '/?order=22' })
+    await user.click(await screen.findByRole('button', { name: 'Edit details' }))
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save details' }))
+
+    await waitFor(() =>
+      expect(api.updatePurchaseOrder).toHaveBeenCalledWith(22, { seller_id: null }),
     )
   })
 })

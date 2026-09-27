@@ -112,18 +112,19 @@ describe('Receiving', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
-  it("links the seller's store beside the vendor page", async () => {
+  it('links the seller, by name, to their store', async () => {
     api.getPurchaseOrder.mockResolvedValue({
       id: 1,
       order_number: '27-1234',
       vendor: 'ebay.com',
       ordered_on: '2026-08-30',
       source_url: null,
+      seller: 'examplecoins',
       seller_url: 'https://www.ebay.com/str/examplecoins',
       lines: [],
     })
     renderOnOrder()
-    const link = await screen.findByRole('link', { name: "Seller's store" })
+    const link = await screen.findByRole('link', { name: 'examplecoins' })
     expect(link).toHaveAttribute('href', 'https://www.ebay.com/str/examplecoins')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })

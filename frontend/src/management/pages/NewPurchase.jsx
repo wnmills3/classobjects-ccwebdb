@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import NewItemForm from './entry/NewItemForm'
+import SellerField from './SellerField'
 import ItemEditDialog from './inventory/ItemEditDialog'
 import HelpScope from '../HelpScope'
 import { ReferenceSelect } from '../../shared/reference'
@@ -133,6 +134,11 @@ function lotPage(purchase) {
   return /ebay|whatnot/i.test(purchase.vendor ?? '')
     ? null
     : (purchase.source_url ?? null)
+}
+
+/** A seller picker's text as the API takes it: an id, or null for none. */
+function sellerId(text) {
+  return text ? Number(text) : null
 }
 
 /** Whether `order` matches a filter typed against its number or vendor. */
@@ -266,7 +272,7 @@ const BLANK_PURCHASE = {
   order_number: '',
   ordered_on: '',
   source_url: '',
-  seller_url: '',
+  seller_id: '',
   notes: '',
 }
 
@@ -276,7 +282,7 @@ function detailsOf(purchase) {
     order_number: purchase.order_number ?? '',
     ordered_on: purchase.ordered_on ?? '',
     source_url: purchase.source_text ?? '',
-    seller_url: purchase.seller_url ?? '',
+    seller_id: purchase.seller_id == null ? '' : String(purchase.seller_id),
     notes: purchase.notes ?? '',
   }
 }
@@ -319,7 +325,10 @@ function PurchaseDetails({ purchase, onSaved }) {
     const changes = Object.fromEntries(
       Object.entries(draft)
         .filter(([key, value]) => value !== was[key])
-        .map(([key, value]) => [key, orNull(value)]),
+        .map(([key, value]) => [
+          key,
+          key === 'seller_id' ? sellerId(value) : orNull(value),
+        ]),
     )
     // A purchase recorded with no number is given one on any save, even
     // with the box left blank: that is what finding it again needs.
@@ -371,13 +380,11 @@ function PurchaseDetails({ purchase, onSaved }) {
             onChange={set('source_url')}
           />
         </label>
-        <label data-help="seller_url">
-          Seller&apos;s store{/* */}
-          <input
-            type="url"
-            placeholder="https://"
-            value={draft.seller_url}
-            onChange={set('seller_url')}
+        <label data-help="seller_id">
+          Seller{/* */}
+          <SellerField
+            value={draft.seller_id}
+            onChange={(id) => setDraft({ ...draft, seller_id: id })}
           />
         </label>
       </div>
@@ -520,7 +527,7 @@ export default function NewPurchase() {
         order_number: orNull(form.order_number),
         ordered_on: form.ordered_on || null,
         source_url: orNull(form.source_url),
-        seller_url: orNull(form.seller_url),
+        seller_id: sellerId(form.seller_id),
         notes: orNull(form.notes),
       }
       const created = await api.createPurchaseOrder(payload)
@@ -622,16 +629,20 @@ export default function NewPurchase() {
                   </a>
                 </>
               )}
-              {purchase.seller_url && (
+              {purchase.seller && (
                 <>
-                  {' · '}
-                  <a
-                    href={purchase.seller_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Seller&apos;s store
-                  </a>
+                  {' · Seller '}
+                  {purchase.seller_url ? (
+                    <a
+                      href={purchase.seller_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {purchase.seller}
+                    </a>
+                  ) : (
+                    purchase.seller
+                  )}
                 </>
               )}
             </h2>
@@ -860,13 +871,11 @@ export default function NewPurchase() {
                   onChange={set('source_url')}
                 />
               </label>
-              <label data-help="seller_url">
-                Seller&apos;s store{/* */}
-                <input
-                  type="url"
-                  placeholder="https://"
-                  value={form.seller_url}
-                  onChange={set('seller_url')}
+              <label data-help="seller_id">
+                Seller{/* */}
+                <SellerField
+                  value={form.seller_id}
+                  onChange={(id) => setForm({ ...form, seller_id: id })}
                 />
               </label>
             </div>

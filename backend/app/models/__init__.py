@@ -40,6 +40,7 @@ from .core import (
     CurrencyDetail,
     InventoryItem,
     PurchaseOrder,
+    Seller,
     Vendor,
 )
 from .identification import (
@@ -263,6 +264,7 @@ __all__ = [
     "SalesVenue",
     "SalesVenueKind",
     "SealColor",
+    "Seller",
     "Series",
     "SeriesAlias",
     "SeriesYearRange",
