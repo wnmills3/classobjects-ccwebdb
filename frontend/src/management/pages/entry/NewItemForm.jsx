@@ -15,6 +15,7 @@ import { isMoney } from '../../../shared/cents'
 import AttributesField from '../inventory/AttributesField'
 import ErrorsPanel from '../inventory/ErrorsPanel'
 import { withSuggestions, without } from './suggestions'
+import { listingIdFrom } from '../../listing'
 import { SaveButton } from '../../SaveButton'
 
 //: Kept across "Save and add another"; everything else in BLANK is cleared.
@@ -187,6 +188,11 @@ export default function NewItemForm({
       const updated = {
         form: { ...current.form, [key]: next },
         suggested: without(current.suggested, key),
+      }
+      // A listing's address suggests the seller's id it carries, and takes
+      // back that suggestion once it carries none.
+      if (key === 'listing_url') {
+        return withSuggestions(updated, { sellers_item_id: listingIdFrom(next) })
       }
       return key === 'denomination' && !next
         ? withSuggestions(updated, NO_SUGGESTIONS)
@@ -499,6 +505,52 @@ export default function NewItemForm({
         </button>
       )}
       {disabledReason && <p className="error">{disabledReason}</p>}
+
+      {/* The listing and what it cost come first -- known before the piece
+          is in hand -- and the listing's address suggests the seller's id. */}
+      <div className="form-grid">
+        <label data-help="listing_url">
+          Listing web address
+          <input
+            type="url"
+            placeholder="https://"
+            value={form.listing_url}
+            onChange={set('listing_url')}
+          />
+        </label>
+
+        <label data-help="sellers_item_id">
+          Seller&apos;s item id
+          <input
+            type="text"
+            value={form.sellers_item_id}
+            onChange={set('sellers_item_id')}
+          />
+          {mark('sellers_item_id')}
+        </label>
+
+        <label data-help="item_cost">
+          <AccessLabel text="Item cost" accessKey="i" />
+          <input
+            type="text"
+            inputMode="decimal"
+            value={form.item_cost}
+            onChange={set('item_cost')}
+            {...accel('i')}
+          />
+        </label>
+
+        <label data-help="shipping_cost">
+          <AccessLabel text="Shipping" accessKey="h" />
+          <input
+            type="text"
+            inputMode="decimal"
+            value={form.shipping_cost}
+            onChange={set('shipping_cost')}
+            {...accel('h')}
+          />
+        </label>
+      </div>
 
       {/* The facts that identify the piece come first, in the order they
           are written ("Series 1934-A $5", "1921-D $1"); what they decide
@@ -823,7 +875,8 @@ export default function NewItemForm({
           onChange={(codes) => setForm((f) => ({ ...f, attributes: codes }))}
         />
 
-        {/* The purchase line: what the seller called it and what it cost. */}
+        {/* The rest of the purchase line: what the seller called it, and how
+            many pieces it is. */}
         <label data-help="source_title">
           <AccessLabel text="Title" accessKey="t" />
           <input
@@ -831,25 +884,6 @@ export default function NewItemForm({
             value={form.source_title}
             onChange={set('source_title')}
             {...accel('t')}
-          />
-        </label>
-
-        <label data-help="sellers_item_id">
-          Seller&apos;s item id
-          <input
-            type="text"
-            value={form.sellers_item_id}
-            onChange={set('sellers_item_id')}
-          />
-        </label>
-
-        <label data-help="listing_url">
-          Listing web address
-          <input
-            type="url"
-            placeholder="https://"
-            value={form.listing_url}
-            onChange={set('listing_url')}
           />
         </label>
 
@@ -861,28 +895,6 @@ export default function NewItemForm({
             value={form.piece_count}
             onChange={set('piece_count')}
             {...accel('p')}
-          />
-        </label>
-
-        <label data-help="item_cost">
-          <AccessLabel text="Item cost" accessKey="i" />
-          <input
-            type="text"
-            inputMode="decimal"
-            value={form.item_cost}
-            onChange={set('item_cost')}
-            {...accel('i')}
-          />
-        </label>
-
-        <label data-help="shipping_cost">
-          <AccessLabel text="Shipping" accessKey="h" />
-          <input
-            type="text"
-            inputMode="decimal"
-            value={form.shipping_cost}
-            onChange={set('shipping_cost')}
-            {...accel('h')}
           />
         </label>
       </div>

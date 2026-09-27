@@ -879,11 +879,11 @@ function isInOrder(keys, container) {
 }
 
 describe('NewItemForm: the facts first', () => {
-  it('asks a coin for its year, mint and denomination before anything else', () => {
+  it('asks a coin for its year, mint and denomination right after its kind', () => {
     const { container } = render(
       <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
     )
-    expect(fieldOrder(container).slice(0, 4)).toEqual([
+    expect(fieldOrder(container).slice(4, 8)).toEqual([
       'item_kind',
       'year_start',
       'mint',
@@ -897,7 +897,7 @@ describe('NewItemForm: the facts first', () => {
     ).toBe(true)
   })
 
-  it('asks a note for its series, face value, serial and plates first', async () => {
+  it('asks a note for its series, face value, serial and plates right after its kind', async () => {
     const user = userEvent.setup()
     const { container } = render(
       <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
@@ -905,7 +905,7 @@ describe('NewItemForm: the facts first', () => {
     await user.clear(screen.getByLabelText('item_kind'))
     await user.type(screen.getByLabelText('item_kind'), 'currency')
 
-    expect(fieldOrder(container).slice(0, 8)).toEqual([
+    expect(fieldOrder(container).slice(4, 12)).toEqual([
       'item_kind',
       'series_year',
       'series_letter',
@@ -1114,5 +1114,79 @@ describe('NewItemForm: the listing web address', () => {
     await fillTitle(user, 'No link')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(api.createInventoryItem.mock.calls[0][0]).not.toHaveProperty('listing_url')
+  })
+})
+
+describe('NewItemForm: the listing first', () => {
+  const EBAY = 'https://www.ebay.com/itm/126845170680'
+
+  function sellersId() {
+    return screen.getByRole('textbox', { name: /seller's item id/i })
+  }
+  function listing() {
+    return screen.getByRole('textbox', { name: /listing web address/i })
+  }
+
+  it('starts with the listing, its id, the price and the shipping', () => {
+    const { container } = render(
+      <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
+    )
+    expect(fieldOrder(container).slice(0, 5)).toEqual([
+      'listing_url',
+      'sellers_item_id',
+      'item_cost',
+      'shipping_cost',
+      'item_kind',
+    ])
+  })
+
+  it("suggests the seller's item id the listing's address carries", async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 17, item_code: 'CC-000017' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(listing(), EBAY)
+
+    expect(sellersId()).toHaveValue('126845170680')
+    expect(
+      within(sellersId().closest('label')).getByText('suggested'),
+    ).toBeInTheDocument()
+
+    await fillTitle(user, 'A dime')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.createInventoryItem.mock.calls[0][0]).toMatchObject({
+      listing_url: EBAY,
+      sellers_item_id: '126845170680',
+    })
+  })
+
+  it('leaves an id the person typed alone', async () => {
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(sellersId(), 'MY-ID')
+    await user.type(listing(), EBAY)
+
+    expect(sellersId()).toHaveValue('MY-ID')
+  })
+
+  it("makes a suggested id the person's once they change it", async () => {
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(listing(), EBAY)
+    await user.type(sellersId(), '9')
+
+    expect(sellersId()).toHaveValue('1268451706809')
+    expect(within(sellersId().closest('label')).queryByText('suggested')).toBeNull()
+    await user.clear(listing())
+    expect(sellersId()).toHaveValue('1268451706809')
+  })
+
+  it('takes back its suggestion when the address no longer carries an id', async () => {
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(listing(), EBAY)
+    await user.clear(listing())
+    await user.type(listing(), 'https://www.whatnot.com/order/YLMRqwXPqcdsXx35UxxA2V')
+
+    expect(sellersId()).toHaveValue('')
   })
 })

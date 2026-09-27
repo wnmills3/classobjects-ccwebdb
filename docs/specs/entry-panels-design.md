@@ -110,7 +110,14 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
 
 **New item** (`management/pages/entry/NewItemForm.jsx`):
 
-- **The facts first** (`identify-first-entry-design.md`). Kind, then what
+- **The listing and its price first**, known before the piece is in hand:
+  listing web address, seller's item id, item cost, shipping. The listing's
+  address suggests the seller's item id when it carries one -- eBay's
+  `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot (`management/listing.js`);
+  an order page carries none. The id is marked *suggested* until the person
+  changes it, taken back if the address stops carrying one, and never
+  replaces an id the person typed.
+- **Then the facts** (`identify-first-entry-design.md`). Kind, then what
   identifies the piece: a note's series year, series letter, denomination,
   serial number, face plate, back plate and printing location ("Printed
   at"); anything else's year (with "Range of years"), mint and denomination.
@@ -120,9 +127,8 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   designation, grading service, certificate number, set form and variety
   (not for a note), attributes (the editor's `AttributesField`, offering
   the kind's own; changing kind across note and coin drops them).
-- Last the purchase line: title, seller's item id, listing web address,
-  piece count, cost,
-  shipping, status (ordered / received), description.
+- Last the rest of the purchase line: title, piece count, status (ordered /
+  received), description.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
