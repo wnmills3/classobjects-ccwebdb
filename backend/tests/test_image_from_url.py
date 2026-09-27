@@ -94,7 +94,7 @@ def test_an_address_inside_the_network_is_refused(address: str) -> None:
 
 def test_a_redirect_is_checked_as_it_is_followed() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "public.example":
+        if request.headers["host"] == "public.example":
             return httpx.Response(
                 302, headers={"location": "http://inside.example/a.jpg"}
             )
@@ -108,6 +108,33 @@ def test_a_redirect_is_checked_as_it_is_followed() -> None:
                 {"public.example": "93.184.216.34", "inside.example": "10.1.1.1"}
             ),
         )
+
+
+def test_the_address_checked_is_the_address_connected_to() -> None:
+    """No second lookup: a host that answers public, then private, is not followed.
+
+    DNS rebinding: the check sees a public address, and a second resolution --
+    the HTTP library's own -- could see an internal one. The request is sent to
+    the checked address itself, named by its host for the server and TLS.
+    """
+    answers = iter(["93.184.216.34", "10.0.0.7"])
+    seen: list[httpx.Request] = []
+
+    def resolve(_host: str, *_args: object, **_kwargs: object) -> list[Any]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (next(answers), 443))]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=b"img")
+
+    fetch_image(
+        "https://rebind.example/a.jpg", client=_client(handler), resolve=resolve
+    )
+
+    (request,) = seen
+    assert request.url.host == "93.184.216.34"
+    assert request.headers["host"] == "rebind.example"
+    assert request.extensions["sni_hostname"] == "rebind.example"
 
 
 def test_too_many_redirects_are_refused() -> None:

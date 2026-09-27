@@ -165,7 +165,11 @@ it for its place on the item -- `CC-000412_02.jpg` -- and files it there, after
 the item's other photographs. Only `http(s)` is fetched, only from a host whose
 every address is public (not loopback, private, link-local, multicast or
 reserved), each redirect checked the same way and at most three, the body no
-larger than the upload limit, with a 15-second timeout. A refused fetch is a
+larger than the upload limit, with a 15-second timeout. The host is resolved
+once and the request sent to the address checked -- the name carried in the
+`Host` header and as the TLS server name, so the certificate is still
+verified against it -- so a host cannot answer public to the check and
+private to the connection (DNS rebinding). A refused fetch is a
 422 naming why, and stores nothing; 404 for an unknown item; the for-sale
 acknowledgement as for an upload.
 
