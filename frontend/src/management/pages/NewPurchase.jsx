@@ -132,34 +132,119 @@ function matchesFilter(order, filterText) {
   )
 }
 
+//: The columns of the purchases table: heading, the field it shows, and the
+//: direction a first click sorts in -- newest first for a date, A to Z for
+//: text.
+const PURCHASE_COLUMNS = [
+  ['Order number', 'order_number', 'asc'],
+  ['Date', 'ordered_on', 'desc'],
+  ['Vendor', 'vendor', 'asc'],
+]
+
+//: Order numbers and vendors compared as people read them: B-9 before B-10,
+//: and eBay beside ebay rather than after every capital.
+const byText = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/** Newest first: by date, an undated purchase last, then the latest entered. */
+function newest(a, b) {
+  if (a.ordered_on !== b.ordered_on) {
+    if (!a.ordered_on || !b.ordered_on) return a.ordered_on ? -1 : 1
+    return b.ordered_on.localeCompare(a.ordered_on)
+  }
+  return b.id - a.id
+}
+
 /**
- * The list of purchase orders to add to, newest concerns first.
+ * The purchases in the order asked for. A purchase with nothing in the sorted
+ * column goes last whichever way it runs -- an undated purchase is not the
+ * oldest or the newest -- and ties, one vendor's purchases say, list newest
+ * first.
+ */
+function sortPurchases(orders, { key, desc }) {
+  return [...orders].sort((a, b) => {
+    const x = a[key] || null
+    const y = b[key] || null
+    if (x === null || y === null) {
+      return x === y ? newest(a, b) : x === null ? 1 : -1
+    }
+    // ISO dates sort as text; the collator reads the rest.
+    const order = key === 'ordered_on' ? x.localeCompare(y) : byText.compare(x, y)
+    return (desc ? -order : order) || newest(a, b)
+  })
+}
+
+/**
+ * The purchase orders to add to, as a table sorted by any of its columns --
+ * newest first until another is chosen.
  *
- * Rows are buttons, not bare `<li onClick>`s, so the list is reachable and
- * operable from the keyboard, not only a mouse.
+ * The sort controls are buttons in the headers, and each row's order number
+ * is the button that picks it, so the whole table works from the keyboard.
  */
 function ExistingPurchasePicker({ orders, filterText, onPick }) {
+  const [sort, setSort] = useState({ key: 'ordered_on', desc: true })
   if (orders.length === 0) {
     return <p className="muted">No purchases recorded yet.</p>
   }
-  const shown = orders.filter((order) => matchesFilter(order, filterText))
+  const shown = sortPurchases(
+    orders.filter((order) => matchesFilter(order, filterText)),
+    sort,
+  )
   if (shown.length === 0) {
     return <p className="muted">No purchases match "{filterText}".</p>
   }
+
+  function sortBy(key, first) {
+    setSort((current) =>
+      current.key === key
+        ? { key, desc: !current.desc }
+        : { key, desc: first === 'desc' },
+    )
+  }
+
   return (
-    <ul className="order-picker">
-      {shown.map((order) => (
-        <li key={order.id}>
-          <button type="button" className="order-row" onClick={() => onPick(order.id)}>
-            {order.order_number || <span className="muted">no order number</span>}
-            {' · '}
-            {order.vendor}
-            {' · '}
-            {date(order.ordered_on)}
-          </button>
-        </li>
-      ))}
-    </ul>
+    <table className="table purchase-table" aria-label="Purchases">
+      <thead>
+        <tr>
+          {PURCHASE_COLUMNS.map(([label, key, first]) => {
+            const active = sort.key === key
+            const direction = sort.desc ? 'descending' : 'ascending'
+            return (
+              <th key={key} aria-sort={active ? direction : 'none'}>
+                <button
+                  type="button"
+                  className="link sort-header"
+                  onClick={() => sortBy(key, first)}
+                >
+                  {label}
+                  {active && <span aria-hidden="true">{sort.desc ? ' ▼' : ' ▲'}</span>}
+                </button>
+              </th>
+            )
+          })}
+        </tr>
+      </thead>
+      <tbody>
+        {shown.map((order) => (
+          <tr key={order.id} className="purchase-row" onClick={() => onPick(order.id)}>
+            <td>
+              <button
+                type="button"
+                className="link"
+                onClick={(e) => {
+                  // The row picks it too; once is enough.
+                  e.stopPropagation()
+                  onPick(order.id)
+                }}
+              >
+                {order.order_number || 'no order number'}
+              </button>
+            </td>
+            <td>{date(order.ordered_on)}</td>
+            <td>{order.vendor}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 

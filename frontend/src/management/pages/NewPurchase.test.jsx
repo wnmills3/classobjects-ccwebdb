@@ -584,3 +584,152 @@ describe('NewPurchase: items on the purchase', () => {
     expect(screen.queryByRole('heading', { name: /PO-2/ })).not.toBeInTheDocument()
   })
 })
+
+describe('NewPurchase: the purchases table', () => {
+  const ORDERS = [
+    {
+      id: 1,
+      order_number: 'B-10',
+      vendor: 'hibid.com',
+      ordered_on: '2026-03-01',
+      outstanding: 0,
+      total: 1,
+    },
+    {
+      id: 2,
+      order_number: 'B-9',
+      vendor: 'eBay.com',
+      ordered_on: '2026-09-06',
+      outstanding: 0,
+      total: 1,
+    },
+    {
+      id: 3,
+      order_number: null,
+      vendor: 'Coin show',
+      ordered_on: null,
+      outstanding: 0,
+      total: 1,
+    },
+    {
+      id: 4,
+      order_number: 'A-1',
+      vendor: 'Apmex',
+      ordered_on: '2025-12-24',
+      outstanding: 0,
+      total: 1,
+    },
+  ]
+
+  async function openTable(user) {
+    api.listPurchaseOrders.mockResolvedValue(ORDERS)
+    renderWithProviders(<NewPurchase />)
+    await user.click(
+      await screen.findByRole('radio', { name: /add to an existing purchase/i }),
+    )
+    return screen.findByRole('table', { name: /purchases/i })
+  }
+
+  //: Each body row's order number, as the first cell shows it.
+  function numbers(table) {
+    return within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0].textContent)
+  }
+
+  function header(table, name) {
+    return within(table).getByRole('columnheader', { name: new RegExp(name, 'i') })
+  }
+
+  it('shows order number, date and vendor in their own columns', async () => {
+    const table = await openTable(userEvent.setup())
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((th) => th.textContent.replace(/[^A-Za-z ]/g, '').trim()),
+    ).toEqual(['Order number', 'Date', 'Vendor'])
+    const row = within(table).getAllByRole('row')[1]
+    expect(
+      within(row)
+        .getAllByRole('cell')
+        .map((c) => c.textContent),
+    ).toEqual(['B-9', 'Sep 6, 2026', 'eBay.com'])
+  })
+
+  it('lists the newest purchase first, an undated one last', async () => {
+    const table = await openTable(userEvent.setup())
+    expect(header(table, 'date')).toHaveAttribute('aria-sort', 'descending')
+    expect(numbers(table)).toEqual(['B-9', 'B-10', 'A-1', 'no order number'])
+  })
+
+  it('turns the date order around, an undated purchase still last', async () => {
+    const user = userEvent.setup()
+    const table = await openTable(user)
+    await user.click(within(header(table, 'date')).getByRole('button'))
+    expect(header(table, 'date')).toHaveAttribute('aria-sort', 'ascending')
+    expect(numbers(table)).toEqual(['A-1', 'B-10', 'B-9', 'no order number'])
+  })
+
+  it('sorts by vendor A to Z, ignoring case, and back', async () => {
+    const user = userEvent.setup()
+    const table = await openTable(user)
+    await user.click(within(header(table, 'vendor')).getByRole('button'))
+    expect(header(table, 'vendor')).toHaveAttribute('aria-sort', 'ascending')
+    expect(header(table, 'date')).toHaveAttribute('aria-sort', 'none')
+    expect(numbers(table)).toEqual(['A-1', 'no order number', 'B-9', 'B-10'])
+
+    await user.click(within(header(table, 'vendor')).getByRole('button'))
+    expect(numbers(table)).toEqual(['B-10', 'B-9', 'no order number', 'A-1'])
+  })
+
+  it('sorts order numbers as people read them, B-9 before B-10', async () => {
+    const user = userEvent.setup()
+    const table = await openTable(user)
+    await user.click(within(header(table, 'order number')).getByRole('button'))
+    expect(numbers(table)).toEqual(['A-1', 'B-9', 'B-10', 'no order number'])
+  })
+
+  it("lists one vendor's purchases newest first", async () => {
+    const user = userEvent.setup()
+    api.listPurchaseOrders.mockResolvedValue([
+      {
+        id: 7,
+        order_number: 'W-old',
+        vendor: 'whatnot.com',
+        ordered_on: '2026-01-02',
+        outstanding: 0,
+        total: 1,
+      },
+      {
+        id: 5,
+        order_number: 'W-new',
+        vendor: 'whatnot.com',
+        ordered_on: '2026-08-30',
+        outstanding: 0,
+        total: 1,
+      },
+    ])
+    renderWithProviders(<NewPurchase />)
+    await user.click(
+      await screen.findByRole('radio', { name: /add to an existing purchase/i }),
+    )
+    const table = await screen.findByRole('table', { name: /purchases/i })
+    await user.click(within(header(table, 'vendor')).getByRole('button'))
+
+    expect(numbers(table)).toEqual(['W-new', 'W-old'])
+  })
+
+  it('picks a purchase from its row by keyboard', async () => {
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue({
+      ...FRESH_PURCHASE,
+      id: 2,
+      order_number: 'B-9',
+    })
+    const table = await openTable(user)
+    within(table).getByRole('button', { name: 'B-9' }).focus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(api.getPurchaseOrder).toHaveBeenCalledWith(2))
+  })
+})

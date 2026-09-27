@@ -421,6 +421,17 @@ fieldset.identify {
 .order-row:hover {
   background: var(--surface);
 }
+/* Purchases: a whole row picks its purchase, as its order number does. */
+.purchase-row {
+  cursor: pointer;
+}
+.purchase-row:hover {
+  background: var(--surface);
+}
+.sort-header {
+  font-weight: inherit;
+  white-space: nowrap;
+}
 
 /* The console shell: menu, page, help band, in a column the height of the
    window. Only the page (.content) scrolls, so a form always fits between
