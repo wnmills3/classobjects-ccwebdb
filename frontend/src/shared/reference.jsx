@@ -132,6 +132,9 @@ export function ReferenceSelect({
   //: value posted without one would 422, and a silent default was the
   //: wrong call for the person to have made for them.
   groupOptions,
+  //: Holds the picker still -- select, find box, and the text box shown
+  //: before the vocabulary loads -- while its form is saving.
+  disabled = false,
 }) {
   const values = useReference(table, { includeRetired: true })
   const context = useContext(ReferenceContext)
@@ -246,6 +249,7 @@ export function ReferenceSelect({
         aria-label={table}
         accessKey={accessKey}
         aria-keyshortcuts={ariaKeyshortcuts}
+        disabled={disabled}
       />
     )
   }
@@ -287,6 +291,7 @@ export function ReferenceSelect({
           value={find}
           onChange={(e) => setFind(e.target.value)}
           onKeyDown={pickFirst}
+          disabled={disabled}
         />
       )}
       <select
@@ -298,6 +303,7 @@ export function ReferenceSelect({
         aria-label={table}
         accessKey={accessKey}
         aria-keyshortcuts={ariaKeyshortcuts}
+        disabled={disabled}
       >
         {allowBlank && <option value="">--</option>}
         {offered.map(({ entry, match }) => (

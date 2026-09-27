@@ -19,6 +19,20 @@ describe('identifyKeys', () => {
       expect(identifyKeys(kind)).toEqual(['year_start', 'mint', 'denomination'])
     }
   })
+
+  it('asks which kinds have a mint, rather than knowing', async () => {
+    // One list decides which fields are a coin's (shared/kinds.js); a kind
+    // without a mint must lose the box here as everywhere else.
+    const kinds = await import('../shared/kinds')
+    kinds.COIN_ONLY_FIELDS.delete('mint')
+    kinds.CURRENCY_ONLY_FIELDS.add('mint')
+    try {
+      expect(identifyKeys('coin')).toEqual(['year_start', 'denomination'])
+    } finally {
+      kinds.CURRENCY_ONLY_FIELDS.delete('mint')
+      kinds.COIN_ONLY_FIELDS.add('mint')
+    }
+  })
 })
 
 const NOTE = {

@@ -137,11 +137,19 @@ export default function IdentifySection({ item, values, onChange, disabled }) {
           onChange={set('denomination')}
           filter={(entry) => fitsKind(entry, kind)}
           allowAdd={false}
+          disabled={disabled}
         />
       )
     }
     if (key === 'mint') {
-      return <ReferenceSelect table="mint" value={values.mint} onChange={set('mint')} />
+      return (
+        <ReferenceSelect
+          table="mint"
+          value={values.mint}
+          onChange={set('mint')}
+          disabled={disabled}
+        />
+      )
     }
     const ranged = key === 'year_start' && isRange(item)
     return (

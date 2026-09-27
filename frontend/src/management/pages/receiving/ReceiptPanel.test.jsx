@@ -693,6 +693,21 @@ describe('ReceiptPanel: Identify', () => {
     })
   })
 
+  it('holds its pickers still while a save is in flight', async () => {
+    let finish
+    api.updateInventoryItem.mockReturnValue(
+      new Promise((resolve) => (finish = resolve)),
+    )
+    const serial = await openNote()
+    await retypeSerial(serial, 'A12345678B')
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    expect(screen.getByLabelText('denomination')).toBeDisabled()
+    finish({})
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+  })
+
   it('holds back the full editor while Identify has unsaved edits', async () => {
     const serial = await openNote()
     const confirm = screen.getByRole('button', { name: /confirm or correct fields/i })

@@ -42,11 +42,17 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, exists, select
+from sqlalchemy import ColumnElement, Select, exists, select, update
 from sqlalchemy.orm import QueryableAttribute, Session, aliased
 
 from .database import SessionLocal
-from .field_sources import HELD, SERIES_CLASSIFY, SUGGESTION, forget, record_derived
+from .field_sources import (
+    HELD,
+    SERIES_CLASSIFY,
+    SUGGESTION,
+    forget,
+    record_derived_many,
+)
 from .models import (
     CurrencyDetail,
     Denomination,
@@ -416,13 +422,19 @@ def disagreements(db: Session, designs: list[Design]) -> list[Case]:
     return cases
 
 
-def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
+def classify(
+    db: Session,
+    item_ids: Collection[int] | None = None,
+    designs: list[Design] | None = None,
+) -> Report:
     """Decide every unclassified item, or those of `item_ids`, writing nothing.
 
-    The disagreement report covers the whole collection, so it is made only
-    for a run over all of it.
+    `designs` saves a caller that has already loaded them a second read. The
+    disagreement report covers the whole collection, so it is made only for a
+    run over all of it.
     """
-    designs = load_designs(db)
+    if designs is None:
+        designs = load_designs(db)
     known = {d.code for d in designs}
     rules = build_rules(db)
     report = Report()
@@ -551,9 +563,19 @@ def refresh_series(db: Session, item_ids: Collection[int]) -> None:
             item.series_id = None
         forget(db, stale, ["series_id"])
         db.flush()
-    for item_id, series_id in classify(db, item_ids).assignments.items():
-        db.get_one(InventoryItem, item_id).series_id = series_id
-        record_derived(db, item_id, ["series_id"], SERIES_CLASSIFY)
+    assignments = classify(db, item_ids, designs).assignments
+    # One statement per design and one upsert for the records, however many
+    # items a bulk edit touched.
+    by_design: dict[int, list[int]] = {}
+    for item_id, series_id in assignments.items():
+        by_design.setdefault(series_id, []).append(item_id)
+    for series_id, ids in by_design.items():
+        db.execute(
+            update(InventoryItem)
+            .where(InventoryItem.id.in_(ids))
+            .values(series_id=series_id)
+        )
+    record_derived_many(db, assignments, ["series_id"], SERIES_CLASSIFY)
     db.flush()
 
 
