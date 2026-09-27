@@ -316,6 +316,14 @@
 .edit-dialog::backdrop {
   background: rgb(0 0 0 / 45%);
 }
+/* Receiving's Identify section: the theme's border, not the browser's. */
+fieldset.identify {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 0 0 1rem;
+  padding: 0.4rem 0.9rem 0.6rem;
+}
+
 /* The year box with its "Range of years" switch beside it, in one column. */
 .year-input {
   align-items: center;
