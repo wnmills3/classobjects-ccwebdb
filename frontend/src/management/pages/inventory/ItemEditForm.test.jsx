@@ -1765,3 +1765,33 @@ describe('ItemEditForm: where it is kept', () => {
     })
   })
 })
+
+describe('ItemEditForm: a note is identified first', () => {
+  it("shows a note's series, serial and plates right after its kind", async () => {
+    api.getInventoryItem.mockResolvedValue({ ...item, item_kind: 'currency' })
+    const { container } = render(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    const order = [...container.querySelectorAll('[data-help]')].map((e) =>
+      e.getAttribute('data-help'),
+    )
+    const at = (key) => order.indexOf(key)
+    const facts = [
+      'item_kind',
+      'series_year',
+      'series_letter',
+      'serial_number',
+      'face_plate_number',
+      'back_plate_number',
+      'printing_facility',
+      'note_type',
+    ]
+    expect(
+      facts.map(at).every((i, n, all) => i >= 0 && (n === 0 || i > all[n - 1])),
+    ).toBe(true)
+    // Well above the panels that used to push them off the bottom.
+    expect(at('back_plate_number')).toBeLessThan(at('grade'))
+    expect(at('back_plate_number')).toBeLessThan(at('errors'))
+  })
+})

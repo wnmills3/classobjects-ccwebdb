@@ -23,7 +23,9 @@ const NOTE_TEXT_FIELDS = [
 ]
 
 /**
- * The item editor's rows for a banknote's own fields.
+ * The item editor's rows for a banknote's own fields: what identifies it
+ * first -- series, serial, plates, where it was printed -- then what follows
+ * from those facts: its class, seal, signatures and Reserve Bank.
  *
  * `value(key)` is a field's value as the form shows it; `set(key)` is a text
  * box's change handler, `setNumber(key)` a number box's, and
@@ -34,20 +36,6 @@ const NOTE_TEXT_FIELDS = [
 export default function NoteFields({ value, set, setNumber, setField, side }) {
   return (
     <>
-      {NOTE_CLASSIFIERS.map(([label, key, table, letter]) => (
-        <label key={key} className="field" data-help={key}>
-          <AccessLabel text={label} accessKey={letter} />
-          <ReferenceSelect
-            table={table}
-            value={value(key)}
-            onChange={set(key)}
-            allowAdd={false}
-            {...accel(letter)}
-          />
-          {side(key, `${key}_id`)}
-          <span />
-        </label>
-      ))}
       {NOTE_TEXT_FIELDS.map(([label, key, type]) => (
         <label key={key} className="field" data-help={key}>
           <span>{label}</span>
@@ -78,6 +66,20 @@ export default function NoteFields({ value, set, setNumber, setField, side }) {
         {side('printing_facility', 'printing_facility')}
         <span />
       </label>
+      {NOTE_CLASSIFIERS.map(([label, key, table, letter]) => (
+        <label key={key} className="field" data-help={key}>
+          <AccessLabel text={label} accessKey={letter} />
+          <ReferenceSelect
+            table={table}
+            value={value(key)}
+            onChange={set(key)}
+            allowAdd={false}
+            {...accel(letter)}
+          />
+          {side(key, `${key}_id`)}
+          <span />
+        </label>
+      ))}
     </>
   )
 }

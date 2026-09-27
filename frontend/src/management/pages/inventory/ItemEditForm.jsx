@@ -865,6 +865,23 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           </p>
         )}
 
+        {/* A note's own facts come right after its kind, as on New item: its
+            series, serial and plates identify it. The draft's kind, not the
+            saved one: a coin being made a note
+            shows its note fields now, and the save creates the note's row
+            before writing them. */}
+        {value('item_kind') === 'currency' && (
+          <NoteFields
+            value={value}
+            set={set}
+            setNumber={(key) => (e) =>
+              setDraft({ ...draft, [key]: yearValue(e.target.value) })
+            }
+            setField={(key, next) => setDraft({ ...draft, [key]: next })}
+            side={side}
+          />
+        )}
+
         {CLASSIFIERS.filter(([, key]) => fieldFitsKind(key, value('item_kind'))).map(
           ([label, key, table, letter]) => (
             <label key={key} className="field" data-help={key}>
@@ -940,20 +957,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           that an item can gain a photograph -- see PhotosPanel's docstring. */}
         <PhotosPanel itemId={itemId} saleState={item.sale_state ?? []} />
 
-        {/* The draft's kind, not the saved one: a coin being made a note
-            shows its note fields now, and the save creates the note's row
-            before writing them. */}
-        {value('item_kind') === 'currency' && (
-          <NoteFields
-            value={value}
-            set={set}
-            setNumber={(key) => (e) =>
-              setDraft({ ...draft, [key]: yearValue(e.target.value) })
-            }
-            setField={(key, next) => setDraft({ ...draft, [key]: next })}
-            side={side}
-          />
-        )}
         {/* The saved kind: a Friedberg number hangs on the note's stored row,
             so it can be looked up only once that row exists -- and cleared
             before the note stops being one. */}

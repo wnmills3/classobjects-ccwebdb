@@ -181,8 +181,10 @@ note's class as evidence.
 
 ## The editor
 
-For a banknote the item editor shows the note's own fields -- Note class, Seal,
-Signatures, Reserve Bank, series year and letter, serial -- with a *suggested*
+For a banknote the item editor shows the note's own fields right after its
+kind: first what identifies it -- series year and letter, serial, face and
+back plate, where it was printed -- then Note class, Seal, Signatures and
+Reserve Bank, with a *suggested*
 mark beside a derived value whose tooltip names the rule. Only "Note class"
 (Alt+A) and "Reserve Bank" (Alt+B) have accelerators: no other free letter is
 in their labels.
