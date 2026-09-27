@@ -24,6 +24,7 @@ from ..models import (
     PurchaseOrder,
     Seller,
     StorageLocation,
+    StorageLocationKind,
     Vendor,
     VendorKind,
 )
@@ -37,6 +38,7 @@ from ..schemas import (
     SellerCreate,
     SellerOut,
     SellerUpdate,
+    StorageLocationCreate,
     StorageLocationOut,
     VendorCreate,
     VendorOut,
@@ -461,6 +463,64 @@ def _commit_order(db: Session, vendor: Vendor, number: str | None) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"{vendor.name} order {number} is already recorded",
         ) from exc
+
+
+#: Location kinds made by other code: a consignment by the auction code,
+#: a sold item's by the sale. Not added from a picker.
+_MADE_ELSEWHERE = frozenset({"consigned", "sold"})
+
+
+@storage_locations_router.post("", status_code=status.HTTP_201_CREATED)
+def create_storage_location(
+    payload: StorageLocationCreate, db: DbSession, _admin: AdminUser
+) -> StorageLocationOut:
+    """Add a place items are kept: a bank box, a safe, home.
+
+    409 for a location that already exists -- the same kind, institution and
+    identifier, case aside -- so one box is never two rows items split
+    between.
+    """
+    if payload.kind in _MADE_ELSEWHERE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"A {payload.kind} location is made by the auction or sale code",
+        )
+    kind_id = require_code(db, StorageLocationKind, payload.kind, "kind")
+    same = func.lower(func.coalesce(StorageLocation.institution, "")) == (
+        (payload.institution or "").casefold()
+    )
+    same_box = func.lower(func.coalesce(StorageLocation.identifier, "")) == (
+        (payload.identifier or "").casefold()
+    )
+    exists = db.scalar(
+        select(StorageLocation.id).where(
+            StorageLocation.storage_location_kind_id == kind_id, same, same_box
+        )
+    )
+    if exists is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That storage location already exists",
+        )
+    location = StorageLocation(
+        storage_location_kind_id=kind_id,
+        institution=payload.institution,
+        identifier=payload.identifier,
+        notes=payload.notes,
+    )
+    db.add(location)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That storage location already exists",
+        ) from exc
+    db.refresh(location)
+    return StorageLocationOut(
+        id=location.id, label=location_label(location), kind=location.kind.code
+    )
 
 
 @storage_locations_router.get("")

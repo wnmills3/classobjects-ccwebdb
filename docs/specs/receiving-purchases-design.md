@@ -158,7 +158,8 @@ error belongs to that order and clears when the address changes.
 - First, **Identify** (`receiving/IdentifySection.jsx`): the facts that
   identify the piece, filled from the item and saved with **Receive** only
   (`identify-first-entry-design.md`).
-- *Arrived* (defaults to the operator's local today), *Storage location*,
+- *Arrived* (defaults to the operator's local today), *Storage location*
+  (`LocationSelect`, which can add a location inline),
   *Note*, *Photo*, and the four buttons **Receive**, **Missing**,
   **Returned**, **Cancelled**, each sending its own code in one request.
 - The location and date the previous receipt used seed the next dialog, so a

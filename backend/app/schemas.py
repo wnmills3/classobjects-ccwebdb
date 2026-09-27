@@ -2413,6 +2413,30 @@ class PurchaseOrderUpdate(BaseModel):
         return _require_http_url(value.strip())
 
 
+class StorageLocationCreate(BaseModel):
+    """A place items are kept, added from an entry form's location picker.
+
+    `kind` is a `storage_location_kind` code; `consigned` and `sold` are
+    made by the auction and sale code, not by hand. A location is identified
+    by its kind, institution and identifier together.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(max_length=64)
+    #: The bank, depository or building; blank is none.
+    institution: str | None = Field(default=None, max_length=255)
+    #: Box or container number; blank is none.
+    identifier: str | None = Field(default=None, max_length=128)
+    notes: str | None = None
+
+    @field_validator("institution", "identifier", "notes")
+    @classmethod
+    def _blank_to_none(cls, value: str | None) -> str | None:
+        """Surrounding space is not part of it; nothing left is None."""
+        return _strip_or_none(value)
+
+
 class StorageLocationOut(BaseModel):
     """Where an item physically sits. Admin-only: never customer-visible."""
 

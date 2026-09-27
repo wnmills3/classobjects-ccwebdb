@@ -114,6 +114,8 @@ export const api = {
   listPurchaseOrders: (params = {}) => send(withQuery('/api/purchase-orders', params)),
   getPurchaseOrder: (id) => send(`/api/purchase-orders/${id}`),
   listStorageLocations: () => send('/api/storage-locations'),
+  createStorageLocation: (payload) =>
+    send('/api/storage-locations', { method: 'POST', body: payload }),
   receiveItems: (payload) =>
     send('/api/inventory/receive', { method: 'POST', body: payload }),
 

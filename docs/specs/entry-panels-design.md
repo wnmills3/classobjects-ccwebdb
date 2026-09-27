@@ -41,6 +41,19 @@ Request bodies forbid unknown fields (422). Money crosses as decimal strings.
   null), `vendor_kind` (code; null -> `unknown`). 201 with the vendor; 409 on a
   duplicate name; 422 for an unknown kind or non-http url.
 
+### Storage locations
+
+- `GET /api/storage-locations` -- every location: `id`, `label` (institution and
+  box, else the kind), `kind`.
+- `POST /api/storage-locations` -- `kind` (a `storage_location_kind` code),
+  `institution` and `identifier` (trimmed; blank -> null), `notes`. 201 with
+  the location; 409 for one that exists (same kind, institution and
+  identifier, case aside); 422 for an unknown kind, or `consigned` / `sold`,
+  which the auction and sale code make.
+- Every location picker -- New item, the item editor, Receiving -- is
+  `LocationSelect`: the locations, "--" for not recorded, and "+ Add a
+  location..." opening an inline kind / bank or place / box form.
+
 ### Sellers
 
 - `GET /api/sellers` -- ordered by name, case aside: `id`, `name`, `store_url`.

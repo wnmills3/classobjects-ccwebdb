@@ -180,3 +180,82 @@ def test_moving_an_item_on_offer_needs_no_acknowledgement(
         headers=admin_headers,
     )
     assert res.status_code == 200, res.text
+
+
+def test_a_location_is_added_by_kind_place_and_box(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    res = client.post(
+        "/api/storage-locations",
+        json={
+            "kind": "safe_deposit_box",
+            "institution": " First Bank ",
+            "identifier": "804",
+        },
+        headers=admin_headers,
+    )
+    assert res.status_code == 201, res.text
+    assert (res.json()["label"], res.json()["kind"]) == (
+        "First Bank 804",
+        "safe_deposit_box",
+    )
+    listed = client.get("/api/storage-locations", headers=admin_headers).json()
+    assert [loc["id"] for loc in listed] == [res.json()["id"]]
+
+
+def test_a_location_with_only_a_kind_is_named_by_it(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    res = client.post(
+        "/api/storage-locations", json={"kind": "home"}, headers=admin_headers
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["label"] == "Home"
+
+
+def test_the_same_location_twice_is_a_409(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    body = {
+        "kind": "safe_deposit_box",
+        "institution": "First Bank",
+        "identifier": "809",
+    }
+    assert (
+        client.post(
+            "/api/storage-locations", json=body, headers=admin_headers
+        ).status_code
+        == 201
+    )
+    again = client.post("/api/storage-locations", json=body, headers=admin_headers)
+    assert again.status_code == 409
+    home = {"kind": "home"}
+    assert (
+        client.post(
+            "/api/storage-locations", json=home, headers=admin_headers
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            "/api/storage-locations", json=home, headers=admin_headers
+        ).status_code
+        == 409
+    )
+
+
+def test_consigned_and_sold_are_not_added_by_hand(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    # The auction and sale code make those; an unknown kind is refused too.
+    for kind in ("consigned", "sold", "no_such_kind"):
+        res = client.post(
+            "/api/storage-locations", json={"kind": kind}, headers=admin_headers
+        )
+        assert res.status_code == 422, (kind, res.text)
+
+
+def test_locations_are_staff_only(client: TestClient) -> None:
+    assert (
+        client.post("/api/storage-locations", json={"kind": "home"}).status_code == 401
+    )
