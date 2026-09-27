@@ -154,6 +154,18 @@ function photosFailed(failed) {
   return `${what.toLowerCase()} not added: ${failed.map((entry) => entry.error).join('; ')}. Fix or discard ${failed.length === 1 ? 'it' : 'them'} below, then Save again`
 }
 
+/**
+ * An error set compared as a set: the same types with the same notes, in any
+ * order, is no change to save.
+ */
+function errorsKey(rows) {
+  return JSON.stringify(
+    rows
+      .map((row) => [row.error_type, row.details ?? null])
+      .sort((a, b) => a[0].localeCompare(b[0])),
+  )
+}
+
 export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const [item, setItem] = useState(null)
   const [draft, setDraft] = useState({})
@@ -175,6 +187,13 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // A Friedberg number confirmed, chosen or cleared in its panel, held for
   // Save the same way.
   const [pendingFriedberg, setPendingFriedberg] = useState(null)
+  // The item's errors as last read or recorded, and as edited here -- held
+  // for Save the same way, and recorded as a whole set. Both null until
+  // read; a read that failed leaves its reason and nothing to edit, since a
+  // set edited from nothing would replace, on Save, the one never seen.
+  const [savedErrors, setSavedErrors] = useState(null)
+  const [errors, setErrors] = useState(null)
+  const [errorsReadError, setErrorsReadError] = useState('')
   const [ranged, setRanged] = useState(false)
   // Ticked to change an item that is for sale; reset whenever it is loaded.
   const [acknowledged, setAcknowledged] = useState(false)
@@ -210,9 +229,13 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // choice before the form can be saved.
   const conflicts = item && baseItem ? conflictsOf(item, baseItem, draft) : []
   const hasFields = Object.keys(draft).length > 0
+  const errorsChanged = errors !== null && errorsKey(errors) !== errorsKey(savedErrors)
   const canSave =
     !saving &&
-    (hasFields || pendingPhotos.length > 0 || pendingFriedberg !== null) &&
+    (hasFields ||
+      pendingPhotos.length > 0 ||
+      pendingFriedberg !== null ||
+      errorsChanged) &&
     (!forSale || acknowledged) &&
     conflicts.length === 0
   useSaveShortcut(save, canSave)
@@ -248,6 +271,27 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       cancelled = true
     }
   }, [itemId, adopt])
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .getItemErrors(itemId)
+      .then((body) => {
+        if (cancelled) return
+        const rows = (body.errors ?? []).map((e) => ({
+          error_type: e.error_type,
+          details: e.details ?? null,
+        }))
+        setSavedErrors(rows)
+        setErrors(rows)
+      })
+      .catch((err) => {
+        if (!cancelled) setErrorsReadError(err.message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [itemId])
 
   // The latest draft and version, for the check below, which runs on a timer.
   useEffect(() => {
@@ -563,7 +607,8 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   /**
    * Save everything held: a Friedberg number cleared first (the server
    * refuses a note that stops being one while it has a number), then the
-   * fields, then a Friedberg number attached, then the photographs. What
+   * fields, then a Friedberg number attached, then the errors, then the
+   * photographs. What
    * fails stays held with its reason; the editor closes only when all of it
    * is saved.
    */
@@ -612,6 +657,16 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     if (heldFriedberg?.action === 'attach') {
       const failed = await applyFriedberg(heldFriedberg)
       if (failed) problems.push(`the Friedberg number was not attached: ${failed}`)
+    }
+    if (errorsChanged) {
+      try {
+        await api.setItemErrors(itemId, errors, {
+          acknowledgeForSale: forSale && acknowledged,
+        })
+        setSavedErrors(errors)
+      } catch (err) {
+        problems.push(`the errors were not recorded: ${err.message}`)
+      }
     }
     const failedPhotos = await filePhotos()
     if (failedPhotos.length > 0) problems.push(photosFailed(failedPhotos))
@@ -1037,15 +1092,29 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           onChange={(codes) => setDraft({ ...draft, attributes: codes })}
         />
 
-        {/* Self-loading and self-saving: it fetches and PUTs its own set
-          against this item, independent of the Save button above -- an
-          error recorded here is not held back by, or lost to, a discarded
-          edit elsewhere on this form. */}
-        <ErrorsPanel
-          itemId={itemId}
-          kind={value('item_kind')}
-          saleState={item.sale_state ?? []}
-        />
+        {/* Held here and recorded by Save, like every other edit on this
+          form. No sale state goes to the panel: this form's own notice
+          above is the one acknowledgement, and it covers the errors too. */}
+        {errors === null ? (
+          <div className="field errors-panel">
+            <span>Errors</span>
+            {errorsReadError ? (
+              <p className="error">The errors could not be read: {errorsReadError}</p>
+            ) : (
+              <p className="muted">Loading...</p>
+            )}
+            <span />
+            <span />
+          </div>
+        ) : (
+          <ErrorsPanel
+            itemId={null}
+            kind={value('item_kind')}
+            value={errors}
+            onChange={setErrors}
+            saleState={[]}
+          />
+        )}
 
         {/* A photograph added here is held until this form's Save files it;
           re-roling, promoting or removing one already filed writes at once.

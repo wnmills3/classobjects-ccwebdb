@@ -136,7 +136,8 @@ recorded is not offered again, and the type picker is filtered by `applies_to`.
 
 | Where | Saving |
 |---|---|
-| Item editor, Receiving | The item exists; the panel `PUT`s the whole set on every change (a note's text when its box loses focus), independent of the form's Save, so an error is neither held back by nor lost to a discarded edit. |
+| Item editor | Held with the rest of the edit: adding, removing or re-noting an error enables Save, and Save `PUT`s the whole set (after the fields, under the form's own for-sale acknowledgement). A set that fails stays on screen with its reason. A set changed back to what was read is no change. If the set cannot be read, nothing is offered to edit, so Save can never replace a set nobody saw. |
+| Receiving | The panel `PUT`s the whole set on every change (a note's text when its box loses focus): there is no Save there to hold it for. |
 | New item | The item is created first, then its errors are saved. |
 
 **The two-step case is designed, not assumed.** If the create succeeds and the
