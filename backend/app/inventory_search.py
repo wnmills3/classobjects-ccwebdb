@@ -683,6 +683,13 @@ def _query_clause(
 ) -> str:
     """The free-text search, across the view's own columns and its names."""
     parts = [f"coalesce({c}, '') ILIKE :p_q" for c in spec.search_columns]
+    # The purchase's order number -- an eBay order pasted into the box finds
+    # what was bought on it. A subquery rather than a join, so the search
+    # adds no join the filters and facets would then carry.
+    parts.append(
+        "EXISTS (SELECT 1 FROM purchase_order po_q WHERE po_q.id = i.purchase_order_id"
+        " AND po_q.order_number ILIKE :p_q)"
+    )
     for named, ids in names:
         placeholder = f"p_named_{named.key}"
         parts.append(named.match.format(p=placeholder))
