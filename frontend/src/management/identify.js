@@ -20,3 +20,47 @@ export function identifyKeys(kind) {
       ]
     : ['year_start', 'mint', 'denomination']
 }
+
+//: The facts that are numbers; the rest cross as text.
+export const NUMBERS = new Set(['series_year', 'year_start'])
+
+/** An item's identifying facts as the section's text, blank for unknown. */
+export function identifyValues(item) {
+  return Object.fromEntries(
+    identifyKeys(item.item_kind).map((key) => [
+      key,
+      item[key] == null ? '' : String(item[key]),
+    ]),
+  )
+}
+
+/** A typed value as the API takes it: trimmed, a number where one, blank null. */
+function sent(key, text) {
+  const trimmed = (text ?? '').trim()
+  if (trimmed === '') return null
+  return NUMBERS.has(key) ? Number(trimmed) : trimmed
+}
+
+/**
+ * The facts that moved, and what each was, as `PATCH /api/inventory/{id}`
+ * takes them: the change and its `base`, so a save merges field by field
+ * rather than overwriting whatever else changed meanwhile.
+ *
+ * A coin's year is one year, so it moves as both ends -- the editor's rule.
+ */
+export function identifyChanges(item, values) {
+  const changes = {}
+  const base = {}
+  for (const key of identifyKeys(item.item_kind)) {
+    const before = item[key] ?? null
+    const after = sent(key, values[key])
+    if (after === before) continue
+    changes[key] = after
+    base[key] = before
+    if (key === 'year_start') {
+      changes.year_end = after
+      base.year_end = item.year_end ?? null
+    }
+  }
+  return { changes, base }
+}
