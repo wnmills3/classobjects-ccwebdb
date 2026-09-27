@@ -51,7 +51,9 @@ const BLANK = {
   item_cost: '',
   shipping_cost: '',
   status: 'ordered',
-  country: '',
+  // Nearly everything bought is American. A default, not a suggestion: it
+  // is the person's to change or empty, and is sent as theirs.
+  country: 'US',
   denomination: '',
   set_form: '',
   strike_type: '',
