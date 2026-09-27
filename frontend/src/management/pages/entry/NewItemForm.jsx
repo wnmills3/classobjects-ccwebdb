@@ -915,6 +915,36 @@ export default function NewItemForm({
         </label>
       </div>
 
+      {/* Errors before the description: Suggest description writes it from
+          what is entered, errors included. The status comes last. */}
+      {/* The item does not exist yet, so this is fully controlled: no load,
+          no PUT of its own -- `submit` sends the whole set once, right after
+          `createInventoryItem` returns an id to send it against. */}
+      <ErrorsPanel
+        itemId={null}
+        kind={form.item_kind}
+        value={errors}
+        onChange={setErrors}
+      />
+
+      <label data-help="description">
+        Description{/* */}
+        <textarea rows={3} value={form.description} onChange={set('description')} />
+      </label>
+      {/* Outside the label, as in the item editor: a button inside a label
+          takes the label from its input. */}
+      <div className="row">
+        <button
+          type="button"
+          className="link"
+          data-help="suggest_description"
+          onClick={suggestDescription}
+        >
+          Suggest description
+        </button>
+        <span className="muted">{describeNote}</span>
+      </div>
+
       <fieldset data-help="new_item_status">
         <legend>Status</legend>
         <label className="checkbox">
@@ -940,34 +970,6 @@ export default function NewItemForm({
           Received
         </label>
       </fieldset>
-
-      <label data-help="description">
-        Description{/* */}
-        <textarea rows={3} value={form.description} onChange={set('description')} />
-      </label>
-      {/* Outside the label, as in the item editor: a button inside a label
-          takes the label from its input. */}
-      <div className="row">
-        <button
-          type="button"
-          className="link"
-          data-help="suggest_description"
-          onClick={suggestDescription}
-        >
-          Suggest description
-        </button>
-        <span className="muted">{describeNote}</span>
-      </div>
-
-      {/* The item does not exist yet, so this is fully controlled: no load,
-          no PUT of its own -- `submit` sends the whole set once, right after
-          `createInventoryItem` returns an id to send it against. */}
-      <ErrorsPanel
-        itemId={null}
-        kind={form.item_kind}
-        value={errors}
-        onChange={setErrors}
-      />
 
       <div className="row">
         <SaveButton saving={saving} disabled={disabled} onClick={() => submit(false)} />

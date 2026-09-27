@@ -127,8 +127,10 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   designation, grading service, certificate number, set form and variety
   (not for a note), attributes (the editor's `AttributesField`, offering
   the kind's own; changing kind across note and coin drops them).
-- Last the rest of the purchase line: title, piece count, status (ordered /
-  received), description.
+- Then the rest of the purchase line: title, piece count.
+- Last, in this order: errors, then the description with **Suggest
+  description** -- which writes it from what is entered, errors included, so
+  they come first -- then status (ordered / received).
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
