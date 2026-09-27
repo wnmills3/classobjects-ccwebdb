@@ -222,3 +222,48 @@ def test_no_warning_where_the_record_does_not_cover_the_note(
         client, admin_headers, denomination="mxn_note_5", series_year=1953
     )
     assert foreign["warning"] is None
+
+
+def _coin_lookup(
+    client: TestClient, headers: dict[str, str], **params: object
+) -> dict[str, object]:
+    response = client.get("/api/defaults/coin", params=params, headers=headers)
+    assert response.status_code == 200, response.text
+    body: dict[str, object] = response.json()
+    return body
+
+
+def test_a_coins_facts_name_its_design(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    found = _coin_lookup(client, admin_headers, denomination="usd_coin_0_10", year=1942)
+    assert found["series"] == "winged_liberty_head_dime"
+
+
+def test_a_boundary_year_suggests_no_design(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    # 1921 dollars are Morgans and Peace dollars both.
+    found = _coin_lookup(client, admin_headers, denomination="usd_coin_1_00", year=1921)
+    assert found["series"] is None
+
+
+def test_a_notes_facts_name_its_design(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    found = _note_lookup(
+        client, admin_headers, denomination="usd_note_1", series_year=1928
+    )
+    assert found["series"] == "funnyback"
+
+
+def test_a_chosen_seal_is_evidence_for_the_design(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    # Every ordinary $5 1934A is also a candidate Hawaii note; the brown seal
+    # is what makes it one.
+    facts = {"denomination": "usd_note_5", "series_year": 1934, "series_letter": "a"}
+    plain = _note_lookup(client, admin_headers, **facts)
+    brown = _note_lookup(client, admin_headers, **facts, seal_color="brown")
+    assert plain["series"] is None
+    assert brown["series"] == "hawaii"

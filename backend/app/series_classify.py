@@ -171,6 +171,35 @@ def candidates(
     ]
 
 
+def suggest_series(
+    db: Session,
+    inventory: str,
+    denomination_id: int | None,
+    year: int | None,
+    letter: str | None,
+    seal_color_id: int | None = None,
+    note_type_id: int | None = None,
+) -> str | None:
+    """The design these facts alone decide, for the entry forms; None if open.
+
+    No text is read: an entry form's title is the seller's words, which the
+    batch pass weighs later.
+    """
+    if denomination_id is None or year is None:
+        return None
+    designs = load_designs(db)
+    found = candidates(designs, inventory, denomination_id, year, letter)
+    design, _, _ = decide(
+        found,
+        set(),
+        {d.code for d in designs},
+        seal_color_id,
+        frozenset(),
+        note_type_id,
+    )
+    return design.code if design is not None else None
+
+
 def _rules_out(
     design: Design,
     inventory: str,

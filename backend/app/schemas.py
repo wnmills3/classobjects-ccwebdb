@@ -1218,6 +1218,8 @@ class NoteSuggestionOut(BaseModel):
     seal_color: str | None = None
     signature_combination: str | None = None
     fed_district: str | None = None
+    #: The design series these facts decide (`app.series_classify`).
+    series: str | None = None
     #: Set when the denomination's issues are on record but none is of this
     #: series -- "No $2 note of Series 1953E is on record" -- so a series
     #: typed wrong is said, not answered with silence.
@@ -1225,9 +1227,11 @@ class NoteSuggestionOut(BaseModel):
 
 
 class CoinSuggestionOut(BaseModel):
-    """The metal a coin's denomination, country and year decide; null if open."""
+    """What a coin's denomination, country and year decide; null if open."""
 
     metal: str | None = None
+    #: The design series its denomination and year decide.
+    series: str | None = None
 
 
 #: The four outcomes a receipt can record. `received` is the common one;
