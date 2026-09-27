@@ -277,7 +277,6 @@ describe('NewItemForm: Save and add another', () => {
     await user.clear(screen.getByLabelText('item_kind'))
     await user.type(screen.getByLabelText('item_kind'), 'currency')
     await user.click(screen.getByRole('radio', { name: 'Received' }))
-    await user.type(screen.getByLabelText('country'), 'US')
     await user.type(screen.getByLabelText('denomination'), 'usd_note_1_00')
     await user.type(screen.getByLabelText('series'), 'series_1957')
     await user.type(screen.getByRole('spinbutton', { name: /series year/i }), '1957')
@@ -345,11 +344,13 @@ describe('NewItemForm: Save and add another', () => {
     api.createInventoryItem.mockResolvedValue({ id: 6 })
     render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
 
-    await user.type(screen.getByLabelText('country'), 'US')
+    await user.clear(screen.getByLabelText('country'))
+    await user.type(screen.getByLabelText('country'), 'CA')
     await fillTitle(user, 'Note one')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(screen.getByLabelText('country')).toHaveValue('')
+    // Back to the default, not to blank.
+    expect(screen.getByLabelText('country')).toHaveValue('US')
     expect(screen.getByRole('textbox', { name: /title/i })).toHaveValue('')
   })
 })
@@ -938,6 +939,44 @@ describe('NewItemForm: the facts first', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(api.createInventoryItem.mock.calls[0][0].suggested).toEqual(
       expect.arrayContaining(['series', 'metal']),
+    )
+  })
+})
+
+describe('NewItemForm: the country', () => {
+  it('starts at the United States and is sent without being touched', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 9, item_code: 'CC-000009' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    expect(screen.getByLabelText('country')).toHaveValue('US')
+
+    await fillTitle(user, 'A dime')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(api.createInventoryItem.mock.calls[0][0].country).toBe('US')
+  })
+
+  it('can be changed, or emptied for a piece of unknown origin', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 10, item_code: 'CC-000010' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.clear(screen.getByLabelText('country'))
+    await fillTitle(user, 'A token')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(api.createInventoryItem.mock.calls[0][0]).not.toHaveProperty('country')
+  })
+
+  it('lets the coin look-up know the country from the start', async () => {
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await user.type(screen.getByRole('spinbutton', { name: 'Year' }), '1942')
+    await user.type(screen.getByLabelText('denomination'), 'usd_coin_0_10')
+
+    await waitFor(() =>
+      expect(api.suggestCoin).toHaveBeenLastCalledWith(
+        expect.objectContaining({ country: 'US', year: '1942' }),
+      ),
     )
   })
 })
