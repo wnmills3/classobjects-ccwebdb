@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from typing import cast
 
+from app import lot_writes, offering_writes
 from app.models import (
     Currency,
     InventoryItem,
     Listing,
+    ListingFormat,
     ListingStatus,
     SalesLot,
     SalesLotItem,
@@ -18,12 +20,49 @@ from app.models import (
     SalesVenueKind,
     utcnow,
 )
+from app.offering_writes import OFFER_CURRENCY
 from app.reports.selling import SL_OFFERED, OfferedParams
+from app.sales_venues import store_venue_id
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from tests.builders import ItemFactory, code_id, priced_item
 
 _NOW = datetime(2026, 9, 28, tzinfo=UTC)
+
+
+def _local_noon(days_ago: int) -> datetime:
+    """Local noon `days_ago` days before today -- never near a DST boundary.
+
+    A day-count fixture anchored to "now" can land inside the hour a DST
+    transition adds or removes, on the one day a year that happens, and
+    read as off by a day for no reason the test names. Noon is never
+    inside that hour, in any zone this suite runs in.
+    """
+    local_date = (datetime.now() - timedelta(days=days_ago)).date()
+    return datetime.combine(local_date, time(12, 0)).astimezone()
+
+
+def _offer_on(
+    db: Session, item: InventoryItem, venue: SalesVenue, *, price: Decimal
+) -> Listing:
+    """Offer `item` on `venue` through the real writer, not a bare `Listing(...)`.
+
+    `offering_writes.offer` is what pauses another of the item's own
+    listings and sets `paused_by_listing_id` -- the shape the "paused
+    elsewhere" tests below need, which a hand-built row cannot produce.
+    """
+    return offering_writes.offer(
+        db,
+        item=item,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=price,
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
 
 
 def _venue(db: Session, code: str) -> SalesVenue:
@@ -289,24 +328,55 @@ def test_days_listed_is_today_minus_listed_at(
 ) -> None:
     """Local calendar days, not a literal 168-hour subtraction.
 
-    Anchored to `datetime.now().astimezone()` -- the current instant in the
-    system's own local zone -- rather than UTC midnight of a calendar date:
-    `listed_at` is `timestamptz`, and the database session may hand it back
-    tagged with a zone offset from UTC (this machine's, `America/New_York`,
-    measured directly). Subtracting whole days from "now, in local time"
-    keeps the same local calendar offset from `date.today()` that
-    `_local_date` is meant to measure; anchoring to UTC midnight instead
-    would land on the wrong side of local midnight and be off by a day,
-    which is exactly the failure this test caught before `_local_date`
-    existed.
+    Anchored to local noon (`_local_noon`), not UTC midnight of a calendar
+    date: `listed_at` is `timestamptz`, and the database session may hand
+    it back tagged with a zone offset from UTC (this machine's,
+    `America/New_York`, measured directly). Anchoring to UTC midnight
+    instead would land on the wrong side of local midnight and be off by a
+    day, which is exactly the failure this test caught before
+    `_local_date` existed.
     """
     venue = _venue(db, "ebay")
-    seven_days_ago = datetime.now().astimezone() - timedelta(days=7)
-    _item_listing(db, make_item(), venue, listed_at=seven_days_ago, title="Week old")
+    _item_listing(db, make_item(), venue, listed_at=_local_noon(7), title="Week old")
     db.commit()
 
     result = SL_OFFERED.run(db, OfferedParams())
     row = next(r for r in result.rows if r["listing"] == "Week old")
+    assert row["days_listed"] == 7
+
+
+def test_local_date_uses_the_local_zone_not_the_session_zone(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """`_local_date` matters exactly when the session's zone is not local.
+
+    `SET LOCAL TIME ZONE 'UTC'` makes *this session* hand `listed_at` back
+    tagged UTC regardless of what zone the test machine itself is in -- the
+    situation `_local_date`'s docstring describes. `23:30` local, seven days
+    ago, is deliberately close to local midnight: read back under a UTC
+    session, that instant's UTC calendar date can be a day later than its
+    local one (measured directly on this machine, `America/New_York`), so a
+    bare `.date()` with no conversion back to local would read the wrong
+    day. `SET LOCAL` is scoped to the current transaction; `conftest.py`'s
+    `db` fixture keeps one real transaction open for the whole test
+    (`join_transaction_mode="create_savepoint"` makes `db.commit()` below
+    only a savepoint release), so it is still in effect when the report
+    itself reads the row back.
+
+    Mutation-tested: removing `.astimezone()` from `_local_date` (leaving a
+    bare `.date()`) makes this fail with `days_listed == 6`, not 7 --
+    confirmed by hand and reverted; see `task-5-report.md`.
+    """
+    venue = _venue(db, "ebay")
+    db.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+    late_local = datetime.combine(
+        (datetime.now() - timedelta(days=7)).date(), time(23, 30)
+    ).astimezone()
+    _item_listing(db, make_item(), venue, listed_at=late_local, title="Late")
+    db.commit()
+
+    result = SL_OFFERED.run(db, OfferedParams())
+    row = next(r for r in result.rows if r["listing"] == "Late")
     assert row["days_listed"] == 7
 
 
@@ -404,7 +474,9 @@ def test_a_non_usd_listing_adds_a_note_naming_how_many_were_excluded(
     db.commit()
 
     result = SL_OFFERED.run(db, OfferedParams())
-    assert any("2" in note for note in result.notes)
+    assert result.notes == [
+        f"2 listings not priced in {OFFER_CURRENCY} excluded from the asking total."
+    ]
 
 
 def test_no_non_usd_listings_adds_no_note(db: Session, make_item: ItemFactory) -> None:
@@ -414,6 +486,129 @@ def test_no_non_usd_listings_adds_no_note(db: Session, make_item: ItemFactory) -
 
     result = SL_OFFERED.run(db, OfferedParams())
     assert result.notes == []
+
+
+# ---------------------------------------------------------------------------
+# Paused elsewhere: a coin must count once, not once per row that names it
+# ---------------------------------------------------------------------------
+
+
+def test_a_store_listing_paused_by_an_ebay_offer_counts_the_coin_once(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """The item is shown twice but counted once.
+
+    `offering_writes.offer` pauses the store listing when the same item is
+    offered on eBay, setting its `paused_by_listing_id` to the new eBay
+    row. Both rows appear -- the store listing still exists and the owner
+    should see it -- but the paused row is left out of both totals, and its
+    status names the listing that set it aside.
+    """
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    ebay = _venue(db, "ebay")
+    item = priced_item(make_item, "Paused coin", Decimal("75.00"))
+    store_listing = _offer_on(db, item, store, price=Decimal("100.00"))
+    _offer_on(db, item, ebay, price=Decimal("120.00"))
+    db.commit()
+    db.refresh(store_listing)
+    assert store_listing.status is ListingStatus.paused
+
+    result = SL_OFFERED.run(db, OfferedParams())
+
+    assert len(result.rows) == 2
+    store_row = next(r for r in result.rows if r["venue"] == store.name)
+    ebay_row = next(r for r in result.rows if r["venue"] == ebay.name)
+    assert store_row["status"] == f"Paused for {ebay.name} listing"
+    assert ebay_row["status"] == "Active"
+
+    assert result.totals is not None
+    assert result.totals["asking"] == Decimal("120.00")  # the eBay row alone
+    assert result.totals["cost_basis"] == Decimal("75.00")  # the item, once
+    assert result.notes == [
+        "1 paused listing left out of the totals: their item is on offer "
+        "in another listing."
+    ]
+
+    counted = [
+        r for r in result.rows if not cast("str", r["status"]).startswith("Paused for")
+    ]
+    assert (
+        sum((cast("Decimal", r["asking"]) for r in counted), Decimal("0"))
+        == (result.totals["asking"])
+    )
+    assert (
+        sum((cast("Decimal", r["cost_basis"]) for r in counted), Decimal("0"))
+        == (result.totals["cost_basis"])
+    )
+
+
+def test_a_store_listing_paused_by_a_lot_offer_counts_the_coin_once(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """The same guarantee, when what paused the coin's listing is a lot.
+
+    Offering a lot pauses each member's own store listing the same way
+    offering the item elsewhere does (`offering_writes.offer`, the lot
+    branch). The lot's own cost basis already counts the member's cost
+    once, as part of the lot's sum -- so without the exclusion, the paused
+    store row's separate cost basis would count that same coin a second
+    time.
+    """
+    store = db.get(SalesVenue, store_venue_id(db))
+    assert store is not None
+    ebay = _venue(db, "ebay")
+    member = priced_item(make_item, "Lot member", Decimal("60.00"))
+    other_member = priced_item(make_item, "Other member", Decimal("40.00"))
+    store_listing = _offer_on(db, member, store, price=Decimal("90.00"))
+    db.commit()
+
+    lot = lot_writes.create_lot(db, title="Grouped lot", description="")
+    lot_writes.add_member(db, lot, member)
+    lot_writes.add_member(db, lot, other_member)
+    offering_writes.offer(
+        db,
+        lot=lot,
+        venue=ebay,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("150.00"),
+        title="Grouped lot",
+        description="",
+        external_id=None,
+    )
+    db.commit()
+    db.refresh(store_listing)
+    assert store_listing.status is ListingStatus.paused
+
+    result = SL_OFFERED.run(db, OfferedParams())
+
+    assert len(result.rows) == 2
+    store_row = next(r for r in result.rows if r["venue"] == store.name)
+    lot_row = next(r for r in result.rows if r["listing"] == "Grouped lot")
+    assert store_row["status"] == f"Paused for {ebay.name} listing"
+    assert lot_row["status"] == "Active"
+
+    assert result.totals is not None
+    # The lot's own sum already counts member (60.00) and other_member
+    # (40.00) once each; the paused store row's separate 60.00 is excluded.
+    assert result.totals["asking"] == Decimal("150.00")
+    assert result.totals["cost_basis"] == Decimal("100.00")
+    assert result.notes == [
+        "1 paused listing left out of the totals: their item is on offer "
+        "in another listing."
+    ]
+
+    counted = [
+        r for r in result.rows if not cast("str", r["status"]).startswith("Paused for")
+    ]
+    assert (
+        sum((cast("Decimal", r["asking"]) for r in counted), Decimal("0"))
+        == (result.totals["asking"])
+    )
+    assert (
+        sum((cast("Decimal", r["cost_basis"]) for r in counted), Decimal("0"))
+        == (result.totals["cost_basis"])
+    )
 
 
 # ---------------------------------------------------------------------------
