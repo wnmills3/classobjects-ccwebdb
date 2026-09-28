@@ -14,9 +14,18 @@ import { PAGE_SIZE } from './specs'
  * is derived -- it is exactly "what is displayed does not match what is being
  * asked for". A busy flag would be a second piece of state saying the same
  * thing, able to disagree with the first.
+ *
+ * **`item` is not a filter.** `?item=CC-001234` -- a report's link to one
+ * item -- names the item whose editor to open (`itemCode`), and is kept out
+ * of the search: the API refuses a filter it does not know, and the address
+ * would otherwise turn a page of results into an error. `closeItem()` takes
+ * it out of the address again; any change to the filters drops it too.
  */
 export function useInventorySearch(view) {
-  const [params, setParams] = useSearchParams()
+  const [address, setParams] = useSearchParams()
+  const itemCode = address.get('item')
+  const params = new URLSearchParams(address)
+  params.delete('item')
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   // Bumped to fetch the same query again. After an edit the URL has not
@@ -74,6 +83,9 @@ export function useInventorySearch(view) {
     current,
     apply,
     clear: () => setParams({}),
+    itemCode,
+    // The filters as they were, without the item.
+    closeItem: () => setParams(params),
     // The same filters, sort and page, fetched again.
     refresh: () => setReloads((n) => n + 1),
     page: result?.body,

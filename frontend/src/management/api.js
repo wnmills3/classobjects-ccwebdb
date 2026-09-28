@@ -350,6 +350,19 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // reports -- read-only answers from the whole collection
+  // (`docs/specs/reporting-design.md`). The catalog names each report's
+  // parameters; a report is run with them as its query string, and the
+  // workbook is the same result as an .xlsx file, asked for with the same
+  // parameters so the file matches what is on screen.
+  listReports: () => send('/api/reports'),
+  runReport: (id, params = {}) =>
+    send(withQuery(`/api/reports/${encodeURIComponent(id)}`, params)),
+  downloadReportWorkbook: (id, params = {}) =>
+    send(withQuery(`/api/reports/${encodeURIComponent(id)}/workbook`, params), {
+      binary: true,
+    }),
+
   // orders -- every customer's, placed and revised for them, and moved on
   listOrders: () => send('/api/orders'),
   setOrderStatus: (id, status) =>

@@ -520,3 +520,150 @@ fieldset.identify {
   text-transform: uppercase;
   color: var(--muted);
 }
+
+/* --- Reports ------------------------------------------------------------- */
+/* The catalog beside the report: a narrow column of links by group. */
+.reports-layout {
+  align-items: start;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr);
+}
+.report-catalog h2 {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin: 0.9rem 0 0.3rem;
+  text-transform: uppercase;
+}
+.report-catalog h2:first-child {
+  margin-top: 0;
+}
+.report-catalog ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.report-catalog li {
+  margin: 0.2rem 0;
+}
+.report-catalog a[aria-current='page'] {
+  font-weight: 600;
+}
+.reports-main h2 {
+  margin: 0 0 0.2rem;
+}
+.report-form .filter-grid {
+  max-width: 40rem;
+}
+.report-actions {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.report-table {
+  font-size: 0.86rem;
+}
+/* Numbers line up by their last digit, money above all. */
+.report-table .num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.report-totals td {
+  border-top: 2px solid var(--border);
+  font-weight: 600;
+}
+.report-notes {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.4rem 0;
+  padding-left: 1.2rem;
+}
+/* The heading written for paper: hidden on the screen, which shows the same
+   facts in the page itself. */
+.print-only {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .reports-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Printing (reporting-design.md, Printing): the report alone, black on white.
+   The console is a column the height of the window whose page scrolls inside
+   it; on paper that column would print one window's worth, so it is undone
+   here and the page flows onto as many sheets as it needs. */
+@page wide {
+  size: landscape;
+}
+@media print {
+  .console-app {
+    display: block;
+    height: auto;
+  }
+  .console-app > .content {
+    overflow: visible;
+  }
+  .topbar,
+  .help-bar,
+  .help-area,
+  .report-catalog,
+  .report-form,
+  .screen-only {
+    display: none !important;
+  }
+  .reports-layout {
+    display: block;
+  }
+  .print-only {
+    display: block;
+  }
+  .report--wide {
+    page: wide;
+  }
+  .report,
+  .report * {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .report-print-heading p {
+    margin: 0 0 2px;
+  }
+  .report-print-heading .print-title {
+    font-size: 1.3em;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .report-table {
+    border: 1px solid #000;
+    border-radius: 0;
+    overflow: visible;
+  }
+  .report-table th,
+  .report-table td {
+    border-bottom: 1px solid #999;
+    padding: 3px 6px;
+  }
+  /* The header row on every sheet, a row never split between two, and the
+     totals once, after the last row -- a table footer would repeat too. */
+  .report-table thead {
+    display: table-header-group;
+  }
+  .report-table tfoot {
+    display: table-row-group;
+  }
+  .report-table tr {
+    break-inside: avoid;
+  }
+  /* A drill-down is plain text on paper; a sort button is just its label. */
+  .report a {
+    text-decoration: none;
+  }
+  .report .sort-header {
+    font-weight: 700;
+    padding: 0;
+    text-decoration: none;
+  }
+}

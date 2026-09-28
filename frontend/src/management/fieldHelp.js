@@ -515,4 +515,65 @@ export const FIELD_HELP = {
       'Tick items to act on them together: review them one after another, edit ' +
       'them in bulk, or offer them for sale.',
   },
+  // -- the Reports page -------------------------------------------------------
+  // A report's parameter is explained by `report_<name>`; one with no entry of
+  // its own falls back to `report_param`.
+  report_catalog: {
+    title: 'Reports',
+    text:
+      'Every report, by what it is about. Choose one to run it with its usual ' +
+      'settings; the address then names it, so it can be bookmarked or reopened.',
+  },
+  report_param: {
+    title: 'Report setting',
+    text: 'Narrows or adjusts what this report counts. Press Run to apply it.',
+  },
+  report_status: {
+    title: 'Status',
+    text:
+      'Which items to count by where they are in buying: received (in hand) by ' +
+      'default, or ordered, canceled, returned, missing -- or all of them.',
+  },
+  report_disposition: {
+    title: 'Disposition',
+    text:
+      'Which items to count by where they are in selling: held (still owned) by ' +
+      'default, or listed, sold, shipped, delivered, returned by the buyer -- or all.',
+  },
+  report_overdue_days: {
+    title: 'Overdue after (days)',
+    text:
+      'How many days after its order date a purchase still waiting to arrive is ' +
+      'marked Overdue. 21 unless changed.',
+  },
+  report_run: {
+    title: 'Run',
+    text:
+      'Runs the report with these settings and puts them in the address. The ' +
+      'answer is from the database as it is now.',
+  },
+  report_export: {
+    title: 'Export workbook',
+    text:
+      'Saves this report, with the same settings, as an Excel workbook: its title ' +
+      'and settings above the table, totals below, money as numbers.',
+  },
+  report_print: {
+    title: 'Print',
+    text:
+      'Prints the report as shown -- same rows, same order -- without the menu, ' +
+      'this band or the settings. A wide report prints landscape.',
+  },
+  report_sort: {
+    title: 'Sort',
+    text:
+      "Click a column's name to sort by it, again to reverse, and a third time " +
+      "to return to the report's own order.",
+  },
+  report_rows: {
+    title: 'Drill down',
+    text:
+      'A linked value opens the page behind that row: the items it counts, or the ' +
+      'purchase to receive. A linked percentage opens the items missing that field.',
+  },
 }

@@ -14,6 +14,7 @@ vi.mock('./api', () => ({
     listAuctions: vi.fn().mockResolvedValue({ auctions: [] }),
     listSalesVenues: vi.fn().mockResolvedValue([]),
     listStorageLocations: vi.fn().mockResolvedValue([]),
+    listReports: vi.fn().mockResolvedValue([]),
   },
 }))
 
@@ -160,6 +161,25 @@ describe('management console shell', () => {
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/auctions' })
     expect(
       await screen.findByRole('heading', { name: /^auctions$/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('links to Reports immediately before Vocabularies', () => {
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
+    const links = screen.getAllByRole('link').map((link) => link.textContent)
+    const reports = links.indexOf('Reports')
+    expect(reports).toBeGreaterThan(-1)
+    expect(links[reports + 1]).toBe('Vocabularies')
+    expect(screen.getByRole('link', { name: 'Reports' })).toHaveAttribute(
+      'href',
+      '/reports',
+    )
+  })
+
+  it('routes /reports to the reports page', async () => {
+    renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/reports' })
+    expect(
+      await screen.findByRole('heading', { name: /^reports$/i, level: 1 }),
     ).toBeInTheDocument()
   })
 

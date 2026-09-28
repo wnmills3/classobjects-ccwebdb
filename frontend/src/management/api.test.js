@@ -324,3 +324,41 @@ describe('attachImage', () => {
     expect(sentBody(fetchMock).sort_order).toBe(3)
   })
 })
+
+describe('reports', () => {
+  it('asks for a report with its parameters in the query string', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const fetchMock = captureFetch()
+
+    await api.runReport('pr_outstanding', { overdue_days: '30' })
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      '/api/reports/pr_outstanding?overdue_days=30',
+    )
+  })
+
+  it('downloads the workbook with the same parameters, signed in', async () => {
+    saveTokens({ access_token: 'a', refresh_token: 'r' })
+    const blob = new Blob(['xlsx'])
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers({
+        'Content-Disposition': 'attachment; filename="pr_outstanding_20260928.xlsx"',
+      }),
+      blob: () => Promise.resolve(blob),
+      text: () => Promise.reject(new Error('a workbook is not text')),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const file = await api.downloadReportWorkbook('pr_outstanding', {
+      overdue_days: '30',
+    })
+
+    const [path, init] = fetchMock.mock.calls[0]
+    expect(path).toBe('/api/reports/pr_outstanding/workbook?overdue_days=30')
+    // A bearer token, not a cookie: a plain <a href> would arrive signed out.
+    expect(init.headers.Authorization).toBe('Bearer a')
+    expect(file).toEqual({ blob, filename: 'pr_outstanding_20260928.xlsx' })
+  })
+})
