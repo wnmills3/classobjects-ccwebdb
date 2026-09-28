@@ -70,7 +70,7 @@ describe('PhotosPanel', () => {
       }),
     ])
 
-    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+    renderWithProviders(<PhotosPanel itemId={12} />, {
       reference: roles,
     })
 
@@ -87,7 +87,7 @@ describe('PhotosPanel', () => {
     const user = userEvent.setup()
     const onAdd = vi.fn()
     api.listItemImages.mockResolvedValue([])
-    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} onAdd={onAdd} />, {
+    renderWithProviders(<PhotosPanel itemId={12} onAdd={onAdd} />, {
       reference: roles,
     })
     const file = new File(['x'], 'coin.jpg', { type: 'image/jpeg' })
@@ -98,31 +98,29 @@ describe('PhotosPanel', () => {
     expect(api.uploadImage).not.toHaveBeenCalled()
   })
 
-  it('"Make primary" calls updateImageLink with isPrimary true', async () => {
+  it('holds "Make primary" for the editor to save', async () => {
     const user = userEvent.setup()
+    const onEditsChange = vi.fn()
     api.listItemImages.mockResolvedValue([
       link({ link_id: 5, image_id: 30, image_role: 'obverse' }),
     ])
-    api.updateImageLink.mockResolvedValue({})
-    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+    renderWithProviders(<PhotosPanel itemId={12} onEditsChange={onEditsChange} />, {
       reference: roles,
     })
 
     await user.click(await screen.findByRole('button', { name: /make primary/i }))
 
-    expect(api.updateImageLink).toHaveBeenCalledWith(5, {
-      isPrimary: true,
-      acknowledgeForSale: false,
-    })
+    expect(onEditsChange).toHaveBeenCalledWith({ 5: { is_primary: true } })
+    expect(api.updateImageLink).not.toHaveBeenCalled()
   })
 
-  it('choosing a role from the picker updates the link through updateImageLink', async () => {
+  it('holds a role chosen from the picker', async () => {
     const user = userEvent.setup()
+    const onEditsChange = vi.fn()
     api.listItemImages.mockResolvedValue([
       link({ link_id: 6, image_id: 35, image_role: null }),
     ])
-    api.updateImageLink.mockResolvedValue({})
-    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+    renderWithProviders(<PhotosPanel itemId={12} onEditsChange={onEditsChange} />, {
       reference: roles,
     })
 
@@ -131,23 +129,18 @@ describe('PhotosPanel', () => {
       'obverse',
     )
 
-    expect(api.updateImageLink).toHaveBeenCalledWith(6, {
-      imageRole: 'obverse',
-      acknowledgeForSale: false,
-    })
+    expect(onEditsChange).toHaveBeenCalledWith({ 6: { image_role: 'obverse' } })
+    expect(api.updateImageLink).not.toHaveBeenCalled()
   })
 
-  it('clearing the role picker sends imageRole: null, not an empty string', async () => {
-    // `code || null` exists precisely so the blank option clears the role
-    // rather than sending "" -- a different request with a different
-    // meaning to the API. Picking a row that already carries a role, so the
-    // blank option is a real change and not a no-op.
+  it('holds a cleared role as null, not an empty string', async () => {
+    // null clears the role; "" is a different request to the API.
     const user = userEvent.setup()
+    const onEditsChange = vi.fn()
     api.listItemImages.mockResolvedValue([
       link({ link_id: 8, image_id: 36, image_role: 'obverse' }),
     ])
-    api.updateImageLink.mockResolvedValue({})
-    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+    renderWithProviders(<PhotosPanel itemId={12} onEditsChange={onEditsChange} />, {
       reference: roles,
     })
 
@@ -156,69 +149,120 @@ describe('PhotosPanel', () => {
       '',
     )
 
-    expect(api.updateImageLink).toHaveBeenCalledWith(8, {
-      imageRole: null,
-      acknowledgeForSale: false,
-    })
+    expect(onEditsChange).toHaveBeenCalledWith({ 8: { image_role: null } })
   })
 
-  it('"Remove" detaches the link and never deletes the photograph', async () => {
+  it('drops a held role once the saved one is chosen again', async () => {
     const user = userEvent.setup()
+    const onEditsChange = vi.fn()
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 8, image_id: 36, image_role: 'obverse' }),
+    ])
+    renderWithProviders(
+      <PhotosPanel
+        itemId={12}
+        edits={{ 8: { image_role: 'reverse' } }}
+        onEditsChange={onEditsChange}
+      />,
+      { reference: roles },
+    )
+    const picker = await screen.findByRole('combobox', { name: 'image_role' })
+    expect(picker).toHaveValue('reverse')
+    expect(screen.getByText(/not saved yet/i)).toBeInTheDocument()
+
+    await user.selectOptions(picker, 'obverse')
+
+    expect(onEditsChange).toHaveBeenCalledWith({})
+  })
+
+  it('shows a held primary in place of the saved one, and one primary only', async () => {
+    const user = userEvent.setup()
+    const onEditsChange = vi.fn()
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 1, image_id: 10, image_role: 'obverse', is_primary: true }),
+      link({ link_id: 2, image_id: 20, image_role: 'reverse', sort_order: 1 }),
+    ])
+    renderWithProviders(
+      <PhotosPanel
+        itemId={12}
+        edits={{ 2: { is_primary: true } }}
+        onEditsChange={onEditsChange}
+      />,
+      { reference: roles },
+    )
+    const items = await screen.findAllByRole('listitem')
+    expect(within(items[0]).queryByText('Primary')).toBeNull()
+    expect(within(items[1]).getByText('Primary')).toBeVisible()
+
+    // Back to the saved primary: the held one is simply dropped.
+    await user.click(within(items[0]).getByRole('button', { name: /make primary/i }))
+    expect(onEditsChange).toHaveBeenCalledWith({})
+  })
+
+  it('holds "Remove", and never deletes the photograph', async () => {
+    const user = userEvent.setup()
+    const onEditsChange = vi.fn()
     api.listItemImages.mockResolvedValue([
       link({ link_id: 7, image_id: 40, image_role: 'reverse', is_primary: true }),
     ])
-    api.detachImage.mockResolvedValue(null)
-    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
+    renderWithProviders(<PhotosPanel itemId={12} onEditsChange={onEditsChange} />, {
       reference: roles,
     })
 
     await user.click(await screen.findByRole('button', { name: /remove/i }))
 
-    expect(api.detachImage).toHaveBeenCalledWith(7, { acknowledgeForSale: false })
+    expect(onEditsChange).toHaveBeenCalledWith({ 7: { remove: true } })
+    expect(api.detachImage).not.toHaveBeenCalled()
     expect(api.deleteImage).not.toHaveBeenCalled()
+  })
+
+  it('shows a held removal, with Undo and why it failed if it did', async () => {
+    const user = userEvent.setup()
+    const onEditsChange = vi.fn()
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 7, image_id: 40, image_role: 'reverse' }),
+    ])
+    renderWithProviders(
+      <PhotosPanel
+        itemId={12}
+        edits={{ 7: { remove: true, error: 'Link not found' } }}
+        onEditsChange={onEditsChange}
+      />,
+      { reference: roles },
+    )
+    expect(await screen.findByText(/removed when you save/i)).toBeInTheDocument()
+    expect(screen.getByText('Link not found')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /make primary/i })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /^undo/i }))
+    expect(onEditsChange).toHaveBeenCalledWith({})
+  })
+
+  it('counts neither a held removal nor a held role when choosing the next side', async () => {
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 1, image_id: 10, image_role: 'obverse' }),
+      link({ link_id: 2, image_id: 20, image_role: 'reverse', sort_order: 1 }),
+    ])
+    renderWithProviders(
+      <PhotosPanel
+        itemId={12}
+        edits={{ 1: { remove: true }, 2: { image_role: 'obverse' } }}
+        onEditsChange={vi.fn()}
+      />,
+      { reference: roles },
+    )
+    // What stays is one obverse (re-roled), so the next is the reverse.
+    expect(await screen.findByLabelText('What it shows')).toHaveValue('reverse')
   })
 })
 
 describe('PhotosPanel, an item that is for sale', () => {
-  it('warns, then carries the acknowledgement into every later write', async () => {
-    const user = userEvent.setup()
-    api.listItemImages.mockResolvedValue([
-      link({ link_id: 9, image_id: 50, image_role: 'obverse', is_primary: false }),
-    ])
-    api.updateImageLink.mockResolvedValue({})
-    api.detachImage.mockResolvedValue(null)
-    renderWithProviders(
-      <PhotosPanel
-        itemId={12}
-        saleState={[{ kind: 'listing', id: 3, text: 'listing #3 at 120.00' }]}
-      />,
-      // StrictMode, the same reason ErrorsPanel's equivalent test asks for
-      // it: an effect guard that survives one setup/cleanup/setup but not
-      // two is invisible to an ordinary render.
-      { reference: roles, strict: true },
-    )
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('listing #3 at 120.00')
-    await user.click(screen.getByLabelText('Change the photographs anyway'))
-
-    await user.click(screen.getByRole('button', { name: /make primary/i }))
-    expect(api.updateImageLink).toHaveBeenLastCalledWith(9, {
-      isPrimary: true,
-      acknowledgeForSale: true,
-    })
-
-    // Sticky: the second write does not ask again.
-    await user.click(screen.getByRole('button', { name: /remove/i }))
-    expect(api.detachImage).toHaveBeenLastCalledWith(9, { acknowledgeForSale: true })
-  })
-
-  it('renders no warning for an item that is not for sale', async () => {
+  it("asks nothing itself: the editor's one acknowledgement covers its Save", async () => {
     api.listItemImages.mockResolvedValue([])
-    renderWithProviders(<PhotosPanel itemId={12} saleState={[]} />, {
-      reference: roles,
-    })
+    renderWithProviders(<PhotosPanel itemId={12} />, { reference: roles })
     await screen.findByLabelText('Photo')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Change the photographs anyway')).toBeNull()
   })
 })
 
@@ -229,7 +273,7 @@ describe('PhotosPanel: adding another photograph', () => {
     renderWithProviders(
       <PhotosPanel
         itemId={12}
-        saleState={[]}
+
         onAdd={vi.fn()}
         onDiscard={vi.fn()}
         {...props}

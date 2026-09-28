@@ -117,15 +117,20 @@ stored; only the *link* is withheld.
 
 - **`PhotosPanel`**, in the item editor beside `OffersPanel` and
   `ErrorsPanel`: thumbnails in `sort_order` with role and primary shown;
-  upload, change role, make primary, and **Remove**, which detaches and
-  never deletes the photograph. It reads from the server after every write,
-  never from the editor's draft. A new photograph is added from a file or
-  from a **pasted web address** and is **held until the editor's Save** --
-  listed as not saved yet, with Discard -- which files it after the fields;
-  one that cannot be filed stays held with its reason. It says **what it
-  shows**: Obverse, then
-  Reverse, whichever the item lacks, is chosen for it; once it has both, a
-  role must be chosen -- the panel says so -- before either add is offered.
+  add, change role, make primary, and **Remove**, which detaches and never
+  deletes the photograph. **Nothing in it writes until the editor's Save.**
+  A new photograph is added from a file or from a **pasted web address** and
+  listed as not saved yet, with Discard. A new role, a new primary or a
+  removal for a filed photograph shows in place, marked not saved yet, with
+  Undo; choosing the saved value again drops it. Save applies them after the
+  fields and errors, under the editor's one for-sale acknowledgement: roles
+  and the new primary first, then removals (so the server never fills a
+  vacated primary over the one chosen), then new photographs. Whatever
+  fails stays held with its reason. The panel reads from the server again
+  after Save. A new photograph says **what it shows**: Obverse, then
+  Reverse, whichever the item lacks once held changes are counted, is chosen
+  for it; once it has both, a role must be chosen -- the panel says so --
+  before either add is offered.
 - **`/management/photos`**: unattached photographs, most recent capture first
   (nulls last), each with an item picker that searches by item code across
   coins and currency. Where the pass's leftovers are filed, and where a

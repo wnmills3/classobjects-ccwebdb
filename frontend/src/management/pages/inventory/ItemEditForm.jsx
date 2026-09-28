@@ -184,6 +184,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // the rest of the edit. Each keeps the error its filing met, if any.
   const [pendingPhotos, setPendingPhotos] = useState([])
   const [photoKey, setPhotoKey] = useState(0)
+  // Changes to photographs already filed -- a role, the primary, a removal
+  // -- keyed by link id, held the same way (see PhotosPanel).
+  const [photoEdits, setPhotoEdits] = useState({})
   // A Friedberg number confirmed, chosen or cleared in its panel, held for
   // Save the same way.
   const [pendingFriedberg, setPendingFriedberg] = useState(null)
@@ -234,6 +237,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     !saving &&
     (hasFields ||
       pendingPhotos.length > 0 ||
+      Object.keys(photoEdits).length > 0 ||
       pendingFriedberg !== null ||
       errorsChanged) &&
     (!forSale || acknowledged) &&
@@ -587,6 +591,41 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     return left
   }
 
+  /**
+   * Apply the held changes to filed photographs; those that fail stay held
+   * with their reason. Returns the failures' reasons.
+   *
+   * Roles and a new primary go first, removals last: a primary moved off a
+   * photograph that is then removed has already been given its successor,
+   * so the server's own fill-in (`fill_primary_vacancy`) never overrides it.
+   */
+  async function applyPhotoEdits() {
+    const ack = forSale && acknowledged
+    const entries = Object.entries(photoEdits)
+    const ordered = [
+      ...entries.filter(([, edit]) => !edit.remove),
+      ...entries.filter(([, edit]) => edit.remove),
+    ]
+    const left = {}
+    for (const [id, edit] of ordered) {
+      try {
+        if (edit.remove) {
+          await api.detachImage(Number(id), { acknowledgeForSale: ack })
+        } else {
+          const change = { acknowledgeForSale: ack }
+          if ('image_role' in edit) change.imageRole = edit.image_role
+          if (edit.is_primary) change.isPrimary = true
+          await api.updateImageLink(Number(id), change)
+        }
+      } catch (err) {
+        left[id] = { ...edit, error: err.message }
+      }
+    }
+    setPhotoEdits(left)
+    if (entries.length > 0) setPhotoKey((n) => n + 1)
+    return Object.values(left).map((edit) => edit.error)
+  }
+
   /** Apply a held Friedberg change; its failure is kept on it and returned. */
   async function applyFriedberg(held) {
     try {
@@ -608,7 +647,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
    * Save everything held: a Friedberg number cleared first (the server
    * refuses a note that stops being one while it has a number), then the
    * fields, then a Friedberg number attached, then the errors, then the
-   * photographs. What
+   * changes to filed photographs, then new photographs. What
    * fails stays held with its reason; the editor closes only when all of it
    * is saved.
    */
@@ -667,6 +706,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       } catch (err) {
         problems.push(`the errors were not recorded: ${err.message}`)
       }
+    }
+    const failedEdits = await applyPhotoEdits()
+    if (failedEdits.length > 0) {
+      problems.push(`photograph changes not saved: ${failedEdits.join('; ')}`)
     }
     const failedPhotos = await filePhotos()
     if (failedPhotos.length > 0) problems.push(photosFailed(failedPhotos))
@@ -1116,14 +1159,16 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           />
         )}
 
-        {/* A photograph added here is held until this form's Save files it;
-          re-roling, promoting or removing one already filed writes at once.
-          This is the only moment other than receiving that an item can gain
-          a photograph -- see PhotosPanel's docstring. */}
+        {/* A photograph added here, and a new role, primary or removal for
+          one already filed, is held until this form's Save applies it, under
+          this form's one for-sale acknowledgement. This is the only moment
+          other than receiving that an item can gain a photograph -- see
+          PhotosPanel's docstring. */}
         <PhotosPanel
           itemId={itemId}
-          saleState={item.sale_state ?? []}
           pending={pendingPhotos}
+          edits={photoEdits}
+          onEditsChange={setPhotoEdits}
           reloadKey={photoKey}
           onAdd={(entry) =>
             setPendingPhotos((list) => [
