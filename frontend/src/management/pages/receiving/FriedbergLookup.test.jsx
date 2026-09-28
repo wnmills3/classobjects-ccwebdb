@@ -174,7 +174,7 @@ describe('FriedbergLookup', () => {
     )
   })
 
-  it('shows each match as its number and a Copy button, details on hover', async () => {
+  it('shows each match as its number and a Use button, details on hover', async () => {
     api.searchFriedberg.mockResolvedValue([
       { ...ROW_VERIFIED, denomination: 'usd_note_1', note_type: 'frn' },
       ROW_UNVERIFIED,
@@ -184,10 +184,10 @@ describe('FriedbergLookup', () => {
 
     const rows = await screen.findAllByRole('listitem')
     expect(rows).toHaveLength(2)
-    // Only the number and "Copy" on the row -- the owner asked for exactly
+    // Only the number and "Use" on the row -- the owner asked for exactly
     // that (2026-09-23): codes and status run together read as noise.
-    expect(rows[0]).toHaveTextContent(/^FR-TEST-1\s*Copy$/)
-    expect(rows[1]).toHaveTextContent(/^FR-TEST-2\s*Copy$/)
+    expect(rows[0]).toHaveTextContent(/^FR-TEST-1\s*Use$/)
+    expect(rows[1]).toHaveTextContent(/^FR-TEST-2\s*Use$/)
     // Would pass a component that labeled every row the same way only if
     // both fixtures agreed -- they deliberately do not.
     expect(rows[0]).toHaveAttribute('title', 'usd_note_1 · frn -- verified')
@@ -235,25 +235,46 @@ describe('FriedbergLookup', () => {
     expect(api.attachFriedberg).not.toHaveBeenCalled()
   })
 
-  it('copies a match into the field, then saves it with the status picked', async () => {
-    api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
+  it('uses a verified match at once, as confirmed', async () => {
+    // Confirmed once for these search fields, it needs no second Save
+    // (owner, 2026-09-27): Use is the whole step.
+    api.searchFriedberg.mockResolvedValue([ROW_VERIFIED])
+    api.attachFriedberg.mockResolvedValue({
+      fr_number: 'FR-TEST-1',
+      friedberg_status: 'confirmed',
+    })
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Copy FR-TEST-2' }))
-    expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('FR-TEST-2')
-    await userEvent.click(screen.getByRole('button', { name: /save as confirmed/i }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use FR-TEST-1' }))
 
-    // Would fail a component that always attached as 'proposed' -- the
-    // status sent must be the one the operator's button named.
     await waitFor(() =>
       expect(api.attachFriedberg).toHaveBeenCalledWith(412, {
-        friedberg_id: 2,
+        friedberg_id: ROW_VERIFIED.id,
         status: 'confirmed',
       }),
     )
-    // The copied number is that catalog row: attached as it is, never
-    // recorded a second time (which would be a 409).
+    // That catalog row, attached as it is -- never recorded a second time.
+    expect(api.createFriedbergNumber).not.toHaveBeenCalled()
+  })
+
+  it('uses an unverified match as proposed, never confirming it unasked', async () => {
+    api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
+    api.attachFriedberg.mockResolvedValue({
+      fr_number: 'FR-TEST-2',
+      friedberg_status: 'proposed',
+    })
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Use FR-TEST-2' }))
+
+    await waitFor(() =>
+      expect(api.attachFriedberg).toHaveBeenCalledWith(412, {
+        friedberg_id: 2,
+        status: 'proposed',
+      }),
+    )
     expect(api.createFriedbergNumber).not.toHaveBeenCalled()
   })
 
@@ -262,12 +283,11 @@ describe('FriedbergLookup', () => {
     api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
     renderWithProviders(<FriedbergLookup itemId={412} onChoose={onChoose} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Copy FR-TEST-2' }))
-    await userEvent.click(screen.getByRole('button', { name: /save as confirmed/i }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use FR-TEST-2' }))
 
     expect(onChoose).toHaveBeenCalledWith({
       friedberg_id: 2,
-      status: 'confirmed',
+      status: 'proposed',
       fr_number: 'FR-TEST-2',
     })
     expect(api.attachFriedberg).not.toHaveBeenCalled()
@@ -462,7 +482,7 @@ describe('FriedbergLookup', () => {
     const item = { id: 412, series_year: 1963, series_letter: 'A', attributes: [] }
     renderWithProviders(<FriedbergLookup itemId={412} item={item} searchNow />)
 
-    expect(await screen.findByRole('button', { name: 'Copy FR-TEST-1' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: 'Use FR-TEST-1' })).toBeEnabled()
     expect(api.searchFriedberg).toHaveBeenCalledTimes(1)
     expect(api.searchFriedberg).toHaveBeenCalledWith({
       series_year: 1963,
@@ -485,7 +505,7 @@ describe('FriedbergLookup', () => {
     await waitFor(() => expect(window.open).toHaveBeenCalledTimes(1))
   })
 
-  it('with a match, offers Copy and still Search the web', async () => {
+  it('with a match, offers Use and still Search the web', async () => {
     // A match can be the wrong number recorded earlier: the owner then needs
     // the web search more than ever (owner, 2026-09-24), so it is not taken
     // away. It does not open by itself, though -- only a miss does that.
@@ -493,11 +513,11 @@ describe('FriedbergLookup', () => {
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
-    expect(await screen.findByRole('button', { name: 'Copy FR-TEST-1' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: 'Use FR-TEST-1' })).toBeEnabled()
     expect(window.open).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole('button', { name: /search the web/i }))
     expect(window.open).toHaveBeenCalledTimes(1)
-    // The field stays blank until Copy is pressed.
+    // The field is for a number not in the catalog; a match fills nothing.
     expect(screen.getByLabelText(/fr\. number/i)).toHaveValue('')
     expect(screen.getByRole('button', { name: /save as proposed/i })).toBeDisabled()
   })
