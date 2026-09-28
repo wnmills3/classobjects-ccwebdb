@@ -59,6 +59,15 @@ skill specifies a different path, format, or workflow, this file wins.
 - Before merging, confirm `git merge-base --is-ancestor main <branch>` so a
   fast-forward is guaranteed rather than a silent merge commit. Confirm local
   and remote SHAs match afterwards.
+- **A merge is not done at the push: restart Vite and prove what it serves.**
+  The checkout and fast-forward can leave Vite serving a module from before
+  the branch even when no content changed; `ccweb_status` still says
+  RUNNING. After `git branch -d`: kill the dev server on 5173 (`taskkill /PID
+  <pid> /T /F`, and the backend on 8000 too when `backend/` changed), run
+  `scripts\ccweb_startup.cmd` bare -- never piped or redirected, which hangs
+  it -- then fetch a changed module (`curl -s
+  http://127.0.0.1:5173/src/<path>.jsx`) and find the new code in it. Tell
+  the owner to reload any open page.
 - **The recurring slip:** right after a merge-and-push, the branch is deleted
   and work continues while still sitting on `main`. The next request says
   "add X", not "branch first". So: **after `git branch -d`, the very next code
