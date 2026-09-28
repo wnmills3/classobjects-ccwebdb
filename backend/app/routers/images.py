@@ -239,6 +239,8 @@ def attach_image(
         )
     except image_links.LinkRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # A photograph unfiled from one item and filed here is named for here.
+    image_links.name_for_place(db, link)
     db.commit()
     db.refresh(link)
     return link_out(db, link)

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { api } from '../../api'
+import ItemPicker from '../ItemPicker'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { useRequest } from '../../../shared/useRequest'
@@ -10,9 +11,9 @@ import { useRequest } from '../../../shared/useRequest'
  * attached -- from a file, or from a web address the server fetches,
  * converts and names for its place (`CC-000412_02.jpg`). A new photograph
  * says what it shows. Nothing here writes: a new photograph (`pending`), and
- * a role, primary or removal for one already filed (`edits`, keyed by link
- * id), are held and shown as not saved yet until the editor's Save applies
- * them, like every other change in the editor.
+ * a role, primary, removal or move to another item for one already filed
+ * (`edits`, keyed by link id), are held and shown as not saved yet until the
+ * editor's Save applies them, like every other change in the editor.
  *
  * Until now `api.uploadImage` had exactly one caller: the receiving screen,
  * so a photograph could only ever be attached at the moment an item
@@ -31,6 +32,12 @@ import { useRequest } from '../../../shared/useRequest'
  * Unfiling a photograph is a filing correction; destroying the bytes is a
  * different, much rarer action this panel does not offer.
  *
+ * A held "Move" files the photograph on another item, found by its code,
+ * in one step -- the server places it after that item's photographs and
+ * names it for its place there. Before this, a photograph on the wrong item
+ * was removed here and filed again from /management/photos, keeping the old
+ * item's name.
+ *
  * No for-sale notice of its own: nothing here writes, and the editor's one
  * acknowledgement covers everything its Save applies.
  */
@@ -43,7 +50,8 @@ export default function PhotosPanel({
   onRoleChange = () => {},
   onDiscard = () => {},
   // Changes held for filed photographs, {link_id: {image_role?,
-  // is_primary?, remove?, error?}}, and the editor's setter for the whole map.
+  // is_primary?, remove?, move_to?: {id, item_code}, error?}}, and the
+  // editor's setter for the whole map.
   edits = {},
   onEditsChange = () => {},
   // Bumped by the editor once it has applied what was held, to read the
@@ -62,8 +70,10 @@ export default function PhotosPanel({
       : null
   const error = photos.error
   // What each filed photograph will be once Save applies what is held.
+  // A photograph removed or moved away is leaving this item.
+  const leaving = (edit) => Boolean(edit.remove || edit.move_to)
   const heldPrimary = Object.keys(edits).find(
-    (id) => edits[id].is_primary && !edits[id].remove,
+    (id) => edits[id].is_primary && !leaving(edits[id]),
   )
   const shown = (links ?? []).map((row) => {
     const edit = edits[row.link_id] ?? {}
@@ -89,9 +99,12 @@ export default function PhotosPanel({
   // the photograph just added and read as its label, so a person set the
   // first photograph's side on the second (owner's report, CC-008085).
   const [address, setAddress] = useState('')
+  // The photograph whose Move picker is open, and what it last refused.
+  const [moving, setMoving] = useState(null)
+  const [moveError, setMoveError] = useState('')
   // A held photograph counts: two added at once are an obverse and a reverse.
   const held = new Set([
-    ...shown.filter((row) => !row.edit.remove).map((row) => row.role),
+    ...shown.filter((row) => !leaving(row.edit)).map((row) => row.role),
     ...pending.map((entry) => entry.role),
   ])
   const nextSide = ['obverse', 'reverse'].find((code) => !held.has(code)) ?? ''
@@ -141,6 +154,21 @@ export default function PhotosPanel({
     if (Object.keys(entry).length > 0) next[row.link_id] = entry
     else delete next[row.link_id]
     onEditsChange(next)
+  }
+
+  function moveTo(row, item) {
+    // null: the code was edited after a pick; nothing chosen yet.
+    if (!item) return
+    if (item.id === itemId) {
+      setMoveError(`That photograph is already on this item (${item.item_code}).`)
+      return
+    }
+    onEditsChange({
+      ...edits,
+      [row.link_id]: { move_to: { id: item.id, item_code: item.item_code } },
+    })
+    setMoving(null)
+    setMoveError('')
   }
 
   function undo(row) {
@@ -205,12 +233,18 @@ export default function PhotosPanel({
             return (
               <li key={row.link_id}>
                 <img src={row.thumbnail_url} alt={label} />
-                {row.primary && !edit.remove && (
+                {row.primary && !leaving(edit) && (
                   <span className="primary-marker">Primary</span>
                 )}
-                {edit.remove ? (
+                {edit.remove && (
                   <span className="notice">{label} -- removed when you Save.</span>
-                ) : (
+                )}
+                {edit.move_to && (
+                  <span className="notice">
+                    {label} -- moves to {edit.move_to.item_code} when you Save.
+                  </span>
+                )}
+                {!leaving(edit) && (
                   <>
                     <ReferenceSelect
                       table="image_role"
@@ -236,9 +270,34 @@ export default function PhotosPanel({
                     >
                       Remove (photo {row.image_id})
                     </button>
+                    {moving !== row.link_id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMoving(row.link_id)
+                          setMoveError('')
+                        }}
+                      >
+                        Move (photo {row.image_id})
+                      </button>
+                    )}
                   </>
                 )}
-                {changed && !edit.remove && (
+                {moving === row.link_id && !leaving(edit) && (
+                  <div className="photo-move">
+                    <span>Move to the item with code:</span>
+                    <ItemPicker onPick={(item) => moveTo(row, item)} />
+                    {moveError && <p className="error">{moveError}</p>}
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setMoving(null)}
+                    >
+                      Cancel the move
+                    </button>
+                  </div>
+                )}
+                {changed && !leaving(edit) && (
                   <span className="notice">Not saved yet.</span>
                 )}
                 {changed && (

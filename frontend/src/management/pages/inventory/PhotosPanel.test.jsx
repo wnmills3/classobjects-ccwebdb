@@ -9,6 +9,9 @@ vi.mock('../../api', () => ({
     addImageFromUrl: vi.fn(),
     updateImageLink: vi.fn(),
     detachImage: vi.fn(),
+    moveImageLink: vi.fn(),
+    // The item picker's lookup, for Move.
+    searchInventory: vi.fn(),
     // Never called by this panel -- see "Remove detaches, never deletes"
     // below. Mocked anyway so a mistaken call is a clean assertion failure
     // rather than a TypeError on an undefined function.
@@ -407,5 +410,89 @@ describe('PhotosPanel: adding another photograph', () => {
       ],
     })
     expect(await screen.findByText(/the address answered 404/)).toBeInTheDocument()
+  })
+})
+
+describe('PhotosPanel: moving a photograph to another item', () => {
+  const OTHER = { id: 99, item_code: 'CC-000099', description: 'Another note' }
+
+  function found(row) {
+    api.searchInventory.mockImplementation((view) =>
+      Promise.resolve({ rows: view === 'currency' ? [row] : [], total: 1 }),
+    )
+  }
+
+  async function pick(user, code) {
+    await user.click(await screen.findByRole('button', { name: 'Move (photo 30)' }))
+    await user.type(screen.getByRole('textbox', { name: 'Item code' }), code)
+    await user.click(screen.getByRole('button', { name: 'Find' }))
+    await user.click(await screen.findByRole('button', { name: new RegExp(code) }))
+  }
+
+  it('holds a move to the item found by its code', async () => {
+    const user = userEvent.setup()
+    const onEditsChange = vi.fn()
+    found(OTHER)
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 5, image_id: 30, image_role: 'obverse', is_primary: true }),
+    ])
+    renderWithProviders(<PhotosPanel itemId={12} onEditsChange={onEditsChange} />, {
+      reference: roles,
+    })
+
+    await pick(user, 'CC-000099')
+
+    expect(onEditsChange).toHaveBeenCalledWith({
+      5: { move_to: { id: 99, item_code: 'CC-000099' } },
+    })
+    expect(api.moveImageLink).not.toHaveBeenCalled()
+  })
+
+  it('refuses the item the photograph is already on', async () => {
+    const user = userEvent.setup()
+    const onEditsChange = vi.fn()
+    found({ id: 12, item_code: 'C-012', description: 'This one' })
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 5, image_id: 30, image_role: 'obverse', is_primary: true }),
+    ])
+    renderWithProviders(<PhotosPanel itemId={12} onEditsChange={onEditsChange} />, {
+      reference: roles,
+    })
+
+    await pick(user, 'C-012')
+
+    expect(screen.getByText(/already on this item/i)).toBeInTheDocument()
+    expect(onEditsChange).not.toHaveBeenCalled()
+  })
+
+  it('shows a held move with Undo, and counts it out of the next side', async () => {
+    const user = userEvent.setup()
+    const onEditsChange = vi.fn()
+    const onAdd = vi.fn()
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 5, image_id: 30, image_role: 'obverse', is_primary: true }),
+    ])
+    renderWithProviders(
+      <PhotosPanel
+        itemId={12}
+        edits={{ 5: { move_to: { id: 99, item_code: 'CC-000099' } } }}
+        onEditsChange={onEditsChange}
+        onAdd={onAdd}
+      />,
+      { reference: roles },
+    )
+    expect(
+      await screen.findByText(/moves to CC-000099 when you save/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Primary')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Move (photo 30)' })).toBeNull()
+
+    // The obverse is leaving, so a photograph added now is the obverse.
+    const file = new File(['x'], 'front.jpg', { type: 'image/jpeg' })
+    await user.upload(screen.getByLabelText('Photo'), file)
+    expect(onAdd).toHaveBeenCalledWith({ kind: 'file', file, role: 'obverse' })
+
+    await user.click(screen.getByRole('button', { name: 'Undo (photo 30)' }))
+    expect(onEditsChange).toHaveBeenCalledWith({})
   })
 })

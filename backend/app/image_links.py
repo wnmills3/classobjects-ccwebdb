@@ -14,6 +14,7 @@ from whoever caused it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection
 
 from sqlalchemy import func, select, update
@@ -28,8 +29,14 @@ __all__ = [
     "detach",
     "fill_primary_vacancy",
     "make_primary",
+    "move",
+    "name_for_place",
     "set_role",
 ]
+
+#: A name given for a place on an item: its item code, its position, the
+#: extension -- `CC-008078_01.jpg`, as the item editor names what it files.
+_PLACE_NAME = re.compile(r"^(?P<code>.+)_(?P<position>\d{2,})(?P<ext>\.[A-Za-z0-9]+)$")
 
 
 class LinkRefused(Exception):
@@ -123,6 +130,80 @@ def attach(
     )
     db.add(link)
     db.flush()
+    return link
+
+
+def name_for_place(db: Session, link: ItemImage) -> None:
+    """Rename the photograph for the place `link` gives it, where it had one.
+
+    Only a name that is an item's place -- another real item's code and a
+    position -- is replaced: a camera's `DSC00417.JPG` says where the file
+    came from and stays. And only a photograph filed nowhere else: a group
+    photograph shared by three items is named for none of them alone.
+    """
+    image = db.get(Image, link.image_id)
+    item = db.get(InventoryItem, link.inventory_item_id)
+    if image is None or item is None:
+        return
+    match = _PLACE_NAME.match(image.source_ref or "")
+    if match is None:
+        return
+    shared = db.scalar(
+        select(func.count())
+        .select_from(ItemImage)
+        .where(ItemImage.image_id == image.id, ItemImage.id != link.id)
+    )
+    named_for_an_item = db.scalar(
+        select(InventoryItem.id).where(InventoryItem.item_code == match["code"])
+    )
+    if shared or named_for_an_item is None:
+        return
+    image.source_ref = f"{item.item_code}_{link.sort_order:02d}{match['ext']}"
+    db.flush()
+
+
+def move(db: Session, link: ItemImage, target: InventoryItem) -> ItemImage:
+    """File this photograph on `target` instead, as what it already shows.
+
+    It goes after the target's photographs, is the target's primary only if
+    the target had none, and the item it leaves gets its next photograph as
+    primary (`fill_primary_vacancy`). Renamed for its new place where its
+    name was its old one (`name_for_place`).
+    """
+    source_id = link.inventory_item_id
+    if source_id == target.id:
+        raise LinkRefused(f"This photograph is already filed on {target.item_code}.")
+    held = db.scalar(
+        select(ItemImage.id).where(
+            ItemImage.inventory_item_id == target.id,
+            ItemImage.image_id == link.image_id,
+        )
+    )
+    if held is not None:
+        raise LinkRefused(
+            f"{target.item_code} already has this photograph (link #{held})."
+        )
+
+    # Demoted before it leaves: the target may have a primary of its own,
+    # and the index allows one per item.
+    link.is_primary = False
+    db.flush()
+    link.sort_order = next_position(db, target.id)
+    link.inventory_item_id = target.id
+    db.flush()
+    incumbent = db.scalar(
+        select(ItemImage.id).where(
+            ItemImage.inventory_item_id == target.id,
+            ItemImage.is_primary,
+            ItemImage.id != link.id,
+        )
+    )
+    if incumbent is None:
+        link.is_primary = True
+        db.flush()
+    if source_id is not None:
+        fill_primary_vacancy(db, [source_id])
+    name_for_place(db, link)
     return link
 
 

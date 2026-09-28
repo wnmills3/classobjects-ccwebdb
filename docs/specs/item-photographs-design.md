@@ -117,14 +117,17 @@ stored; only the *link* is withheld.
 
 - **`PhotosPanel`**, in the item editor beside `OffersPanel` and
   `ErrorsPanel`: thumbnails in `sort_order` with role and primary shown;
-  add, change role, make primary, and **Remove**, which detaches and never
-  deletes the photograph. **Nothing in it writes until the editor's Save.**
+  add, change role, make primary, **Move** to another item, and **Remove**,
+  which detaches and never deletes the photograph. **Nothing in it writes
+  until the editor's Save.**
   A new photograph is added from a file or from a **pasted web address** and
-  listed as not saved yet, with Discard. A new role, a new primary or a
-  removal for a filed photograph shows in place, marked not saved yet, with
-  Undo; choosing the saved value again drops it. Save applies them after the
-  fields and errors, under the editor's one for-sale acknowledgement: roles
-  and the new primary first, then removals (so the server never fills a
+  listed as not saved yet, with Discard. A new role, a new primary, a
+  removal or a move for a filed photograph shows in place, marked not saved
+  yet, with Undo; choosing the saved value again drops it. A move names the
+  other item by its code (the Photos page's `ItemPicker`) and refuses the
+  item the photograph is already on. Save applies them after the fields and
+  errors, under the editor's one for-sale acknowledgement: roles and the new
+  primary first, then moves, then removals (so the server never fills a
   vacated primary over the one chosen), then new photographs. Whatever
   fails stays held with its reason. The panel reads from the server again
   after Save. A new photograph says **what it shows** with its own picker,
@@ -137,6 +140,18 @@ stored; only the *link* is withheld.
   (nulls last), each with an item picker that searches by item code across
   coins and currency. Where the pass's leftovers are filed, and where a
   photograph detached from the wrong item waits.
+
+**Moving a photograph** (`image_links.move`) keeps its role, files it after
+the target's photographs, makes it the target's primary only when the target
+had none, and gives the item it left its next photograph as primary. Both
+items are checked by the for-sale guard, under one acknowledgement.
+
+**Named for its place.** A photograph moved, or filed from
+`/management/photos`, is renamed for its new place (`CC-008079_02.jpg`) when
+its name was another item's place -- a real item's code and a position -- and
+it is filed on no other item (`image_links.name_for_place`). A camera's
+`DSC00417.JPG` keeps its name, and so does a group photograph shared by
+several items.
 - **Receiving**: `ReceiptPanel` uploads photographs for the one item being
   received; the first is primary. A failed upload never rolls back the
   receipt.
@@ -153,6 +168,7 @@ change is guarded by `sale_state.guard` (`for-sale-guards-design.md`).
 | `GET /api/images/{sha256}/{kind}` | serve a derivative |
 | `POST /api/images/{image_id}/links` | attach to an item, with role and primary |
 | `PATCH /api/image-links/{link_id}` | change role, or make primary |
+| `POST /api/image-links/{link_id}/move` | file on another item (`inventory_item_id`), placed, promoted and renamed there |
 | `DELETE /api/image-links/{link_id}` | **detach**; the photograph survives |
 | `DELETE /api/images/{image_id}` | destroy the photograph, its derivatives and its stored bytes |
 
