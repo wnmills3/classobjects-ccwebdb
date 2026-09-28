@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import ItemFinder from './receiving/ItemFinder'
 import ModalDialog from '../ModalDialog'
+import { purchaseNumber } from '../purchase-number'
 import ReceiptPanel from './receiving/ReceiptPanel'
 import { date } from '../../shared/format'
 import { useRequest } from '../../shared/useRequest'
@@ -85,7 +86,8 @@ export default function Receiving() {
           replaced it. */}
       {order && (
         <h2>
-          {order.order_number} &middot; {order.vendor} &middot; {date(order.ordered_on)}
+          {purchaseNumber(order.id)} &middot; {order.order_number} &middot;{' '}
+          {order.vendor} &middot; {date(order.ordered_on)}
           {order.source_url && (
             <>
               {' '}

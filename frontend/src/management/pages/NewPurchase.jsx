@@ -6,6 +6,7 @@ import NewItemForm from './entry/NewItemForm'
 import SellerField from './SellerField'
 import ItemEditDialog from './inventory/ItemEditDialog'
 import HelpScope from '../HelpScope'
+import { namesPurchase, purchaseNumber } from '../purchase-number'
 import { ReferenceSelect } from '../../shared/reference'
 import { date } from '../../shared/format'
 import { orNull } from '../../shared/text'
@@ -141,23 +142,28 @@ function sellerId(text) {
   return text ? Number(text) : null
 }
 
-/** Whether `order` matches a filter typed against its number or vendor. */
+/**
+ * Whether `order` matches a filter typed against its order number, its
+ * vendor, or -- exactly -- its own purchase number (`3974` or `#3974`).
+ */
 function matchesFilter(order, filterText) {
   const q = filterText.trim().toLowerCase()
   if (!q) return true
   return (
+    namesPurchase(q, order.id) ||
     (order.order_number ?? '').toLowerCase().includes(q) ||
     order.vendor.toLowerCase().includes(q)
   )
 }
 
 //: The columns of the purchases table: heading, the field it shows, and the
-//: direction a first click sorts in -- newest first for a date, A to Z for
-//: text.
+//: direction a first click sorts in -- newest first for a date or a purchase
+//: number, A to Z for text.
 const PURCHASE_COLUMNS = [
   ['Order number', 'order_number', 'asc'],
   ['Date', 'ordered_on', 'desc'],
   ['Vendor', 'vendor', 'asc'],
+  ['No.', 'id', 'desc'],
 ]
 
 //: Order numbers and vendors compared as people read them: B-9 before B-10,
@@ -260,6 +266,7 @@ function ExistingPurchasePicker({ orders, filterText, onPick }) {
             </td>
             <td>{date(order.ordered_on)}</td>
             <td>{order.vendor}</td>
+            <td className="mono">{purchaseNumber(order.id)}</td>
           </tr>
         ))}
       </tbody>

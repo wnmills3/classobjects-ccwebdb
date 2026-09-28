@@ -44,7 +44,9 @@ export const FIELD_HELP = {
   },
   purchase_filter: {
     title: 'Filter',
-    text: 'Type part of an order number or a vendor name to shorten the list.',
+    text:
+      'Type part of an order number or a vendor name to shorten the list, ' +
+      'or a purchase number (3974 or #3974) to find that one purchase.',
   },
   tax_rate: {
     title: 'Tax rate',

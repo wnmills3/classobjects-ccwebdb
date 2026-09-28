@@ -118,7 +118,9 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
 (`management/pages/NewPurchase.jsx`), in two steps on one page:
 
 1. **The purchase.** Either *Add to an existing purchase* -- a table of order
-   number, date and vendor, filterable by order number or vendor and sorted by
+   number, date, vendor and purchase number (`#3974`, the purchase's own id,
+   which the reports and Receiving's heading show too), filterable by part of
+   an order number or vendor, or by an exact purchase number, and sorted by
    any column from a button in its header (date, newest first, until another
    is chosen; an undated purchase always last; ties newest first). A row or its order-number
    button picks the purchase -- or a new one:

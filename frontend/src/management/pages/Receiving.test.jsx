@@ -104,6 +104,10 @@ describe('Receiving', () => {
 
     expect(await morganButton()).toBeInTheDocument()
     expect(screen.getByLabelText(/order number/i)).toHaveValue('27-1234')
+    // The purchase's own number, as the Purchases table and the reports show it.
+    expect(screen.getByRole('heading', { name: /#1\b/ })).toHaveTextContent(
+      /^#1 · 27-1234 · eBay/,
+    )
     expect(
       api.searchInventory.mock.calls.every(([, p]) => p.purchase_order_id === 1),
     ).toBe(true)
