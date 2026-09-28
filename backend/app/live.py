@@ -22,3 +22,12 @@ def live_item() -> ColumnElement[bool]:
     them.
     """
     return and_(InventoryItem.deleted_at.is_(None), InventoryItem.split_at.is_(None))
+
+
+#: The `item_status` codes that mean a purchased line has not yet been
+#: resolved: still `ordered`, or `missing` -- paid for, not cancelled, and
+#: sometimes turns up later, so it counts exactly as outstanding as one
+#: still `ordered`. Named once here so Receiving (`GET /api/purchase-orders`)
+#: and the `pr_outstanding` report read the same definition and can never
+#: disagree about what is outstanding.
+OUTSTANDING_STATUSES = ("ordered", "missing")
