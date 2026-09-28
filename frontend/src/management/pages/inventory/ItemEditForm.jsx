@@ -241,6 +241,8 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       pendingFriedberg !== null ||
       errorsChanged) &&
     (!forSale || acknowledged) &&
+    // A photograph filed without saying what it shows is one nobody finds.
+    pendingPhotos.every((entry) => entry.role) &&
     conflicts.length === 0
   useSaveShortcut(save, canSave)
 
@@ -1175,6 +1177,13 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               ...list,
               { ...entry, key: crypto.randomUUID() },
             ])
+          }
+          onRoleChange={(key, role) =>
+            setPendingPhotos((list) =>
+              list.map((entry) =>
+                entry.key === key ? { ...entry, role, error: undefined } : entry,
+              ),
+            )
           }
           onDiscard={(key) =>
             setPendingPhotos((list) => list.filter((entry) => entry.key !== key))
