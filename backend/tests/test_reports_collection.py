@@ -4,14 +4,21 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import cast
+from typing import cast, get_args
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
 from app.inventory_search import COIN_VIEW, CURRENCY_VIEW
 from app.inventory_search import search as inventory_search
 from app.models import Denomination, Disposition, InventoryItem, ItemKind, ItemStatus
 from app.reports.base import ReportResult
-from app.reports.collection import CB_HOLDINGS, HoldingsParams
+from app.reports.collection import (
+    CB_HOLDINGS,
+    DispositionParam,
+    HoldingsParams,
+    StatusParam,
+)
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, code_id
@@ -105,6 +112,34 @@ def test_denomination_ordered_by_its_own_sort_order_within_a_kind(db: Session) -
     assert [r["denomination"] for r in coin_rows] == ["Cent", "Dollar"]
 
 
+def test_kinds_are_ordered_by_item_kind_sort_order_not_by_label(db: Session) -> None:
+    """Kinds sort by `item_kind.sort_order`, not alphabetically.
+
+    `Bullion` < `Coin` alphabetically, but `item_kind.sort_order` says Coin
+    (10) comes before Bullion (30) -- the controller ruled every vocabulary
+    shows in its own `sort_order`, and this is the one place two kinds' rows
+    could interleave if that were wrong.
+    """
+    _coin(db, _CENT, Decimal("1.00"))
+    build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "bullion"),
+        item_cost=Decimal("30.00"),
+        tax_rate=Decimal("0"),
+        denomination_id=None,
+    )
+
+    result = CB_HOLDINGS.run(db, HoldingsParams())
+    kinds = [cast(str, r["kind"]) for r in result.rows]
+    coin_positions = [i for i, k in enumerate(kinds) if k == "Coin"]
+    bullion_positions = [i for i, k in enumerate(kinds) if k == "Bullion"]
+    assert coin_positions and bullion_positions
+    # Every Coin row (its denomination rows and its own subtotal) precedes
+    # every Bullion row -- not just "Coin's label appears first" -- which is
+    # what the subtotal loop's contiguity assumption actually depends on.
+    assert max(coin_positions) < min(bullion_positions)
+
+
 def test_no_denomination_is_labeled_and_sorts_last_within_its_kind(db: Session) -> None:
     _coin(db, _DOLLAR, Decimal("50.00"))
     _coin(db, None, Decimal("5.00"))
@@ -170,6 +205,17 @@ def test_subtotals_equal_the_sum_of_their_rows_and_totals_the_sum_of_subtotals(
 # ---------------------------------------------------------------------------
 # Status and disposition parameters
 # ---------------------------------------------------------------------------
+
+
+def test_status_literal_matches_the_seeded_item_status_codes(db: Session) -> None:
+    """A renamed or added seed code must fail this test, not silently match `all`."""
+    seeded = set(db.scalars(select(ItemStatus.code)))
+    assert set(get_args(StatusParam)) - {"all"} == seeded
+
+
+def test_disposition_literal_matches_the_seeded_disposition_codes(db: Session) -> None:
+    seeded = set(db.scalars(select(Disposition.code)))
+    assert set(get_args(DispositionParam)) - {"all"} == seeded
 
 
 def test_default_status_and_disposition_are_received_and_held(db: Session) -> None:
@@ -347,6 +393,37 @@ def test_a_no_denomination_row_has_no_drill_when_the_kind_cannot_carry_one(
         if r["kind"] == "Bullion" and r["denomination"] == "No denomination"
     )
     assert result.drills[idx] is None
+
+
+@pytest.mark.parametrize(
+    ("params", "expected_items"),
+    [
+        # Neither filter applies: all three items count.
+        (HoldingsParams(status="all", disposition="all"), 3),
+        # Only the ordered/held item: status narrows, and the default
+        # disposition="held" still applies since it was not widened.
+        (HoldingsParams(status="ordered"), 1),
+    ],
+)
+def test_a_denomination_drill_matches_the_search_with_non_default_params(
+    db: Session, params: HoldingsParams, expected_items: int
+) -> None:
+    """The drill's own query string, not just the default one, must agree."""
+    _coin(db, _CENT, Decimal("1.00"))  # received, held (build_bare_item's defaults)
+    _coin(db, _CENT, Decimal("2.00"), status_id=code_id(db, ItemStatus, "ordered"))
+    _coin(db, _CENT, Decimal("3.00"), disposition_id=code_id(db, Disposition, "sold"))
+
+    result = CB_HOLDINGS.run(db, params)
+    idx = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["kind"] == "Coin" and r["denomination"] == "Cent"
+    )
+    assert result.rows[idx]["items"] == expected_items
+    path, query = _parsed(cast(str, result.drills[idx]))
+    assert path == "/inventory/coins"
+    _, total = inventory_search(db, COIN_VIEW, params=dict(query))
+    assert total == expected_items
 
 
 # ---------------------------------------------------------------------------
