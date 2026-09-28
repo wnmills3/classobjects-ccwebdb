@@ -1,8 +1,12 @@
 """The one rule for which inventory rows are live.
 
 A report, a search view, and a receiving list must never disagree about
-what counts as "in the collection". This is that rule, in one place, so a
-later report reuses it rather than growing its own copy that could drift.
+what counts as "in the collection". The reports and Receiving read this
+predicate itself. The inventory search views (`app.inventory_search`) are
+raw SQL text, so they state the same rule as text instead -- `i.split_at IS
+NULL` in each `ViewSpec.where` and `DELETED_MODES["no"]`, the default --
+and `tests/test_live.py` pins the two statements as equivalent, so neither
+can change alone.
 """
 
 from __future__ import annotations

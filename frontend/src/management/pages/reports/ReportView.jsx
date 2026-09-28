@@ -114,13 +114,16 @@ export default function ReportView({ report, result, sent }) {
  *
  * A header sorts ascending, then descending, then back to the report's own
  * order. Each row is paired with its drill-down before sorting, so a sorted
- * row still links where it did. The first cell of a row with a drill-down
- * links to it; so does a percentage, to the same page narrowed to the items
- * missing that column's field.
+ * row still links where it did. A row with a drill-down links to it from
+ * the cell of the report's `link_column` -- the one naming what the link
+ * opens, such as a listing's item code -- or from its first cell when the
+ * result names none; a percentage links to the same page narrowed to the
+ * items missing that column's field.
  */
 function ReportTable({ result }) {
   const [sort, setSort] = useState({ key: null, descending: false })
   const { columns } = result
+  const linkKey = result.link_column ?? columns[0]?.key
 
   const entries = result.rows.map((row, index) => ({
     row,
@@ -179,13 +182,13 @@ function ReportTable({ result }) {
       <tbody data-help="report_rows">
         {shown.map(({ row, drill, index }) => (
           <tr key={index}>
-            {columns.map((column, position) => (
+            {columns.map((column) => (
               <td key={column.key} className={alignment(column)}>
                 <Cell
                   column={column}
                   value={row[column.key]}
                   drill={drill}
-                  first={position === 0}
+                  linked={column.key === linkKey}
                 />
               </td>
             ))}
@@ -211,10 +214,10 @@ function alignment(column) {
   return NUMERIC_KINDS.has(column.kind) ? 'num' : undefined
 }
 
-function Cell({ column, value, drill, first }) {
+function Cell({ column, value, drill, linked }) {
   const text = cellText(column.kind, value)
   if (!drill || isBlank(value)) return text
-  if (first) return <Link to={drill}>{text}</Link>
+  if (linked) return <Link to={drill}>{text}</Link>
   if (column.kind === 'percent') {
     return <Link to={withMissing(drill, column.key)}>{text}</Link>
   }

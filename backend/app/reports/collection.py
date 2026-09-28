@@ -16,28 +16,22 @@ from urllib.parse import urlencode
 from pydantic import BaseModel, Field
 from sqlalchemy import ColumnElement, FromClause, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.util import ClauseAdapter
 
-from ..inventory_search import MISSING_FIELDS
-from ..live import live_item
-from ..models import Denomination, Disposition, InventoryItem, ItemKind, ItemStatus
+from ..inventory_search import MISSING_FIELDS, view_path
+from ..models import Denomination, Disposition, ItemStatus
 from .base import Column, Report, ReportResult
 from .registry import register
+from .tables import ITEM as _I
+from .tables import KIND as _K
+from .tables import LIVE as _LIVE
 
 __all__ = ["CB_HOLDINGS", "HoldingsParams"]
 
-#: `inventory_item`, `item_kind` and `denomination`, aliased the way
-#: `data_quality.py` aliases them -- `i`/`k` -- plus `d` for denomination, so
-#: `live_item()` (written against the unaliased model) can be rewritten onto
-#: `_I` with `ClauseAdapter` and composed into a query that joins
-#: `inventory_item` under an alias.
-_I = InventoryItem.__table__.alias("i")
-_K = ItemKind.__table__.alias("k")
+#: `denomination`, `item_status` and `disposition`, aliased as the search
+#: aliases them, alongside the shared `i`/`k` of `.tables`.
 _D = Denomination.__table__.alias("d")
 _ST = ItemStatus.__table__.alias("st")
 _DISP = Disposition.__table__.alias("disp")
-
-_LIVE = ClauseAdapter(_I).traverse(live_item())
 
 #: The seeded `item_status` codes (`backend/data/reference/operations.json`),
 #: plus `all` for no filter.
@@ -113,21 +107,8 @@ def _query_string(
         query["status"] = params.status
     if params.disposition != "all":
         query["disposition"] = params.disposition
-    path = "/inventory/currency" if kind_code == "currency" else "/inventory/coins"
+    path = view_path(kind_code)
     return f"{path}?{urlencode(query)}" if query else path
-
-
-def _denomination_applies(kind_code: str) -> bool:
-    """Whether `kind_code` can carry a denomination at all.
-
-    Read from `MISSING_FIELDS["denomination"]` -- the same table the
-    `missing=` filter and `dq_completeness` read -- so a "No denomination"
-    row's drill agrees with that filter by construction: a kind outside its
-    `kinds` set never gets a `missing=denomination` link, because that search
-    would come back empty and disagree with this row's own count.
-    """
-    kinds = MISSING_FIELDS["denomination"].kinds
-    return kinds is None or kind_code in kinds
 
 
 def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
@@ -277,9 +258,14 @@ def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
                     "total_cost": row["total_cost"],
                 }
             )
+            # Whether the kind can carry a denomination at all is read from
+            # `MISSING_FIELDS` -- the table the `missing=` filter and
+            # `dq_completeness` read -- so a kind it does not apply to never
+            # gets a `missing=denomination` link, whose search would come
+            # back empty and disagree with this row's own count.
             drills.append(
                 _query_string(kind_code, params, missing_denom=True)
-                if _denomination_applies(kind_code)
+                if MISSING_FIELDS["denomination"].applies_to(kind_code)
                 else None
             )
 

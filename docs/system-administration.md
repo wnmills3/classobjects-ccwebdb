@@ -939,7 +939,8 @@ A row that names items links to where they are: the inventory search narrowed
 to that row's values, or Receiving's `?order=<id>`. A percent cell in
 `dq_completeness` links to the inventory search with `missing=<field>` added
 -- the items with that field empty, kind-aware, the same test the report
-itself counts by. A row standing for exactly one item, rather than a count of
+itself counts by. The inventory page shows that filter as a chip reading
+"Missing: <field>"; clicking the chip removes it. A row standing for exactly one item, rather than a count of
 many, links straight to that item's editor with `?item=CC-######`; opening the
 inventory search on that address opens the item on load, not only from a
 click in the table.
@@ -957,7 +958,7 @@ hidden on paper; a heading printed only there names the report, its
 parameters in words, when it ran and its row count. The table's header row
 repeats on every page and a row is never split across one; a report of more
 than six columns prints landscape. Nothing is carried by color alone -- an
-overdue row reads "Overdue" in its own cell, not only in red.
+overdue row reads "Overdue" in its own cell -- it is marked in words.
 
 ### The command line
 

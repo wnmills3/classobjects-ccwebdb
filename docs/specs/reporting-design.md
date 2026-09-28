@@ -23,8 +23,8 @@ report row that names items links there.
 | Existing | Reused as |
 |---|---|
 | `app/issues.py` -- named checks per kind (`no_year`, `no_denomination`, `zero_cost`, `unreviewed`, `malformed_serial`, `near_duplicate_serial`, ...), each a SQL predicate with a description | The data-quality reports count and list by these same checks; a new check is still added there, once, and appears in the search, its badges and the reports alike. |
-| `app/inventory_search.py` -- `COIN_VIEW` / `CURRENCY_VIEW`, `count_facets`, `count_issues`, the live-row rule, allowlisted filters | Breakdowns group by the same facets; every drill-down is an inventory search URL built from the same filter names. |
-| `app/live.py` -- `live_item()`, `OUTSTANDING_STATUSES` (`ordered`, `missing`), also read by `routers/acquisitions.py` | `pr_outstanding` reads the same two names, so a report and Receiving never disagree about what is outstanding. |
+| `app/inventory_search.py` -- `COIN_VIEW` / `CURRENCY_VIEW`, `count_facets`, `count_issues`, the live-row rule stated as SQL text, allowlisted filters | Breakdowns group by the same facets; every drill-down is an inventory search URL built from the same filter names. |
+| `app/live.py` -- `live_item()`, `OUTSTANDING_STATUSES` (`ordered`, `missing`), also read by `routers/acquisitions.py` | Every report reads `live_item()`, and `pr_outstanding` reads both names, so a report and Receiving never disagree about what is live or outstanding. |
 | `sales_order_item_share` (amount, fee per item), `sales_order_fee`, `listing`, `auction_lot` | The selling reports read these; the per-item share is what makes a sale's cost basis and gain computable per item. |
 | `metal_price`, `item_valuation` view (melt, profit) | Melt valuation, when it is built, reads the latest spot the way the view does. |
 | `app/workbook_backup.py` conventions -- NULL as an empty cell, ISO timestamps, column widths | Each report exports to a workbook the same way. |
@@ -109,20 +109,27 @@ with no denomination named.
   itself. Each entry is a `Report`: `id`, `group`, `title`, `purpose`, `params`
   (a pydantic model of the parameters it takes, with their defaults), and
   `run(db, params) -> ReportResult`.
-- **One result shape.** `ReportResult` has `columns` (key, label, type: text,
-  count, money, percent, date, ounces), `rows` (dicts keyed by column), an
-  optional `totals` row, `drills` -- a console path (with its query) per row,
-  or `None` where that row has no drill-down, index-aligned with `rows` and
-  checked to be so -- and `notes`: anything the reader must know to read it
-  right, such as "no spot price recorded; melt value omitted".
+- **One result shape.** `ReportResult` has `columns` (key, label, and
+  `kind`: text, count, money, percent, date, ounces -- sent as `kind` on
+  the wire, where a parameter's own sort is `type`), `rows` (dicts keyed by
+  column), an optional `totals` row, `drills` -- a console path (with its
+  query) per row, or `None` where that row has no drill-down,
+  index-aligned with `rows` and checked to be so -- `link_column`, the key
+  of the column whose cell carries a row's link (`None` for the first
+  column; checked to name a column; `sl_offered` links on `offers`,
+  `dq_issues` on `check`), and `notes`: anything the reader must know to
+  read it right, such as "no spot price recorded; melt value omitted".
 - **Grouped by module**: `data_quality.py`, `collection.py`,
   `purchasing.py`, `selling.py`, and (not yet built) `money.py`, each
   defining its reports and registering them.
-- **The live-row rule, once.** Every report reads live items only -- no
+- **The live-row rule.** Every report reads live items only -- no
   `deleted_at`, no `split_at` -- through one shared predicate, `live_item()`
-  in `app/live.py`, the same one the search views use.
-- **Queries** are SQLAlchemy Core on the base tables, grouped by foreign-key
-  id with labels joined after, as `count_facets` does. Parameters are bound;
+  in `app/live.py`. The search views are SQL text, so they state the same
+  rule as text (`i.split_at IS NULL` in each view's `where`, and the
+  default `DELETED_MODES["no"]`); `tests/test_live.py` pins the two as
+  selecting the same rows.
+- **Queries** are SQLAlchemy Core on the base tables, grouped by a
+  foreign-key id or code together with its label. Parameters are bound;
   column names come from allowlists, never from a request.
 - **Money** is `Decimal`, summed in SQL, sent as decimal strings, as
   everywhere else.
@@ -143,7 +150,7 @@ with no denomination named.
 - `GET /api/reports/{id}/workbook?<params>` -- the same result as an `.xlsx`
   download, named `<id>_<YYYY-MM-DD>.xlsx` (the run date): one sheet, the
   report's title, one row per parameter (label and the value it ran with), a
-  "Run at" row, then the header row, the data rows, the totals row directly
+  "Run at" row, a blank row, then the header row, the data rows, the totals row directly
   below (bold) when there is one, a blank row, then each note -- money and
   percent cells written as numbers, NULL as an empty cell, the header row
   frozen. One writer (`app/reports/workbook.py`), used by the API and the
@@ -189,7 +196,13 @@ plain-text table (title, parameters, header, rows, totals, notes) and
   history entry rather than pushing a new one, so Back does not reopen it.
   `dq_completeness`'s percent cells link one step further: the row's own
   drill with `missing=<key>` added, where a column's `key` is exactly the
-  `missing=` field name it counts.
+  `missing=` field name it counts. A row's link sits on the cell of its
+  result's `link_column`.
+- The inventory page shows an active `missing=` as a chip in its filter
+  panel ("Missing: photograph"), since the filter has no control of its
+  own; clicking the chip removes it from the address and searches again.
+  The field names and their labels live in one frontend module,
+  `pages/inventory/missingFields.js`.
 - The help band explains each parameter, as every console form does.
 - **Print** sits beside Export workbook; see Printing.
 
@@ -212,7 +225,7 @@ same page, with no report-specific code:
 - A report wider than a portrait page is marked so the page prints
   landscape (`@page` size set by a class on the report).
 - Black on white: nothing is carried by colour alone (an overdue row is
-  marked in words, not only red); money is right-aligned; a drill-down
+  marked in words, in its own Overdue cell); money is right-aligned; a drill-down
   link prints as its plain text.
 - Page numbers and the date come from the browser's own print header and
   footer.

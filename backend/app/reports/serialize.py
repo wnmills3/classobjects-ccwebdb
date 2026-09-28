@@ -1,8 +1,8 @@
-"""The report result's JSON shape, shared by the HTTP API and the CLI.
+"""The report catalog's and result's JSON shape, as the HTTP API sends them.
 
-One pair of functions is used by both the HTTP API (`routers/reports.py`)
-and the command line (a later phase), so a report reads the same catalog
-entry and the same result shape from either. The wire values follow the
+`routers/reports.py` sends both. The command line (`app.reports.__main__`)
+uses neither: it reads `REPORTS` directly and prints with its own plain-text
+formatter. The wire values follow the
 whole application's own convention: a `Decimal` is sent as the string it
 prints (`"12.50"`), never a float; a `date` is its ISO text; everything
 else -- `int`, `str`, `None` -- crosses unchanged, so an `int` column stays
@@ -101,7 +101,11 @@ def serialize_result(
     result: ReportResult,
     run_at: datetime,
 ) -> dict[str, object]:
-    """A report's result, exactly as the API sends it and the CLI prints it."""
+    """A report's result, exactly as the API sends it.
+
+    `link_column` is always a column key (or `None` for a result with no
+    columns): the result's own `link_column`, or its first column's key.
+    """
     return {
         "id": report.id,
         "group": report.group,
@@ -117,5 +121,6 @@ def serialize_result(
         "rows": [_wire_row(row) for row in result.rows],
         "totals": _wire_row(result.totals) if result.totals is not None else None,
         "drills": result.drills,
+        "link_column": result.linked_key,
         "notes": result.notes,
     }

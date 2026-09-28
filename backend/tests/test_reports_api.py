@@ -78,8 +78,25 @@ def test_every_registered_report_runs_and_aligns_rows_and_drills(
         assert body["id"] == report_id
         assert len(body["drills"]) == len(body["rows"])
         column_keys = {c["key"] for c in body["columns"]}
+        assert body["link_column"] in column_keys
         for row in body["rows"]:
             assert set(row) == column_keys
+
+
+def test_each_reports_links_sit_on_the_column_that_names_what_they_open(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A listing links on what it offers, a check on its own name; else column 1."""
+    expected = {
+        "sl_offered": "offers",
+        "dq_issues": "check",
+        "dq_completeness": "kind",
+        "cb_holdings": "kind",
+    }
+    for report_id, link_column in expected.items():
+        res = client.get(f"/api/reports/{report_id}", headers=admin_headers)
+        assert res.status_code == 200, (report_id, res.text)
+        assert res.json()["link_column"] == link_column, report_id
 
 
 def test_a_param_round_trips_into_the_result(

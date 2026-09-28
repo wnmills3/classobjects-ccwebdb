@@ -176,6 +176,8 @@ def test_active_and_paused_are_included_ended_is_excluded(
     result = SL_OFFERED.run(db, OfferedParams())
 
     assert {r["listing"] for r in result.rows} == {"Active", "Paused"}
+    # A row links on what it offers (its item code), not on its venue.
+    assert result.link_column == "offers"
 
 
 def test_a_deleted_or_split_item_listing_is_excluded(
