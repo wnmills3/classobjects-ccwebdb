@@ -171,7 +171,12 @@ error belongs to that order and clears when the address changes.
   errors; only one of the two is mounted at a time, because each replaces the
   item's whole error set (the editor's on its Save, this one on every change).
 - For a banknote, a collapsed catalog-number lookup (`FriedbergLookup`) is
-  offered.
+  offered. A match found in the owner's catalog has one **Use** button that
+  puts it on the note at once: as confirmed when the catalog row was
+  confirmed before (it is verified), as proposed when it never was. Only a
+  number not in the catalog -- typed, or pasted from the web search that a
+  miss opens -- is saved with **Save as proposed** or **Save as confirmed**.
+  In the item editor the choice is held until the editor's Save.
 - Photographs upload after the receipt, the first as primary. **A failed
   upload never rolls back the receipt**: the arrival is the fact, the
   photograph evidence added to it. The failure is shown against the file and

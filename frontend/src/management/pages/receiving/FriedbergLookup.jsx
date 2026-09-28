@@ -278,7 +278,7 @@ export default function FriedbergLookup({
   }
 
   /**
-   * What a finished search does: a match shows its number to copy; no
+   * What a finished search does: a match shows its number to use; no
    * match opens the web search straight away, so pressing Look up always
    * ends in an answer or the place to find one.
    */
@@ -357,12 +357,25 @@ export default function FriedbergLookup({
   }
 
   /**
-   * Save the number in the field onto this note.
+   * Put a match on this note, in one step.
    *
-   * A number copied from a match is that catalog row, so it is attached
-   * as it is; recording it again would be a 409. Anything else -- typed or
-   * pasted from a web search -- is recorded with what the form describes,
-   * then attached.
+   * A verified catalog row was confirmed once already for these search
+   * fields, so it is attached as confirmed -- asking again was a second
+   * Save for a decision already made (owner, 2026-09-27). A row only ever
+   * proposed, such as an AI answer saved unchecked, stays proposed: Use
+   * never confirms a guess on its own.
+   */
+  function applyMatch(row) {
+    attach(row.id, row.verified ? 'confirmed' : 'proposed', row.fr_number)
+  }
+
+  /**
+   * Save the number in the field onto this note -- a number not in the
+   * catalog, typed or pasted from a web search, recorded with what the form
+   * describes, then attached with the status its button names.
+   *
+   * A number typed that happens to be a match is that catalog row, so it is
+   * attached as it is; recording it again would be a 409.
    */
   async function save(status) {
     const number = recordFrNumber.trim()
@@ -563,20 +576,21 @@ export default function FriedbergLookup({
           </p>
         )}
 
-        {/* One field, one pair of Save buttons. Found in the catalog: each
-          match has a Copy button that puts its number in the field. Not
-          found: the field stays blank and the web search opens -- the owner
-          reads the number off the results window and types or pastes it
-          here. Search the web is always offered, for a match that is wrong.
-          Nothing is fetched or saved from the search itself (see
+        {/* Found in the catalog: each match has a Use button that puts it
+          on the note at once -- confirmed if it was confirmed before,
+          proposed if not. Not found: the web search opens -- the owner reads
+          the number off the results window, types or pastes it in the field,
+          and picks one of the two Save buttons, the only time a status has
+          to be chosen. Search the web is always offered, for a match that is
+          wrong. Nothing is fetched or saved from the search itself (see
           `webSearchText`). */}
         {results && (
           <div className="admin-form">
             {results.length > 0 ? (
               <ul className="order-picker">
                 {results.map((row) => (
-                  // The number and its Copy button, nothing else: what is
-                  // copied is exactly what is shown. The row's description and
+                  // The number and its Use button, nothing else: what is
+                  // used is exactly what is shown. The row's description and
                   // whether it is verified are on hover, for telling two
                   // matches apart.
                   <li
@@ -593,10 +607,15 @@ export default function FriedbergLookup({
                     <button
                       type="button"
                       disabled={busy}
-                      aria-label={`Copy ${row.fr_number}`}
-                      onClick={() => setRecordFrNumber(row.fr_number)}
+                      aria-label={`Use ${row.fr_number}`}
+                      title={
+                        row.verified
+                          ? 'Put this number on the note, as confirmed'
+                          : 'Put this number on the note, as proposed'
+                      }
+                      onClick={() => applyMatch(row)}
                     >
-                      Copy
+                      Use
                     </button>
                   </li>
                 ))}
