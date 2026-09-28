@@ -198,7 +198,14 @@ def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
                 _D.c.sort_order,
             )
             .order_by(
-                _K.c.label,
+                _K.c.sort_order,
+                # A tiebreak, not a sort key of its own: two kinds sharing a
+                # `sort_order` must still stay contiguous, which is what the
+                # subtotal loop below depends on -- it closes a kind's
+                # subtotal the moment `kind_code` changes, so an
+                # out-of-order pair of rows for the same kind would split
+                # into two subtotal rows for it.
+                _K.c.id,
                 _D.c.sort_order.asc().nulls_last(),
                 _D.c.label.asc().nulls_last(),
             )
