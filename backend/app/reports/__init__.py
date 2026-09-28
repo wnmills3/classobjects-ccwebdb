@@ -13,6 +13,14 @@ from __future__ import annotations
 
 from .collection import CB_HOLDINGS
 from .data_quality import DQ_COMPLETENESS, DQ_ISSUES
+from .purchasing import PR_OUTSTANDING
 from .registry import REPORTS, register
 
-__all__ = ["CB_HOLDINGS", "DQ_COMPLETENESS", "DQ_ISSUES", "REPORTS", "register"]
+__all__ = [
+    "CB_HOLDINGS",
+    "DQ_COMPLETENESS",
+    "DQ_ISSUES",
+    "PR_OUTSTANDING",
+    "REPORTS",
+    "register",
+]

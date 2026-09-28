@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..deps import AdminUser, DbSession
 from ..item_history import location_label
-from ..live import live_item
+from ..live import OUTSTANDING_STATUSES, live_item
 from ..models import (
     InventoryItem,
     ItemStatus,
@@ -263,7 +263,7 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
     dropped by the aggregation entirely.
     """
     outstanding = func.count(
-        case((ItemStatus.code.in_(["ordered", "missing"]), InventoryItem.id))
+        case((ItemStatus.code.in_(OUTSTANDING_STATUSES), InventoryItem.id))
     )
     total = func.count(InventoryItem.id)
 
