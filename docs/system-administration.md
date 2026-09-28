@@ -897,6 +897,85 @@ The `consigned` storage location kind is reference data loaded by
 `python -m app.seeding load`, not by the migration; without it consigning
 fails naming the missing code.
 
+## Reports
+
+`/management/reports` answers questions about the whole collection -- what is
+missing or wrong in the record, what the collection is made of, what has been
+bought and not yet arrived, and what is on offer -- without a spreadsheet or a
+one-off script. **Reports read only**: nothing here writes, and fixing what a
+report finds is done where it is always done -- the item editor, a bulk edit,
+Receiving, a pass. **Manager only**, like anything that shows cost, value or
+location (`docs/specs/reporting-design.md` is the design).
+
+### The catalog
+
+The menu lists every report by group; choosing one shows its purpose, its
+parameters and its table. Five are built so far:
+
+| Id | Group | Report |
+|---|---|---|
+| `dq_issues` | Data quality | Every named data-quality check, counted across coins and currency |
+| `dq_completeness` | Data quality | Percent of live items with each field filled in, by kind |
+| `cb_holdings` | Collection | What the collection is made of: kind x denomination, with items, pieces and total cost |
+| `pr_outstanding` | Purchasing and receiving | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first |
+| `sl_offered` | Selling | Active and paused listings, items and sales lots, by venue: asking price against cost basis, and days listed |
+
+The rest of the catalog the spec lays out is designed, not yet built; the
+console needs no change to show a report added later -- it renders whatever
+`GET /api/reports` lists.
+
+### Parameters and drill-downs
+
+A report's own parameters -- `cb_holdings`'s status and disposition,
+`pr_outstanding`'s "Overdue after (days)" -- are a dropdown or a box, the same
+as the inventory filter panel, and the help band explains each one. Leaving
+one empty is refused ("Enter a value for ..."), rather than silently running
+that parameter's default. The report and its parameters are kept in the
+address (`/reports?report=pr_outstanding&overdue_days=30`), so a result can be
+bookmarked or reopened; Run writes only the parameters that differ from their
+defaults.
+
+A row that names items links to where they are: the inventory search narrowed
+to that row's values, or Receiving's `?order=<id>`. A percent cell in
+`dq_completeness` links to the inventory search with `missing=<field>` added
+-- the items with that field empty, kind-aware, the same test the report
+itself counts by. A row standing for exactly one item, rather than a count of
+many, links straight to that item's editor with `?item=CC-######`; opening the
+inventory search on that address opens the item on load, not only from a
+click in the table.
+
+### Export workbook and Print
+
+**Export workbook** downloads the same result as an `.xlsx`: the report's
+title and the parameters it ran with above the table, a totals row below in
+bold, then any notes -- the same layout `python -m app.reports run ...
+--workbook` writes.
+
+**Print** opens the browser's print dialog on the report as shown -- the same
+rows, sort and parameters. The console menu, help band and parameter form are
+hidden on paper; a heading printed only there names the report, its
+parameters in words, when it ran and its row count. The table's header row
+repeats on every page and a row is never split across one; a report of more
+than six columns prints landscape. Nothing is carried by color alone -- an
+overdue row reads "Overdue" in its own cell, not only in red.
+
+### The command line
+
+The same registry, for a report wanted from a script or before the console is
+open, from `backend\` with the `ccwebdb` conda environment active:
+
+```cmd
+cd backend
+python -m app.reports list
+python -m app.reports run pr_outstanding --param overdue_days=30 --workbook C:\Users\you\Downloads\outstanding.xlsx
+```
+
+`list` prints every registered report's id, group and title. `run <id>`
+prints the report as a plain-text table -- title, parameters, header, rows,
+totals, notes -- and `--param name=value` (repeatable) sets its parameters.
+`--workbook FILE` also writes the same `.xlsx` the console's Export downloads.
+Read-only, like everything here, so there is no `--commit`.
+
 ## Reference vocabularies
 
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows

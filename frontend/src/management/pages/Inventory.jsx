@@ -66,7 +66,8 @@ function InventoryView({ config }) {
   const openId = editing ?? linked.id
 
   // Closing the editor on the address's item takes `item` out of the
-  // address, so a reload or Back does not open it again.
+  // address, replacing that history entry rather than pushing a new one, so
+  // a reload or Back does not open it again.
   function closeEditor() {
     setEditing(null)
     if (itemCode) closeItem()

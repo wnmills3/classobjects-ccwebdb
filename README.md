@@ -58,6 +58,9 @@ backend/
                          guards that refuse ending or selling one directly
     inventory_search.py  owner search and facets over the base tables
     issues.py            named diagnostics (no year, no grade, ...)
+    live.py              the shared live-row predicate (reports, search)
+    reports/             read-only reports over the collection: registry, API,
+                         CLI, workbook export (docs/specs/reporting-design.md)
     classifier_defaults.py, series_match.py, series_classify.py,
     serial_patterns.py, photo_import.py, vendor_cleanup.py, ebay_orders.py
                          passes over stored items; dry run unless --commit
