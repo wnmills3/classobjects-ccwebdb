@@ -11,7 +11,8 @@ already-imported module and does not re-run it.
 
 from __future__ import annotations
 
+from .collection import CB_HOLDINGS
 from .data_quality import DQ_COMPLETENESS, DQ_ISSUES
 from .registry import REPORTS, register
 
-__all__ = ["DQ_COMPLETENESS", "DQ_ISSUES", "REPORTS", "register"]
+__all__ = ["CB_HOLDINGS", "DQ_COMPLETENESS", "DQ_ISSUES", "REPORTS", "register"]
