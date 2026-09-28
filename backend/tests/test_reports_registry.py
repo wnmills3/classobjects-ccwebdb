@@ -8,28 +8,38 @@ from app.models import InventoryItem
 from app.models.base import utcnow
 from app.reports import REPORTS, register
 from app.reports.base import Column, Report, ReportResult
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item
 
 
-class _NoParams(BaseModel):
-    """A report that takes no parameters."""
+class _NoopParams(BaseModel):
+    """A report that takes one parameter -- a real subclass, not `BaseModel`.
+
+    Typing `run` on this exact subclass (not the widened `BaseModel`) is
+    what exercises `Report`'s generic parameter: if `Report.run` were still
+    `Callable[[Session, BaseModel], ReportResult]`, assigning `_run_noop`
+    below (whose second parameter is `_NoopParams`, not `BaseModel`) would
+    fail mypy on contravariance grounds.
+    """
+
+    limit: int = Field(default=10, title="Limit")
 
 
-def _run_noop(db: Session, params: BaseModel) -> ReportResult:
+def _run_noop(db: Session, params: _NoopParams) -> ReportResult:
+    """Return an empty result; ignores `params` beyond typing against it."""
     return ReportResult(columns=[Column("n", "Count", "count")], rows=[])
 
 
-def _make_report(report_id: str) -> Report:
+def _make_report(report_id: str) -> Report[_NoopParams]:
     return Report(
         id=report_id,
         group="test",
         title="No-op",
         purpose="Exercises the registry.",
-        params=_NoParams,
+        params=_NoopParams,
         run=_run_noop,
     )
 

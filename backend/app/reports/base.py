@@ -65,25 +65,29 @@ class ReportResult:
             )
 
 
-#: What every report's `run` looks like: given a database session and an
-#: instance of its own parameters model, it returns a result. The
-#: parameters model class itself lives on `Report.params`.
-ReportRun = Callable[[Session, BaseModel], ReportResult]
-
-
 @dataclass(frozen=True)
-class Report:
-    """One entry in the catalog.
+class Report[P: BaseModel]:
+    """One entry in the catalog, generic in its own parameters model.
 
     `params` is a pydantic model *class*, not an instance -- the catalog
     reads its fields (each field's `title` becomes the label a parameter
     form shows) to describe what the report takes; `run` is called with an
     instance of it. A report with no parameters uses an empty model.
+
+    Generic in `P`, the report's own params subclass, so `run(db, params)`
+    is typed on that subclass rather than the widened `BaseModel` --
+    otherwise every report's `run` would need a `cast` or `type: ignore`
+    where it is assigned here, since a function taking only
+    `HoldingsParams` cannot soundly satisfy a slot declared to take any
+    `BaseModel`.
     """
 
     id: str
     group: str
     title: str
     purpose: str
-    params: type[BaseModel]
-    run: ReportRun
+    params: type[P]
+    run: Callable[[Session, P], ReportResult]
+
+
+__all__ = ["Column", "ColumnKind", "Report", "ReportResult"]
