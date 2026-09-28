@@ -1,6 +1,8 @@
 # Reports
 
-2026-09-27 -- designed, not built.
+2026-09-28 -- **built**: the five reports marked v1, the API, the command
+line, the console page and printing. The rest of the catalog below is
+designed, not built.
 
 A **Reports** page in the console answers the questions the owner asks of
 the collection as a whole: what is missing or wrong in the record, what the
@@ -22,7 +24,7 @@ report row that names items links there.
 |---|---|
 | `app/issues.py` -- named checks per kind (`no_year`, `no_denomination`, `zero_cost`, `unreviewed`, `malformed_serial`, `near_duplicate_serial`, ...), each a SQL predicate with a description | The data-quality reports count and list by these same checks; a new check is still added there, once, and appears in the search, its badges and the reports alike. |
 | `app/inventory_search.py` -- `COIN_VIEW` / `CURRENCY_VIEW`, `count_facets`, `count_issues`, the live-row rule, allowlisted filters | Breakdowns group by the same facets; every drill-down is an inventory search URL built from the same filter names. |
-| `routers/acquisitions.py` -- outstanding = `ordered` or `missing`, `_ITEM_IS_LIVE` | The receiving reports use the same definition, so a report and Receiving never disagree about what is outstanding. |
+| `app/live.py` -- `live_item()`, `OUTSTANDING_STATUSES` (`ordered`, `missing`), also read by `routers/acquisitions.py` | `pr_outstanding` reads the same two names, so a report and Receiving never disagree about what is outstanding. |
 | `sales_order_item_share` (amount, fee per item), `sales_order_fee`, `listing`, `auction_lot` | The selling reports read these; the per-item share is what makes a sale's cost basis and gain computable per item. |
 | `metal_price`, `item_valuation` view (melt, profit) | Melt valuation, when it is built, reads the latest spot the way the view does. |
 | `app/workbook_backup.py` conventions -- NULL as an empty cell, ISO timestamps, column widths | Each report exports to a workbook the same way. |
@@ -56,7 +58,7 @@ follow in the plan's later phases.
 
 | Id | Report | Rows |
 |---|---|---|
-| `cb_holdings` **v1** | Holdings | Kind x denomination: items, pieces, total cost; totals per kind and overall. Parameters: status (default held and received), disposition. |
+| `cb_holdings` **v1** | Holdings | Kind x denomination: items, pieces, total cost; a subtotal row (`All <kind>`) after each kind's denominations, and an overall total. Parameters: `status` (default `received`) and `disposition` (default `held`), each one code or `all`. |
 | `cb_designs` | Coins by design | Design series (Morgan dollar, Winged Liberty Head dime, ...): items, year span held, total cost; "no series" as its own row |
 | `cb_notes` | Notes | Note class x series year (and letter): items, seal colours present, Reserve Banks present, total cost; star notes and fancy serials counted from attributes |
 | `cb_grades` | Grades | Grade band (1-49, 50-59, 60-64, 65-70, ungraded) x strike type x grading service (raw counted separately): items, total cost |
@@ -64,13 +66,16 @@ follow in the plan's later phases.
 | `cb_attributes` | Attributes and errors | Each attribute and error type: items carrying it |
 
 Every breakdown row drills down to the inventory search filtered to that
-row's values.
+row's values; `cb_holdings`'s "No denomination" row drills to
+`missing=denomination` where the kind can carry one, and has no drill where it
+cannot (bullion, for instance). A subtotal row's own drill is its kind alone,
+with no denomination named.
 
 ### Purchasing and receiving -- what is coming
 
 | Id | Report | Rows |
 |---|---|---|
-| `pr_outstanding` **v1** | Not yet arrived | One per purchase with an item `ordered` or `missing`: vendor, seller, order date, days waiting, items outstanding / total, their cost; oldest first. Parameter: overdue after N days (default 21), which marks rows. Drill: Receiving `?order=<id>`. |
+| `pr_outstanding` **v1** | Not yet arrived | One per purchase with an item `ordered` or `missing`: vendor, seller, order date, days waiting, items outstanding / total, their cost, and an `Overdue` text column holding the word "Overdue" (empty otherwise); oldest first, undated purchases last. Parameter: `overdue_days` (default 21) -- a row is marked once its days waiting is greater than this. Drill: Receiving `?order=<id>`. |
 | `pr_spend` | Spending | Month (or quarter, year) x vendor: purchases, items, item cost, shipping, sales tax, total. Parameter: date range. |
 | `pr_sources` | Vendors and sellers | One per vendor, and per seller within a marketplace: purchases, items, total spent, first and last purchase |
 | `pr_received` | Received | Items received in a date range, from `item_status_history` (`arrived_on`), by day and vendor |
@@ -79,7 +84,7 @@ row's values.
 
 | Id | Report | Rows |
 |---|---|---|
-| `sl_offered` **v1** | On offer | Active and paused listings (items and sales lots) by venue: asking price, cost basis, days listed; totals of asking and cost. Drill: Listings. |
+| `sl_offered` **v1** | On offer | Active and paused listings (items and sales lots) by venue, oldest listed first: asking price, its currency, cost basis, days listed; totals of asking (USD only) and cost basis. A coin offered elsewhere or in a lot keeps its paused store-listing row, status `Paused for <venue> listing`, but that row is left out of both totals -- the coin is counted once, on the listing that superseded it, not twice. A listing not priced in USD is counted in the cost-basis total but left out of the asking total, noted by count. Drill: an item listing opens the item's editor (`?item=CC-######`); a lot listing opens `/lots`. |
 | `sl_sales` | Sales | Sales orders in a date range, by month and venue: gross, fees, net, cost basis of what sold, gain -- per item from `sales_order_item_share`. |
 | `sl_fulfilment` | To ship | Sales orders placed and not shipped or delivered, oldest first |
 | `sl_aging` | Held and not offered | Items received and held, not in any active listing or open lot, by months since received |
@@ -97,23 +102,25 @@ row's values.
 
 ### Backend: `app/reports/`
 
-- **One registry.** `app/reports/__init__.py` holds `REPORTS`, keyed by id, as
-  `issues.py` holds its checks: adding a report is adding one entry. Each entry
-  is a `Report`: `id`, `group`, `title`, `purpose`, `params` (a pydantic model
-  of the parameters it takes, with their defaults), and `run(db, params) ->
-  ReportResult`.
+- **One registry.** `app/reports/registry.py` holds `REPORTS`, keyed by id, as
+  `issues.py` holds its checks: adding a report is adding one `register()`
+  call in a group module. `app/reports/__init__.py` imports every group
+  module, so `REPORTS` is complete the moment anything imports `app.reports`
+  itself. Each entry is a `Report`: `id`, `group`, `title`, `purpose`, `params`
+  (a pydantic model of the parameters it takes, with their defaults), and
+  `run(db, params) -> ReportResult`.
 - **One result shape.** `ReportResult` has `columns` (key, label, type: text,
   count, money, percent, date, ounces), `rows` (dicts keyed by column), an
-  optional `totals` row, an optional `drill` per row (a console path with its
-  query), and `notes` -- anything the reader must know to read it right, such
-  as "no spot price recorded; melt value omitted".
+  optional `totals` row, `drills` -- a console path (with its query) per row,
+  or `None` where that row has no drill-down, index-aligned with `rows` and
+  checked to be so -- and `notes`: anything the reader must know to read it
+  right, such as "no spot price recorded; melt value omitted".
 - **Grouped by module**: `data_quality.py`, `collection.py`,
-  `purchasing.py`, `selling.py`, `money.py`, each defining its reports and
-  registering them.
+  `purchasing.py`, `selling.py`, and (not yet built) `money.py`, each
+  defining its reports and registering them.
 - **The live-row rule, once.** Every report reads live items only -- no
-  `deleted_at`, no `split_at` -- through one shared predicate, the one
-  `_ITEM_IS_LIVE` and the search views already use (moved to a shared module
-  when the first report needs it, not copied).
+  `deleted_at`, no `split_at` -- through one shared predicate, `live_item()`
+  in `app/live.py`, the same one the search views use.
 - **Queries** are SQLAlchemy Core on the base tables, grouped by foreign-key
   id with labels joined after, as `count_facets` does. Parameters are bound;
   column names come from allowlists, never from a request.
@@ -122,21 +129,41 @@ row's values.
 
 ### API
 
-- `GET /api/reports` -- the catalog: id, group, title, purpose, and each
-  parameter's name, type, default and choices.
-- `GET /api/reports/{id}?<params>` -- the result as JSON. 404 for an unknown
-  report, 422 for a bad parameter.
+- `GET /api/reports` -- the catalog: a list of `{id, group, title, purpose,
+  params}`, each parameter carrying `name`, `label` (the pydantic field's own
+  `title`), `type` (`choice`, `integer` or `text`), `default` and `choices`
+  (a `Literal` parameter's own values, else `null`).
+- `GET /api/reports/{id}?<params>` -- the result as JSON:
+  `{id, group, title, params (resolved), run_at (ISO, local), columns, rows,
+  totals, drills, notes}`. A `Decimal` crosses as the string it prints, a
+  `date` as its ISO text. 404 for an unknown report; 422 for an unknown
+  parameter name or a value its params model rejects -- validated by that
+  model itself, the one thing `resolve_params` shares with the command line,
+  so a report is validated identically from either.
 - `GET /api/reports/{id}/workbook?<params>` -- the same result as an `.xlsx`
-  download: one sheet, the report's title and parameters above the table,
-  totals below, money as numbers formatted to cents, NULL as an empty cell.
+  download, named `<id>_<YYYY-MM-DD>.xlsx` (the run date): one sheet, the
+  report's title, one row per parameter (label and the value it ran with), a
+  "Run at" row, then the header row, the data rows, the totals row directly
+  below (bold) when there is one, a blank row, then each note -- money and
+  percent cells written as numbers, NULL as an empty cell, the header row
+  frozen. One writer (`app/reports/workbook.py`), used by the API and the
+  command line alike.
 - Manager only (`AdminUser`), like everything that shows cost, value or
   location. Nothing here reaches the shop.
 
 ### Command line
 
-`python -m app.reports list`, `python -m app.reports run <id> [--param
-value ...] [--workbook FILE]` -- the same registry, for a report wanted from a
-script or before the console is open. Read-only, so no `--commit`.
+```cmd
+cd backend
+python -m app.reports list
+python -m app.reports run <id> [--param name=value ...] [--workbook FILE]
+```
+
+The same registry, for a report wanted from a script or before the console is
+open. `list` prints every report's id, group and title; `run` prints it as a
+plain-text table (title, parameters, header, rows, totals, notes) and
+`--param` (repeatable) sets its parameters. An unknown report id or a bad
+`--param` is reported on stderr and exits 2. Read-only, so no `--commit`.
 
 ### Console: the Reports page
 
@@ -145,12 +172,24 @@ script or before the console is open. Read-only, so no `--commit`.
   parameters (as the inventory filter panel does), its table with the totals
   row, its notes, and **Export workbook**.
 - The report and its parameters are kept in the address (`/reports?report=
-  pr_outstanding&overdue_days=30`), so a report can be bookmarked or reopened.
-- Columns sort in the browser (a report is at most a few thousand rows).
-  Money is shown with `money()` from the decimal string, never parsed into a
-  float.
+  pr_outstanding&overdue_days=30`), so a report can be bookmarked or reopened;
+  Run writes only the parameters that differ from their defaults. Leaving a
+  parameter field empty is refused (`Enter a value for <label>.`), rather
+  than silently running that parameter's default.
+- Columns sort in the browser (a report is at most a few thousand rows), a
+  header click sorting ascending, then descending, then back to the report's
+  own order. Money is shown with `money()` from the decimal string, never
+  parsed into a float.
 - A row with a drill-down links to the page that fixes or shows it, in the
-  same tab.
+  same tab. A row standing for exactly one item, rather than a count of many,
+  links straight to that item's editor: `/inventory/<coins|currency>?item=
+  CC-######`. The inventory page reads `item` from its own address and opens
+  that item's editor on load (not only from a click in its table), then
+  drops `item` from the address again when the editor closes, replacing that
+  history entry rather than pushing a new one, so Back does not reopen it.
+  `dq_completeness`'s percent cells link one step further: the row's own
+  drill with `missing=<key>` added, where a column's `key` is exactly the
+  `missing=` field name it counts.
 - The help band explains each parameter, as every console form does.
 - **Print** sits beside Export workbook; see Printing.
 
@@ -165,7 +204,8 @@ same page, with no report-specific code:
   console menu, the help band, the parameter form and the buttons are
   hidden.
 - A heading printed only on paper names the report, its parameters in
-  words ("Overdue after 21 days"), when it was run, and its row count.
+  words, one per line ("Overdue after (days): 21"), when it was run, and its
+  row count.
 - The table's header row repeats on every page (`thead` as a table
   header group), a row is never split across pages, and the totals row
   and the report's notes follow the last row.
@@ -180,11 +220,14 @@ same page, with no report-specific code:
 
 ### What the inventory search needs
 
-Drill-downs reuse the search's filters. One is missing: **`missing=<field>`**
--- items whose field is empty (year, denomination, grade, country, series,
-metal, photo, storage location, listing link, seller's item id), kind-aware
-as the completeness report is. It is added to `inventory_search.py` with the
-completeness report, and is useful in the search on its own.
+Drill-downs reuse the search's filters, plus one the search did not already
+have: **`missing=<field>`** -- items whose field is empty, kind-aware as the
+completeness report is (`inventory_search.MISSING_FIELDS`, one shared
+predicate per field). Its field names are exactly `dq_completeness`'s own
+percent-column keys -- year, denomination, grade, country, series, metal,
+photo, storage_location, listing_link, sellers_item_id -- so a report cell's
+count and its drill-down search's count are the same predicate, not two that
+happen to agree today. It is useful in the search on its own.
 
 ## Rules
 

@@ -199,6 +199,12 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  // Undoes every `vi.stubGlobal` (the Export test's `URL.createObjectURL` /
+  // `revokeObjectURL`), even if that test failed before reaching its own
+  // cleanup -- a `delete` at the end of the test body would not run then,
+  // and jsdom's real `URL` has neither, so a later test calling either
+  // would throw with no clue why.
+  vi.unstubAllGlobals()
 })
 
 describe('Reports page', () => {
@@ -262,6 +268,24 @@ describe('Reports page', () => {
     await user.click(screen.getByRole('button', { name: 'Run' }))
     await waitFor(() =>
       expect(screen.getByTestId('address').textContent).toBe('?report=pr_outstanding'),
+    )
+  })
+
+  it('refuses to run with a parameter field left empty', async () => {
+    const user = userEvent.setup()
+    renderAt('/reports?report=pr_outstanding&overdue_days=30')
+    const box = await screen.findByLabelText('Overdue after (days)')
+    const callsBefore = api.runReport.mock.calls.length
+
+    await user.clear(box)
+    await user.click(screen.getByRole('button', { name: 'Run' }))
+
+    expect(
+      await screen.findByText('Enter a value for Overdue after (days).'),
+    ).toBeInTheDocument()
+    expect(api.runReport).toHaveBeenCalledTimes(callsBefore)
+    expect(screen.getByTestId('address').textContent).toBe(
+      '?report=pr_outstanding&overdue_days=30',
     )
   })
 
@@ -417,10 +441,11 @@ describe('Reports page', () => {
     const user = userEvent.setup()
     const blob = new Blob(['xlsx'])
     api.downloadReportWorkbook.mockResolvedValue({ blob, filename: 'report.xlsx' })
-    // jsdom has neither; the browser's are what the page calls.
+    // jsdom has neither; the browser's are what the page calls. Stubbed,
+    // not assigned, so `afterEach`'s `vi.unstubAllGlobals()` removes them
+    // even if this test fails before its own cleanup would.
     const createObjectURL = vi.fn(() => 'blob:report')
-    URL.createObjectURL = createObjectURL
-    URL.revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() })
     const click = vi
       .spyOn(HTMLAnchorElement.prototype, 'click')
       .mockImplementation(() => {})
@@ -434,8 +459,6 @@ describe('Reports page', () => {
       overdue_days: '30',
     })
     expect(createObjectURL).toHaveBeenCalledWith(blob)
-    delete URL.createObjectURL
-    delete URL.revokeObjectURL
   })
 
   it('prints from the browser', async () => {

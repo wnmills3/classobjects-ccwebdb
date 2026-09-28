@@ -532,7 +532,7 @@ export const FIELD_HELP = {
     title: 'Status',
     text:
       'Which items to count by where they are in buying: received (in hand) by ' +
-      'default, or ordered, canceled, returned, missing -- or all of them.',
+      'default, or ordered, canceled, returned, missing, unknown -- or all of them.',
   },
   report_disposition: {
     title: 'Disposition',

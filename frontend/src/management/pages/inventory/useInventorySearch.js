@@ -84,8 +84,10 @@ export function useInventorySearch(view) {
     apply,
     clear: () => setParams({}),
     itemCode,
-    // The filters as they were, without the item.
-    closeItem: () => setParams(params),
+    // The filters as they were, without the item. `replace: true` so
+    // closing the editor does not push a history entry -- Back should leave
+    // the search, not reopen the editor it just closed.
+    closeItem: () => setParams(params, { replace: true }),
     // The same filters, sort and page, fetched again.
     refresh: () => setReloads((n) => n + 1),
     page: result?.body,

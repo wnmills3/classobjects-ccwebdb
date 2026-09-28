@@ -1,6 +1,6 @@
 import userEvent from '@testing-library/user-event'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigationType } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -220,6 +220,16 @@ function Address() {
   return <output data-testid="address">{location.search}</output>
 }
 
+/**
+ * How the address last changed -- `PUSH`, `REPLACE` or `POP` (the initial
+ * load, or Back/Forward). Closing the editor must `REPLACE` the address that
+ * opened it, not `PUSH` a new entry Back would land on.
+ */
+function NavigationType() {
+  const type = useNavigationType()
+  return <output data-testid="nav-type">{type}</output>
+}
+
 // A report row that is one item links here with `?item=CC-######` (the
 // reporting spec's drill-downs): the page opens that item's editor.
 describe('Inventory opened on one item', () => {
@@ -248,6 +258,7 @@ describe('Inventory opened on one item', () => {
       <>
         <InventoryCurrency />
         <Address />
+        <NavigationType />
       </>,
       { auth: adminAuth(), route: `/inventory/currency?item=${code}` },
     )
@@ -283,6 +294,18 @@ describe('Inventory opened on one item', () => {
 
     await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
     expect(screen.getByTestId('address').textContent).toBe('')
+  })
+
+  it('replaces the address on close, so Back does not reopen the editor', async () => {
+    const user = userEvent.setup()
+    renderItem('CC-000007')
+    await screen.findByRole('heading', { name: 'CC-000007' })
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('nav-type').textContent).toBe('REPLACE'),
+    )
   })
 
   it('says so when no item has that code', async () => {

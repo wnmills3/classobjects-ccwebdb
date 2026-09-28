@@ -13,9 +13,21 @@ import { choiceText, paramHelp } from './values'
  */
 export default function ReportForm({ report, values, error, onRun }) {
   const [draft, setDraft] = useState(values)
+  const [emptyError, setEmptyError] = useState('')
 
   function submit(e) {
     e.preventDefault()
+    // An emptied field would otherwise run silently with that parameter's
+    // default (`runWith` drops a blank value) -- indistinguishable from
+    // asking for the default on purpose, so it is refused here instead.
+    const blank = report.params.find(
+      (param) => String(draft[param.name] ?? '').trim() === '',
+    )
+    if (blank) {
+      setEmptyError(`Enter a value for ${blank.label}.`)
+      return
+    }
+    setEmptyError('')
     onRun(draft)
   }
 
@@ -35,7 +47,7 @@ export default function ReportForm({ report, values, error, onRun }) {
           ))}
         </div>
       )}
-      {error && <p className="error">{error}</p>}
+      {(emptyError || error) && <p className="error">{emptyError || error}</p>}
       <button type="submit" data-help="report_run">
         Run
       </button>
