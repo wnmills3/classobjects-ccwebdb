@@ -30,6 +30,8 @@ vi.mock('../../api', () => ({
     createFriedbergNumber: vi.fn(),
     updateImageLink: vi.fn(),
     detachImage: vi.fn(),
+    moveImageLink: vi.fn(),
+    searchInventory: vi.fn(),
     splitItem: vi.fn(),
     // The storage location picker's list.
     listStorageLocations: vi.fn(),
@@ -1507,6 +1509,43 @@ describe('ItemEditForm: changes to filed photographs wait for Save', () => {
     // The new primary first: removing the old one then leaves nothing to fill.
     expect(api.updateImageLink.mock.invocationCallOrder[0]).toBeLessThan(
       api.detachImage.mock.invocationCallOrder[0],
+    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+  })
+
+  it('moves a photograph to another item on Save, after the changes and before removals', async () => {
+    const user = userEvent.setup()
+    api.updateImageLink.mockResolvedValue({})
+    api.moveImageLink.mockResolvedValue({})
+    api.detachImage.mockResolvedValue(null)
+    api.searchInventory.mockImplementation((view) =>
+      Promise.resolve({
+        rows:
+          view === 'currency'
+            ? [{ id: 99, item_code: 'CC-000099', description: 'x' }]
+            : [],
+        total: 1,
+      }),
+    )
+    const onSaved = await open()
+    const pickers = screen.getAllByRole('combobox', { name: 'image_role' })
+    await user.selectOptions(pickers[1], 'reverse')
+    await user.click(screen.getByRole('button', { name: 'Move (photo 10)' }))
+    await user.type(screen.getByRole('textbox', { name: 'Item code' }), 'CC-000099')
+    await user.click(screen.getByRole('button', { name: 'Find' }))
+    await user.click(await screen.findByRole('button', { name: /CC-000099/ }))
+    expect(api.moveImageLink).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.moveImageLink).toHaveBeenCalledWith(1, {
+        inventoryItemId: 99,
+        acknowledgeForSale: false,
+      }),
+    )
+    expect(api.updateImageLink.mock.invocationCallOrder[0]).toBeLessThan(
+      api.moveImageLink.mock.invocationCallOrder[0],
     )
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
   })

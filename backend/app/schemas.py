@@ -227,6 +227,16 @@ class ImageLinkUpdate(BaseModel):
     acknowledge_for_sale: bool = False
 
 
+class ImageLinkMove(BaseModel):
+    """The item a filed photograph moves to."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inventory_item_id: int
+    #: Set after a refusal (app.sale_state); covers both items.
+    acknowledge_for_sale: bool = False
+
+
 class ImageFromUrl(BaseModel):
     """A photograph to fetch from a web address and file against an item."""
 

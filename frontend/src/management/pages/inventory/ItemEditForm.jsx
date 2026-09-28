@@ -597,15 +597,17 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
    * Apply the held changes to filed photographs; those that fail stay held
    * with their reason. Returns the failures' reasons.
    *
-   * Roles and a new primary go first, removals last: a primary moved off a
-   * photograph that is then removed has already been given its successor,
-   * so the server's own fill-in (`fill_primary_vacancy`) never overrides it.
+   * Roles and a new primary go first, then moves to other items, removals
+   * last: a primary moved off a photograph that then leaves has already been
+   * given its successor, so the server's own fill-in
+   * (`fill_primary_vacancy`) never overrides it.
    */
   async function applyPhotoEdits() {
     const ack = forSale && acknowledged
     const entries = Object.entries(photoEdits)
     const ordered = [
-      ...entries.filter(([, edit]) => !edit.remove),
+      ...entries.filter(([, edit]) => !edit.remove && !edit.move_to),
+      ...entries.filter(([, edit]) => edit.move_to),
       ...entries.filter(([, edit]) => edit.remove),
     ]
     const left = {}
@@ -613,6 +615,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       try {
         if (edit.remove) {
           await api.detachImage(Number(id), { acknowledgeForSale: ack })
+        } else if (edit.move_to) {
+          await api.moveImageLink(Number(id), {
+            inventoryItemId: edit.move_to.id,
+            acknowledgeForSale: ack,
+          })
         } else {
           const change = { acknowledgeForSale: ack }
           if ('image_role' in edit) change.imageRole = edit.image_role
@@ -1161,8 +1168,8 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           />
         )}
 
-        {/* A photograph added here, and a new role, primary or removal for
-          one already filed, is held until this form's Save applies it, under
+        {/* A photograph added here, and a new role, primary, removal or move
+          for one already filed, is held until this form's Save applies it, under
           this form's one for-sale acknowledgement. This is the only moment
           other than receiving that an item can gain a photograph -- see
           PhotosPanel's docstring. */}

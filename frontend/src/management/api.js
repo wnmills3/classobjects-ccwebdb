@@ -319,6 +319,16 @@ export const api = {
     if (isPrimary !== undefined) body.is_primary = isPrimary
     return send(`/api/image-links/${linkId}`, { method: 'PATCH', body })
   },
+  // File a photograph on another item instead; the server places, promotes
+  // and renames it for its new place.
+  moveImageLink: (linkId, { inventoryItemId, acknowledgeForSale = false }) =>
+    send(`/api/image-links/${linkId}/move`, {
+      method: 'POST',
+      body: {
+        inventory_item_id: inventoryItemId,
+        acknowledge_for_sale: acknowledgeForSale,
+      },
+    }),
   detachImage: (linkId, { acknowledgeForSale = false } = {}) =>
     send(`/api/image-links/${linkId}?acknowledge_for_sale=${acknowledgeForSale}`, {
       method: 'DELETE',
