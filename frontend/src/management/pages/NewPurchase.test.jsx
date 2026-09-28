@@ -382,6 +382,61 @@ describe('NewPurchase: picking an existing purchase', () => {
     expect(screen.getByRole('button', { name: /PO-1/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /PO-2/ })).not.toBeInTheDocument()
   })
+
+  it.each(['12', '#12', ' #12 '])(
+    'finds a purchase by its own number, typed as "%s"',
+    async (typed) => {
+      const user = userEvent.setup()
+      api.listPurchaseOrders.mockResolvedValue([
+        ...EXISTING_ORDERS,
+        {
+          id: 12,
+          order_number: 'PO-2',
+          vendor: 'Other Vendor',
+          ordered_on: '2026-01-06',
+          outstanding: 0,
+          total: 1,
+        },
+      ])
+      renderWithProviders(<NewPurchase />)
+
+      await user.click(
+        screen.getByRole('radio', { name: /add to an existing purchase/i }),
+      )
+      await screen.findByRole('button', { name: /PO-1/ })
+
+      await user.type(screen.getByRole('textbox', { name: /filter/i }), typed)
+
+      expect(screen.getByRole('button', { name: /PO-2/ })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /PO-1/ })).not.toBeInTheDocument()
+    },
+  )
+
+  it('matches a purchase number exactly, not as part of a longer one', async () => {
+    const user = userEvent.setup()
+    api.listPurchaseOrders.mockResolvedValue([
+      ...EXISTING_ORDERS,
+      {
+        id: 112,
+        order_number: 'PO-3',
+        vendor: 'Other Vendor',
+        ordered_on: '2026-01-06',
+        outstanding: 0,
+        total: 1,
+      },
+    ])
+    renderWithProviders(<NewPurchase />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /add to an existing purchase/i }),
+    )
+    await screen.findByRole('button', { name: /PO-1/ })
+
+    await user.type(screen.getByRole('textbox', { name: /filter/i }), '#11')
+
+    expect(screen.getByRole('button', { name: /PO-1/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /PO-3/ })).not.toBeInTheDocument()
+  })
 })
 
 describe('NewPurchase: items on the purchase', () => {
@@ -668,13 +723,22 @@ describe('NewPurchase: the purchases table', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((th) => th.textContent.replace(/[^A-Za-z ]/g, '').trim()),
-    ).toEqual(['Order number', 'Date', 'Vendor'])
+    ).toEqual(['Order number', 'Date', 'Vendor', 'No'])
     const row = within(table).getAllByRole('row')[1]
     expect(
       within(row)
         .getAllByRole('cell')
         .map((c) => c.textContent),
-    ).toEqual(['B-9', 'Sep 6, 2026', 'eBay.com'])
+    ).toEqual(['B-9', 'Sep 6, 2026', 'eBay.com', '#2'])
+  })
+
+  it('sorts by purchase number, highest first, and back', async () => {
+    const user = userEvent.setup()
+    const table = await openTable(user)
+    await user.click(within(header(table, 'No')).getByRole('button'))
+    expect(numbers(table)).toEqual(['A-1', 'no order number', 'B-9', 'B-10'])
+    await user.click(within(header(table, 'No')).getByRole('button'))
+    expect(numbers(table)).toEqual(['B-10', 'B-9', 'no order number', 'A-1'])
   })
 
   it('lists the newest purchase first, an undated one last', async () => {
