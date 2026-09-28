@@ -217,7 +217,17 @@ def _field_conflicts(_request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+def _combination_recorded(_request: Request, exc: Exception) -> JSONResponse:
+    """Render `CombinationRecorded` as a 409 naming the row that holds it."""
+    assert isinstance(exc, friedberg.CombinationRecorded)
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": exc.detail, "existing": exc.existing},
+    )
+
+
 app.add_exception_handler(inventory.FieldConflicts, _field_conflicts)
+app.add_exception_handler(friedberg.CombinationRecorded, _combination_recorded)
 app.add_exception_handler(sales_writes.SaleInputInvalid, _bad_input)
 app.add_exception_handler(sales_writes.SaleRefused, _refused)
 app.add_exception_handler(auctions.SettlementInputInvalid, _bad_input)

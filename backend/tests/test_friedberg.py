@@ -1,8 +1,9 @@
 """The owner's own Friedberg catalog: search, record, attach.
 
-Every `fr_number` used here is obviously synthetic (`FR-TEST-*`) -- never a
-real catalog number, per `CLAUDE.md`'s ban on shipping a publisher's
-arrangement.
+Every `fr_number` used here is obviously synthetic -- in the 9900s, past
+any real Friedberg number, yet in a number's form so `app.fr_format`
+accepts it -- never a real catalog number, per `CLAUDE.md`'s ban on
+shipping a publisher's arrangement.
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ def test_half_known_row_is_found_by_a_filter_it_does_not_know(
     """
     row = _add_friedberg(
         db,
-        fr_number="FR-TEST-1",
+        fr_number="9901",
         note_type_id=code_id(db, NoteType, "frn"),
         denomination_id=code_id(db, Denomination, "usd_note_1"),
         series_year=1934,
@@ -100,10 +101,10 @@ def test_all_unknown_row_does_not_match_every_query(
     endpoint would wrongly include `blank`), nor one that always returns
     nothing (it would wrongly exclude `known`, which genuinely matches).
     """
-    blank = _add_friedberg(db, fr_number="FR-TEST-2")
+    blank = _add_friedberg(db, fr_number="9902")
     known = _add_friedberg(
         db,
-        fr_number="FR-TEST-3",
+        fr_number="9903",
         note_type_id=code_id(db, NoteType, "frn"),
     )
 
@@ -138,7 +139,7 @@ def test_no_filters_returns_everything(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     """Browsing the whole catalog is a valid call with zero filters."""
-    row = _add_friedberg(db, fr_number="FR-TEST-4")
+    row = _add_friedberg(db, fr_number="9904")
     resp = client.get("/api/friedberg", headers=admin_headers)
     assert resp.status_code == 200, resp.text
     assert row.id in _ids(resp.json())
@@ -160,12 +161,12 @@ def test_create_records_a_manual_row(
     """
     resp = client.post(
         "/api/friedberg",
-        json={"fr_number": "FR-TEST-5", "note_type": "frn", "series_year": 1934},
+        json={"fr_number": "9905", "note_type": "frn", "series_year": 1934},
         headers=admin_headers,
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["fr_number"] == "FR-TEST-5"
+    assert body["fr_number"] == "9905"
     assert body["source"] == "manual"
     assert body["verified"] is False
     assert body["verified_at"] is None
@@ -181,7 +182,7 @@ def test_duplicate_fr_number_is_409_naming_the_existing_row(
     """
     first = client.post(
         "/api/friedberg",
-        json={"fr_number": "FR-TEST-6"},
+        json={"fr_number": "9906"},
         headers=admin_headers,
     )
     assert first.status_code == 201, first.text
@@ -189,7 +190,7 @@ def test_duplicate_fr_number_is_409_naming_the_existing_row(
 
     second = client.post(
         "/api/friedberg",
-        json={"fr_number": "FR-TEST-6", "series_year": 1957},
+        json={"fr_number": "9906", "series_year": 1957},
         headers=admin_headers,
     )
     assert second.status_code == 409, second.text
@@ -212,7 +213,7 @@ def test_attaching_to_a_coin_is_404(
     genuine branching on whether `currency_detail` exists.
     """
     coin = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "coin"))
-    friedberg = _add_friedberg(db, fr_number="FR-TEST-7")
+    friedberg = _add_friedberg(db, fr_number="9907")
 
     resp = client.post(
         f"/api/inventory/{coin.id}/friedberg",
@@ -227,7 +228,7 @@ def test_unknown_status_is_422_listing_valid_ones(
 ) -> None:
     """A bogus `friedberg_status` is refused with the valid values named."""
     item = _currency_item(db)
-    friedberg = _add_friedberg(db, fr_number="FR-TEST-8")
+    friedberg = _add_friedberg(db, fr_number="9908")
 
     resp = client.post(
         f"/api/inventory/{item.id}/friedberg",
@@ -255,7 +256,7 @@ def test_confirming_stamps_verifier_and_timestamp(
     the item side was updated too.
     """
     item = _currency_item(db)
-    friedberg = _add_friedberg(db, fr_number="FR-TEST-9")
+    friedberg = _add_friedberg(db, fr_number="9909")
 
     resp = client.post(
         f"/api/inventory/{item.id}/friedberg",
@@ -299,7 +300,7 @@ def test_web_press_is_recorded_and_returned(
 ) -> None:
     """The press is stored on the row, not merely accepted and dropped."""
     resp = client.post(
-        "/api/friedberg", json=_typed("FR-TEST-W1", True), headers=admin_headers
+        "/api/friedberg", json=_typed("9910", True), headers=admin_headers
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["web_press"] is True
@@ -317,10 +318,10 @@ def test_a_web_press_and_a_sheet_fed_printing_are_different_types(
     -- the catalog could hold only one of two real, distinct types.
     """
     web = client.post(
-        "/api/friedberg", json=_typed("FR-TEST-W2", True), headers=admin_headers
+        "/api/friedberg", json=_typed("9911", True), headers=admin_headers
     )
     sheet = client.post(
-        "/api/friedberg", json=_typed("FR-TEST-S2", False), headers=admin_headers
+        "/api/friedberg", json=_typed("9912", False), headers=admin_headers
     )
     assert web.status_code == 201, web.text
     assert sheet.status_code == 201, sheet.text
@@ -331,10 +332,10 @@ def test_the_same_type_and_press_twice_is_still_a_conflict(
 ) -> None:
     """Adding the press to the identity must not have loosened it."""
     first = client.post(
-        "/api/friedberg", json=_typed("FR-TEST-W3", True), headers=admin_headers
+        "/api/friedberg", json=_typed("9913", True), headers=admin_headers
     )
     again = client.post(
-        "/api/friedberg", json=_typed("FR-TEST-W4", True), headers=admin_headers
+        "/api/friedberg", json=_typed("9914", True), headers=admin_headers
     )
     assert first.status_code == 201, first.text
     assert again.status_code == 409, again.text
@@ -358,21 +359,19 @@ def test_the_same_series_under_two_signature_pairs_are_two_types(
     }
     first = client.post(
         "/api/friedberg",
-        json=base
-        | {"fr_number": "FR-TEST-G1", "signature_combination": "julian_morgenthau"},
+        json=base | {"fr_number": "9915", "signature_combination": "julian_morgenthau"},
         headers=admin_headers,
     )
     other_signers = client.post(
         "/api/friedberg",
-        json=base
-        | {"fr_number": "FR-TEST-G2", "signature_combination": "julian_vinson"},
+        json=base | {"fr_number": "9916", "signature_combination": "julian_vinson"},
         headers=admin_headers,
     )
     other_seal = client.post(
         "/api/friedberg",
         json=base
         | {
-            "fr_number": "FR-TEST-G3",
+            "fr_number": "9917",
             "signature_combination": "julian_morgenthau",
             "seal_color": "brown",
         },
@@ -380,8 +379,7 @@ def test_the_same_series_under_two_signature_pairs_are_two_types(
     )
     again = client.post(
         "/api/friedberg",
-        json=base
-        | {"fr_number": "FR-TEST-G4", "signature_combination": "julian_morgenthau"},
+        json=base | {"fr_number": "9918", "signature_combination": "julian_morgenthau"},
         headers=admin_headers,
     )
     assert first.status_code == 201, first.text
@@ -397,7 +395,7 @@ def test_the_web_press_filter_narrows_like_every_other(
     ids = {
         press: client.post(
             "/api/friedberg",
-            json=_typed(f"FR-TEST-F{index}", press) | {"series_year": 1990 + index},
+            json=_typed(f"994{index}", press) | {"series_year": 1990 + index},
             headers=admin_headers,
         ).json()["id"]
         for index, press in enumerate((True, False, None))
@@ -421,7 +419,7 @@ def test_the_item_detail_says_which_number_is_attached(
 ) -> None:
     """The editor shows the number, its status and whether it is verified."""
     item = _currency_item(db)
-    friedberg = _add_friedberg(db, fr_number="FR-TEST-D1")
+    friedberg = _add_friedberg(db, fr_number="9920")
     attached = client.post(
         f"/api/inventory/{item.id}/friedberg",
         json={"friedberg_id": friedberg.id, "status": "proposed"},
@@ -431,7 +429,7 @@ def test_the_item_detail_says_which_number_is_attached(
 
     body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
     assert body["friedberg_id"] == friedberg.id
-    assert body["friedberg_number"] == "FR-TEST-D1"
+    assert body["friedberg_number"] == "9920"
     assert body["friedberg_status"] == "proposed"
     assert body["friedberg_verified"] is False
 
@@ -441,7 +439,7 @@ def test_clearing_takes_the_number_off_the_note_only(
 ) -> None:
     """The note goes back to unknown; the catalog row stays for the next one."""
     item = _currency_item(db)
-    friedberg = _add_friedberg(db, fr_number="FR-TEST-D2")
+    friedberg = _add_friedberg(db, fr_number="9921")
     client.post(
         f"/api/inventory/{item.id}/friedberg",
         json={"friedberg_id": friedberg.id, "status": "confirmed"},

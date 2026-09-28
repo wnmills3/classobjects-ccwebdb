@@ -22,7 +22,7 @@ const PROPOSED = {
   id: 412,
   item_kind: 'currency',
   friedberg_id: 9,
-  friedberg_number: 'FR-TEST-9',
+  friedberg_number: '9901',
   friedberg_status: 'proposed',
   friedberg_verified: false,
   attributes: [],
@@ -39,7 +39,7 @@ beforeEach(() => {
 describe('FriedbergPanel', () => {
   it('shows the attached number and its status', () => {
     renderWithProviders(<FriedbergPanel item={PROPOSED} onHold={vi.fn()} />)
-    expect(screen.getByText('FR-TEST-9')).toBeInTheDocument()
+    expect(screen.getByText('9901')).toBeInTheDocument()
     expect(screen.getByText(/proposed, not yet verified/i)).toBeInTheDocument()
   })
 
@@ -53,7 +53,7 @@ describe('FriedbergPanel', () => {
       action: 'attach',
       friedberg_id: 9,
       status: 'confirmed',
-      fr_number: 'FR-TEST-9',
+      fr_number: '9901',
     })
     expect(api.attachFriedberg).not.toHaveBeenCalled()
   })
@@ -88,11 +88,11 @@ describe('FriedbergPanel', () => {
           action: 'attach',
           friedberg_id: 10,
           status: 'proposed',
-          fr_number: 'FR-TEST-10',
+          fr_number: '9902',
         }}
       />,
     )
-    expect(screen.getByText(/FR-TEST-10/)).toBeInTheDocument()
+    expect(screen.getByText(/9902/)).toBeInTheDocument()
     expect(screen.getByText(/not saved yet/i)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /^undo$/i }))
     expect(onUndo).toHaveBeenCalled()

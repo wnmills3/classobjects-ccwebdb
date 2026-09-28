@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -21,7 +21,9 @@ from ..item_history import location_label
 from ..models import (
     InventoryItem,
     ItemStatus,
+    LocationHistory,
     PurchaseOrder,
+    SalesVenue,
     Seller,
     StorageLocation,
     StorageLocationKind,
@@ -40,8 +42,10 @@ from ..schemas import (
     SellerUpdate,
     StorageLocationCreate,
     StorageLocationOut,
+    StorageLocationUpdate,
     VendorCreate,
     VendorOut,
+    VendorUpdate,
 )
 from ._resolve import found_or_404, get_or_404, refuse_future
 
@@ -105,6 +109,18 @@ def _host_of(url: str | None) -> str | None:
     return match.group(1).lower() if match else None
 
 
+def _counted(count: int, noun: str) -> str:
+    """`1 purchase`, `3 purchases`: the count a refusal names."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _vendor_use(db: Session, vendor_id: int) -> int:
+    """Purchases and sales platforms that name this vendor."""
+    orders = db.scalar(select(func.count()).where(PurchaseOrder.vendor_id == vendor_id))
+    venues = db.scalar(select(func.count()).where(SalesVenue.vendor_id == vendor_id))
+    return (orders or 0) + (venues or 0)
+
+
 def _vendor_out(db: Session, vendor: Vendor) -> VendorOut:
     """A vendor row, with its kind resolved back to a code for the wire."""
     kind = db.get(VendorKind, vendor.vendor_kind_id) if vendor.vendor_kind_id else None
@@ -113,6 +129,7 @@ def _vendor_out(db: Session, vendor: Vendor) -> VendorOut:
         name=vendor.name,
         url=vendor.url,
         vendor_kind=kind.code if kind is not None else None,
+        order_count=_vendor_use(db, vendor.id),
     )
 
 
@@ -169,6 +186,66 @@ def create_vendor(payload: VendorCreate, db: DbSession, _admin: AdminUser) -> Ve
         ) from exc
     db.refresh(vendor)
     return _vendor_out(db, vendor)
+
+
+@vendors_router.patch("/{vendor_id}")
+def update_vendor(
+    vendor_id: int, payload: VendorUpdate, db: DbSession, _admin: AdminUser
+) -> VendorOut:
+    """Correct a vendor's name, link or kind; only the fields sent change.
+
+    The name stays unique case aside, as `create_vendor` keeps it.
+    """
+    vendor = get_or_404(db, Vendor, vendor_id, "Vendor not found")
+    sent = payload.model_fields_set
+    if "name" in sent and payload.name is not None:
+        clash = db.scalar(
+            select(Vendor.id).where(
+                func.lower(Vendor.name) == payload.name.casefold(),
+                Vendor.id != vendor.id,
+            )
+        )
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A vendor named {payload.name} already exists",
+            )
+        vendor.name = payload.name
+    if "url" in sent:
+        vendor.url = payload.url
+        vendor.host = _host_of(payload.url)
+    if "vendor_kind" in sent:
+        vendor.vendor_kind_id = (
+            code_to_id(db, VendorKind, payload.vendor_kind, "vendor_kind")
+            if payload.vendor_kind is not None
+            else require_code(db, VendorKind, "unknown", "vendor_kind")
+        )
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A vendor named {vendor.name} already exists",
+        ) from exc
+    db.refresh(vendor)
+    return _vendor_out(db, vendor)
+
+
+@vendors_router.delete("/{vendor_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_vendor(vendor_id: int, db: DbSession, _admin: AdminUser) -> Response:
+    """Delete a vendor nothing names -- a slip made while entering a purchase."""
+    vendor = get_or_404(db, Vendor, vendor_id, "Vendor not found")
+    used = _vendor_use(db, vendor.id)
+    if used:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{vendor.name} is named on "
+            f"{_counted(used, 'purchase or platform')}",
+        )
+    db.delete(vendor)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @purchase_orders_router.get("")
@@ -331,11 +408,45 @@ def _commit_seller(db: Session, name: str) -> None:
         ) from exc
 
 
+def _seller_orders(db: Session, seller_id: int) -> int:
+    """Purchases that name this seller."""
+    return (
+        db.scalar(select(func.count()).where(PurchaseOrder.seller_id == seller_id)) or 0
+    )
+
+
+def _seller_out(db: Session, seller: Seller) -> SellerOut:
+    """A seller for the wire, with how many purchases name them."""
+    return SellerOut(
+        id=seller.id,
+        name=seller.name,
+        store_url=seller.store_url,
+        order_count=_seller_orders(db, seller.id),
+    )
+
+
 @sellers_router.get("")
 def list_sellers(db: DbSession, _admin: AdminUser) -> list[SellerOut]:
-    """Every seller, ordered by name (case aside), for picking on a purchase."""
+    """Every seller, ordered by name (case aside), with their purchases."""
+    counts = dict(
+        db.execute(
+            select(PurchaseOrder.seller_id, func.count())
+            .where(PurchaseOrder.seller_id.is_not(None))
+            .group_by(PurchaseOrder.seller_id)
+        )
+        .tuples()
+        .all()
+    )
     sellers = db.scalars(select(Seller).order_by(func.lower(Seller.name))).all()
-    return [SellerOut.model_validate(seller) for seller in sellers]
+    return [
+        SellerOut(
+            id=seller.id,
+            name=seller.name,
+            store_url=seller.store_url,
+            order_count=counts.get(seller.id, 0),
+        )
+        for seller in sellers
+    ]
 
 
 @sellers_router.post("", status_code=status.HTTP_201_CREATED)
@@ -346,7 +457,7 @@ def create_seller(payload: SellerCreate, db: DbSession, _admin: AdminUser) -> Se
     db.add(seller)
     _commit_seller(db, payload.name)
     db.refresh(seller)
-    return SellerOut.model_validate(seller)
+    return _seller_out(db, seller)
 
 
 @sellers_router.patch("/{seller_id}")
@@ -363,7 +474,22 @@ def update_seller(
         seller.store_url = payload.store_url
     _commit_seller(db, seller.name)
     db.refresh(seller)
-    return SellerOut.model_validate(seller)
+    return _seller_out(db, seller)
+
+
+@sellers_router.delete("/{seller_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_seller(seller_id: int, db: DbSession, _admin: AdminUser) -> Response:
+    """Delete a seller no purchase names."""
+    seller = get_or_404(db, Seller, seller_id, "Seller not found")
+    used = _seller_orders(db, seller.id)
+    if used:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{seller.name} is named on {_counted(used, 'purchase')}",
+        )
+    db.delete(seller)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @purchase_orders_router.post("", status_code=status.HTTP_201_CREATED)
@@ -518,9 +644,126 @@ def create_storage_location(
             detail="That storage location already exists",
         ) from exc
     db.refresh(location)
-    return StorageLocationOut(
-        id=location.id, label=location_label(location), kind=location.kind.code
+    return _location_out(db, location)
+
+
+def _location_use(db: Session, location_id: int) -> int:
+    """Items kept there now, and moves recorded to or from it before."""
+    items = db.scalar(
+        select(func.count()).where(InventoryItem.storage_location_id == location_id)
     )
+    history = db.scalar(
+        select(func.count()).where(LocationHistory.storage_location_id == location_id)
+    )
+    return (items or 0) + (history or 0)
+
+
+def _location_out(
+    db: Session, location: StorageLocation, item_count: int | None = None
+) -> StorageLocationOut:
+    """A location for the wire: its label, its parts, and how much it holds."""
+    return StorageLocationOut(
+        id=location.id,
+        label=location_label(location),
+        kind=location.kind.code,
+        institution=location.institution,
+        identifier=location.identifier,
+        notes=location.notes,
+        item_count=_location_use(db, location.id) if item_count is None else item_count,
+    )
+
+
+def _refuse_same_location(
+    db: Session,
+    kind_id: int,
+    institution: str | None,
+    identifier: str | None,
+    keep: int,
+) -> None:
+    """409 when another location has this kind, institution and identifier."""
+    clash = db.scalar(
+        select(StorageLocation.id).where(
+            StorageLocation.storage_location_kind_id == kind_id,
+            func.lower(func.coalesce(StorageLocation.institution, ""))
+            == (institution or "").casefold(),
+            func.lower(func.coalesce(StorageLocation.identifier, ""))
+            == (identifier or "").casefold(),
+            StorageLocation.id != keep,
+        )
+    )
+    if clash is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That storage location already exists",
+        )
+
+
+@storage_locations_router.patch("/{location_id}")
+def update_storage_location(
+    location_id: int, payload: StorageLocationUpdate, db: DbSession, _admin: AdminUser
+) -> StorageLocationOut:
+    """Correct a location's kind, institution, identifier or notes.
+
+    Only what is sent changes. A location the auction or sale code made
+    (`consigned`, `sold`) is that code's, and is not edited by hand.
+    """
+    location = get_or_404(
+        db, StorageLocation, location_id, "Storage location not found"
+    )
+    if location.kind.code in _MADE_ELSEWHERE or payload.kind in _MADE_ELSEWHERE:
+        raise HTTPException(
+            status_code=422,
+            detail="A consigned or sold location is made by the auction or sale code",
+        )
+    sent = payload.model_fields_set
+    kind_id = (
+        require_code(db, StorageLocationKind, payload.kind, "kind")
+        if "kind" in sent and payload.kind is not None
+        else location.storage_location_kind_id
+    )
+    institution = payload.institution if "institution" in sent else location.institution
+    identifier = payload.identifier if "identifier" in sent else location.identifier
+    _refuse_same_location(db, kind_id, institution, identifier, location.id)
+    location.storage_location_kind_id = kind_id
+    location.institution = institution
+    location.identifier = identifier
+    if "notes" in sent:
+        location.notes = payload.notes
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That storage location already exists",
+        ) from exc
+    db.refresh(location)
+    return _location_out(db, location)
+
+
+@storage_locations_router.delete(
+    "/{location_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_storage_location(
+    location_id: int, db: DbSession, _admin: AdminUser
+) -> Response:
+    """Delete a location nothing is, or ever was, kept in.
+
+    One an item has been in is part of that item's history, so it stays.
+    """
+    location = get_or_404(
+        db, StorageLocation, location_id, "Storage location not found"
+    )
+    used = _location_use(db, location.id)
+    if used:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{location_label(location)} holds or held "
+            f"{_counted(used, 'item record')}",
+        )
+    db.delete(location)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @storage_locations_router.get("")
@@ -537,11 +780,4 @@ def list_storage_locations(
         select(StorageLocation).options(selectinload(StorageLocation.kind))
     ).all()
 
-    return [
-        StorageLocationOut(
-            id=location.id,
-            label=location_label(location),
-            kind=location.kind.code,
-        )
-        for location in locations
-    ]
+    return [_location_out(db, location) for location in locations]

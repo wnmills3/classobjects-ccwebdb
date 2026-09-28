@@ -175,8 +175,12 @@ error belongs to that order and clears when the address changes.
   puts it on the note at once: as confirmed when the catalog row was
   confirmed before (it is verified), as proposed when it never was. Only a
   number not in the catalog -- typed, or pasted from the web search that a
-  miss opens -- is saved with **Save as proposed** or **Save as confirmed**.
-  In the item editor the choice is held until the editor's Save.
+  miss opens -- is saved with **Save as proposed** or **Save as confirmed**,
+  and only once it is in a Friedberg number's form (`list-maintenance-design.md`).
+  A number whose type is already recorded under another number is refused
+  with that row named, and **Correct 3007- to 3007-L** renames the recorded
+  row and uses it. In the item editor the choice is held until the editor's
+  Save.
 - Photographs upload after the receipt, the first as primary. **A failed
   upload never rolls back the receipt**: the arrival is the fact, the
   photograph evidence added to it. The failure is shown against the file and

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../../api'
+import { frProblem, normalizeFr } from '../../friedberg-format'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
 import { PRINTING_FACILITIES } from '../../../shared/kinds'
@@ -208,6 +209,11 @@ export default function FriedbergLookup({
   const [recordFrNumber, setRecordFrNumber] = useState('')
   const [recordError, setRecordError] = useState('')
   const [recording, setRecording] = useState(false)
+  // A number refused because its type is already on file under another --
+  // the owner's slip of recording `3007-` for `3007-L`: which row holds it,
+  // the number typed, and the status its Save button named. Offered as one
+  // click that corrects that row and uses it.
+  const [correction, setCorrection] = useState(null)
 
   const [attachingKey, setAttachingKey] = useState(null)
   const [attachError, setAttachError] = useState('')
@@ -378,7 +384,7 @@ export default function FriedbergLookup({
    * attached as it is; recording it again would be a 409.
    */
   async function save(status) {
-    const number = recordFrNumber.trim()
+    const number = normalizeFr(recordFrNumber)
     const known = (results ?? []).find((row) => row.fr_number === number)
     if (known) {
       setRecordError('')
@@ -410,10 +416,38 @@ export default function FriedbergLookup({
       // owner will legitimately hit this when the same type arrives twice,
       // so the message is shown, not swallowed.
       setRecordError(err.message)
+      const existing = err.body?.existing
+      if (err.status === 409 && existing) setCorrection({ existing, number, status })
     } finally {
       setRecording(false)
     }
   }
+
+  /**
+   * Correct the row that already holds this type to the number typed, then
+   * use it -- the slip repaired where it was noticed. Correcting writes the
+   * catalog at once, as recording does; in the item editor only attaching
+   * waits for Save.
+   */
+  async function correctAndUse() {
+    const { existing, number, status } = correction
+    setRecording(true)
+    setRecordError('')
+    try {
+      await api.updateFriedbergNumber(existing.id, { fr_number: number })
+      setCorrection(null)
+      if (await attach(existing.id, status, number)) setRecordFrNumber('')
+    } catch (err) {
+      setRecordError(err.message)
+    } finally {
+      setRecording(false)
+    }
+  }
+
+  // Checked as it is typed, by the rule the server holds (`fr_format.py`).
+  const typedProblem = recordFrNumber.trim()
+    ? frProblem(normalizeFr(recordFrNumber))
+    : null
 
   const busy = attachingKey != null || recording
 
@@ -634,7 +668,10 @@ export default function FriedbergLookup({
                 <input
                   type="text"
                   value={recordFrNumber}
-                  onChange={(e) => setRecordFrNumber(e.target.value)}
+                  onChange={(e) => {
+                    setRecordFrNumber(e.target.value)
+                    setCorrection(null)
+                  }}
                 />
               </label>
               {/* Offered with matches too: a match can be a wrong number
@@ -644,18 +681,24 @@ export default function FriedbergLookup({
                 Search the web
               </button>
             </div>
+            {typedProblem && <p className="error">{typedProblem}</p>}
             {recordError && <p className="error">{recordError}</p>}
+            {correction && (
+              <button type="button" disabled={busy} onClick={correctAndUse}>
+                Correct {correction.existing.fr_number} to {correction.number}
+              </button>
+            )}
             <div className="row">
               <button
                 type="button"
-                disabled={!recordFrNumber.trim() || busy}
+                disabled={!recordFrNumber.trim() || busy || Boolean(typedProblem)}
                 onClick={() => save('proposed')}
               >
                 Save as proposed
               </button>
               <button
                 type="button"
-                disabled={!recordFrNumber.trim() || busy}
+                disabled={!recordFrNumber.trim() || busy || Boolean(typedProblem)}
                 onClick={() => save('confirmed')}
               >
                 Save as confirmed

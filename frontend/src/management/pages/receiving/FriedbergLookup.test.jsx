@@ -8,6 +8,7 @@ vi.mock('../../api', () => ({
     searchFriedberg: vi.fn(),
     createFriedbergNumber: vi.fn(),
     attachFriedberg: vi.fn(),
+    updateFriedbergNumber: vi.fn(),
   },
 }))
 
@@ -20,14 +21,14 @@ import { emptyReference, renderWithProviders } from '../../../test/helpers'
 // Friedberg arrangement -- these codes and numbers are not real catalog
 // entries, not even in a fixture pretending to be one.
 const SIGNATURES_ALL = [
-  { code: 'FR-TEST-SIG-A', label: 'Test Treasurer A / Test Secretary A' },
-  { code: 'FR-TEST-SIG-B', label: 'Test Treasurer B / Test Secretary B' },
+  { code: 'TEST-SIG-A', label: 'Test Treasurer A / Test Secretary A' },
+  { code: 'TEST-SIG-B', label: 'Test Treasurer B / Test Secretary B' },
 ]
 const SIGNATURES_1963 = [SIGNATURES_ALL[0]]
 
 const ROW_VERIFIED = {
   id: 1,
-  fr_number: 'FR-TEST-1',
+  fr_number: '9903',
   note_type: null,
   denomination: null,
   series_year: null,
@@ -45,7 +46,7 @@ const ROW_VERIFIED = {
 const ROW_UNVERIFIED = {
   ...ROW_VERIFIED,
   id: 2,
-  fr_number: 'FR-TEST-2',
+  fr_number: '9904',
   verified: false,
   verified_at: null,
 }
@@ -60,12 +61,12 @@ beforeEach(() => {
     values: SIGNATURES_ALL,
   })
   api.searchFriedberg.mockResolvedValue([])
-  api.createFriedbergNumber.mockResolvedValue({ id: 9, fr_number: 'FR-TEST-1' })
+  api.createFriedbergNumber.mockResolvedValue({ id: 9, fr_number: '9903' })
   api.attachFriedberg.mockResolvedValue({
     inventory_item_id: 412,
     friedberg_id: 9,
     friedberg_status: 'proposed',
-    fr_number: 'FR-TEST-1',
+    fr_number: '9903',
     verified: false,
     verified_at: null,
   })
@@ -154,7 +155,7 @@ describe('FriedbergLookup', () => {
     )
     await userEvent.selectOptions(
       screen.getByLabelText(/signature combination/i),
-      'FR-TEST-SIG-A',
+      'TEST-SIG-A',
     )
 
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
@@ -169,7 +170,7 @@ describe('FriedbergLookup', () => {
         seal_color: 'green',
         series_year: 2017,
         series_letter: 'A',
-        signature_combination: 'FR-TEST-SIG-A',
+        signature_combination: 'TEST-SIG-A',
       }),
     )
   })
@@ -186,8 +187,8 @@ describe('FriedbergLookup', () => {
     expect(rows).toHaveLength(2)
     // Only the number and "Use" on the row -- the owner asked for exactly
     // that (2026-09-23): codes and status run together read as noise.
-    expect(rows[0]).toHaveTextContent(/^FR-TEST-1\s*Use$/)
-    expect(rows[1]).toHaveTextContent(/^FR-TEST-2\s*Use$/)
+    expect(rows[0]).toHaveTextContent(/^9903\s*Use$/)
+    expect(rows[1]).toHaveTextContent(/^9904\s*Use$/)
     // Would pass a component that labeled every row the same way only if
     // both fixtures agreed -- they deliberately do not.
     expect(rows[0]).toHaveAttribute('title', 'usd_note_1 · frn -- verified')
@@ -197,13 +198,13 @@ describe('FriedbergLookup', () => {
   it('after a failed attach, a retry only attaches -- it does not record again', async () => {
     // Recording it twice was refused as a duplicate, leaving the owner stuck
     // (code review, 2026-09-23).
-    api.createFriedbergNumber.mockResolvedValue({ id: 9, fr_number: 'FR-TEST-1' })
+    api.createFriedbergNumber.mockResolvedValue({ id: 9, fr_number: '9903' })
     api.attachFriedberg
       .mockRejectedValueOnce(new Error('network down'))
-      .mockResolvedValue({ fr_number: 'FR-TEST-1', friedberg_status: 'proposed' })
+      .mockResolvedValue({ fr_number: '9903', friedberg_status: 'proposed' })
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
-    await userEvent.type(await screen.findByLabelText(/fr\. number/i), 'FR-TEST-1')
+    await userEvent.type(await screen.findByLabelText(/fr\. number/i), '9903')
 
     await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
     expect(await screen.findByText('network down')).toBeInTheDocument()
@@ -219,7 +220,7 @@ describe('FriedbergLookup', () => {
 
   it('surfaces a 409 on recording rather than swallowing it', async () => {
     api.createFriedbergNumber.mockRejectedValue(
-      Object.assign(new Error("fr_number 'FR-TEST-1' is already recorded as row 7"), {
+      Object.assign(new Error("fr_number '9903' is already recorded as row 7"), {
         status: 409,
       }),
     )
@@ -227,7 +228,7 @@ describe('FriedbergLookup', () => {
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
     const frInput = await screen.findByLabelText(/fr\. number/i)
-    await userEvent.type(frInput, 'FR-TEST-1')
+    await userEvent.type(frInput, '9903')
     await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
 
     expect(await screen.findByText(/already recorded as row 7/i)).toBeInTheDocument()
@@ -240,13 +241,13 @@ describe('FriedbergLookup', () => {
     // (owner, 2026-09-27): Use is the whole step.
     api.searchFriedberg.mockResolvedValue([ROW_VERIFIED])
     api.attachFriedberg.mockResolvedValue({
-      fr_number: 'FR-TEST-1',
+      fr_number: '9903',
       friedberg_status: 'confirmed',
     })
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Use FR-TEST-1' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use 9903' }))
 
     await waitFor(() =>
       expect(api.attachFriedberg).toHaveBeenCalledWith(412, {
@@ -261,13 +262,13 @@ describe('FriedbergLookup', () => {
   it('uses an unverified match as proposed, never confirming it unasked', async () => {
     api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
     api.attachFriedberg.mockResolvedValue({
-      fr_number: 'FR-TEST-2',
+      fr_number: '9904',
       friedberg_status: 'proposed',
     })
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Use FR-TEST-2' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use 9904' }))
 
     await waitFor(() =>
       expect(api.attachFriedberg).toHaveBeenCalledWith(412, {
@@ -283,12 +284,12 @@ describe('FriedbergLookup', () => {
     api.searchFriedberg.mockResolvedValue([ROW_UNVERIFIED])
     renderWithProviders(<FriedbergLookup itemId={412} onChoose={onChoose} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Use FR-TEST-2' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Use 9904' }))
 
     expect(onChoose).toHaveBeenCalledWith({
       friedberg_id: 2,
       status: 'proposed',
-      fr_number: 'FR-TEST-2',
+      fr_number: '9904',
     })
     expect(api.attachFriedberg).not.toHaveBeenCalled()
     expect(screen.getByText(/attached when you save/i)).toBeInTheDocument()
@@ -302,7 +303,7 @@ describe('FriedbergLookup', () => {
       seal_color: 'green',
       series_year: 1995,
       series_letter: null,
-      signature_combination: 'FR-TEST-SIG-A',
+      signature_combination: 'TEST-SIG-A',
       fed_district: 'B',
       attributes: [{ code: 'web_press', label: 'Web Press Note' }],
     }
@@ -323,7 +324,7 @@ describe('FriedbergLookup', () => {
         note_type: 'frn',
         seal_color: 'green',
         series_year: 1995,
-        signature_combination: 'FR-TEST-SIG-A',
+        signature_combination: 'TEST-SIG-A',
         district_letter: 'B',
         web_press: true,
       }),
@@ -395,7 +396,7 @@ describe('FriedbergLookup', () => {
     const item = {
       id: 412,
       series_year: 1963,
-      signature_combination: 'FR-TEST-SIG-B',
+      signature_combination: 'TEST-SIG-B',
       attributes: [],
     }
     renderWithProviders(<FriedbergLookup itemId={412} item={item} />)
@@ -408,13 +409,13 @@ describe('FriedbergLookup', () => {
         'Test Treasurer B / Test Secretary B (not listed for this series)',
       ),
     )
-    expect(select).toHaveValue('FR-TEST-SIG-B')
+    expect(select).toHaveValue('TEST-SIG-B')
 
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
     await waitFor(() =>
       expect(api.searchFriedberg).toHaveBeenCalledWith({
         series_year: 1963,
-        signature_combination: 'FR-TEST-SIG-B',
+        signature_combination: 'TEST-SIG-B',
       }),
     )
   })
@@ -434,7 +435,7 @@ describe('FriedbergLookup', () => {
       note_type: 'frn',
       series_year: 1963,
       series_letter: 'A',
-      signature_combination: 'FR-TEST-SIG-A',
+      signature_combination: 'TEST-SIG-A',
       fed_district: 'B',
       attributes: [],
     }
@@ -482,7 +483,7 @@ describe('FriedbergLookup', () => {
     const item = { id: 412, series_year: 1963, series_letter: 'A', attributes: [] }
     renderWithProviders(<FriedbergLookup itemId={412} item={item} searchNow />)
 
-    expect(await screen.findByRole('button', { name: 'Use FR-TEST-1' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: 'Use 9903' })).toBeEnabled()
     expect(api.searchFriedberg).toHaveBeenCalledTimes(1)
     expect(api.searchFriedberg).toHaveBeenCalledWith({
       series_year: 1963,
@@ -513,7 +514,7 @@ describe('FriedbergLookup', () => {
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
-    expect(await screen.findByRole('button', { name: 'Use FR-TEST-1' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: 'Use 9903' })).toBeEnabled()
     expect(window.open).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole('button', { name: /search the web/i }))
     expect(window.open).toHaveBeenCalledTimes(1)
@@ -537,19 +538,19 @@ describe('FriedbergLookup', () => {
     await userEvent.selectOptions(screen.getByLabelText(/web press/i), 'no')
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
-    await userEvent.type(await screen.findByLabelText(/fr\. number/i), 'FR-TEST-1')
+    await userEvent.type(await screen.findByLabelText(/fr\. number/i), '9903')
     await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
 
     await waitFor(() =>
       expect(api.createFriedbergNumber).toHaveBeenCalledWith({
-        fr_number: 'FR-TEST-1',
+        fr_number: '9903',
         district_letter: 'B',
         web_press: false,
       }),
     )
     await waitFor(() =>
       expect(onAttached).toHaveBeenCalledWith(
-        expect.objectContaining({ fr_number: 'FR-TEST-1' }),
+        expect.objectContaining({ fr_number: '9903' }),
       ),
     )
   })
@@ -570,14 +571,14 @@ describe('FriedbergLookup', () => {
     await userEvent.click(lookUp) // slow, abandoned search
     await userEvent.click(lookUp) // fast, current search
 
-    expect(await screen.findByText('FR-TEST-2')).toBeInTheDocument()
+    expect(await screen.findByText('9904')).toBeInTheDocument()
 
     // The abandoned search now resolves -- it must not overwrite the newer
     // result already on screen.
     resolveFirst([ROW_VERIFIED])
     await waitFor(() => expect(api.searchFriedberg).toHaveBeenCalledTimes(2))
-    expect(screen.queryByText('FR-TEST-1')).not.toBeInTheDocument()
-    expect(screen.getByText('FR-TEST-2')).toBeInTheDocument()
+    expect(screen.queryByText('9903')).not.toBeInTheDocument()
+    expect(screen.getByText('9904')).toBeInTheDocument()
   })
 })
 
@@ -625,5 +626,78 @@ describe('webSearchText', () => {
 
   it('still asks a question when nothing is known yet', () => {
     expect(webSearchText({})).toBe('What is the Friedberg number for this US banknote?')
+  })
+})
+
+describe('FriedbergLookup: the form of a number typed in', () => {
+  it('names a slip and keeps Save from sending it', async () => {
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.type(await screen.findByLabelText(/fr\. number/i), '9928-')
+
+    expect(screen.getByText(/ends with a hyphen/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /save as proposed/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /save as confirmed/i })).toBeDisabled()
+  })
+
+  it('saves the number as it is kept: trimmed, unprefixed, district in capitals', async () => {
+    api.createFriedbergNumber.mockResolvedValue({ id: 30, fr_number: '9928-L' })
+    api.attachFriedberg.mockResolvedValue({
+      fr_number: '9928-L',
+      friedberg_status: 'proposed',
+    })
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.type(await screen.findByLabelText(/fr\. number/i), ' Fr. 9928-l ')
+
+    await userEvent.click(screen.getByRole('button', { name: /save as proposed/i }))
+
+    await waitFor(() =>
+      expect(api.createFriedbergNumber).toHaveBeenCalledWith(
+        expect.objectContaining({ fr_number: '9928-L' }),
+      ),
+    )
+  })
+
+  it('offers to correct the row that already holds the combination, then uses it', async () => {
+    // The owner's case: 3007- recorded by a slip, then 3007-L refused
+    // because its type was already on file under the slip.
+    api.createFriedbergNumber.mockRejectedValue(
+      Object.assign(
+        new Error('That combination is already recorded as 9928- (row 14).'),
+        {
+          status: 409,
+          body: {
+            detail: 'That combination is already recorded as 9928- (row 14).',
+            existing: { id: 14, fr_number: '9928-' },
+          },
+        },
+      ),
+    )
+    api.updateFriedbergNumber.mockResolvedValue({ id: 14, fr_number: '9928-L' })
+    api.attachFriedberg.mockResolvedValue({
+      fr_number: '9928-L',
+      friedberg_status: 'confirmed',
+    })
+    renderWithProviders(<FriedbergLookup itemId={412} />)
+    await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
+    await userEvent.type(await screen.findByLabelText(/fr\. number/i), '9928-L')
+    await userEvent.click(screen.getByRole('button', { name: /save as confirmed/i }))
+
+    expect(await screen.findByText(/already recorded as 9928-/)).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Correct 9928- to 9928-L' }),
+    )
+
+    await waitFor(() =>
+      expect(api.attachFriedberg).toHaveBeenCalledWith(412, {
+        friedberg_id: 14,
+        status: 'confirmed',
+      }),
+    )
+    expect(api.updateFriedbergNumber).toHaveBeenCalledWith(14, { fr_number: '9928-L' })
+    expect(api.updateFriedbergNumber.mock.invocationCallOrder[0]).toBeLessThan(
+      api.attachFriedberg.mock.invocationCallOrder[0],
+    )
   })
 })
