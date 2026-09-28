@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { api } from '../api'
+import { useRequest } from '../../shared/useRequest'
 import BulkEditBar from './inventory/BulkEditBar'
 import FilterPanel from './inventory/FilterPanel'
 import InventoryTable from './inventory/InventoryTable'
@@ -7,6 +9,30 @@ import ItemEditDialog from './inventory/ItemEditDialog'
 import ReviewPane from './inventory/ReviewPane'
 import { COIN_VIEW, CURRENCY_VIEW, PAGE_SIZE } from './inventory/specs'
 import { useInventorySearch } from './inventory/useInventorySearch'
+
+/**
+ * The item a report's link names (`?item=CC-001234`), as `{ id, problem }`.
+ *
+ * Found through the search's item-code filter, which matches part of a
+ * code, so only the row whose code is exactly the one asked for counts:
+ * `CC-00001` must not open `CC-000012`. `problem` says why nothing opened.
+ */
+function useLinkedItem(view, code) {
+  const wanted = code?.trim()
+  const request = useRequest(wanted ? `${view}:${wanted}` : null, () =>
+    api
+      .searchInventory(view, { item_code: wanted, limit: 200 })
+      .then(
+        (body) =>
+          body.rows.find((row) => row.item_code.toLowerCase() === wanted.toLowerCase())
+            ?.id ?? null,
+      ),
+  )
+  if (!wanted || request.busy) return { id: null, problem: '' }
+  if (request.error) return { id: null, problem: request.error }
+  if (request.data == null) return { id: null, problem: `No item ${code} found.` }
+  return { id: request.data, problem: '' }
+}
 
 /**
  * Staff inventory browse, one screen per kind.
@@ -22,9 +48,29 @@ import { useInventorySearch } from './inventory/useInventorySearch'
  * buries the ones actually present.
  */
 function InventoryView({ config }) {
-  const { current, apply, clear, refresh, page, busy, error, offset } =
-    useInventorySearch(config.view)
+  const {
+    current,
+    apply,
+    clear,
+    refresh,
+    page,
+    busy,
+    error,
+    offset,
+    itemCode,
+    closeItem,
+  } = useInventorySearch(config.view)
   const [editing, setEditing] = useState(null)
+  const linked = useLinkedItem(config.view, itemCode)
+  // A row clicked here wins over the item the address named.
+  const openId = editing ?? linked.id
+
+  // Closing the editor on the address's item takes `item` out of the
+  // address, so a reload or Back does not open it again.
+  function closeEditor() {
+    setEditing(null)
+    if (itemCode) closeItem()
+  }
   const [selected, setSelected] = useState([])
   const [reviewing, setReviewing] = useState(null)
 
@@ -96,6 +142,7 @@ function InventoryView({ config }) {
       />
 
       {error && <p className="error">{error}</p>}
+      {linked.problem && <p className="error">{linked.problem}</p>}
       {!busy && total === 0 && <p className="muted">Nothing matches those filters.</p>}
 
       {rows.length > 0 && (
@@ -132,21 +179,21 @@ function InventoryView({ config }) {
         </div>
       )}
 
-      {editing && (
+      {openId && (
         <ItemEditDialog
-          key={editing}
-          itemId={editing}
+          key={openId}
+          itemId={openId}
           // Closed only here, on a save the server accepted. A refused one --
           // a 409 from a stale version -- leaves the dialog open with the
           // reason showing, and the draft still there to retry.
           onSaved={() => {
-            setEditing(null)
+            closeEditor()
             refresh()
           }}
           // A split stays open to say what it made; the results behind it
           // lose the lot and gain its pieces.
           onChanged={refresh}
-          onClose={() => setEditing(null)}
+          onClose={closeEditor}
         />
       )}
     </section>

@@ -1,5 +1,6 @@
 import userEvent from '@testing-library/user-event'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api', () => ({
@@ -210,5 +211,84 @@ describe('Inventory item editor', () => {
     fireEvent(heading.closest('dialog'), new Event('cancel', { cancelable: true }))
 
     await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+  })
+})
+
+/** The address the page is at, so a test can see `item` leave it. */
+function Address() {
+  const location = useLocation()
+  return <output data-testid="address">{location.search}</output>
+}
+
+// A report row that is one item links here with `?item=CC-######` (the
+// reporting spec's drill-downs): the page opens that item's editor.
+describe('Inventory opened on one item', () => {
+  beforeEach(() => {
+    // The code search is a partial match, so it can answer with a longer
+    // code that merely contains the one asked for.
+    api.searchInventory.mockImplementation((view, params) =>
+      Promise.resolve(
+        params.item_code
+          ? {
+              rows: [
+                { id: 70, item_code: 'CC-0000070' },
+                { id: 7, item_code: 'CC-000007' },
+              ].filter((row) =>
+                row.item_code.toLowerCase().includes(params.item_code.toLowerCase()),
+              ),
+              total: 2,
+            }
+          : { rows, total: 900, facets: {}, issues: {}, sortable: [] },
+      ),
+    )
+  })
+
+  function renderItem(code) {
+    return renderWithProviders(
+      <>
+        <InventoryCurrency />
+        <Address />
+      </>,
+      { auth: adminAuth(), route: `/inventory/currency?item=${code}` },
+    )
+  }
+
+  it("opens the editor on the item whose code is exactly the address's", async () => {
+    renderItem('CC-000007')
+
+    const heading = await screen.findByRole('heading', { name: 'CC-000007' })
+    expect(heading.closest('dialog')).toHaveAttribute('open')
+    expect(api.getInventoryItem).toHaveBeenCalledWith(7)
+    expect(api.searchInventory).toHaveBeenCalledWith(
+      'currency',
+      expect.objectContaining({ item_code: 'CC-000007' }),
+    )
+  })
+
+  it('never hands `item` to the search, which would refuse it', async () => {
+    renderItem('CC-000007')
+    await screen.findByRole('heading', { name: 'CC-000007' })
+
+    for (const [, params] of api.searchInventory.mock.calls) {
+      expect(params).not.toHaveProperty('item')
+    }
+  })
+
+  it('takes `item` out of the address when the editor closes', async () => {
+    const user = userEvent.setup()
+    renderItem('CC-000007')
+    await screen.findByRole('heading', { name: 'CC-000007' })
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+
+    await waitFor(() => expect(document.querySelector('dialog')).toBeNull())
+    expect(screen.getByTestId('address').textContent).toBe('')
+  })
+
+  it('says so when no item has that code', async () => {
+    renderItem('CC-999999')
+
+    expect(await screen.findByText('No item CC-999999 found.')).toBeInTheDocument()
+    expect(document.querySelector('dialog')).toBeNull()
   })
 })

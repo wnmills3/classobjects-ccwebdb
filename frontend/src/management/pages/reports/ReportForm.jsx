@@ -1,0 +1,66 @@
+import { useState } from 'react'
+
+import { choiceText, paramHelp } from './values'
+
+/**
+ * A report's parameters, built from the catalog's description of them, and
+ * Run.
+ *
+ * A choice is a dropdown, an integer a number box, anything else a text box.
+ * The form holds its own draft; the page keys it by the address, so a new
+ * address -- another report, Back, a link -- starts it again from there.
+ * `error` is why the last run was refused, shown beside the fields it names.
+ */
+export default function ReportForm({ report, values, error, onRun }) {
+  const [draft, setDraft] = useState(values)
+
+  function submit(e) {
+    e.preventDefault()
+    onRun(draft)
+  }
+
+  return (
+    <form className="search-panel report-form" onSubmit={submit}>
+      {report.params.length > 0 && (
+        <div className="filter-grid">
+          {report.params.map((param) => (
+            <label key={param.name} data-help={paramHelp(param.name)}>
+              {param.label}
+              <ParamInput
+                param={param}
+                value={draft[param.name] ?? ''}
+                onChange={(value) => setDraft({ ...draft, [param.name]: value })}
+              />
+            </label>
+          ))}
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+      <button type="submit" data-help="report_run">
+        Run
+      </button>
+    </form>
+  )
+}
+
+function ParamInput({ param, value, onChange }) {
+  if (param.type === 'choice') {
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {param.choices.map((choice) => (
+          <option key={choice} value={choice}>
+            {choiceText(choice)}
+          </option>
+        ))}
+      </select>
+    )
+  }
+  return (
+    <input
+      type={param.type === 'integer' ? 'number' : 'text'}
+      step={param.type === 'integer' ? 1 : undefined}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  )
+}

@@ -122,11 +122,25 @@ export function withQuery(path, params = {}, { dropFalse = false } = {}) {
   return query ? `${path}?${query}` : path
 }
 
+/** The file name a `Content-Disposition: attachment` header gives, or null. */
+function attachmentName(header) {
+  const match = /filename="?([^";]+)"?/i.exec(header ?? '')
+  return match ? match[1] : null
+}
+
 /**
  * The one place a request is made, exported so `management/api.js` can build the
  * console's calls on the same token handling and error shape.
+ *
+ * `binary` asks for a file rather than JSON -- a workbook download -- and
+ * answers `{ blob, filename }`. The session is a bearer token, not a cookie,
+ * so a plain `<a href>` to such a file would arrive signed out; it is fetched
+ * here, with the token, and refused the same way as any other request.
  */
-export async function send(path, { method = 'GET', body, form, auth = true } = {}) {
+export async function send(
+  path,
+  { method = 'GET', body, form, auth = true, binary = false } = {},
+) {
   const headers = {}
   let payload
 
@@ -175,6 +189,12 @@ export async function send(path, { method = 'GET', body, form, auth = true } = {
   }
 
   if (res.status === 204) return null
+  if (binary && res.ok) {
+    return {
+      blob: await res.blob(),
+      filename: attachmentName(res.headers.get('Content-Disposition')),
+    }
+  }
 
   // A proxy or a crashed server can answer with an HTML page. That is still
   // a failed request with a status, not a SyntaxError from the parser.
