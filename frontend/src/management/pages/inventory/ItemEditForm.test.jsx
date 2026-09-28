@@ -1441,6 +1441,109 @@ describe('Errors panel', () => {
   })
 })
 
+describe('ItemEditForm: changes to filed photographs wait for Save', () => {
+  const roles = emptyReference({
+    tables: {
+      image_role: [
+        { code: 'obverse', label: 'Obverse', source: 'seeded', extra: {} },
+        { code: 'reverse', label: 'Reverse', source: 'seeded', extra: {} },
+      ],
+    },
+  })
+  const photo = (overrides) => ({
+    link_id: 1,
+    inventory_item_id: 12,
+    item_code: 'C-012',
+    image_id: 1,
+    image_role: 'obverse',
+    is_primary: false,
+    sort_order: 0,
+    captured_at: null,
+    thumbnail_url: '/thumb/1',
+    image_url: '/img/1',
+    ...overrides,
+  })
+
+  async function open(extra = {}) {
+    const onSaved = vi.fn()
+    api.getInventoryItem.mockResolvedValue({ ...item, ...extra })
+    api.listItemImages.mockResolvedValue([
+      photo({ link_id: 1, image_id: 10, is_primary: true }),
+      photo({ link_id: 2, image_id: 20, image_role: null, sort_order: 1 }),
+    ])
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={onSaved} onClose={vi.fn()} />,
+      { reference: roles },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    await screen.findByRole('button', { name: 'Remove (photo 10)' })
+    return onSaved
+  }
+
+  it('holds a new role, a new primary and a removal, then applies them on Save', async () => {
+    const user = userEvent.setup()
+    api.updateImageLink.mockResolvedValue({})
+    api.detachImage.mockResolvedValue(null)
+    const onSaved = await open()
+    const save = screen.getByRole('button', { name: 'Save' })
+
+    const pickers = screen.getAllByRole('combobox', { name: 'image_role' })
+    await user.selectOptions(pickers[1], 'reverse')
+    await user.click(screen.getByRole('button', { name: 'Make primary (photo 20)' }))
+    await user.click(screen.getByRole('button', { name: 'Remove (photo 10)' }))
+
+    expect(api.updateImageLink).not.toHaveBeenCalled()
+    expect(api.detachImage).not.toHaveBeenCalled()
+    expect(save).toBeEnabled()
+    await user.click(save)
+
+    await waitFor(() => expect(api.detachImage).toHaveBeenCalled())
+    expect(api.updateImageLink).toHaveBeenCalledWith(2, {
+      imageRole: 'reverse',
+      isPrimary: true,
+      acknowledgeForSale: false,
+    })
+    expect(api.detachImage).toHaveBeenCalledWith(1, { acknowledgeForSale: false })
+    // The new primary first: removing the old one then leaves nothing to fill.
+    expect(api.updateImageLink.mock.invocationCallOrder[0]).toBeLessThan(
+      api.detachImage.mock.invocationCallOrder[0],
+    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+  })
+
+  it('keeps a change that could not be applied, with its reason', async () => {
+    const user = userEvent.setup()
+    api.updateImageLink.mockRejectedValue(new Error('Unknown image_role'))
+    const onSaved = await open()
+    const pickers = screen.getAllByRole('combobox', { name: 'image_role' })
+    await user.selectOptions(pickers[1], 'reverse')
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findAllByText(/Unknown image_role/)).not.toHaveLength(0)
+    expect(screen.getByText(/not saved yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it("applies them for an item for sale under the form's acknowledgement", async () => {
+    const user = userEvent.setup()
+    api.detachImage.mockResolvedValue(null)
+    await open({
+      sale_state: [{ kind: 'listing', id: 3, text: 'listing #3 at 189.00' }],
+    })
+    await user.click(screen.getByRole('button', { name: 'Remove (photo 10)' }))
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Change it anyway' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.detachImage).toHaveBeenCalledWith(1, { acknowledgeForSale: true }),
+    )
+  })
+})
+
 describe('ItemEditForm: errors wait for Save', () => {
   const COIN = { ...item, item_kind: 'coin', version: 3 }
   const vocabularies = emptyReference({
