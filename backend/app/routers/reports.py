@@ -4,10 +4,11 @@ Manager only, like everything else that shows cost, value or location --
 nothing here reaches the shop. A report's own parameters model does the
 validating: FastAPI cannot bind a query string at this endpoint's own
 signature, since every report's parameters differ, so this router reads the
-raw query string, refuses any key the report's model does not declare (an
-allowlist, never a name trusted straight into a query), and hands the rest
-to that model's own `model_validate` -- the same pydantic validation a bound
-parameter would get, so a bad value comes back 422 with pydantic's own error
+raw query string and hands it to `reports.params.resolve_params` -- shared
+with the command line, so a report is validated identically from either --
+which refuses any key the report's model does not declare (an allowlist,
+never a name trusted straight into a query) and otherwise runs that model's
+own `model_validate`, so a bad value comes back 422 with pydantic's own error
 detail.
 """
 
@@ -19,11 +20,12 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from starlette.datastructures import QueryParams
 
 from ..deps import AdminUser, DbSession
 from ..reports.base import Report
+from ..reports.params import ParamError, resolve_params
 from ..reports.registry import REPORTS
 from ..reports.serialize import catalog, serialize_result
 from ..reports.workbook import workbook_filename, write_workbook
@@ -47,33 +49,28 @@ def _report_or_404(report_id: str) -> Report[Any]:
 
 
 def _params_from_query(report: Report[Any], query: QueryParams) -> BaseModel:
-    """`report`'s params, validated from the raw query string.
+    """`report`'s params, validated from the raw query string, or a 422.
 
-    Every key in `query` must be one the params model declares; an unknown
-    key is refused with the same 422 shape a bad value gets, rather than
-    silently ignored, since a typo'd parameter name would otherwise run
-    with that parameter's default and never tell the caller why.
+    An unknown key gets the same 422 shape a bad value gets, rather than
+    being silently ignored, since a typo'd parameter name would otherwise
+    run with that parameter's default and never tell the caller why.
     """
-    allowed = set(report.params.model_fields)
-    unknown = sorted(key for key in query if key not in allowed)
-    if unknown:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=[
+    try:
+        return resolve_params(report, query)
+    except ParamError as exc:
+        if exc.unknown:
+            detail = [
                 {
                     "type": "extra_forbidden",
                     "loc": ["query", key],
                     "msg": "Unknown parameter",
                 }
-                for key in unknown
-            ],
-        )
-    try:
-        return report.params.model_validate(dict(query))
-    except ValidationError as exc:
+                for key in exc.unknown
+            ]
+        else:
+            detail = jsonable_encoder(exc.errors)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=jsonable_encoder(exc.errors()),
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail
         ) from exc
 
 

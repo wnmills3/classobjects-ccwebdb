@@ -224,3 +224,103 @@ def test_the_workbook_rows_equal_the_jsons_rows(
         if cell.value is not None
     }
     assert set(json_body["notes"]) <= note_texts
+
+
+def test_the_workbook_formats_percent_and_count_cells(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`dq_completeness`: a percent column prints "0.0"; a count is still numeric."""
+    build_bare_item(db)
+
+    json_res = client.get("/api/reports/dq_completeness", headers=admin_headers)
+    assert json_res.status_code == 200
+    columns = json_res.json()["columns"]
+
+    wb_res = client.get("/api/reports/dq_completeness/workbook", headers=admin_headers)
+    assert wb_res.status_code == 200
+    book = load_workbook(BytesIO(wb_res.content))
+    sheet = book["Field completeness"]
+    header_row = _header_row(sheet, columns[0]["label"])
+    data_row = header_row + 1
+
+    count_index = next(
+        i for i, c in enumerate(columns, start=1) if c["kind"] == "count"
+    )
+    percent_index = next(
+        i for i, c in enumerate(columns, start=1) if c["kind"] == "percent"
+    )
+
+    count_cell = sheet.cell(row=data_row, column=count_index)
+    # Written as a float -- openpyxl's own Cell.value has no plain-int
+    # member -- but a round trip through the actual .xlsx bytes reads a
+    # whole number back as `int`, so only the value, not the Python type,
+    # is asserted here.
+    assert count_cell.value == 1
+
+    percent_cell = sheet.cell(row=data_row, column=percent_index)
+    assert percent_cell.number_format == "0.0"
+    assert isinstance(percent_cell.value, (int, float))
+
+
+def test_the_workbook_lists_its_parameters_then_a_run_at_row(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    res = client.get("/api/reports/pr_outstanding/workbook", headers=admin_headers)
+    assert res.status_code == 200
+    book = load_workbook(BytesIO(res.content))
+    sheet = book["Not yet arrived"]
+
+    param_row = _header_row(sheet, "Overdue after (days)")
+    assert sheet.cell(row=param_row, column=2).value == 21.0
+
+    run_at_row = _header_row(sheet, "Run at")
+    assert run_at_row == param_row + 1
+    run_at_text = sheet.cell(row=run_at_row, column=2).value
+    assert isinstance(run_at_text, str)
+    datetime.fromisoformat(run_at_text)  # parses without raising: valid ISO text
+
+
+def test_the_workbook_freezes_panes_below_the_header(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    res = client.get("/api/reports/pr_outstanding/workbook", headers=admin_headers)
+    assert res.status_code == 200
+    book = load_workbook(BytesIO(res.content))
+    sheet = book["Not yet arrived"]
+    header_row = _header_row(sheet, "Order")
+    assert sheet.freeze_panes == f"A{header_row + 1}"
+
+
+def test_the_workbook_filenames_date_equals_run_ats_date(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    res = client.get("/api/reports/pr_outstanding/workbook", headers=admin_headers)
+    assert res.status_code == 200
+    disposition = res.headers["content-disposition"]
+    filename_date = disposition.split("pr_outstanding_")[1].removesuffix('.xlsx"')
+
+    book = load_workbook(BytesIO(res.content))
+    sheet = book["Not yet arrived"]
+    run_at_row = _header_row(sheet, "Run at")
+    run_at_text = sheet.cell(row=run_at_row, column=2).value
+    assert isinstance(run_at_text, str)
+    run_at = datetime.fromisoformat(run_at_text)
+
+    assert filename_date == run_at.date().isoformat()
+
+
+def test_a_bad_parameter_or_unknown_report_is_refused_on_the_workbook_path_too(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    res = client.get(
+        "/api/reports/pr_outstanding/workbook?overdue_days=0", headers=admin_headers
+    )
+    assert res.status_code == 422
+
+    res = client.get(
+        "/api/reports/pr_outstanding/workbook?nope=1", headers=admin_headers
+    )
+    assert res.status_code == 422
+
+    res = client.get("/api/reports/nope/workbook", headers=admin_headers)
+    assert res.status_code == 404
