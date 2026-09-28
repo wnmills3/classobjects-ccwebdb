@@ -4,9 +4,10 @@ Two reports. `dq_issues` counts every named check from `app.issues` across
 both inventory views, reusing `inventory_search.count_issues` so a row's
 count can never disagree with its own drill-down's search. `dq_completeness`
 reports, per item kind, the percent of live items with each of ten fields
-filled in -- the same ten fields the `missing=<field>` filter
-(`inventory_search.MISSING_FIELDS`) finds empty, so a report cell and its
-drill-down search can never disagree either.
+filled in -- counted with the exact same SQL text the `missing=<field>`
+filter (`inventory_search.MISSING_FIELDS`) uses to find a field empty, so a
+report cell and its drill-down search agree by construction, not only by
+test.
 """
 
 from __future__ import annotations
@@ -16,12 +17,13 @@ from decimal import ROUND_HALF_UP, Decimal
 from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.util import ClauseAdapter
 
 from ..inventory_search import COIN_VIEW, CURRENCY_VIEW, MISSING_FIELDS, count_issues
 from ..live import live_item
 from ..models import CurrencyDetail, InventoryItem, ItemKind
-from . import register
 from .base import Column, Report, ReportResult
+from .registry import register
 
 __all__ = ["DQ_COMPLETENESS", "DQ_ISSUES"]
 
@@ -91,9 +93,11 @@ class DqCompletenessParams(BaseModel):
 #: column order, and its keys are exactly `inventory_search.MISSING_FIELDS`'
 #: keys -- the `missing=` values -- which is the contract this report's
 #: columns are built to: a column's `key` IS the `missing=` field name, so
-#: the console can build a cell's own drill-down as this row's drill
-#: (`/inventory/currency` or `/inventory/coins?kind=<code>`) plus
-#: `&missing=<key>`, without a second table naming the correspondence.
+#: the console builds a cell's own drill-down by adding `missing=<key>` to
+#: this row's own drill (`/inventory/currency` or
+#: `/inventory/coins?kind=<code>`) with `URLSearchParams`, not string
+#: concatenation -- `/inventory/currency` carries no `?` of its own to
+#: concatenate onto.
 _FIELD_LABELS: dict[str, str] = {
     "year": "Year",
     "denomination": "Denomination",
@@ -107,36 +111,21 @@ _FIELD_LABELS: dict[str, str] = {
     "sellers_item_id": "Seller's item id",
 }
 
-#: The same ten checks as `inventory_search.MISSING_FIELDS`, restated against
-#: the real (unaliased) table names rather than that module's `i`/`k`/`cud`
-#: aliases. The restatement is needed, not stylistic: this report's query
-#: filters on `live_item()`, the shared live-row predicate (`app.live`), and
-#: that predicate names `InventoryItem` directly -- it cannot be composed
-#: with a query that aliases `inventory_item`, which is what the `missing=`
-#: filter's own text needs (built inside `inventory_search._conditions`,
-#: whose base table is always `inventory_item i`). Kind applicability is
-#: read once, not restated: both this report and the filter read
-#: `MISSING_FIELDS[key].kinds`, the shared table that decides which kinds a
-#: field applies to, so that part cannot drift.
-_FIELD_SQL: dict[str, str] = {
-    "year": (
-        "(CASE WHEN item_kind.code = 'currency' "
-        "THEN currency_detail.series_year IS NULL "
-        "ELSE inventory_item.year_start IS NULL END)"
-    ),
-    "denomination": "inventory_item.denomination_id IS NULL",
-    "grade": "inventory_item.grade_id IS NULL",
-    "country": "inventory_item.country_id IS NULL",
-    "series": "inventory_item.series_id IS NULL",
-    "metal": "inventory_item.metal_id IS NULL",
-    "photo": (
-        "NOT EXISTS (SELECT 1 FROM item_image "
-        "WHERE item_image.inventory_item_id = inventory_item.id)"
-    ),
-    "storage_location": "inventory_item.storage_location_id IS NULL",
-    "listing_link": "coalesce(inventory_item.listing_url, '') = ''",
-    "sellers_item_id": "coalesce(inventory_item.sellers_item_id, '') = ''",
-}
+#: `inventory_item`, `item_kind` and `currency_detail`, aliased `i`/`k`/`cud`
+#: -- exactly how `inventory_search`'s own queries alias them (`_J_KIND`,
+#: `_J_CUR_DETAIL`) -- so `MISSING_FIELDS[key].sql`'s text, written against
+#: those same aliases for the `missing=` filter, can be reused here verbatim
+#: rather than restated against different table names. One definition of
+#: "is this field missing", read by the filter and this report alike.
+_I = InventoryItem.__table__.alias("i")
+_K = ItemKind.__table__.alias("k")
+_CUD = CurrencyDetail.__table__.alias("cud")
+
+#: `live_item()` (`app.live`), the shared live-row predicate, names
+#: `InventoryItem` unaliased; `ClauseAdapter` rewrites its column references
+#: onto `_I` so it composes with a query that joins `inventory_item` as `i`,
+#: the way `MISSING_FIELDS`'s text (`i.year_start`, and so on) requires.
+_LIVE = ClauseAdapter(_I).traverse(live_item())
 
 _ONE_DP = Decimal("0.1")
 
@@ -172,24 +161,29 @@ def _dq_completeness(db: Session, _params: DqCompletenessParams) -> ReportResult
     restriction for a field (country, series, photograph, storage location,
     listing link, seller's item id), this report follows it in applying that
     field to every kind -- a judgment call, not a rule read from `issues.py`.
+
+    Every `count(*) FILTER` below runs `MISSING_FIELDS[key].sql` -- the same
+    text the `missing=` filter itself runs -- so a cell's implied "missing"
+    count and its drill-down search's count cannot drift apart: they are the
+    same predicate, not two that happen to agree today.
     """
     stmt = (
         select(
-            ItemKind.code.label("kind_code"),
-            ItemKind.label.label("kind_label"),
+            _K.c.code.label("kind_code"),
+            _K.c.label.label("kind_label"),
             func.count().label("live_items"),
             *(
-                func.count().filter(text(f"NOT ({sql})")).label(key)
-                for key, sql in _FIELD_SQL.items()
+                func.count().filter(text(f"NOT ({field.sql})")).label(key)
+                for key, field in MISSING_FIELDS.items()
             ),
         )
-        .select_from(InventoryItem)
-        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
-        .outerjoin(CurrencyDetail, CurrencyDetail.inventory_item_id == InventoryItem.id)
-        .where(live_item())
-        .group_by(ItemKind.code, ItemKind.label)
+        .select_from(_I)
+        .join(_K, _K.c.id == _I.c.item_kind_id)
+        .outerjoin(_CUD, _CUD.c.inventory_item_id == _I.c.id)
+        .where(_LIVE)
+        .group_by(_K.c.code, _K.c.label)
         .having(func.count() > 0)
-        .order_by(ItemKind.code)
+        .order_by(_K.c.code)
     )
 
     columns = [

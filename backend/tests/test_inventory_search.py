@@ -753,6 +753,31 @@ def test_missing_excludes_a_deleted_and_a_split_item(
     assert [r["id"] for r in rows] == [live_gap.id]
 
 
+def test_missing_treats_an_empty_string_as_missing_not_just_null(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """An empty string is what a cleared form field leaves behind, not NULL.
+
+    Each fixture fills the *other* field so the two checks stay isolated --
+    NULL already counts as missing (via `coalesce`), so an item that left a
+    field unset would confound "empty string counts too" with "NULL still
+    counts", which is not what this test is proving.
+    """
+    blank_link = coin(db, listing_url="", sellers_item_id="EBAY-X")
+    blank_sellers_id = coin(db, listing_url="https://example.com/y", sellers_item_id="")
+    coin(db, listing_url="https://example.com/x", sellers_item_id="EBAY-1")
+
+    link_rows = search(client, "coins", admin_headers, missing="listing_link").json()[
+        "rows"
+    ]
+    assert [r["id"] for r in link_rows] == [blank_link.id]
+
+    sellers_id_rows = search(
+        client, "coins", admin_headers, missing="sellers_item_id"
+    ).json()["rows"]
+    assert [r["id"] for r in sellers_id_rows] == [blank_sellers_id.id]
+
+
 def test_an_unknown_missing_field_is_refused_listing_the_known_ones(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

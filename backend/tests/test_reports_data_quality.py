@@ -294,6 +294,20 @@ def test_completeness_per_kind_with_a_notes_year_from_series_year_and_no_metal(
     assert bullion_row["year"] == Decimal("100.0")
 
 
+def test_completeness_treats_an_empty_string_as_missing_not_just_null(
+    db: Session,
+) -> None:
+    """An empty string is what a cleared form field leaves behind, not NULL."""
+    _fully_filled_coin(db)
+    build_bare_item(db, listing_url="", sellers_item_id="")
+
+    result = DQ_COMPLETENESS.run(db, DqCompletenessParams())
+    coin_row = _row_for(result, "Coin")
+    assert coin_row["live_items"] == 2
+    assert coin_row["listing_link"] == Decimal("50.0")
+    assert coin_row["sellers_item_id"] == Decimal("50.0")
+
+
 def test_row_drills_are_the_kinds_own_search(db: Session) -> None:
     _fully_filled_coin(db)
     _fully_filled_note(db)
