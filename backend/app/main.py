@@ -25,6 +25,7 @@ from .routers import (
     offers,
     orders,
     reference,
+    reports,
     sales_venues,
     users,
 )
@@ -68,6 +69,7 @@ app.include_router(sales_venues.router, prefix=settings.api_prefix)
 app.include_router(offers.router, prefix=settings.api_prefix)
 app.include_router(lots.router, prefix=settings.api_prefix)
 app.include_router(auctions_router.router, prefix=settings.api_prefix)
+app.include_router(reports.router, prefix=settings.api_prefix)
 
 
 # ---------------------------------------------------------------------------
