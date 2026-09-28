@@ -239,6 +239,8 @@ describe('PhotosPanel', () => {
   })
 
   it('counts neither a held removal nor a held role when choosing the next side', async () => {
+    const user = userEvent.setup()
+    const onAdd = vi.fn()
     api.listItemImages.mockResolvedValue([
       link({ link_id: 1, image_id: 10, image_role: 'obverse' }),
       link({ link_id: 2, image_id: 20, image_role: 'reverse', sort_order: 1 }),
@@ -248,11 +250,14 @@ describe('PhotosPanel', () => {
         itemId={12}
         edits={{ 1: { remove: true }, 2: { image_role: 'obverse' } }}
         onEditsChange={vi.fn()}
+        onAdd={onAdd}
       />,
       { reference: roles },
     )
+    const file = new File(['x'], 'next.jpg', { type: 'image/jpeg' })
+    await user.upload(await screen.findByLabelText('Photo'), file)
     // What stays is one obverse (re-roled), so the next is the reverse.
-    expect(await screen.findByLabelText('What it shows')).toHaveValue('reverse')
+    expect(onAdd).toHaveBeenCalledWith({ kind: 'file', file, role: 'reverse' })
   })
 })
 
@@ -295,7 +300,7 @@ describe('PhotosPanel: adding another photograph', () => {
     render(props)
   }
 
-  it('asks what a photograph shows once both sides are there', async () => {
+  it('holds a photograph with no role once both sides are there', async () => {
     const user = userEvent.setup()
     const onAdd = vi.fn()
     api.listItemImages.mockResolvedValue([
@@ -309,27 +314,42 @@ describe('PhotosPanel: adding another photograph', () => {
       link({ link_id: 10, image_id: 51, image_role: 'reverse', sort_order: 2 }),
     ])
     render({ onAdd })
-    const what = await screen.findByRole('combobox', { name: /what it shows/i })
-    expect(what).toHaveValue('')
-    expect(screen.getByLabelText('Photo')).toBeDisabled()
-    expect(screen.getByRole('button', { name: /add from web address/i })).toBeDisabled()
-    expect(screen.getByText(/choose what the photograph shows/i)).toBeInTheDocument()
+    // No picker beside the add controls: a role belongs to a photograph.
+    expect(await screen.findByLabelText('Photo')).toBeEnabled()
+    expect(screen.queryByRole('combobox', { name: /what it shows/i })).toBeNull()
 
-    await user.selectOptions(what, 'obverse')
     const file = new File(['x'], 'another.jpg', { type: 'image/jpeg' })
     await user.upload(screen.getByLabelText('Photo'), file)
 
-    expect(onAdd).toHaveBeenCalledWith({ kind: 'file', file, role: 'obverse' })
+    expect(onAdd).toHaveBeenCalledWith({ kind: 'file', file, role: '' })
+  })
+
+  it('gives each held photograph its own picker for what it shows', async () => {
+    const user = userEvent.setup()
+    const onRoleChange = vi.fn()
+    api.listItemImages.mockResolvedValue([])
+    render({
+      onRoleChange,
+      pending: [
+        { key: 'p1', kind: 'url', url: EBAY, role: 'obverse' },
+        { key: 'p2', kind: 'url', url: `${EBAY}?2`, role: '' },
+      ],
+    })
+    const first = await screen.findByRole('combobox', { name: `What ${EBAY} shows` })
+    const second = screen.getByRole('combobox', { name: `What ${EBAY}?2 shows` })
+    expect(first).toHaveValue('obverse')
+    expect(second).toHaveValue('')
+    expect(screen.getByText(/choose what it shows before saving/i)).toBeInTheDocument()
+
+    await user.selectOptions(second, 'reverse')
+    expect(onRoleChange).toHaveBeenCalledWith('p2', 'reverse')
   })
 
   it('offers the reverse for an item with only its obverse, and holds the address', async () => {
     const user = userEvent.setup()
     const onAdd = vi.fn()
     withOne({ onAdd })
-    expect(await screen.findByRole('combobox', { name: /what it shows/i })).toHaveValue(
-      'reverse',
-    )
-    const address = screen.getByRole('textbox', { name: /photo web address/i })
+    const address = await screen.findByRole('textbox', { name: /photo web address/i })
     await user.type(address, EBAY)
     await user.click(screen.getByRole('button', { name: /add from web address/i }))
 
@@ -355,19 +375,23 @@ describe('PhotosPanel: adding another photograph', () => {
       onDiscard,
       pending: [{ key: 'p1', kind: 'url', url: EBAY, role: 'reverse' }],
     })
-    const held = await screen.findByText(/not saved yet/i)
-    expect(held).toHaveTextContent('Reverse')
+    expect(await screen.findByText(/not saved yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: `What ${EBAY} shows` })).toHaveValue(
+      'reverse',
+    )
 
     await user.click(screen.getByRole('button', { name: /discard/i }))
     expect(onDiscard).toHaveBeenCalledWith('p1')
   })
 
   it('counts a held photograph when choosing the next side', async () => {
+    const user = userEvent.setup()
+    const onAdd = vi.fn()
     api.listItemImages.mockResolvedValue([])
-    render({ pending: [{ key: 'p1', kind: 'url', url: EBAY, role: 'obverse' }] })
-    expect(await screen.findByRole('combobox', { name: /what it shows/i })).toHaveValue(
-      'reverse',
-    )
+    render({ onAdd, pending: [{ key: 'p1', kind: 'url', url: EBAY, role: 'obverse' }] })
+    const file = new File(['x'], 'back.jpg', { type: 'image/jpeg' })
+    await user.upload(await screen.findByLabelText('Photo'), file)
+    expect(onAdd).toHaveBeenCalledWith({ kind: 'file', file, role: 'reverse' })
   })
 
   it('shows a held photograph that failed to save with its reason', async () => {

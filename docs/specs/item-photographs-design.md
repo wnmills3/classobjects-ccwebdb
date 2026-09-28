@@ -127,10 +127,12 @@ stored; only the *link* is withheld.
   and the new primary first, then removals (so the server never fills a
   vacated primary over the one chosen), then new photographs. Whatever
   fails stays held with its reason. The panel reads from the server again
-  after Save. A new photograph says **what it shows**: Obverse, then
-  Reverse, whichever the item lacks once held changes are counted, is chosen
-  for it; once it has both, a role must be chosen -- the panel says so --
-  before either add is offered.
+  after Save. A new photograph says **what it shows** with its own picker,
+  beside it in the held list -- never one beside the add controls, which
+  read as the label of the photograph listed above it. It starts as
+  Obverse, then Reverse, whichever the item lacks once held changes are
+  counted; once the item has both it starts empty, the panel asks, and Save
+  waits until every held photograph says what it shows.
 - **`/management/photos`**: unattached photographs, most recent capture first
   (nulls last), each with an item picker that searches by item code across
   coins and currency. Where the pass's leftovers are filed, and where a

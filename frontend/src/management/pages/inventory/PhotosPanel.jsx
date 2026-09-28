@@ -37,9 +37,10 @@ import { useRequest } from '../../../shared/useRequest'
 export default function PhotosPanel({
   itemId,
   // Photographs added here and held for the editor's Save, and the
-  // editor's handlers for adding and discarding one.
+  // editor's handlers for adding one, re-labelling one and discarding one.
   pending = [],
   onAdd = () => {},
+  onRoleChange = () => {},
   onDiscard = () => {},
   // Changes held for filed photographs, {link_id: {image_role?,
   // is_primary?, remove?, error?}}, and the editor's setter for the whole map.
@@ -81,10 +82,12 @@ export default function PhotosPanel({
   // row would fall back to showing the raw code instead of its label.
   const vocabulary = useReference('image_role', { includeRetired: true }) ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
-  // What the next photograph shows: the obverse, then the reverse, whichever
-  // the item lacks; once it has both, the person must say -- a photograph
-  // filed without a role is one nobody can find.
-  const [chosenRole, setChosenRole] = useState('')
+  // What a photograph added next is held as: the obverse, then the reverse,
+  // whichever the item lacks; once it has both, nothing, and its own picker
+  // in the held list asks. The role is chosen beside the photograph it
+  // belongs to, never beside the add controls -- a picker there sat under
+  // the photograph just added and read as its label, so a person set the
+  // first photograph's side on the second (owner's report, CC-008085).
   const [address, setAddress] = useState('')
   // A held photograph counts: two added at once are an obverse and a reverse.
   const held = new Set([
@@ -92,8 +95,7 @@ export default function PhotosPanel({
     ...pending.map((entry) => entry.role),
   ])
   const nextSide = ['obverse', 'reverse'].find((code) => !held.has(code)) ?? ''
-  const newRole = chosenRole || nextSide
-  const roleMissing = !newRole
+  const activeRoles = vocabulary.filter((entry) => entry.is_active !== false)
 
   function roleLabel(code) {
     if (!code) return 'Unfiled role'
@@ -105,14 +107,12 @@ export default function PhotosPanel({
     e.target.value = ''
     if (!file) return
     // Held, not sent: the editor's Save files it with everything else.
-    onAdd({ kind: 'file', file, role: newRole })
-    setChosenRole('')
+    onAdd({ kind: 'file', file, role: nextSide })
   }
 
   function addFromAddress() {
-    onAdd({ kind: 'url', url: address.trim(), role: newRole })
+    onAdd({ kind: 'url', url: address.trim(), role: nextSide })
     setAddress('')
-    setChosenRole('')
   }
 
   /**
@@ -158,22 +158,39 @@ export default function PhotosPanel({
       {!loading && error && <p className="error">{error}</p>}
       {pending.length > 0 && (
         <ul className="photo-pending">
-          {pending.map((entry) => (
-            <li key={entry.key}>
-              <span>
-                {entry.kind === 'file' ? entry.file.name : entry.url} --{' '}
-                {roleLabel(entry.role)}, not saved yet
-              </span>
-              {entry.error && <span className="error"> {entry.error}</span>}
-              <button
-                type="button"
-                className="link"
-                onClick={() => onDiscard(entry.key)}
-              >
-                Discard
-              </button>
-            </li>
-          ))}
+          {pending.map((entry) => {
+            const name = entry.kind === 'file' ? entry.file.name : entry.url
+            return (
+              <li key={entry.key}>
+                <span>{name} -- not saved yet</span>
+                <select
+                  aria-label={`What ${name} shows`}
+                  value={entry.role}
+                  onChange={(e) => onRoleChange(entry.key, e.target.value)}
+                >
+                  <option value="">-- what it shows --</option>
+                  {activeRoles.map((role) => (
+                    <option key={role.code} value={role.code}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+                {!entry.role && (
+                  <span className="notice" role="status">
+                    Choose what it shows before saving.
+                  </span>
+                )}
+                {entry.error && <span className="error"> {entry.error}</span>}
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => onDiscard(entry.key)}
+                >
+                  Discard
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
       {!loading && links.length === 0 && (
@@ -238,31 +255,8 @@ export default function PhotosPanel({
       {!loading && (
         <div className="photo-add">
           <label>
-            What it shows{/* */}
-            <select value={newRole} onChange={(e) => setChosenRole(e.target.value)}>
-              <option value="">--</option>
-              {vocabulary
-                .filter((entry) => entry.is_active !== false)
-                .map((entry) => (
-                  <option key={entry.code} value={entry.code}>
-                    {entry.label}
-                  </option>
-                ))}
-            </select>
-          </label>
-          {roleMissing && (
-            <p className="notice" role="status">
-              Choose what the photograph shows first.
-            </p>
-          )}
-          <label>
             Photo
-            <input
-              type="file"
-              accept="image/*"
-              onChange={upload}
-              disabled={roleMissing}
-            />
+            <input type="file" accept="image/*" onChange={upload} />
           </label>
           <label>
             Photo web address{/* */}
@@ -273,11 +267,7 @@ export default function PhotosPanel({
               onChange={(e) => setAddress(e.target.value)}
             />
           </label>
-          <button
-            type="button"
-            onClick={addFromAddress}
-            disabled={roleMissing || !address.trim()}
-          >
+          <button type="button" onClick={addFromAddress} disabled={!address.trim()}>
             Add from web address
           </button>
         </div>

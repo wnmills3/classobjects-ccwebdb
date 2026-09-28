@@ -2153,6 +2153,110 @@ describe('ItemEditForm: photographs wait for Save', () => {
     expect(onSaved).not.toHaveBeenCalled()
   })
 
+  it('files each held photograph with the role its own picker shows', async () => {
+    // The owner's case: two photographs added, then labelled where they
+    // are listed. The label beside a photograph is the one it is filed with.
+    const user = userEvent.setup()
+    api.uploadImage.mockResolvedValue({})
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      {
+        reference: emptyReference({
+          tables: {
+            image_role: [
+              { code: 'obverse', label: 'Obverse', source: 'seeded', extra: {} },
+              { code: 'reverse', label: 'Reverse', source: 'seeded', extra: {} },
+            ],
+          },
+        }),
+      },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    const front = new File(['a'], 'front.jpg', { type: 'image/jpeg' })
+    const back = new File(['b'], 'back.jpg', { type: 'image/jpeg' })
+    await user.upload(await screen.findByLabelText('Photo'), front)
+    await user.upload(screen.getByLabelText('Photo'), back)
+    expect(screen.getByRole('combobox', { name: 'What front.jpg shows' })).toHaveValue(
+      'obverse',
+    )
+    expect(screen.getByRole('combobox', { name: 'What back.jpg shows' })).toHaveValue(
+      'reverse',
+    )
+    // Swapped by hand, where each is listed.
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'What front.jpg shows' }),
+      'reverse',
+    )
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'What back.jpg shows' }),
+      'obverse',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalledTimes(2))
+    expect(
+      api.uploadImage.mock.calls.map(([, file, opts]) => [file.name, opts.imageRole]),
+    ).toEqual([
+      ['front.jpg', 'reverse'],
+      ['back.jpg', 'obverse'],
+    ])
+  })
+
+  it('waits for every held photograph to say what it shows', async () => {
+    const user = userEvent.setup()
+    api.listItemImages.mockResolvedValue([
+      {
+        link_id: 1,
+        inventory_item_id: 12,
+        item_code: 'C-012',
+        image_id: 10,
+        image_role: 'obverse',
+        is_primary: true,
+        sort_order: 1,
+        captured_at: null,
+        thumbnail_url: '/t/10',
+        image_url: '/i/10',
+      },
+      {
+        link_id: 2,
+        inventory_item_id: 12,
+        item_code: 'C-012',
+        image_id: 20,
+        image_role: 'reverse',
+        is_primary: false,
+        sort_order: 2,
+        captured_at: null,
+        thumbnail_url: '/t/20',
+        image_url: '/i/20',
+      },
+    ])
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      {
+        reference: emptyReference({
+          tables: {
+            image_role: [
+              { code: 'obverse', label: 'Obverse', source: 'seeded', extra: {} },
+              { code: 'detail', label: 'Detail', source: 'seeded', extra: {} },
+            ],
+          },
+        }),
+      },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    await screen.findByRole('button', { name: 'Remove (photo 20)' })
+    const file = new File(['c'], 'close-up.jpg', { type: 'image/jpeg' })
+    await user.upload(screen.getByLabelText('Photo'), file)
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'What close-up.jpg shows' }),
+      'detail',
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
   it('discards a held photograph without filing it', async () => {
     const user = userEvent.setup()
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
