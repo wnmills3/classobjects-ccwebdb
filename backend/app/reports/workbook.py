@@ -36,6 +36,7 @@ _MAX_SHEET_NAME = 31
 _MONEY_FORMAT = "#,##0.00"
 _PERCENT_FORMAT = "0.0"
 _DATE_FORMAT = "yyyy-mm-dd"
+_OUNCES_FORMAT = "#,##0.000"
 
 #: A column's width, from its label and its longest cell, kept inside these.
 _MIN_WIDTH = 8.0
@@ -57,24 +58,43 @@ def _sheet_name(title: str) -> str:
 
 
 def _numeric(kind: str, value: object) -> float:
-    """`value` as the float a money, percent, count or ounces cell holds.
+    """`value` as the float a percent, count or ounces cell holds.
 
     A `Decimal` converts exactly enough for this schema's scale -- at most 12
     digits, well inside a double's 15, the same reasoning
     `workbook_backup.to_cell` uses for the same conversion -- and a plain
-    `int` (every count column) converts the same way, since openpyxl's own
-    `Cell.value` accepts no plain `int` at all, only `float` and `Decimal`.
+    `int` (every count column) converts the same way: openpyxl's own
+    `Cell.value` accepts no plain `int` at all (its stub union,
+    `openpyxl.cell._CellGetValue`, has no `int` member, only `bool`, `float`
+    and `Decimal`), so a count is written as this float conversion rather
+    than as the `int` it actually is.
     """
     if isinstance(value, bool) or not isinstance(value, (Decimal, int, float)):
         raise TypeError(f"expected a number for a {kind!r} cell, got {value!r}")
     return float(value)
 
 
+def _money(value: object) -> Decimal:
+    """`value` as the `Decimal` a money cell holds.
+
+    Written as the `Decimal` itself, not converted to `float`: openpyxl's own
+    `Cell.value` accepts a `Decimal` directly (it is in the stub union
+    `_CellGetValue` alongside `float`), so a money cell keeps its exact
+    value rather than paying for a conversion that exists only to work
+    around a limitation this column's own type does not have.
+    """
+    if isinstance(value, bool) or not isinstance(value, Decimal):
+        raise TypeError(f"expected a Decimal for a 'money' cell, got {value!r}")
+    return value
+
+
 def _cell_value(kind: ColumnKind, value: object) -> _CellValue:
     """The wire value of one column's cell, as `Cell.value` may hold it."""
     if value is None:
         return None
-    if kind in ("money", "percent", "count", "ounces"):
+    if kind == "money":
+        return _money(value)
+    if kind in ("percent", "count", "ounces"):
         return _numeric(kind, value)
     if kind == "date":
         if not isinstance(value, date):
@@ -111,6 +131,8 @@ def _write_cell(
         cell.number_format = _PERCENT_FORMAT
     elif kind == "date":
         cell.number_format = _DATE_FORMAT
+    elif kind == "ounces":
+        cell.number_format = _OUNCES_FORMAT
     if bold:
         cell.font = Font(bold=True)
     return cell
