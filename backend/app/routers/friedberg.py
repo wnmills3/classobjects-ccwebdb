@@ -18,12 +18,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import and_, or_, select
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from ..deps import AdminUser, DbSession
+from ..fr_format import fr_problem
 from ..models import (
     CurrencyDetail,
     Denomination,
@@ -40,8 +41,10 @@ from ..references import code_of, code_to_id
 from ..schemas import (
     FriedbergAttachIn,
     FriedbergAttachOut,
+    FriedbergCatalogRow,
     FriedbergNumberCreate,
     FriedbergNumberOut,
+    FriedbergNumberUpdate,
     SignatureChoice,
     SignatureChoicesOut,
 )
@@ -58,6 +61,84 @@ item_router = APIRouter(prefix="/inventory", tags=["friedberg"])
 #: here, not imported from the model, because a `CheckConstraint` string is
 #: not something Python code can introspect.
 FRIEDBERG_STATUSES = frozenset({"unknown", "proposed", "confirmed", "conflicting"})
+
+
+class CombinationRecorded(Exception):
+    """A number refused because its type is already in the catalog. 409.
+
+    Carries the row that holds the combination, so the console can name it
+    and offer to correct that row's number -- the owner's slip of recording
+    `3007-` for `3007-L` was otherwise met with a raw database error that
+    never said which row was in the way. Rendered by `main.py` as
+    `{detail, existing: {id, fr_number}}`.
+    """
+
+    def __init__(self, row: FriedbergNumber) -> None:
+        """Name the row already holding the combination."""
+        self.detail = (
+            f"That combination is already recorded as {row.fr_number} (row {row.id})."
+        )
+        super().__init__(self.detail)
+        self.existing = {"id": row.id, "fr_number": row.fr_number}
+
+
+#: The columns of `uq_friedberg_number_identity`, compared NULLS NOT DISTINCT
+#: as that index does.
+_IDENTITY = (
+    "denomination_id",
+    "series_year",
+    "series_letter",
+    "note_type_id",
+    "district_letter",
+    "web_press",
+    "signature_combination_id",
+    "seal_color_id",
+    "printing_facility",
+)
+
+
+def _same_combination(db: Session, row: FriedbergNumber) -> FriedbergNumber | None:
+    """The catalog row that already has `row`'s identifying attributes.
+
+    Only where the index applies: a denomination, a series year and a note
+    type all known. A half-known type is allowed to repeat.
+    """
+    if (
+        row.denomination_id is None
+        or row.series_year is None
+        or row.note_type_id is None
+    ):
+        return None
+    conditions = [
+        getattr(FriedbergNumber, column).is_not_distinct_from(getattr(row, column))
+        for column in _IDENTITY
+    ]
+    return db.scalar(select(FriedbergNumber).where(*conditions).limit(1))
+
+
+def _refuse_to_confirm_a_slip(row: FriedbergNumber) -> None:
+    """422 for confirming a number that is not in a Friedberg number's form.
+
+    Confirming is what makes a number trusted -- the next lookup attaches it
+    in one step -- so a slip such as `3007-` has to be corrected first. It
+    may still be attached as proposed.
+    """
+    problem = fr_problem(row.fr_number)
+    if problem is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Correct {row.fr_number} before confirming it: {problem}",
+        )
+
+
+def _items_using(db: Session, friedberg_id: int) -> int:
+    """How many notes hold this catalog row."""
+    return (
+        db.scalar(
+            select(func.count()).where(CurrencyDetail.friedberg_id == friedberg_id)
+        )
+        or 0
+    )
 
 
 def _to_out(db: Session, row: FriedbergNumber) -> FriedbergNumberOut:
@@ -282,6 +363,9 @@ def create_friedberg_number(
         description=payload.description,
         source=ProvenanceSource.manual,
     )
+    held = _same_combination(db, row)
+    if held is not None:
+        raise CombinationRecorded(held)
     db.add(row)
     try:
         db.flush()
@@ -291,14 +375,121 @@ def create_friedberg_number(
         # proposing the same denomination/year/letter/note-type/district
         # combination under a different fr_number. Also a real conflict, just
         # not the one the fr_number pre-check catches.
+        # Two recordings of one type racing past the check above: the index
+        # stops the second, and it reads as the same refusal.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"That attribute combination is already recorded: {exc.orig}",
+            detail="That combination is already recorded under another number.",
         ) from exc
 
     db.commit()
     db.refresh(row)
     return _to_out(db, row)
+
+
+@friedberg_router.get("/catalog")
+def list_catalog(
+    db: DbSession,
+    _admin: AdminUser,
+    q: Annotated[
+        str | None, Query(description="Part of a number or a description")
+    ] = None,
+) -> list[FriedbergCatalogRow]:
+    """Every catalog row, with how many notes hold it, for the Lists page."""
+    counts = dict(
+        db.execute(
+            select(CurrencyDetail.friedberg_id, func.count())
+            .where(CurrencyDetail.friedberg_id.is_not(None))
+            .group_by(CurrencyDetail.friedberg_id)
+        )
+        .tuples()
+        .all()
+    )
+    stmt = select(FriedbergNumber).order_by(FriedbergNumber.fr_number)
+    text = (q or "").strip()
+    if text:
+        pattern = f"%{text}%"
+        stmt = stmt.where(
+            or_(
+                FriedbergNumber.fr_number.ilike(pattern),
+                FriedbergNumber.description.ilike(pattern),
+            )
+        )
+    return [
+        FriedbergCatalogRow(
+            **_to_out(db, row).model_dump(), item_count=counts.get(row.id, 0)
+        )
+        for row in db.scalars(stmt).all()
+    ]
+
+
+@friedberg_router.patch("/{friedberg_id}")
+def update_catalog_row(
+    friedberg_id: int,
+    payload: FriedbergNumberUpdate,
+    db: DbSession,
+    admin: AdminUser,
+) -> FriedbergNumberOut:
+    """Correct a catalog row's number or description, or its confirmation.
+
+    The notes that hold the row keep it: they hold the row, not its text, so
+    a corrected number is what every one of them shows from now on.
+    """
+    row = get_or_404(
+        db,
+        FriedbergNumber,
+        friedberg_id,
+        f"No Friedberg catalog row with id {friedberg_id}",
+    )
+    sent = payload.model_fields_set
+    if "fr_number" in sent and payload.fr_number is not None:
+        clash = db.scalar(
+            select(FriedbergNumber).where(
+                FriedbergNumber.fr_number == payload.fr_number,
+                FriedbergNumber.id != row.id,
+            )
+        )
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"fr_number {payload.fr_number!r} is already recorded as "
+                f"row {clash.id}",
+            )
+        row.fr_number = payload.fr_number
+    if "description" in sent:
+        row.description = payload.description
+    if "verified" in sent and payload.verified is not None:
+        if payload.verified:
+            _refuse_to_confirm_a_slip(row)
+            row.verified_by_id = admin.id
+            row.verified_at = utcnow()
+        else:
+            row.verified_by_id = None
+            row.verified_at = None
+    db.commit()
+    db.refresh(row)
+    return _to_out(db, row)
+
+
+@friedberg_router.delete("/{friedberg_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_catalog_row(friedberg_id: int, db: DbSession, _admin: AdminUser) -> Response:
+    """Delete a catalog row no note holds -- a type recorded by mistake."""
+    row = get_or_404(
+        db,
+        FriedbergNumber,
+        friedberg_id,
+        f"No Friedberg catalog row with id {friedberg_id}",
+    )
+    used = _items_using(db, row.id)
+    if used:
+        noun = "item" if used == 1 else "items"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{row.fr_number} is on {used} {noun}; clear it there first",
+        )
+    db.delete(row)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _note_detail(db: Session, item_id: int) -> CurrencyDetail:
@@ -364,6 +555,8 @@ def attach_friedberg(
         f"No Friedberg catalog row with id {payload.friedberg_id}",
     )
 
+    if payload.status == "confirmed":
+        _refuse_to_confirm_a_slip(friedberg)
     detail.friedberg_id = friedberg.id
     detail.friedberg_status = payload.status
     if payload.status == "confirmed":

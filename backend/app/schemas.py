@@ -29,6 +29,7 @@ from pydantic import (
 )
 
 from . import plates
+from .fr_format import fr_problem, normalize_fr
 from .models import AddressKind, UserRole
 
 #: A price, cost, fee or reserve in dollars and cents. Never negative, and
@@ -1565,6 +1566,8 @@ class SellerOut(BaseModel):
     id: int
     name: str
     store_url: str | None = None
+    #: Purchases that name this seller -- a seller with none may be deleted.
+    order_count: int = 0
 
 
 class SellerCreate(BaseModel):
@@ -1621,6 +1624,37 @@ class VendorOut(BaseModel):
     #: A `vendor_kind` code: marketplace, auction, mint, dealer, private,
     #: unknown.
     vendor_kind: str | None = None
+    #: Purchases and sales platforms that name this vendor -- a vendor with
+    #: none may be deleted.
+    order_count: int = 0
+
+
+class VendorUpdate(BaseModel):
+    """A correction to a vendor; only the fields sent change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    #: Blank clears it; the host is worked out again from it.
+    url: str | None = Field(default=None, max_length=500)
+    vendor_kind: str | None = Field(default=None, max_length=64)
+
+    @field_validator("name")
+    @classmethod
+    def _trimmed_name(cls, value: str | None) -> str | None:
+        """A name sent is trimmed and may not be blank."""
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("name must not be blank")
+        return trimmed
+
+    @field_validator("url")
+    @classmethod
+    def _blank_url(cls, value: str | None) -> str | None:
+        """A blank link is no link."""
+        return _strip_or_none(value)
 
 
 class VendorCreate(BaseModel):
@@ -2470,6 +2504,29 @@ class StorageLocationOut(BaseModel):
     label: str
     #: A `storage_location_kind` code: safe_deposit_box, safe, home, ...
     kind: str
+    institution: str | None = None
+    identifier: str | None = None
+    notes: str | None = None
+    #: Items kept there now or recorded there before -- a location with none
+    #: may be deleted.
+    item_count: int = 0
+
+
+class StorageLocationUpdate(BaseModel):
+    """A correction to a storage location; only the fields sent change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str | None = Field(default=None, max_length=64)
+    institution: str | None = Field(default=None, max_length=255)
+    identifier: str | None = Field(default=None, max_length=128)
+    notes: str | None = None
+
+    @field_validator("institution", "identifier", "notes")
+    @classmethod
+    def _blank_to_none(cls, value: str | None) -> str | None:
+        """Surrounding space is not part of it; nothing left is None."""
+        return _strip_or_none(value)
 
 
 # --------------------------------------------------------------------------
@@ -2507,6 +2564,48 @@ class FriedbergNumberOut(BaseModel):
     verified_at: datetime | None
 
 
+def _checked_fr(value: str) -> str:
+    """`value` cleaned (`normalize_fr`), or a 422 saying why it is no number."""
+    number = normalize_fr(value)
+    problem = fr_problem(number)
+    if problem is not None:
+        raise ValueError(problem)
+    return number
+
+
+class FriedbergCatalogRow(FriedbergNumberOut):
+    """A catalog row on the Lists page, with how many items use it."""
+
+    item_count: int
+
+
+class FriedbergNumberUpdate(BaseModel):
+    """A correction to a catalog row; only the fields sent change.
+
+    The attributes that identify the type are not among them: a type recorded
+    with a wrong attribute is deleted, if unused, and recorded again.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fr_number: str | None = Field(default=None, min_length=1, max_length=32)
+    description: str | None = None
+    #: True confirms the row (stamps `verified_at`); false undoes that.
+    verified: bool | None = None
+
+    @field_validator("fr_number")
+    @classmethod
+    def _well_formed_number(cls, value: str | None) -> str | None:
+        """A number sent is cleaned, then must be in a Friedberg number's form."""
+        return None if value is None else _checked_fr(value)
+
+    @field_validator("description")
+    @classmethod
+    def _blank_description(cls, value: str | None) -> str | None:
+        """A blank description is none."""
+        return _strip_or_none(value)
+
+
 class FriedbergNumberCreate(BaseModel):
     """A Friedberg number read off a note or slab in the owner's hands.
 
@@ -2519,6 +2618,13 @@ class FriedbergNumberCreate(BaseModel):
     note_type: str | None = None
     denomination: str | None = None
     series_year: SeriesYear | None = None
+
+    @field_validator("fr_number")
+    @classmethod
+    def _well_formed_number(cls, value: str) -> str:
+        """Cleaned, then in a Friedberg number's form (`app.fr_format`)."""
+        return _checked_fr(value)
+
     series_letter: str | None = Field(default=None, max_length=4)
     seal_color: str | None = None
     signature_combination: str | None = None

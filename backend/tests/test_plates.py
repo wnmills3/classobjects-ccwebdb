@@ -2,8 +2,8 @@
 
 The owner, 2026-09-25: a 2017-A $1 is Fr. 3005-A from Washington and 3006-A
 from Fort Worth, and the face plate says which -- FW before it is Fort Worth.
-The two numbers here are made up (FR-TEST-...): the catalogue's arrangement is
-never shipped (CLAUDE.md, *Reference data*).
+The two numbers here are made up (the 9900s, past any real one): the
+catalogue's arrangement is never shipped (CLAUDE.md, *Reference data*).
 """
 
 from __future__ import annotations
@@ -151,7 +151,7 @@ def test_the_catalogue_tells_the_two_printings_apart(
         "series_year": 2017,
         "series_letter": "A",
     }
-    for number, facility in (("FR-TEST-DC", "dc"), ("FR-TEST-FW", "fw")):
+    for number, facility in (("9931", "dc"), ("9932", "fw")):
         created = client.post(
             "/api/friedberg",
             json={"fr_number": number, "printing_facility": facility, **common},
@@ -165,5 +165,5 @@ def test_the_catalogue_tells_the_two_printings_apart(
         headers=admin_headers,
     )
     assert found.status_code == 200, found.text
-    assert [row["fr_number"] for row in found.json()] == ["FR-TEST-FW"]
+    assert [row["fr_number"] for row in found.json()] == ["9932"]
     assert found.json()[0]["printing_facility"] == "fw"

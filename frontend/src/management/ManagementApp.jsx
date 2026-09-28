@@ -6,6 +6,7 @@ import AdminPeople from './pages/AdminPeople'
 import Auctions from './pages/Auctions'
 import { InventoryCoins, InventoryCurrency } from './pages/Inventory'
 import Listings from './pages/Listings'
+import Lists from './pages/Lists'
 import Login from './pages/Login'
 import Lots from './pages/Lots'
 import NewPurchase from './pages/NewPurchase'
@@ -77,6 +78,7 @@ function Console() {
             </span>
             <NavLink to="/platforms">Platforms</NavLink>
             <NavLink to="/vocabularies">Vocabularies</NavLink>
+            <NavLink to="/lists">Lists</NavLink>
           </nav>
 
           <div className="account">
@@ -106,6 +108,7 @@ function Console() {
             <Route path="/auctions" element={<Auctions />} />
             <Route path="/platforms" element={<Platforms />} />
             <Route path="/vocabularies" element={<Vocabularies />} />
+            <Route path="/lists" element={<Lists />} />
             <Route path="*" element={<p className="muted">Page not found.</p>} />
           </Routes>
         </main>

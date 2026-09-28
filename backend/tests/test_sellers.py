@@ -41,7 +41,12 @@ def test_a_seller_is_added_with_a_name_and_store(
         headers=admin_headers,
     )
     assert res.status_code == 201, res.text
-    assert res.json() == {"id": res.json()["id"], "name": "coind0g", "store_url": STORE}
+    assert res.json() == {
+        "id": res.json()["id"],
+        "name": "coind0g",
+        "store_url": STORE,
+        "order_count": 0,
+    }
 
 
 def test_a_seller_needs_no_store(

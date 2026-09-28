@@ -2313,7 +2313,7 @@ describe('ItemEditForm: a Friedberg number waits for Save', () => {
   const NOTE = {
     item_kind: 'currency',
     friedberg_id: 9,
-    friedberg_number: 'FR-TEST-9',
+    friedberg_number: '9901',
     friedberg_status: 'proposed',
     friedberg_verified: false,
   }

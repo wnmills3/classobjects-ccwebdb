@@ -109,6 +109,14 @@ export const api = {
   // pair. Body: { values: [{ code, label }], source }.
   getSignatureChoices: (params = {}) =>
     send(withQuery('/api/friedberg/signatures', params)),
+  // The Lists page: every Friedberg row with how many notes hold it; a correction
+  // to a number, its description or its confirmation; a delete of an unused
+  // row.
+  listFriedbergCatalog: (params = {}) =>
+    send(withQuery('/api/friedberg/catalog', params)),
+  updateFriedbergNumber: (id, payload) =>
+    send(`/api/friedberg/${id}`, { method: 'PATCH', body: payload }),
+  deleteFriedbergNumber: (id) => send(`/api/friedberg/${id}`, { method: 'DELETE' }),
 
   // acquisition -- reading what was ordered, to record what arrived
   listPurchaseOrders: (params = {}) => send(withQuery('/api/purchase-orders', params)),
@@ -116,6 +124,10 @@ export const api = {
   listStorageLocations: () => send('/api/storage-locations'),
   createStorageLocation: (payload) =>
     send('/api/storage-locations', { method: 'POST', body: payload }),
+  updateStorageLocation: (id, payload) =>
+    send(`/api/storage-locations/${id}`, { method: 'PATCH', body: payload }),
+  deleteStorageLocation: (id) =>
+    send(`/api/storage-locations/${id}`, { method: 'DELETE' }),
   receiveItems: (payload) =>
     send('/api/inventory/receive', { method: 'POST', body: payload }),
 
@@ -123,10 +135,14 @@ export const api = {
   // a vendor, the purchase made from them, and the items bought on it.
   listVendors: () => send('/api/vendors'),
   createVendor: (payload) => send('/api/vendors', { method: 'POST', body: payload }),
+  updateVendor: (id, payload) =>
+    send(`/api/vendors/${id}`, { method: 'PATCH', body: payload }),
+  deleteVendor: (id) => send(`/api/vendors/${id}`, { method: 'DELETE' }),
   listSellers: () => send('/api/sellers'),
   createSeller: (payload) => send('/api/sellers', { method: 'POST', body: payload }),
   updateSeller: (id, payload) =>
     send(`/api/sellers/${id}`, { method: 'PATCH', body: payload }),
+  deleteSeller: (id) => send(`/api/sellers/${id}`, { method: 'DELETE' }),
 
   // sales platforms
   listSalesVenues: () => send('/api/sales-venues'),
