@@ -8,15 +8,26 @@ API route, a CLI command, or the console page that all read this one dict.
 
 from __future__ import annotations
 
+from typing import Any
+
+from pydantic import BaseModel
+
 from .base import Report
 
-REPORTS: dict[str, Report] = {}
+#: Reports of every different params model are stored side by side here,
+#: so the dict's value type is necessarily the widened `Report[Any]` --
+#: each report keeps its own precise type at its own call site (`register`
+#: and the group module that built it), which is where it matters.
+REPORTS: dict[str, Report[Any]] = {}
 
 
-def register(report: Report) -> Report:
+def register[P: BaseModel](report: Report[P]) -> Report[P]:
     """Add `report` to `REPORTS`; refuse a second report with the same id.
 
-    Returns `report`, so a group module can write
+    Returns `report` with its own precise type still attached --
+    `register(report: Report[HoldingsParams])` returns
+    `Report[HoldingsParams]`, not the widened `Report[Any]` the registry
+    stores it as -- so a group module can write
     `FOO = register(Report(...))` at module scope.
     """
     if report.id in REPORTS:
