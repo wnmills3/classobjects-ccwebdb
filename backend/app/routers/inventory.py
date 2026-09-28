@@ -45,8 +45,10 @@ from ..field_sources import (
     record_derived,
 )
 from ..inventory_search import (
+    MISSING_FIELDS,
     VIEWS,
     UnknownIssue,
+    UnknownMissingField,
     count_facets,
     count_issues,
     names_matching,
@@ -248,6 +250,12 @@ def search_inventory(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown issue {exc.args[0]!r} for {view}. Available: "
             f"{sorted(spec.issues)}",
+        ) from exc
+    except UnknownMissingField as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown missing field {exc.args[0]!r} for {view}. Available: "
+            f"{sorted(MISSING_FIELDS)}",
         ) from exc
     except KeyError as exc:
         raise HTTPException(

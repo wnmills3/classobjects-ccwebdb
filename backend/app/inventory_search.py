@@ -57,8 +57,11 @@ from .models import (
 __all__ = [
     "COIN_VIEW",
     "CURRENCY_VIEW",
+    "MISSING_FIELDS",
     "VIEWS",
+    "MissingField",
     "UnknownIssue",
+    "UnknownMissingField",
     "ViewSpec",
     "count_facets",
     "count_issues",
@@ -194,6 +197,14 @@ class UnknownIssue(KeyError):
 
     Distinct from a plain KeyError so the router can name the available
     checks rather than the available filters.
+    """
+
+
+class UnknownMissingField(KeyError):
+    """A `missing=` value that is not one of `MISSING_FIELDS`.
+
+    Distinct from a plain KeyError for the same reason `UnknownIssue` is: the
+    router names the available fields rather than the available filters.
     """
 
 
@@ -485,6 +496,90 @@ CURRENCY_VIEW = ViewSpec(
 VIEWS: dict[str, ViewSpec] = {v.name: v for v in (COIN_VIEW, CURRENCY_VIEW)}
 
 
+@dataclass(frozen=True)
+class MissingField:
+    """One `missing=<field>` check: the SQL that finds it empty, and its kinds.
+
+    `kinds` names the item kinds this field applies to; `None` means every
+    kind. This is the one table both the `missing=` filter (below) and
+    `app.reports.data_quality.dq_completeness` read for kind applicability,
+    so the two can never disagree about what "does not apply" means -- a
+    check whose predicate a kind fails is never "missing" for it, only "not
+    applicable", in the search and in the report alike.
+    """
+
+    sql: str
+    join: tuple[str, ...] = ()
+    kinds: frozenset[str] | None = None
+
+
+#: Every item kind, mirroring `backend/data/reference/classification.json`'s
+#: `item_kind` list. A literal duplicate rather than a read of that table --
+#: same choice `app.issues` makes for its own kind codes -- so this module's
+#: dependency on that data stays one-way.
+_ALL_KINDS = frozenset(
+    {"coin", "currency", "bullion", "set", "medal", "token", "other", "unknown"}
+)
+
+#: `no_grade` and `no_denomination` (app.issues.SHARED_ISSUES) apply only to
+#: a coin or a banknote; the completeness report and this filter borrow that
+#: same restriction for the two fields those checks cover.
+_CLASSIFIED_KINDS = frozenset({"coin", "currency"})
+
+#: The ten fields `dq_completeness` reports on and this filter finds empty --
+#: column keys are exactly the `missing=` values, which is also the contract
+#: `dq_completeness` documents for its own percent columns.
+MISSING_FIELDS: dict[str, MissingField] = {
+    # A note's year is its series year (owner, 2026-09-25); every other kind
+    # keeps its own year_start. The CASE, not two separate checks, is what
+    # keeps "kind determines which column" a single expression rather than
+    # two that could drift apart.
+    "year": MissingField(
+        "(CASE WHEN k.code = 'currency' THEN cud.series_year IS NULL "
+        "ELSE i.year_start IS NULL END)",
+        join=(_J_CUR_DETAIL,),
+    ),
+    "denomination": MissingField("i.denomination_id IS NULL", kinds=_CLASSIFIED_KINDS),
+    "grade": MissingField("i.grade_id IS NULL", kinds=_CLASSIFIED_KINDS),
+    "country": MissingField("i.country_id IS NULL"),
+    "series": MissingField("i.series_id IS NULL"),
+    # Not applicable to currency (Decisions, docs/specs/reporting-design.md);
+    # every other kind, bullion included, is a physical metal object.
+    "metal": MissingField("i.metal_id IS NULL", kinds=_ALL_KINDS - {"currency"}),
+    "photo": MissingField(
+        "NOT EXISTS (SELECT 1 FROM item_image ii WHERE ii.inventory_item_id = i.id)"
+    ),
+    "storage_location": MissingField("i.storage_location_id IS NULL"),
+    "listing_link": MissingField("coalesce(i.listing_url, '') = ''"),
+    "sellers_item_id": MissingField("coalesce(i.sellers_item_id, '') = ''"),
+}
+
+
+def _missing_clause(
+    params: dict[str, Any], bound: dict[str, Any], joins: list[tuple[str, ...]]
+) -> str | None:
+    """The `missing=<field>` filter: FALSE for a kind the field does not fit.
+
+    A field outside `MISSING_FIELDS[key].kinds` -- metal on a note, grade or
+    denomination on bullion -- is never counted "missing" for that kind, so
+    the predicate is FALSE rather than matching every row of it, which would
+    read as "all of these are missing" when the true answer is "the question
+    does not apply here". The same table decides both this and the
+    completeness report's blank cells.
+    """
+    key = params.pop("missing", None)
+    if not key:
+        return None
+    field = MISSING_FIELDS.get(key)
+    if field is None:
+        raise UnknownMissingField(key)
+    joins.append(field.join)
+    if field.kinds is None:
+        return f"({field.sql})"
+    bound["p_missing_kinds"] = list(field.kinds)
+    return f"(({field.sql}) AND k.code = ANY(:p_missing_kinds))"
+
+
 def names_matching(
     db: Session, spec: ViewSpec, query: str | None
 ) -> list[tuple[Named, list[int]]]:
@@ -732,6 +827,7 @@ def _conditions(
     for clause in (
         _lot_clause(params, bound),
         _issue_clause(spec, params, joins),
+        _missing_clause(params, bound, joins),
         _error_type_clause(params, bound),
         _attribute_clause(params, bound),
         _grade_clause(params, bound, joins),

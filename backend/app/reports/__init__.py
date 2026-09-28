@@ -37,3 +37,16 @@ def register[P: BaseModel](report: Report[P]) -> Report[P]:
 
 
 __all__ = ["REPORTS", "register"]
+
+
+# Imported at the bottom, after REPORTS and register above exist: each group
+# module (data_quality.py, and the ones the plan's later phases add) calls
+# register() at import time, so this is what makes REPORTS complete whenever
+# `app.reports` itself is imported -- an API route, the CLI, or a test can
+# read the dict without importing every group module by hand. The names are
+# re-exported through __all__ rather than imported for a bare side effect,
+# so a report a test wants directly (`from app.reports import DQ_ISSUES`) is
+# also reachable from here, and so the import itself is not flagged unused.
+from .data_quality import DQ_COMPLETENESS, DQ_ISSUES  # noqa: E402
+
+__all__ += ["DQ_COMPLETENESS", "DQ_ISSUES"]

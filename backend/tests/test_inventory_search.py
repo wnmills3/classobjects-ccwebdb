@@ -10,8 +10,10 @@ from app.models import (
     Denomination,
     ErrorType,
     Grade,
+    Image,
     InventoryItem,
     ItemError,
+    ItemImage,
     ItemKind,
     PurchaseOrder,
     SealColor,
@@ -653,3 +655,110 @@ def test_a_split_lot_does_not_appear(
 
     body = search(client, "coins", admin_headers).json()
     assert parent.id not in {r["id"] for r in body["rows"]}
+
+
+# ---------------------------------------------------------------------------
+# missing=<field>
+# ---------------------------------------------------------------------------
+
+
+def _attach_photo(db: Session, item: InventoryItem) -> None:
+    """Give `item` one photograph -- the minimum `missing=photo` needs to clear."""
+    image = Image(
+        sha256="f" * 64, storage_key="orig/f.jpg", media_type="image/jpeg", byte_size=10
+    )
+    db.add(image)
+    db.flush()
+    db.add(ItemImage(inventory_item_id=item.id, image_id=image.id))
+    db.commit()
+
+
+def test_missing_finds_items_with_the_field_empty(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    empty = coin(db, denomination_id=None)
+    coin(db, denomination_id=code_id(db, Denomination, "usd_coin_1_00"))
+
+    rows = search(client, "coins", admin_headers, missing="denomination").json()["rows"]
+    assert [r["id"] for r in rows] == [empty.id]
+
+
+def test_missing_photo_finds_items_with_no_photograph(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    bare = coin(db)
+    photographed = coin(db)
+    _attach_photo(db, photographed)
+
+    rows = search(client, "coins", admin_headers, missing="photo").json()["rows"]
+    assert [r["id"] for r in rows] == [bare.id]
+
+
+def test_missing_year_reads_a_notes_series_year(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A note's year is its series year; `year_start` is never read for one."""
+    stale_year_start = build_bare_item(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), year_start=1899
+    )
+    db.add(CurrencyDetail(inventory_item_id=stale_year_start.id, series_year=None))
+    dated = build_bare_item(
+        db, item_kind_id=code_id(db, ItemKind, "currency"), year_start=None
+    )
+    db.add(CurrencyDetail(inventory_item_id=dated.id, series_year=1935))
+    db.commit()
+
+    rows = search(client, "currency", admin_headers, missing="year").json()["rows"]
+    assert [r["id"] for r in rows] == [stale_year_start.id]
+
+
+def test_missing_metal_never_matches_currency(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Metal does not apply to a note -- `missing=metal` is FALSE, not TRUE."""
+    note(db, metal_id=None)  # would match if the filter were not kind-aware
+
+    rows = search(client, "currency", admin_headers, missing="metal").json()["rows"]
+    assert rows == []
+
+
+def test_missing_denomination_ignores_a_kind_it_does_not_apply_to(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Denomination applies only to coins and banknotes, not bullion.
+
+    A bullion item with no denomination is not "missing" one -- bullion has
+    none by nature -- so the coins view's search for it must stay empty even
+    though bullion shares that view with coins.
+    """
+    build_bare_item(
+        db, item_kind_id=code_id(db, ItemKind, "bullion"), denomination_id=None
+    )
+
+    rows = search(client, "coins", admin_headers, missing="denomination").json()["rows"]
+    assert rows == []
+
+
+def test_missing_excludes_a_deleted_and_a_split_item(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    live_gap = coin(db, denomination_id=None)
+    deleted_gap = coin(db, denomination_id=None)
+    deleted_gap.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    split_gap = coin(db, denomination_id=None)
+    split_gap.split_at = datetime(2026, 1, 1, tzinfo=UTC)
+    db.commit()
+
+    rows = search(client, "coins", admin_headers, missing="denomination").json()["rows"]
+    assert [r["id"] for r in rows] == [live_gap.id]
+
+
+def test_an_unknown_missing_field_is_refused_listing_the_known_ones(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Silently ignoring it would return the whole collection as a clean bill."""
+    response = search(client, "coins", admin_headers, missing="bogus")
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "bogus" in detail
+    assert "photo" in detail
