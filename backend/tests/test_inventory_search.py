@@ -272,6 +272,44 @@ def test_free_text_finds_items_by_their_purchase_order_number(
     assert {r["id"] for r in partial["rows"]} == {wanted_note.id}
 
 
+def test_a_pasted_search_ignores_the_whitespace_around_it(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Text copied from an order page or a spreadsheet brings a space or a tab.
+
+    Matched as typed, `%11-15110-51877 %` found nothing, and neither did an
+    item code copied out of a table cell.
+    """
+    order = build_purchase_order(
+        db, vendor_name="ebay.com", order_number="11-15110-51877"
+    )
+    wanted = note(db, purchase_order_id=order.id)
+    note(db)
+
+    for pasted in (" 11-15110-51877", "11-15110-51877 ", "\t11-15110-51877\n"):
+        found = search(client, "currency", admin_headers, q=pasted).json()
+        assert {r["id"] for r in found["rows"]} == {wanted.id}, repr(pasted)
+
+    by_code = search(client, "currency", admin_headers, q=f"{wanted.item_code} ").json()
+    assert {r["id"] for r in by_code["rows"]} == {wanted.id}
+
+
+def test_an_order_number_is_found_without_its_dashes(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Read aloud or typed from a receipt, the separators are the first to go."""
+    order = build_purchase_order(
+        db, vendor_name="ebay.com", order_number="11-15110-51877"
+    )
+    other = build_purchase_order(db, vendor_name="hibid.com", order_number="11-15110-5")
+    wanted = note(db, purchase_order_id=order.id)
+    note(db, purchase_order_id=other.id)
+
+    for typed in ("111511051877", "11 15110 51877", "15110 51877"):
+        found = search(client, "currency", admin_headers, q=typed).json()
+        assert {r["id"] for r in found["rows"]} == {wanted.id}, typed
+
+
 def test_an_order_number_search_still_honours_the_other_filters(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:

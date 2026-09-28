@@ -33,6 +33,7 @@ specification's own allowlists; every value is a bound parameter.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -675,6 +676,12 @@ def _value_clause(key: str, value: object, f: Filt, bound: dict[str, Any]) -> st
     return template.format(sql=f.sql, placeholder=placeholder)
 
 
+#: The fewest letters and digits a query needs before it is also matched
+#: against order numbers stripped of their separators: fewer, and a short
+#: number would find a slice of nearly every order.
+_BARE_ORDER_MIN = 6
+
+
 def _query_clause(
     spec: ViewSpec,
     query: str,
@@ -690,6 +697,18 @@ def _query_clause(
         "EXISTS (SELECT 1 FROM purchase_order po_q WHERE po_q.id = i.purchase_order_id"
         " AND po_q.order_number ILIKE :p_q)"
     )
+    # The same number typed without its dashes, or with spaces for them: both
+    # sides reduced to letters and digits. Only for a query that could be
+    # one -- a digit, and enough characters -- so a word never reaches it.
+    bare = re.sub(r"[^0-9A-Za-z]", "", query)
+    if len(bare) >= _BARE_ORDER_MIN and any(c.isdigit() for c in bare):
+        parts.append(
+            "EXISTS (SELECT 1 FROM purchase_order po_b"
+            " WHERE po_b.id = i.purchase_order_id"
+            " AND regexp_replace(po_b.order_number, '[^0-9A-Za-z]', '', 'g')"
+            " ILIKE :p_q_bare)"
+        )
+        bound["p_q_bare"] = f"%{bare}%"
     for named, ids in names:
         placeholder = f"p_named_{named.key}"
         parts.append(named.match.format(p=placeholder))
