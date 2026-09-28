@@ -226,6 +226,9 @@ def search_inventory(
             detail=f"No item has code {lot_code!r}.",
         )
 
+    # Text pasted from an order page or a table cell brings a space or a tab
+    # with it, and the match is a substring: `%51877 %` finds nothing.
+    q = q.strip() if q else q
     # Read once for the page, the facets and the issue counts alike.
     names = names_matching(db, spec, q)
     try:
