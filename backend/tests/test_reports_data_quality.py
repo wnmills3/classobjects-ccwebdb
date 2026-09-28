@@ -6,7 +6,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import cast
 
-from app.inventory_search import COIN_VIEW, CURRENCY_VIEW, ViewSpec, count_issues
+from app.inventory_search import (
+    COIN_VIEW,
+    CURRENCY_VIEW,
+    MISSING_FIELDS,
+    ViewSpec,
+    count_issues,
+    view_path,
+)
 from app.inventory_search import search as inventory_search
 from app.issues import COIN_ISSUES, CURRENCY_ISSUES
 from app.models import (
@@ -63,6 +70,9 @@ def test_issue_counts_equal_the_searchs_own_count_issues(db: Session) -> None:
         counts = coin_counts if row["view"] == "Coins" else currency_counts
         expected = counts.get(cast("str", row["check"]), 0)
         assert row["items"] == expected, (row["view"], row["check"])
+
+    # A row links on its check's name, not on the view it counts in.
+    assert result.link_column == "check"
 
     no_year_row = next(
         r for r in result.rows if r["view"] == "Coins" and r["check"] == "no_year"
@@ -370,3 +380,30 @@ def test_each_cells_drill_search_agrees_with_the_reports_own_count(db: Session) 
                 params["kind"] = kind_code
             _, total = inventory_search(db, spec, params=params)
             assert total == live - filled, (row["kind"], column.key)
+
+
+def test_completeness_lists_kinds_in_their_own_order_not_by_code(db: Session) -> None:
+    """Coin, Currency, Bullion -- the kinds' sort order, as cb_holdings lists them.
+
+    Built in code order (bullion, coin, currency) so an ORDER BY code would
+    list Bullion first and fail here.
+    """
+    _fully_filled_bullion(db)
+    _fully_filled_coin(db)
+    _fully_filled_note(db)
+
+    result = DQ_COMPLETENESS.run(db, DqCompletenessParams())
+    assert [r["kind"] for r in result.rows] == ["Coin", "Currency", "Bullion"]
+
+
+def test_a_kinds_view_path_is_currency_or_else_coins() -> None:
+    assert view_path("currency") == "/inventory/currency"
+    for kind_code in ("coin", "bullion", "unknown"):
+        assert view_path(kind_code) == "/inventory/coins"
+
+
+def test_a_missing_field_applies_to_its_kinds_or_to_every_kind() -> None:
+    assert MISSING_FIELDS["denomination"].applies_to("coin")
+    assert not MISSING_FIELDS["denomination"].applies_to("bullion")
+    assert not MISSING_FIELDS["metal"].applies_to("currency")
+    assert MISSING_FIELDS["photo"].applies_to("bullion")

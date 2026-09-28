@@ -17,13 +17,20 @@ from decimal import ROUND_HALF_UP, Decimal
 from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.util import ClauseAdapter
 
-from ..inventory_search import COIN_VIEW, CURRENCY_VIEW, MISSING_FIELDS, count_issues
-from ..live import live_item
-from ..models import CurrencyDetail, InventoryItem, ItemKind
+from ..inventory_search import (
+    COIN_VIEW,
+    CURRENCY_VIEW,
+    MISSING_FIELDS,
+    count_issues,
+    view_path,
+)
+from ..models import CurrencyDetail
 from .base import Column, Report, ReportResult
 from .registry import register
+from .tables import ITEM as _I
+from .tables import KIND as _K
+from .tables import LIVE as _LIVE
 
 __all__ = ["DQ_COMPLETENESS", "DQ_ISSUES"]
 
@@ -66,6 +73,7 @@ def _dq_issues(db: Session, _params: DqIssuesParams) -> ReportResult:
         ],
         rows=rows,
         drills=drills,
+        link_column="check",
         notes=[
             "No total: one item can carry several issues at once, so a sum "
             "of these counts is not the number of items with an issue."
@@ -111,21 +119,12 @@ _FIELD_LABELS: dict[str, str] = {
     "sellers_item_id": "Seller's item id",
 }
 
-#: `inventory_item`, `item_kind` and `currency_detail`, aliased `i`/`k`/`cud`
-#: -- exactly how `inventory_search`'s own queries alias them (`_J_KIND`,
-#: `_J_CUR_DETAIL`) -- so `MISSING_FIELDS[key].sql`'s text, written against
-#: those same aliases for the `missing=` filter, can be reused here verbatim
-#: rather than restated against different table names. One definition of
-#: "is this field missing", read by the filter and this report alike.
-_I = InventoryItem.__table__.alias("i")
-_K = ItemKind.__table__.alias("k")
+#: `currency_detail` aliased `cud`, as `inventory_search` aliases it
+#: (`_J_CUR_DETAIL`), alongside the shared `i`/`k` of `.tables`: together
+#: they let `MISSING_FIELDS[key].sql`'s text, written for the `missing=`
+#: filter, run here verbatim. One definition of "is this field missing",
+#: read by the filter and this report alike.
 _CUD = CurrencyDetail.__table__.alias("cud")
-
-#: `live_item()` (`app.live`), the shared live-row predicate, names
-#: `InventoryItem` unaliased; `ClauseAdapter` rewrites its column references
-#: onto `_I` so it composes with a query that joins `inventory_item` as `i`,
-#: the way `MISSING_FIELDS`'s text (`i.year_start`, and so on) requires.
-_LIVE = ClauseAdapter(_I).traverse(live_item())
 
 _ONE_DP = Decimal("0.1")
 
@@ -137,17 +136,11 @@ def _percent(filled: int, live: int) -> Decimal:
     )
 
 
-def _applies(field: str, kind_code: str) -> bool:
-    """Whether `field` applies to `kind_code`, from the one shared table."""
-    kinds = MISSING_FIELDS[field].kinds
-    return kinds is None or kind_code in kinds
-
-
 def _drill(kind_code: str) -> str:
     """The kind's own inventory search -- what the row (not a cell) drills to."""
     if kind_code == "currency":
-        return "/inventory/currency"
-    return f"/inventory/coins?kind={kind_code}"
+        return view_path(kind_code)
+    return f"{view_path(kind_code)}?kind={kind_code}"
 
 
 def _dq_completeness(db: Session, _params: DqCompletenessParams) -> ReportResult:
@@ -181,9 +174,11 @@ def _dq_completeness(db: Session, _params: DqCompletenessParams) -> ReportResult
         .join(_K, _K.c.id == _I.c.item_kind_id)
         .outerjoin(_CUD, _CUD.c.inventory_item_id == _I.c.id)
         .where(_LIVE)
-        .group_by(_K.c.code, _K.c.label)
+        .group_by(_K.c.id, _K.c.code, _K.c.label, _K.c.sort_order)
         .having(func.count() > 0)
-        .order_by(_K.c.code)
+        # The kinds' own order, as `cb_holdings` lists them; `id` breaks a
+        # tie between two kinds sharing a `sort_order`.
+        .order_by(_K.c.sort_order, _K.c.id)
     )
 
     columns = [
@@ -202,7 +197,7 @@ def _dq_completeness(db: Session, _params: DqCompletenessParams) -> ReportResult
                 **{
                     key: (
                         _percent(row[key], live)
-                        if _applies(key, row["kind_code"])
+                        if MISSING_FIELDS[key].applies_to(row["kind_code"])
                         else None
                     )
                     for key in _FIELD_LABELS
@@ -219,9 +214,8 @@ def _dq_completeness(db: Session, _params: DqCompletenessParams) -> ReportResult
             "A blank cell means the field does not apply to that kind, not "
             "that it is 0% or 100% filled.",
             "Denomination and grade apply only to coins and banknotes, and "
-            "metal does not apply to currency; every other field is judged "
-            "to apply to every kind, since app.issues states no kind "
-            "restriction for it.",
+            "metal does not apply to currency; every other field applies to "
+            "every kind, since no data-quality check limits it to some kinds.",
         ],
     )
 

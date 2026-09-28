@@ -3,7 +3,7 @@ r"""A report's result as an `.xlsx` workbook, read by both the API and the CLI.
 One sheet, named from the report's title (Excel's own limits: at most 31
 characters, none of ``[]:*?/\\``). Above the table: the title, one row per
 parameter (its label and the value the report actually ran with), a "Run at"
-row, then the header row, the data rows, the totals row directly below when
+row, a blank row, then the header row, the data rows, the totals row directly below when
 there is one (bold), a blank row, then each note on its own row -- the
 layout `docs/specs/reporting-design.md`'s "API" section lays out. Money and
 percent cells are written as numbers, never as text, so a spreadsheet can

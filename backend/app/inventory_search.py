@@ -68,6 +68,7 @@ __all__ = [
     "names_matching",
     "plain",
     "search",
+    "view_path",
 ]
 
 
@@ -210,6 +211,9 @@ class UnknownMissingField(KeyError):
 
 #: How the search treats soft-deleted rows. Not a `Filt`, because it is a
 #: choice between three predicates rather than a value to compare against.
+#: `"no"`, the default, with each view's `i.split_at IS NULL`, is the
+#: live-row rule `app.live.live_item()` states for the reports; the two are
+#: pinned as equivalent by `tests/test_live.py`.
 DELETED_MODES: dict[str, str] = {
     "no": "i.deleted_at IS NULL",
     "only": "i.deleted_at IS NOT NULL",
@@ -496,6 +500,17 @@ CURRENCY_VIEW = ViewSpec(
 VIEWS: dict[str, ViewSpec] = {v.name: v for v in (COIN_VIEW, CURRENCY_VIEW)}
 
 
+def view_path(kind_code: str) -> str:
+    """The console path of the inventory view that holds items of `kind_code`.
+
+    Currency has its own view; every other kind is searched in the coins
+    view (`COIN_VIEW.where`), so a report's drill to a kind's items reads
+    this rather than restating the split.
+    """
+    spec = CURRENCY_VIEW if kind_code == "currency" else COIN_VIEW
+    return f"/inventory/{spec.name}"
+
+
 @dataclass(frozen=True)
 class MissingField:
     """One `missing=<field>` check: the SQL that finds it empty, and its kinds.
@@ -511,6 +526,10 @@ class MissingField:
     sql: str
     join: tuple[str, ...] = ()
     kinds: frozenset[str] | None = None
+
+    def applies_to(self, kind_code: str) -> bool:
+        """Whether this field applies to items of `kind_code` at all."""
+        return self.kinds is None or kind_code in self.kinds
 
 
 #: Every item kind, mirroring `backend/data/reference/classification.json`'s

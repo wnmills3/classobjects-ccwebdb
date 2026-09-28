@@ -315,3 +315,36 @@ describe('Inventory opened on one item', () => {
     expect(document.querySelector('dialog')).toBeNull()
   })
 })
+
+// A completeness or holdings drill lands with `missing=<field>`, which has no
+// control of its own; the page must say the list is narrowed, and let it go.
+describe('Inventory narrowed by a missing field', () => {
+  it('shows the filter as a chip, and removing it searches again without it', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <>
+        <InventoryCurrency />
+        <Address />
+      </>,
+      { auth: adminAuth(), route: '/inventory/currency?missing=photo' },
+    )
+
+    const chip = await screen.findByRole('button', {
+      name: 'Remove filter Missing: photograph',
+    })
+    expect(api.searchInventory).toHaveBeenCalledWith(
+      'currency',
+      expect.objectContaining({ missing: 'photo' }),
+    )
+    const searches = api.searchInventory.mock.calls.length
+
+    await user.click(chip)
+
+    await waitFor(() =>
+      expect(api.searchInventory.mock.calls.length).toBeGreaterThan(searches),
+    )
+    expect(api.searchInventory.mock.calls.at(-1)[1]).not.toHaveProperty('missing')
+    expect(screen.getByTestId('address').textContent).toBe('')
+    expect(screen.queryByRole('button', { name: /Missing:/ })).toBeNull()
+  })
+})

@@ -58,7 +58,8 @@ backend/
                          guards that refuse ending or selling one directly
     inventory_search.py  owner search and facets over the base tables
     issues.py            named diagnostics (no year, no grade, ...)
-    live.py              the shared live-row predicate (reports, search)
+    live.py              the shared live-row predicate (reports, Receiving; the
+                         search states the same rule in its SQL text)
     reports/             read-only reports over the collection: registry, API,
                          CLI, workbook export (docs/specs/reporting-design.md)
     classifier_defaults.py, series_match.py, series_classify.py,
@@ -99,6 +100,7 @@ reference. By area:
 | Photographs | `/images`, `/image-links` (renditions public, by content hash) | mixed |
 | Selling | `/sales-venues`, `/offers`, `/listings` (end, record a sale), `/sales-lots`, `/auctions` | manager |
 | Friedberg numbers | `/friedberg`, `/inventory/{id}/friedberg` | manager; the owner's own numbers only |
+| Reports | `/reports` (catalog, run, `/workbook`) | manager |
 
 Rules that hold across the API:
 

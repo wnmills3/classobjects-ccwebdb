@@ -72,6 +72,20 @@ def test_a_result_with_mismatched_drills_is_refused() -> None:
         )
 
 
+def test_a_link_column_naming_no_column_is_refused() -> None:
+    with pytest.raises(ValueError, match="link_column 'nope'"):
+        ReportResult(
+            columns=[Column("n", "Count", "count")], rows=[], link_column="nope"
+        )
+
+
+def test_the_linked_column_is_the_named_one_or_else_the_first() -> None:
+    columns = [Column("a", "A", "text"), Column("b", "B", "text")]
+    assert ReportResult(columns=columns, rows=[]).linked_key == "a"
+    assert ReportResult(columns=columns, rows=[], link_column="b").linked_key == "b"
+    assert ReportResult(columns=[], rows=[]).linked_key is None
+
+
 def test_live_item_excludes_a_deleted_and_a_split_item(db: Session) -> None:
     live = build_bare_item(db)
     deleted = build_bare_item(db)

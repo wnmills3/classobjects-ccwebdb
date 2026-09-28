@@ -65,6 +65,26 @@ describe('FilterPanel', () => {
     expect(props.apply).toHaveBeenCalledWith({ issue: '' })
   })
 
+  it('shows no missing-field chip when no field is being looked for', () => {
+    setup()
+    expect(screen.queryByRole('button', { name: /Missing:/ })).toBeNull()
+  })
+
+  it('names an active missing field in words, and removes it on a click', async () => {
+    const user = userEvent.setup()
+    const { props } = setup({
+      current: { kind: 'bullion', missing: 'storage_location' },
+    })
+    const chip = screen.getByRole('button', {
+      name: 'Remove filter Missing: storage location',
+    })
+    expect(chip).toHaveTextContent('Missing: storage location')
+    expect(chip.closest('[data-help]').dataset.help).toBe('missing_filter')
+
+    await user.click(chip)
+    expect(props.apply).toHaveBeenCalledWith({ missing: '' })
+  })
+
   it('shows a value by its label but filters by its code', async () => {
     // A denomination's code is `usd_coin_0_01`, which nobody would pick from
     // a list; its label is "Cent". The filter still compares the code.

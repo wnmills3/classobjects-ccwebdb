@@ -48,6 +48,12 @@ class ReportResult:
     something for; omitted (`None`) when no total applies. `notes` is
     anything a reader must know to read the table right, such as "no spot
     price recorded; melt value omitted".
+
+    `link_column` is the key of the column whose cell carries a row's
+    drill-down link -- the cell that names what the link opens, such as a
+    listing's item code rather than its venue. `None` means the first
+    column. A key that names no column is refused here, for the same reason
+    the drills are checked: a typo would silently drop every row's link.
     """
 
     columns: list[Column]
@@ -55,14 +61,27 @@ class ReportResult:
     totals: dict[str, object] | None = None
     drills: list[str | None] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    link_column: str | None = None
 
     def __post_init__(self) -> None:
-        """Refuse a result whose `drills` do not line up with `rows`."""
+        """Refuse misaligned `drills`, or a `link_column` naming no column."""
         if len(self.drills) != len(self.rows):
             raise ValueError(
                 f"drills has {len(self.drills)} entries for "
                 f"{len(self.rows)} rows -- they must be index-aligned"
             )
+        keys = [column.key for column in self.columns]
+        if self.link_column is not None and self.link_column not in keys:
+            raise ValueError(
+                f"link_column {self.link_column!r} is not one of the columns {keys}"
+            )
+
+    @property
+    def linked_key(self) -> str | None:
+        """The key of the column that carries the links: `link_column`, or the first."""
+        if self.link_column is not None:
+            return self.link_column
+        return self.columns[0].key if self.columns else None
 
 
 @dataclass(frozen=True)

@@ -499,6 +499,12 @@ export const FIELD_HELP = {
       'grade, not yet reviewed, and so on. Click one to show only those items; ' +
       'click it again to go back. Only checks with something to find are shown.',
   },
+  missing_filter: {
+    title: 'Missing',
+    text:
+      'Only items with this field left empty -- usually set by following a link ' +
+      'from a report. Click it to remove it and show the rest again.',
+  },
   clear_filters: {
     title: 'Clear filters',
     text: 'Empties the search box and every filter, showing everything in this view.',

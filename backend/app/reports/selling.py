@@ -36,6 +36,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased
 
+from ..inventory_search import view_path
 from ..live import live_item
 from ..models import (
     Currency,
@@ -125,8 +126,7 @@ def _excluded_from_totals(
 
 def _item_drill(kind_code: str, item_code: str) -> str:
     """An item listing's console path: its own kind's search, opened on it."""
-    path = "/inventory/currency" if kind_code == "currency" else "/inventory/coins"
-    return f"{path}?{urlencode({'item': item_code})}"
+    return f"{view_path(kind_code)}?{urlencode({'item': item_code})}"
 
 
 def _item_rows(db: Session, today: date) -> list[_Entry]:
@@ -282,6 +282,7 @@ def _sl_offered(db: Session, _params: OfferedParams) -> ReportResult:
             totals=None,
             drills=[],
             notes=["Nothing is on offer."],
+            link_column="offers",
         )
 
     rows = [entry[1] for entry in entries]
@@ -336,7 +337,12 @@ def _sl_offered(db: Session, _params: OfferedParams) -> ReportResult:
     }
 
     return ReportResult(
-        columns=_COLUMNS, rows=rows, totals=totals, drills=drills, notes=notes
+        columns=_COLUMNS,
+        rows=rows,
+        totals=totals,
+        drills=drills,
+        notes=notes,
+        link_column="offers",
     )
 
 

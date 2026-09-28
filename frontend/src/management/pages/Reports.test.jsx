@@ -424,6 +424,18 @@ describe('Reports page', () => {
     expect(link).not.toHaveAttribute('target')
   })
 
+  it("links a row from the report's link column when it names one", async () => {
+    api.runReport.mockImplementation((_id, params) =>
+      Promise.resolve({ ...outstanding(params), link_column: 'vendor' }),
+    )
+    renderAt('/reports?report=pr_outstanding&overdue_days=30')
+
+    const link = await screen.findByRole('link', { name: 'Abbott' })
+    expect(link).toHaveAttribute('href', '/receiving?order=20')
+    // The first cell is plain text now: one link per row, on the named cell.
+    expect(screen.queryByRole('link', { name: 'Order-0020' })).not.toBeInTheDocument()
+  })
+
   it('links a percent cell to the items missing that field', async () => {
     renderAt('/reports?report=dq_completeness')
 

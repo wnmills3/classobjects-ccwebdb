@@ -1,8 +1,9 @@
 """The report catalog: every report registered, reachable from one import.
 
 `REPORTS` and `register` live in `app.reports.registry`; this module's own
-job is to import every group module (`data_quality`, and the ones the plan's
-later phases add) so each one's `register()` calls have run -- and `REPORTS`
+job is to import every group module (`collection`, `data_quality`,
+`purchasing`, `selling`) so each one's `register()` calls have run -- and
+`REPORTS`
 is complete -- by the time anything imports `app.reports` itself, whether
 that is an API route, the CLI, or a test. A test importing a group module a
 second time cannot trip `register`'s duplicate check: Python caches an

@@ -3,6 +3,7 @@ import { useRef } from 'react'
 import { AccessLabel } from '../../AccessLabel'
 import HelpScope from '../../HelpScope'
 import { accel } from '../../shortcuts'
+import { missingLabel } from './missingFields'
 import { SHARED_KEYS } from './specs'
 
 //: For a view that names no placeholder of its own.
@@ -185,6 +186,23 @@ export default function FilterPanel({
             />
           </label>
         </div>
+
+        {/* A `missing=` filter has no control of its own -- it arrives from a
+          report's drill-down -- so without this chip the list would be
+          narrowed with nothing on screen saying so. Clicking removes it. */}
+        {current.missing && (
+          <div className="issue-checks" data-help="missing_filter">
+            <button
+              type="button"
+              className="chip chip-on"
+              aria-label={`Remove filter ${missingLabel(current.missing)}`}
+              title="Remove this filter"
+              onClick={() => apply({ missing: '' })}
+            >
+              {missingLabel(current.missing)} <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        )}
 
         {/* Named checks, with the size of each job visible before committing
           to it. Counts ignore the selected check, so choosing one does not
