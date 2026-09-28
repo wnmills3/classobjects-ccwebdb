@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..deps import AdminUser, DbSession
 from ..item_history import location_label
+from ..live import live_item
 from ..models import (
     InventoryItem,
     ItemStatus,
@@ -55,14 +56,6 @@ purchase_orders_router = APIRouter(prefix="/purchase-orders", tags=["acquisition
 storage_locations_router = APIRouter(prefix="/storage-locations", tags=["acquisitions"])
 
 _ORDER_NOT_FOUND = "Purchase order not found"
-
-#: A line that should never count towards what is outstanding, what a
-#: vendor sent, or what a receiving clerk sees: a soft-deleted row, which
-#: never should have existed, and a split parent, which has been replaced by
-#: its own children and would otherwise be received twice alongside them.
-_ITEM_IS_LIVE = and_(
-    InventoryItem.deleted_at.is_(None), InventoryItem.split_at.is_(None)
-)
 
 #: `purchase_order.source_url` is free text, not necessarily a URL -- an
 #: eBay listing page, an eBay order page, or the literal word
@@ -264,7 +257,7 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
     carry hundreds of lines and this view needs none of them.
 
     A soft-deleted item and a split lot's parent row are excluded from both
-    counts -- `_ITEM_IS_LIVE` sits in the join's `ON` clause rather than a
+    counts -- `live_item()` sits in the join's `ON` clause rather than a
     `WHERE` on the assembled query, so an order whose only lines are
     non-live still appears (with `outstanding=0, total=0`) instead of being
     dropped by the aggregation entirely.
@@ -286,7 +279,7 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
         .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
         .outerjoin(
             InventoryItem,
-            and_(InventoryItem.purchase_order_id == PurchaseOrder.id, _ITEM_IS_LIVE),
+            and_(InventoryItem.purchase_order_id == PurchaseOrder.id, live_item()),
         )
         .outerjoin(ItemStatus, ItemStatus.id == InventoryItem.status_id)
         .group_by(
@@ -322,7 +315,7 @@ def get_purchase_order(
     lists lines individually rather than folding them into one order status.
 
     Lines are fetched with their own query rather than through
-    `PurchaseOrder.items`, so `_ITEM_IS_LIVE` can be applied in SQL: that
+    `PurchaseOrder.items`, so `live_item()` can be applied in SQL: that
     relationship is unfiltered and shared with other code, so it is not
     touched here. A soft-deleted item and a split lot's superseded parent
     are excluded; a split lot's children are not -- they are what a
@@ -337,7 +330,7 @@ def get_purchase_order(
 
     items = db.scalars(
         select(InventoryItem)
-        .where(InventoryItem.purchase_order_id == order_id, _ITEM_IS_LIVE)
+        .where(InventoryItem.purchase_order_id == order_id, live_item())
         .options(
             selectinload(InventoryItem.status), selectinload(InventoryItem.item_kind)
         )
