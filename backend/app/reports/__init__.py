@@ -15,6 +15,7 @@ from .collection import CB_HOLDINGS
 from .data_quality import DQ_COMPLETENESS, DQ_ISSUES
 from .purchasing import PR_OUTSTANDING
 from .registry import REPORTS, register
+from .selling import SL_OFFERED
 
 __all__ = [
     "CB_HOLDINGS",
@@ -22,5 +23,6 @@ __all__ = [
     "DQ_ISSUES",
     "PR_OUTSTANDING",
     "REPORTS",
+    "SL_OFFERED",
     "register",
 ]
