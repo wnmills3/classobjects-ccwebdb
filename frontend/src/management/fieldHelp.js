@@ -452,10 +452,10 @@ export const FIELD_HELP = {
   photos: {
     title: 'Photographs',
     text:
-      "The item's pictures. Choose a file to add one, set each one's role " +
-      '(obverse, reverse, slab ...), make one the primary -- the one the shop shows ' +
-      "first -- or remove one. Photographs are filed straight away; the form's Save " +
-      'is not needed.',
+      "The item's pictures. Choose a file, drag one onto the box, or paste one with " +
+      "Ctrl+V to add it, set each one's role (obverse, reverse, slab ...), make one " +
+      'the primary -- the one the shop shows first -- or remove one. A new photograph ' +
+      "is held for the form's Save rather than filed right away.",
   },
   // -- the search panel -------------------------------------------------------
   search_text: {

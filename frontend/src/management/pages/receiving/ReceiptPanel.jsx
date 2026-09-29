@@ -28,6 +28,15 @@ const OUTCOMES = [
 //: the backend's `receive_items` for the other half of this pairing -- its
 //: future-date bound is widened by a day precisely so this local default is
 //: never itself refused.
+/**
+ * True for a `File` or a `DataTransferItem`/clipboard item alike -- both
+ * carry a MIME `type`, which is all this ever needs to tell a photograph
+ * from anything else dropped or pasted.
+ */
+function isImageFile(file) {
+  return typeof file?.type === 'string' && file.type.startsWith('image/')
+}
+
 function todayLocal() {
   const now = new Date()
   const pad = (n) => String(n).padStart(2, '0')
@@ -68,6 +77,11 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   const [photos, setPhotos] = useState([])
   const [photoInputKey, setPhotoInputKey] = useState(0)
   const [uploadError, setUploadError] = useState('')
+  // Whether a drag carrying files is over the drop target, and why a drop
+  // or a paste was refused -- a choice from the file box never reaches this,
+  // since `accept="image/*"` already keeps a non-image out of its list.
+  const [dragActive, setDragActive] = useState(false)
+  const [pickError, setPickError] = useState('')
   // The ids under review, frozen at the moment review was opened -- null
   // means review is closed. `ReviewPane` never re-reads its `ids` prop (see
   // its own docstring), so handing it the live `itemIds` prop directly would
@@ -148,6 +162,79 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // be silently dropped, rather than only that photos and multiple items
   // don't mix.
   const pendingPhotoNames = photos.map((file) => file.name)
+
+  /**
+   * What choosing files from the box, dropping them and pasting one all
+   * funnel into -- `handleFileInput`, `handleDrop` and `handlePaste` below
+   * call nothing else. A file that is not a photograph refuses the whole
+   * batch with a message naming it, rather than silently dropping it; the
+   * file box itself never reaches that branch, since `accept="image/*"`
+   * already keeps a non-image out of `e.target.files`.
+   *
+   * `replace` matches what the file box itself does -- picking files from
+   * its dialog again replaces the earlier selection, the same as the native
+   * control has always behaved. A drop or a paste instead adds to what is
+   * already held, since each is its own small gesture rather than a
+   * re-opened dialog meant to restate the whole batch.
+   */
+  function addFiles(fileList, { replace = false } = {}) {
+    const files = Array.from(fileList ?? []).filter(Boolean)
+    if (files.length === 0) return
+    const notImages = files.filter((file) => !isImageFile(file))
+    if (notImages.length > 0) {
+      const names = notImages.map((file) => file.name).join(', ')
+      setPickError(
+        `${names} ${notImages.length > 1 ? 'are not images' : 'is not an image'} -- ` +
+          'only a photograph can be added here.',
+      )
+      return
+    }
+    setPickError('')
+    setPhotos((current) => (replace ? files : [...current, ...files]))
+  }
+
+  function handleFileInput(e) {
+    addFiles(e.target.files, { replace: true })
+  }
+
+  function handleDragOver(e) {
+    // Without this the browser's own default takes over: dropping an image
+    // on the page opens it in the tab instead of reaching this panel.
+    e.preventDefault()
+  }
+
+  function handleDragEnter(e) {
+    e.preventDefault()
+    if (photoDisabled) return
+    setDragActive(true)
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault()
+    setDragActive(false)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDragActive(false)
+    if (photoDisabled) return
+    addFiles(e.dataTransfer?.files)
+  }
+
+  function handlePaste(e) {
+    if (photoDisabled) return
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imageFiles = Array.from(items)
+      .filter((item) => item.kind === 'file' && isImageFile(item))
+      .map((item) => item.getAsFile())
+      .filter(Boolean)
+    // Nothing to add: leave the event alone so plain text still pastes
+    // normally wherever this was actually aimed.
+    if (imageFiles.length === 0) return
+    e.preventDefault()
+    addFiles(imageFiles)
+  }
 
   async function submit(outcome, acknowledged = false) {
     setBusy(true)
@@ -329,29 +416,44 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           />
         </label>
 
-        <label>
-          Photo
-          <input
-            key={photoInputKey}
-            type="file"
-            accept="image/*"
-            multiple
-            disabled={photoDisabled}
-            onChange={(e) => setPhotos(Array.from(e.target.files ?? []))}
-          />
-          {itemIds.length > 1 && pendingPhotoNames.length === 0 && (
-            <span className="muted">
-              Photographs attach to a single item -- receive this one on its own to add
-              one.
-            </span>
-          )}
-          {itemIds.length > 1 && pendingPhotoNames.length > 0 && (
-            <span className="muted">
-              {pendingPhotoNames.join(', ')} will not be uploaded -- receive this item
-              on its own to attach {pendingPhotoNames.length > 1 ? 'them' : 'it'}.
-            </span>
-          )}
-        </label>
+        <div
+          className={`photo-drop${dragActive ? ' photo-drop-active' : ''}`}
+          tabIndex={photoDisabled ? -1 : 0}
+          aria-label="Add an image: drag one here, or paste one with Ctrl+V"
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onPaste={handlePaste}
+        >
+          <label>
+            Photo
+            <input
+              key={photoInputKey}
+              type="file"
+              accept="image/*"
+              multiple
+              disabled={photoDisabled}
+              onChange={handleFileInput}
+            />
+            {itemIds.length > 1 && pendingPhotoNames.length === 0 && (
+              <span className="muted">
+                Photographs attach to a single item -- receive this one on its own to
+                add one.
+              </span>
+            )}
+            {itemIds.length > 1 && pendingPhotoNames.length > 0 && (
+              <span className="muted">
+                {pendingPhotoNames.join(', ')} will not be uploaded -- receive this item
+                on its own to attach {pendingPhotoNames.length > 1 ? 'them' : 'it'}.
+              </span>
+            )}
+          </label>
+          <p className="muted">
+            Choose a file, drag one here, or paste an image (Ctrl+V).
+          </p>
+          {pickError && <p className="error">{pickError}</p>}
+        </div>
       </div>
 
       <div className="receipt-actions">

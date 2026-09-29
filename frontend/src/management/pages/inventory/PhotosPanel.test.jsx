@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -494,5 +494,94 @@ describe('PhotosPanel: moving a photograph to another item', () => {
 
     await user.click(screen.getByRole('button', { name: 'Undo (photo 30)' }))
     expect(onEditsChange).toHaveBeenCalledWith({})
+  })
+})
+
+describe('PhotosPanel: drag-and-drop and paste', () => {
+  // jsdom has no DataTransfer constructor, so tests build the minimal shape
+  // the handlers actually read: files/items/types, matching a real drag's.
+  function dataTransferFor(file) {
+    return {
+      files: [file],
+      items: [{ kind: 'file', type: file.type, getAsFile: () => file }],
+      types: ['Files'],
+    }
+  }
+
+  async function renderPanel(props = {}) {
+    api.listItemImages.mockResolvedValue([])
+    renderWithProviders(<PhotosPanel itemId={12} {...props} />, { reference: roles })
+    return screen.findByLabelText(/drag.*paste/i)
+  }
+
+  it('adds a dropped image file the same way as choosing one', async () => {
+    const onAdd = vi.fn()
+    const zone = await renderPanel({ onAdd })
+    const file = new File(['x'], 'coin.jpg', { type: 'image/jpeg' })
+
+    fireEvent.drop(zone, { dataTransfer: dataTransferFor(file) })
+
+    expect(onAdd).toHaveBeenCalledWith({ kind: 'file', file, role: 'obverse' })
+  })
+
+  it('shows the drop hint on dragenter/dragover, and clears it on dragleave', async () => {
+    const zone = await renderPanel()
+    const file = new File(['x'], 'coin.jpg', { type: 'image/jpeg' })
+
+    fireEvent.dragEnter(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).toHaveClass('photo-drop-active')
+
+    fireEvent.dragLeave(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).not.toHaveClass('photo-drop-active')
+  })
+
+  it('clears the drop hint once the file lands', async () => {
+    const onAdd = vi.fn()
+    const zone = await renderPanel({ onAdd })
+    const file = new File(['x'], 'coin.jpg', { type: 'image/jpeg' })
+
+    fireEvent.dragEnter(zone, { dataTransfer: dataTransferFor(file) })
+    fireEvent.drop(zone, { dataTransfer: dataTransferFor(file) })
+
+    expect(zone).not.toHaveClass('photo-drop-active')
+  })
+
+  it('refuses a dropped non-image file with a readable message', async () => {
+    const onAdd = vi.fn()
+    const zone = await renderPanel({ onAdd })
+    const file = new File(['x'], 'notes.txt', { type: 'text/plain' })
+
+    fireEvent.drop(zone, { dataTransfer: dataTransferFor(file) })
+
+    expect(await screen.findByText(/notes\.txt.*not an image/i)).toBeInTheDocument()
+    expect(onAdd).not.toHaveBeenCalled()
+  })
+
+  it('adds a pasted image the same way as choosing one', async () => {
+    const onAdd = vi.fn()
+    const zone = await renderPanel({ onAdd })
+    const file = new File(['x'], 'coin.png', { type: 'image/png' })
+
+    fireEvent.paste(zone, {
+      clipboardData: {
+        items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }],
+      },
+    })
+
+    expect(onAdd).toHaveBeenCalledWith({ kind: 'file', file, role: 'obverse' })
+  })
+
+  it('does nothing on a paste with no image', async () => {
+    const onAdd = vi.fn()
+    const zone = await renderPanel({ onAdd })
+
+    fireEvent.paste(zone, {
+      clipboardData: {
+        items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }],
+      },
+    })
+
+    expect(onAdd).not.toHaveBeenCalled()
+    expect(screen.queryByText(/not an image/i)).toBeNull()
   })
 })

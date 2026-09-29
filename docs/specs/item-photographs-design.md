@@ -120,8 +120,12 @@ stored; only the *link* is withheld.
   add, change role, make primary, **Move** to another item, and **Remove**,
   which detaches and never deletes the photograph. **Nothing in it writes
   until the editor's Save.**
-  A new photograph is added from a file or from a **pasted web address** and
-  listed as not saved yet, with Discard. A new role, a new primary, a
+  A new photograph is added from a file, dropped onto the picker, pasted from
+  the clipboard with **Ctrl+V**, or from a **pasted web address**, and listed
+  as not saved yet, with Discard. Dragging a non-image file, or pasting
+  clipboard content that is not an image, is refused with a message naming
+  it; a plain-text paste elsewhere on the page is untouched, since the picker
+  only ever answers a paste aimed at it. A new role, a new primary, a
   removal or a move for a filed photograph shows in place, marked not saved
   yet, with Undo; choosing the saved value again drops it. A move names the
   other item by its code (the Photos page's `ItemPicker`) and refuses the
@@ -153,7 +157,8 @@ it is filed on no other item (`image_links.name_for_place`). A camera's
 `DSC00417.JPG` keeps its name, and so does a group photograph shared by
 several items.
 - **Receiving**: `ReceiptPanel` uploads photographs for the one item being
-  received; the first is primary. A failed upload never rolls back the
+  received, chosen from a file, dropped onto the picker, or pasted with
+  Ctrl+V; the first is primary. A failed upload never rolls back the
   receipt.
 
 All of these go through `ForSaleNotice` / the for-sale refusal: every link

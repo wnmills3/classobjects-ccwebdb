@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import userEvent from '@testing-library/user-event'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -567,6 +567,105 @@ describe('ReceiptPanel', () => {
       expect.any(File),
       expect.objectContaining({ acknowledgeForSale: true }),
     )
+  })
+})
+
+describe('ReceiptPanel: drag-and-drop and paste for the photograph', () => {
+  // jsdom has no DataTransfer constructor, so tests build the minimal shape
+  // the handlers actually read: files/items/types, matching a real drag's.
+  function dataTransferFor(file) {
+    return {
+      files: [file],
+      items: [{ kind: 'file', type: file.type, getAsFile: () => file }],
+      types: ['Files'],
+    }
+  }
+
+  async function renderReceipt(props = {}) {
+    renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} {...props} />)
+    return screen.findByLabelText(/drag.*paste/i)
+  }
+
+  it('drops an image and uploads it on Receive, the same as choosing it', async () => {
+    const zone = await renderReceipt()
+    const file = new File(['x'], 'obverse.jpg', { type: 'image/jpeg' })
+
+    fireEvent.drop(zone, { dataTransfer: dataTransferFor(file) })
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalled())
+    expect(api.uploadImage).toHaveBeenCalledWith(
+      412,
+      file,
+      expect.objectContaining({ isPrimary: true }),
+    )
+  })
+
+  it('shows the drop hint on dragenter/dragover, and clears it on drop', async () => {
+    const zone = await renderReceipt()
+    const file = new File(['x'], 'obverse.jpg', { type: 'image/jpeg' })
+
+    fireEvent.dragEnter(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).toHaveClass('photo-drop-active')
+
+    fireEvent.drop(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).not.toHaveClass('photo-drop-active')
+  })
+
+  it('refuses a dropped non-image file with a readable message', async () => {
+    const zone = await renderReceipt()
+    const file = new File(['x'], 'notes.txt', { type: 'text/plain' })
+
+    fireEvent.drop(zone, { dataTransfer: dataTransferFor(file) })
+
+    expect(await screen.findByText(/notes\.txt.*not an image/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.uploadImage).not.toHaveBeenCalled()
+  })
+
+  it('adds a pasted image the same way as choosing one', async () => {
+    const zone = await renderReceipt()
+    const file = new File(['x'], 'obverse.png', { type: 'image/png' })
+
+    fireEvent.paste(zone, {
+      clipboardData: {
+        items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }],
+      },
+    })
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalled())
+    expect(api.uploadImage).toHaveBeenCalledWith(
+      412,
+      file,
+      expect.objectContaining({ isPrimary: true }),
+    )
+  })
+
+  it('does nothing on a paste with no image', async () => {
+    const zone = await renderReceipt()
+
+    fireEvent.paste(zone, {
+      clipboardData: {
+        items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }],
+      },
+    })
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.uploadImage).not.toHaveBeenCalled()
+  })
+
+  it('does not accept a drop when more than one item is selected', async () => {
+    const zone = await renderReceipt({ itemIds: [412, 413] })
+    const file = new File(['x'], 'obverse.jpg', { type: 'image/jpeg' })
+
+    fireEvent.drop(zone, { dataTransfer: dataTransferFor(file) })
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.uploadImage).not.toHaveBeenCalled()
   })
 })
 
