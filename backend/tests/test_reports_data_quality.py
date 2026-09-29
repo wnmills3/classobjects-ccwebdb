@@ -1,11 +1,12 @@
-"""`dq_issues` and `dq_completeness`: what is missing or wrong in the record."""
+"""What is missing or wrong in the record: six data-quality reports."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import cast
 
+from app.field_sources import HELD, SERIES_CLASSIFY, SERIES_MATCH
 from app.inventory_search import (
     COIN_VIEW,
     CURRENCY_VIEW,
@@ -16,14 +17,18 @@ from app.inventory_search import (
 )
 from app.inventory_search import search as inventory_search
 from app.issues import COIN_ISSUES, CURRENCY_ISSUES
+from app.item_history import location_label
 from app.models import (
     CurrencyDetail,
     Denomination,
     Grade,
     Image,
     InventoryItem,
+    ItemFieldReview,
+    ItemFieldSource,
     ItemImage,
     ItemKind,
+    ItemStatus,
     Metal,
     Series,
     StorageLocation,
@@ -32,13 +37,21 @@ from app.models import (
 from app.reports.base import ReportResult
 from app.reports.data_quality import (
     DQ_COMPLETENESS,
+    DQ_DERIVED,
     DQ_ISSUES,
+    DQ_LOCATIONS,
+    DQ_PHOTOS,
+    DQ_PURCHASES,
     DqCompletenessParams,
+    DqDerivedParams,
     DqIssuesParams,
+    DqLocationsParams,
+    DqPhotosParams,
+    DqPurchasesParams,
 )
 from sqlalchemy.orm import Session
 
-from tests.builders import build_bare_item, code_id
+from tests.builders import build_bare_item, build_purchase_order, code_id
 
 # ---------------------------------------------------------------------------
 # dq_issues
@@ -420,3 +433,569 @@ def test_a_missing_field_applies_to_its_kinds_or_to_every_kind() -> None:
     assert not MISSING_FIELDS["denomination"].applies_to("bullion")
     assert not MISSING_FIELDS["metal"].applies_to("currency")
     assert MISSING_FIELDS["photo"].applies_to("bullion")
+
+
+# ---------------------------------------------------------------------------
+# dq_photos
+# ---------------------------------------------------------------------------
+
+
+def test_dq_photos_counts_live_items_missing_a_photo_by_kind_and_status(
+    db: Session,
+) -> None:
+    build_bare_item(db, status_id=code_id(db, ItemStatus, "received"))
+    photographed = build_bare_item(db, status_id=code_id(db, ItemStatus, "received"))
+    _attach_photo(db, photographed)
+
+    result = DQ_PHOTOS.run(db, DqPhotosParams())
+
+    row = next(
+        r for r in result.rows if r["kind"] == "Coin" and r["status"] == "Received"
+    )
+    assert row["items"] == 1
+
+
+def test_dq_photos_row_drills_agree_with_their_own_search(db: Session) -> None:
+    build_bare_item(db, status_id=code_id(db, ItemStatus, "received"))
+    build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        status_id=code_id(db, ItemStatus, "ordered"),
+    )
+
+    result = DQ_PHOTOS.run(db, DqPhotosParams())
+
+    coin_row_index = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["kind"] == "Coin" and r["status"] == "Received"
+    )
+    coin_drill = result.drills[coin_row_index]
+    assert coin_drill == "/inventory/coins?kind=coin&status=received&missing=photo"
+    _, coin_total = inventory_search(
+        db, COIN_VIEW, params={"kind": "coin", "status": "received", "missing": "photo"}
+    )
+    assert coin_total == result.rows[coin_row_index]["items"]
+
+    currency_row_index = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["kind"] == "Currency" and r["status"] == "Ordered"
+    )
+    currency_drill = result.drills[currency_row_index]
+    assert currency_drill == "/inventory/currency?status=ordered&missing=photo"
+    _, currency_total = inventory_search(
+        db, CURRENCY_VIEW, params={"status": "ordered", "missing": "photo"}
+    )
+    assert currency_total == result.rows[currency_row_index]["items"]
+
+
+def test_dq_photos_unfiled_row_counts_images_linked_to_no_item_and_is_last(
+    db: Session,
+) -> None:
+    item = build_bare_item(db)
+    _attach_photo(db, item)  # linked -- not unfiled
+
+    unfiled = Image(
+        sha256="f" * 64,
+        storage_key="orig/unfiled.jpg",
+        media_type="image/jpeg",
+        byte_size=10,
+    )
+    db.add(unfiled)
+    db.commit()
+
+    result = DQ_PHOTOS.run(db, DqPhotosParams())
+
+    assert result.rows[-1]["kind"] == "Unfiled photographs"
+    assert result.rows[-1]["items"] == 1
+    assert result.drills[-1] == "/photos"
+
+
+def test_a_deleted_and_a_split_item_are_excluded_from_dq_photos(db: Session) -> None:
+    build_bare_item(db, status_id=code_id(db, ItemStatus, "received"))
+    deleted = build_bare_item(db, status_id=code_id(db, ItemStatus, "received"))
+    deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    split = build_bare_item(db, status_id=code_id(db, ItemStatus, "received"))
+    split.split_at = datetime(2026, 1, 1, tzinfo=UTC)
+    db.commit()
+
+    result = DQ_PHOTOS.run(db, DqPhotosParams())
+    row = next(
+        r for r in result.rows if r["kind"] == "Coin" and r["status"] == "Received"
+    )
+    assert row["items"] == 1
+
+
+# ---------------------------------------------------------------------------
+# dq_derived
+# ---------------------------------------------------------------------------
+
+
+def _mark_derived(db: Session, item: InventoryItem, field: str, rule: str) -> None:
+    """Record that `rule` filled `field` on `item`, as a machine pass would."""
+    db.add(
+        ItemFieldSource(inventory_item_id=item.id, field_name=field, derived_by=rule)
+    )
+    db.commit()
+
+
+def _mark_reviewed(db: Session, item: InventoryItem, field: str) -> None:
+    """Record that a person confirmed `field` on `item` by examination."""
+    db.add(ItemFieldReview(inventory_item_id=item.id, field_name=field))
+    db.commit()
+
+
+def test_dq_derived_counts_a_source_with_no_matching_review(db: Session) -> None:
+    item = build_bare_item(db)
+    _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+
+    row = next(r for r in result.rows if r["field"] == "series_id")
+    assert row["rule"] == SERIES_CLASSIFY
+    assert row["items"] == 1
+
+
+def test_dq_derived_excludes_a_field_reviewed_on_the_same_item(db: Session) -> None:
+    item = build_bare_item(db)
+    _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
+    _mark_reviewed(db, item, "series_id")
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+
+    assert not [r for r in result.rows if r["field"] == "series_id"]
+
+
+def test_dq_derived_still_counts_an_unrelated_field_reviewed_on_the_same_item(
+    db: Session,
+) -> None:
+    """Reviewing one field does not clear another field's own gap.
+
+    This is exactly the case `issue=unreviewed` (item-level: any review row at
+    all) would score differently from this report (field-level): the item
+    below is not "unreviewed" by that check, since it has one review row, but
+    still has an unconfirmed `series_id`.
+    """
+    item = build_bare_item(db)
+    _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
+    _mark_reviewed(db, item, "grade_id")
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+
+    row = next(r for r in result.rows if r["field"] == "series_id")
+    assert row["items"] == 1
+
+
+def test_dq_derived_excludes_a_held_field(db: Session) -> None:
+    """`HELD` means a person emptied the field on purpose -- not a rule fill."""
+    item = build_bare_item(db)
+    _mark_derived(db, item, "series_id", HELD)
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+
+    assert not [r for r in result.rows if r["field"] == "series_id"]
+
+
+def test_dq_derived_groups_two_rules_on_the_same_field_separately(db: Session) -> None:
+    a = build_bare_item(db)
+    b = build_bare_item(db)
+    _mark_derived(db, a, "series_id", SERIES_CLASSIFY)
+    _mark_derived(db, b, "series_id", SERIES_MATCH)
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+
+    rows = {
+        (r["field"], r["rule"]): r["items"]
+        for r in result.rows
+        if r["field"] == "series_id"
+    }
+    assert rows[("series_id", SERIES_CLASSIFY)] == 1
+    assert rows[("series_id", SERIES_MATCH)] == 1
+
+
+def test_a_deleted_and_a_split_item_are_excluded_from_dq_derived(db: Session) -> None:
+    item = build_bare_item(db)
+    _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
+    deleted = build_bare_item(db)
+    _mark_derived(db, deleted, "series_id", SERIES_CLASSIFY)
+    deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    split = build_bare_item(db)
+    _mark_derived(db, split, "series_id", SERIES_CLASSIFY)
+    split.split_at = datetime(2026, 1, 1, tzinfo=UTC)
+    db.commit()
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+    row = next(r for r in result.rows if r["field"] == "series_id")
+    assert row["items"] == 1
+
+
+def test_dq_derived_never_drills_and_says_why(db: Session) -> None:
+    item = build_bare_item(db)
+    _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+
+    assert result.drills == [None] * len(result.rows)
+    assert result.notes
+
+
+# ---------------------------------------------------------------------------
+# dq_purchases
+# ---------------------------------------------------------------------------
+
+
+def _entry(day: date) -> datetime:
+    """A `created_at` at local noon UTC -- safe from a day's timezone shift."""
+    return datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
+
+
+def test_dq_purchases_flags_a_generated_order_number(db: Session) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor A",
+        order_number="Order-0007",
+        ordered_on=date(2026, 1, 1),
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+    build_bare_item(db, purchase_order_id=order.id)
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+
+    row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+    assert row["gaps"] == "generated number"
+    assert row["order_number"] == "Order-0007"
+    assert row["vendor"] == "Vendor A"
+
+
+def test_dq_purchases_flags_no_order_date(db: Session) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor B",
+        order_number="V-100",
+        ordered_on=None,
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+    build_bare_item(db, purchase_order_id=order.id)
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+    assert row["gaps"] == "no order date"
+
+
+def test_dq_purchases_flags_no_web_address(db: Session) -> None:
+    for index, source_url in enumerate((None, "", "Gift")):
+        order = build_purchase_order(
+            db,
+            vendor_name=f"Vendor web {index}",
+            order_number="V-100",
+            ordered_on=date(2026, 1, 1),
+            source_url=source_url,
+            created_at=_entry(date(2026, 1, 1)),
+        )
+        build_bare_item(db, purchase_order_id=order.id)
+
+        result = DQ_PURCHASES.run(db, DqPurchasesParams())
+        row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+        assert row["gaps"] == "no web address", source_url
+
+
+def test_dq_purchases_flags_an_order_date_after_entry(db: Session) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor C",
+        order_number="V-101",
+        ordered_on=date(2026, 1, 10),
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+    build_bare_item(db, purchase_order_id=order.id)
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+    assert row["gaps"] == "order date after entry"
+
+
+def test_dq_purchases_flags_an_order_date_over_a_year_before_entry(
+    db: Session,
+) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor D",
+        order_number="V-102",
+        ordered_on=date(2024, 1, 1),
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 6, 1)),
+    )
+    build_bare_item(db, purchase_order_id=order.id)
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+    assert row["gaps"] == "order date over a year before entry"
+
+
+def test_dq_purchases_does_not_flag_a_date_exactly_a_year_before_entry(
+    db: Session,
+) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor E",
+        order_number="V-103",
+        ordered_on=date(2025, 1, 1),
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+    build_bare_item(db, purchase_order_id=order.id)
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    assert not [r for r in result.rows if r["purchase"] == f"#{order.id}"]
+
+
+def test_dq_purchases_flags_a_live_item_with_zero_cost(db: Session) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor F",
+        order_number="V-104",
+        ordered_on=date(2026, 1, 1),
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+    build_bare_item(db, purchase_order_id=order.id, item_cost=Decimal("0"))
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+    assert row["gaps"] == "item with zero cost"
+
+
+def test_dq_purchases_flags_no_items(db: Session) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor G",
+        order_number="V-105",
+        ordered_on=date(2026, 1, 1),
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+    assert row["gaps"] == "no items"
+
+
+def test_dq_purchases_a_deleted_only_item_still_counts_as_no_items(
+    db: Session,
+) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor H",
+        order_number="V-106",
+        ordered_on=date(2026, 1, 1),
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+    deleted = build_bare_item(db, purchase_order_id=order.id)
+    deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    db.commit()
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+    assert row["gaps"] == "no items"
+
+
+def test_dq_purchases_lists_combined_gaps_in_the_fixed_order(db: Session) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor I",
+        order_number="Order-0099",
+        ordered_on=None,
+        source_url="",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    row = next(r for r in result.rows if r["purchase"] == f"#{order.id}")
+    assert row["gaps"] == "generated number, no order date, no web address, no items"
+
+
+def test_dq_purchases_omits_a_purchase_with_no_gaps(db: Session) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor J",
+        order_number="V-107",
+        ordered_on=date(2026, 1, 1),
+        source_url="https://example.com/listing",
+        created_at=_entry(date(2026, 1, 1)),
+    )
+    build_bare_item(db, purchase_order_id=order.id)
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    assert not [r for r in result.rows if r["purchase"] == f"#{order.id}"]
+
+
+def test_dq_purchases_orders_newest_purchase_first(db: Session) -> None:
+    first = build_purchase_order(
+        db,
+        vendor_name="Vendor K",
+        order_number=None,
+        ordered_on=None,
+        source_url=None,
+        created_at=_entry(date(2026, 1, 1)),
+    )
+    second = build_purchase_order(
+        db,
+        vendor_name="Vendor L",
+        order_number=None,
+        ordered_on=None,
+        source_url=None,
+        created_at=_entry(date(2026, 1, 1)),
+    )
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    ids = [r["purchase"] for r in result.rows]
+    assert ids.index(f"#{second.id}") < ids.index(f"#{first.id}")
+
+
+def test_dq_purchases_number_is_the_link_column_and_drills_to_receiving(
+    db: Session,
+) -> None:
+    order = build_purchase_order(
+        db,
+        vendor_name="Vendor M",
+        order_number=None,
+        ordered_on=None,
+        source_url=None,
+        created_at=_entry(date(2026, 1, 1)),
+    )
+
+    result = DQ_PURCHASES.run(db, DqPurchasesParams())
+    assert result.linked_key == "purchase"
+    index = next(
+        i for i, r in enumerate(result.rows) if r["purchase"] == f"#{order.id}"
+    )
+    assert result.drills[index] == f"/receiving?order={order.id}"
+
+
+# ---------------------------------------------------------------------------
+# dq_locations
+# ---------------------------------------------------------------------------
+
+
+def _location_of_kind(
+    db: Session, kind_code: str, **overrides: object
+) -> StorageLocation:
+    """A storage location of this kind -- not a seeded vocabulary."""
+    location = StorageLocation(
+        storage_location_kind_id=code_id(db, StorageLocationKind, kind_code),
+        **overrides,
+    )
+    db.add(location)
+    db.commit()
+    db.refresh(location)
+    return location
+
+
+def test_dq_locations_groups_by_the_consoles_own_label(db: Session) -> None:
+    boxed = _location_of_kind(db, "home", identifier="Box 3")
+    build_bare_item(
+        db,
+        storage_location_id=boxed.id,
+        item_cost=Decimal("40.00"),
+        tax_rate=Decimal("0"),
+    )
+    build_bare_item(
+        db,
+        storage_location_id=boxed.id,
+        item_cost=Decimal("60.00"),
+        tax_rate=Decimal("0"),
+    )
+    build_bare_item(db, storage_location_id=None)
+
+    result = DQ_LOCATIONS.run(db, DqLocationsParams())
+
+    labeled = next(r for r in result.rows if r["location"] == location_label(boxed))
+    assert labeled["items"] == 2
+    assert labeled["total_cost"] == Decimal("100.00")
+
+    none_row = next(r for r in result.rows if r["location"] == "None recorded")
+    assert none_row["items"] == 1
+
+
+def test_dq_locations_merges_two_locations_sharing_one_label(db: Session) -> None:
+    """Two `home` locations naming no institution or identifier share one label."""
+    first = _location_of_kind(db, "home")
+    second = _location_of_kind(db, "home")
+    assert location_label(first) == location_label(second)
+
+    build_bare_item(
+        db,
+        storage_location_id=first.id,
+        item_cost=Decimal("10.00"),
+        tax_rate=Decimal("0"),
+    )
+    build_bare_item(
+        db,
+        storage_location_id=second.id,
+        item_cost=Decimal("20.00"),
+        tax_rate=Decimal("0"),
+    )
+
+    result = DQ_LOCATIONS.run(db, DqLocationsParams())
+
+    matching = [r for r in result.rows if r["location"] == location_label(first)]
+    assert len(matching) == 1
+    assert matching[0]["items"] == 2
+    assert matching[0]["total_cost"] == Decimal("30.00")
+
+
+def test_dq_locations_none_recorded_row_is_last(db: Session) -> None:
+    z_location = _location_of_kind(db, "safe", identifier="Zzz box")
+    build_bare_item(db, storage_location_id=z_location.id)
+    build_bare_item(db, storage_location_id=None)
+
+    result = DQ_LOCATIONS.run(db, DqLocationsParams())
+
+    assert result.rows[-1]["location"] == "None recorded"
+
+
+def test_dq_locations_totals_equal_the_sum_of_its_rows(db: Session) -> None:
+    a = _location_of_kind(db, "home", identifier="A")
+    b = _location_of_kind(db, "safe", identifier="B")
+    build_bare_item(
+        db, storage_location_id=a.id, item_cost=Decimal("15.00"), tax_rate=Decimal("0")
+    )
+    build_bare_item(
+        db, storage_location_id=b.id, item_cost=Decimal("25.00"), tax_rate=Decimal("0")
+    )
+    build_bare_item(
+        db, storage_location_id=None, item_cost=Decimal("5.00"), tax_rate=Decimal("0")
+    )
+
+    result = DQ_LOCATIONS.run(db, DqLocationsParams())
+    assert result.totals is not None
+    assert result.totals["items"] == sum(cast(int, r["items"]) for r in result.rows)
+    assert result.totals["total_cost"] == sum(
+        (cast(Decimal, r["total_cost"]) for r in result.rows), Decimal("0")
+    )
+
+
+def test_dq_locations_has_no_drill_and_says_why(db: Session) -> None:
+    build_bare_item(db, storage_location_id=None)
+    result = DQ_LOCATIONS.run(db, DqLocationsParams())
+    assert all(drill is None for drill in result.drills)
+    assert result.notes
+
+
+def test_a_deleted_and_a_split_item_are_excluded_from_dq_locations(db: Session) -> None:
+    location = _location_of_kind(db, "home", identifier="C")
+    build_bare_item(db, storage_location_id=location.id)
+    deleted = build_bare_item(db, storage_location_id=location.id)
+    deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    split = build_bare_item(db, storage_location_id=location.id)
+    split.split_at = datetime(2026, 1, 1, tzinfo=UTC)
+    db.commit()
+
+    result = DQ_LOCATIONS.run(db, DqLocationsParams())
+    row = next(r for r in result.rows if r["location"] == location_label(location))
+    assert row["items"] == 1
