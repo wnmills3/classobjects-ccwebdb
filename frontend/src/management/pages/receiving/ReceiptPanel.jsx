@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../../api'
 import { identifyChanges, identifyValues } from '../../identify'
@@ -82,6 +82,11 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // since `accept="image/*"` already keeps a non-image out of its list.
   const [dragActive, setDragActive] = useState(false)
   const [pickError, setPickError] = useState('')
+  // A nesting count, not a flag -- see the identical comment in PhotosPanel.
+  // Entering a child of the drop target (the label, the input, the notices)
+  // fires a dragenter on the child and a dragleave on the target itself, and
+  // a flag would blink the hint off for every child crossed.
+  const dragDepth = useRef(0)
   // The ids under review, frozen at the moment review was opened -- null
   // means review is closed. `ReviewPane` never re-reads its `ids` prop (see
   // its own docstring), so handing it the live `itemIds` prop directly would
@@ -166,18 +171,17 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   /**
    * What choosing files from the box, dropping them and pasting one all
    * funnel into -- `handleFileInput`, `handleDrop` and `handlePaste` below
-   * call nothing else. A file that is not a photograph refuses the whole
-   * batch with a message naming it, rather than silently dropping it; the
-   * file box itself never reaches that branch, since `accept="image/*"`
-   * already keeps a non-image out of `e.target.files`.
-   *
-   * `replace` matches what the file box itself does -- picking files from
-   * its dialog again replaces the earlier selection, the same as the native
-   * control has always behaved. A drop or a paste instead adds to what is
-   * already held, since each is its own small gesture rather than a
-   * re-opened dialog meant to restate the whole batch.
+   * call nothing else, and all three ADD to whatever is already staged. The
+   * file box's own dialog looks like it "replaces" a selection, but that is
+   * only ever true of the browser's own display of it; the input is cleared
+   * right after every pick (see `handleFileInput`), so nothing here ever
+   * needs to reconcile a native selection against the staged batch. A file
+   * that is not a photograph refuses the whole batch with a message naming
+   * it, rather than silently dropping it; the file box itself never reaches
+   * that branch, since `accept="image/*"` already keeps a non-image out of
+   * `e.target.files`.
    */
-  function addFiles(fileList, { replace = false } = {}) {
+  function addFiles(fileList) {
     const files = Array.from(fileList ?? []).filter(Boolean)
     if (files.length === 0) return
     const notImages = files.filter((file) => !isImageFile(file))
@@ -190,11 +194,20 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
       return
     }
     setPickError('')
-    setPhotos((current) => (replace ? files : [...current, ...files]))
+    setPhotos((current) => [...current, ...files])
   }
 
   function handleFileInput(e) {
-    addFiles(e.target.files, { replace: true })
+    addFiles(e.target.files)
+    // Cleared immediately, not just after a successful receipt: the browser
+    // would otherwise show "N files chosen" for only the files picked just
+    // now, misstating a batch that also holds an earlier drop or paste --
+    // and leaving a chosen file in place stops it being chosen again.
+    e.target.value = ''
+  }
+
+  function removePhoto(index) {
+    setPhotos((current) => current.filter((_, i) => i !== index))
   }
 
   function handleDragOver(e) {
@@ -206,16 +219,19 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   function handleDragEnter(e) {
     e.preventDefault()
     if (photoDisabled) return
+    dragDepth.current += 1
     setDragActive(true)
   }
 
   function handleDragLeave(e) {
     e.preventDefault()
-    setDragActive(false)
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragActive(false)
   }
 
   function handleDrop(e) {
     e.preventDefault()
+    dragDepth.current = 0
     setDragActive(false)
     if (photoDisabled) return
     addFiles(e.dataTransfer?.files)
@@ -235,6 +251,25 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
     e.preventDefault()
     addFiles(imageFiles)
   }
+
+  // A drag cancelled outright -- Escape, or a drop outside the browser
+  // window -- can leave this panel's own dragleave never firing, since the
+  // pointer never crosses the target's boundary again to trigger one. Both
+  // `dragend` (fired on the source once the operation ends) and `drop`
+  // (fired wherever it actually lands) are caught at the window regardless
+  // of where that is, as a backstop for the per-target handlers above.
+  useEffect(() => {
+    function reset() {
+      dragDepth.current = 0
+      setDragActive(false)
+    }
+    window.addEventListener('dragend', reset)
+    window.addEventListener('drop', reset)
+    return () => {
+      window.removeEventListener('dragend', reset)
+      window.removeEventListener('drop', reset)
+    }
+  }, [])
 
   async function submit(outcome, acknowledged = false) {
     setBusy(true)
@@ -453,6 +488,27 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
             Choose a file, drag one here, or paste an image (Ctrl+V).
           </p>
           {pickError && <p className="error">{pickError}</p>}
+          {/* Shown whenever anything is staged, single item or several --
+              the file box replacing what it showed was never the batch
+              itself, and a drop or a paste has no other trace on screen.
+              Without this a dropped photo could sit staged, invisible, and
+              be silently discarded the next time the file box was used. */}
+          {photos.length > 0 && (
+            <ul className="photo-staged" aria-label="Staged photographs">
+              {photos.map((file, index) => (
+                <li key={`${file.name}-${index}`}>
+                  <span>{file.name}</span>
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => removePhoto(index)}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 

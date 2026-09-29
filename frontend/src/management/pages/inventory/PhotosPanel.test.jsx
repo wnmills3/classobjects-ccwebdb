@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import userEvent from '@testing-library/user-event'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -583,5 +585,129 @@ describe('PhotosPanel: drag-and-drop and paste', () => {
 
     expect(onAdd).not.toHaveBeenCalled()
     expect(screen.queryByText(/not an image/i)).toBeNull()
+  })
+
+  it('keeps the drop hint lit while the drag moves over a child element', async () => {
+    const zone = await renderPanel()
+    const file = new File(['x'], 'coin.jpg', { type: 'image/jpeg' })
+    const label = within(zone).getByText('Photo')
+
+    fireEvent.dragEnter(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).toHaveClass('photo-drop-active')
+
+    // Moving onto a child inside the same drop target: the child's own
+    // dragenter bubbles up to the zone before the zone's own dragleave
+    // fires -- a bare on/off flag would blink the hint off right here.
+    fireEvent.dragEnter(label, { dataTransfer: dataTransferFor(file) })
+    fireEvent.dragLeave(zone, { dataTransfer: dataTransferFor(file) })
+
+    expect(zone).toHaveClass('photo-drop-active')
+
+    // Leaving for real (one more leave than the enters above) still clears it.
+    fireEvent.dragLeave(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).not.toHaveClass('photo-drop-active')
+  })
+
+  it('clears the drop hint when the drag is cancelled outside the panel', async () => {
+    const zone = await renderPanel()
+    const file = new File(['x'], 'coin.jpg', { type: 'image/jpeg' })
+
+    fireEvent.dragEnter(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).toHaveClass('photo-drop-active')
+
+    // A drag cancelled by Escape, or dropped outside the browser window
+    // entirely, never sends this panel another dragleave of its own --
+    // dragend on the source is the only signal left, and it lands on the
+    // window rather than on the panel.
+    fireEvent.dragEnd(window)
+
+    expect(zone).not.toHaveClass('photo-drop-active')
+  })
+
+  it('adds two dropped image files, each with its own role', async () => {
+    const onAdd = vi.fn()
+    const zone = await renderPanel({ onAdd })
+    const front = new File(['1'], 'front.jpg', { type: 'image/jpeg' })
+    const back = new File(['2'], 'back.jpg', { type: 'image/jpeg' })
+
+    fireEvent.drop(zone, {
+      dataTransfer: {
+        files: [front, back],
+        items: [
+          { kind: 'file', type: front.type, getAsFile: () => front },
+          { kind: 'file', type: back.type, getAsFile: () => back },
+        ],
+        types: ['Files'],
+      },
+    })
+
+    expect(onAdd).toHaveBeenNthCalledWith(1, {
+      kind: 'file',
+      file: front,
+      role: 'obverse',
+    })
+    expect(onAdd).toHaveBeenNthCalledWith(2, {
+      kind: 'file',
+      file: back,
+      role: 'reverse',
+    })
+  })
+})
+
+describe('PhotosPanel: a drop or a paste lands in the held list', () => {
+  // PhotosPanel itself holds nothing -- `onAdd` reports to the editor, which
+  // owns `pending` and re-renders this panel with it. This wrapper stands in
+  // for that editor so a drop's or a paste's result can be read from the
+  // same "not saved yet" list a chosen file already lands in.
+  function Wired(props) {
+    const [pending, setPending] = useState([])
+    function onAdd(entry) {
+      setPending((current) => [...current, { ...entry, key: `k${current.length}` }])
+    }
+    function onDiscard(key) {
+      setPending((current) => current.filter((entry) => entry.key !== key))
+    }
+    return (
+      <PhotosPanel
+        itemId={12}
+        pending={pending}
+        onAdd={onAdd}
+        onDiscard={onDiscard}
+        {...props}
+      />
+    )
+  }
+
+  it('shows a dropped photograph as not saved yet, with Discard', async () => {
+    api.listItemImages.mockResolvedValue([])
+    renderWithProviders(<Wired />, { reference: roles })
+    const zone = await screen.findByLabelText(/drag.*paste/i)
+    const file = new File(['x'], 'coin.jpg', { type: 'image/jpeg' })
+
+    fireEvent.drop(zone, {
+      dataTransfer: {
+        files: [file],
+        items: [{ kind: 'file', type: file.type, getAsFile: () => file }],
+        types: ['Files'],
+      },
+    })
+
+    expect(await screen.findByText(/coin\.jpg -- not saved yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /discard/i })).toBeInTheDocument()
+  })
+
+  it('shows a pasted photograph as not saved yet, with Discard', async () => {
+    api.listItemImages.mockResolvedValue([])
+    renderWithProviders(<Wired />, { reference: roles })
+    const zone = await screen.findByLabelText(/drag.*paste/i)
+    const file = new File(['x'], 'coin.png', { type: 'image/png' })
+
+    fireEvent.paste(zone, {
+      clipboardData: {
+        items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }],
+      },
+    })
+
+    expect(await screen.findByText(/coin\.png -- not saved yet/i)).toBeInTheDocument()
   })
 })
