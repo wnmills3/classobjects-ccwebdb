@@ -1,14 +1,14 @@
-"""Selling: what is on offer and what has sold.
+"""Selling: what is on offer, what has sold, and what is left over.
 
-One report so far, `sl_offered`: every active or paused listing -- an item
-or a sales lot -- with its venue, its asking price against its cost basis,
-and how long it has been offered. An item listing's cost basis is its own
-`total_cost`; a lot listing's is the SQL sum of `total_cost` over the lot's
-current, live members -- `SalesLotItem.released_at IS NULL` (the same "still
-in the lot" test `lot_writes.open_members` reads) and `live_item()` (no
-deleted or split-parent member) -- summed in the database, the same
-discipline `cb_holdings` uses, so a lot's own total can never drift from
-what its rows actually add up to.
+`sl_offered`: every active or paused listing -- an item or a sales lot --
+with its venue, its asking price against its cost basis, and how long it
+has been offered. An item listing's cost basis is its own `total_cost`; a
+lot listing's is the SQL sum of `total_cost` over the lot's current, live
+members -- `SalesLotItem.released_at IS NULL` (the same "still in the lot"
+test `lot_writes.open_members` reads) and `live_item()` (no deleted or
+split-parent member) -- summed in the database, the same discipline
+`cb_holdings` uses, so a lot's own total can never drift from what its rows
+actually add up to.
 
 A coin can be named by two rows at once: `offering_writes.offer()` pauses
 an item's own store listing when that same item is offered elsewhere or
@@ -23,36 +23,71 @@ rather than reading a bare "Paused". That test is read entirely from the
 data -- `paused_by_listing_id`'s own status -- never by comparing which
 item two rows happen to name, which a lot listing (no `inventory_item_id`
 of its own) could not support anyway.
+
+`sl_sales`: month x venue, over sales orders placed in range -- orders,
+gross, fees, net, cost basis and gain, the last two from
+`sales_order_item_share` (specific identification, spec Decisions) so an
+order's own gain is exactly the sum of its items'. `sl_fulfilment`: orders
+placed and not yet shipped, delivered or cancelled, oldest first.
+`sl_aging`: live items received, held, and not on offer or in an open lot,
+by months since received x kind -- the receipt itself read the way
+`pr_received` reads one, Ruling P2-7. `sl_auctions`: one row per auction,
+by status, with a settled one's lots, sold, unsold, hammer total and fees.
 """
 
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlencode
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, and_, case, exists, func, select
 from sqlalchemy.orm import Session, aliased
 
 from ..inventory_search import view_path
 from ..live import live_item
 from ..models import (
+    Auction,
+    AuctionLot,
+    AuctionLotResult,
+    AuctionStatus,
     Currency,
+    Customer,
+    Disposition,
     InventoryItem,
     ItemKind,
+    ItemStatus,
+    ItemStatusHistory,
     Listing,
     ListingStatus,
     SalesLot,
     SalesLotItem,
+    SalesOrder,
+    SalesOrderFee,
+    SalesOrderItem,
+    SalesOrderItemShare,
+    SalesOrderStatus,
     SalesVenue,
 )
 from ..offering_writes import OFFER_CURRENCY, ON_OFFER
-from .base import Column, Report, ReportResult, local_date
+from .base import Column, DateRange, Report, ReportResult, local_date, period_label
 from .registry import register
 
-__all__ = ["SL_OFFERED", "OfferedParams"]
+__all__ = [
+    "SL_AGING",
+    "SL_AUCTIONS",
+    "SL_FULFILMENT",
+    "SL_OFFERED",
+    "SL_SALES",
+    "AgingParams",
+    "AuctionsParams",
+    "FulfilmentParams",
+    "OfferedParams",
+    "SalesParams",
+]
 
 _STATUS_LABELS: dict[ListingStatus, str] = {
     ListingStatus.active: "Active",
@@ -334,5 +369,707 @@ SL_OFFERED = register(
         "asking price against cost basis, and days listed.",
         params=OfferedParams,
         run=_sl_offered,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# sl_sales
+# ---------------------------------------------------------------------------
+
+#: `sales_order_status` codes (`backend/data/reference/operations.json`).
+#: Every status except this one counts as a sale; `_counted_statuses_note`
+#: reads the rest from the vocabulary itself rather than naming them here,
+#: so a future status added to the seed is counted -- and named in the
+#: note -- without this module changing.
+_CANCELLED_STATUS = "cancelled"
+
+_SALES_COLUMNS = [
+    Column("period", "Period", "text"),
+    Column("venue", "Venue", "text"),
+    Column("orders", "Orders", "count"),
+    Column("gross", "Gross", "money"),
+    Column("fees", "Fees", "money"),
+    Column("net", "Net", "money"),
+    Column("cost_basis", "Cost basis", "money"),
+    Column("gain", "Gain", "money"),
+]
+
+#: Gross, fees and cost basis are summed from `sales_order_item_share` and
+#: its item, over live items only -- never `sales_order.total_amount` or
+#: `sales_order_fee` directly -- so that an order's own gain (net less
+#: basis) is exactly the sum of its items' (spec Decisions: specific
+#: identification). The two agree when every item on the order is live;
+#: this note says what happens when one is not.
+_LIVE_SHARE_NOTE = (
+    "Gross, fees, cost basis and gain count only an order's live items: a "
+    "deleted or split item's share of the order is left out of its own "
+    "order's figures, and an order with no live item at all does not "
+    "appear here."
+)
+
+
+class SalesParams(DateRange):
+    """`sl_sales` takes no parameters beyond the date range.
+
+    A sale is in range by its order's own `placed_at`, read as a local
+    calendar date (`local_date`) since that column is `timestamptz`.
+    """
+
+
+@dataclass
+class _SalesGroup:
+    """One month x venue bucket's running totals, before its row is built."""
+
+    orders: set[int] = field(default_factory=set)
+    gross: Decimal = Decimal("0")
+    fees: Decimal = Decimal("0")
+    cost_basis: Decimal = Decimal("0")
+
+
+def _sales_prefilter(params: SalesParams) -> list[ColumnElement[bool]]:
+    """A coarse, SQL-side narrowing of `sl_sales`'s rows by date range.
+
+    Never the final word -- `_sl_sales` still runs the exact test
+    (`local_date`, per row) in Python -- only a way to avoid fetching every
+    order ever placed when a narrow range is asked for. Widened a day past
+    each bound, the same margin `pr_received`'s own prefilter gives, since a
+    `timestamptz` instant's local calendar day can fall a day either side of
+    the bound depending on the server's own time zone.
+    """
+    conditions: list[ColumnElement[bool]] = []
+    if params.date_from is not None:
+        widened = datetime.combine(
+            params.date_from - timedelta(days=1), time.min, tzinfo=UTC
+        )
+        conditions.append(SalesOrder.placed_at >= widened)
+    if params.date_to is not None:
+        widened = datetime.combine(
+            params.date_to + timedelta(days=1), time.max, tzinfo=UTC
+        )
+        conditions.append(SalesOrder.placed_at <= widened)
+    return conditions
+
+
+def _counted_statuses_note(db: Session) -> str:
+    """Which order statuses count here, read from the vocabulary itself."""
+    labels = db.scalars(
+        select(SalesOrderStatus.label)
+        .where(SalesOrderStatus.code != _CANCELLED_STATUS)
+        .order_by(SalesOrderStatus.sort_order)
+    ).all()
+    return "Every order status except Cancelled counts: " + ", ".join(labels) + "."
+
+
+def _sl_sales(db: Session, params: SalesParams) -> ReportResult:
+    """Month x venue: orders, gross, fees, net, cost basis and gain.
+
+    One row per `sales_order_item_share`, joined back to its order and
+    venue: `orders` is the count of distinct order ids a bucket's shares
+    name, and `gross`/`fees`/`cost_basis` are Python `Decimal` running sums
+    over each share's own `amount`, `fee_amount` and item `total_cost` --
+    never `sales_order.total_amount` or `sales_order_fee` directly, so a
+    row's own `gain` (`net` less `cost_basis`) is exactly the sum of its
+    items' gains, per share, with no second path to drift from it.
+    `live_item()` excludes a deleted or split item's share outright, per
+    `_LIVE_SHARE_NOTE`.
+    """
+    stmt = (
+        select(
+            SalesOrder.id.label("order_id"),
+            SalesOrder.placed_at,
+            SalesVenue.name.label("venue_name"),
+            SalesOrderItemShare.amount,
+            SalesOrderItemShare.fee_amount,
+            InventoryItem.total_cost,
+        )
+        .select_from(SalesOrder)
+        .join(SalesVenue, SalesVenue.id == SalesOrder.sales_venue_id)
+        .join(SalesOrderStatus, SalesOrderStatus.id == SalesOrder.sales_order_status_id)
+        .join(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id)
+        .join(
+            SalesOrderItemShare,
+            SalesOrderItemShare.sales_order_item_id == SalesOrderItem.id,
+        )
+        .join(InventoryItem, InventoryItem.id == SalesOrderItemShare.inventory_item_id)
+        .where(
+            SalesOrderStatus.code != _CANCELLED_STATUS,
+            live_item(),
+            *_sales_prefilter(params),
+        )
+    )
+
+    groups: dict[tuple[date, str], _SalesGroup] = {}
+    for row in db.execute(stmt).mappings().all():
+        day = local_date(row["placed_at"])
+        if params.date_from is not None and day < params.date_from:
+            continue
+        if params.date_to is not None and day > params.date_to:
+            continue
+        key = (day.replace(day=1), row["venue_name"])
+        group = groups.setdefault(key, _SalesGroup())
+        group.orders.add(row["order_id"])
+        group.gross += row["amount"]
+        group.fees += row["fee_amount"]
+        group.cost_basis += row["total_cost"]
+
+    if not groups:
+        return ReportResult(
+            columns=_SALES_COLUMNS, rows=[], totals=None, drills=[], notes=[]
+        )
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    total_orders = 0
+    total_gross = Decimal("0")
+    total_fees = Decimal("0")
+    total_basis = Decimal("0")
+    for key in sorted(groups):
+        period_start_date, venue_name = key
+        group = groups[key]
+        net = group.gross - group.fees
+        gain = net - group.cost_basis
+        rows.append(
+            {
+                "period": period_label("month", period_start_date),
+                "venue": venue_name,
+                "orders": len(group.orders),
+                "gross": group.gross,
+                "fees": group.fees,
+                "net": net,
+                "cost_basis": group.cost_basis,
+                "gain": gain,
+            }
+        )
+        drills.append("/sales")
+        total_orders += len(group.orders)
+        total_gross += group.gross
+        total_fees += group.fees
+        total_basis += group.cost_basis
+
+    total_net = total_gross - total_fees
+    totals: dict[str, object] = {
+        "period": "All periods",
+        "venue": None,
+        "orders": total_orders,
+        "gross": total_gross,
+        "fees": total_fees,
+        "net": total_net,
+        "cost_basis": total_basis,
+        "gain": total_net - total_basis,
+    }
+
+    return ReportResult(
+        columns=_SALES_COLUMNS,
+        rows=rows,
+        totals=totals,
+        drills=drills,
+        notes=[_LIVE_SHARE_NOTE, _counted_statuses_note(db)],
+    )
+
+
+SL_SALES = register(
+    Report(
+        id="sl_sales",
+        group="Selling",
+        title="Sales",
+        purpose="Month x venue: orders, gross, fees, net, cost basis and "
+        "gain, for sales orders placed in range.",
+        params=SalesParams,
+        run=_sl_sales,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# sl_fulfilment
+# ---------------------------------------------------------------------------
+
+#: `sales_order_status` codes an order has already left behind, or never
+#: needs shipped at all -- the rest still needs the owner's attention.
+_ALREADY_SHIPPED_OR_GONE = frozenset({"shipped", "delivered", "cancelled"})
+
+_FULFILMENT_COLUMNS = [
+    Column("order", "Order", "text"),
+    Column("placed", "Placed", "date"),
+    Column("customer", "Customer", "text"),
+    Column("items", "Items", "count"),
+    Column("amount", "Amount", "money"),
+    Column("days_waiting", "Days waiting", "count"),
+]
+
+
+class FulfilmentParams(BaseModel):
+    """`sl_fulfilment` takes no parameters: every order still owed shipment."""
+
+
+def _sl_fulfilment(db: Session, _params: FulfilmentParams) -> ReportResult:
+    """One row per order placed and not yet shipped, delivered or cancelled.
+
+    `items` is a grouped `COUNT`, over a live item's own share, in one
+    query per report run -- the same shape `pr_outstanding` uses -- rather
+    than fetched per order. `days_waiting` is `today` (computed once in
+    Python, not SQL `CURRENT_DATE`) less the order's own local placement
+    date.
+    """
+    stmt = (
+        select(
+            SalesOrder.id,
+            SalesOrder.placed_at,
+            SalesOrder.total_amount,
+            Customer.display_name.label("customer_name"),
+            func.count(InventoryItem.id).label("items"),
+        )
+        .select_from(SalesOrder)
+        .join(Customer, Customer.id == SalesOrder.customer_id)
+        .join(SalesOrderStatus, SalesOrderStatus.id == SalesOrder.sales_order_status_id)
+        .outerjoin(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id)
+        .outerjoin(
+            SalesOrderItemShare,
+            SalesOrderItemShare.sales_order_item_id == SalesOrderItem.id,
+        )
+        .outerjoin(
+            InventoryItem,
+            and_(
+                InventoryItem.id == SalesOrderItemShare.inventory_item_id, live_item()
+            ),
+        )
+        .where(SalesOrderStatus.code.not_in(_ALREADY_SHIPPED_OR_GONE))
+        .group_by(
+            SalesOrder.id,
+            SalesOrder.placed_at,
+            SalesOrder.total_amount,
+            Customer.display_name,
+        )
+        .order_by(SalesOrder.placed_at.asc(), SalesOrder.id.asc())
+    )
+
+    today = date.today()
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    total_items = 0
+    total_amount = Decimal("0")
+    for row in db.execute(stmt).mappings().all():
+        placed = local_date(row["placed_at"])
+        rows.append(
+            {
+                "order": f"#{row['id']}",
+                "placed": placed,
+                "customer": row["customer_name"],
+                "items": row["items"],
+                "amount": row["total_amount"],
+                "days_waiting": (today - placed).days,
+            }
+        )
+        drills.append("/sales")
+        total_items += row["items"]
+        total_amount += row["total_amount"]
+
+    if not rows:
+        return ReportResult(
+            columns=_FULFILMENT_COLUMNS,
+            rows=[],
+            totals=None,
+            drills=[],
+            notes=["Nothing is waiting to ship."],
+        )
+
+    totals: dict[str, object] = {
+        "order": "All orders",
+        "placed": None,
+        "customer": None,
+        "items": total_items,
+        "amount": total_amount,
+        "days_waiting": None,
+    }
+
+    return ReportResult(
+        columns=_FULFILMENT_COLUMNS,
+        rows=rows,
+        totals=totals,
+        drills=drills,
+        notes=["A deleted or split item is left out of its order's item count."],
+    )
+
+
+SL_FULFILMENT = register(
+    Report(
+        id="sl_fulfilment",
+        group="Selling",
+        title="To ship",
+        purpose="Orders placed and not yet shipped, delivered or "
+        "cancelled, oldest first: customer, items, amount and days waiting.",
+        params=FulfilmentParams,
+        run=_sl_fulfilment,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# sl_aging
+# ---------------------------------------------------------------------------
+
+_AGING_COLUMNS = [
+    Column("age", "Months since received", "text"),
+    Column("kind", "Kind", "text"),
+    Column("items", "Items", "count"),
+    Column("total_cost", "Total cost", "money"),
+]
+
+#: Label, and the inclusive month bounds it covers; `None` for the open top
+#: of "24+". Order matters: rows and the totals loop below both read this
+#: sequence to keep buckets in listed order rather than sorted some other
+#: way.
+_AGE_BUCKETS: tuple[tuple[str, int, int | None], ...] = (
+    ("0-5", 0, 5),
+    ("6-11", 6, 11),
+    ("12-23", 12, 23),
+    ("24+", 24, None),
+)
+_UNKNOWN_AGE = "Unknown"
+
+#: Sort rank for every age label, the buckets above in their listed order
+#: and then "Unknown" last.
+_AGE_RANK: dict[str, int] = {
+    label: rank for rank, (label, _lo, _hi) in enumerate(_AGE_BUCKETS)
+}
+_AGE_RANK[_UNKNOWN_AGE] = len(_AGE_BUCKETS)
+
+
+class AgingParams(BaseModel):
+    """`sl_aging` takes no parameters: every held, unoffered live item."""
+
+
+def _age_bucket(months: int) -> str:
+    """The bucket label `months` (whole months since receipt) falls into."""
+    for label, low, high in _AGE_BUCKETS:
+        if months >= low and (high is None or months <= high):
+            return label
+    return _AGE_BUCKETS[-1][0]  # pragma: no cover - the last bucket is open-ended
+
+
+def _months_since(received: date, today: date) -> int:
+    """Whole calendar months between `received` and `today`, never negative."""
+    months = (today.year - received.year) * 12 + (today.month - received.month)
+    if today.day < received.day:
+        months -= 1
+    return max(months, 0)
+
+
+def _receipt_dates(db: Session, item_ids: set[int]) -> dict[int, date]:
+    """Each item's own latest transition to `received`, keyed by item id.
+
+    Only a transition counts -- `from_status_id IS NOT NULL` -- never the
+    opening row a brand-new item, a split child, or a seed gets: that row
+    means "started out already received," not "arrived" (the same rule
+    `pr_received` reads, Ruling P2-7). An item transitioned more than once
+    keeps its latest one, by `changed_at`. A day is `arrived_on` when
+    recorded, else `changed_at`'s local calendar date (`local_date`) -- a
+    conversion SQL cannot do without knowing the application server's own
+    time zone.
+    """
+    if not item_ids:
+        return {}
+    rows = db.execute(
+        select(
+            ItemStatusHistory.inventory_item_id,
+            ItemStatusHistory.arrived_on,
+            ItemStatusHistory.changed_at,
+        )
+        .join(ItemStatus, ItemStatus.id == ItemStatusHistory.to_status_id)
+        .where(
+            ItemStatusHistory.inventory_item_id.in_(item_ids),
+            ItemStatus.code == "received",
+            ItemStatusHistory.from_status_id.is_not(None),
+        )
+    ).all()
+    latest: dict[int, tuple[datetime, date]] = {}
+    for item_id, arrived_on, changed_at in rows:
+        day = arrived_on or local_date(changed_at)
+        if item_id not in latest or changed_at > latest[item_id][0]:
+            latest[item_id] = (changed_at, day)
+    return {item_id: day for item_id, (_changed_at, day) in latest.items()}
+
+
+def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
+    """Months-since-received x kind: items and total cost, for held stock.
+
+    "Held and not offered": live, `received`, `held` -- and, defensively,
+    not on any listing this module calls `ON_OFFER` and not an open member
+    of a sales lot (`SalesLotItem.released_at IS NULL`), the same "still in
+    the lot" test `_lot_rows` above and `lot_writes.open_members` read.
+    Ordinarily `offering_writes.offer` already moves a member's own
+    disposition off `held` the moment it is offered, so these two checks
+    should never find anything `disposition == held` did not already
+    exclude -- but this report reads the state directly rather than
+    trusting that invariant to hold forever, the same discipline
+    `_item_rows`' `live_item()` follows.
+
+    A split child's own receipt transition is the *parent's* opening row,
+    never a transition of its own (Ruling P2-7), so a child with no receipt
+    of its own falls back to its live parent's.
+    """
+    offered_now = exists(
+        select(1).where(
+            Listing.inventory_item_id == InventoryItem.id, Listing.status.in_(ON_OFFER)
+        )
+    )
+    open_lot_member = exists(
+        select(1).where(
+            SalesLotItem.inventory_item_id == InventoryItem.id,
+            SalesLotItem.released_at.is_(None),
+        )
+    )
+    stmt = (
+        select(
+            InventoryItem.id,
+            InventoryItem.parent_item_id,
+            InventoryItem.total_cost,
+            ItemKind.label.label("kind_label"),
+            ItemKind.sort_order.label("kind_sort"),
+        )
+        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
+        .join(ItemStatus, ItemStatus.id == InventoryItem.status_id)
+        .join(Disposition, Disposition.id == InventoryItem.disposition_id)
+        .where(
+            live_item(),
+            ItemStatus.code == "received",
+            Disposition.code == "held",
+            ~offered_now,
+            ~open_lot_member,
+        )
+    )
+    candidates = db.execute(stmt).all()
+    if not candidates:
+        return ReportResult(
+            columns=_AGING_COLUMNS, rows=[], totals=None, drills=[], notes=[]
+        )
+
+    lookup_ids = {row.id for row in candidates}
+    lookup_ids |= {
+        row.parent_item_id for row in candidates if row.parent_item_id is not None
+    }
+    receipts = _receipt_dates(db, lookup_ids)
+
+    today = date.today()
+    unknown = 0
+    kind_sort: dict[str, int] = {}
+    buckets: dict[tuple[str, str], list[object]] = {}
+    for row in candidates:
+        received = receipts.get(row.id)
+        if received is None and row.parent_item_id is not None:
+            received = receipts.get(row.parent_item_id)
+        if received is None:
+            unknown += 1
+            age = _UNKNOWN_AGE
+        else:
+            age = _age_bucket(_months_since(received, today))
+        kind_sort[row.kind_label] = row.kind_sort
+        key = (age, row.kind_label)
+        bucket = buckets.setdefault(key, [0, Decimal("0")])
+        bucket[0] = cast(int, bucket[0]) + 1
+        bucket[1] = cast(Decimal, bucket[1]) + row.total_cost
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    total_items = 0
+    total_cost = Decimal("0")
+    for age, kind_label in sorted(
+        buckets, key=lambda k: (_AGE_RANK[k[0]], kind_sort[k[1]])
+    ):
+        items, cost = buckets[(age, kind_label)]
+        items = cast(int, items)
+        cost = cast(Decimal, cost)
+        rows.append(
+            {"age": age, "kind": kind_label, "items": items, "total_cost": cost}
+        )
+        drills.append(None)
+        total_items += items
+        total_cost += cost
+
+    totals: dict[str, object] = {
+        "age": "All items",
+        "kind": None,
+        "items": total_items,
+        "total_cost": total_cost,
+    }
+
+    notes: list[str] = []
+    if unknown:
+        plural = "s" if unknown != 1 else ""
+        notes.append(
+            f"{unknown} item{plural} of {total_items} have no recorded receipt "
+            'and are bucketed "Unknown": entered already received, or with '
+            "history from before status changes were tracked."
+        )
+
+    return ReportResult(
+        columns=_AGING_COLUMNS, rows=rows, totals=totals, drills=drills, notes=notes
+    )
+
+
+SL_AGING = register(
+    Report(
+        id="sl_aging",
+        group="Selling",
+        title="Held and not offered",
+        purpose="Live items received and held, not on offer or in an open "
+        "lot, by months since received and kind: items and total cost.",
+        params=AgingParams,
+        run=_sl_aging,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# sl_auctions
+# ---------------------------------------------------------------------------
+
+_AUCTIONS_COLUMNS = [
+    Column("auction", "Auction", "text"),
+    Column("venue", "Venue", "text"),
+    Column("status", "Status", "text"),
+    Column("lots", "Lots", "count"),
+    Column("sold", "Sold", "count"),
+    Column("unsold", "Unsold", "count"),
+    Column("hammer_total", "Hammer total", "money"),
+    Column("fees", "Fees", "money"),
+]
+
+#: `AuctionStatus`'s own declaration order is an auction's life story --
+#: draft, scheduled, consigned, closed, settled, cancelled -- and this
+#: report's rows follow it rather than a second, hand-written order that
+#: could drift from the enum.
+_STATUS_RANK: dict[AuctionStatus, int] = {
+    status: rank for rank, status in enumerate(AuctionStatus)
+}
+
+_SOLD_OR_NOT: tuple[AuctionLotResult, ...] = (
+    AuctionLotResult.unsold,
+    AuctionLotResult.withdrawn,
+)
+
+
+class AuctionsParams(BaseModel):
+    """`sl_auctions` takes no parameters: every auction, every time."""
+
+
+def _auction_fees(db: Session, auction_ids: set[int]) -> dict[int, Decimal]:
+    """Each settled auction's own fee total, from its sold lots' orders.
+
+    An auction house bills per buyer *order*, not per lot
+    (`sales_writes.record_sale_lines`), so an order covering two of this
+    auction's lots must not have its fee summed twice: `order_ids` is
+    distinct on `(auction, order)` before `sales_order_fee` is ever joined,
+    so a fan-out from a second lot on the same order cannot double a fee
+    row that belongs to it only once.
+    """
+    if not auction_ids:
+        return {}
+    order_ids = (
+        select(
+            AuctionLot.auction_id.label("auction_id"),
+            SalesOrderItem.sales_order_id.label("order_id"),
+        )
+        .join(Listing, Listing.id == AuctionLot.listing_id)
+        .join(SalesOrderItem, SalesOrderItem.listing_id == Listing.id)
+        .where(
+            AuctionLot.auction_id.in_(auction_ids),
+            AuctionLot.result == AuctionLotResult.sold,
+        )
+        .distinct()
+        .subquery()
+    )
+    rows = db.execute(
+        select(
+            order_ids.c.auction_id,
+            func.coalesce(func.sum(SalesOrderFee.amount), 0).label("fees"),
+        )
+        .select_from(order_ids)
+        .join(SalesOrderFee, SalesOrderFee.sales_order_id == order_ids.c.order_id)
+        .group_by(order_ids.c.auction_id)
+    ).all()
+    return {row.auction_id: row.fees for row in rows}
+
+
+def _sl_auctions(db: Session, _params: AuctionsParams) -> ReportResult:
+    """One row per auction, ordered by status: lots, sold, unsold, hammer, fees.
+
+    The five figures are read from `auction_lot` and `sales_order_fee` for
+    every auction alike -- one query, so a draft auction with no lots costs
+    nothing extra -- but shown only for a `settled` one: a `closed`
+    auction's lots may already carry a `result` mid-settlement, and showing
+    a half-settled total would read as the finished figure. `unsold` folds
+    in `withdrawn`: this report has no separate column for it, and both mean
+    "did not sell".
+    """
+    is_sold = AuctionLot.result == AuctionLotResult.sold
+    is_unsold = AuctionLot.result.in_(_SOLD_OR_NOT)
+    stmt = (
+        select(
+            Auction.id,
+            Auction.title,
+            Auction.status,
+            SalesVenue.name.label("venue_name"),
+            func.count(AuctionLot.id).label("lots"),
+            func.count(case((is_sold, AuctionLot.id))).label("sold"),
+            func.count(case((is_unsold, AuctionLot.id))).label("unsold"),
+            func.coalesce(func.sum(case((is_sold, AuctionLot.hammer_price))), 0).label(
+                "hammer_total"
+            ),
+        )
+        .select_from(Auction)
+        .join(SalesVenue, SalesVenue.id == Auction.sales_venue_id)
+        .outerjoin(AuctionLot, AuctionLot.auction_id == Auction.id)
+        .group_by(Auction.id, Auction.title, Auction.status, SalesVenue.name)
+    )
+    fetched = db.execute(stmt).all()
+    if not fetched:
+        return ReportResult(
+            columns=_AUCTIONS_COLUMNS, rows=[], totals=None, drills=[], notes=[]
+        )
+
+    settled_ids = {row.id for row in fetched if row.status is AuctionStatus.settled}
+    fees_by_auction = _auction_fees(db, settled_ids)
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    for row in sorted(fetched, key=lambda r: (_STATUS_RANK[r.status], r.id)):
+        settled = row.status is AuctionStatus.settled
+        rows.append(
+            {
+                "auction": row.title,
+                "venue": row.venue_name,
+                "status": row.status.value.capitalize(),
+                "lots": row.lots if settled else None,
+                "sold": row.sold if settled else None,
+                "unsold": row.unsold if settled else None,
+                "hammer_total": row.hammer_total if settled else None,
+                "fees": fees_by_auction.get(row.id, Decimal("0")) if settled else None,
+            }
+        )
+        drills.append("/auctions")
+
+    return ReportResult(
+        columns=_AUCTIONS_COLUMNS,
+        rows=rows,
+        totals=None,
+        drills=drills,
+        notes=[
+            "Lots, sold, unsold, hammer total and fees are shown only for a "
+            'settled auction. "Unsold" counts a withdrawn lot too.'
+        ],
+    )
+
+
+SL_AUCTIONS = register(
+    Report(
+        id="sl_auctions",
+        group="Selling",
+        title="Auctions",
+        purpose="One row per auction, by status; for a settled one: lots, "
+        "sold, unsold, hammer total and fees.",
+        params=AuctionsParams,
+        run=_sl_auctions,
     )
 )

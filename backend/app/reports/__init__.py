@@ -30,7 +30,7 @@ from .data_quality import (
 )
 from .purchasing import PR_OUTSTANDING, PR_RECEIVED, PR_SOURCES, PR_SPEND
 from .registry import REPORTS, register
-from .selling import SL_OFFERED
+from .selling import SL_AGING, SL_AUCTIONS, SL_FULFILMENT, SL_OFFERED, SL_SALES
 
 __all__ = [
     "CB_ATTRIBUTES",
@@ -50,6 +50,10 @@ __all__ = [
     "PR_SOURCES",
     "PR_SPEND",
     "REPORTS",
+    "SL_AGING",
+    "SL_AUCTIONS",
+    "SL_FULFILMENT",
     "SL_OFFERED",
+    "SL_SALES",
     "register",
 ]

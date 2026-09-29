@@ -17,6 +17,8 @@ from decimal import Decimal
 
 import pytest
 from app.models import (
+    Auction,
+    Customer,
     Denomination,
     Image,
     InventoryItem,
@@ -29,9 +31,15 @@ from app.models import (
     ListingStatus,
     Metal,
     MetalPrice,
+    SalesFeeKind,
     SalesLot,
     SalesLotItem,
     SalesLotStatus,
+    SalesOrder,
+    SalesOrderFee,
+    SalesOrderItem,
+    SalesOrderItemShare,
+    SalesOrderStatus,
     SalesVenue,
     SalesVenueKind,
     StorageLocation,
@@ -275,6 +283,60 @@ def _build_modest_collection(db: Session) -> None:
             item_attribute_id=code_id(db, ItemAttribute, "mule"),
         )
     )
+    db.commit()
+
+    # `sl_sales` and `sl_fulfilment` read `sales_order_item_share`;
+    # `sl_auctions` reads `auction`. Cheap to add one of each here so the
+    # performance guard exercises both paths too.
+    customer = Customer(display_name="Perf Customer", email=None)
+    db.add(customer)
+    db.flush()
+    order_item = build_bare_item(
+        db,
+        item_cost=Decimal("75.00"),
+        tax_rate=Decimal("0"),
+        shipping_cost=Decimal("0"),
+    )
+    order_listing = _listing(
+        db,
+        order_item,
+        venue,
+        currency_id,
+        status=ListingStatus.ended,
+        price=Decimal("75.00"),
+    )
+    sales_order = SalesOrder(
+        customer_id=customer.id,
+        sales_venue_id=venue.id,
+        sales_order_status_id=code_id(db, SalesOrderStatus, "pending"),
+        total_amount=Decimal("75.00"),
+    )
+    db.add(sales_order)
+    db.flush()
+    order_line = SalesOrderItem(
+        sales_order_id=sales_order.id,
+        listing_id=order_listing.id,
+        quantity=1,
+        unit_price=Decimal("75.00"),
+    )
+    db.add(order_line)
+    db.flush()
+    db.add(
+        SalesOrderItemShare(
+            sales_order_item_id=order_line.id,
+            inventory_item_id=order_item.id,
+            amount=Decimal("75.00"),
+            fee_amount=Decimal("5.00"),
+        )
+    )
+    db.add(
+        SalesOrderFee(
+            sales_order_id=sales_order.id,
+            sales_fee_kind_id=code_id(db, SalesFeeKind, "commission"),
+            amount=Decimal("5.00"),
+        )
+    )
+    db.add(Auction(sales_venue_id=venue.id, title="Perf test auction"))
     db.commit()
 
 
