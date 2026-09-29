@@ -1,31 +1,87 @@
 """Collection: what the collection is made of.
 
-One report so far, `cb_holdings`: live items grouped by kind and then by
-denomination, with items, pieces and total cost, a subtotal row per kind, and
-an overall total. Money is summed in SQL -- three aggregate queries at
-different grouping levels rather than one row's worth of Python addition --
-so a subtotal and the grand total are each exactly what the database adds up,
-never a value this module could get wrong by rounding or by missing a row.
+Six reports, sharing one params shape (`LiveParams`: `status`/`disposition`,
+defined once and reused rather than redeclared) and one live-row source
+(`.tables`).
+
+`cb_holdings`: live items grouped by kind and then by denomination, with
+items, pieces and total cost, a subtotal row per kind, and an overall total.
+`cb_designs`: design series held, across every non-currency kind. `cb_notes`:
+note type x series designation, with the seal colors and Federal Reserve
+districts present, and star notes/fancy serials when the attribute
+vocabulary names them. `cb_grades`: grade band x strike type x grading
+service, coins and currency both. `cb_metal`: metal x form over items with a
+fine weight, with melt value at the latest spot price. `cb_attributes`: every
+attribute and error type a live item carries.
+
+Money is summed in SQL, never accumulated a row at a time in Python; a
+report's own grand total, where it has one, adds already-summed Decimal row
+values, which is exact rather than a second, independent sum that could
+drift from the rows a reader can already add up.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from collections import defaultdict
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Literal, cast
 from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, FromClause, func, select
+from sqlalchemy import ColumnElement, FromClause, and_, case, exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..inventory_search import MISSING_FIELDS, view_path
-from ..models import Denomination, Disposition, ItemStatus
+from ..inventory_search import (
+    COIN_VIEW,
+    CURRENCY_VIEW,
+    MISSING_FIELDS,
+    ViewSpec,
+    view_path,
+)
+from ..inventory_search import search as run_search
+from ..models import (
+    BullionForm,
+    CurrencyDetail,
+    Denomination,
+    Disposition,
+    ErrorType,
+    FedDistrict,
+    Grade,
+    GradingService,
+    ItemAttribute,
+    ItemAttributeLink,
+    ItemError,
+    ItemStatus,
+    Metal,
+    MetalPrice,
+    NoteType,
+    SealColor,
+    Series,
+    StrikeType,
+)
 from .base import Column, Report, ReportResult
 from .registry import register
 from .tables import ITEM as _I
 from .tables import KIND as _K
 from .tables import LIVE as _LIVE
 
-__all__ = ["CB_HOLDINGS", "HoldingsParams"]
+__all__ = [
+    "CB_ATTRIBUTES",
+    "CB_DESIGNS",
+    "CB_GRADES",
+    "CB_HOLDINGS",
+    "CB_METAL",
+    "CB_NOTES",
+    "AttributesParams",
+    "DesignsParams",
+    "DispositionParam",
+    "GradesParams",
+    "HoldingsParams",
+    "LiveParams",
+    "MetalParams",
+    "NotesParams",
+    "StatusParam",
+]
 
 #: `denomination`, `item_status` and `disposition`, aliased as the search
 #: aliases them, alongside the shared `i`/`k` of `.tables`.
@@ -43,32 +99,39 @@ DispositionParam = Literal[
     "held", "listed", "sold", "shipped", "delivered", "returned_by_buyer", "all"
 ]
 
+#: The note every report shows in place of rows when nothing matches its
+#: parameters -- one literal, so every report reads the same words.
+_NOTHING_MATCHES = "Nothing matches these settings."
 
-class HoldingsParams(BaseModel):
+
+class LiveParams(BaseModel):
     """Which live items to count: by acquisition status and sales disposition.
 
     Defaults to `received` and `held` -- what the owner has actually taken in
     and still has -- rather than everything ever ordered or ever sold. Either
-    can be widened to `all`, which drops that filter entirely.
+    can be widened to `all`, which drops that filter entirely. Every
+    Collection report takes exactly these two parameters, so each one's own
+    params model subclasses this rather than redeclaring the fields.
     """
 
     status: StatusParam = Field(default="received", title="Status")
     disposition: DispositionParam = Field(default="held", title="Disposition")
 
 
-def _source_and_where(
-    params: HoldingsParams,
-) -> tuple[FromClause, list[ColumnElement[bool]]]:
-    """The FROM clause and WHERE clauses every aggregate level shares.
+class HoldingsParams(LiveParams):
+    """`cb_holdings` takes no parameters beyond status and disposition."""
 
-    The status and disposition joins are added only when that parameter is
-    not `all`: an unused join costs nothing to skip, and a query that never
+
+def _live_where(
+    src: FromClause, params: LiveParams
+) -> tuple[FromClause, list[ColumnElement[bool]]]:
+    """Add the status/disposition join and filter to `src`, atop `LIVE`.
+
+    Shared by every report in this module: the status and disposition joins
+    are added only when that parameter is not `all`, so a query that never
     joins `item_status` when every status counts reads as exactly what it
     is -- no filter there.
     """
-    src: FromClause = _I.join(_K, _K.c.id == _I.c.item_kind_id).outerjoin(
-        _D, _D.c.id == _I.c.denomination_id
-    )
     where: list[ColumnElement[bool]] = [_LIVE]
     if params.status != "all":
         src = src.join(_ST, _ST.c.id == _I.c.status_id)
@@ -77,6 +140,30 @@ def _source_and_where(
         src = src.join(_DISP, _DISP.c.id == _I.c.disposition_id)
         where.append(_DISP.c.code == params.disposition)
     return src, where
+
+
+def _status_disposition_params(params: LiveParams) -> dict[str, str]:
+    """The `status=`/`disposition=` pair a drill adds, omitted at `all`.
+
+    Matches `LiveParams`' own no-filter value: a drill never states a filter
+    the report itself is not applying.
+    """
+    query: dict[str, str] = {}
+    if params.status != "all":
+        query["status"] = params.status
+    if params.disposition != "all":
+        query["disposition"] = params.disposition
+    return query
+
+
+def _source_and_where(
+    params: HoldingsParams,
+) -> tuple[FromClause, list[ColumnElement[bool]]]:
+    """The FROM clause and WHERE clauses every aggregate level shares."""
+    src: FromClause = _I.join(_K, _K.c.id == _I.c.item_kind_id).outerjoin(
+        _D, _D.c.id == _I.c.denomination_id
+    )
+    return _live_where(src, params)
 
 
 def _query_string(
@@ -92,9 +179,7 @@ def _query_string(
     searches `/inventory/coins?kind=<code>`. `denom_code` adds
     `denomination=<code>`; `missing_denom` adds `missing=denomination`
     instead -- the two are mutually exclusive, one row is never both a named
-    denomination and "no denomination". `status`/`disposition` are added last,
-    and only when that parameter is not `all`, matching `HoldingsParams`'
-    own no-filter value.
+    denomination and "no denomination".
     """
     query: dict[str, str] = {}
     if kind_code != "currency":
@@ -103,10 +188,7 @@ def _query_string(
         query["denomination"] = denom_code
     elif missing_denom:
         query["missing"] = "denomination"
-    if params.status != "all":
-        query["status"] = params.status
-    if params.disposition != "all":
-        query["disposition"] = params.disposition
+    query.update(_status_disposition_params(params))
     path = view_path(kind_code)
     return f"{path}?{urlencode(query)}" if query else path
 
@@ -292,5 +374,924 @@ CB_HOLDINGS = register(
         "items, pieces and total cost.",
         params=HoldingsParams,
         run=_cb_holdings,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# cb_designs
+# ---------------------------------------------------------------------------
+
+
+class DesignsParams(LiveParams):
+    """`cb_designs` takes no parameters beyond status and disposition."""
+
+
+_SER = Series.__table__.alias("ser")
+
+_NO_SERIES = "No series"
+
+
+def _year_span(year_min: int | None, year_max: int | None) -> str:
+    """The year span as text: "1878-1904", one year, or empty."""
+    if year_min is None and year_max is None:
+        return ""
+    if year_min == year_max:
+        return str(year_min)
+    return f"{year_min}-{year_max}"
+
+
+def _designs_query_string(series_code: str | None, params: DesignsParams) -> str:
+    """A series row's own coin search; `missing=series` for "No series"."""
+    query: dict[str, str] = {}
+    if series_code is not None:
+        query["series"] = series_code
+    else:
+        query["missing"] = "series"
+    query.update(_status_disposition_params(params))
+    return f"/inventory/coins?{urlencode(query)}"
+
+
+def _cb_designs(db: Session, params: DesignsParams) -> ReportResult:
+    """Design series held, across every non-currency kind: items, year span, cost.
+
+    Series is optional for currency: a note's year is its series year, and
+    its own design identity is the Friedberg number rather than a series
+    (`MISSING_FIELDS["series"]`). Currency is excluded here altogether rather
+    than folded into "No series", which would read as a gap in a note that
+    has none.
+    """
+    src: FromClause = _I.join(_K, _K.c.id == _I.c.item_kind_id).outerjoin(
+        _SER, _SER.c.id == _I.c.series_id
+    )
+    src, where = _live_where(src, params)
+    where.append(_K.c.code != "currency")
+
+    columns = [
+        Column("series", "Series", "text"),
+        Column("items", "Items", "count"),
+        Column("year_span", "Year span", "text"),
+        Column("total_cost", "Total cost", "money"),
+    ]
+
+    rows_data = (
+        db.execute(
+            select(
+                _SER.c.code.label("series_code"),
+                _SER.c.label.label("series_label"),
+                func.count().label("items"),
+                func.min(_I.c.year_start).label("year_min"),
+                func.max(_I.c.year_start).label("year_max"),
+                func.sum(_I.c.total_cost).label("total_cost"),
+            )
+            .select_from(src)
+            .where(*where)
+            .group_by(_SER.c.id, _SER.c.code, _SER.c.label)
+            .order_by(_SER.c.label.asc().nulls_last(), _SER.c.id.asc().nulls_last())
+        )
+        .mappings()
+        .all()
+    )
+    if not rows_data:
+        return ReportResult(
+            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+        )
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    for row in rows_data:
+        series_code = row["series_code"]
+        series_label = row["series_label"] if series_code is not None else _NO_SERIES
+        rows.append(
+            {
+                "series": series_label,
+                "items": row["items"],
+                "year_span": _year_span(row["year_min"], row["year_max"]),
+                "total_cost": row["total_cost"],
+            }
+        )
+        drills.append(_designs_query_string(series_code, params))
+
+    totals: dict[str, object] = {
+        "series": "All designs",
+        "items": sum(cast(int, r["items"]) for r in rows),
+        "year_span": None,
+        "total_cost": sum((cast(Decimal, r["total_cost"]) for r in rows), Decimal("0")),
+    }
+
+    return ReportResult(columns=columns, rows=rows, totals=totals, drills=drills)
+
+
+CB_DESIGNS = register(
+    Report(
+        id="cb_designs",
+        group="Collection",
+        title="Coins by design",
+        purpose="Design series held, across every non-currency kind: items, "
+        "year span, and total cost.",
+        params=DesignsParams,
+        run=_cb_designs,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# cb_notes
+# ---------------------------------------------------------------------------
+
+
+class NotesParams(LiveParams):
+    """`cb_notes` takes no parameters beyond status and disposition."""
+
+
+_NT = NoteType.__table__.alias("nt")
+_CUD = CurrencyDetail.__table__.alias("cud")
+_SEAL = SealColor.__table__.alias("sc")
+_DISTRICT = FedDistrict.__table__.alias("fd")
+
+_NO_NOTE_TYPE = "No note type"
+_NO_SERIES_YEAR = "No series year"
+
+#: The attribute codes meaning a star note and a fancy serial
+#: (`backend/data/reference/attribute.json`). Looked up by code rather than
+#: assumed present, so a vocabulary that ever drops one is a note here, not a
+#: silent 0 that reads as "the collection has none".
+_STAR_CODE = "star"
+_FANCY_SERIAL_CODE = "fancy_serial"
+
+
+def _attribute_id(db: Session, code: str) -> int | None:
+    """The id of the seeded `item_attribute` row named `code`, or None."""
+    return db.execute(
+        select(ItemAttribute.id).where(ItemAttribute.code == code)
+    ).scalar_one_or_none()
+
+
+def _has_attribute_id(attribute_id: int) -> ColumnElement[bool]:
+    """An item carries this attribute, and has not had it removed."""
+    link = ItemAttributeLink.__table__.alias()
+    return exists(
+        select(1).where(
+            link.c.inventory_item_id == _I.c.id,
+            link.c.item_attribute_id == attribute_id,
+            link.c.removed_at.is_(None),
+        )
+    )
+
+
+def _notes_query_string(
+    note_type_code: str | None, series_designation: str | None, params: NotesParams
+) -> str | None:
+    """The currency search naming exactly this note type and series designation.
+
+    Only when both are known: either alone would widen the search to more
+    than this row's own items.
+    """
+    if note_type_code is None or series_designation is None:
+        return None
+    query = {"note_type": note_type_code, "series_designation": series_designation}
+    query.update(_status_disposition_params(params))
+    return f"/inventory/currency?{urlencode(query)}"
+
+
+def _cb_notes(db: Session, params: NotesParams) -> ReportResult:
+    """Note type x series designation: items, seal colors, districts, cost.
+
+    Star notes and fancy serials are counted from the attribute codes that
+    mean them, when the vocabulary carries them (it does today); if a future
+    vocabulary ever drops one, those columns are omitted rather than shown
+    as an all-zero column that reads as "the collection has none".
+    """
+    src: FromClause = (
+        _I.join(_K, _K.c.id == _I.c.item_kind_id)
+        .outerjoin(_CUD, _CUD.c.inventory_item_id == _I.c.id)
+        .outerjoin(_NT, _NT.c.id == _CUD.c.note_type_id)
+    )
+    src, where = _live_where(src, params)
+    where.append(_K.c.code == "currency")
+
+    star_id = _attribute_id(db, _STAR_CODE)
+    fancy_id = _attribute_id(db, _FANCY_SERIAL_CODE)
+
+    select_cols = [
+        _NT.c.id.label("note_type_id"),
+        _NT.c.code.label("note_type_code"),
+        _NT.c.label.label("note_type_label"),
+        _NT.c.sort_order.label("note_type_sort"),
+        _CUD.c.series_designation.label("series_designation"),
+        func.count().label("items"),
+        func.sum(_I.c.total_cost).label("total_cost"),
+    ]
+    if star_id is not None:
+        select_cols.append(
+            func.count().filter(_has_attribute_id(star_id)).label("star_notes")
+        )
+    if fancy_id is not None:
+        select_cols.append(
+            func.count().filter(_has_attribute_id(fancy_id)).label("fancy_serials")
+        )
+
+    columns = [
+        Column("note_type", "Note type", "text"),
+        Column("series_designation", "Series", "text"),
+        Column("items", "Items", "count"),
+        Column("seal_colors", "Seal colors", "text"),
+        Column("fed_districts", "Federal Reserve districts", "text"),
+    ]
+    if star_id is not None:
+        columns.append(Column("star_notes", "Star notes", "count"))
+    if fancy_id is not None:
+        columns.append(Column("fancy_serials", "Fancy serials", "count"))
+    columns.append(Column("total_cost", "Total cost", "money"))
+
+    notes: list[str] = []
+    if star_id is None or fancy_id is None:
+        notes.append(
+            "Star notes and fancy serials are omitted: the attribute "
+            "vocabulary carries no code for one of them."
+        )
+
+    rows_data = (
+        db.execute(
+            select(*select_cols)
+            .select_from(src)
+            .where(*where)
+            .group_by(
+                _NT.c.id,
+                _NT.c.code,
+                _NT.c.label,
+                _NT.c.sort_order,
+                _CUD.c.series_designation,
+            )
+            .order_by(
+                _NT.c.sort_order.asc().nulls_last(),
+                _NT.c.id.asc().nulls_last(),
+                _CUD.c.series_designation.asc().nulls_last(),
+            )
+        )
+        .mappings()
+        .all()
+    )
+    if not rows_data:
+        return ReportResult(
+            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+        )
+
+    label_rows = (
+        db.execute(
+            select(
+                _NT.c.id.label("note_type_id"),
+                _CUD.c.series_designation.label("series_designation"),
+                _SEAL.c.label.label("seal_label"),
+                _DISTRICT.c.letter.label("district_letter"),
+            )
+            .select_from(
+                src.outerjoin(_SEAL, _SEAL.c.id == _CUD.c.seal_color_id).outerjoin(
+                    _DISTRICT, _DISTRICT.c.id == _CUD.c.fed_district_id
+                )
+            )
+            .where(*where)
+            .distinct()
+        )
+        .mappings()
+        .all()
+    )
+    seals: dict[tuple[int | None, str | None], set[str]] = defaultdict(set)
+    districts: dict[tuple[int | None, str | None], set[str]] = defaultdict(set)
+    for lr in label_rows:
+        key = (lr["note_type_id"], lr["series_designation"])
+        if lr["seal_label"] is not None:
+            seals[key].add(lr["seal_label"])
+        if lr["district_letter"] is not None:
+            districts[key].add(lr["district_letter"])
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    for row in rows_data:
+        key = (row["note_type_id"], row["series_designation"])
+        entry: dict[str, object] = {
+            "note_type": row["note_type_label"] or _NO_NOTE_TYPE,
+            "series_designation": row["series_designation"] or _NO_SERIES_YEAR,
+            "items": row["items"],
+            "seal_colors": ", ".join(sorted(seals.get(key, ()))),
+            "fed_districts": ", ".join(sorted(districts.get(key, ()))),
+            "total_cost": row["total_cost"],
+        }
+        if star_id is not None:
+            entry["star_notes"] = row["star_notes"]
+        if fancy_id is not None:
+            entry["fancy_serials"] = row["fancy_serials"]
+        rows.append(entry)
+        drills.append(
+            _notes_query_string(
+                row["note_type_code"], row["series_designation"], params
+            )
+        )
+
+    totals: dict[str, object] = {
+        "note_type": "All note types",
+        "series_designation": None,
+        "items": sum(cast(int, r["items"]) for r in rows),
+        "seal_colors": None,
+        "fed_districts": None,
+        "total_cost": sum((cast(Decimal, r["total_cost"]) for r in rows), Decimal("0")),
+    }
+    if star_id is not None:
+        totals["star_notes"] = sum(cast(int, r["star_notes"]) for r in rows)
+    if fancy_id is not None:
+        totals["fancy_serials"] = sum(cast(int, r["fancy_serials"]) for r in rows)
+
+    return ReportResult(
+        columns=columns, rows=rows, totals=totals, drills=drills, notes=notes
+    )
+
+
+CB_NOTES = register(
+    Report(
+        id="cb_notes",
+        group="Collection",
+        title="Notes",
+        purpose="Note type x series designation: items, seal colors and "
+        "Federal Reserve districts present, star notes and fancy serials, "
+        "and total cost.",
+        params=NotesParams,
+        run=_cb_notes,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# cb_grades
+# ---------------------------------------------------------------------------
+
+
+class GradesParams(LiveParams):
+    """`cb_grades` takes no parameters beyond status and disposition."""
+
+
+_GR = Grade.__table__.alias("g")
+_STRIKE = StrikeType.__table__.alias("stk")
+_SERVICE = GradingService.__table__.alias("gs")
+
+_NO_STRIKE_TYPE = "No strike type"
+_RAW = "Raw"
+_UNGRADED = "Ungraded"
+
+#: Band rank -> (label, `grade_min`, `grade_max`). Ungraded (rank 5) has no
+#: entry: there is no search term for "no grade at all" that matches this
+#: report's own reach across every item kind, not only the ones
+#: `missing=grade` (`MISSING_FIELDS`) applies to, so it is never drilled.
+#: `49%`/`59%`/`64%` (not `49`/`59`/`64`) so a plus grade at the top of a
+#: band -- 49+, rank 49.5 -- stays inside it, matching the band's own numeric
+#: cutoff on `numeric_value` rather than falling out through `grade_rank`.
+_BANDS: dict[int, tuple[str, str, str]] = {
+    1: ("1-49", "1", "49%"),
+    2: ("50-59", "50", "59%"),
+    3: ("60-64", "60", "64%"),
+    4: ("65-70", "65", "70%"),
+}
+
+#: Ungraded (no grade at all, or a grade with no numeric value) ranks last;
+#: reused, unlabeled, in both the SELECT list and the GROUP BY.
+_BAND_RANK = case(
+    (or_(_I.c.grade_id.is_(None), _GR.c.numeric_value.is_(None)), 5),
+    (_GR.c.numeric_value <= 49, 1),
+    (_GR.c.numeric_value <= 59, 2),
+    (_GR.c.numeric_value <= 64, 3),
+    else_=4,
+)
+
+#: `Coin` is every non-currency kind -- `COIN_VIEW`'s own reach exactly --
+#: since the grade, strike type and grading service filters this report
+#: drills through are shared by both search views.
+_KIND_VIEW = case((_K.c.code == "currency", "Currency"), else_="Coin")
+
+
+def _grades_drill(
+    db: Session,
+    spec: ViewSpec,
+    band_rank: int,
+    strike_code: str | None,
+    grading_service_code: str | None,
+    params: GradesParams,
+    expected: int,
+) -> str | None:
+    """This band's own search, kept only when it returns exactly this row's count.
+
+    A present strike type or grading service narrows the search the same way
+    this row is narrowed; a missing one is left unfiltered, since "no strike
+    type" and "no grading service" ("Raw") are not something the search can
+    ask for directly. Whether leaving it out still names exactly this row
+    depends on what else shares the same band, so the candidate query is run
+    and the link kept only when it agrees (Review Focus #4).
+    """
+    if band_rank not in _BANDS:
+        return None
+    _, low, high = _BANDS[band_rank]
+    query: dict[str, str] = {"grade_min": low, "grade_max": high}
+    if strike_code is not None:
+        query["strike_type"] = strike_code
+    if grading_service_code is not None:
+        query["grading_service"] = grading_service_code
+    query.update(_status_disposition_params(params))
+    _, total = run_search(db, spec, params=dict(query))
+    if total != expected:
+        return None
+    return f"/inventory/{spec.name}?{urlencode(query)}"
+
+
+def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
+    """Band x strike type x grading service, coins and currency both."""
+    src: FromClause = (
+        _I.join(_K, _K.c.id == _I.c.item_kind_id)
+        .outerjoin(_GR, _GR.c.id == _I.c.grade_id)
+        .outerjoin(_STRIKE, _STRIKE.c.id == _I.c.strike_type_id)
+        .outerjoin(_SERVICE, _SERVICE.c.id == _I.c.grading_service_id)
+    )
+    src, where = _live_where(src, params)
+
+    columns = [
+        Column("kind", "Kind", "text"),
+        Column("band", "Band", "text"),
+        Column("strike_type", "Strike type", "text"),
+        Column("grading_service", "Grading service", "text"),
+        Column("items", "Items", "count"),
+        Column("total_cost", "Total cost", "money"),
+    ]
+
+    rows_data = (
+        db.execute(
+            select(
+                _KIND_VIEW.label("kind"),
+                _BAND_RANK.label("band_rank"),
+                _STRIKE.c.code.label("strike_code"),
+                _STRIKE.c.label.label("strike_label"),
+                _SERVICE.c.code.label("service_code"),
+                _SERVICE.c.label.label("service_label"),
+                func.count().label("items"),
+                func.sum(_I.c.total_cost).label("total_cost"),
+            )
+            .select_from(src)
+            .where(*where)
+            .group_by(
+                _KIND_VIEW,
+                _BAND_RANK,
+                _STRIKE.c.code,
+                _STRIKE.c.label,
+                _SERVICE.c.code,
+                _SERVICE.c.label,
+            )
+            .order_by(
+                _KIND_VIEW,
+                _BAND_RANK,
+                _STRIKE.c.label.asc().nulls_last(),
+                _SERVICE.c.label.asc().nulls_last(),
+            )
+        )
+        .mappings()
+        .all()
+    )
+    if not rows_data:
+        return ReportResult(
+            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+        )
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    for row in rows_data:
+        band_rank = row["band_rank"]
+        rows.append(
+            {
+                "kind": row["kind"],
+                "band": _BANDS[band_rank][0] if band_rank in _BANDS else _UNGRADED,
+                "strike_type": row["strike_label"] or _NO_STRIKE_TYPE,
+                "grading_service": row["service_label"] or _RAW,
+                "items": row["items"],
+                "total_cost": row["total_cost"],
+            }
+        )
+        spec = CURRENCY_VIEW if row["kind"] == "Currency" else COIN_VIEW
+        drills.append(
+            _grades_drill(
+                db,
+                spec,
+                band_rank,
+                row["strike_code"],
+                row["service_code"],
+                params,
+                row["items"],
+            )
+        )
+
+    totals: dict[str, object] = {
+        "kind": "All kinds",
+        "band": None,
+        "strike_type": None,
+        "grading_service": None,
+        "items": sum(cast(int, r["items"]) for r in rows),
+        "total_cost": sum((cast(Decimal, r["total_cost"]) for r in rows), Decimal("0")),
+    }
+
+    return ReportResult(columns=columns, rows=rows, totals=totals, drills=drills)
+
+
+CB_GRADES = register(
+    Report(
+        id="cb_grades",
+        group="Collection",
+        title="Grades",
+        purpose="Grade band x strike type x grading service, across coins "
+        "and currency, with items and total cost.",
+        params=GradesParams,
+        run=_cb_grades,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# cb_metal
+# ---------------------------------------------------------------------------
+
+
+class MetalParams(LiveParams):
+    """`cb_metal` takes no parameters beyond status and disposition."""
+
+
+_MT = Metal.__table__.alias("mt")
+_BF = BullionForm.__table__.alias("bf")
+
+_NO_METAL = "No metal"
+_NO_BULLION_FORM = "No bullion form"
+_CENTS = Decimal("0.01")
+
+#: The latest quote for a metal, matching how `item_valuation`
+#: (`models/views.py`) reads the spot price -- the newest `quoted_at` --
+#: expressed as a correlated subquery rather than that view's `DISTINCT ON`,
+#: since this query already groups by `mt.id`.
+_LATEST_PRICE = (
+    select(MetalPrice.price_per_ozt)
+    .where(MetalPrice.metal_id == _MT.c.id)
+    .order_by(MetalPrice.quoted_at.desc())
+    .limit(1)
+    .correlate(_MT)
+    .scalar_subquery()
+)
+
+
+def _metal_form(kind_code: str, kind_label: str, bullion_form_label: str | None) -> str:
+    """The form label: Coin, the bullion form's label, or else the kind's."""
+    if kind_code == "coin":
+        return "Coin"
+    if kind_code == "bullion":
+        return bullion_form_label or _NO_BULLION_FORM
+    return kind_label
+
+
+def _metal_drill(
+    db: Session,
+    kind_code: str,
+    metal_code: str | None,
+    bullion_form_code: str | None,
+    params: MetalParams,
+    expected: int,
+) -> str | None:
+    """This metal x form's own coin search, kept only when its count agrees.
+
+    Currency is never drilled: the currency search has no `metal` or
+    `bullion_form` filter at all. For every other kind, the fine-weight
+    condition this report groups by is not something the search can ask
+    for, so the candidate query is run and kept only when it happens to
+    return exactly this row's own count (Review Focus #4).
+    """
+    if kind_code == "currency":
+        return None
+    query: dict[str, str] = {"kind": kind_code}
+    if metal_code is not None:
+        query["metal"] = metal_code
+    if kind_code == "bullion" and bullion_form_code is not None:
+        query["bullion_form"] = bullion_form_code
+    query.update(_status_disposition_params(params))
+    _, total = run_search(db, COIN_VIEW, params=dict(query))
+    if total != expected:
+        return None
+    return f"/inventory/coins?{urlencode(query)}"
+
+
+def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
+    """Metal x form, over items with a fine weight: items, ounces, cost, melt.
+
+    Fine weight is recorded per piece, not per lot -- `item_valuation`
+    (`models/views.py`) multiplies it by `piece_count` to reach a lot's total
+    melt, and this report's own ounces column matches that rather than
+    undercounting a multi-piece row.
+    """
+    src: FromClause = (
+        _I.join(_K, _K.c.id == _I.c.item_kind_id)
+        .outerjoin(_MT, _MT.c.id == _I.c.metal_id)
+        .outerjoin(_BF, _BF.c.id == _I.c.bullion_form_id)
+    )
+    src, where = _live_where(src, params)
+    where.append(_I.c.fine_weight_ozt.is_not(None))
+
+    columns = [
+        Column("metal", "Metal", "text"),
+        Column("form", "Form", "text"),
+        Column("items", "Items", "count"),
+        Column("ounces", "Fine troy ounces", "ounces"),
+        Column("total_cost", "Total cost", "money"),
+        Column("melt", "Melt value", "money"),
+    ]
+
+    rows_data = (
+        db.execute(
+            select(
+                _MT.c.id.label("metal_id"),
+                _MT.c.code.label("metal_code"),
+                _MT.c.label.label("metal_label"),
+                _MT.c.sort_order.label("metal_sort"),
+                _K.c.code.label("kind_code"),
+                _K.c.label.label("kind_label"),
+                _K.c.sort_order.label("kind_sort"),
+                _BF.c.code.label("bullion_form_code"),
+                _BF.c.label.label("bullion_form_label"),
+                func.count().label("items"),
+                func.sum(_I.c.fine_weight_ozt * _I.c.piece_count).label("ounces"),
+                func.sum(_I.c.total_cost).label("total_cost"),
+                _LATEST_PRICE.label("price_per_ozt"),
+            )
+            .select_from(src)
+            .where(*where)
+            .group_by(
+                _MT.c.id,
+                _MT.c.code,
+                _MT.c.label,
+                _MT.c.sort_order,
+                _K.c.id,
+                _K.c.code,
+                _K.c.label,
+                _K.c.sort_order,
+                _BF.c.id,
+                _BF.c.code,
+                _BF.c.label,
+            )
+            .order_by(
+                _MT.c.sort_order.asc().nulls_last(),
+                _MT.c.label.asc().nulls_last(),
+                _K.c.sort_order,
+                _BF.c.label.asc().nulls_last(),
+            )
+        )
+        .mappings()
+        .all()
+    )
+    if not rows_data:
+        return ReportResult(
+            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+        )
+
+    unpriced_metals: set[str] = set()
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    for row in rows_data:
+        price = cast("Decimal | None", row["price_per_ozt"])
+        ounces = cast(Decimal, row["ounces"])
+        melt = (
+            (ounces * price).quantize(_CENTS, rounding=ROUND_HALF_UP)
+            if price is not None
+            else None
+        )
+        if price is None and row["metal_label"] is not None:
+            unpriced_metals.add(cast(str, row["metal_label"]))
+        rows.append(
+            {
+                "metal": row["metal_label"] or _NO_METAL,
+                "form": _metal_form(
+                    row["kind_code"], row["kind_label"], row["bullion_form_label"]
+                ),
+                "items": row["items"],
+                "ounces": ounces,
+                "total_cost": row["total_cost"],
+                "melt": melt,
+            }
+        )
+        drills.append(
+            _metal_drill(
+                db,
+                row["kind_code"],
+                row["metal_code"],
+                row["bullion_form_code"],
+                params,
+                row["items"],
+            )
+        )
+
+    priced_melt = [cast(Decimal, r["melt"]) for r in rows if r["melt"] is not None]
+    totals: dict[str, object] = {
+        "metal": "All metals",
+        "form": None,
+        "items": sum(cast(int, r["items"]) for r in rows),
+        "ounces": sum((cast(Decimal, r["ounces"]) for r in rows), Decimal("0")),
+        "total_cost": sum((cast(Decimal, r["total_cost"]) for r in rows), Decimal("0")),
+        "melt": sum(priced_melt, Decimal("0")),
+    }
+
+    notes: list[str] = []
+    if unpriced_metals:
+        names = ", ".join(sorted(unpriced_metals))
+        notes.append(
+            f"No recorded price for {names}; melt value is empty for those "
+            "rows, and the melt total above counts only the priced ones."
+        )
+
+    return ReportResult(
+        columns=columns, rows=rows, totals=totals, drills=drills, notes=notes
+    )
+
+
+CB_METAL = register(
+    Report(
+        id="cb_metal",
+        group="Collection",
+        title="Precious metal",
+        purpose="Metal x form, over items with a fine weight: items, "
+        "ounces, cost, and melt value at the latest spot price.",
+        params=MetalParams,
+        run=_cb_metal,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# cb_attributes
+# ---------------------------------------------------------------------------
+
+
+class AttributesParams(LiveParams):
+    """`cb_attributes` takes no parameters beyond status and disposition."""
+
+
+_MARK_ATTRIBUTE = "Attribute"
+_MARK_ERROR = "Error"
+
+
+def _mark_query_string(
+    key: str, code: str, view_name: str, params: AttributesParams
+) -> str:
+    """This mark's own search, on the view it was carried on."""
+    query = {key: code}
+    query.update(_status_disposition_params(params))
+    return f"/inventory/{view_name}?{urlencode(query)}"
+
+
+#: Which search view an item's kind is browsed in, as `view_path` splits it:
+#: currency has its own; every other kind is `COIN_VIEW`.
+_VIEW_NAME = case((_K.c.code == "currency", CURRENCY_VIEW.name), else_=COIN_VIEW.name)
+
+
+def _attribute_rows(db: Session, params: AttributesParams) -> list[dict[str, object]]:
+    """One row per attribute x view carried by a live item, not removed."""
+    ial = ItemAttributeLink.__table__.alias("ial")
+    ia = ItemAttribute.__table__.alias("ia")
+    src: FromClause = (
+        _I.join(_K, _K.c.id == _I.c.item_kind_id)
+        .join(ial, and_(ial.c.inventory_item_id == _I.c.id, ial.c.removed_at.is_(None)))
+        .join(ia, ia.c.id == ial.c.item_attribute_id)
+    )
+    src, where = _live_where(src, params)
+
+    rows = (
+        db.execute(
+            select(
+                ia.c.code.label("code"),
+                ia.c.label.label("label"),
+                _VIEW_NAME.label("view"),
+                func.count().label("items"),
+            )
+            .select_from(src)
+            .where(*where)
+            .group_by(ia.c.code, ia.c.label, _VIEW_NAME)
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        {
+            "mark": _MARK_ATTRIBUTE,
+            "label": row["label"],
+            "view": row["view"],
+            "items": row["items"],
+            "code": row["code"],
+        }
+        for row in rows
+    ]
+
+
+def _error_rows(db: Session, params: AttributesParams) -> list[dict[str, object]]:
+    """One row per error type x view carried by a live item."""
+    ie = ItemError.__table__.alias("ie")
+    et = ErrorType.__table__.alias("et")
+    src: FromClause = (
+        _I.join(_K, _K.c.id == _I.c.item_kind_id)
+        .join(ie, ie.c.inventory_item_id == _I.c.id)
+        .join(et, et.c.id == ie.c.error_type_id)
+    )
+    src, where = _live_where(src, params)
+
+    rows = (
+        db.execute(
+            select(
+                et.c.code.label("code"),
+                et.c.label.label("label"),
+                _VIEW_NAME.label("view"),
+                func.count().label("items"),
+            )
+            .select_from(src)
+            .where(*where)
+            .group_by(et.c.code, et.c.label, _VIEW_NAME)
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        {
+            "mark": _MARK_ERROR,
+            "label": row["label"],
+            "view": row["view"],
+            "items": row["items"],
+            "code": row["code"],
+        }
+        for row in rows
+    ]
+
+
+def _cb_attributes(db: Session, params: AttributesParams) -> ReportResult:
+    """Every attribute and error type a live item carries, split by view.
+
+    One row per mark per view: an attribute or error type seeded to apply to
+    either kind (`applies_to: any`) can be carried by both a coin and a
+    note, and each view has its own search, so a mark present on both is two
+    rows rather than one whose drill could only ever open one of them.
+
+    No total: an item can carry several attributes or errors at once, so
+    summing these counts is not the number of items with one (the same
+    reasoning `dq_issues` gives for skipping its own total).
+    """
+    columns = [
+        Column("mark", "Kind", "text"),
+        Column("label", "Label", "text"),
+        Column("view", "View", "text"),
+        Column("items", "Items", "count"),
+    ]
+    combined = sorted(
+        [*_attribute_rows(db, params), *_error_rows(db, params)],
+        key=lambda r: (
+            cast(str, r["mark"]) != _MARK_ATTRIBUTE,
+            cast(str, r["label"]),
+            cast(str, r["view"]),
+        ),
+    )
+    if not combined:
+        return ReportResult(
+            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+        )
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    for entry in combined:
+        view_name = cast(str, entry["view"])
+        rows.append(
+            {
+                "mark": entry["mark"],
+                "label": entry["label"],
+                "view": "Currency" if view_name == CURRENCY_VIEW.name else "Coins",
+                "items": entry["items"],
+            }
+        )
+        key = "attribute" if entry["mark"] == _MARK_ATTRIBUTE else "error_type"
+        drills.append(
+            _mark_query_string(key, cast(str, entry["code"]), view_name, params)
+        )
+
+    return ReportResult(
+        columns=columns,
+        rows=rows,
+        drills=drills,
+        notes=[
+            "No total: an item can carry several attributes or errors at "
+            "once, so summing these counts is not the number of items with "
+            "one."
+        ],
+    )
+
+
+CB_ATTRIBUTES = register(
+    Report(
+        id="cb_attributes",
+        group="Collection",
+        title="Attributes and errors",
+        purpose="Every attribute and error type a live item carries, split "
+        "by the view it was recorded on, with items.",
+        params=AttributesParams,
+        run=_cb_attributes,
     )
 )

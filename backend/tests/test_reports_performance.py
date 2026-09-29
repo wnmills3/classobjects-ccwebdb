@@ -20,10 +20,14 @@ from app.models import (
     Denomination,
     Image,
     InventoryItem,
+    ItemAttribute,
+    ItemAttributeLink,
     ItemKind,
     ItemStatus,
     Listing,
     ListingStatus,
+    Metal,
+    MetalPrice,
     SalesLot,
     SalesLotItem,
     SalesLotStatus,
@@ -214,6 +218,23 @@ def _build_modest_collection(db: Session) -> None:
             storage_key="orig/unfiled-perf.jpg",
             media_type="image/jpeg",
             byte_size=10,
+        )
+    )
+
+    # `cb_metal` reads the latest `metal_price`; `cb_attributes` reads
+    # `item_attribute_link`. Cheap to add here so the performance guard
+    # exercises both paths too.
+    listing_items[1].metal_id = code_id(db, Metal, "silver")
+    listing_items[1].fine_weight_ozt = Decimal("0.500000")
+    db.add(
+        MetalPrice(
+            metal_id=code_id(db, Metal, "silver"), price_per_ozt=Decimal("25.0000")
+        )
+    )
+    db.add(
+        ItemAttributeLink(
+            inventory_item_id=listing_items[2].id,
+            item_attribute_id=code_id(db, ItemAttribute, "mule"),
         )
     )
     db.commit()
