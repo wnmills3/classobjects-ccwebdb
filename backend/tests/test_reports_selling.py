@@ -50,7 +50,7 @@ from app.reports.selling import (
 )
 from app.sales_venues import store_venue_id
 from app.sales_writes import FeeLine
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session
 
 from tests.builders import ItemFactory, build_auction, code_id, priced_item
@@ -1267,6 +1267,27 @@ def test_a_deleted_items_share_does_not_count_toward_items(
     row = next(r for r in result.rows if r["order"] == f"#{order.id}")
     assert row["items"] == 1
     assert row["amount"] == Decimal("50.00")
+    assert result.notes == [
+        "1 deleted or split item is left out of its order's item count."
+    ]
+
+
+def test_no_left_out_note_when_nothing_was_left_out(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    _placed(
+        db,
+        priced_item(make_item, "Item", Decimal("10.00")),
+        _venue(db, "ebay"),
+        admin_user,
+        price=Decimal("20.00"),
+        status_code="paid",
+    )
+    db.commit()
+
+    result = SL_FULFILMENT.run(db, FulfilmentParams())
+    assert len(result.rows) == 1
+    assert result.notes == []
 
 
 def test_fulfilment_totals_amount_is_the_sum_of_the_rows(
@@ -1519,11 +1540,72 @@ def test_aging_totals_equal_the_sum_of_the_rows(
     assert result.drills == [None] * len(result.rows)
 
 
+def test_the_receipt_lookup_binds_no_parameter_per_held_item(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """At live scale (~8,000 held items) an expanded `IN` list would bind each id.
+
+    Measured on the statements actually sent: the parameter count of every
+    one stays the same with 2 held items as with 12.
+    """
+
+    def _max_params() -> int:
+        counts: list[int] = []
+
+        def _record(
+            conn: object,
+            cursor: object,
+            statement: str,
+            parameters: object,
+            context: object,
+            executemany: bool,
+        ) -> None:
+            """Keep each statement's bound-parameter count."""
+            counts.append(len(parameters) if isinstance(parameters, dict) else 0)
+
+        bind = db.get_bind()
+        event.listen(bind, "before_cursor_execute", _record)
+        try:
+            SL_AGING.run(db, AgingParams())
+        finally:
+            event.remove(bind, "before_cursor_execute", _record)
+        return max(counts)
+
+    for index in range(2):
+        priced_item(make_item, f"Held {index}", Decimal("1.00"))
+    db.commit()
+    few = _max_params()
+    for index in range(10):
+        priced_item(make_item, f"More {index}", Decimal("1.00"))
+    db.commit()
+    assert _max_params() == few
+
+
 def test_nothing_held_returns_no_totals(db: Session) -> None:
     result = SL_AGING.run(db, AgingParams())
     assert result.rows == []
     assert result.totals is None
     assert result.drills == []
+    assert result.notes == ["Nothing is held and not offered."]
+
+
+def test_the_unknown_note_agrees_in_number_and_gives_the_reset_as_its_reason(
+    db: Session, make_item: ItemFactory
+) -> None:
+    priced_item(make_item, "No history", Decimal("25.00"))
+    received = priced_item(make_item, "Received", Decimal("5.00"))
+    _received(db, received, arrived_on=_months_ago(2))
+    db.commit()
+
+    (note,) = SL_AGING.run(db, AgingParams()).notes
+    assert note.startswith("1 item of 2 has no recorded receipt and is bucketed")
+    assert "2026-09-25" in note
+    assert "most" not in note
+
+    priced_item(make_item, "Also no history", Decimal("25.00"))
+    db.commit()
+    (note,) = SL_AGING.run(db, AgingParams()).notes
+    assert note.startswith("2 items of 3 have no recorded receipt and are bucketed")
 
 
 # ===========================================================================
@@ -1658,3 +1740,4 @@ def test_no_auctions_returns_no_totals(db: Session) -> None:
     assert result.rows == []
     assert result.totals is None
     assert result.drills == []
+    assert result.notes == ["No auctions recorded."]

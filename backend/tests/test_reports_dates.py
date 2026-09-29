@@ -42,7 +42,7 @@ def _register() -> Report[_DateRangeParams]:
     return register(
         Report(
             id=_TEST_REPORT_ID,
-            group="test",
+            group="Money",
             title="Date range",
             purpose="Exercises DateRange.",
             params=_DateRangeParams,

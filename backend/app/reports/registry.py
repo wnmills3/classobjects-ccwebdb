@@ -24,15 +24,33 @@ from pydantic import BaseModel
 
 from .base import Report
 
+#: The groups, in the order the catalog -- the console, the API, the CLI's
+#: `list` -- shows them. Stated here rather than left to whichever order
+#: `__init__.py` happens to import the group modules in.
+GROUP_ORDER: tuple[str, ...] = (
+    "Collection",
+    "Data quality",
+    "Purchasing and receiving",
+    "Selling",
+    "Money",
+)
+
 #: Reports of every different params model are stored side by side here,
 #: so the dict's value type is necessarily the widened `Report[Any]` --
 #: each report keeps its own precise type at its own call site (`register`
-#: and the group module that built it), which is where it matters.
+#: and the group module that built it), which is where it matters. Kept in
+#: catalog order: by `GROUP_ORDER`, then by registration within a group.
 REPORTS: dict[str, Report[Any]] = {}
 
 
 def register[P: BaseModel](report: Report[P]) -> Report[P]:
-    """Add `report` to `REPORTS`; refuse a second report with the same id.
+    """Add `report` to `REPORTS`; refuse a second id or a group not in `GROUP_ORDER`.
+
+    `REPORTS` is re-sorted after each addition, so iterating it always
+    yields catalog order: groups in `GROUP_ORDER`, and within a group the
+    order the reports were registered (the sort is stable). A group missing
+    from `GROUP_ORDER` is refused rather than placed at some default spot,
+    so a new group cannot appear in the catalog unordered.
 
     Returns `report` with its own precise type still attached --
     `register(report: Report[HoldingsParams])` returns
@@ -42,8 +60,16 @@ def register[P: BaseModel](report: Report[P]) -> Report[P]:
     """
     if report.id in REPORTS:
         raise ValueError(f"a report is already registered as {report.id!r}")
+    if report.group not in GROUP_ORDER:
+        raise ValueError(
+            f"report {report.id!r} names group {report.group!r}, "
+            "which is not in GROUP_ORDER"
+        )
     REPORTS[report.id] = report
+    ordered = sorted(REPORTS.values(), key=lambda r: GROUP_ORDER.index(r.group))
+    REPORTS.clear()
+    REPORTS.update((r.id, r) for r in ordered)
     return report
 
 
-__all__ = ["REPORTS", "register"]
+__all__ = ["GROUP_ORDER", "REPORTS", "register"]

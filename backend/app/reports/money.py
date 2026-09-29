@@ -16,16 +16,14 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from typing import Literal, cast
-from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, FromClause, RowMapping, func, select
+from sqlalchemy import FromClause, RowMapping, func, select
 from sqlalchemy.orm import Session
 
-from ..inventory_search import view_path
 from ..models import Disposition, InventoryItem, ItemStatus, PurchaseOrder, Vendor
 from .base import Column, DateRange, Report, ReportResult, period_label, period_start
-from .collection import LiveParams
+from .live_params import NOTHING_MATCHES, LiveParams, kind_query_string, live_where
 from .live_purchases import (
     LIVE_ITEM_PURCHASE_NOTE,
     dated_purchase_where,
@@ -326,18 +324,13 @@ _VALUE_COLUMNS = [
     Column("unvalued_items", "Items without a recorded value", "count"),
 ]
 
-#: `mn_value` now takes `status`/`disposition` (Ruling P2-10), so its empty
-#: case reads as "these settings" the way every Collection report's does,
-#: not `mn_basis`'s parameterless `_NO_LIVE_ITEMS`.
-_NOTHING_MATCHES = "Nothing matches these settings."
-
 #: Never a price-guide or vendor figure -- only what the owner has typed
 #: into `InventoryItem.numismatic_value` by hand, whatever that item's own
 #: `valuation_basis` is (melt, numismatic or manual): the basis says how
 #: the owner prices the item day to day, not which column this report reads.
 _VALUE_NOTE = (
-    "Recorded value is the owner's own entry (numismatic_value), whatever "
-    "the item's own valuation basis; no price-guide or vendor value is "
+    "Recorded value is the numismatic value the owner entered by hand, "
+    "whatever the item's own valuation basis; no price-guide or vendor value is "
     "derived, seeded or shown."
 )
 
@@ -351,54 +344,6 @@ class ValueParams(LiveParams):
     """
 
 
-def _value_where(
-    src: FromClause, params: ValueParams
-) -> tuple[FromClause, list[ColumnElement[bool]]]:
-    """Add the status/disposition join and filter to `src`, atop `LIVE`.
-
-    The same shape `collection._live_where` builds for every Collection
-    report: the status and disposition joins are added only when that
-    parameter is not `all`, so a query that never joins `item_status` when
-    every status counts reads as exactly what it is -- no filter there.
-    """
-    where: list[ColumnElement[bool]] = [_LIVE]
-    if params.status != "all":
-        src = src.join(_ST, _ST.c.id == _I.c.status_id)
-        where.append(_ST.c.code == params.status)
-    if params.disposition != "all":
-        src = src.join(_DISP, _DISP.c.id == _I.c.disposition_id)
-        where.append(_DISP.c.code == params.disposition)
-    return src, where
-
-
-def _value_status_disposition_params(params: ValueParams) -> dict[str, str]:
-    """The `status=`/`disposition=` pair a drill adds, omitted at `all`."""
-    query: dict[str, str] = {}
-    if params.status != "all":
-        query["status"] = params.status
-    if params.disposition != "all":
-        query["disposition"] = params.disposition
-    return query
-
-
-def _value_query_string(kind_code: str, params: ValueParams) -> str:
-    """This kind's own search, narrowed to `params`'s own status/disposition.
-
-    The same shape `collection._query_string` builds: `kind=` for every
-    kind but currency (which has no such filter), then `status=`/
-    `disposition=` from `params`, omitted at `all` -- so the drill's own
-    count always equals this row's own `items` column, whatever `params`
-    asks for (pinned by `test_value_drill_matches_the_items_column_...`,
-    run with both the defaults and `status=all, disposition=all`).
-    """
-    query: dict[str, str] = {}
-    if kind_code != "currency":
-        query["kind"] = kind_code
-    query.update(_value_status_disposition_params(params))
-    path = view_path(kind_code)
-    return f"{path}?{urlencode(query)}" if query else path
-
-
 def _mn_value(db: Session, params: ValueParams) -> ReportResult:
     """Per kind: live items, the ones with a recorded value, and their totals.
 
@@ -410,7 +355,7 @@ def _mn_value(db: Session, params: ValueParams) -> ReportResult:
     """
     has_value = _I.c.numismatic_value.is_not(None)
     src: FromClause = _I.join(_K, _K.c.id == _I.c.item_kind_id)
-    src, where = _value_where(src, params)
+    src, where = live_where(src, params)
     rows_data = (
         db.execute(
             select(
@@ -440,7 +385,7 @@ def _mn_value(db: Session, params: ValueParams) -> ReportResult:
             rows=[],
             totals=None,
             drills=[],
-            notes=[_NOTHING_MATCHES],
+            notes=[NOTHING_MATCHES],
         )
 
     rows: list[dict[str, object]] = []
@@ -461,7 +406,10 @@ def _mn_value(db: Session, params: ValueParams) -> ReportResult:
                 "unvalued_items": items - valued_items,
             }
         )
-        drills.append(_value_query_string(row["kind_code"], params))
+        # The kind's own search with this report's status/disposition, so
+        # the drill's count equals this row's `items` (pinned by
+        # `test_value_drill_matches_the_items_column_...`).
+        drills.append(kind_query_string(row["kind_code"], params))
 
     totals: dict[str, object] = {
         "kind": "All kinds",

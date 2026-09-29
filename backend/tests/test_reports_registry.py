@@ -8,6 +8,8 @@ from app.models import InventoryItem
 from app.models.base import utcnow
 from app.reports import REPORTS, register
 from app.reports.base import Column, Report, ReportResult
+from app.reports.registry import GROUP_ORDER
+from app.reports.serialize import catalog
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,10 +35,10 @@ def _run_noop(db: Session, params: _NoopParams) -> ReportResult:
     return ReportResult(columns=[Column("n", "Count", "count")], rows=[])
 
 
-def _make_report(report_id: str) -> Report[_NoopParams]:
+def _make_report(report_id: str, group: str = "Money") -> Report[_NoopParams]:
     return Report(
         id=report_id,
-        group="test",
+        group=group,
         title="No-op",
         purpose="Exercises the registry.",
         params=_NoopParams,
@@ -61,6 +63,41 @@ def test_a_duplicate_id_is_refused() -> None:
             register(_make_report("test_dup"))
     finally:
         del REPORTS["test_dup"]
+
+
+def test_the_catalog_groups_come_in_the_stated_order() -> None:
+    """Ruling P2-12: the order is stated, not a side effect of import order."""
+    assert GROUP_ORDER == (
+        "Collection",
+        "Data quality",
+        "Purchasing and receiving",
+        "Selling",
+        "Money",
+    )
+    groups = [report.group for report in REPORTS.values()]
+    first_seen = list(dict.fromkeys(groups))
+    assert first_seen == list(GROUP_ORDER)
+    # Each group's reports sit together: no group reappears after another.
+    assert groups == sorted(groups, key=GROUP_ORDER.index)
+    assert [entry["id"] for entry in catalog()] == list(REPORTS)
+
+
+def test_a_report_registered_late_still_sits_in_its_own_group() -> None:
+    """A Collection report registered last lists with Collection, not at the end."""
+    register(_make_report("test_late", group="Collection"))
+    try:
+        ids = list(REPORTS)
+        collection_ids = [i for i, r in REPORTS.items() if r.group == "Collection"]
+        assert collection_ids[-1] == "test_late"
+        assert ids.index("test_late") < ids.index("dq_issues")
+    finally:
+        del REPORTS["test_late"]
+
+
+def test_a_group_not_in_the_stated_order_is_refused() -> None:
+    with pytest.raises(ValueError, match="GROUP_ORDER"):
+        register(_make_report("test_nogroup", group="Elsewhere"))
+    assert "test_nogroup" not in REPORTS
 
 
 def test_a_result_with_mismatched_drills_is_refused() -> None:

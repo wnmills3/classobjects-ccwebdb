@@ -25,7 +25,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from pydantic import BaseModel
 
-from .base import Column, ColumnKind, Report, ReportResult
+from .base import Column, ColumnKind, Report, ReportResult, is_date_field
 
 __all__ = ["workbook_filename", "write_workbook"]
 
@@ -138,18 +138,25 @@ def _write_cell(
     return cell
 
 
-def _param_cell_value(value: object) -> float | str:
+def _param_cell_value(value: object, *, is_date: bool) -> float | str | date:
     """One parameter's own resolved value, as its workbook cell holds it.
 
-    Every report parameter today is an `int` or a `Literal` string; an `int`
-    is written as `Cell.value` requires -- as a float, the same conversion
-    `_numeric` uses -- and a string is written as it is.
+    Every report parameter today is an `int`, a `Literal` string or a
+    `DateRange` bound. An `int` is written as `Cell.value` requires -- as a
+    float, the same conversion `_numeric` uses -- a string as it is, and a
+    `date` as a date cell. An absent date bound (`None`) is written as the
+    word "any", the same word the CLI's parameters line and the console's
+    print heading use: an unset bound means no limit, never the value "None".
     """
     if isinstance(value, bool):
         raise TypeError(f"a bool is not a report parameter value: {value!r}")
+    if value is None and is_date:
+        return "any"
     if isinstance(value, int):
         return float(value)
     if isinstance(value, str):
+        return value
+    if isinstance(value, date) and not isinstance(value, datetime):
         return value
     raise TypeError(f"unexpected parameter value: {value!r}")
 
@@ -193,7 +200,13 @@ def write_workbook(
         label = field.title or name
         value = getattr(params, name)
         sheet.cell(row=row, column=1, value=label)
-        sheet.cell(row=row, column=2, value=_param_cell_value(value))
+        cell = sheet.cell(
+            row=row,
+            column=2,
+            value=_param_cell_value(value, is_date=is_date_field(field)),
+        )
+        if isinstance(cell.value, (date, datetime)):
+            cell.number_format = _DATE_FORMAT
         row += 1
 
     sheet.cell(row=row, column=1, value="Run at")

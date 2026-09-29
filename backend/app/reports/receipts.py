@@ -11,7 +11,6 @@ can drift from what "received" means to the other.
 
 from __future__ import annotations
 
-from collections.abc import Collection
 from datetime import date, datetime
 from typing import Any
 
@@ -23,16 +22,14 @@ from .base import local_date
 __all__ = ["receipt_day", "received_transitions"]
 
 
-def received_transitions(item_ids: Collection[int] | None = None) -> Select[Any]:
+def received_transitions() -> Select[Any]:
     """Every genuine arrival: `inventory_item_id`, `arrived_on`, `changed_at`.
 
-    A base statement a caller may still `.join()` and `.add_columns()` --
-    `pr_received` adds the item, purchase order and vendor it also needs;
-    `sl_aging` takes this shape as it stands. `item_ids`, when given,
-    narrows to those items' own transitions; omitted, every qualifying
-    transition in the database.
+    A base statement a caller may still `.join()`, `.add_columns()` and
+    `.where()` -- `pr_received` adds the item, purchase order and vendor it
+    also needs; `sl_aging` narrows it to its held items through a subquery.
     """
-    stmt = (
+    return (
         select(
             ItemStatusHistory.inventory_item_id,
             ItemStatusHistory.arrived_on,
@@ -44,9 +41,6 @@ def received_transitions(item_ids: Collection[int] | None = None) -> Select[Any]
             ItemStatusHistory.from_status_id.is_not(None),
         )
     )
-    if item_ids is not None:
-        stmt = stmt.where(ItemStatusHistory.inventory_item_id.in_(item_ids))
-    return stmt
 
 
 def receipt_day(arrived_on: date | None, changed_at: datetime) -> date:

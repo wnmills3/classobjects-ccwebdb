@@ -927,9 +927,6 @@ parameters and its table. Groups appear in the order the API lists them:
 | `dq_derived` | Data quality | Fields a machine pass filled in, and the rule that filled each one, that nobody has confirmed | none |
 | `dq_purchases` | Data quality | Purchases with a placeholder number, a missing or implausible order date, no web address, a zero-cost item, or no items | none |
 | `dq_locations` | Data quality | Live items by storage location, with items and total cost | none |
-| `mn_basis` | Money | Status x disposition of every live item: items and total cost | none |
-| `mn_tax` | Money | Period x vendor: purchases and sales tax paid, over purchases with a live item | From, To, Period (month/year, default month) |
-| `mn_value` | Money | Per item kind: live items, the ones with a recorded value, their cost and value, the difference, and items without one | Status (default received), Disposition (default held) |
 | `pr_outstanding` | Purchasing and receiving | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first | Overdue after (days) (default 21) |
 | `pr_spend` | Purchasing and receiving | Period x vendor: purchases, items, item cost, shipping, sales tax and total, over purchases with a live item | From, To, Period (month/quarter/year, default month) |
 | `pr_sources` | Purchasing and receiving | One row per vendor, and per seller a purchase has named: purchases, items, total spent, first/last order date | none |
@@ -939,6 +936,9 @@ parameters and its table. Groups appear in the order the API lists them:
 | `sl_fulfilment` | Selling | Orders still open and unshipped -- pending, paid or packed -- oldest first | none |
 | `sl_aging` | Selling | Live items received and held, not on offer or in an open lot, by months since received and kind | none |
 | `sl_auctions` | Selling | One row per auction, by status; for a settled one: lots, sold, unsold, hammer total and fees | none |
+| `mn_basis` | Money | Status x disposition of every live item: items and total cost | none |
+| `mn_tax` | Money | Period x vendor: purchases and sales tax paid, over purchases with a live item | From, To, Period (month/year, default month) |
+| `mn_value` | Money | Per item kind: live items, the ones with a recorded value, their cost and value, the difference, and items without one | Status (default received), Disposition (default held) |
 
 The console needs no change to show a report added later -- it renders
 whatever `GET /api/reports` lists.
@@ -947,9 +947,10 @@ whatever `GET /api/reports` lists.
 
 A report's own parameters -- `cb_holdings`'s status and disposition,
 `pr_outstanding`'s "Overdue after (days)" -- are a dropdown or a box, the same
-as the inventory filter panel, and the help band explains each one. Leaving
-one empty is refused ("Enter a value for ..."), rather than silently running
-that parameter's default. The report and its parameters are kept in the
+as the inventory filter panel, and the help band explains each one. An
+emptied From or To date means no bound on that side -- an open range is a
+normal question. Leaving any other parameter empty is refused ("Enter a value
+for ..."), rather than silently running that parameter's default. The report and its parameters are kept in the
 address (`/reports?report=pr_outstanding&overdue_days=30`), so a result can be
 bookmarked or reopened; Run writes only the parameters that differ from their
 defaults.
@@ -967,7 +968,8 @@ click in the table.
 ### Export workbook and Print
 
 **Export workbook** downloads the same result as an `.xlsx`: the report's
-title and the parameters it ran with above the table, a totals row below in
+title and the parameters it ran with above the table (an empty From or To
+reads "any"), a totals row below in
 bold, then any notes -- the same layout `python -m app.reports run ...
 --workbook` writes.
 

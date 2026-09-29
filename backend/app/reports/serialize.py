@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from .base import Report, ReportResult
+from .base import Report, ReportResult, is_date_field
 from .registry import REPORTS
 
 __all__ = ["catalog", "serialize_result"]
@@ -59,7 +59,7 @@ def _param_type(field: FieldInfo) -> tuple[str, list[object] | None]:
         return "choice", list(get_args(field.annotation))
     if field.annotation is int:
         return "integer", None
-    if field.annotation is date or date in get_args(field.annotation):
+    if is_date_field(field):
         return "date", None
     return "text", None
 

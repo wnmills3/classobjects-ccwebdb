@@ -610,6 +610,8 @@ def test_value_note_states_the_owner_entered_value_only(db: Session) -> None:
     result = MN_VALUE.run(db, ValueParams())
     assert any("owner" in note.lower() for note in result.notes)
     assert any("valuation basis" in note.lower() for note in result.notes)
+    # Plain words for the reader, never a column name.
+    assert not any("numismatic_value" in note for note in result.notes)
 
 
 def test_value_with_no_live_items_returns_no_rows(db: Session) -> None:

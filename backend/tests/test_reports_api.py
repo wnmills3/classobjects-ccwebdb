@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 
+import pytest
 from app.models import ItemStatus
 from app.reports import REPORTS
 from fastapi.testclient import TestClient
@@ -324,6 +325,45 @@ def test_the_workbook_filenames_date_equals_run_ats_date(
     run_at = datetime.fromisoformat(run_at_text)
 
     assert filename_date == run_at.date().isoformat()
+
+
+@pytest.mark.parametrize("report_id", list(REPORTS))
+def test_every_registered_report_exports_a_readable_workbook(
+    report_id: str, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Every report, with its default parameters, exports a workbook that opens."""
+    res = client.get(f"/api/reports/{report_id}/workbook", headers=admin_headers)
+    assert res.status_code == 200, (report_id, res.text)
+    book = load_workbook(BytesIO(res.content))
+    sheet = book.worksheets[0]
+    assert sheet.cell(row=1, column=1).value == REPORTS[report_id].title
+    _header_row(sheet, "Run at")
+
+
+def test_a_date_range_reports_bounds_are_date_cells_and_an_absent_one_is_any(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """`pr_spend`'s From/To: a date cell when set, the word "any" when not."""
+    res = client.get("/api/reports/pr_spend/workbook", headers=admin_headers)
+    assert res.status_code == 200, res.text
+    sheet = load_workbook(BytesIO(res.content)).worksheets[0]
+    assert sheet.cell(row=_header_row(sheet, "From"), column=2).value == "any"
+    assert sheet.cell(row=_header_row(sheet, "To"), column=2).value == "any"
+
+    res = client.get(
+        "/api/reports/pr_spend/workbook?date_from=2026-01-01&date_to=2026-06-30",
+        headers=admin_headers,
+    )
+    assert res.status_code == 200, res.text
+    sheet = load_workbook(BytesIO(res.content)).worksheets[0]
+    from_cell = sheet.cell(row=_header_row(sheet, "From"), column=2)
+    to_cell = sheet.cell(row=_header_row(sheet, "To"), column=2)
+    assert isinstance(from_cell.value, datetime)
+    assert from_cell.value.date() == date(2026, 1, 1)
+    assert from_cell.number_format == "yyyy-mm-dd"
+    assert isinstance(to_cell.value, datetime)
+    assert to_cell.value.date() == date(2026, 6, 30)
+    assert to_cell.number_format == "yyyy-mm-dd"
 
 
 def test_a_bad_parameter_or_unknown_report_is_refused_on_the_workbook_path_too(

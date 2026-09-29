@@ -32,7 +32,9 @@ snapshot table or materialized view.
 Each report has an id, a group, a title, a one-line purpose, its parameters
 (with their defaults), its columns, a totals row where a total means
 something, and -- where its rows name items -- a drill-down. Groups are
-listed in the order the console shows them.
+listed in the order the console shows them -- `GROUP_ORDER` in
+`app/reports/registry.py` states it, and within a group reports keep the
+order they are registered in.
 
 ### Collection -- what it is made of
 
@@ -45,11 +47,11 @@ or ever sold.
 | Id | Report | Rows, drill and totals |
 |---|---|---|
 | `cb_holdings` | Holdings | Kind x denomination: items, pieces, total cost; a subtotal row (`All <kind>`) after each kind's denominations, and an overall total. A row drills to that kind's search, narrowed to the denomination (or `missing=denomination`, where the kind can carry one and none is recorded); a subtotal row drills to the kind alone. |
-| `cb_designs` | Coins by design | Design series held, across every non-currency kind (currency's own design identity is the Friedberg number, not a series, so it is excluded rather than folded into "No series"): items, year span, total cost, with an overall total. A row drills to the coin search narrowed to that series (or `missing=series`). |
+| `cb_designs` | Coins by design | Design series held, across every non-currency kind (currency's own design identity is the Friedberg number, not a series, so it is excluded rather than folded into "No series"): items, year span, total cost, with an overall total. Rows follow the series vocabulary's own order (then label), "No series" last. A row drills to the coin search narrowed to that series (or `missing=series`). |
 | `cb_notes` | Notes | Note type x series designation: items, seal colors present, Federal Reserve districts present, total cost, with an overall total; star notes and fancy serials counted from the attribute codes that mean them, when the vocabulary carries both (a note explains it when it does not). A row drills to the currency search narrowed to that note type and series designation, only when both are known. |
 | `cb_grades` | Grades | View (Coins or Currency) x grade band (1-49, 50-59, 60-64, 65-70, or "No numeric grade") x strike type x grading service ("Raw" when none): items, total cost, with an overall total. A row's drill is decided from its own group-by key, never by running a search at report time: it is kept only when no other row would be swept into the same search, and omitted for a band with no numeric grade, since no search term states that band. |
 | `cb_metal` | Precious metal | Metal x form (Coin, a bullion form, or the kind's own label), over items with a recorded fine weight: items, fine troy ounces, total cost, and melt value at the latest recorded spot price. A metal with no recorded price contributes to items, ounces and cost but not melt; the melt total is empty (not zero) when nothing is priced, and a note names every metal left out. A row's drill, like `cb_grades`, is decided structurally, not by a run-time search; currency and a bullion row with no form are never drilled. |
-| `cb_attributes` | Attributes and errors | Every attribute and error type a live item carries, split by the view it was recorded on (an attribute or error type that applies to either kind is two rows, one per view): items. No total: an item can carry several at once. A row drills to that view's search narrowed to the attribute or error type. |
+| `cb_attributes` | Attributes and errors | Every attribute and error type a live item carries, split by the view it was recorded on (an attribute or error type that applies to either kind is two rows, one per view): items; attributes first, then errors, each in its vocabulary's own order (then label). No total: an item can carry several at once. A row drills to that view's search narrowed to the attribute or error type. |
 
 ### Data quality -- what is missing or wrong
 
@@ -69,7 +71,7 @@ or ever sold.
 | `pr_outstanding` | Not yet arrived | One row per purchase carrying at least one live item still `ordered` or `missing`, oldest ordered first: vendor, seller, order date, days waiting, items outstanding and their cost, and an `Overdue` text column holding the word "Overdue" once days waiting exceeds the parameter (empty otherwise). Parameter: `overdue_days` (default 21). A row drills to `/receiving?order=<id>`; an overall total. |
 | `pr_spend` | Spending | Period x vendor, over purchases with a live item (a purchase with none is not counted as a purchase at all, noted by name): purchases, items, item cost, shipping, sales tax, total, with a subtotal row per period (`All vendors`) and an overall total (`All periods`). Parameters: a date range (`date_from`/`date_to`, either or both empty meaning no bound on that side) filtering by the purchase's own order date, and `period` (`month`, default, `quarter` or `year`). No drills: a period x vendor cell has no single search page. A note counts purchases excluded for having no order date at all. |
 | `pr_sources` | Vendors and sellers | One row per vendor with a counted purchase (same live-item rule as `pr_spend`), and beneath it one row per seller that vendor's purchases have named: purchases, items, total spent, first and last order date. Totals are over vendor rows only -- a seller row is a further breakdown of purchases its vendor row already counts, not more purchases. No drills. |
-| `pr_received` | Received | Arrival day x vendor, from `item_status_history`'s own transitions *to* `received` (never the opening row a new item, a split child or a seed gets, and never the one-time history reset of 2026-09-25 to a single opening row per item -- neither is an arrival, and a note says so): items and total cost. A split parent's own receipt is attributed to its live children, on the parent's own day and vendor, since the pieces arrived with it. Parameter: a date range on the arrival day. No drills. An item received more than once counts once per receipt, noted. |
+| `pr_received` | Received | Arrival day x vendor, from `item_status_history`'s own transitions *to* `received` (never the opening row a new item, a split child or a seed gets, and never the one-time history reset of 2026-09-25 to a single opening row per item -- neither is an arrival, and a note says so): items and total cost; an item recorded with no purchase counts under the vendor "No purchase". A split parent's own receipt is attributed to its live children, on the parent's own day and vendor, since the pieces arrived with it. Parameter: a date range on the arrival day. No drills. An item received more than once counts once per receipt, noted. |
 
 ### Selling -- what is on offer and what has sold
 
@@ -77,8 +79,8 @@ or ever sold.
 |---|---|---|
 | `sl_offered` | On offer | Active and paused listings -- items and sales lots -- by venue, then oldest listed first: listing, what it offers, status, asking price, currency, cost basis, days listed. A coin offered elsewhere or grouped into a lot keeps its paused store-listing row (status "Paused for `<venue>` listing"), but that row is left out of both totals so the coin counts once, on the listing that superseded it, not twice (noted by count); a listing not priced in USD is left out of the asking total only (also noted). Totals: asking (USD only) and cost basis. A row drills to the item's editor, or to `/lots` for a lot. |
 | `sl_sales` | Sales | Month x venue, over sales orders placed in range whose status is a completed or in-progress sale -- pending, paid, packed, shipped or delivered, never cancelled or refunded, since that money went back (a note names the counted statuses and how many orders in range were excluded): orders, gross, fees, net, cost basis and gain, the last two summed per item share (`sales_order_item_share`, specific identification) so a bucket's own gain is exactly the sum of its items'. Parameter: a date range on the order's own placement date. A row drills to `/sales`; an overall total. |
-| `sl_fulfilment` | To ship | One row per order still open and unshipped -- `pending`, `paid` or `packed`, the same open-order statuses Receiving itself uses, stated as an included list so a future status is never swept in by default -- oldest first: customer, items, amount, days waiting. A row drills to `/sales`; an overall total. A deleted or split item is left out of its order's own item count, noted. |
-| `sl_aging` | Held and not offered | Live items received and held, not on any active or paused listing and not an open member of a sales lot, by months since receipt (0-5, 6-11, 12-23, 24+, or "Unknown" when no receipt transition is found -- most items today, since the collection's status history was reset on 2026-09-25) x kind: items, total cost. A split child with no receipt of its own falls back to its split parent's. No drills; an overall total. A note counts the "Unknown" items when there are any. |
+| `sl_fulfilment` | To ship | One row per order still open and unshipped -- `pending`, `paid` or `packed`, the open-order statuses the sales side itself uses (`sale_state`), stated as an included list so a future status is never swept in by default -- oldest first: customer, items, amount, days waiting. A row drills to `/sales`; an overall total. A deleted or split item is left out of its order's own item count; a note counts them when there are any. |
+| `sl_aging` | Held and not offered | Live items received and held, not on any active or paused listing and not an open member of a sales lot, by months since receipt (0-5, 6-11, 12-23, 24+, or "Unknown" when no receipt transition is found -- the collection's status history was reset on 2026-09-25 to one opening row per item, which is not an arrival) x kind: items, total cost. A split child with no receipt of its own falls back to its split parent's. No drills; an overall total. A note counts the "Unknown" items when there are any. |
 | `sl_auctions` | Auctions | One row per auction, ordered by status (draft through settled, then cancelled): lots, sold, unsold (withdrawn counts as unsold), hammer total and fees -- shown only for a settled auction, since a closed one may carry a result mid-settlement. A row drills to `/auctions`. No totals row: the figures are not meaningful summed across different auctions and statuses. |
 
 ### Money -- what it cost and what it is worth
@@ -97,7 +99,9 @@ or ever sold.
   `issues.py` holds its checks: adding a report is adding one `register()`
   call in a group module. `app/reports/__init__.py` imports every group
   module, so `REPORTS` is complete the moment anything imports `app.reports`
-  itself. Each entry is a `Report`: `id`, `group`, `title`, `purpose`, `params`
+  itself; it iterates in catalog order (`GROUP_ORDER`, then registration
+  order), and a report naming a group not in `GROUP_ORDER` is refused. Each
+  entry is a `Report`: `id`, `group`, `title`, `purpose`, `params`
   (a pydantic model of the parameters it takes, with their defaults), and
   `run(db, params) -> ReportResult`.
 - **One result shape.** `ReportResult` has `columns` (key, label, and
@@ -113,10 +117,13 @@ or ever sold.
   price: ...".
 - **Grouped by module**: `collection.py`, `data_quality.py`, `money.py`,
   `purchasing.py` and `selling.py`, each defining its own reports and
-  registering them. Three small modules hold logic more than one group
+  registering them. Four small modules hold logic more than one group
   module shares, rather than each restating it: `tables.py` (the
   `inventory_item`/`item_kind` aliases and the live-row predicate on them,
-  shared by every report that groups over live items), `receipts.py` (one
+  shared by every report that groups over live items), `live_params.py`
+  (the status/disposition parameters, their filter, a kind's drill-down and
+  the "Nothing matches these settings." note, shared by every Collection
+  report and `mn_value`), `receipts.py` (one
   definition of "an item's receipt" -- a status transition *to* `received`,
   never an opening row -- shared by `pr_received` and `sl_aging`), and
   `live_purchases.py` (one definition of "a purchase" -- counted only when
@@ -138,8 +145,9 @@ or ever sold.
 - **Queries** are SQLAlchemy Core on the base tables, grouped by a
   foreign-key id or code together with its label. Parameters are bound;
   column names come from allowlists, never from a request.
-- **Money** is `Decimal`, summed in SQL, sent as decimal strings, as
-  everywhere else.
+- **Money** is `Decimal`: summed in SQL where the grouping allows, else
+  added as `Decimal` in Python, which is exact; never a float. It is sent as
+  decimal strings, as everywhere else.
 - **Date-range parameters.** `DateRange` (`app/reports/base.py`) is the
   shared params base for any report scoped to a date range: `date_from` and
   `date_to`, both optional and independent, titled "From" and "To". A
@@ -172,7 +180,8 @@ or ever sold.
   so a report is validated identically from either.
 - `GET /api/reports/{id}/workbook?<params>` -- the same result as an `.xlsx`
   download, named `<id>_<YYYY-MM-DD>.xlsx` (the run date): one sheet, the
-  report's title, one row per parameter (label and the value it ran with), a
+  report's title, one row per parameter (label and the value it ran with; a
+  date bound is a date cell, an absent one the word `any`), a
   "Run at" row, a blank row, then the header row, the data rows, the totals row directly
   below (bold) when there is one, a blank row, then each note -- money and
   percent cells written as numbers, NULL as an empty cell, the header row
