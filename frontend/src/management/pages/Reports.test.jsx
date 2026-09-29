@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,7 +13,7 @@ vi.mock('../api', () => ({
 
 import { api } from '../api'
 import { ApiError } from '../../shared/api'
-import { dateTime, money } from '../../shared/format'
+import { date, dateTime, money } from '../../shared/format'
 import { FIELD_HELP } from '../fieldHelp'
 import { adminAuth, renderWithProviders } from '../../test/helpers'
 import Reports from './Reports'
@@ -69,6 +69,16 @@ const CATALOG = [
     title: 'On offer',
     purpose: 'Everything listed for sale.',
     params: [],
+  },
+  {
+    id: 'test_date_range',
+    group: 'Purchasing and receiving',
+    title: 'Date range (test)',
+    purpose: 'Exercises date parameters.',
+    params: [
+      { name: 'date_from', label: 'From', type: 'date', default: null, choices: null },
+      { name: 'date_to', label: 'To', type: 'date', default: null, choices: null },
+    ],
   },
 ]
 
@@ -143,6 +153,24 @@ function outstanding(params = { overdue_days: 30 }) {
   }
 }
 
+function dateRange(params = {}) {
+  return {
+    id: 'test_date_range',
+    group: 'Purchasing and receiving',
+    title: 'Date range (test)',
+    params: { date_from: params.date_from ?? null, date_to: params.date_to ?? null },
+    run_at: '2026-09-28T10:15:00-04:00',
+    columns: [
+      { key: 'date_from', label: 'From', kind: 'date' },
+      { key: 'date_to', label: 'To', kind: 'date' },
+    ],
+    rows: [{ date_from: params.date_from ?? null, date_to: params.date_to ?? null }],
+    totals: null,
+    drills: [null],
+    notes: [],
+  }
+}
+
 function completeness() {
   return {
     id: 'dq_completeness',
@@ -192,9 +220,11 @@ function firstCells() {
 beforeEach(() => {
   vi.clearAllMocks()
   api.listReports.mockResolvedValue(CATALOG)
-  api.runReport.mockImplementation((id, params) =>
-    Promise.resolve(id === 'dq_completeness' ? completeness() : outstanding(params)),
-  )
+  api.runReport.mockImplementation((id, params) => {
+    if (id === 'dq_completeness') return Promise.resolve(completeness())
+    if (id === 'test_date_range') return Promise.resolve(dateRange(params))
+    return Promise.resolve(outstanding(params))
+  })
 })
 
 afterEach(() => {
@@ -526,5 +556,74 @@ describe('Reports page', () => {
     renderAt('/reports?report=dq_completeness')
     await screen.findByRole('cell', { name: 'Coin' })
     expect(document.querySelector('.report')).not.toHaveClass('report--wide')
+  })
+
+  it('offers a date input for a date parameter', async () => {
+    renderAt('/reports?report=test_date_range')
+    const from = await screen.findByLabelText('From')
+    expect(from).toHaveAttribute('type', 'date')
+    expect(screen.getByLabelText('To')).toHaveAttribute('type', 'date')
+  })
+
+  it('sends a filled date and omits an empty one, both ways in the address', async () => {
+    const user = userEvent.setup()
+    renderAt('/reports?report=test_date_range')
+    const from = await screen.findByLabelText('From')
+
+    fireEvent.change(from, { target: { value: '2026-01-15' } })
+    await user.click(screen.getByRole('button', { name: 'Run' }))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('address')).toHaveTextContent(
+        '?report=test_date_range&date_from=2026-01-15',
+      ),
+    )
+    expect(api.runReport).toHaveBeenLastCalledWith('test_date_range', {
+      date_from: '2026-01-15',
+    })
+
+    // Filling To and then clearing From again drops only date_from.
+    const to = screen.getByLabelText('To')
+    fireEvent.change(to, { target: { value: '2026-01-31' } })
+    await user.click(screen.getByRole('button', { name: 'Run' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('address')).toHaveTextContent(
+        '?report=test_date_range&date_from=2026-01-15&date_to=2026-01-31',
+      ),
+    )
+
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '' } })
+    await user.click(screen.getByRole('button', { name: 'Run' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('address').textContent).toBe(
+        '?report=test_date_range&date_to=2026-01-31',
+      ),
+    )
+    expect(api.runReport).toHaveBeenLastCalledWith('test_date_range', {
+      date_to: '2026-01-31',
+    })
+  })
+
+  it('still refuses an emptied non-date field alongside an empty date', async () => {
+    const user = userEvent.setup()
+    renderAt('/reports?report=pr_outstanding&overdue_days=30')
+    const box = await screen.findByLabelText('Overdue after (days)')
+
+    await user.clear(box)
+    await user.click(screen.getByRole('button', { name: 'Run' }))
+
+    expect(
+      await screen.findByText('Enter a value for Overdue after (days).'),
+    ).toBeInTheDocument()
+  })
+
+  it("shows a date parameter as a date, and an absent bound as 'any', on the print heading", async () => {
+    renderAt('/reports?report=test_date_range&date_from=2026-01-15')
+    await screen.findByRole('cell', { name: date('2026-01-15') })
+
+    const heading = document.querySelector('.print-only')
+    const paper = within(heading)
+    expect(paper.getByText(`From: ${date('2026-01-15')}`)).toBeInTheDocument()
+    expect(paper.getByText('To: any')).toBeInTheDocument()
   })
 })

@@ -61,8 +61,15 @@ export function choiceText(choice) {
   return String(choice).replaceAll('_', ' ')
 }
 
-/** A parameter's value in words, as the print heading gives it. */
+/**
+ * A parameter's value in words, as the print heading gives it.
+ *
+ * An absent date bound (Ruling P2-3: an emptied date means no limit, not a
+ * refusal) prints as "any" rather than blank, since a heading with nothing
+ * after the colon would read as if the parameter had been dropped.
+ */
 export function paramText(param, value) {
+  if (param.type === 'date') return isBlank(value) ? 'any' : date(value)
   if (isBlank(value)) return ''
   return param.type === 'choice' ? choiceText(value) : String(value)
 }

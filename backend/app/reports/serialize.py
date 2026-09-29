@@ -47,16 +47,20 @@ def _param_type(field: FieldInfo) -> tuple[str, list[object] | None]:
 
     A `Literal` annotation (every status/disposition parameter today) is
     `"choice"`, with `choices` the literal's own values; a plain `int` is
-    `"integer"`; anything else is `"text"`. Read from the annotation, never
-    guessed from the default, so a `Literal[int, ...]` parameter (none
-    exists today) would still be caught as `"choice"` rather than
-    misread as `"integer"`.
+    `"integer"`; `date` or `date | None` (a `DateRange` field) is `"date"`;
+    anything else is `"text"`. Read from the annotation, never guessed from
+    the default, so a `Literal[int, ...]` parameter (none exists today)
+    would still be caught as `"choice"` rather than misread as `"integer"`,
+    and an unset (`None`) date still reads as `"date"` rather than falling
+    through to `"text"`.
     """
     origin = get_origin(field.annotation)
     if origin is Literal:
         return "choice", list(get_args(field.annotation))
     if field.annotation is int:
         return "integer", None
+    if field.annotation is date or date in get_args(field.annotation):
+        return "date", None
     return "text", None
 
 
