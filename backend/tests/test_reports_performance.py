@@ -283,6 +283,9 @@ def _build_modest_collection(db: Session) -> None:
             item_attribute_id=code_id(db, ItemAttribute, "mule"),
         )
     )
+    # `mn_value` reads `numismatic_value`; cheap to set one here so the
+    # performance guard exercises that path too.
+    listing_items[3].numismatic_value = Decimal("45.00")
     db.commit()
 
     # `sl_sales` and `sl_fulfilment` read `sales_order_item_share`;
