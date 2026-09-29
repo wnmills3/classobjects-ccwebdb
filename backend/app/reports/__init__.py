@@ -12,7 +12,14 @@ already-imported module and does not re-run it.
 
 from __future__ import annotations
 
-from .collection import CB_HOLDINGS
+from .collection import (
+    CB_ATTRIBUTES,
+    CB_DESIGNS,
+    CB_GRADES,
+    CB_HOLDINGS,
+    CB_METAL,
+    CB_NOTES,
+)
 from .data_quality import (
     DQ_COMPLETENESS,
     DQ_DERIVED,
@@ -26,7 +33,12 @@ from .registry import REPORTS, register
 from .selling import SL_OFFERED
 
 __all__ = [
+    "CB_ATTRIBUTES",
+    "CB_DESIGNS",
+    "CB_GRADES",
     "CB_HOLDINGS",
+    "CB_METAL",
+    "CB_NOTES",
     "DQ_COMPLETENESS",
     "DQ_DERIVED",
     "DQ_ISSUES",
