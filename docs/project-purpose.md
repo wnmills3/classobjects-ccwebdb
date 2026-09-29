@@ -1,7 +1,10 @@
 # What this project is for
 
 Everything else in `docs/` describes *how* something works; this describes
-*why*. Read it first when a design decision looks arbitrary.
+*why*: the business the system serves, the three things a sale depends on,
+what is deliberately out of scope, and the constraints every feature obeys.
+It is for anyone changing the system -- read it first when a design decision
+looks arbitrary, because most of them follow from a rule stated here.
 
 ## The goal
 
@@ -25,8 +28,12 @@ Three things have to be true for a sale:
 
 ## Where items are sold
 
+Every channel is a **platform** (`sales_venue`, the console's **Platforms**
+page), so a listing always names where it is offered.
+
 **The web store** (the shop). Buyers browse the catalog, add to a cart and
-order, as registered customers.
+order, as registered customers; the owner can also place an order on a
+customer's behalf from the console.
 
 **Outside platforms** -- eBay, Whatnot, auction houses such as Heritage and
 HiBid. The owner lists there by hand; this system records the offer, and
@@ -115,8 +122,12 @@ stored items.
 - **An item has one identity for life.** `item_code` (`CC-000123`) is issued
   once, never changed and never reused, so a returned item resumes its own
   history and an audit reference is never ambiguous.
-- **Nothing is deleted.** Rows are withdrawn, split, ended, retired, merged or
-  soft deleted; the record of what happened stays.
+- **Nothing with a history is deleted.** Items are soft deleted, split,
+  ended or withdrawn; vocabulary values are retired or merged; an item that
+  has ever been offered, a sales lot that has been offered, and any order
+  stay for good. The only rows removed outright are ones nothing refers to:
+  an unused vendor, seller, storage location or Friedberg row, a sales lot
+  never offered, and a vocabulary value merged into another.
 - **Only facts are shipped as reference data.** The catalog is sold, so
   anything seeded is redistributed with it: design series, office holders and
   mint specifications may be; a publisher's numbering or price guide may not.

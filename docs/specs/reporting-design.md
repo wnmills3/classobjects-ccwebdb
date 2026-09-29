@@ -1,21 +1,22 @@
 # Reports
 
-**Built**: every report in the catalog below, the API, the command line, the
-console page and printing.
+*2026-09-29.* Reports answer the questions the owner asks of the collection
+as a whole: what is missing or wrong in the record, what the collection is
+made of, what has been bought and not yet arrived, what is on offer and what
+has sold, and what it all cost. They are for the owner and managers only,
+on the management console's **Reports** page (`/management/reports`), and
+the same 24 reports run from the command line and export to a workbook or
+print on paper.
 
-A **Reports** page in the console answers the questions the owner asks of
-the collection as a whole: what is missing or wrong in the record, what the
-collection is made of, what has been bought and not yet arrived, what is on
-offer and what has sold, and what it all cost. Reports read; they never
-write. Fixing what a report finds is done where it is done today -- the item
-editor, a bulk edit, Receiving, a pass -- and every report row that names
-items links there.
+Reports read; they never write. Fixing what a report finds is done where it
+is always done -- the item editor, a bulk edit, Receiving, a pass -- and
+every report row that names items links there.
 
-## What exists, and is reused
+## What reports are built on
 
-| Existing | Reused as |
+| Source | Used by reports as |
 |---|---|
-| `app/issues.py` -- named checks per kind (`no_year`, `no_denomination`, `zero_cost`, `unreviewed`, `malformed_serial`, `near_duplicate_serial`, ...), each a SQL predicate with a description | `dq_issues` counts and lists by these same checks; a new check is still added there, once, and appears in the search, its badges and the reports alike. |
+| `app/issues.py` -- named checks per kind (`no_year`, `no_denomination`, `zero_cost`, `unreviewed`, `malformed_serial`, `near_duplicate_serial`, ...), each a SQL predicate with a description | `dq_issues` counts and lists by these same checks; a new check is added there, once, and appears in the search, its badges and the reports alike. |
 | `app/inventory_search.py` -- `COIN_VIEW` / `CURRENCY_VIEW`, `count_issues`, `MISSING_FIELDS`, the live-row rule stated as SQL text, allowlisted filters | Breakdowns group by the same facets; every drill-down is an inventory search URL built from the same filter names; `dq_completeness` and `dq_photos` reuse `MISSING_FIELDS[key].sql` verbatim. |
 | `app/live.py` -- `live_item()`, `OUTSTANDING_STATUSES` (`ordered`, `missing`), also read by `routers/acquisitions.py` | Every report reads `live_item()`, and `pr_outstanding` reads both names, so a report and Receiving never disagree about what is live or outstanding. |
 | `sales_order_item_share` (amount, fee per item), `sales_order_fee`, `listing`, `auction_lot` | `sl_sales`, `sl_offered` and `sl_auctions` read these; the per-item share is what makes a sale's cost basis and gain computable per item. |
@@ -58,7 +59,7 @@ or ever sold.
 | Id | Report | Rows, drill and totals |
 |---|---|---|
 | `dq_issues` | Open issues | One row per named check per view (coins, then currency): its description and items. No total: an item can carry several issues at once. A row drills to `?issue=<check>` when it counted anything. |
-| `dq_completeness` | Field completeness | One row per kind with at least one live item: live items, then percent filled for each field that applies to that kind -- year, denomination and grade (coins and notes only), country, series (not currency, whose year is its series year), metal (not currency or sets), photograph, storage location, listing link, seller's item id. A blank cell means the field does not apply to that kind, never 0% or 100%. A row drills to that kind's search; a cell drills one step further, to the same search with `missing=<key>` added, the console building that itself since a column's key is exactly the `missing=` field name. |
+| `dq_completeness` | Field completeness | One row per kind with at least one live item: live items, then percent filled for each field that applies to that kind -- year (every kind; a note's is its series year), denomination and grade (coins and notes only), country, series (not currency, whose year is its series year), metal (not currency or sets), photograph, storage location, listing link, seller's item id. A blank cell means the field does not apply to that kind, never 0% or 100%. A row drills to that kind's search; a cell drills one step further, to the same search with `missing=<key>` added, the console building that itself since a column's key is exactly the `missing=` field name. |
 | `dq_photos` | Photographs | Live items with no photograph, by kind and status, then a final row for photographs filed against no item at all. A kind x status row drills to `?missing=photo` narrowed by status; the unfiled row drills to `/photos`. |
 | `dq_derived` | Filled by a rule, not yet confirmed | Field x rule: `item_field_source` rows with no matching `item_field_review` for the same item and field (a field a person emptied on purpose, `HELD`, is excluded). No drills: this is a finer question than `issue=unreviewed` and the two counts can disagree in either direction, so no row claims to reproduce that search. |
 | `dq_purchases` | Purchases with gaps | One row per purchase with at least one gap, newest first: order number, vendor, order date, and its gaps in a fixed order -- a generated placeholder number, no order date, no web address, an order date after the purchase's own entry date, an order date more than a year before entry, an item with zero cost, or no items at all (a purchase whose only items are deleted or split reads as "no items", not as dropped from the report). A row drills to `/receiving?order=<id>`. |
@@ -129,7 +130,9 @@ or ever sold.
   `live_purchases.py` (one definition of "a purchase" -- counted only when
   it carries a live item -- shared by `pr_spend`, `pr_sources` and
   `mn_tax`). A report built on top of one of these can never silently
-  disagree with another about what the shared word means.
+  disagree with another about what the shared word means. The plumbing is
+  `base.py` (`Report`, `ReportResult`, `DateRange`, `Period`), `params.py`
+  (`resolve_params`), `serialize.py` (the JSON shapes) and `workbook.py`.
 - **The live-row rule.** Every report reads live items only -- no
   `deleted_at`, no `split_at` -- through one shared predicate, `live_item()`
   in `app/live.py`. The search views are SQL text, so they state the same
@@ -261,8 +264,8 @@ same page, with no report-specific code:
 - The table's header row repeats on every page (`thead` as a table
   header group), a row is never split across pages, and the totals row
   and the report's notes follow the last row.
-- A report wider than a portrait page is marked so the page prints
-  landscape (`@page` size set by a class on the report).
+- A report of more than six columns prints landscape (`report--wide`, which
+  sets the `@page` size; `PORTRAIT_COLUMNS` in `ReportView.jsx`).
 - Black on white: nothing is carried by colour alone (an overdue row is
   marked in words, in its own Overdue cell); money is right-aligned; a drill-down
   link prints as its plain text.
@@ -270,16 +273,17 @@ same page, with no report-specific code:
   footer.
 
 
-### What the inventory search needs
+### The `missing=` search filter
 
-Drill-downs reuse the search's filters, plus one the search did not already
-have: **`missing=<field>`** -- items whose field is empty, kind-aware as the
+Drill-downs reuse the inventory search's filters, including
+**`missing=<field>`** -- items whose field is empty, kind-aware as the
 completeness report is (`inventory_search.MISSING_FIELDS`, one shared
-predicate per field). Its field names are exactly `dq_completeness`'s own
-percent-column keys -- year, denomination, grade, country, series, metal,
-photo, storage_location, listing_link, sellers_item_id -- so a report cell's
-count and its drill-down search's count are the same predicate, not two that
-happen to agree today. It is useful in the search on its own.
+predicate per field; a field outside its kinds matches nothing). Its field
+names are exactly `dq_completeness`'s percent-column keys -- year,
+denomination, grade, country, series, metal, photo, storage_location,
+listing_link, sellers_item_id -- so a report cell's count and its
+drill-down search's count are the same predicate. It works in the search on
+its own.
 
 ## Rules
 
@@ -295,19 +299,15 @@ happen to agree today. It is useful in the search on its own.
 - **Kind-aware.** A field that does not apply to a kind (a note's metal, a
   coin's seal) is not "missing" for it; a note's year is its series year.
 - **Live rows only**, as above.
-- **Current state.** Reports answer from the database as it is. A report on
-  what the collection looked like at a past date needs history this design
-  does not add.
+- **Current state.** Reports answer from the database as it is, not as it
+  was at a past date.
 
-## Not in this design
+## Out of scope
 
-- Charts. Tables and totals first; a chart can be added to a report later
-  without changing its shape.
-- Scheduled or emailed reports, dashboards on the landing page, and a
-  free-form query builder.
-- A tax-return form of realized gain: `sl_sales` shows gain per item (see
-  Decisions); how fees and shipping are presented on a return is outside it.
-- Snapshots over time (the collection's value by month).
+Charts; scheduled or emailed reports; dashboards; a free-form query
+builder; a tax-return form of realized gain (`sl_sales` shows gain per item,
+but how fees and shipping are presented on a return is outside it); and
+snapshots over time, which need history the database does not keep.
 
 ## Decisions
 
@@ -327,12 +327,16 @@ happen to agree today. It is useful in the search on its own.
 
 - Each report's `run` is tested against built data with a known answer,
   including a deleted and a split item that must not count, and an item of a
-  kind a field does not apply to.
-- The API: catalog shape, a parameter default, a 422, a 404, manager only.
-- The workbook: a report round-trips -- the sheet's rows equal the JSON's.
-- The console: the page lists the catalog, runs a report from the address,
-  sorts, exports, prints (the Print button calls the browser's print; the
-  print-only heading carries the title, parameters and run time), and drills
-  down.
-- Performance: a test that runs every report against the test database and
-  fails if any takes over a second -- a guard, not a benchmark.
+  kind a field does not apply to (`tests/test_reports_collection.py`,
+  `_data_quality`, `_purchasing`, `_selling`, `_money`; date ranges and
+  periods in `_dates`; the registry's ordering and refusals in `_registry`).
+- The API (`test_reports_api.py`): catalog shape, a parameter default, a
+  422, a 404, manager only; the workbook round-trips -- the sheet's rows
+  equal the JSON's. The command line: `test_reports_cli.py`.
+- The console (`Reports.test.jsx`): the page lists the catalog, runs a
+  report from the address, sorts, exports, prints (the Print button calls
+  the browser's print; the print-only heading carries the title, parameters
+  and run time), and drills down.
+- Performance (`test_reports_performance.py`): every report runs against the
+  test database and fails if any takes over a second -- a guard, not a
+  benchmark.

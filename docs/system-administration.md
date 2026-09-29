@@ -1,20 +1,49 @@
 # System administration
 
-How to run the system rather than how to build it: who may sign in and what
-they may do, which settings exist, how the collection record is kept correct,
-every way an inventory item comes into being, changes or leaves, and how
-backups and schema releases are done.
+**What this covers.** How to run the business system day to day, rather than
+how to build it: accounts and roles, settings, the command-line passes that
+keep the collection record correct, how items are entered, changed, received,
+offered and sold, reports, reference vocabularies, backups, and applying a
+schema release.
 
-`docs/runtime-operations.md` covers starting and stopping the services;
-`docs/environment-setup.md` covers installing them;
-`docs/database-design.md` covers how the record is structured.
+**Who it is for.** Whoever administers the system -- a manager using the
+console, or someone at the command line on the machine that runs it.
 
-Everything below is administered through the **management console** at `/management`, a
-separate application from the shop (`docs/specs/management-console-separation-design.md`).
-Nothing here is reachable from the storefront.
+**Why it matters.** The `ccwebdb` database *is* the record of the collection
+and its cost basis. Most of what follows is about keeping that record true:
+who may change it, which code paths are allowed to write each part, and how
+to take and prove a backup before anything risky.
 
-Command-line passes run from `backend\` with the `ccwebdb` conda environment
-active. Every pass reports and touches nothing unless given `--commit`.
+Related documents: [runtime-operations.md](runtime-operations.md) (starting
+and stopping the services), [environment-setup.md](environment-setup.md)
+(installing them), [database-design.md](database-design.md) (how the record
+is structured).
+
+## Contents
+
+1. [Accounts](#accounts) -- roles, creating accounts, passwords
+2. [Settings](#settings) -- `.env` and `backend/app/config.py`
+3. [The collection record](#the-collection-record) -- the command-line passes
+4. [Finding items](#finding-items) -- the inventory search panel
+5. [Inventory items](#inventory-items) -- creating, editing, receiving, removing
+6. [Entering a purchase](#entering-a-purchase)
+7. [Sales](#sales) -- sales orders
+8. [Selling](#selling) -- platforms, offers, sales lots, auctions
+9. [Reports](#reports)
+10. [Reference vocabularies](#reference-vocabularies) -- values, aliases,
+    attributes, errors, seed files
+11. [Lists](#lists-friedberg-numbers-sellers-vendors-storage-locations) --
+    Friedberg numbers, sellers, vendors, storage locations
+12. [Backing up and restoring](#backing-up-and-restoring)
+13. [Applying a schema release](#applying-a-schema-release)
+14. [Things that are deliberately not configurable](#things-that-are-deliberately-not-configurable)
+
+**Where things are done.** Everything in the console is under the
+**management console** at `/management`, a separate application from the shop
+(`docs/specs/management-console-separation-design.md`); none of it is
+reachable from the storefront. Command-line examples are cmd: `python -m`
+commands run from `backend\` with the `ccwebdb` conda environment active;
+`.\scripts\...` commands run from the repository root.
 
 ## Accounts
 
@@ -44,10 +73,12 @@ bundle split removes an information leak, it does not enforce anything.
   so pass the password on out of band.
 - **Promotion**: a manager changes an account's role under **People**.
 - **The first manager** of a new database is created by
-  `python -m app.seed`, from `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`.
-  That module also creates five demo items with listings, so it is never run
-  against a database holding a real collection. Change the password
-  immediately -- the default is published in this repository.
+  `python -m app.seed`, from `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD`,
+  after `python -m app.seeding load` has loaded the reference vocabularies it
+  names. It takes no options and writes at once. It also creates five demo
+  items, each offered in the web store, so it is never run against a
+  database holding a real collection. Change the password immediately -- the
+  default is published in this repository.
 
 ### What a manager may change
 
@@ -89,17 +120,26 @@ in, then demote the old account.
 
 ## Settings
 
-Defaults live in `backend/app/config.py` and are overridden by environment
-variables or the repo-root `.env` (template: `.env.example`). Names are the
-field names upper-cased (`jwt_secret` -> `JWT_SECRET`). Settings are read when
-the API starts; change them, then restart the API.
+Settings decide where the database, images and photographs are, how sessions
+are signed, and how purchases are taxed. Defaults live in
+`backend/app/config.py` and are overridden by environment variables or the
+repo-root `.env` (template: `.env.example`). Names are the field names
+upper-cased (`jwt_secret` -> `JWT_SECRET`). **A misspelt name is silently
+ignored** (`extra="ignore"`), so check the spelling when a change seems to
+have no effect. Settings are read when the API starts; change them, then
+restart the API (`.\scripts\ccweb_shutdown.cmd /keepdb`, then
+`.\scripts\ccweb_startup.cmd`).
+
+The log settings `CCWEB_LOG_DIR`, `CCWEB_LOG_KEEP` and `CCWEB_LOG_MAX_BYTES`
+are read by the runtime scripts, not by `config.py`; see
+[logs/README.md](../logs/README.md).
 
 ### Must change before anything outside this machine can reach the system
 
 | Setting | Default | Why |
 |---|---|---|
 | `JWT_SECRET` | `dev-only-insecure-secret-change-me` | signs every token; anyone who knows it can mint an admin session. The default is deliberately obvious so an unconfigured deployment is easy to spot |
-| `FIRST_ADMIN_PASSWORD` | `adminpassword` | published in this repository |
+| `FIRST_ADMIN_PASSWORD` | `adminpassword` | published in this repository; used only by `python -m app.seed` (`FIRST_ADMIN_EMAIL`, default `admin@example.com`, names the account) |
 | `DATABASE_URL` | local `ccwebdb` with `devpassword` | contains the database password |
 
 ### Worth reviewing
@@ -148,38 +188,55 @@ Changing the rendition sizes does not regenerate existing images.
 
 **The `ccwebdb` database is the record.** Data is improved in the console or
 by the passes below, which fill what is empty and never overwrite what a
-person set. Recovery from a data problem is a restore from a verified backup
-(*Backing up and restoring*).
+person set. There is no importer: the only bulk way in or out is the workbook
+backup (*Backing up and restoring*), and recovery from a data problem is a
+restore from a verified backup.
 
 ### The passes over stored items
 
-| Pass | Does |
-|---|---|
-| `python -m app.classifier_defaults` | fills note class, seal, signatures, Reserve Bank, composition and No Motto from the facts |
-| `python -m app.series_match` | assigns a coin's series from the design its title or description names |
-| `python -m app.series_classify` | assigns series from denomination and year, for coins the text left and all notes |
-| `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial |
-| `python -m app.photo_import` | links photographs to items by filename |
-| `python -m app.vendor_cleanup` | merges, renames, re-kinds or deletes purchase sources, by explicit instruction |
-| `python -m app.ebay_orders` | fills eBay purchases' missing order numbers and items' listing ids from eBay's purchase history |
+A pass applies a rule to every stored item at once -- the work the console
+does as each item is saved, done for everything recorded before the rule
+existed. **Each pass is a dry run unless given `--commit`**: it prints what it
+would change and writes no database rows.
 
-Run `classifier_defaults` before `series_classify`: note class is evidence for
-series. Before running any pass with `--commit` on the live database, take a
-verified backup and read the dry-run counts.
+| Pass | Does | Options |
+|---|---|---|
+| `python -m app.classifier_defaults` | fills note class, seal, signatures, Reserve Bank, composition and No Motto from the facts | `--commit` |
+| `python -m app.series_match` | assigns a coin's series from the design its title or description names | `--commit` |
+| `python -m app.series_classify` | assigns series from denomination and year, for coins the text left and all notes | `--commit` |
+| `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial | `--commit` |
+| `python -m app.listing_links` | fills an item's listing address and seller's item id each from the other; outside eBay and Whatnot, an item and its purchase share one lot page, and each takes it from the other when missing (`docs/specs/entry-panels-design.md`, *Listing links*) | `--commit --by EMAIL` |
+| `python -m app.ebay_orders` | fills eBay purchases' missing order numbers and items' listing ids from eBay's purchase history | `FILE... [--review FILE.xlsx] [--commit --by EMAIL]` |
+| `python -m app.photo_import` | links photographs to items by filename | `[--root DIR] [--commit]` |
+| `python -m app.vendor_cleanup` | merges, renames, re-kinds or deletes purchase sources, by explicit instruction | see *Cleaning up purchase sources* |
+
+`--by` names the account each change is logged under in the item's
+**History**; `--commit` without it is refused. Run `classifier_defaults`
+before `series_classify`: note class is evidence for series. Before running
+any pass with `--commit` on the live database, take a verified backup and
+read the dry-run counts.
+
+The other command-line modules are not passes: `app.seeding` and `app.seed`
+(reference data and a new database's first manager), `app.backup` and
+`app.workbook_backup` (*Backing up and restoring*), and `app.reports`
+(*Reports*). None of them has a dry run.
 
 ### eBay order numbers and listing ids
 
-eBay's purchase history comes from the Chrome extension named in the README
-(*Useful tools*): one workbook per year, a row per item bought. From
-`backend\`:
+An eBay purchase is found and receipted by its order number, and a listing id
+links an item back to the page it was bought from; `app.ebay_orders` fills
+both in from eBay's own purchase history. That history comes from the Chrome
+extension named in the README (*Useful tools*): one workbook per year, a row
+per item bought. From `backend\`:
 
 ```cmd
 python -m app.ebay_orders <workbook>... --review ..\logs\ebay_orders_review.xlsx
 python -m app.ebay_orders <workbook>... --commit --by <your email>
 ```
 
-The first is a dry run: it prints what it would do and writes the review
-workbook. `--commit` does it, in one transaction, and records each changed
+The first is a dry run: it prints what it would do and, with `--review`,
+writes the review workbook (the only file a dry run writes). `--commit` does
+it, in one transaction, and records each changed
 item's order number and listing id in its **History** under the account
 named by `--by`. It matches by **eBay's item id** -- every eBay purchase links
 its listing (`ebay.com/itm/<id>`) -- not by words or price, and it:
@@ -314,13 +371,17 @@ filed by hand on the console's **Photos** page (`/management/photos`).
 
 ## Finding items
 
-The **Coins** and **Currency** screens (`/management/inventory/coins`,
-`/management/inventory/currency`) share one search panel.
+Finding the right items is the start of most console work -- editing,
+offering, grouping into a lot, a bulk edit. The **Coins** and **Currency**
+screens (`/management/inventory/coins`, `/management/inventory/currency`)
+share one search panel.
 
 **The search box has no field syntax.** What you type is one term, matched
 anywhere in an item's title, description, rating, item code or its purchase's
 order number, ignoring case -- so an eBay order number pasted into the box
-(`11-15110-51877`, or part of it) finds what was bought on that order.
+(`11-15110-51877`, or part of it) finds what was bought on that order. A
+term of six or more letters and digits, at least one a digit, also matches
+order numbers with their separators removed, so `111511051877` works too.
 It also matches the **name or alias of what the item is**: design series,
 strike type, grade designation, attributes and, on coins, mint; on currency,
 note class and serial features. So `mercury` finds Winged Liberty Head dimes
@@ -364,7 +425,10 @@ The **Grade** box takes a grade, not text:
 
 Anything else is refused with the examples. The API's `grade_min` and
 `grade_max` read the same terms: `grade_max=64` stops below 64+. The API also
-takes `attribute=<code>` as a filter on either screen.
+takes `attribute`, `error_type`, `issue`, `missing`, `lot`, `sellers_item_id`
+and `deleted` (`no`, `only`, `any`) as filters (`app/inventory_search.py`);
+reports' drill-down links use several of them. An unknown filter name is
+refused.
 
 **Every field has an Alt+letter shortcut**, underlined in its label: Alt+S the
 search box, Alt+H the tips, Alt+C clear, Alt+Y and Alt+O the years, Alt+P the
@@ -372,6 +436,11 @@ coins' **Strike type**. No field uses D, E or F, which the browser keeps. A
 shortcut on a disabled dropdown does nothing.
 
 ## Inventory items
+
+An inventory item is one thing owned -- a coin, a note, a set, or a lot
+bought as one. This section covers every way one is created, changed,
+received and removed, and the rules that keep its history and cost basis
+true while that happens.
 
 ### How an item comes into being
 
@@ -400,10 +469,13 @@ relisting, because a returned item resumes its own history.
 | `PUT /api/inventory/{id}/errors` | replace the item's recorded errors -- see *Errors* |
 
 **Editable scalars:** `source_title`, `description`, `sellers_item_id`,
-`year_start`, `year_end`, `fineness`, `gross_weight_ozt`, `fine_weight_ozt`,
-`piece_count`, `item_cost`, `shipping_cost`, `tax_rate`,
-`tax_includes_shipping`. The last two are NOT NULL, and a null for either is
-refused naming the field. A banknote holds no year of its own:
+`listing_url`, `year_start`, `year_end`, `fineness`, `gross_weight_ozt`,
+`fine_weight_ozt`, `piece_count`, `item_cost`, `shipping_cost`, `tax_rate`,
+`tax_includes_shipping` (`EDITABLE_SCALARS`, `routers/inventory.py`).
+`tax_rate` and `tax_includes_shipping` are NOT NULL, and a null for either is
+refused naming the field. `storage_location_id` moves the item through
+`set_location` (*Status and location have one door*) and never needs
+`acknowledge_for_sale`, since a location does not show to a buyer. A banknote holds no year of its own:
 `year_start`/`year_end` sent for a note is refused (422); send `series_year`.
 
 **Editable classifiers**, set by code rather than id: `item_kind`, `country`,
@@ -466,10 +538,12 @@ Responses carry `grade`, `strike_type` and `grade_display` (`PR69+`).
 Adjectival words are read at the bottom of their range: BU is 60, BU+ 63,
 BU++ 65, PROOF PR63, AU 55.
 
-An unknown field name is **refused**, not ignored -- a typo in a bulk edit
-must not silently do nothing. Bulk edit does not set attributes: one set
-applied to many items would wipe whatever each carried that the others do
-not.
+**An unknown field name in an edit is dropped without an error** -- the edit
+schema (`InventoryItemUpdate`) does not forbid extra fields, so a misspelt
+field in a `PATCH` or bulk edit does nothing. Creating an item
+(`POST /api/inventory`) does refuse an unknown field. Bulk edit does not set
+attributes: one set applied to many items would wipe whatever each carried
+that the others do not.
 
 **Every console edit window** -- item, new item, order, platform, offer,
 listing, record sale, lot, auction, a purchase's details, a customer and their
@@ -553,8 +627,8 @@ transition.
 
 ### Optimistic concurrency
 
-`inventory_item`, `listing`, orders, sales lots, auctions and platforms carry
-a `version`. An update sends the version it read, and the write is refused
+`inventory_item`, `listing`, sales orders, sales lots, auctions and platforms
+carry a `version` (purchase orders do not). An update sends the version it read, and the write is refused
 with 409 if somebody changed the row first. PostgreSQL's MVCC does not give
 this: without it, the second of two people saving the same item silently
 overwrites the first with values loaded before the change.
@@ -608,16 +682,18 @@ preview names up to ten such items). Editing the listing itself
 never have existed* -- a typo, a duplicate. Something sold, lost or given away
 changes its `disposition` or `status` and keeps its history.
 
-Two cases are refused, because both would fail silently:
+Three cases are refused with 409:
 
-- **A lot with pieces.** It holds the cost basis its children were allocated
-  from.
-- **An item that has ever been listed**, ended listings included. Order
-  history references the listing, and nothing removes a listing row, so this
-  is permanent.
+- **A lot with pieces split from it.** It holds the cost basis its children
+  were allocated from; detach them first.
+- **An item that has ever been offered** -- on its own or inside a sales lot,
+  ended offers included. The offer is part of the sales history, and nothing
+  removes a listing row, so this is permanent.
+- **An item in a sales lot.** Take it out of the lot first.
 
 Deleting twice is not an error. `DELETE /api/inventory/{id}/parent` detaches a
-split child from its parent, for when the lineage itself was wrong.
+split child from its parent, for when the lineage itself was wrong; the piece
+keeps the cost it was allocated, and repeating it is harmless.
 
 ## Entering a purchase
 
@@ -628,10 +704,10 @@ holding one item (`docs/specs/entry-panels-design.md`).
 - **Vendors** are picked from a list (`GET /api/vendors`) or added inline
   (`POST /api/vendors`: name, kind, web address). Names are unique,
   case-insensitively.
-- The purchase (`POST /api/purchase-orders`) needs only a vendor; the order
-  number is optional, so a walk-in or show purchase needs nothing else. Vendor
-  and order number together must be unique; the date, if given, must be no
-  later than tomorrow.
+- The purchase (`POST /api/purchase-orders`) needs only a vendor, so a
+  walk-in or show purchase needs nothing else. Left blank, the order number
+  is generated (`Order-0001` and up). Vendor and order number together must
+  be unique; the date, if given, must be no later than tomorrow.
 - **Items** are entered on the purchase (`POST /api/inventory`) as `ordered`,
   or `received` for something already in hand. A **lot** is an item with a
   piece count above 1.
@@ -652,7 +728,8 @@ manager-only.
 
 ## Sales
 
-**Sales** lists every sales order, newest first: customer, lines at the price
+A sales order records what a customer bought, at what price, and where it is
+in fulfilment. **Sales** (`/management/sales`) lists every sales order, newest first: customer, lines at the price
 paid, total, platform and status (`GET /api/orders`). The shop's **Your
 orders** page is only the signed-in person's own (`GET /api/orders?mine=true`)
 and has no status control; order administration lives in the console alone.
@@ -660,19 +737,19 @@ and has no status control; order administration lives in the console alone.
 Status is changed from the order's row (`PATCH /api/orders/{id}`) through
 pending, paid, packed, shipped, delivered, cancelled, refunded.
 
-**Cancelling is one way.** Cancelling an unshipped order returns its stock to
-the catalog, after which the order cannot move to any other status (409):
-allowing it would leave an order standing on stock already offered to the
-next buyer. Place a new order instead. Cancelling after packing or shipping
-returns no stock; re-sending `cancelled` is harmless.
+**Cancelling is one way.** A cancelled order cannot move to any other status
+(409); place a new order instead. Re-sending `cancelled` is harmless.
+Cancelling an order that is pending or paid returns its stock to the catalog
+-- which is why the order cannot come back: it would stand on stock already
+offered to the next buyer. Cancelling once it is packed, shipped or delivered
+returns no stock; that is how a refund is recorded.
 
-Two kinds of unshipped order **cannot be cancelled**, because the listing they
-sold has already ended and there is nothing to put the stock back on: a sale
-recorded from an outside platform, and an order that bought a **sales lot**.
-The API refuses with a 409 naming what is in the way; the Sales page grays
-out **cancelled** on an outside-platform order. Once such an order has shipped
-it can be cancelled normally (no stock returns), which is how a refund is
-recorded. There is no "undo an outside sale" path: if one falls through,
+Two kinds of pending or paid order **cannot be cancelled**, because the
+listing they sold has already ended and there is nothing to put the stock
+back on: a sale recorded from an outside platform, and an order that bought a
+**sales lot**. The API refuses with a 409 naming what is in the way; the
+Sales page grays out **cancelled** on an outside-platform order. Once such an
+order is packed it can be cancelled like any other (no stock returns). There is no "undo an outside sale" path: if one falls through,
 restore the item's status and disposition by hand and offer it again.
 
 **Placing an order for a customer.** **New order** opens an editor that
@@ -710,16 +787,19 @@ editor lists an item's **Sales** (`GET /api/inventory/{id}/sales`), each
 "sold as" it was then.
 
 The copy says which shape it is: `snapshot_version` 1 always has `item`;
-version 2 has `item` for a single coin *or* `lot` (number, title,
+version 2 has `item` for a single coin *or* `lot` (id, title,
 description) and `items` (one entry per member) for a sales lot, never both.
 Older copies are never rewritten; a reader asks for `lot` first. The lot half
 is the only lasting record of which coins a sold group held.
 
 ## Selling
 
-`docs/specs/selling-design.md` is the design. `app.offering_writes` is the
-only code that changes a listing's status, the claim recording where an item
-is offered, or a sales lot's status.
+How an owned item is put up for sale -- in the web store, on another
+platform, grouped into a sales lot, or in an auction -- and how a sale made
+elsewhere is recorded. The rule underneath all of it: an item is offered in
+one place at a time, so it can never be sold twice. `app.offering_writes` is
+the only code that changes a listing's status, the claim recording where an
+item is offered, or a sales lot's status (`docs/specs/selling-design.md`).
 
 ### Sales platforms
 
@@ -872,7 +952,9 @@ members'.
 ### Auctions
 
 **Auctions** (`/management/auctions`) runs an auction from draft to settled
-(`app.auctions`, the only writer of `auction` and `auction_lot`). An auction
+(`app.auctions` is the only writer of an auction's status and custody and of
+which `auction_lot` rows exist; `routers/auctions.py` creates a draft and
+edits wording, dates, lot numbers and reserves directly). An auction
 belongs to a platform (a live auction, an auction house, or a marketplace for
 a single timed auction) and moves `draft` -> `scheduled` -> [`consigned`] ->
 `closed` -> `settled`, or `cancelled`.
@@ -913,32 +995,32 @@ location (`docs/specs/reporting-design.md` is the design).
 The menu lists every report by group; choosing one shows its purpose, its
 parameters and its table. Groups appear in the order the API lists them:
 
-| Id | Group | Report | Parameters |
-|---|---|---|---|
-| `cb_holdings` | Collection | What the collection is made of: kind x denomination, with items, pieces and total cost | Status (default received), Disposition (default held) |
-| `cb_designs` | Collection | Design series held, across every non-currency kind: items, year span, total cost | Status, Disposition |
-| `cb_notes` | Collection | Note type x series designation: items, seal colors, Federal Reserve districts, star notes and fancy serials, total cost | Status, Disposition |
-| `cb_grades` | Collection | Grade band x strike type x grading service, across coins and currency, with items and total cost | Status, Disposition |
-| `cb_metal` | Collection | Metal x form, over items with a fine weight: items, ounces, cost, and melt value at the latest spot price | Status, Disposition |
-| `cb_attributes` | Collection | Every attribute and error type a live item carries, split by view, with items | Status, Disposition |
-| `dq_issues` | Data quality | Every named data-quality check, counted across coins and currency | none |
-| `dq_completeness` | Data quality | Percent of live items with each field filled in, by kind | none |
-| `dq_photos` | Data quality | Live items with no photograph, by kind and status, plus photographs filed against no item | none |
-| `dq_derived` | Data quality | Fields a machine pass filled in, and the rule that filled each one, that nobody has confirmed | none |
-| `dq_purchases` | Data quality | Purchases with a placeholder number, a missing or implausible order date, no web address, a zero-cost item, or no items | none |
-| `dq_locations` | Data quality | Live items by storage location, with items and total cost | none |
-| `pr_outstanding` | Purchasing and receiving | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first | Overdue after (days) (default 21) |
-| `pr_spend` | Purchasing and receiving | Period x vendor: purchases, items, item cost, shipping, sales tax and total, over purchases with a live item | From, To, Period (month/quarter/year, default month) |
-| `pr_sources` | Purchasing and receiving | One row per vendor, and per seller a purchase has named: purchases, items, total spent, first/last order date | none |
-| `pr_received` | Purchasing and receiving | Arrival day x vendor, from acquisition-status history: items and total cost | From, To |
-| `sl_offered` | Selling | Active and paused listings, items and sales lots, by venue: asking price against cost basis, and days listed | none |
-| `sl_sales` | Selling | Month x venue: orders, gross, fees, net, cost basis and gain, for sales orders placed in range | From, To |
-| `sl_fulfilment` | Selling | Orders still open and unshipped -- pending, paid or packed -- oldest first | none |
-| `sl_aging` | Selling | Live items received and held, not on offer or in an open lot, by months since received and kind | none |
-| `sl_auctions` | Selling | One row per auction, by status; for a settled one: lots, sold, unsold, hammer total and fees | none |
-| `mn_basis` | Money | Status x disposition of every live item: items and total cost | none |
-| `mn_tax` | Money | Period x vendor: purchases and sales tax paid, over purchases with a live item | From, To, Period (month/year, default month) |
-| `mn_value` | Money | Per item kind: live items, the ones with a recorded value, their cost and value, the difference, and items without one | Status (default received), Disposition (default held) |
+| Id | Group | Title | What it shows | Parameters |
+|---|---|---|---|---|
+| `cb_holdings` | Collection | Holdings | What the collection is made of: kind x denomination, with items, pieces and total cost | Status (default received), Disposition (default held) |
+| `cb_designs` | Collection | Coins by design | Design series held, across every non-currency kind: items, year span, total cost | Status, Disposition |
+| `cb_notes` | Collection | Notes | Note type x series designation: items, seal colors, Federal Reserve districts, star notes and fancy serials, total cost | Status, Disposition |
+| `cb_grades` | Collection | Grades | Grade band x strike type x grading service, across coins and currency, with items and total cost | Status, Disposition |
+| `cb_metal` | Collection | Precious metal | Metal x form, over items with a fine weight: items, ounces, cost, and melt value at the latest spot price | Status, Disposition |
+| `cb_attributes` | Collection | Attributes and errors | Every attribute and error type a live item carries, split by view, with items | Status, Disposition |
+| `dq_issues` | Data quality | Open issues | Every named data-quality check, counted across coins and currency | none |
+| `dq_completeness` | Data quality | Field completeness | Percent of live items with each field filled in, by kind | none |
+| `dq_photos` | Data quality | Photographs | Live items with no photograph, by kind and status, plus photographs filed against no item | none |
+| `dq_derived` | Data quality | Filled by a rule, not yet confirmed | Fields a machine pass filled in, and the rule that filled each one, that nobody has confirmed | none |
+| `dq_purchases` | Data quality | Purchases with gaps | Purchases with a placeholder number, a missing or implausible order date, no web address, a zero-cost item, or no items | none |
+| `dq_locations` | Data quality | Where items are | Live items by storage location, with items and total cost | none |
+| `pr_outstanding` | Purchasing and receiving | Not yet arrived | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first | Overdue after (days) (default 21) |
+| `pr_spend` | Purchasing and receiving | Spending | Period x vendor: purchases, items, item cost, shipping, sales tax and total, over purchases with a live item | From, To, Period (month/quarter/year, default month) |
+| `pr_sources` | Purchasing and receiving | Vendors and sellers | One row per vendor, and per seller a purchase has named: purchases, items, total spent, first/last order date | none |
+| `pr_received` | Purchasing and receiving | Received | Arrival day x vendor, from acquisition-status history: items and total cost | From, To |
+| `sl_offered` | Selling | On offer | Active and paused listings, items and sales lots, by venue: asking price against cost basis, and days listed | none |
+| `sl_sales` | Selling | Sales | Month x venue: orders, gross, fees, net, cost basis and gain, for sales orders placed in range | From, To |
+| `sl_fulfilment` | Selling | To ship | Orders still open and unshipped -- pending, paid or packed -- oldest first | none |
+| `sl_aging` | Selling | Held and not offered | Live items received and held, not on offer or in an open lot, by months since received and kind | none |
+| `sl_auctions` | Selling | Auctions | One row per auction, by status; for a settled one: lots, sold, unsold, hammer total and fees | none |
+| `mn_basis` | Money | Cost basis | Status x disposition of every live item: items and total cost | none |
+| `mn_tax` | Money | Sales tax paid | Period x vendor: purchases and sales tax paid, over purchases with a live item | From, To, Period (month/year, default month) |
+| `mn_value` | Money | Recorded value | Per item kind: live items, the ones with a recorded value, their cost and value, the difference, and items without one | Status (default received), Disposition (default held) |
 
 The console needs no change to show a report added later -- it renders
 whatever `GET /api/reports` lists.
@@ -951,7 +1033,7 @@ as the inventory filter panel, and the help band explains each one. An
 emptied From or To date means no bound on that side -- an open range is a
 normal question. Leaving any other parameter empty is refused ("Enter a value
 for ..."), rather than silently running that parameter's default. The report and its parameters are kept in the
-address (`/reports?report=pr_outstanding&overdue_days=30`), so a result can be
+address (`/management/reports?report=pr_outstanding&overdue_days=30`), so a result can be
 bookmarked or reopened; Run writes only the parameters that differ from their
 defaults.
 
@@ -1016,7 +1098,7 @@ they are needed, and renamed, retired, merged or reordered on the
   `authenticity`, `sales_venue_kind` and `sales_fee_kind`, plus vendor kind
   `unknown`, storage form `single`, currency `USD`, country `US`, note type
   `frn`, and image roles `obverse`, `reverse` and `unassigned`
-  (`routers/reference.py`).
+  (`app/references.py`, `retirable`).
 - **Merge into...** replaces a value with another for good. The page previews
   the effect: every item holding the old value moves to the kept one, the old
   label, code and aliases become aliases of the kept value (so ratings and
@@ -1068,9 +1150,7 @@ Where the label is enough:
   owner chose to be asked rather than have one picked.
 
 A value added this way is marked `manual`, which keeps it distinct from the
-shipped catalog and out of an export by default
-(`python -m app.seeding export --out <dir>`, whose `--source` defaults to
-`seeded`).
+shipped catalog and out of a seed export by default (below).
 
 ### Provenance and reference data
 
@@ -1087,6 +1167,23 @@ specifications, legislated compositions, common collector nicknames. A
 publisher's *arrangement* is not: Friedberg numbering, Pick numbering,
 price-guide values, or any catalog's mapping of attributes to its own
 numbers. See the Reference data section of `CLAUDE.md`.
+
+**Loading and exporting seed files.** The shipped vocabularies live in
+`backend\data\reference\`. A seed load adds and updates rows, but never
+brings back a merged value, never overwrites a row marked `manual`, and never
+restores a retired alias.
+
+```cmd
+python -m app.seeding load                                  load every seed file
+python -m app.seeding load --only <table>...                only those tables
+python -m app.seeding load --data-dir <dir>                 from another folder
+python -m app.seeding export --out <dir>                    write seed files, seeded rows only
+python -m app.seeding export --out <dir> --source seeded manual --include-inactive
+```
+
+`--source` takes any of `seeded`, `derived` and `manual` (default `seeded`);
+`--include-inactive` also exports retired values. A schema release runs
+`load` after `alembic upgrade head` (*Applying a schema release*).
 
 ### Other names (aliases)
 
@@ -1145,67 +1242,112 @@ were not -- keeps the rows and the new item's code on screen, and offers
 **Retry**. Save stays disabled until the retry succeeds, so the same piece
 cannot be entered twice.
 
+## Lists: Friedberg numbers, sellers, vendors, storage locations
+
+These four lists are not vocabularies, but they grow the same way: a row is
+added inline while something else is being done (a Friedberg number while a
+note is identified, a seller or vendor while a purchase is entered, a storage
+location from the location picker on New item, the item editor or
+Receiving). **Lists** (`/management/lists`, a tab each, `?tab=` in the
+address) is where a slip made there is corrected
+(`docs/specs/list-maintenance-design.md`).
+
+Each tab lists its rows with a search box and how many records use each row.
+**Edit** changes a row in place; **Delete** is offered only for a row nothing
+uses, and the server refuses the rest (every foreign key into these tables is
+`RESTRICT`). A storage location any item has ever been in stays, as part of
+that item's history. Locations of kind `consigned` and `sold` are made by the
+auction and sale code: they cannot be added from the picker or edited here.
+Merging duplicate vendors is done by `app.vendor_cleanup` (*Cleaning up
+purchase sources*).
+
 ## Backing up and restoring
 
-The database is the record. **Photograph bytes are in no database backup** -- back up `MEDIA_ROOT` separately.
+A backup is only as good as the proof that it restores. This section says
+which kind of backup to take for which purpose, how to prove it, and how to
+restore. **Photograph bytes are in no database backup** -- they live under
+`MEDIA_ROOT` (*Settings*); back that folder up separately.
 
-There are three kinds of backup:
+| Kind | Command | Use it for |
+|---|---|---|
+| **`pg_dump` file** | `pg_dump -Fc` (see *Applying a schema release*, step 1) | **the** backup before a migration or any risky `--commit`; a file that can leave the machine |
+| **Workbook** | `python -m app.workbook_backup export` | a backup a person can open, read and correct, and the only bulk way in or out of the database |
+| **Database copy** | `python -m app.backup` | a working copy beside live, on this server or any SQLAlchemy URL |
 
-- **`pg_dump`** copies the database as it is, `alembic_version` included, to
-  a file that can leave the machine. It is **the** backup before a migration.
-  Dumps are kept in `%USERPROFILE%\dev\ccwebdb-backups\`, outside the
-  repository.
-- **`python -m app.backup`** copies the whole database into another database,
-  building the schema from the SQLAlchemy models. Every table is copied --
-  `alembic_version`, which has no model, too, read from the database itself.
-  It is portable
-  (another engine is a different `--to` URL) and suits a working copy beside
-  live. It is **not** a pre-migration backup: its schema comes from the
-  *current models*, so with new code checked out before live is migrated the
-  copy holds the new schema under the old revision.
-- **`python -m app.workbook_backup export`** writes the whole database to one
-  Excel workbook in `ccwebdb-backups\` -- a backup a person can open, read and
-  correct, then rebuild a database from. See *The workbook backup* below.
+Backups are kept beside the repository, in `ccwebdb-backups\` (on this
+machine `%USERPROFILE%\dev\ccwebdb-backups\`); the workbook export writes
+there by default.
+
+**Why `pg_dump`, not `app.backup`, before a migration.** `pg_dump` copies the
+database exactly as it is, `alembic_version` included. `app.backup` builds the
+copy's schema from the *checked-out SQLAlchemy models*: with a release's code
+checked out before live is migrated, the copy holds the new schema under the
+old revision, and cannot be migrated or restored faithfully.
+
+**A backup is proved by restoring it and comparing, never by listing it.** A
+`pg_restore --list` or `python -m app.backup --list` shows that a file or copy
+exists and its size, not that it holds the collection: a copy that aborted
+partway still lists at a plausible size, and one such copy held no inventory
+items and no purchase orders at all. Restore into a new database and run:
 
 ```cmd
-python -m app.backup                      copy to a timestamped ccwebdb_bak_* database
-python -m app.backup --name before_split  copy under a name you choose
-python -m app.backup --to <url>           copy anywhere SQLAlchemy reaches
-python -m app.backup --list               what copies exist, and their size
-python -m app.backup --verify <name>      compare a copy against the live database
+python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@localhost:5432/<restored name>
 ```
 
-**Always verify; `--list` is not evidence.** A copy that aborted partway still
-lists at a plausible size, and one such copy held no inventory items and no
-purchase orders at all. `--verify` compares every model table's row count and
-prints `<name> matches the source on every table`, or the tables that differ
-and exits non-zero:
+`compare` reads both databases' tables from the databases themselves, not the
+models, so it works whatever code is checked out. It checks the migration
+revision and every row of every table through a digest, prints `identical`
+and exits 0, or prints `DIFFERS <table>: <n> rows vs <m>` for each table that
+differs and exits 1. For a backup taken moments ago, any difference is a
+failed backup.
 
-- **Row counts that disagree.** For a copy taken today, any disagreement is a
-  failed backup. An older copy is expected to differ: it records the
-  collection as it was.
-- **`OLDER SCHEMA -- ... has no <table>`.** The copy predates a migration. It
-  records its own moment but cannot be compared table for table.
+### The database copy (`app.backup`)
+
+```cmd
+python -m app.backup                      copy to a new ccwebdb_bak_<time> database
+python -m app.backup --name before_split  copy to a new database of that name
+python -m app.backup --to <url>           copy anywhere SQLAlchemy reaches
+python -m app.backup --list               list the local ccwebdb_bak* databases and their size
+python -m app.backup --verify <name>      row counts of a local copy against live
+```
+
+Every table is copied, `alembic_version` too (it has no model, so it is read
+from the database itself). The copy is portable: another engine is a
+different `--to` URL. `--verify` compares each model table's row count and
+prints `<name> matches the source on every table`, or `MISMATCH` with the
+tables that differ and exits 1. A copy that predates a migration reports
+`OLDER SCHEMA -- <name> has no <table>`: it records its own moment but cannot
+be compared table for table. An older copy is expected to differ in counts; it
+records the collection as it was. `--list` only lists names beginning
+`ccwebdb_bak`, so a copy made with `--name` is not listed.
 
 ### Restoring
 
 A restore is always **into a new database**, never over the live one, so the
-original stays untouched until the replacement is checked and switching back
+original stays untouched until the replacement is checked, and switching back
 is a one-line edit.
 
-From an `app.backup` copy, point `DATABASE_URL` at the copy and copy it again:
+- **From a `pg_dump` file:** `createdb` a new database and `pg_restore` into
+  it, as in *Applying a schema release*, step 1.
+- **From a workbook:** see *The workbook backup* below.
+- **From an `app.backup` copy:** point `DATABASE_URL` at the copy and copy it
+  again:
 
-```cmd
-set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/<copy name>"
-python -m app.backup --name ccwebdb_restored
-```
+  ```cmd
+  set "DATABASE_URL=postgresql+psycopg://ccwebdb:<password>@localhost:5432/<copy name>"
+  python -m app.backup --name ccwebdb_restored
+  set "DATABASE_URL="
+  ```
 
-From a `pg_dump` file, create a database and `pg_restore` into it as in step 1
-below. From a workbook, see *The workbook backup*. Either way, check the
-result, then set `DATABASE_URL` in `.env` to the new database and restart the
-servers.
+Then check the result with `compare` (above), set `DATABASE_URL` in `.env` to
+the new database, and restart the servers
+(`.\scripts\ccweb_shutdown.cmd /keepdb`, then `.\scripts\ccweb_startup.cmd`).
 
 ### The workbook backup
+
+The workbook is the only bulk way in or out of the database. Besides being a
+backup a person can read, it is how many rows are corrected at once: export,
+edit the sheets, import into a new database, `compare`, then switch to it.
 
 `app.workbook_backup` writes every table to one `.xlsx`: an **About** sheet
 (format, time, migration revision, rows per table), a **Columns** sheet
@@ -1255,8 +1397,9 @@ python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@lo
 ```
 
 The import refuses a database at a different migration revision than the
-workbook's, refuses the live database, clears any rows the migrations put
-there, and loads everything in one transaction: a refused row (a value that
+workbook's, the live database (recognised by the server, not by how the URL
+is spelled), and any database that already holds inventory items; it clears
+any other rows the migrations put there, and loads everything in one transaction: a refused row (a value that
 does not fit its column, a duplicate) names its table and reason and loads
 nothing. `compare` then says `identical`, or names each table that differs --
 after edits, exactly the tables edited.
@@ -1285,36 +1428,49 @@ refused; there is no Unknown item.
 
 ## Applying a schema release
 
-A release that adds a migration is applied to the live database only after it
-has been rehearsed on a restored copy of that database. `scripts\ccweb_psql.cmd`,
-`pg_dump` and friends connect with the standard `PG*` variables; set the
-password in each window you use.
+A schema release is a code change that adds an Alembic migration. It is the
+riskiest routine operation, because it rewrites the live record in place, so
+it is applied to live only after it has been rehearsed on a restored copy of
+live, and only with a proven backup in hand.
 
-1. **Back up with `pg_dump`, and prove the dump by restoring it.** From the
-   repo root, with the code that live is running still checked out:
+**The migrations.** `backend\alembic\versions\` holds one baseline revision,
+`3f9d1c7a2b64`, which builds the whole schema from
+`backend\alembic\baseline.sql`, and ordinary revisions on top of it. From
+`backend\`, `python -m alembic heads` names the newest and
+`python -m alembic current` what a database is at. Reference data a feature
+needs is loaded by `python -m app.seeding load`, not by the migration, so
+every release is schema first, reference data second.
+
+`pg_dump`, `pg_restore`, `createdb` and `dropdb` connect with the standard
+`PG*` variables, set in step 1; set them in each window you use.
+`scripts\ccweb_psql.cmd` fills in any it finds unset with the development
+defaults, `PGPASSWORD` included.
+
+1. **Back up with `pg_dump`, and prove the dump by restoring it.** With the
+   code that live is running still checked out, from `backend\`:
 
    ```cmd
    set "PGBIN=%CONDA_PREFIX%\Library\bin"
    set "PGHOST=localhost"
    set "PGUSER=ccwebdb"
    set "PGPASSWORD=<password>"
-   "%PGBIN%\pg_dump.exe" -Fc -d ccwebdb -f "%USERPROFILE%\dev\ccwebdb-backups\ccwebdb_pre_release_YYYYMMDD.dump"
+   set "DUMP=%USERPROFILE%\dev\ccwebdb-backups\ccwebdb_pre_release_YYYYMMDD.dump"
+   "%PGBIN%\pg_dump.exe" -Fc -d ccwebdb -f "%DUMP%"
    "%PGBIN%\createdb.exe" ccwebdb_rehearsal
-   "%PGBIN%\pg_restore.exe" -d ccwebdb_rehearsal --no-owner "%USERPROFILE%\dev\ccwebdb-backups\ccwebdb_pre_release_YYYYMMDD.dump"
-   cd backend
-   python -m app.backup --verify ccwebdb_rehearsal
+   "%PGBIN%\pg_restore.exe" -d ccwebdb_rehearsal --no-owner "%DUMP%"
+   python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@localhost:5432/ccwebdb_rehearsal
    ```
 
    `PGBIN` is PostgreSQL's binaries inside the active `ccwebdb` environment,
-   the same place `scripts\ccweb_env.cmd` finds them. Every table's row count
-   must agree. `--verify` can compare them only while
-   the checked-out models match live; with the release's code checked out it
-   reports the new tables as missing. If the counts do not agree, the dump is
-   not usable and nothing is applied.
+   the same place `scripts\ccweb_env.cmd` finds them. `compare` must print
+   `identical`: it checks the revision and every row of every table (*Backing
+   up and restoring*). Anything else means the dump is not usable, and
+   nothing is applied. Keep the dump until the release has been in use for a
+   while; it is the way back.
 
-2. **Rehearse on the restore.** With the release's code checked out, point
-   both the application and psql at the rehearsal database, record the item
-   count and cost basis, migrate and seed, and record them again:
+2. **Rehearse on the restore.** Check out the release's code. Point both the
+   application and psql at the rehearsal database, record the item count and
+   cost basis, migrate and seed, and record them again:
 
    ```cmd
    set "PGDATABASE=ccwebdb_rehearsal"
@@ -1323,50 +1479,52 @@ password in each window you use.
    python -m alembic upgrade head
    python -m app.seeding load
    ..\scripts\ccweb_psql.cmd -c "select count(*), sum(total_cost) from inventory_item where split_at is null and deleted_at is null;"
-   ..\scripts\ccweb_psql.cmd -c "select version_num from alembic_version;"
+   python -m alembic current
    set "DATABASE_URL="
    set "PGDATABASE="
    ```
 
-   The two results must be identical, and `alembic_version` must read the new
-   head. Clear both variables before going on -- they are what point the
-   commands at the rehearsal rather than at live -- and drop
-   `ccwebdb_rehearsal` afterwards (`"%PGBIN%\dropdb.exe" ccwebdb_rehearsal`);
-   it is a full copy of the collection. Schema first, reference data second is
-   the standing order.
+   The two results must be identical, and `alembic current` must name the
+   new head. Clear both variables before going on -- they are what point the
+   commands at the rehearsal rather than at live -- and drop the rehearsal
+   afterwards (`"%PGBIN%\dropdb.exe" ccwebdb_rehearsal`); it is a full copy
+   of the collection.
 
 3. **Stop the servers, keeping PostgreSQL**, so nothing writes while the
-   schema changes:
+   schema changes. From the repo root:
 
    ```cmd
-   scripts\ccweb_shutdown.cmd /keepdb
+   .\scripts\ccweb_shutdown.cmd /keepdb
    ```
 
 4. **Upgrade and seed live**, from `backend\`, with `DATABASE_URL` pointing
-   at `ccwebdb` (the `.env` default):
+   at `ccwebdb` (the `.env` value):
 
    ```cmd
    python -m alembic upgrade head
    python -m app.seeding load
    ```
 
-   Reference data a feature needs is loaded by the seed step, not the
-   migration, so skipping it leaves the feature failing on a missing code.
+   Skipping the seed step leaves a feature that needs new reference data
+   failing on a missing code.
 
-5. **Check:** `alembic_version` reads the new head; the item count and cost
-   basis match step 2's; every table the migration added is empty; the shop
-   catalog (`GET /api/catalog`) and the console answer once restarted.
+5. **Check:** `python -m alembic current` names the new head; the item count
+   and cost basis match step 2's; every table the migration added is empty.
 
-6. **Restart** from a shell nothing else depends on:
+6. **Restart** once the release's branch is merged into `main` and checked
+   out, from the repo root, in a shell nothing else depends on:
 
    ```cmd
-   scripts\ccweb_shutdown.cmd
-   scripts\ccweb_startup.cmd
+   .\scripts\ccweb_shutdown.cmd
+   .\scripts\ccweb_startup.cmd
    ```
 
-   The backend runs uvicorn without `--reload`, so until it restarts it serves
-   the code that was running before, whatever the database's schema. Restart
-   only once the release's branch is merged into `main` and checked out.
+   Run `ccweb_startup.cmd` bare -- never piped or redirected, or the call
+   hangs (*Runtime operations*). The backend runs uvicorn without
+   `--reload`, so until it restarts it serves the code that was running
+   before, whatever the database's schema. Then confirm with
+   `.\scripts\ccweb_status.cmd` (exit 0), open the shop catalog
+   (`GET /api/catalog`) and the console, and reload any open page.
 
 ## Things that are deliberately not configurable
 
@@ -1382,6 +1540,3 @@ password in each window you use.
   `routers/catalog.py`, which builds every public response field by field, and
   by the test asserting the result carries no location -- not by the
   `public_catalog` view, which forbids the columns but which no endpoint reads.
-- **Creating an ordinary storage location in the console.** The receiving
-  picker lists existing locations (`GET /api/storage-locations`); only
-  consignment creates one.

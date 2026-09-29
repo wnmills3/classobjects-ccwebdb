@@ -2,10 +2,13 @@
 
 The management console is a superset of the shop: anything a customer can do, a
 manager can do from `/management`. For orders that means placing an order
-for someone else -- a phone, walk-in or in-person sale -- and changing an
-order after it is placed. Because a manager can act for a buyer and
-re-price a paid order, every order records who placed it and every change
-to it.
+for someone else -- a phone, walk-in or in-person sale of a web-store item --
+changing an order after it is placed, and moving it through its statuses to
+shipped or cancelled. All of it happens on the **Sales** page
+(`/management/sales`), which lists every order: shop checkouts, orders
+entered on a customer's behalf, and sales recorded from other platforms
+(`selling-design.md`). Because a manager can act for a buyer and re-price a
+paid order, every order records who placed it and every change to it.
 
 ## Rules
 
@@ -17,13 +20,15 @@ to it.
 | Accountability | **Who placed the order, plus a history row for every change.** |
 | Shape | **One order-writing module (`app/order_writes.py`) behind separate manager endpoints.** The shop's `POST /api/orders` keeps its contract. |
 
-Manager-only fields on the shop's endpoints were rejected: one role check
+Manager-only fields on the shop's endpoints are not used: one role check
 would stand between a shopper and setting their own price. Line-by-line
-endpoints were rejected: "swap this coin for that one" would be two calls
-that can half-succeed.
+endpoints are not used either: "swap this coin for that one" would be two
+calls that can half-succeed.
 
 A web-store item sold in person is entered here, not through the Listings
 page's Record sale, which refuses store listings (`selling-design.md`).
+Lines come from web-store listings only: the Add item search reads the shop
+catalog, and a new or grown line must be an active store listing.
 
 ## Data model
 
@@ -66,8 +71,9 @@ status_code="pending", external_order_id=None)`.** `lines` are
 2. With no `venue` (a shop or on-behalf order): the listing must be the
    store's and `active`, else 409. Always: quantity above
    `quantity_available` is 409 naming the listing and what remains.
-3. Reduce `quantity_available`; a listing reaching 0 marks its item `sold`,
-   and a lot listing bought outright ends as sold with its lot.
+3. Reduce `quantity_available`; a listing reaching 0 marks its items `sold`.
+   On a shop or on-behalf order, a lot listing bought outright is ended as
+   sold with its lot (an item listing stays active at zero stock).
 4. A line's `unit_price` is the given price, or the listing's.
 5. Write one `sales_order_item_share` per item the line carries (one for an
    item listing, one per member for a lot), total the order, set
@@ -96,27 +102,35 @@ another platform (`sales_writes`); an on-behalf order leaves them unset.
 6. One change row per difference. No difference: no rows, no version bump,
    returns `False`.
 
-**Status changes** (`PATCH /api/orders/{id}`) lock the order row, write a
-`status` change row and bump `version`. Cancelling an unshipped order
-returns its stock (`return_stock`, through the same lock path); cancelling
-one whose listing has ended -- an outside sale, or a lot bought in the
-shop -- is refused, because there is nothing to return the stock to. A
-cancelled order cannot be moved to another status.
+**Status changes** (`PATCH /api/orders/{id}`, any `sales_order_status`
+code: `pending`, `paid`, `packed`, `shipped`, `delivered`, `cancelled`,
+`refunded`) lock the order row, write a `status` change row and bump
+`version`.
+
+- Cancelling an order that has not been packed returns its stock
+  (`return_stock`, through the same lock path). Cancelling one whose listing
+  has ended -- an outside sale, or a lot bought in the shop -- is refused
+  while it is unpacked, because there is nothing to return the stock to.
+- Cancelling a `packed`, `shipped` or `delivered` order moves no stock; it is
+  how a refund is recorded, whatever the listing's state.
+- A cancelled order cannot be moved to another status: its stock is back on
+  sale. Re-sending `cancelled` is harmless.
 
 ## Endpoints
 
 | Endpoint | Access | Behavior |
 |---|---|---|
 | `POST /api/orders` | signed in | Shop checkout: `place_order` for the caller's own customer record, listing prices only. |
+| `GET /api/orders`, `GET /api/orders/{id}` | signed in | A manager sees every order (`mine=true` narrows to their own); a shopper only their own, and another customer's order is a 404. `notes`, `placed_by_email` and line snapshots are manager-only. |
 | `POST /api/customers/{id}/orders` | manager | Place an order for that customer: `items` of `{listing_id, quantity, unit_price?}`, optional `notes`. Unknown customer: 404. |
 | `POST /api/users/{id}/customer` | manager | Find or create the customer record behind an account. |
 | `PUT /api/orders/{id}` | manager | `revise_order`. Body: `version`, `customer_id`, `items` of `{listing_id, quantity, unit_price}`, `notes`. |
 | `GET /api/orders/{id}/changes` | manager | Change rows, newest first, with the changing account's email and each line's listing title. |
 | `PATCH /api/orders/{id}` | manager | Status, as above. |
 
-Request schemas forbid extra fields. 422 for a quantity below 1, a unit price
-below 0, a listing twice in one order, or no lines -- an order is emptied by
-cancelling it. Shoppers cannot edit an order.
+The manager endpoints' request schemas forbid extra fields. 422 for a
+quantity below 1, a unit price below 0, a listing twice in one order, or no
+lines -- an order is emptied by cancelling it. Shoppers cannot edit an order.
 
 `OrderOut` carries `version`, `notes`, `placed_by_email`, each line's
 `listing_ended`, and `payment_adjustment_due`: true when the order is `paid`
@@ -146,10 +160,14 @@ for **Edit** on a `pending` or `paid` order:
 - Saving sends the loaded `version`. A refusal is shown in the dialog with
   the edits kept.
 
-**Order list**: a "payment adjustment due" badge, "entered by <email>" when
-the placing account is not the customer's own, **History**
-(`orders/OrderHistory.jsx`, changes grouped by edit), and Cancel disabled
-exactly where the server would refuse it (`listing_ended`).
+**Order list**, newest first: customer, lines, total with a "payment
+adjustment due" badge, "entered by <email>" when the placing account's email
+is not the customer's, **Edit** on `pending` and `paid` orders, and
+**History** (`orders/OrderHistory.jsx`, changes grouped by edit). Each row's
+status is a select. On an unpacked order `cancelled` is disabled, with the
+reason as its tooltip, exactly where the server would refuse it: an outside
+sale, or a store order with a line whose listing has ended
+(`listing_ended`). A cancelled order's select is disabled.
 
 ## Tests
 
@@ -158,8 +176,9 @@ exactly where the server would refuse it (`listing_ended`).
   over-request refused with nothing changed.
 - Concurrency (`tests/test_order_revision_race.py`): a manager's edit and a
   checkout contending for a last unit on real threads -- one succeeds, stock
-  never negative; two edits at one version, the second 409; a concurrent
-  edit to an item does not refuse a revision or a cancellation.
+  never negative; two edits at one version, the second 409; a cancel and an
+  edit of one order neither deadlock nor corrupt stock; a concurrent edit to
+  an item does not refuse a revision or a cancellation.
 - Rules: editable statuses, version, price and quantity bounds, duplicate
   listings, at least one line, unknown customer and listing.
 - Access: each manager endpoint is 401 signed out and 403 for a shopper,
@@ -172,5 +191,8 @@ exactly where the server would refuse it (`listing_ended`).
 ## Not built
 
 - Finding an item to add by inventory code (the catalog search covers
-  title and description).
-- Shipping or billing addresses on an order.
+  the listing title, the item's source title and its description).
+- Shipping or billing addresses on an order. `sales_order` has
+  `shipping_address_id` and `billing_address_id`, and a customer's addresses
+  can be recorded (`POST /api/customers/{id}/addresses`), but nothing sets
+  an order's.

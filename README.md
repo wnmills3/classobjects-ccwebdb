@@ -2,11 +2,20 @@
 
 Numismatic and Currency Web Platform for Inventory and Sales.
 
-A FastAPI backend and two React applications over one PostgreSQL database: a
-**management console** for cataloging, receiving, photographing and selling a coin
-and banknote collection, and a **shop** where customers browse and order. Why
-it exists and what it deliberately does not do is in
-[docs/project-purpose.md](docs/project-purpose.md).
+This is the inventory and sales system for a coin and banknote business. It
+answers three questions the business depends on: what exactly each item is,
+what was paid for it, and whether it is still available to sell. This README
+is the developer's entry point: the stack, the code layout, the API and
+where to find everything else. Why the system exists, and what it
+deliberately does not do, is in [docs/project-purpose.md](docs/project-purpose.md).
+
+A FastAPI backend and two React applications share one PostgreSQL database:
+
+- the **management console** (`/management`), where the owner records
+  purchases, receives, attributes, photographs, offers and sells items, and
+  runs reports;
+- the **shop** (`/`), where customers browse listed items, register and
+  order.
 
 The `ccwebdb` database is the system of record for the collection. Data is
 corrected in the console or by passes over stored items, and the whole
@@ -17,7 +26,7 @@ database is backed up and restored as a workbook by `app.workbook_backup`
 
 | Layer    | Choice                                                      |
 | -------- | ----------------------------------------------------------- |
-| Backend  | FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2                |
+| Backend  | FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2, Pillow        |
 | Database | PostgreSQL 18, run from the conda environment (no Docker)    |
 | Auth     | JWT access + refresh tokens, argon2 password hashing         |
 | Frontend | React 19 + React Router 7, Vite 8, Vitest, plain JavaScript  |
@@ -30,13 +39,26 @@ First time on a machine, follow
 command starts the database, the API and both applications:
 
 ```cmd
-scripts\ccweb_startup.cmd
+.\scripts\ccweb_startup.cmd
 ```
 
-Stop with `scripts\ccweb_shutdown.cmd`; see what is running with
-`scripts\ccweb_status.cmd`. [docs/runtime-operations.md](docs/runtime-operations.md)
+Stop with `.\scripts\ccweb_shutdown.cmd`; see what is running with
+`.\scripts\ccweb_status.cmd`. [docs/runtime-operations.md](docs/runtime-operations.md)
 covers every script, and its *Quick reference* lists the addresses of the
 shop, the console and the API.
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [docs/project-purpose.md](docs/project-purpose.md) | Why the system exists; the rules every design follows |
+| [docs/workflow-new-collection.md](docs/workflow-new-collection.md) | An item's path from purchase to sale, in the console |
+| [docs/system-administration.md](docs/system-administration.md) | Every console screen, setting, pass, backup and release step |
+| [docs/environment-setup.md](docs/environment-setup.md) | Building the development environment on a clean machine |
+| [docs/runtime-operations.md](docs/runtime-operations.md) | Starting, stopping and checking the servers |
+| [docs/database-design.md](docs/database-design.md) | The schema |
+| [docs/code-quality.md](docs/code-quality.md) | The quality gates and their exceptions |
+| [docs/specs/](docs/specs/) | One design document per feature |
 
 ## Layout
 
@@ -51,25 +73,40 @@ backend/
     routers/             the HTTP API (see below); _resolve.py turns what a
                          client sent into rows or the error naming what is
                          missing, _tx.py is the shared commit-or-roll-back
-    *_writes.py          the single writers: lifecycle (status, location),
-                         offering (listings, claims, disposition), orders,
-                         sales, lots
-    auction_holding.py   which listings are lots of an auction, for the
-                         guards that refuse ending or selling one directly
-    inventory_search.py  owner search and facets over the base tables
-    issues.py            named diagnostics (no year, no grade, ...)
-    live.py              the shared live-row predicate (reports, Receiving; the
-                         search states the same rule in its SQL text)
-    reports/             read-only reports over the collection: registry, API,
-                         CLI, workbook export (docs/specs/reporting-design.md)
-    classifier_defaults.py, series_match.py, series_classify.py,
-    serial_patterns.py, photo_import.py, vendor_cleanup.py, ebay_orders.py
-                         passes over stored items; dry run unless --commit
+    single writers       each table with a history has exactly one module
+                         that writes it: lifecycle_writes (status, location),
+                         offering_writes (listings, offer claims, the lock
+                         order), order_writes (shop orders), sales_writes
+                         (recorded sales and fees), lot_writes (sales lots),
+                         auctions (auction transitions), image_links
+                         (item_image), field_changes (item_field_change)
+    selling helpers      sale_state (is an item for sale), auction_holding
+                         (which listings are auction lots), sale_snapshot,
+                         offer_titles, buyers, sales_venues
+    inventory helpers    inventory_search (search and facets over the base
+                         tables), issues (named diagnostics), live (the
+                         shared live-row predicate), splitting + allocation
+                         (lot splits to the penny), item_history,
+                         item_descriptions, item_attributes, aliases,
+                         reference_merge, references, grades, years, plates,
+                         composition, fr_format
+    photographs          imaging (strip, orient, hash), image_store,
+                         storage, image_fetch (from a web address),
+                         photo_names (the CC-000412_01.jpg convention)
+    passes               classifier_defaults, series_match, series_classify,
+                         serial_patterns, photo_import, vendor_cleanup,
+                         ebay_orders, listing_links: corrections over stored
+                         items, run as python -m app.<name>; dry run unless
+                         --commit
+    reports/             read-only reports: registry, API, CLI
+                         (python -m app.reports list|run), workbook export
+                         (docs/specs/reporting-design.md)
     seeding.py           load and export reference data (backend/data/reference/)
-    seed.py              first administrator plus demo items (never on live)
+    seed.py              first administrator plus five demo items (never on live)
     backup.py            database-to-database copy with --verify
     workbook_backup.py   the whole database to and from one Excel workbook
-  alembic/               migrations
+    logpipe.py           size-bounded log files for the dev runtime
+  alembic/               migrations, from a squashed baseline.sql
   data/reference/        shipped vocabularies as versioned JSON
   tests/                 pytest, against its own ccwebdb_test database
 frontend/
@@ -78,8 +115,10 @@ frontend/
   src/management/        the management console
   src/shared/            API client, auth, formatting, vocabularies, the
                          request and debounce hooks
+  scripts/               check-bundle-isolation.mjs
 scripts/                 ccweb_*.cmd: startup, shutdown, status, check, psql,
-                         pgadmin, claude, sonar
+                         pgadmin, claude, sonar_*; env, logdir and pgstart are
+                         helpers the others call
 docs/                    project, operations and design documents; designs
                          for individual features are in docs/specs/
 ```
@@ -87,18 +126,19 @@ docs/                    project, operations and design documents; designs
 ## API
 
 Everything is under `/api`; the live OpenAPI page at `/docs` is the complete
-reference. By area:
+reference. "Manager" is the administrator role (`UserRole.manager`, checked
+by `deps.require_admin`). By area:
 
 | Area | Prefix | Access |
 |---|---|---|
-| Accounts | `/auth`, `/users`, `/customers` | sign-in public; administration manager |
+| Accounts | `/auth` (register, login, refresh, me), `/users`, `/customers` (including orders placed on a customer's behalf) | sign-in public; administration manager |
 | Shop catalog | `/catalog` | public, read only |
 | Customer orders | `/orders` | customers their own; managers all |
-| Inventory | `/inventory` (search, create, bulk, edit, receive, split, errors, reviews, delete) | manager |
-| Purchases | `/vendors`, `/purchase-orders`, `/storage-locations` | manager |
-| Vocabularies | `/reference` (read public; add, rename, alias, merge manager), `/defaults` | mixed |
-| Photographs | `/images`, `/image-links` (renditions public, by content hash) | mixed |
-| Selling | `/sales-venues`, `/offers`, `/listings` (end, record a sale), `/sales-lots`, `/auctions` | manager |
+| Inventory | `/inventory` (search, create, bulk, edit, receive, split, detach a piece, reviews, errors, history, sales, suggested description, delete) | manager |
+| Purchases | `/vendors`, `/sellers`, `/purchase-orders`, `/storage-locations` | manager |
+| Vocabularies | `/reference` (read public; add, rename, alias, merge manager), `/defaults` (suggested classifiers while entering an item) | mixed |
+| Photographs | `/images` (upload, from a web address, renditions), `/image-links` (role, primary, move, detach) | renditions public, by content hash; the rest manager |
+| Selling | `/sales-venues`, `/offers`, `/listings` (edit, end, record a sale), `/sales-lots`, `/auctions` | manager |
 | Friedberg numbers | `/friedberg`, `/inventory/{id}/friedberg` | manager; the owner's own numbers only |
 | Reports | `/reports` (catalog, run, `/workbook`) | manager |
 
@@ -111,16 +151,17 @@ Rules that hold across the API:
 - **Concurrent edits are detected.** Reads return a `version`; a write that
   sends a stale one is refused with 409 and the current state.
 - **No item is offered twice.** At most one active offer per item, enforced
-  by a partial unique index on `offer_claim`; checkout locks the listings it
-  buys in id order.
-- **Order lines record the price paid**, so later price edits do not rewrite
-  history.
-- **Every item has a permanent `item_code`** (`CC-000123`), issued once and
-  never reused.
+  by the partial unique index `uq_offer_claim_active`. Every selling write
+  locks lot rows, then items, then listings, each in id order
+  ([docs/specs/lock-order-design.md](docs/specs/lock-order-design.md)).
+- **Order lines record the price paid** (`sales_order_item.unit_price`) and
+  a snapshot of the item as sold, so later edits do not rewrite history.
+- **Every item has a permanent `item_code`** (`CC-000123`), issued once from
+  a sequence and never reused.
 - **Photographs are stripped of metadata at ingest** (they carry GPS), and
   only generated `thumb` and `web` renditions are ever served. Storage
-  location and inventory photographs never reach a customer; `routers/catalog.py`
-  builds each public response field by field.
+  location and inventory photographs never reach a customer;
+  `routers/catalog.py` builds each public response field by field.
 - **Money is `NUMERIC` and `Decimal`**, never a float; lot splits reconcile to
   the penny.
 
@@ -129,7 +170,7 @@ Rules that hold across the API:
 In a browser, with pgAdmin:
 
 ```cmd
-scripts\ccweb_pgadmin.cmd
+.\scripts\ccweb_pgadmin.cmd
 ```
 
 It opens pgAdmin on http://127.0.0.1:5050 with the `ccwebdb` connection
@@ -141,18 +182,19 @@ Python 3.13 (the script header says why):
 uv tool install --python 3.13 pgadmin4
 ```
 
-At the command line, with psql:
+At the command line, with psql (every argument passes straight to psql):
 
 ```cmd
-scripts\ccweb_psql.cmd                              interactive psql
-scripts\ccweb_psql.cmd -c "select * from metal;"    one statement
-scripts\ccweb_psql.cmd -f query.sql                 a file
+.\scripts\ccweb_psql.cmd                              interactive psql
+.\scripts\ccweb_psql.cmd -c "select * from metal;"    one statement
+.\scripts\ccweb_psql.cmd -f query.sql                 a file
 ```
 
 The views `coin_inventory`, `currency_inventory`, `item_valuation` and
 `public_catalog` resolve foreign keys to readable codes and exclude split and
 deleted rows, which makes them the easy place to query by hand. The
-application itself does not read them.
+application itself does not read them (the search queries the base tables,
+which is many times faster).
 
 One trap: `source_title` often holds only denomination text (`0.25`,
 `Mint Set`), not a name. The words a person searches for are in
@@ -166,8 +208,8 @@ where coalesce(source_title, '') || ' ' || coalesce(description, '') ilike '%mor
 ## Code quality and tests
 
 ```cmd
-scripts\ccweb_check.cmd          every gate: ruff, mypy, pytest, eslint, prettier, vitest, bundle isolation
-scripts\ccweb_check.cmd fix      auto-fix first, then check
+.\scripts\ccweb_check.cmd          every gate: ruff (format, lint), mutation-scaffolding guard, mypy, pytest, eslint, prettier, vitest, bundle isolation
+.\scripts\ccweb_check.cmd fix      auto-fix first, then check
 ```
 
 Every gate is at zero, so any finding is new.
@@ -181,8 +223,9 @@ justified lint exceptions. The Python suite builds and drops its own
   [eBay Purchase History Downloader](https://chromewebstore.google.com/detail/ebay-purchase-history-dow/dhccpfcjgmlajnnoigjhokbfgpaamhpe)
   saves a year of eBay purchases as a workbook (`Ebay_Purchase_History_<year>.xlsx`),
   a row per item bought, with its order number and eBay item id.
-  `python -m app.ebay_orders` reads those workbooks to fill missing order
-  numbers and each item's listing id (see
+  `python -m app.ebay_orders FILE... [--commit --by EMAIL] [--review OUT.xlsx]`
+  reads those workbooks to fill missing order numbers and each item's
+  listing id, and merges purchases that were one eBay order (see
   [docs/specs/ebay-order-recovery-design.md](docs/specs/ebay-order-recovery-design.md)).
 
 ## Dependencies

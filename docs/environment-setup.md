@@ -1,8 +1,11 @@
 # Development environment setup
 
-How to build the `ccwebdb` development environment on a clean Windows machine.
-Everything is installed **per-user or per-environment**; nothing needs
-administrator rights.
+How to build the `ccwebdb` development environment on a clean Windows machine,
+from nothing to a running shop and management console: the tools, the local
+PostgreSQL cluster, the configuration, and filling the database. It is for a
+developer setting up a machine, or rebuilding one. Everything is installed
+**per-user or per-environment**; nothing needs administrator rights, and
+nothing lands machine-wide where another project could disturb it.
 
 All commands are **cmd**, not PowerShell. For day-to-day starting and stopping
 once set up, see [runtime-operations.md](runtime-operations.md).
@@ -73,14 +76,14 @@ activated environment:
 ```cmd
 conda activate ccwebdb
 setx UV_PROJECT_ENVIRONMENT "%CONDA_PREFIX%"
-for %I in ("%CONDA_PREFIX%\..\..\..") do setx UV_CACHE_DIR "%~fI\dev\uv\cache"
+setx UV_CACHE_DIR "%USERPROFILE%\dev\uv\cache"
 ```
 
 - `UV_PROJECT_ENVIRONMENT` -- **the important one.** It makes `uv sync`,
   `uv add` and `uv run` operate on the conda `ccwebdb` environment instead of
   creating a project-local `.venv`.
 - `UV_CACHE_DIR` -- keeps uv's cache somewhere you chose rather than
-  `%LOCALAPPDATA%`.
+  `%LOCALAPPDATA%`. Any folder will do; the one above is only a suggestion.
 
 `setx` stores the expanded value and takes effect in **new** shells. Check it
 with `reg query HKCU\Environment /v UV_PROJECT_ENVIRONMENT`: it should name the
@@ -137,7 +140,7 @@ gains a trailing space. `.pgdata\` is gitignored. The "enabling trust
 authentication for local connections" warning is harmless on Windows: there
 are no Unix domain sockets, so only the `host` rules apply.
 
-Start the server with `scripts\ccweb_startup.cmd` (or by hand, see
+Start the server with `.\scripts\ccweb_startup.cmd` (or by hand, see
 [runtime-operations.md](runtime-operations.md)), then create the application
 role and database:
 
@@ -181,7 +184,16 @@ Two cases, and they are **not interchangeable**.
 Restore the latest verified backup of `ccwebdb` -- a `pg_dump` or a workbook
 backup -- into the empty database. The backups live outside the repository;
 the procedure is in [system-administration.md](system-administration.md)
-(*Backing up and restoring*).
+(*Backing up and restoring*). Two things to know before starting:
+
+- `python -m app.workbook_backup import FILE --to URL` loads only into an
+  empty database already at the current migration (`alembic upgrade head`
+  first), and refuses the database `DATABASE_URL` in `.env` names. Restore
+  into a database of another name, then point `DATABASE_URL` at it (or
+  restore before `.env` names `ccwebdb`); the full procedure is in
+  *The workbook backup* in system-administration.md.
+- Do not run `app.seed` afterwards: the restored database already holds its
+  own accounts, and you sign in with one of those.
 
 ### A trial installation, with demo data
 
@@ -203,15 +215,19 @@ collection's database.
 ## Running the application
 
 ```cmd
-scripts\ccweb_startup.cmd
+.\scripts\ccweb_startup.cmd
 ```
 
 The addresses are in [runtime-operations.md](runtime-operations.md)
-(*Quick reference*). Sign in with the administrator from `.env`. Vite
+(*Quick reference*). Sign in to the management console with a manager
+account: on a trial installation, the administrator from `.env`; on a
+restored one, an account from the backup. Vite
 proxies `/api` to port 8000, so the browser talks to one origin and CORS is
 not involved during development.
 
 ## Running the tests
+
+From the repo root:
 
 ```cmd
 uv run pytest
@@ -219,7 +235,7 @@ cd frontend
 npm test
 ```
 
-Or run every gate at once with `scripts\ccweb_check.cmd`
+Or run every gate at once with `.\scripts\ccweb_check.cmd`
 ([code-quality.md](code-quality.md)). The Python suite creates `ccwebdb_test`,
 builds the schema, runs each test in a rolled-back transaction, and drops the
 database afterwards; point it elsewhere with `TEST_DATABASE_URL`. Never run
@@ -228,8 +244,9 @@ failures look like real bugs.
 
 Two suites worth knowing about:
 
-- `test_migrations.py` builds a database purely by `alembic upgrade head` and
-  asserts autogenerate finds no difference from the models, so a model change
+- `test_migrations.py` builds a database purely by `alembic upgrade head`
+  (from the squashed `backend/alembic/baseline.sql` onward) and holds it
+  against the models, the views and the SQL functions, so a model change
   without a migration fails.
 - `test_concurrency.py` drives the order handler from real threads rather
   than `TestClient`, which serializes requests -- a race written against it
@@ -266,7 +283,8 @@ tools.
 
 **A bare script name is not found, even in its own directory.** This machine
 sets `NoDefaultCurrentDirectoryInExePath=1`, so `ccweb_startup.cmd` alone
-fails with *"not recognized"*. Include a path: `scripts\ccweb_startup.cmd`, or
+fails with *"not recognized"*, and so does `cmd /c ccweb_startup.cmd`.
+Include a path: `.\scripts\ccweb_startup.cmd` from the repo root, or
 `.\ccweb_startup.cmd` inside `scripts\`.
 
 **From Git Bash, run a `.cmd` as `cmd //c scripts\\ccweb_check.cmd`.** A

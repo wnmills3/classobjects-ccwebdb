@@ -1,15 +1,33 @@
 # Photographs on an item: importing them, and putting them right
 
-How photographs get onto items: a command-line pass that files a library of
-photographs by filename, and console surfaces for attaching, correcting and
-filing them by hand. The shop serves an item's **primary** photograph
-(`routers/catalog.py`), so every rule here is ultimately about what a buyer
-sees.
+*2026-09-29.* A photograph is how a buyer sees a coin or note and how the
+owner confirms which physical piece a record describes. This feature gets
+photographs onto items and keeps them filed correctly:
+
+- **In the management console** the owner adds, labels, promotes to primary,
+  moves and removes an item's photographs in the item editor's
+  **Photographs** panel (`/management/inventory/coins` or `/currency`,
+  `PhotosPanel`); attaches
+  photographs while receiving an item (`/management/receiving`,
+  `ReceiptPanel`); and files photographs that belong to no item yet on
+  **Photos** (`/management/photos`).
+- **From the command line**, `python -m app.photo_import` files a whole
+  library of photographs named by the `CC-######_NN` convention.
+
+The shop serves an item's **primary** photograph and nothing else
+(`routers/catalog.py`, no fallback to "the first one"), so every rule here is
+ultimately about what a buyer sees. Every change to an item's photographs is
+therefore guarded by the for-sale rule.
 
 ## Model
 
-- `image` is a stored photograph, content-addressed (`image.sha256` unique),
-  with derivatives in `image_derivative`. `imaging.cleanse` strips all
+- `image` is a stored photograph, content-addressed (`image.sha256` unique,
+  the hash of the cleansed bytes), with derivatives (`thumb`, `web`) in
+  `image_derivative`. The same photograph stored twice is one row: `ingest`
+  returns the existing image, keeping its name. Derivatives are served at
+  `/api/images/{sha256}/{kind}`, public so a plain `<img>` works in the shop,
+  and addressed by hash rather than id so the unlisted collection cannot be
+  enumerated. `imaging.cleanse` strips all
   metadata at ingest and re-reads the written bytes to prove it is gone --
   photographs of valuables carry the GPS position of where they are kept.
   `captured_at` is the one field kept, because capture order helps match
@@ -121,16 +139,17 @@ stored; only the *link* is withheld.
   which detaches and never deletes the photograph. **Nothing in it writes
   until the editor's Save.**
   A new photograph is added from a file, dropped onto the picker, pasted from
-  the clipboard with **Ctrl+V**, or from a **pasted web address**, and listed
-  as not saved yet, with Discard. Dragging a non-image file, or pasting
-  clipboard content that is not an image, is refused with a message naming
-  it; a plain-text paste elsewhere on the page is untouched, since the picker
-  only ever answers a paste aimed at it. A new role, a new primary, a
-  removal or a move for a filed photograph shows in place, marked not saved
-  yet, with Undo; choosing the saved value again drops it. A move names the
-  other item by its code (the Photos page's `ItemPicker`) and refuses the
-  item the photograph is already on. Save applies them after the fields and
-  errors, under the editor's one for-sale acknowledgement: roles and the new
+  the clipboard with **Ctrl+V** while the picker has focus, or from a **web
+  address**, and listed as not saved yet, with Discard. A dropped file that
+  is not an image refuses the whole drop with a message naming it. A paste
+  takes only the clipboard's image files; a paste carrying none is left
+  alone, so text still pastes wherever it was aimed. A new role, a new
+  primary, a removal or a move for a filed photograph shows in place, marked
+  not saved yet, with Undo; choosing the saved value again drops it. A move
+  names the other item by its code (the Photos page's `ItemPicker`) and
+  refuses the item the photograph is already on. Save applies them after the
+  fields, the Friedberg number and the errors, under the editor's one
+  for-sale acknowledgement: roles and the new
   primary first, then moves, then removals (so the server never fills a
   vacated primary over the one chosen), then new photographs. Whatever
   fails stays held with its reason. The panel reads from the server again
@@ -156,10 +175,13 @@ its name was another item's place -- a real item's code and a position -- and
 it is filed on no other item (`image_links.name_for_place`). A camera's
 `DSC00417.JPG` keeps its name, and so does a group photograph shared by
 several items.
-- **Receiving**: `ReceiptPanel` uploads photographs for the one item being
-  received, chosen from a file, dropped onto the picker, or pasted with
-  Ctrl+V; the first is primary. A failed upload never rolls back the
-  receipt.
+
+**Receiving**: `ReceiptPanel` uploads photographs for the one item being
+received, chosen from a file, dropped onto the picker, or pasted with
+Ctrl+V; the first is primary, and none is given a role. They are sent after
+the receipt is recorded, under the receipt's own for-sale acknowledgement. A
+failed upload never rolls back the receipt: the panel stays open naming each
+file that failed.
 
 All of these go through `ForSaleNotice` / the for-sale refusal: every link
 change is guarded by `sale_state.guard` (`for-sale-guards-design.md`).
@@ -168,11 +190,12 @@ change is guarded by `sale_state.guard` (`for-sale-guards-design.md`).
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/images` | upload (multipart); optionally attach with `inventory_item_id`, `image_role`, `is_primary` |
+| `POST /api/images` | upload (multipart); optionally attach with `inventory_item_id`, `image_role`, `is_primary`. Re-uploading a photograph the item already has updates its role (when one is sent) and primacy rather than refusing |
+| `POST /api/images/from-url` | fetch from a web address and file on an item (below) |
 | `GET /api/images` | links for `inventory_item_id`, or `unattached=true`; **exactly one** is required, otherwise 422 |
 | `GET /api/images/{sha256}/{kind}` | serve a derivative |
 | `POST /api/images/{image_id}/links` | attach to an item, with role and primary |
-| `PATCH /api/image-links/{link_id}` | change role, or make primary |
+| `PATCH /api/image-links/{link_id}` | change role (an explicit null clears it, an omitted field is left alone), or make primary |
 | `POST /api/image-links/{link_id}/move` | file on another item (`inventory_item_id`), placed, promoted and renamed there |
 | `DELETE /api/image-links/{link_id}` | **detach**; the photograph survives |
 | `DELETE /api/images/{image_id}` | destroy the photograph, its derivatives and its stored bytes |
@@ -200,9 +223,11 @@ larger than the upload limit, with a 15-second timeout. The host is resolved
 once and the request sent to the address checked -- the name carried in the
 `Host` header and as the TLS server name, so the certificate is still
 verified against it -- so a host cannot answer public to the check and
-private to the connection (DNS rebinding). A refused fetch is a
-422 naming why, and stores nothing; 404 for an unknown item; the for-sale
-acknowledgement as for an upload.
+private to the connection (DNS rebinding). A refused fetch, or bytes
+`imaging` will not take, is a 422 naming why, and stores nothing; 404 for an
+unknown item; 409 when the item already has that photograph; the for-sale
+acknowledgement as for an upload. Bytes already stored (the same hash) are
+filed under the existing image, which keeps its own name.
 
 ## Tests
 
@@ -216,5 +241,12 @@ acknowledgement as for an upload.
 - `tests/test_image_links.py`: the primary swap, vacancy filling on attach,
   detach and delete. The demotion is load-bearing: remove it and
   `uq_item_image_primary` rejects the write.
+- `tests/test_image_move.py` (moving and `name_for_place`),
+  `tests/test_image_order_and_names.py` (placement after the last photograph,
+  names kept as stored), `tests/test_image_from_url.py` (the fetch guards,
+  with a stubbed resolver and client), `tests/test_images.py` (metadata
+  stripping against a GPS-tagged fixture, hashing, derivatives, the upload,
+  list and serving routes).
 - Each guard call site fails a named test when deleted.
-- Frontend: `PhotosPanel` and the Photos page, rendered with `strict: true`.
+- Frontend: `PhotosPanel.test.jsx`, `Photos.test.jsx` and
+  `ReceiptPanel.test.jsx`.

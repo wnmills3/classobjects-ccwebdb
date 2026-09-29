@@ -1,19 +1,25 @@
 # Entry panels: Purchases and New item
 
-The database is the system of record, so acquisitions are entered in the
-console: **Purchases** records a vendor and a purchase order, and **New
-item** records a coin, banknote or lot bought on it. Splitting a lot,
-attributing its pieces, editing a vendor and editing a purchase order happen
-elsewhere; a Friedberg number is attached afterwards from Receiving or the item
-editor, where -- like a photograph added there -- it is held until the editor's
-Save.
+The database is the system of record, so every acquisition is entered in the
+management console as it is bought: that is what gives each piece a cost
+basis traceable to the purchase it came from, and what Receiving later checks
+arrivals against. Staff use one page, **Purchases** (`/management/purchases`):
+it records a vendor and a purchase order, and its **New item** form records
+each coin, banknote or lot bought on it.
+
+Other work happens elsewhere: splitting a lot and attributing its pieces in
+the inventory pages (`attribution-design.md`); correcting or deleting a
+vendor, seller or storage location on the Lists page
+(`list-maintenance-design.md`); photographs and a Friedberg number once the
+piece is in hand, from Receiving or the item editor
+(`receiving-purchases-design.md`, `item-photographs-design.md`).
 
 ## Rules
 
 | Question | Rule |
 |---|---|
-| Can an item exist without a purchase? | **No.** A standalone buy is a purchase holding one item. The order number is optional, so a walk-in or show purchase needs only a vendor. |
-| Where do shipping and tax live? | **On each item** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The page's purchase-wide values pre-fill each item. |
+| Can an item exist without a purchase? | **No.** A standalone buy is a purchase holding one item. The order number is optional, so a walk-in or show purchase needs only a vendor; one entered without a number is given the next generated one (`Order-0001` and up), so it can be found. |
+| Where do shipping and tax live? | **On each item** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The page's purchase-wide tax values are sent with every item entered on it. |
 | A lot? | An item with `piece_count > 1`. Splitting is a later step. |
 | Status on entry | `ordered` (default) or `received` for things already in hand. The opening status-history row is written either way. |
 | Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. The New item form starts with country United States (`US`), which the person may change or empty. |
@@ -22,18 +28,21 @@ Save.
 | Who sold it? | The vendor is often the marketplace (ebay.com, whatnot.com); the seller on it is a row of its own (`seller`: a unique name and an optional store link) that the purchase names by `seller_id` -- one seller per purchase, since a marketplace order comes from one, and many purchases per seller. |
 | Repeated entry | **Save and add another** keeps exactly what the next piece of one purchase shares (`SHARED_ON_REPEAT` in `NewItemForm.jsx`, listed under *New item* below) and clears the rest. Grade, grade designation, serial number, certificate, variety, cost, shipping and piece count are per piece and always clear, even when they often repeat. |
 
-**Tax fields are three-state.** The tax-rate box starts empty, meaning the
-configured rate (sent as `tax_rate: null`); "No sales tax charged" sends 0 and
-disables the box; an explicit rate is validated as 0-1 with up to 4 places (a
-leading-dot `.0635` accepted), and while it is invalid the item form refuses to
-save, with a visible reason. "Tax on shipping" is "As configured" (`null`),
-"Taxed" (`true`) or "Not taxed" (`false`): a checkbox cannot tell "not taxed"
-from "use the default", and the default is `true`.
+**Tax fields are three-state.** They sit on the purchase, above the item
+form. The tax-rate box starts empty, meaning the configured rate (sent as
+`tax_rate: null`); "No sales tax charged" sends 0 and disables the box; an
+explicit rate is validated as 0-1 with up to 4 places (a leading-dot `.0635`
+accepted), and while it is invalid the item form refuses to save, saying
+"Fix the tax rate above before saving items." "Tax on shipping" is "As
+configured" (`null`), "Taxed" (`true`) or "Not taxed" (`false`): a checkbox
+cannot tell "not taxed" from "use the default", and the default is `true`.
 
 ## API
 
-All endpoints are manager-only (401 signed out, 403 for a customer).
+All endpoints are staff-only (401 signed out, 403 for a customer).
 Request bodies forbid unknown fields (422). Money crosses as decimal strings.
+The `PATCH` and `DELETE` routes for vendors, sellers and storage locations
+serve the Lists page (`list-maintenance-design.md`).
 
 ### Vendors (`routers/acquisitions.py`)
 
@@ -66,12 +75,14 @@ Request bodies forbid unknown fields (422). Money crosses as decimal strings.
 
 ### Purchase orders
 
-- `POST /api/purchase-orders` -- `vendor_id`, `order_number` (trimmed; "" ->
-  null), `ordered_on` (not after tomorrow), `source_url` (http(s) only),
-  `seller_id` (404 for an unknown one), `notes`. The detail names the seller:
-  `seller_id`, `seller` (the name) and `seller_url` (their store). 201 with `PurchaseOrderDetailOut`. 404 for an unknown vendor; 409
-  when that vendor already has that order number (a partial unique index, so
-  several unnumbered purchases from one vendor are allowed).
+- `POST /api/purchase-orders` -- `vendor_id`, `order_number` (trimmed; blank
+  or absent -> the next generated `Order-NNNN`), `ordered_on` (not after
+  tomorrow), `source_url` (http(s) only), `seller_id` (404 for an unknown
+  one), `notes`. 201 with `PurchaseOrderDetailOut`, which names the seller:
+  `seller_id`, `seller` (the name) and `seller_url` (their store). 404 for an
+  unknown vendor; 409 when that vendor already has that order number.
+- `PATCH /api/purchase-orders/{id}` -- the same fields; only what is sent
+  changes, and a number sent blank is given the next generated one.
 - `GET /api/purchase-orders` and `GET /api/purchase-orders/{id}`, whose lines
   carry `source_title` and `item_kind` for the page's items table.
 
@@ -114,29 +125,30 @@ new `item_code`.
 
 ## Console
 
-Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
-(`management/pages/NewPurchase.jsx`), in two steps on one page:
+Route `/management/purchases` (`/management/purchases/new` also opens it), nav
+link **Purchases** (`management/pages/NewPurchase.jsx`), in two steps on one
+page:
 
 1. **The purchase.** Either *Add to an existing purchase* -- a table of order
    number, date, vendor and purchase number (`#3974`, the purchase's own id,
    which the reports and Receiving's heading show too), filterable by part of
    an order number or vendor, or by an exact purchase number, and sorted by
    any column from a button in its header (date, newest first, until another
-   is chosen; an undated purchase always last; ties newest first). A row or its order-number
-   button picks the purchase -- or a new one:
-   vendor (with "+ Add a vendor..." opening an inline name / kind / web address
-   form that never submits the outer form), order number, order date, web
+   is chosen; an undated purchase always last; ties newest first). A row or
+   its order-number button picks the purchase -- or a new one: vendor (with
+   "+ Add a vendor..." opening an inline name / kind / web address form that
+   never submits the outer form), order number, order date, web
    address, seller (with "+ Add a seller..." opening an inline name / store
    form, as the vendor picker does), notes, **Create purchase**. **Edit
-   details** changes the same fields; the heading links "Vendor page" and
-   names the seller, linked to their store, as Receiving's does. A refusal is shown in place with the
-   input kept.
+   details** changes the same fields. The heading links the purchase's web
+   address as "Vendor page" and names the seller, linked to their store, as
+   Receiving's does. A refusal is shown in place with the input kept.
 2. **Items on this purchase.** The purchase heading, the purchase-wide tax
-   values, a table of items entered so far (code, title, kind, cost, status) whose
-   item code opens the item editor over the page, to fix an entry where it
-   was made (the purchase is read again when the editor closes),
-   the New item form, a **Receive these** link to `/receiving?order=<id>`, and
-   **Start another purchase**.
+   values, a table of items entered so far (code, title, kind, cost, status)
+   whose item code opens the item editor over the page, to fix an entry where
+   it was made (the purchase is read again when the editor closes), the New
+   item form, a **Receive these** link to `/management/receiving?order=<id>`,
+   and **Start another purchase**.
 
 **New item** (`management/pages/entry/NewItemForm.jsx`):
 
@@ -156,32 +168,44 @@ Route `/purchases` (`/purchases/new` also opens it), nav link **Purchases**
   else's metal. Then country; strike type (not for a note), grade, grade
   designation, grading service, certificate number, set form and variety
   (not for a note), attributes (the editor's `AttributesField`, offering
-  the kind's own; changing kind across note and coin drops them).
+  the kind's own).
 - Then the rest of the purchase line: title, piece count.
 - Last, in this order: errors, then the description with **Suggest
   description** -- which writes it from what is entered, errors included, so
   they come first -- then the storage location (optional) and status
   (ordered / received). The item editor offers the storage location too.
+- **Suggest description** posts the unsaved form to
+  `POST /api/inventory/suggested-description` (`app.item_descriptions`),
+  which builds the item in memory, adds the attributes its serial earns, and
+  writes a description in the owner's style: grade, errors and attributes
+  first, then what the piece is. It fills the box for editing and writes
+  nothing; the item editor's button asks `GET
+  /api/inventory/{id}/suggested-description` of the saved item.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
-  boundary clears a picked grade, a change within one side keeps it.
+  boundary clears a picked grade, grade designation and attributes (and a
+  note has no strike type), while a change within one side keeps them.
 - **Suggestions.** As facts are entered the form asks `GET /api/defaults/note`
   or `/coin` and fills what the facts decide -- the design series included --
   marked *suggested* (`classifier-defaults-design.md`). The series is never
-  sent as a fact.
+  sent as a fact. A new item has no photographs and no Friedberg number yet:
+  both are added once it is in hand.
 - **Errors** are recorded with `ErrorsPanel`, saved after the item is created,
   with a Retry if that second step fails.
 - Money is validated with `isMoney` before sending.
-- **Save** clears the whole form. **Save and add another** keeps
-  `SHARED_ON_REPEAT` -- kind, seller's item id, listing web address,
-  status, storage location (a parcel is put away in one place), country,
+- **Save** clears the whole form back to its start (the purchase's lot page
+  as the listing, where it has one). **Save and add another** keeps
+  `SHARED_ON_REPEAT` -- kind, seller's item id, listing web address, status,
+  storage location (a parcel is put away in one place), country,
   denomination, series, series year and letter, seal, district, note class,
-  signatures, grading service, metal, mint -- clears everything that varies
-  piece to piece (attributes, title,
-  description, years, grade, designation, serial, certificate, variety, cost,
-  shipping, piece count back to 1) and focuses the first identifying field
-  it cleared: a note's serial number, anything else's year.
+  signatures, grading service, metal, mint -- with a kept suggestion still
+  marked *suggested*, except a suggested Reserve Bank, which came from the
+  serial and is cleared with it. It clears everything that varies piece to
+  piece (attributes, errors, title, description, years, grade, designation,
+  serial, plates, printing location, certificate, variety, cost, shipping,
+  piece count back to 1) and focuses the first identifying field it cleared:
+  a note's serial number, anything else's year.
 - Keyboard accelerators via `accel` / `AccessLabel` (Alt+letter, avoiding D,
   E and F, which the browser claims) and `useSaveShortcut` (Ctrl+S /
   Ctrl+Enter saves; the Save button, a `SaveButton`, shows Ctrl+S and has no
@@ -200,9 +224,9 @@ recover the other, and at most vendors a purchase's web address is its lot's.
 | At any vendor but eBay and Whatnot -- whose orders hold many listings -- the purchase's web address is its lot's page. | New item starts with it as the listing, suggested (with the id it carries); a purchase with no web address takes the first item's listing when the item is entered (`create_item`); the pass fills an item with no address from its purchase only when that address carries a lot id (a shop's location page is no listing), and a purchase with none from the one address its items share. |
 | A purchase whose items name several lots gives no address to its items and takes none from them. | The pass. |
 
-Nothing already recorded is replaced. The pass reports by default;
-`python -m app.listing_links --commit --by EMAIL` fills the gaps and logs
-each item's change in its History under that person.
+Nothing already recorded is replaced. The pass, run from `backend`, reports
+by default; `python -m app.listing_links --commit --by EMAIL` fills the gaps
+and logs each item's change in its History under that person.
 
 ## Field help
 
