@@ -16,10 +16,10 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
 
 from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, RowMapping, Select, and_, case, func, or_, select
+from sqlalchemy import ColumnElement, RowMapping, and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..live import OUTSTANDING_STATUSES, live_item
@@ -39,6 +39,12 @@ from .base import (
     ReportResult,
     period_label,
     period_start,
+)
+from .purchases import (
+    LIVE_ITEM_PURCHASE_NOTE,
+    dated_purchase_where,
+    join_live_purchase_items,
+    undated_purchase_note,
 )
 from .receipts import receipt_day, received_transitions
 from .registry import register
@@ -241,14 +247,6 @@ _SPEND_COLUMNS = [
 _ALL_VENDORS = "All vendors"
 _ALL_PERIODS = "All periods"
 
-#: The one rule `pr_spend` and `pr_sources` share for what "a purchase"
-#: means: only one with a live item counts as a purchase at all, in either
-#: report -- an inner join in both, never `pr_outstanding`'s outer one, so
-#: the two reports can never silently disagree about the same word.
-_LIVE_ITEM_PURCHASE_NOTE = (
-    "Purchases are counted only when they carry at least one live item."
-)
-
 _SPEND_AGGREGATES = (
     func.count(func.distinct(PurchaseOrder.id)).label("purchases"),
     func.count(InventoryItem.id).label("items"),
@@ -257,36 +255,6 @@ _SPEND_AGGREGATES = (
     func.coalesce(func.sum(InventoryItem.sales_tax), 0).label("sales_tax"),
     func.coalesce(func.sum(InventoryItem.total_cost), 0).label("total_cost"),
 )
-
-
-def _spend_where(params: SpendParams) -> list[ColumnElement[bool]]:
-    """A known order date, in range, inclusive on both ends when given."""
-    where: list[ColumnElement[bool]] = [PurchaseOrder.ordered_on.is_not(None)]
-    if params.date_from is not None:
-        where.append(PurchaseOrder.ordered_on >= params.date_from)
-    if params.date_to is not None:
-        where.append(PurchaseOrder.ordered_on <= params.date_to)
-    return where
-
-
-def _spend_joined(stmt: Select[Any]) -> Select[Any]:
-    """`stmt`, joined to the live items of the purchases it selects over.
-
-    An inner join: a purchase with no live item of its own contributes
-    nothing here -- not to the money columns, and not even to `purchases`
-    itself, since `count(distinct ...)` never sees a purchase this join
-    dropped. The report's own note says so.
-    """
-    return stmt.select_from(PurchaseOrder).join(
-        InventoryItem,
-        and_(InventoryItem.purchase_order_id == PurchaseOrder.id, live_item()),
-    )
-
-
-def _undated_note(count: int) -> str:
-    """How many purchases with no order date were left out of `pr_spend`."""
-    plural = "s" if count != 1 else ""
-    return f"{count} purchase{plural} with no order date excluded."
 
 
 def _pr_spend(db: Session, params: SpendParams) -> ReportResult:
@@ -299,21 +267,21 @@ def _pr_spend(db: Session, params: SpendParams) -> ReportResult:
     the subtotals, by so much as a cent.
     """
     period_col = period_start(params.period, PurchaseOrder.ordered_on)
-    where = _spend_where(params)
+    where = dated_purchase_where(params)
 
     overall = (
-        db.execute(_spend_joined(select(*_SPEND_AGGREGATES)).where(*where))
+        db.execute(join_live_purchase_items(select(*_SPEND_AGGREGATES)).where(*where))
         .mappings()
         .one()
     )
     undated = db.execute(
-        _spend_joined(select(func.count(func.distinct(PurchaseOrder.id)))).where(
-            PurchaseOrder.ordered_on.is_(None)
-        )
+        join_live_purchase_items(
+            select(func.count(func.distinct(PurchaseOrder.id)))
+        ).where(PurchaseOrder.ordered_on.is_(None))
     ).scalar_one()
 
     if not overall["purchases"]:
-        notes = [_undated_note(undated)] if undated else []
+        notes = [undated_purchase_note(undated)] if undated else []
         return ReportResult(
             columns=_SPEND_COLUMNS, rows=[], totals=None, drills=[], notes=notes
         )
@@ -321,7 +289,9 @@ def _pr_spend(db: Session, params: SpendParams) -> ReportResult:
     period_subtotals = {
         row["period_start"]: row
         for row in db.execute(
-            _spend_joined(select(period_col.label("period_start"), *_SPEND_AGGREGATES))
+            join_live_purchase_items(
+                select(period_col.label("period_start"), *_SPEND_AGGREGATES)
+            )
             .where(*where)
             .group_by(period_col)
         )
@@ -331,7 +301,7 @@ def _pr_spend(db: Session, params: SpendParams) -> ReportResult:
 
     rows_data = (
         db.execute(
-            _spend_joined(
+            join_live_purchase_items(
                 select(
                     period_col.label("period_start"),
                     Vendor.name.label("vendor_name"),
@@ -390,9 +360,9 @@ def _pr_spend(db: Session, params: SpendParams) -> ReportResult:
         "total_cost": overall["total_cost"],
     }
 
-    notes = [_LIVE_ITEM_PURCHASE_NOTE]
+    notes = [LIVE_ITEM_PURCHASE_NOTE]
     if undated:
-        notes.append(_undated_note(undated))
+        notes.append(undated_purchase_note(undated))
 
     return ReportResult(
         columns=_SPEND_COLUMNS, rows=rows, totals=totals, drills=drills, notes=notes
@@ -458,15 +428,16 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
     A purchase counts here under the same rule `pr_spend` uses -- an inner
     join to a live item, not `pr_outstanding`'s outer one -- so the two
     reports can never silently disagree about what "a purchase" means; see
-    `_LIVE_ITEM_PURCHASE_NOTE`. A vendor with no counted purchase does not
-    appear at all. `items` and `total_spent` are simply the sums of the live
-    items that same join already selected. Vendor rows carry the vendor's
-    full figures; a seller row beneath one is that seller's own subset, only
-    for the sellers a counted purchase has actually named -- a purchase
-    naming no seller contributes to the vendor row alone. Totals are over
-    vendor rows only: a seller row is a further breakdown of purchases the
-    vendor row already counts, not more purchases; its own first/last order
-    is the overall earliest/latest across those same vendor rows.
+    `LIVE_ITEM_PURCHASE_NOTE` (`.purchases`). A vendor with no counted
+    purchase does not appear at all. `items` and `total_spent` are simply
+    the sums of the live items that same join already selected. Vendor
+    rows carry the vendor's full figures; a seller row beneath one is that
+    seller's own subset, only for the sellers a counted purchase has
+    actually named -- a purchase naming no seller contributes to the vendor
+    row alone. Totals are over vendor rows only: a seller row is a further
+    breakdown of purchases the vendor row already counts, not more
+    purchases; its own first/last order is the overall earliest/latest
+    across those same vendor rows.
     """
     vendor_rows = (
         db.execute(
@@ -561,7 +532,7 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
         rows=rows,
         totals=totals,
         drills=drills,
-        notes=[_LIVE_ITEM_PURCHASE_NOTE],
+        notes=[LIVE_ITEM_PURCHASE_NOTE],
     )
 
 

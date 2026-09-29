@@ -144,12 +144,18 @@ def period_start(
 
     `column` is cast to a plain, zone-naive `DateTime` before `date_trunc`
     runs, so bucketing always goes through `date_trunc`'s timestamp
-    overload rather than its timestamptz one -- the overload PostgreSQL
-    resolves using the *session's* time zone -- regardless of whether
-    `column` itself carries a zone. `PurchaseOrder.ordered_on` (today's only
-    caller) is already a zone-naive `date`, for which this cast is a no-op;
-    the guarantee exists for whichever future caller passes a `timestamptz`
-    column instead.
+    overload rather than its timestamptz one. That cast is exact only for a
+    `DATE` column -- `PurchaseOrder.ordered_on` (`pr_spend`'s and
+    `mn_tax`'s own caller) and every other caller today -- which already
+    reads as a calendar day with no zone to convert, so the cast is a
+    no-op. It is **not** zone-independent for a `timestamptz` column:
+    PostgreSQL's cast from timestamptz to timestamp converts using the
+    *session's* own time zone, the same hazard `local_date` exists to avoid
+    in Python. A future caller with a timestamptz column must convert it to
+    a local calendar date itself -- in Python, the way `local_date` does --
+    before this function ever sees it; passing the raw column here would
+    bucket by whatever zone the database session happens to be in, not the
+    application server's own zone.
     """
     return cast(func.date_trunc(literal(period), cast(column, DateTime)), Date)
 

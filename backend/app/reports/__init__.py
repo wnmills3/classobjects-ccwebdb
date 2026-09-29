@@ -1,7 +1,7 @@
 """The report catalog: every report registered, reachable from one import.
 
 `REPORTS` and `register` live in `app.reports.registry`; this module's own
-job is to import every group module (`collection`, `data_quality`,
+job is to import every group module (`collection`, `data_quality`, `money`,
 `purchasing`, `selling`) so each one's `register()` calls have run -- and
 `REPORTS`
 is complete -- by the time anything imports `app.reports` itself, whether
@@ -28,6 +28,7 @@ from .data_quality import (
     DQ_PHOTOS,
     DQ_PURCHASES,
 )
+from .money import MN_BASIS, MN_TAX, MN_VALUE
 from .purchasing import PR_OUTSTANDING, PR_RECEIVED, PR_SOURCES, PR_SPEND
 from .registry import REPORTS, register
 from .selling import SL_AGING, SL_AUCTIONS, SL_FULFILMENT, SL_OFFERED, SL_SALES
@@ -45,6 +46,9 @@ __all__ = [
     "DQ_LOCATIONS",
     "DQ_PHOTOS",
     "DQ_PURCHASES",
+    "MN_BASIS",
+    "MN_TAX",
+    "MN_VALUE",
     "PR_OUTSTANDING",
     "PR_RECEIVED",
     "PR_SOURCES",
