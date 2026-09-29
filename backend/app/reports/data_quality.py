@@ -213,9 +213,10 @@ def _dq_completeness(db: Session, _params: DqCompletenessParams) -> ReportResult
         notes=[
             "A blank cell means the field does not apply to that kind, not "
             "that it is 0% or 100% filled.",
-            "Denomination and grade apply only to coins and banknotes, and "
-            "metal does not apply to currency; every other field applies to "
-            "every kind, since no data-quality check limits it to some kinds.",
+            "Denomination and grade apply only to coins and banknotes; metal "
+            "does not apply to currency or sets, and series is optional for "
+            "currency, whose year is its series year. Every other field "
+            "applies to every kind.",
         ],
     )
 

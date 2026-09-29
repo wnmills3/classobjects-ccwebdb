@@ -48,7 +48,7 @@ follow in the plan's later phases.
 | Id | Report | Rows | Drill-down |
 |---|---|---|---|
 | `dq_issues` **v1** | Open issues | One per issue check per view (coins, currency): count, description | Inventory search `?issue=<check>` |
-| `dq_completeness` **v1** | Field completeness | One per kind: live items, then % filled for each field that applies to that kind -- year (series year for notes), denomination, grade, country, series, metal (not notes), photograph, storage location, listing link, seller's item id | Inventory search for that kind with the field empty (needs the `missing=<field>` filter, below) |
+| `dq_completeness` **v1** | Field completeness | One per kind: live items, then % filled for each field that applies to that kind -- year (series year for notes), denomination and grade (coins and notes only), country, series (not notes: optional there, the series year being a note's year), metal (not notes or sets: a set is often of mixed metals), photograph, storage location, listing link, seller's item id | Inventory search for that kind with the field empty (needs the `missing=<field>` filter, below) |
 | `dq_photos` | Photographs | Items without a photograph, by kind and status; unfiled photographs | Inventory search `?missing=photo`; Photos page |
 | `dq_derived` | Filled by a rule, not yet confirmed | One per field and rule (`item_field_source` rows with no `item_field_review`) | Inventory search `?issue=unreviewed` narrowed to the field |
 | `dq_purchases` | Purchases with gaps | Purchases with a generated number (`Order-0001`), no date, no web address, a zero-cost item, or no items | The purchase page |

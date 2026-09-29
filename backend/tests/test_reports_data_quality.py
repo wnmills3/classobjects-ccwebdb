@@ -254,6 +254,18 @@ def _row_for(result: ReportResult, kind_label: str) -> dict[str, object]:
     return next(r for r in result.rows if r["kind"] == kind_label)
 
 
+def test_completeness_leaves_a_sets_metal_blank(db: Session) -> None:
+    """A set's metal cell is blank, never 0% for a set with no metal.
+
+    A set is often of mixed metals, so metal does not apply (owner, 2026-09-28).
+    """
+    build_bare_item(db, item_kind_id=code_id(db, ItemKind, "set"), metal_id=None)
+
+    result = DQ_COMPLETENESS.run(db, DqCompletenessParams())
+
+    assert _row_for(result, "Set")["metal"] is None
+
+
 def test_completeness_per_kind_with_a_notes_year_from_series_year_and_no_metal(
     db: Session,
 ) -> None:
@@ -295,6 +307,7 @@ def test_completeness_per_kind_with_a_notes_year_from_series_year_and_no_metal(
     assert currency_row["denomination"] == Decimal("50.0")
     assert currency_row["grade"] == Decimal("50.0")
     assert currency_row["metal"] is None  # not applicable to currency
+    assert currency_row["series"] is None  # optional for a note (owner)
 
     bullion_row = _row_for(result, "Bullion")
     assert bullion_row["live_items"] == 1
