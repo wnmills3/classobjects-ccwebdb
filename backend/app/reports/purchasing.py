@@ -1,27 +1,58 @@
 """Purchasing and receiving: what has been bought and has not yet arrived.
 
-One report so far, `pr_outstanding`: one row per purchase order carrying at
-least one live item still `ordered` or `missing` -- the same outstanding
+Four reports. `pr_outstanding`: one row per purchase order carrying at least
+one live item still `ordered` or `missing` -- the same outstanding
 definition Receiving's own order list (`GET /api/purchase-orders`) uses
 (`app.live.OUTSTANDING_STATUSES`), so this report and Receiving can never
-disagree about what "not yet arrived" means.
+disagree about what "not yet arrived" means. `pr_spend`: period x vendor
+spending, over purchases with a live item. `pr_sources`: every vendor, and
+every seller a purchase has named, with what was bought from them.
+`pr_received`: arrival day x vendor, from the acquisition-status history
+itself.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import ColumnElement, RowMapping, Select, and_, case, func, select
 from sqlalchemy.orm import Session
 
 from ..live import OUTSTANDING_STATUSES, live_item
-from ..models import InventoryItem, ItemStatus, PurchaseOrder, Seller, Vendor
-from .base import Column, Report, ReportResult
+from ..models import (
+    InventoryItem,
+    ItemStatus,
+    ItemStatusHistory,
+    PurchaseOrder,
+    Seller,
+    Vendor,
+)
+from .base import (
+    Column,
+    DateRange,
+    Period,
+    Report,
+    ReportResult,
+    local_date,
+    period_label,
+    period_start,
+)
 from .registry import register
 
-__all__ = ["PR_OUTSTANDING", "OutstandingParams"]
+__all__ = [
+    "PR_OUTSTANDING",
+    "PR_RECEIVED",
+    "PR_SOURCES",
+    "PR_SPEND",
+    "OutstandingParams",
+    "ReceivedParams",
+    "SourcesParams",
+    "SpendParams",
+]
 
 _NO_NUMBER = "(no number)"
 
@@ -175,5 +206,462 @@ PR_OUTSTANDING = register(
         "cost; oldest first.",
         params=OutstandingParams,
         run=_pr_outstanding,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# pr_spend
+# ---------------------------------------------------------------------------
+
+
+class SpendParams(DateRange):
+    """Which purchases to total, and how to bucket them by time.
+
+    A purchase is in range by its own `ordered_on`, inclusive of either
+    bound; an absent bound is open on that side, as `DateRange` always
+    means. `period` buckets the range into months (the default), quarters
+    or years.
+    """
+
+    period: Period = Field(default="month", title="Period")
+
+
+_SPEND_COLUMNS = [
+    Column("period", "Period", "text"),
+    Column("vendor", "Vendor", "text"),
+    Column("purchases", "Purchases", "count"),
+    Column("items", "Items", "count"),
+    Column("item_cost", "Item cost", "money"),
+    Column("shipping", "Shipping", "money"),
+    Column("sales_tax", "Sales tax", "money"),
+    Column("total_cost", "Total", "money"),
+]
+
+_ALL_VENDORS = "All vendors"
+_ALL_PERIODS = "All periods"
+
+_SPEND_AGGREGATES = (
+    func.count(func.distinct(PurchaseOrder.id)).label("purchases"),
+    func.count(InventoryItem.id).label("items"),
+    func.coalesce(func.sum(InventoryItem.item_cost), 0).label("item_cost"),
+    func.coalesce(func.sum(InventoryItem.shipping_cost), 0).label("shipping"),
+    func.coalesce(func.sum(InventoryItem.sales_tax), 0).label("sales_tax"),
+    func.coalesce(func.sum(InventoryItem.total_cost), 0).label("total_cost"),
+)
+
+
+def _spend_where(params: SpendParams) -> list[ColumnElement[bool]]:
+    """A known order date, in range, inclusive on both ends when given."""
+    where: list[ColumnElement[bool]] = [PurchaseOrder.ordered_on.is_not(None)]
+    if params.date_from is not None:
+        where.append(PurchaseOrder.ordered_on >= params.date_from)
+    if params.date_to is not None:
+        where.append(PurchaseOrder.ordered_on <= params.date_to)
+    return where
+
+
+def _spend_joined(stmt: Select[Any]) -> Select[Any]:
+    """`stmt`, joined to the live items of the purchases it selects over.
+
+    An inner join: a purchase with no live item of its own contributes
+    nothing here -- not to the money columns, and not even to `purchases`
+    itself, since `count(distinct ...)` never sees a purchase this join
+    dropped. The report's own note says so.
+    """
+    return stmt.select_from(PurchaseOrder).join(
+        InventoryItem,
+        and_(InventoryItem.purchase_order_id == PurchaseOrder.id, live_item()),
+    )
+
+
+def _undated_note(count: int) -> str:
+    """How many purchases with no order date were left out of `pr_spend`."""
+    plural = "s" if count != 1 else ""
+    return f"{count} purchase{plural} with no order date excluded."
+
+
+def _pr_spend(db: Session, params: SpendParams) -> ReportResult:
+    """Period x vendor: purchases, items and cost, over purchases with a live item.
+
+    Three queries at three grouping levels, exactly as `cb_holdings` uses:
+    the overall total (which also decides the empty case), each period's
+    own subtotal, and the period x vendor rows themselves -- so a subtotal
+    can never drift from the rows it summarizes, nor the grand total from
+    the subtotals, by so much as a cent.
+    """
+    period_col = period_start(params.period, PurchaseOrder.ordered_on)
+    where = _spend_where(params)
+
+    overall = (
+        db.execute(_spend_joined(select(*_SPEND_AGGREGATES)).where(*where))
+        .mappings()
+        .one()
+    )
+    undated = db.execute(
+        _spend_joined(select(func.count(func.distinct(PurchaseOrder.id)))).where(
+            PurchaseOrder.ordered_on.is_(None)
+        )
+    ).scalar_one()
+
+    if not overall["purchases"]:
+        notes = [_undated_note(undated)] if undated else []
+        return ReportResult(
+            columns=_SPEND_COLUMNS, rows=[], totals=None, drills=[], notes=notes
+        )
+
+    period_subtotals = {
+        row["period_start"]: row
+        for row in db.execute(
+            _spend_joined(select(period_col.label("period_start"), *_SPEND_AGGREGATES))
+            .where(*where)
+            .group_by(period_col)
+        )
+        .mappings()
+        .all()
+    }
+
+    rows_data = (
+        db.execute(
+            _spend_joined(
+                select(
+                    period_col.label("period_start"),
+                    Vendor.name.label("vendor_name"),
+                    *_SPEND_AGGREGATES,
+                )
+            )
+            .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
+            .where(*where)
+            .group_by(period_col, Vendor.id, Vendor.name)
+            .order_by(period_col.asc(), Vendor.name.asc())
+        )
+        .mappings()
+        .all()
+    )
+
+    def _row(period_value: date, vendor: str, source: RowMapping) -> dict[str, object]:
+        return {
+            "period": period_label(params.period, period_value),
+            "vendor": vendor,
+            "purchases": source["purchases"],
+            "items": source["items"],
+            "item_cost": source["item_cost"],
+            "shipping": source["shipping"],
+            "sales_tax": source["sales_tax"],
+            "total_cost": source["total_cost"],
+        }
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    current_period: date | None = None
+
+    def _append_subtotal(period_value: date) -> None:
+        rows.append(_row(period_value, _ALL_VENDORS, period_subtotals[period_value]))
+        drills.append(None)
+
+    for row in rows_data:
+        period_value = row["period_start"]
+        if current_period is not None and period_value != current_period:
+            _append_subtotal(current_period)
+        current_period = period_value
+
+        rows.append(_row(period_value, row["vendor_name"], row))
+        drills.append(None)
+
+    if current_period is not None:
+        _append_subtotal(current_period)
+
+    totals = {
+        "period": _ALL_PERIODS,
+        "vendor": None,
+        "purchases": overall["purchases"],
+        "items": overall["items"],
+        "item_cost": overall["item_cost"],
+        "shipping": overall["shipping"],
+        "sales_tax": overall["sales_tax"],
+        "total_cost": overall["total_cost"],
+    }
+
+    notes = ["Purchases are counted only when they carry at least one live item."]
+    if undated:
+        notes.append(_undated_note(undated))
+
+    return ReportResult(
+        columns=_SPEND_COLUMNS, rows=rows, totals=totals, drills=drills, notes=notes
+    )
+
+
+PR_SPEND = register(
+    Report(
+        id="pr_spend",
+        group="Purchasing and receiving",
+        title="Spending",
+        purpose="Period x vendor: purchases, items, item cost, shipping, "
+        "sales tax and total, over purchases with a live item.",
+        params=SpendParams,
+        run=_pr_spend,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# pr_sources
+# ---------------------------------------------------------------------------
+
+
+class SourcesParams(BaseModel):
+    """`pr_sources` takes no parameters: every vendor and seller, every time."""
+
+
+_SOURCES_COLUMNS = [
+    Column("vendor", "Vendor", "text"),
+    Column("seller", "Seller", "text"),
+    Column("purchases", "Purchases", "count"),
+    Column("items", "Items", "count"),
+    Column("total_spent", "Total spent", "money"),
+    Column("first_order", "First order", "date"),
+    Column("last_order", "Last order", "date"),
+]
+
+_SOURCES_AGGREGATES = (
+    func.count(func.distinct(PurchaseOrder.id)).label("purchases"),
+    func.count(InventoryItem.id).label("items"),
+    func.coalesce(func.sum(InventoryItem.total_cost), 0).label("total_spent"),
+    func.min(PurchaseOrder.ordered_on).label("first_order"),
+    func.max(PurchaseOrder.ordered_on).label("last_order"),
+)
+
+
+def _sources_row(name: str, source: RowMapping) -> dict[str, object]:
+    """One vendor's or seller's own figures, shaped for `_SOURCES_COLUMNS`."""
+    return {
+        "vendor": name,
+        "purchases": source["purchases"],
+        "items": source["items"],
+        "total_spent": source["total_spent"],
+        "first_order": source["first_order"],
+        "last_order": source["last_order"],
+    }
+
+
+def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
+    """One row per vendor, then per seller a purchase of theirs has named.
+
+    A purchase counts toward `purchases` whether or not it still has a live
+    item -- a vendor bought from, or a seller a purchase named, is a fact
+    regardless of what later happened to the items -- while `items` and
+    `total_spent` count live items only, the outer join `pr_outstanding`
+    uses for the same reason. Vendor rows carry the vendor's full figures;
+    a seller row beneath one is that seller's own subset, only for the
+    sellers a purchase has actually named -- a purchase naming no seller
+    contributes to the vendor row alone. Totals are over vendor rows only:
+    a seller row is a further breakdown of purchases the vendor row already
+    counts, not more purchases.
+    """
+    vendor_rows = (
+        db.execute(
+            select(
+                Vendor.id.label("vendor_id"),
+                Vendor.name.label("vendor_name"),
+                *_SOURCES_AGGREGATES,
+            )
+            .select_from(Vendor)
+            .join(PurchaseOrder, PurchaseOrder.vendor_id == Vendor.id)
+            .outerjoin(
+                InventoryItem,
+                and_(InventoryItem.purchase_order_id == PurchaseOrder.id, live_item()),
+            )
+            .group_by(Vendor.id, Vendor.name)
+            .order_by(Vendor.name.asc())
+        )
+        .mappings()
+        .all()
+    )
+
+    if not vendor_rows:
+        return ReportResult(
+            columns=_SOURCES_COLUMNS,
+            rows=[],
+            totals=None,
+            drills=[],
+            notes=["No purchases recorded."],
+        )
+
+    seller_rows = (
+        db.execute(
+            select(
+                PurchaseOrder.vendor_id.label("vendor_id"),
+                Seller.name.label("seller_name"),
+                *_SOURCES_AGGREGATES,
+            )
+            .select_from(PurchaseOrder)
+            .join(Seller, Seller.id == PurchaseOrder.seller_id)
+            .outerjoin(
+                InventoryItem,
+                and_(InventoryItem.purchase_order_id == PurchaseOrder.id, live_item()),
+            )
+            .group_by(PurchaseOrder.vendor_id, Seller.id, Seller.name)
+            .order_by(Seller.name.asc())
+        )
+        .mappings()
+        .all()
+    )
+    sellers_by_vendor: dict[int, list[RowMapping]] = defaultdict(list)
+    for row in seller_rows:
+        sellers_by_vendor[row["vendor_id"]].append(row)
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    total_purchases = 0
+    total_items = 0
+    total_spent = Decimal("0")
+    for vrow in vendor_rows:
+        entry = _sources_row(vrow["vendor_name"], vrow)
+        entry["seller"] = ""
+        rows.append(entry)
+        drills.append(None)
+        total_purchases += vrow["purchases"]
+        total_items += vrow["items"]
+        total_spent += vrow["total_spent"]
+
+        for srow in sellers_by_vendor.get(vrow["vendor_id"], []):
+            seller_entry = _sources_row(vrow["vendor_name"], srow)
+            seller_entry["seller"] = srow["seller_name"]
+            rows.append(seller_entry)
+            drills.append(None)
+
+    totals: dict[str, object] = {
+        "vendor": "All vendors",
+        "seller": None,
+        "purchases": total_purchases,
+        "items": total_items,
+        "total_spent": total_spent,
+        "first_order": None,
+        "last_order": None,
+    }
+
+    return ReportResult(
+        columns=_SOURCES_COLUMNS, rows=rows, totals=totals, drills=drills
+    )
+
+
+PR_SOURCES = register(
+    Report(
+        id="pr_sources",
+        group="Purchasing and receiving",
+        title="Vendors and sellers",
+        purpose="One row per vendor, and per seller a purchase has named: "
+        "purchases, live items, total spent, and first/last order date.",
+        params=SourcesParams,
+        run=_pr_sources,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# pr_received
+# ---------------------------------------------------------------------------
+
+
+class ReceivedParams(DateRange):
+    """`pr_received` takes no parameters beyond the date range."""
+
+
+_RECEIVED_COLUMNS = [
+    Column("day", "Day", "date"),
+    Column("vendor", "Vendor", "text"),
+    Column("items", "Items", "count"),
+    Column("total_cost", "Total cost", "money"),
+]
+
+_RECEIVED_NOTE = (
+    "An item received more than once (for example, returned and later "
+    "received again) counts once for each receipt."
+)
+
+
+def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
+    """Arrival day x vendor, from `item_status_history` rows reaching `received`.
+
+    Fetched one receipt at a time, not grouped in SQL: a row's day is its
+    own `arrived_on` when recorded, else `changed_at`'s local calendar date
+    (`local_date`, `.base`) -- a conversion SQL cannot do without knowing
+    the application server's own time zone -- so both the bucketing and the
+    date-range filter happen in Python, over at most one row per receipt
+    the collection has ever recorded.
+    """
+    stmt = (
+        select(
+            ItemStatusHistory.arrived_on,
+            ItemStatusHistory.changed_at,
+            Vendor.name.label("vendor_name"),
+            InventoryItem.total_cost,
+        )
+        .select_from(ItemStatusHistory)
+        .join(InventoryItem, InventoryItem.id == ItemStatusHistory.inventory_item_id)
+        .join(ItemStatus, ItemStatus.id == ItemStatusHistory.to_status_id)
+        .join(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
+        .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
+        .where(ItemStatus.code == "received", live_item())
+    )
+
+    buckets: dict[tuple[date, str], list[Decimal]] = defaultdict(list)
+    for row in db.execute(stmt).mappings().all():
+        day = row["arrived_on"] or local_date(row["changed_at"])
+        if params.date_from is not None and day < params.date_from:
+            continue
+        if params.date_to is not None and day > params.date_to:
+            continue
+        buckets[(day, row["vendor_name"])].append(row["total_cost"])
+
+    if not buckets:
+        return ReportResult(
+            columns=_RECEIVED_COLUMNS,
+            rows=[],
+            totals=None,
+            drills=[],
+            notes=["Nothing was received in this range."],
+        )
+
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    total_items = 0
+    total_cost = Decimal("0")
+    for day, vendor_name in sorted(buckets):
+        costs = buckets[(day, vendor_name)]
+        items = len(costs)
+        cost_sum = sum(costs, Decimal("0"))
+        rows.append(
+            {"day": day, "vendor": vendor_name, "items": items, "total_cost": cost_sum}
+        )
+        drills.append(None)
+        total_items += items
+        total_cost += cost_sum
+
+    totals: dict[str, object] = {
+        "day": "All days",
+        "vendor": None,
+        "items": total_items,
+        "total_cost": total_cost,
+    }
+
+    return ReportResult(
+        columns=_RECEIVED_COLUMNS,
+        rows=rows,
+        totals=totals,
+        drills=drills,
+        notes=[_RECEIVED_NOTE],
+    )
+
+
+PR_RECEIVED = register(
+    Report(
+        id="pr_received",
+        group="Purchasing and receiving",
+        title="Received",
+        purpose="Arrival day x vendor, from acquisition-status history: "
+        "items and total cost.",
+        params=ReceivedParams,
+        run=_pr_received,
     )
 )

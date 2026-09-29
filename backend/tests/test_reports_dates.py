@@ -171,6 +171,21 @@ def test_cli_param_sets_a_date(
     assert "From: 2026-01-01" in out
 
 
+def test_cli_prints_any_for_an_absent_date_bound(
+    date_report: Report[_DateRangeParams],
+    db: Session,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An absent date bound prints as `any`, matching the console's own heading."""
+    exit_code = main(["run", _TEST_REPORT_ID], db=db)
+    out, err = capsys.readouterr()
+
+    assert exit_code == 0
+    assert err == ""
+    assert "From: any" in out
+    assert "To: any" in out
+
+
 def test_cli_date_from_after_date_to_exits_2(
     date_report: Report[_DateRangeParams],
     db: Session,

@@ -560,7 +560,7 @@ def _purchase_gaps(row: RowMapping) -> list[str]:
 
     "Entry" is `created_at`'s own local calendar date -- `astimezone()` with
     no argument converts to the system's local zone before taking the date,
-    the same conversion `selling._local_date` uses, since the database
+    the same conversion `base.local_date` uses, since the database
     session's zone need not be the application's.
     """
     gaps: list[str] = []
