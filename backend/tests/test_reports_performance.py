@@ -39,7 +39,7 @@ from tests.builders import build_bare_item, build_purchase_order, code_id, usd_i
 
 #: However slow the slowest report may run against this data set -- well
 #: under what a real N+1 query or an unindexed scan would take, and well
-#: over what any of the five reports actually takes today (a few
+#: over what any registered report actually takes today (a few
 #: milliseconds each, measured on the live collection -- see the spec's
 #: "What exists, and is reused").
 _BUDGET_SECONDS = 1.0

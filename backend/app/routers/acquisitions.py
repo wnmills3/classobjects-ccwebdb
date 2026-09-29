@@ -31,6 +31,7 @@ from ..models import (
     Vendor,
     VendorKind,
 )
+from ..purchases import GENERATED, WEB_ADDRESS
 from ..references import code_to_id, require_code
 from ..schemas import (
     PurchaseOrderCreate,
@@ -57,17 +58,12 @@ storage_locations_router = APIRouter(prefix="/storage-locations", tags=["acquisi
 
 _ORDER_NOT_FOUND = "Purchase order not found"
 
-#: `purchase_order.source_url` is free text, not necessarily a URL -- an
-#: eBay listing page, an eBay order page, or the literal word
-#: "Gift". Only a value that looks like a web address is ever offered as a
-#: link; anything else, `javascript:` included, is withheld.
-_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
-
 #: A generated order number: `Order-0001`, `Order-0002`, ... (owner,
 #: 2026-09-24). A purchase with no number of its own could not be found by
-#: one; this gives it one, above the highest already issued.
+#: one; this gives it one, above the highest already issued. The pattern
+#: itself (`GENERATED`) lives in `app.purchases`, alongside `WEB_ADDRESS`,
+#: so `dq_purchases` can read the same one rather than restating it.
 _GENERATED_PREFIX = "Order-"
-_GENERATED = re.compile(r"^Order-(\d+)$")
 #: Held for the rest of the transaction while a number is issued, so two
 #: purchases created at once cannot both take the same next number.
 _NUMBERING_LOCK = 2026092401
@@ -78,11 +74,11 @@ def next_order_number(db: Session) -> str:
     db.execute(select(func.pg_advisory_xact_lock(_NUMBERING_LOCK)))
     issued = db.scalars(
         select(PurchaseOrder.order_number).where(
-            PurchaseOrder.order_number.op("~")(_GENERATED.pattern)
+            PurchaseOrder.order_number.op("~")(GENERATED.pattern)
         )
     ).all()
     highest = max(
-        (int(m.group(1)) for n in issued if n and (m := _GENERATED.match(n))),
+        (int(m.group(1)) for n in issued if n and (m := GENERATED.match(n))),
         default=0,
     )
     return f"{_GENERATED_PREFIX}{highest + 1:04d}"
@@ -344,7 +340,7 @@ def get_purchase_order(
         ordered_on=order.ordered_on,
         source_url=(
             order.source_url
-            if order.source_url and _WEB_ADDRESS.match(order.source_url)
+            if order.source_url and WEB_ADDRESS.match(order.source_url)
             else None
         ),
         source_text=order.source_url,
