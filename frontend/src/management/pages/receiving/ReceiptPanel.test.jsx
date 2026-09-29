@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import userEvent from '@testing-library/user-event'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../api', () => ({
@@ -666,6 +666,94 @@ describe('ReceiptPanel: drag-and-drop and paste for the photograph', () => {
 
     await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
     expect(api.uploadImage).not.toHaveBeenCalled()
+  })
+
+  it('keeps the drop hint lit while the drag moves over a child element', async () => {
+    const zone = await renderReceipt()
+    const file = new File(['x'], 'obverse.jpg', { type: 'image/jpeg' })
+    const label = within(zone).getByText('Photo')
+
+    fireEvent.dragEnter(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).toHaveClass('photo-drop-active')
+
+    // Moving onto a child inside the same drop target: the child's own
+    // dragenter bubbles up to the zone before the zone's own dragleave
+    // fires -- a bare on/off flag would blink the hint off right here.
+    fireEvent.dragEnter(label, { dataTransfer: dataTransferFor(file) })
+    fireEvent.dragLeave(zone, { dataTransfer: dataTransferFor(file) })
+
+    expect(zone).toHaveClass('photo-drop-active')
+
+    fireEvent.dragLeave(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).not.toHaveClass('photo-drop-active')
+  })
+
+  it('clears the drop hint when the drag is cancelled outside the panel', async () => {
+    const zone = await renderReceipt()
+    const file = new File(['x'], 'obverse.jpg', { type: 'image/jpeg' })
+
+    fireEvent.dragEnter(zone, { dataTransfer: dataTransferFor(file) })
+    expect(zone).toHaveClass('photo-drop-active')
+
+    fireEvent.dragEnd(window)
+
+    expect(zone).not.toHaveClass('photo-drop-active')
+  })
+
+  it('keeps everything staged across the file box, a drop, and the file box again', async () => {
+    await renderReceipt()
+    const input = screen.getByLabelText(/photo/i)
+    const zone = screen.getByLabelText(/drag.*paste/i)
+    const first = new File(['1'], 'one.jpg', { type: 'image/jpeg' })
+    const second = new File(['2'], 'two.jpg', { type: 'image/jpeg' })
+    const third = new File(['3'], 'three.jpg', { type: 'image/jpeg' })
+
+    await userEvent.upload(input, first)
+    fireEvent.drop(zone, { dataTransfer: dataTransferFor(second) })
+    await userEvent.upload(input, third)
+
+    expect(screen.getByText('one.jpg')).toBeInTheDocument()
+    expect(screen.getByText('two.jpg')).toBeInTheDocument()
+    expect(screen.getByText('three.jpg')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    await waitFor(() => expect(api.uploadImage).toHaveBeenCalledTimes(3))
+  })
+
+  it('clears the file box after each pick, so the same file can be chosen again', async () => {
+    await renderReceipt()
+    const input = screen.getByLabelText(/photo/i)
+
+    await userEvent.upload(input, new File(['1'], 'one.jpg', { type: 'image/jpeg' }))
+
+    expect(input.value).toBe('')
+  })
+
+  it('lets a staged photo be removed before Receive', async () => {
+    await renderReceipt()
+    await userEvent.upload(
+      screen.getByLabelText(/photo/i),
+      new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }),
+    )
+    expect(screen.getByText('obverse.jpg')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    expect(screen.queryByText('obverse.jpg')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: /^receive$/i }))
+    await waitFor(() => expect(api.receiveItems).toHaveBeenCalled())
+    expect(api.uploadImage).not.toHaveBeenCalled()
+  })
+
+  it('shows the staged photo list with just one item selected', async () => {
+    await renderReceipt()
+    await userEvent.upload(
+      screen.getByLabelText(/photo/i),
+      new File(['x'], 'obverse.jpg', { type: 'image/jpeg' }),
+    )
+
+    expect(screen.getByRole('list', { name: /staged photograph/i })).toBeInTheDocument()
+    expect(screen.getByText('obverse.jpg')).toBeInTheDocument()
   })
 })
 

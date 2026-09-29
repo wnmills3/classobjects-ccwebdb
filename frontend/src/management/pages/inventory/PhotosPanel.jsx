@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../../api'
 import ItemPicker from '../ItemPicker'
@@ -108,6 +108,14 @@ export default function PhotosPanel({
   // `accept="image/*"`), so this only ever fires from a drop or a paste.
   const [dragActive, setDragActive] = useState(false)
   const [pickError, setPickError] = useState('')
+  // A nesting count, not a flag: entering the drop target's own children
+  // (the label, the input, the help text) fires a dragenter on the child and
+  // a dragleave on the target itself, since only the topmost element under
+  // the pointer counts as "current" -- a flag would blink the hint off for
+  // every child crossed. Active while the count is above zero; a drop or a
+  // cancelled drag (see the window listener below) resets it to zero rather
+  // than trusting the count to unwind on its own.
+  const dragDepth = useRef(0)
   // A held photograph counts: two added at once are an obverse and a reverse.
   const held = new Set([
     ...shown.filter((row) => !leaving(row.edit)).map((row) => row.role),
@@ -166,19 +174,41 @@ export default function PhotosPanel({
 
   function handleDragEnter(e) {
     e.preventDefault()
+    dragDepth.current += 1
     setDragActive(true)
   }
 
   function handleDragLeave(e) {
     e.preventDefault()
-    setDragActive(false)
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragActive(false)
   }
 
   function handleDrop(e) {
     e.preventDefault()
+    dragDepth.current = 0
     setDragActive(false)
     addFiles(e.dataTransfer?.files)
   }
+
+  // A drag cancelled outright -- Escape, or a drop outside the browser
+  // window -- can leave this panel's own dragleave never firing, since the
+  // pointer never crosses the target's boundary again to trigger one. Both
+  // `dragend` (fired on the source once the operation ends) and `drop`
+  // (fired wherever it actually lands) are caught at the window regardless
+  // of where that is, as a backstop for the per-target handlers above.
+  useEffect(() => {
+    function reset() {
+      dragDepth.current = 0
+      setDragActive(false)
+    }
+    window.addEventListener('dragend', reset)
+    window.addEventListener('drop', reset)
+    return () => {
+      window.removeEventListener('dragend', reset)
+      window.removeEventListener('drop', reset)
+    }
+  }, [])
 
   function handlePaste(e) {
     const items = e.clipboardData?.items
