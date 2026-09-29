@@ -264,6 +264,22 @@
   padding: 0.6rem 0.8rem;
   margin-bottom: 1rem;
 }
+/* The photo picker's own drop target (PhotosPanel, ReceiptPanel) -- dragging
+   an image onto it, or pasting one with Ctrl+V while it has focus, adds it
+   exactly as choosing it from the file box does. */
+.photo-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+}
+.photo-drop-active {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: var(--accent);
+  border-style: solid;
+}
 /* Issue chips. A selected chip must be unmistakable at a glance: the panel's
    whole job is showing which of a dozen checks is currently narrowing the
    list. */

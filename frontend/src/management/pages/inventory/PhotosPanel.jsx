@@ -102,6 +102,12 @@ export default function PhotosPanel({
   // The photograph whose Move picker is open, and what it last refused.
   const [moving, setMoving] = useState(null)
   const [moveError, setMoveError] = useState('')
+  // Whether a drag carrying files is currently over the drop target, and
+  // what the last file dropped or pasted there was refused for -- a chosen
+  // file never fails this check (the file box already filters by
+  // `accept="image/*"`), so this only ever fires from a drop or a paste.
+  const [dragActive, setDragActive] = useState(false)
+  const [pickError, setPickError] = useState('')
   // A held photograph counts: two added at once are an obverse and a reverse.
   const held = new Set([
     ...shown.filter((row) => !leaving(row.edit)).map((row) => row.role),
@@ -115,12 +121,77 @@ export default function PhotosPanel({
     return byCode.get(code)?.label ?? code
   }
 
+  /**
+   * What choosing a file, dropping one, and pasting one all funnel into --
+   * the input, `handleDrop` and `handlePaste` below call nothing else. Each
+   * file is held exactly as `upload` always held its one, the obverse then
+   * the reverse then unlabelled, counting whatever a batch has already
+   * claimed as it goes. A file that is not a photograph refuses the whole
+   * drop or paste with a message naming it, rather than silently skipping
+   * it -- the file box itself never reaches this branch, since
+   * `accept="image/*"` already keeps a non-image out of `e.target.files`.
+   */
+  function addFiles(fileList) {
+    const files = Array.from(fileList ?? []).filter(Boolean)
+    if (files.length === 0) return
+    const notImages = files.filter((file) => !file.type.startsWith('image/'))
+    if (notImages.length > 0) {
+      const names = notImages.map((file) => file.name).join(', ')
+      setPickError(
+        `${names} ${notImages.length > 1 ? 'are not images' : 'is not an image'} -- ` +
+          'only a photograph can be added here.',
+      )
+      return
+    }
+    setPickError('')
+    const claimed = new Set(held)
+    for (const file of files) {
+      const role = ['obverse', 'reverse'].find((code) => !claimed.has(code)) ?? ''
+      if (role) claimed.add(role)
+      // Held, not sent: the editor's Save files it with everything else.
+      onAdd({ kind: 'file', file, role })
+    }
+  }
+
   function upload(e) {
-    const file = e.target.files?.[0]
+    addFiles(e.target.files)
     e.target.value = ''
-    if (!file) return
-    // Held, not sent: the editor's Save files it with everything else.
-    onAdd({ kind: 'file', file, role: nextSide })
+  }
+
+  function handleDragOver(e) {
+    // Without this the browser's own default takes over: dropping an image
+    // on the page opens it in the tab instead of reaching this panel.
+    e.preventDefault()
+  }
+
+  function handleDragEnter(e) {
+    e.preventDefault()
+    setDragActive(true)
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault()
+    setDragActive(false)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDragActive(false)
+    addFiles(e.dataTransfer?.files)
+  }
+
+  function handlePaste(e) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imageFiles = Array.from(items)
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter(Boolean)
+    // Nothing to add: leave the event alone so plain text still pastes
+    // normally wherever this was actually aimed.
+    if (imageFiles.length === 0) return
+    e.preventDefault()
+    addFiles(imageFiles)
   }
 
   function addFromAddress() {
@@ -313,10 +384,25 @@ export default function PhotosPanel({
       )}
       {!loading && (
         <div className="photo-add">
-          <label>
-            Photo
-            <input type="file" accept="image/*" onChange={upload} />
-          </label>
+          <div
+            className={`photo-drop${dragActive ? ' photo-drop-active' : ''}`}
+            tabIndex={0}
+            aria-label="Add an image: drag one here, or paste one with Ctrl+V"
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onPaste={handlePaste}
+          >
+            <label>
+              Photo
+              <input type="file" accept="image/*" onChange={upload} />
+            </label>
+            <p className="muted">
+              Choose a file, drag one here, or paste an image (Ctrl+V).
+            </p>
+            {pickError && <p className="error">{pickError}</p>}
+          </div>
           <label>
             Photo web address{/* */}
             <input
