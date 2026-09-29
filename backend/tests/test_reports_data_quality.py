@@ -48,6 +48,7 @@ from app.reports.data_quality import (
     DqLocationsParams,
     DqPhotosParams,
     DqPurchasesParams,
+    _a_year_before,
 )
 from sqlalchemy.orm import Session
 
@@ -552,8 +553,21 @@ def test_dq_derived_counts_a_source_with_no_matching_review(db: Session) -> None
 
     result = DQ_DERIVED.run(db, DqDerivedParams())
 
-    row = next(r for r in result.rows if r["field"] == "series_id")
-    assert row["rule"] == SERIES_CLASSIFY
+    row = next(r for r in result.rows if r["field"] == "Series")
+    assert row["rule"] == "Series classification"
+    assert row["items"] == 1
+
+
+def test_dq_derived_shows_the_raw_column_name_for_an_untitled_field(
+    db: Session,
+) -> None:
+    """A field this report has no title for still shows, not dropped."""
+    item = build_bare_item(db)
+    _mark_derived(db, item, "some_future_column", SERIES_CLASSIFY)
+
+    result = DQ_DERIVED.run(db, DqDerivedParams())
+
+    row = next(r for r in result.rows if r["field"] == "some_future_column")
     assert row["items"] == 1
 
 
@@ -564,7 +578,7 @@ def test_dq_derived_excludes_a_field_reviewed_on_the_same_item(db: Session) -> N
 
     result = DQ_DERIVED.run(db, DqDerivedParams())
 
-    assert not [r for r in result.rows if r["field"] == "series_id"]
+    assert not [r for r in result.rows if r["field"] == "Series"]
 
 
 def test_dq_derived_still_counts_an_unrelated_field_reviewed_on_the_same_item(
@@ -575,7 +589,7 @@ def test_dq_derived_still_counts_an_unrelated_field_reviewed_on_the_same_item(
     This is exactly the case `issue=unreviewed` (item-level: any review row at
     all) would score differently from this report (field-level): the item
     below is not "unreviewed" by that check, since it has one review row, but
-    still has an unconfirmed `series_id`.
+    still has an unconfirmed series.
     """
     item = build_bare_item(db)
     _mark_derived(db, item, "series_id", SERIES_CLASSIFY)
@@ -583,7 +597,7 @@ def test_dq_derived_still_counts_an_unrelated_field_reviewed_on_the_same_item(
 
     result = DQ_DERIVED.run(db, DqDerivedParams())
 
-    row = next(r for r in result.rows if r["field"] == "series_id")
+    row = next(r for r in result.rows if r["field"] == "Series")
     assert row["items"] == 1
 
 
@@ -594,7 +608,7 @@ def test_dq_derived_excludes_a_held_field(db: Session) -> None:
 
     result = DQ_DERIVED.run(db, DqDerivedParams())
 
-    assert not [r for r in result.rows if r["field"] == "series_id"]
+    assert not [r for r in result.rows if r["field"] == "Series"]
 
 
 def test_dq_derived_groups_two_rules_on_the_same_field_separately(db: Session) -> None:
@@ -608,10 +622,10 @@ def test_dq_derived_groups_two_rules_on_the_same_field_separately(db: Session) -
     rows = {
         (r["field"], r["rule"]): r["items"]
         for r in result.rows
-        if r["field"] == "series_id"
+        if r["field"] == "Series"
     }
-    assert rows[("series_id", SERIES_CLASSIFY)] == 1
-    assert rows[("series_id", SERIES_MATCH)] == 1
+    assert rows[("Series", "Series classification")] == 1
+    assert rows[("Series", "Series match")] == 1
 
 
 def test_a_deleted_and_a_split_item_are_excluded_from_dq_derived(db: Session) -> None:
@@ -626,7 +640,7 @@ def test_a_deleted_and_a_split_item_are_excluded_from_dq_derived(db: Session) ->
     db.commit()
 
     result = DQ_DERIVED.run(db, DqDerivedParams())
-    row = next(r for r in result.rows if r["field"] == "series_id")
+    row = next(r for r in result.rows if r["field"] == "Series")
     assert row["items"] == 1
 
 
@@ -638,11 +652,20 @@ def test_dq_derived_never_drills_and_says_why(db: Session) -> None:
 
     assert result.drills == [None] * len(result.rows)
     assert result.notes
+    for note in result.notes:
+        assert "`" not in note
+        assert "issue=" not in note
+        assert "field x rule" not in note
 
 
 # ---------------------------------------------------------------------------
 # dq_purchases
 # ---------------------------------------------------------------------------
+
+
+def test_a_year_before_a_leap_day_falls_back_to_february_28() -> None:
+    """2024 is a leap year; 2023 is not, so `date(2024, 2, 29)` has no direct answer."""
+    assert _a_year_before(date(2024, 2, 29)) == date(2023, 2, 28)
 
 
 def _entry(day: date) -> datetime:
@@ -922,8 +945,14 @@ def test_dq_locations_groups_by_the_consoles_own_label(db: Session) -> None:
     assert none_row["items"] == 1
 
 
-def test_dq_locations_merges_two_locations_sharing_one_label(db: Session) -> None:
-    """Two `home` locations naming no institution or identifier share one label."""
+def test_dq_locations_lists_two_locations_sharing_one_label_as_two_rows(
+    db: Session,
+) -> None:
+    """The console lists two same-label boxes as two entries; so does this report.
+
+    Each keeps its own id in the row (`Home (#<id>)`) since the plain label
+    alone could not tell a reader which physical box a row means.
+    """
     first = _location_of_kind(db, "home")
     second = _location_of_kind(db, "home")
     assert location_label(first) == location_label(second)
@@ -943,10 +972,48 @@ def test_dq_locations_merges_two_locations_sharing_one_label(db: Session) -> Non
 
     result = DQ_LOCATIONS.run(db, DqLocationsParams())
 
-    matching = [r for r in result.rows if r["location"] == location_label(first)]
-    assert len(matching) == 1
-    assert matching[0]["items"] == 2
-    assert matching[0]["total_cost"] == Decimal("30.00")
+    label = location_label(first)
+    matching = [r for r in result.rows if str(r["location"]).startswith(f"{label} (#")]
+    assert len(matching) == 2
+    assert {r["location"] for r in matching} == {
+        f"{label} (#{first.id})",
+        f"{label} (#{second.id})",
+    }
+    assert {r["items"] for r in matching} == {1}
+    assert {r["total_cost"] for r in matching} == {Decimal("10.00"), Decimal("20.00")}
+
+
+def test_dq_locations_a_unique_label_is_shown_plain(db: Session) -> None:
+    """A label naming exactly one location carries no `(#id)` suffix."""
+    only = _location_of_kind(db, "home", identifier="Only box")
+    build_bare_item(db, storage_location_id=only.id)
+
+    result = DQ_LOCATIONS.run(db, DqLocationsParams())
+
+    row = next(r for r in result.rows if r["location"] == location_label(only))
+    assert "#" not in str(row["location"])
+
+
+def test_dq_locations_sorts_by_label_then_id(db: Session) -> None:
+    safe = _location_of_kind(db, "safe", identifier="Zzz box")
+    home_low = _location_of_kind(db, "home")
+    home_high = _location_of_kind(db, "home")
+    assert home_low.id < home_high.id
+    build_bare_item(db, storage_location_id=safe.id)
+    build_bare_item(db, storage_location_id=home_high.id)
+    build_bare_item(db, storage_location_id=home_low.id)
+
+    result = DQ_LOCATIONS.run(db, DqLocationsParams())
+
+    labels = [
+        str(r["location"]) for r in result.rows if r["location"] != "None recorded"
+    ]
+    home_label = location_label(home_low)
+    assert labels == [
+        f"{home_label} (#{home_low.id})",
+        f"{home_label} (#{home_high.id})",
+        location_label(safe),
+    ]
 
 
 def test_dq_locations_none_recorded_row_is_last(db: Session) -> None:

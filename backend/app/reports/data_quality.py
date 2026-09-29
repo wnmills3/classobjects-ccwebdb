@@ -27,7 +27,17 @@ from pydantic import BaseModel
 from sqlalchemy import RowMapping, and_, case, func, select, text
 from sqlalchemy.orm import Session, selectinload
 
-from ..field_sources import HELD
+from ..field_sources import (
+    COMPOSITION,
+    HELD,
+    NOTE_ISSUE,
+    RATING,
+    SERIAL_DISTRICT,
+    SERIES_BACKFILL,
+    SERIES_CLASSIFY,
+    SERIES_MATCH,
+    SUGGESTION,
+)
 from ..inventory_search import (
     COIN_VIEW,
     CURRENCY_VIEW,
@@ -47,7 +57,7 @@ from ..models import (
     StorageLocation,
     Vendor,
 )
-from ..routers.acquisitions import _GENERATED, _WEB_ADDRESS
+from ..purchases import GENERATED, WEB_ADDRESS
 from .base import Column, Report, ReportResult
 from .registry import register
 from .tables import ITEM as _I
@@ -398,6 +408,39 @@ class DqDerivedParams(BaseModel):
 _IFS = ItemFieldSource.__table__.alias("ifs")
 _IFR = ItemFieldReview.__table__.alias("ifr")
 
+#: A reader's title for the columns `item_field_source.field_name` actually
+#: holds (`app.classifier_defaults`' `NOTE_COLUMNS`/`COMPOSITION_COLUMNS`,
+#: and `series_id`) -- not exhaustive, since a future pass can derive a
+#: field no rule fills today; a field missing here still shows, as its own
+#: raw column name, rather than vanishing from the report.
+_FIELD_TITLES: dict[str, str] = {
+    "series_id": "Series",
+    "note_type_id": "Note type",
+    "seal_color_id": "Seal color",
+    "signature_combination_id": "Signature combination",
+    "fed_district_id": "Federal Reserve district",
+    "composition_id": "Composition",
+    "metal_id": "Metal",
+    "fineness": "Fineness",
+    "gross_weight_ozt": "Gross weight",
+    "fine_weight_ozt": "Fine weight",
+    "rating": "Rating",
+}
+
+#: A reader's name for each rule code `item_field_source.derived_by` records
+#: (`app.field_sources`' own constants). `HELD` is deliberately absent: a
+#: held field is excluded from this report entirely, never shown as a rule.
+_RULE_TITLES: dict[str, str] = {
+    NOTE_ISSUE: "Note issue lookup",
+    SERIAL_DISTRICT: "Serial-to-district lookup",
+    COMPOSITION: "Composition lookup",
+    SERIES_MATCH: "Series match",
+    SERIES_CLASSIFY: "Series classification",
+    SERIES_BACKFILL: "Series backfill",
+    SUGGESTION: "Suggestion",
+    RATING: "Rating",
+}
+
 
 def _dq_derived(db: Session, _params: DqDerivedParams) -> ReportResult:
     """Field x rule: `item_field_source` rows a person has not confirmed.
@@ -410,15 +453,15 @@ def _dq_derived(db: Session, _params: DqDerivedParams) -> ReportResult:
 
     This is a different, finer question than `issue=unreviewed`
     (`app.issues`), which asks only whether an item carries *any* review row,
-    regardless of field -- an item reviewed on one field and derived on
-    another is "unreviewed" nowhere in this report but still trips
-    `issue=unreviewed` if that other field has no review either, or the
-    reverse: an item with one field reviewed no longer trips
-    `issue=unreviewed` at all, yet can still have other fields counted here.
-    Because the two measures are taken at different granularities -- items
-    for the search check, field x rule pairs here -- a row's count here
-    cannot be relied on to equal what `issue=unreviewed` would return, so no
-    row links to it.
+    regardless of field. An item reviewed on one field (say, grade) and
+    derived but unconfirmed on another (say, series) is counted here, on its
+    series row -- but it does *not* trip `issue=unreviewed` at all, since it
+    does have a review row, just not one for series. The reverse also
+    happens: an item with no review rows at all trips `issue=unreviewed` but
+    contributes nothing here unless some rule has also derived one of its
+    fields. Because the two measures disagree in both directions, a row's
+    count here cannot be relied on to equal what `issue=unreviewed` would
+    return, so no row links to it.
     """
     stmt = (
         select(
@@ -442,10 +485,12 @@ def _dq_derived(db: Session, _params: DqDerivedParams) -> ReportResult:
 
     rows: list[dict[str, object]] = []
     for row in db.execute(stmt).mappings().all():
+        field_name = row["field_name"]
+        rule = row["rule"]
         rows.append(
             {
-                "field": row["field_name"],
-                "rule": row["rule"],
+                "field": _FIELD_TITLES.get(field_name, field_name),
+                "rule": _RULE_TITLES.get(rule, rule),
                 "items": row["items"],
             }
         )
@@ -459,11 +504,11 @@ def _dq_derived(db: Session, _params: DqDerivedParams) -> ReportResult:
         rows=rows,
         drills=[None] * len(rows),
         notes=[
-            "Counts field x rule pairs: an item derived on two fields "
-            "neither of which is confirmed counts once for each. "
-            "`issue=unreviewed` counts items with no field confirmed at "
-            "all, a coarser, item-level measure this report's rows cannot "
-            "be relied on to sum to, so no row drills to it."
+            "Each row counts one field and the rule that filled it; an "
+            "item with two such fields still needing confirmation counts "
+            "once for each. That is a different question from how many "
+            "items have nothing confirmed at all, so no row opens a "
+            "search."
         ],
     )
 
@@ -473,8 +518,8 @@ DQ_DERIVED = register(
         id="dq_derived",
         group="Data quality",
         title="Filled by a rule, not yet confirmed",
-        purpose="Field x rule pairs a machine pass filled in that nobody "
-        "has confirmed by examination.",
+        purpose="Fields a machine pass filled in, and the rule that filled "
+        "each one, that nobody has confirmed by examination.",
         params=DqDerivedParams,
         run=_dq_derived,
     )
@@ -520,7 +565,7 @@ def _purchase_gaps(row: RowMapping) -> list[str]:
     """
     gaps: list[str] = []
     order_number = row["order_number"]
-    if order_number is not None and _GENERATED.match(order_number):
+    if order_number is not None and GENERATED.match(order_number):
         gaps.append(_GENERATED_NUMBER)
 
     ordered_on = cast("date | None", row["ordered_on"])
@@ -528,7 +573,7 @@ def _purchase_gaps(row: RowMapping) -> list[str]:
         gaps.append(_NO_ORDER_DATE)
 
     source_url = row["source_url"]
-    if not source_url or not _WEB_ADDRESS.match(source_url):
+    if not source_url or not WEB_ADDRESS.match(source_url):
         gaps.append(_NO_WEB_ADDRESS)
 
     if ordered_on is not None:
@@ -645,15 +690,17 @@ _LOCATION_COLUMNS = [
 
 
 def _dq_locations(db: Session, _params: DqLocationsParams) -> ReportResult:
-    """Live items by storage location, labeled as the console's own picker.
+    """Live items by storage location: one row per location, as the console lists them.
 
-    Grouped in SQL by `storage_location_id`, then relabeled and re-grouped in
-    Python by `item_history.location_label` -- the same function
-    `LocationSelect` reads its options from -- because two different
-    locations can share one label (two boxes of the same kind, neither
-    naming an institution or an identifier, both fall back to their kind's
-    own label) and this report counts by what a reader sees, not by a row id
-    a reader never does.
+    Grouped in SQL by `storage_location_id`, one row per id: two boxes that
+    happen to share a label (`item_history.location_label`, the same
+    function `LocationSelect` reads its options from -- both falling back to
+    their kind's own label, say, because neither names an institution or an
+    identifier) are still two different places the owner might need to tell
+    apart, so they are never merged into one row. A label more than one
+    location carries is disambiguated with that location's own id --
+    `Home (#12)` -- so a repeated label never reads as one place when it is
+    two; a label naming exactly one location is shown plain.
 
     No drill: the inventory search has no filter for a specific storage
     location (`app.inventory_search`'s filters), so no search page could
@@ -681,9 +728,15 @@ def _dq_locations(db: Session, _params: DqLocationsParams) -> ReportResult:
         ).all()
         labels_by_id = {loc.id: location_label(loc) for loc in locations}
 
-    by_label: dict[str, dict[str, object]] = {}
+    label_counts: dict[str, int] = {}
+    for label in labels_by_id.values():
+        label_counts[label] = label_counts.get(label, 0) + 1
+
     none_items = 0
     none_cost = Decimal("0")
+    #: (label, location id, items, total cost) -- one entry per location,
+    #: sorted below by label then id before it becomes a row.
+    entries: list[tuple[str, int, int, Decimal]] = []
     for row in agg_rows:
         cost = cast("Decimal | None", row["total_cost"]) or Decimal("0")
         location_id = row["location_id"]
@@ -691,27 +744,19 @@ def _dq_locations(db: Session, _params: DqLocationsParams) -> ReportResult:
             none_items += row["items"]
             none_cost += cost
             continue
-        slot = by_label.setdefault(
-            labels_by_id[location_id], {"items": 0, "total_cost": Decimal("0")}
-        )
-        slot["items"] = cast("int", slot["items"]) + row["items"]
-        slot["total_cost"] = cast("Decimal", slot["total_cost"]) + cost
+        entries.append((labels_by_id[location_id], location_id, row["items"], cost))
+    entries.sort(key=lambda entry: (entry[0].casefold(), entry[1]))
 
-    rows: list[dict[str, object]] = [
-        {"location": label, "items": data["items"], "total_cost": data["total_cost"]}
-        for label, data in sorted(by_label.items(), key=lambda kv: kv[0].casefold())
-    ]
+    rows: list[dict[str, object]] = []
+    for label, location_id, items, cost in entries:
+        display = f"{label} (#{location_id})" if label_counts[label] > 1 else label
+        rows.append({"location": display, "items": items, "total_cost": cost})
     rows.append(
         {"location": _NONE_RECORDED, "items": none_items, "total_cost": none_cost}
     )
 
-    total_items = none_items + sum(
-        cast("int", data["items"]) for data in by_label.values()
-    )
-    total_cost = none_cost + sum(
-        (cast("Decimal", data["total_cost"]) for data in by_label.values()),
-        Decimal("0"),
-    )
+    total_items = none_items + sum(entry[2] for entry in entries)
+    total_cost = none_cost + sum((entry[3] for entry in entries), Decimal("0"))
 
     totals: dict[str, object] = {
         "location": "All locations",
