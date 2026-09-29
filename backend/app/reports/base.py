@@ -13,7 +13,7 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import ColumnElement, Date, cast, func, literal
+from sqlalchemy import ColumnElement, Date, DateTime, cast, func, literal
 from sqlalchemy.orm import QueryableAttribute, Session
 
 #: How a column's values are formatted, everywhere a report is shown or
@@ -132,8 +132,26 @@ def period_start(
     `literal()` as a bound parameter, not interpolated into the SQL text,
     so this function carries its own guarantee rather than resting entirely
     on the caller's.
+
+    **Call this once per statement and reuse the returned expression in
+    every clause that needs it** (`SELECT`, `GROUP BY`, `ORDER BY`) -- do
+    not call it again for the same column in the same query. Each call
+    builds its own `literal(period)`, a fresh bound parameter; psycopg
+    binds it under a new parameter name every time, so a second call in the
+    same statement produces a `GROUP BY` expression PostgreSQL cannot
+    recognize as the same one the `SELECT` list uses, and it refuses the
+    query as not appearing in the `GROUP BY` clause.
+
+    `column` is cast to a plain, zone-naive `DateTime` before `date_trunc`
+    runs, so bucketing always goes through `date_trunc`'s timestamp
+    overload rather than its timestamptz one -- the overload PostgreSQL
+    resolves using the *session's* time zone -- regardless of whether
+    `column` itself carries a zone. `PurchaseOrder.ordered_on` (today's only
+    caller) is already a zone-naive `date`, for which this cast is a no-op;
+    the guarantee exists for whichever future caller passes a `timestamptz`
+    column instead.
     """
-    return cast(func.date_trunc(literal(period), column), Date)
+    return cast(func.date_trunc(literal(period), cast(column, DateTime)), Date)
 
 
 def period_label(period: Period, start: date) -> str:

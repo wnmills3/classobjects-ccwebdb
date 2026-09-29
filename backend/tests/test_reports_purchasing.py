@@ -710,6 +710,67 @@ def test_spend_drills_are_all_none(db: Session) -> None:
     assert all(drill is None for drill in result.drills)
 
 
+def test_spend_a_purchase_with_one_deleted_and_one_live_item_counts_the_live_one(
+    db: Session,
+) -> None:
+    order = _order(
+        db, "Vendor SPDL", order_number="SPDL-1", ordered_on=date(2026, 5, 5)
+    )
+    _spend_item(db, order, item_cost=Decimal("10.00"))
+    deleted = _spend_item(db, order, item_cost=Decimal("999.00"))
+    deleted.deleted_at = datetime(2026, 5, 6, tzinfo=UTC)
+    db.commit()
+
+    result = PR_SPEND.run(db, SpendParams())
+    row = next(r for r in result.rows if r["vendor"] == "Vendor SPDL")
+    assert row["purchases"] == 1
+    assert row["items"] == 1
+    assert row["item_cost"] == Decimal("10.00")
+
+
+def test_spend_quarter_merges_two_months_into_one_bucket(db: Session) -> None:
+    order_a = _order(
+        db, "Vendor SPQM1", order_number="SPQM-1", ordered_on=date(2026, 1, 10)
+    )
+    _spend_item(db, order_a, item_cost=Decimal("10.00"))
+    order_b = _order(
+        db, "Vendor SPQM2", order_number="SPQM-2", ordered_on=date(2026, 2, 20)
+    )
+    _spend_item(db, order_b, item_cost=Decimal("20.00"))
+    db.commit()
+
+    result = PR_SPEND.run(db, SpendParams(period="quarter"))
+    period_rows = [r for r in result.rows if r["period"] == "2026 Q1"]
+    assert {r["vendor"] for r in period_rows} == {
+        "Vendor SPQM1",
+        "Vendor SPQM2",
+        "All vendors",
+    }
+    subtotal = next(r for r in period_rows if r["vendor"] == "All vendors")
+    assert subtotal["purchases"] == 2
+    assert subtotal["total_cost"] == Decimal("30.00")
+
+
+def test_spend_money_sums_are_exact_with_odd_cents(db: Session) -> None:
+    order_a = _order(
+        db, "Vendor SPC1", order_number="SPC-1", ordered_on=date(2026, 5, 5)
+    )
+    _spend_item(db, order_a, item_cost=Decimal("10.33"), shipping_cost=Decimal("2.21"))
+    order_b = _order(
+        db, "Vendor SPC2", order_number="SPC-2", ordered_on=date(2026, 5, 6)
+    )
+    _spend_item(db, order_b, item_cost=Decimal("7.77"), shipping_cost=Decimal("1.19"))
+    db.commit()
+
+    result = PR_SPEND.run(db, SpendParams())
+    data_rows = [r for r in result.rows if r["vendor"] != "All vendors"]
+    assert sum(
+        (cast("Decimal", r["total_cost"]) for r in data_rows), Decimal("0")
+    ) == Decimal("21.50")
+    assert result.totals is not None
+    assert result.totals["total_cost"] == Decimal("21.50")
+
+
 # ---------------------------------------------------------------------------
 # pr_sources
 # ---------------------------------------------------------------------------
@@ -840,9 +901,12 @@ def test_sources_counts_live_items_only(db: Session) -> None:
     assert row["purchases"] == 1
 
 
-def test_sources_purchase_with_no_live_item_still_counts_as_a_purchase(
-    db: Session,
-) -> None:
+def test_sources_purchase_with_no_live_item_does_not_count(db: Session) -> None:
+    """The same rule `pr_spend` uses: no live item, no counted purchase.
+
+    This is the vendor's only purchase, so once it stops counting the
+    vendor has nothing left to show and does not appear at all.
+    """
     vendor = _vendor(db, "Vendor SON")
     order = _order_for(db, vendor, order_number="SON-1", ordered_on=date(2026, 1, 1))
     only_item = _item(db, order, "received", Decimal("50.00"))
@@ -850,10 +914,42 @@ def test_sources_purchase_with_no_live_item_still_counts_as_a_purchase(
     db.commit()
 
     result = PR_SOURCES.run(db, SourcesParams())
-    row = next(r for r in result.rows if r["vendor"] == "Vendor SON")
-    assert row["purchases"] == 1
-    assert row["items"] == 0
-    assert row["total_spent"] == Decimal("0")
+    assert "Vendor SON" not in {r["vendor"] for r in result.rows}
+
+
+def test_sources_notes_state_the_live_item_rule(db: Session) -> None:
+    vendor = _vendor(db, "Vendor SOTE")
+    order = _order_for(db, vendor, order_number="SOTE-1", ordered_on=date(2026, 1, 1))
+    _item(db, order, "received", Decimal("1.00"))
+    db.commit()
+
+    result = PR_SOURCES.run(db, SourcesParams())
+    assert any("live item" in note for note in result.notes)
+
+
+def test_sources_totals_fill_first_and_last_order_with_the_overall_span(
+    db: Session,
+) -> None:
+    vendor_a = _vendor(db, "Vendor SOF1")
+    _item(
+        db,
+        _order_for(db, vendor_a, order_number="SOF1-1", ordered_on=date(2026, 1, 5)),
+        "received",
+        Decimal("10.00"),
+    )
+    vendor_b = _vendor(db, "Vendor SOF2")
+    _item(
+        db,
+        _order_for(db, vendor_b, order_number="SOF2-1", ordered_on=date(2026, 6, 20)),
+        "received",
+        Decimal("10.00"),
+    )
+    db.commit()
+
+    result = PR_SOURCES.run(db, SourcesParams())
+    assert result.totals is not None
+    assert result.totals["first_order"] == date(2026, 1, 5)
+    assert result.totals["last_order"] == date(2026, 6, 20)
 
 
 def test_sources_totals_are_over_vendor_rows_only(db: Session) -> None:
@@ -1083,3 +1179,218 @@ def test_received_drills_are_all_none(db: Session) -> None:
 
     result = PR_RECEIVED.run(db, ReceivedParams())
     assert all(d is None for d in result.drills)
+
+
+def test_received_totals_row_labels_all_days_on_the_vendor_column(
+    db: Session,
+) -> None:
+    """`day` (a date-kind column) stays empty; the label is text, in `vendor`."""
+    vendor = _vendor(db, "Vendor RET")
+    order = _order_for(db, vendor, order_number="RET-1", ordered_on=date(2026, 3, 1))
+    item = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, item, arrived_on=date(2026, 3, 1))
+    db.commit()
+
+    result = PR_RECEIVED.run(db, ReceivedParams())
+    assert result.totals is not None
+    assert result.totals["day"] is None
+    assert result.totals["vendor"] == "All days"
+
+
+# ---------------------------------------------------------------------------
+# pr_received: only a transition counts, never an opening row
+# ---------------------------------------------------------------------------
+
+
+def test_received_excludes_an_opening_row(db: Session) -> None:
+    """An item entered already `received` gets only an opening row: no receipt."""
+    vendor = _vendor(db, "Vendor REO1")
+    order = _order_for(db, vendor, order_number="REO-1", ordered_on=date(2026, 3, 1))
+    item = build_bare_item(
+        db,
+        status_id=code_id(db, ItemStatus, "received"),
+        item_cost=Decimal("10.00"),
+        tax_rate=Decimal("0"),
+        shipping_cost=Decimal("0"),
+    )
+    item.purchase_order_id = order.id
+    db.flush()
+    db.add(
+        ItemStatusHistory(
+            inventory_item_id=item.id,
+            from_status_id=None,
+            to_status_id=code_id(db, ItemStatus, "received"),
+            changed_at=datetime.now(UTC),
+            arrived_on=date(2026, 3, 1),
+        )
+    )
+    db.commit()
+
+    result = PR_RECEIVED.run(db, ReceivedParams())
+    assert "Vendor REO1" not in {r["vendor"] for r in result.rows}
+
+
+def test_received_note_explains_opening_rows_are_excluded(db: Session) -> None:
+    vendor = _vendor(db, "Vendor REON")
+    order = _order_for(db, vendor, order_number="REON-1", ordered_on=date(2026, 3, 1))
+    item = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, item, arrived_on=date(2026, 3, 1))
+    db.commit()
+
+    result = PR_RECEIVED.run(db, ReceivedParams())
+    assert any("already received" in note for note in result.notes)
+
+
+def test_received_a_genuine_transition_still_counts(db: Session) -> None:
+    """The case the opening-row rule must not also throw out."""
+    vendor = _vendor(db, "Vendor RET2")
+    order = _order_for(db, vendor, order_number="RET2-1", ordered_on=date(2026, 3, 1))
+    item = _item(db, order, "ordered", Decimal("15.00"))
+    _receive(db, item, arrived_on=date(2026, 3, 8))
+    db.commit()
+
+    result = PR_RECEIVED.run(db, ReceivedParams())
+    row = next(r for r in result.rows if r["vendor"] == "Vendor RET2")
+    assert row["day"] == date(2026, 3, 8)
+    assert row["items"] == 1
+    assert row["total_cost"] == Decimal("15.00")
+
+
+def test_received_split_parent_counted_through_its_live_children(db: Session) -> None:
+    """The pieces arrived with the parent -- attributed to them, on its day.
+
+    Also exercises exact money with odd cents through the children-total
+    aggregate (`12.34 + 56.78 = 69.12`), not just the direct-item path.
+    """
+    vendor = _vendor(db, "Vendor RESP")
+    order = _order_for(db, vendor, order_number="RESP-1", ordered_on=date(2026, 3, 1))
+    parent = _item(db, order, "ordered", Decimal("100.00"))
+    _receive(db, parent, arrived_on=date(2026, 3, 5))
+
+    child_a = build_bare_item(
+        db,
+        parent_item_id=parent.id,
+        status_id=parent.status_id,
+        item_cost=Decimal("12.34"),
+        tax_rate=Decimal("0"),
+        shipping_cost=Decimal("0"),
+    )
+    child_b = build_bare_item(
+        db,
+        parent_item_id=parent.id,
+        status_id=parent.status_id,
+        item_cost=Decimal("56.78"),
+        tax_rate=Decimal("0"),
+        shipping_cost=Decimal("0"),
+    )
+    for child in (child_a, child_b):
+        db.add(
+            ItemStatusHistory(
+                inventory_item_id=child.id,
+                from_status_id=None,
+                to_status_id=parent.status_id,
+                changed_at=datetime.now(UTC),
+            )
+        )
+    parent.split_at = datetime(2026, 3, 6, tzinfo=UTC)
+    db.commit()
+
+    result = PR_RECEIVED.run(db, ReceivedParams())
+    matching = [r for r in result.rows if r["vendor"] == "Vendor RESP"]
+    assert len(matching) == 1
+    row = matching[0]
+    assert row["day"] == date(2026, 3, 5)
+    assert row["items"] == 2
+    assert row["total_cost"] == Decimal("69.12")
+
+
+# ---------------------------------------------------------------------------
+# pr_received: date range vs. arrived_on / changed_at
+# ---------------------------------------------------------------------------
+
+
+def test_received_date_range_includes_a_fallback_dated_row_in_range(
+    db: Session,
+) -> None:
+    vendor = _vendor(db, "Vendor REF1")
+    order = _order_for(db, vendor, order_number="REF-1", ordered_on=date(2026, 3, 1))
+    item = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, item, arrived_on=None, changed_at=_local_noon(3))
+    db.commit()
+
+    expected_day = (datetime.now() - timedelta(days=3)).date()
+    result = PR_RECEIVED.run(
+        db, ReceivedParams(date_from=expected_day, date_to=expected_day)
+    )
+    assert "Vendor REF1" in {r["vendor"] for r in result.rows}
+
+
+def test_received_date_range_excludes_a_fallback_dated_row_out_of_range(
+    db: Session,
+) -> None:
+    vendor = _vendor(db, "Vendor REF2")
+    order = _order_for(db, vendor, order_number="REF-2", ordered_on=date(2020, 1, 1))
+    item = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(db, item, arrived_on=None, changed_at=_local_noon(30))
+    db.commit()
+
+    bound_day = (datetime.now() - timedelta(days=3)).date()
+    result = PR_RECEIVED.run(db, ReceivedParams(date_from=bound_day, date_to=bound_day))
+    assert "Vendor REF2" not in {r["vendor"] for r in result.rows}
+
+
+def test_received_uses_arrived_on_not_changed_at_when_both_present_in_range(
+    db: Session,
+) -> None:
+    """`arrived_on` is inside the range; a much later `changed_at` must not matter."""
+    vendor = _vendor(db, "Vendor RES1")
+    order = _order_for(db, vendor, order_number="RES-1", ordered_on=date(2026, 3, 1))
+    item = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(
+        db,
+        item,
+        arrived_on=date(2026, 3, 10),
+        changed_at=datetime(2026, 4, 15, 12, 0, tzinfo=UTC),
+    )
+    db.commit()
+
+    result = PR_RECEIVED.run(
+        db, ReceivedParams(date_from=date(2026, 3, 1), date_to=date(2026, 3, 31))
+    )
+    row = next(r for r in result.rows if r["vendor"] == "Vendor RES1")
+    assert row["day"] == date(2026, 3, 10)
+
+
+def test_received_arrived_on_outside_range_excludes_even_if_changed_at_inside(
+    db: Session,
+) -> None:
+    """`arrived_on` outside the range; `changed_at` alone must not pull it in."""
+    vendor = _vendor(db, "Vendor RES2")
+    order = _order_for(db, vendor, order_number="RES-2", ordered_on=date(2026, 3, 1))
+    item = _item(db, order, "ordered", Decimal("1.00"))
+    _receive(
+        db,
+        item,
+        arrived_on=date(2026, 2, 1),
+        changed_at=datetime(2026, 3, 15, 12, 0, tzinfo=UTC),
+    )
+    db.commit()
+
+    result = PR_RECEIVED.run(
+        db, ReceivedParams(date_from=date(2026, 3, 1), date_to=date(2026, 3, 31))
+    )
+    assert "Vendor RES2" not in {r["vendor"] for r in result.rows}
+
+
+def test_received_money_sums_are_exact_with_odd_cents(db: Session) -> None:
+    vendor = _vendor(db, "Vendor REC1")
+    order = _order_for(db, vendor, order_number="REC-1", ordered_on=date(2026, 3, 1))
+    item_a = _item(db, order, "ordered", Decimal("10.33"))
+    _receive(db, item_a, arrived_on=date(2026, 3, 5))
+    item_b = _item(db, order, "ordered", Decimal("7.77"))
+    _receive(db, item_b, arrived_on=date(2026, 3, 5))
+    db.commit()
+
+    result = PR_RECEIVED.run(db, ReceivedParams())
+    row = next(r for r in result.rows if r["vendor"] == "Vendor REC1")
+    assert row["total_cost"] == Decimal("18.10")

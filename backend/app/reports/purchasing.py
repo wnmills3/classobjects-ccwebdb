@@ -14,12 +14,12 @@ itself.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, RowMapping, Select, and_, case, func, select
+from sqlalchemy import ColumnElement, RowMapping, Select, and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..live import OUTSTANDING_STATUSES, live_item
@@ -241,6 +241,14 @@ _SPEND_COLUMNS = [
 _ALL_VENDORS = "All vendors"
 _ALL_PERIODS = "All periods"
 
+#: The one rule `pr_spend` and `pr_sources` share for what "a purchase"
+#: means: only one with a live item counts as a purchase at all, in either
+#: report -- an inner join in both, never `pr_outstanding`'s outer one, so
+#: the two reports can never silently disagree about the same word.
+_LIVE_ITEM_PURCHASE_NOTE = (
+    "Purchases are counted only when they carry at least one live item."
+)
+
 _SPEND_AGGREGATES = (
     func.count(func.distinct(PurchaseOrder.id)).label("purchases"),
     func.count(InventoryItem.id).label("items"),
@@ -382,7 +390,7 @@ def _pr_spend(db: Session, params: SpendParams) -> ReportResult:
         "total_cost": overall["total_cost"],
     }
 
-    notes = ["Purchases are counted only when they carry at least one live item."]
+    notes = [_LIVE_ITEM_PURCHASE_NOTE]
     if undated:
         notes.append(_undated_note(undated))
 
@@ -445,18 +453,20 @@ def _sources_row(name: str, source: RowMapping) -> dict[str, object]:
 
 
 def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
-    """One row per vendor, then per seller a purchase of theirs has named.
+    """One row per vendor with a counted purchase, then per seller one named.
 
-    A purchase counts toward `purchases` whether or not it still has a live
-    item -- a vendor bought from, or a seller a purchase named, is a fact
-    regardless of what later happened to the items -- while `items` and
-    `total_spent` count live items only, the outer join `pr_outstanding`
-    uses for the same reason. Vendor rows carry the vendor's full figures;
-    a seller row beneath one is that seller's own subset, only for the
-    sellers a purchase has actually named -- a purchase naming no seller
-    contributes to the vendor row alone. Totals are over vendor rows only:
-    a seller row is a further breakdown of purchases the vendor row already
-    counts, not more purchases.
+    A purchase counts here under the same rule `pr_spend` uses -- an inner
+    join to a live item, not `pr_outstanding`'s outer one -- so the two
+    reports can never silently disagree about what "a purchase" means; see
+    `_LIVE_ITEM_PURCHASE_NOTE`. A vendor with no counted purchase does not
+    appear at all. `items` and `total_spent` are simply the sums of the live
+    items that same join already selected. Vendor rows carry the vendor's
+    full figures; a seller row beneath one is that seller's own subset, only
+    for the sellers a counted purchase has actually named -- a purchase
+    naming no seller contributes to the vendor row alone. Totals are over
+    vendor rows only: a seller row is a further breakdown of purchases the
+    vendor row already counts, not more purchases; its own first/last order
+    is the overall earliest/latest across those same vendor rows.
     """
     vendor_rows = (
         db.execute(
@@ -467,7 +477,7 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
             )
             .select_from(Vendor)
             .join(PurchaseOrder, PurchaseOrder.vendor_id == Vendor.id)
-            .outerjoin(
+            .join(
                 InventoryItem,
                 and_(InventoryItem.purchase_order_id == PurchaseOrder.id, live_item()),
             )
@@ -496,7 +506,7 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
             )
             .select_from(PurchaseOrder)
             .join(Seller, Seller.id == PurchaseOrder.seller_id)
-            .outerjoin(
+            .join(
                 InventoryItem,
                 and_(InventoryItem.purchase_order_id == PurchaseOrder.id, live_item()),
             )
@@ -515,6 +525,8 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
     total_purchases = 0
     total_items = 0
     total_spent = Decimal("0")
+    first_orders: list[date] = []
+    last_orders: list[date] = []
     for vrow in vendor_rows:
         entry = _sources_row(vrow["vendor_name"], vrow)
         entry["seller"] = ""
@@ -523,6 +535,10 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
         total_purchases += vrow["purchases"]
         total_items += vrow["items"]
         total_spent += vrow["total_spent"]
+        if vrow["first_order"] is not None:
+            first_orders.append(cast("date", vrow["first_order"]))
+        if vrow["last_order"] is not None:
+            last_orders.append(cast("date", vrow["last_order"]))
 
         for srow in sellers_by_vendor.get(vrow["vendor_id"], []):
             seller_entry = _sources_row(vrow["vendor_name"], srow)
@@ -536,12 +552,16 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
         "purchases": total_purchases,
         "items": total_items,
         "total_spent": total_spent,
-        "first_order": None,
-        "last_order": None,
+        "first_order": min(first_orders) if first_orders else None,
+        "last_order": max(last_orders) if last_orders else None,
     }
 
     return ReportResult(
-        columns=_SOURCES_COLUMNS, rows=rows, totals=totals, drills=drills
+        columns=_SOURCES_COLUMNS,
+        rows=rows,
+        totals=totals,
+        drills=drills,
+        notes=[_LIVE_ITEM_PURCHASE_NOTE],
     )
 
 
@@ -579,42 +599,159 @@ _RECEIVED_NOTE = (
     "received again) counts once for each receipt."
 )
 
+#: `lifecycle_writes.record_initial_status` writes this same `to_status`
+#: for a brand-new item's *opening* row (`from_status_id IS NULL`) -- a
+#: console entry, a split child, or a seed -- and the live database's own
+#: history was once reset to a single opening row per item at its current
+#: status. Neither is an arrival, so both are excluded by the same
+#: `from_status_id IS NOT NULL` test, and this note says so in plain words.
+_OPENING_ROW_NOTE = (
+    "Items entered already received, and history recorded before status "
+    "changes were tracked, are not counted as arrivals."
+)
+
+
+def _received_prefilter(params: ReceivedParams) -> list[ColumnElement[bool]]:
+    """A coarse, SQL-side narrowing of `pr_received`'s rows by date range.
+
+    Never the final word -- `_pr_received` still runs the exact test
+    (`local_date`, per row) in Python -- only a way to avoid fetching every
+    `received` transition the collection has ever recorded when a narrow
+    range is asked for. Widened a day past each bound on the `changed_at`
+    side, since a receipt's local calendar day can fall a day either side
+    of the UTC instant `changed_at` stores, depending on the server's own
+    time zone; a row with `arrived_on` set is bounded by it exactly, since
+    that column already reads as a calendar date with no zone to widen.
+    """
+    conditions: list[ColumnElement[bool]] = []
+    if params.date_from is not None:
+        widened = datetime.combine(
+            params.date_from - timedelta(days=1), time.min, tzinfo=UTC
+        )
+        conditions.append(
+            or_(
+                ItemStatusHistory.arrived_on >= params.date_from,
+                and_(
+                    ItemStatusHistory.arrived_on.is_(None),
+                    ItemStatusHistory.changed_at >= widened,
+                ),
+            )
+        )
+    if params.date_to is not None:
+        widened = datetime.combine(
+            params.date_to + timedelta(days=1), time.max, tzinfo=UTC
+        )
+        conditions.append(
+            or_(
+                ItemStatusHistory.arrived_on <= params.date_to,
+                and_(
+                    ItemStatusHistory.arrived_on.is_(None),
+                    ItemStatusHistory.changed_at <= widened,
+                ),
+            )
+        )
+    return conditions
+
+
+def _received_children_totals(
+    db: Session, parent_ids: set[int]
+) -> dict[int, tuple[int, Decimal]]:
+    """Each split parent's own live children, as `(items, total_cost)`.
+
+    One grouped query over every parent this report's own transitions named,
+    not one query per parent: `InventoryItem.parent_item_id` is indexed, and
+    the `IN` list is bounded by how many split parents were ever received,
+    not by the collection's size.
+    """
+    if not parent_ids:
+        return {}
+    return {
+        row["parent_id"]: (row["items"], row["total_cost"])
+        for row in db.execute(
+            select(
+                InventoryItem.parent_item_id.label("parent_id"),
+                func.count().label("items"),
+                func.coalesce(func.sum(InventoryItem.total_cost), 0).label(
+                    "total_cost"
+                ),
+            )
+            .where(InventoryItem.parent_item_id.in_(parent_ids), live_item())
+            .group_by(InventoryItem.parent_item_id)
+        )
+        .mappings()
+        .all()
+    }
+
 
 def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
-    """Arrival day x vendor, from `item_status_history` rows reaching `received`.
+    """Arrival day x vendor, from `item_status_history` transitions to `received`.
 
-    Fetched one receipt at a time, not grouped in SQL: a row's day is its
-    own `arrived_on` when recorded, else `changed_at`'s local calendar date
-    (`local_date`, `.base`) -- a conversion SQL cannot do without knowing
-    the application server's own time zone -- so both the bucketing and the
-    date-range filter happen in Python, over at most one row per receipt
-    the collection has ever recorded.
+    Only a transition counts -- `from_status_id IS NOT NULL` -- never the
+    opening row every new item gets (`_OPENING_ROW_NOTE`): that row means
+    "this item started out already received," not "it arrived."
+
+    A split parent (`InventoryItem.split_at IS NOT NULL`) keeps its own
+    transition even though it is no longer live itself, so its receipt is
+    attributed to its own live children instead of dropped: `items` and
+    `total_cost` come from `_received_children_totals`, on the parent's own
+    receipt day and vendor, since the pieces arrived with the parent, not
+    on some later day their own (opening-row-only) history would otherwise
+    never surface at all. A deleted item is excluded outright: a deleted
+    row should never have existed, so neither did its receipt.
+
+    Fetched one transition at a time, not grouped in SQL: a row's day is
+    its own `arrived_on` when recorded, else `changed_at`'s local calendar
+    date (`local_date`, `.base`) -- a conversion SQL cannot do without
+    knowing the application server's own time zone -- so both the
+    bucketing and the exact date-range filter happen in Python, over the
+    rows `_received_prefilter` has already narrowed.
     """
     stmt = (
         select(
+            InventoryItem.id.label("item_id"),
+            InventoryItem.split_at,
+            InventoryItem.total_cost,
             ItemStatusHistory.arrived_on,
             ItemStatusHistory.changed_at,
             Vendor.name.label("vendor_name"),
-            InventoryItem.total_cost,
         )
         .select_from(ItemStatusHistory)
         .join(InventoryItem, InventoryItem.id == ItemStatusHistory.inventory_item_id)
         .join(ItemStatus, ItemStatus.id == ItemStatusHistory.to_status_id)
         .join(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
         .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
-        .where(ItemStatus.code == "received", live_item())
+        .where(
+            ItemStatus.code == "received",
+            ItemStatusHistory.from_status_id.is_not(None),
+            InventoryItem.deleted_at.is_(None),
+            *_received_prefilter(params),
+        )
+    )
+    transitions = db.execute(stmt).mappings().all()
+
+    children_totals = _received_children_totals(
+        db, {row["item_id"] for row in transitions if row["split_at"] is not None}
     )
 
-    buckets: dict[tuple[date, str], list[Decimal]] = defaultdict(list)
-    for row in db.execute(stmt).mappings().all():
+    bucket_items: dict[tuple[date, str], int] = defaultdict(int)
+    bucket_cost: dict[tuple[date, str], Decimal] = defaultdict(lambda: Decimal("0"))
+    for row in transitions:
         day = row["arrived_on"] or local_date(row["changed_at"])
         if params.date_from is not None and day < params.date_from:
             continue
         if params.date_to is not None and day > params.date_to:
             continue
-        buckets[(day, row["vendor_name"])].append(row["total_cost"])
+        key = (day, row["vendor_name"])
+        if row["split_at"] is None:
+            bucket_items[key] += 1
+            bucket_cost[key] += row["total_cost"]
+        else:
+            items, cost = children_totals.get(row["item_id"], (0, Decimal("0")))
+            if items:
+                bucket_items[key] += items
+                bucket_cost[key] += cost
 
-    if not buckets:
+    if not bucket_items:
         return ReportResult(
             columns=_RECEIVED_COLUMNS,
             rows=[],
@@ -627,10 +764,10 @@ def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
     drills: list[str | None] = []
     total_items = 0
     total_cost = Decimal("0")
-    for day, vendor_name in sorted(buckets):
-        costs = buckets[(day, vendor_name)]
-        items = len(costs)
-        cost_sum = sum(costs, Decimal("0"))
+    for key in sorted(bucket_items):
+        day, vendor_name = key
+        items = bucket_items[key]
+        cost_sum = bucket_cost[key]
         rows.append(
             {"day": day, "vendor": vendor_name, "items": items, "total_cost": cost_sum}
         )
@@ -638,9 +775,12 @@ def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
         total_items += items
         total_cost += cost_sum
 
+    # "All days" labels the text `vendor` column, not the date-kind `day`
+    # one -- a date column holding the string "All days" would be a date
+    # column that is not a date, on the wire and in the workbook alike.
     totals: dict[str, object] = {
-        "day": "All days",
-        "vendor": None,
+        "day": None,
+        "vendor": "All days",
         "items": total_items,
         "total_cost": total_cost,
     }
@@ -650,7 +790,7 @@ def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
         rows=rows,
         totals=totals,
         drills=drills,
-        notes=[_RECEIVED_NOTE],
+        notes=[_RECEIVED_NOTE, _OPENING_ROW_NOTE],
     )
 
 
