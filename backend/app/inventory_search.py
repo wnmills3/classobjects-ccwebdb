@@ -561,10 +561,13 @@ MISSING_FIELDS: dict[str, MissingField] = {
     "denomination": MissingField("i.denomination_id IS NULL", kinds=_CLASSIFIED_KINDS),
     "grade": MissingField("i.grade_id IS NULL", kinds=_CLASSIFIED_KINDS),
     "country": MissingField("i.country_id IS NULL"),
-    "series": MissingField("i.series_id IS NULL"),
-    # Not applicable to currency (Decisions, docs/specs/reporting-design.md);
-    # every other kind, bullion included, is a physical metal object.
-    "metal": MissingField("i.metal_id IS NULL", kinds=_ALL_KINDS - {"currency"}),
+    # Optional for a note (owner, 2026-09-28): its year is the series year,
+    # so the design series adds nothing a note must have.
+    "series": MissingField("i.series_id IS NULL", kinds=_ALL_KINDS - {"currency"}),
+    # Not applicable to currency (Decisions, docs/specs/reporting-design.md),
+    # nor to a set, which is often of mixed metals (owner, 2026-09-28); every
+    # other kind, bullion included, is a single metal object.
+    "metal": MissingField("i.metal_id IS NULL", kinds=_ALL_KINDS - {"currency", "set"}),
     "photo": MissingField(
         "NOT EXISTS (SELECT 1 FROM item_image ii WHERE ii.inventory_item_id = i.id)"
     ),

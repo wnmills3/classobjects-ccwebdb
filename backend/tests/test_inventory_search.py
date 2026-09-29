@@ -722,6 +722,33 @@ def test_missing_metal_never_matches_currency(
     assert rows == []
 
 
+def test_missing_series_never_matches_currency(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A note's design series is optional, so an empty one is not missing.
+
+    Its year is the series year (owner, 2026-09-28).
+    """
+    note(db, series_id=None)  # would match if the filter were not kind-aware
+
+    rows = search(client, "currency", admin_headers, missing="series").json()["rows"]
+    assert rows == []
+
+
+def test_missing_metal_ignores_a_set(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Metal does not apply to a set, while a coin with none is still found.
+
+    A set is often of mixed metals (owner, 2026-09-28).
+    """
+    build_bare_item(db, item_kind_id=code_id(db, ItemKind, "set"), metal_id=None)
+    gap = coin(db, metal_id=None)
+
+    rows = search(client, "coins", admin_headers, missing="metal").json()["rows"]
+    assert [r["id"] for r in rows] == [gap.id]
+
+
 def test_missing_denomination_ignores_a_kind_it_does_not_apply_to(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
