@@ -1,32 +1,55 @@
-"""`sl_offered`: active and paused listings, asking price against cost basis."""
+"""`sl_offered`, `sl_sales`, `sl_fulfilment`, `sl_aging` and `sl_auctions`."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import cast
 
-from app import lot_writes, offering_writes
+import pytest
+from app import lot_writes, offering_writes, order_writes, sales_writes
+from app.auctions import SettlementLine, add_lot, close, schedule, settle
+from app.buyers import venue_buyer
+from app.lifecycle_writes import set_status
 from app.models import (
+    AuctionLotResult,
+    AuctionStatus,
     Currency,
+    Disposition,
     InventoryItem,
+    ItemStatus,
     Listing,
     ListingFormat,
     ListingStatus,
     SalesLot,
     SalesLotItem,
     SalesLotStatus,
+    SalesOrder,
     SalesVenue,
     SalesVenueKind,
+    User,
     utcnow,
 )
 from app.offering_writes import OFFER_CURRENCY
-from app.reports.selling import SL_OFFERED, OfferedParams
+from app.order_writes import Line
+from app.reports.selling import (
+    SL_AGING,
+    SL_AUCTIONS,
+    SL_FULFILMENT,
+    SL_OFFERED,
+    SL_SALES,
+    AgingParams,
+    AuctionsParams,
+    FulfilmentParams,
+    OfferedParams,
+    SalesParams,
+)
 from app.sales_venues import store_venue_id
+from app.sales_writes import FeeLine
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from tests.builders import ItemFactory, code_id, priced_item
+from tests.builders import ItemFactory, build_auction, code_id, priced_item
 
 _NOW = datetime(2026, 9, 28, tzinfo=UTC)
 
@@ -41,6 +64,26 @@ def _local_noon(days_ago: int) -> datetime:
     """
     local_date = (datetime.now() - timedelta(days=days_ago)).date()
     return datetime.combine(local_date, time(12, 0)).astimezone()
+
+
+def _at_noon(day: date) -> datetime:
+    """Local noon on `day`, tz-aware -- the same DST-safe anchor as `_local_noon`."""
+    return datetime.combine(day, time(12, 0)).astimezone()
+
+
+def _months_ago(n: int) -> date:
+    """`n` whole calendar months before today, on today's own day of month.
+
+    Capped at day 28 so a today-is-the-31st test never rolls into the wrong
+    month. Deterministic against `_months_since`'s own arithmetic: `n`
+    months back always measures as exactly `n`, never `n - 1` from a
+    day-of-month rounding.
+    """
+    today = date.today()
+    day = min(today.day, 28)
+    month_index = today.year * 12 + (today.month - 1) - n
+    year, month = divmod(month_index, 12)
+    return date(year, month + 1, day)
 
 
 def _offer_on(
@@ -656,3 +699,828 @@ def test_drill_for_a_lot_listing_is_the_lots_page(
     result = SL_OFFERED.run(db, OfferedParams())
     idx = next(i for i, r in enumerate(result.rows) if r["listing"] == "A lot")
     assert result.drills[idx] == "/lots"
+
+
+# ===========================================================================
+# sl_sales
+# ===========================================================================
+
+
+def _sold(
+    db: Session,
+    item: InventoryItem,
+    venue: SalesVenue,
+    admin_user: User,
+    *,
+    price: Decimal,
+    fee: Decimal = Decimal("0"),
+    buyer: str = "amy",
+) -> SalesOrder:
+    """Sell `item` on `venue` through the real writers: offer, then record."""
+    listing = _offer_on(db, item, venue, price=price)
+    fees = [FeeLine("commission", fee)] if fee else []
+    return sales_writes.record_sale(
+        db,
+        listing,
+        price=price,
+        buyer_username=buyer,
+        external_order_id=None,
+        fees=fees,
+        recorded_by=admin_user,
+    )
+
+
+def test_gross_fees_net_basis_and_gain_are_known_amounts(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    item = priced_item(make_item, "Coin", Decimal("40.00"))
+    _sold(db, item, venue, admin_user, price=Decimal("133.75"), fee=Decimal("13.32"))
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    assert result.rows[0]["orders"] == 1
+    assert result.rows[0]["gross"] == Decimal("133.75")
+    assert result.rows[0]["fees"] == Decimal("13.32")
+    assert result.rows[0]["net"] == Decimal("120.43")
+    assert result.rows[0]["cost_basis"] == Decimal("40.00")
+    assert result.rows[0]["gain"] == Decimal("80.43")
+
+
+def test_rows_are_grouped_by_month_and_venue(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue_a = _venue(db, "avenue")
+    venue_b = _venue(db, "bvenue")
+    order_a = _sold(
+        db,
+        priced_item(make_item, "A", Decimal("10.00")),
+        venue_a,
+        admin_user,
+        price=Decimal("20.00"),
+    )
+    order_a.placed_at = _at_noon(date(2026, 1, 15))
+    order_b = _sold(
+        db,
+        priced_item(make_item, "B", Decimal("10.00")),
+        venue_b,
+        admin_user,
+        price=Decimal("30.00"),
+    )
+    order_b.placed_at = _at_noon(date(2026, 1, 15))
+    order_c = _sold(
+        db,
+        priced_item(make_item, "C", Decimal("10.00")),
+        venue_a,
+        admin_user,
+        price=Decimal("40.00"),
+    )
+    order_c.placed_at = _at_noon(date(2026, 2, 15))
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    keys = [(r["period"], r["venue"]) for r in result.rows]
+    assert keys == [
+        ("2026-01", venue_a.name),
+        ("2026-01", venue_b.name),
+        ("2026-02", venue_a.name),
+    ]
+
+
+def test_a_cancelled_order_is_excluded(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    buyer = venue_buyer(db, venue, "amy")
+    item = priced_item(make_item, "Cancelled item", Decimal("10.00"))
+    listing = _offer_on(db, item, venue, price=Decimal("50.00"))
+    order_writes.place_order(
+        db,
+        buyer,
+        [Line(listing_id=listing.id, quantity=1, unit_price=Decimal("50.00"))],
+        admin_user,
+        venue=venue,
+        status_code="cancelled",
+    )
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    assert result.rows == []
+
+
+def test_gain_is_the_sum_of_its_items_own_gain(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    """Two items on one lot sale, split unevenly: order gain equals their sum.
+
+    Specific identification (spec Decisions): each item's gain is its own
+    share (`amount - fee_amount`) less its own `total_cost`, and the order's
+    reported `gain` must be exactly the two added together, not a separate
+    `total_amount`-based figure that could drift from them.
+    """
+    venue = _venue(db, "ebay")
+    lot = lot_writes.create_lot(db, title="Two coins", description="")
+    a = priced_item(make_item, "A", Decimal("30.00"))
+    b = priced_item(make_item, "B", Decimal("70.00"))
+    lot_writes.add_member(db, lot, a)
+    lot_writes.add_member(db, lot, b)
+    listing = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("150.00"),
+        title="Two coins",
+        description="",
+        external_id=None,
+    )
+    sales_writes.record_sale(
+        db,
+        listing,
+        price=Decimal("150.00"),
+        buyer_username="amy",
+        external_order_id=None,
+        fees=[FeeLine("commission", Decimal("15.00"))],
+        recorded_by=admin_user,
+    )
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    # a: 30% of 150.00 = 45.00, 30% of 15.00 fee = 4.50, gain 45-4.5-30 = 10.50
+    # b: 70% of 150.00 = 105.00, 70% of 15.00 fee = 10.50, gain 105-10.5-70 = 24.50
+    assert result.rows[0]["gain"] == Decimal("10.50") + Decimal("24.50")
+    assert result.rows[0]["gain"] == Decimal("35.00")
+
+
+def test_a_deleted_items_share_is_excluded_from_every_figure(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    lot = lot_writes.create_lot(db, title="One live one deleted", description="")
+    live = priced_item(make_item, "Live", Decimal("50.00"))
+    deleted = priced_item(make_item, "Deleted", Decimal("50.00"))
+    lot_writes.add_member(db, lot, live)
+    lot_writes.add_member(db, lot, deleted)
+    listing = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("100.00"),
+        title="Lot",
+        description="",
+        external_id=None,
+    )
+    sales_writes.record_sale(
+        db,
+        listing,
+        price=Decimal("100.00"),
+        buyer_username="amy",
+        external_order_id=None,
+        fees=[],
+        recorded_by=admin_user,
+    )
+    deleted.deleted_at = utcnow()
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    assert result.rows[0]["gross"] == Decimal("50.00")
+    assert result.rows[0]["cost_basis"] == Decimal("50.00")
+    assert result.rows[0]["gain"] == Decimal("0.00")
+
+
+def test_a_split_items_share_is_excluded_from_every_figure(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    lot = lot_writes.create_lot(db, title="One live one split", description="")
+    live = priced_item(make_item, "Live", Decimal("50.00"))
+    split = priced_item(make_item, "Split", Decimal("50.00"))
+    lot_writes.add_member(db, lot, live)
+    lot_writes.add_member(db, lot, split)
+    listing = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("100.00"),
+        title="Lot",
+        description="",
+        external_id=None,
+    )
+    sales_writes.record_sale(
+        db,
+        listing,
+        price=Decimal("100.00"),
+        buyer_username="amy",
+        external_order_id=None,
+        fees=[],
+        recorded_by=admin_user,
+    )
+    split.split_at = utcnow()
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    assert result.rows[0]["gross"] == Decimal("50.00")
+    assert result.rows[0]["cost_basis"] == Decimal("50.00")
+
+
+def test_date_range_excludes_orders_outside_it(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    order = _sold(
+        db,
+        priced_item(make_item, "Item", Decimal("10.00")),
+        venue,
+        admin_user,
+        price=Decimal("20.00"),
+    )
+    order.placed_at = _at_noon(date(2026, 6, 15))
+    db.commit()
+
+    in_range = SL_SALES.run(
+        db, SalesParams(date_from=date(2026, 6, 1), date_to=date(2026, 6, 30))
+    )
+    out_of_range = SL_SALES.run(
+        db, SalesParams(date_from=date(2026, 7, 1), date_to=date(2026, 7, 31))
+    )
+    assert len(in_range.rows) == 1
+    assert out_of_range.rows == []
+
+
+def test_totals_equal_the_sum_of_the_rows(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue_a = _venue(db, "avenue")
+    venue_b = _venue(db, "bvenue")
+    _sold(
+        db,
+        priced_item(make_item, "A", Decimal("10.00")),
+        venue_a,
+        admin_user,
+        price=Decimal("25.00"),
+        fee=Decimal("2.50"),
+    )
+    _sold(
+        db,
+        priced_item(make_item, "B", Decimal("20.00")),
+        venue_b,
+        admin_user,
+        price=Decimal("45.00"),
+        fee=Decimal("4.50"),
+    )
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    assert result.totals is not None
+    assert result.totals["orders"] == sum(cast(int, r["orders"]) for r in result.rows)
+    for key in ("gross", "fees", "net", "cost_basis", "gain"):
+        assert result.totals[key] == sum(
+            (cast(Decimal, r[key]) for r in result.rows), Decimal("0")
+        )
+    assert result.drills == ["/sales"] * len(result.rows)
+
+
+def test_note_names_which_statuses_count(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    _sold(
+        db,
+        priced_item(make_item, "Item", Decimal("10.00")),
+        venue,
+        admin_user,
+        price=Decimal("20.00"),
+    )
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    assert any("Cancelled" in note for note in result.notes)
+
+
+def test_no_sales_in_range_returns_no_totals(db: Session) -> None:
+    result = SL_SALES.run(db, SalesParams())
+    assert result.rows == []
+    assert result.totals is None
+    assert result.drills == []
+
+
+# ===========================================================================
+# sl_fulfilment
+# ===========================================================================
+
+
+def _placed(
+    db: Session,
+    item: InventoryItem,
+    venue: SalesVenue,
+    admin_user: User,
+    *,
+    price: Decimal,
+    status_code: str,
+    buyer_name: str = "amy",
+) -> SalesOrder:
+    """Place an order for `item` on `venue`, at `status_code`, unshipped or not."""
+    buyer = venue_buyer(db, venue, buyer_name)
+    listing = _offer_on(db, item, venue, price=price)
+    return order_writes.place_order(
+        db,
+        buyer,
+        [Line(listing_id=listing.id, quantity=1, unit_price=price)],
+        admin_user,
+        venue=venue,
+        status_code=status_code,
+    )
+
+
+def test_fulfilment_row_values_are_known(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    order = _placed(
+        db,
+        priced_item(make_item, "Coin", Decimal("40.00")),
+        venue,
+        admin_user,
+        price=Decimal("133.75"),
+        status_code="paid",
+        buyer_name="amy",
+    )
+    order.placed_at = _at_noon(date.today() - timedelta(days=5))
+    db.commit()
+
+    result = SL_FULFILMENT.run(db, FulfilmentParams())
+    row = result.rows[0]
+    assert row["order"] == f"#{order.id}"
+    assert row["customer"] == "amy"
+    assert row["items"] == 1
+    assert row["amount"] == Decimal("133.75")
+    assert row["days_waiting"] == 5
+    assert result.drills == ["/sales"] * len(result.rows)
+
+
+@pytest.mark.parametrize("status_code", ["shipped", "delivered", "cancelled"])
+def test_shipped_delivered_and_cancelled_orders_are_excluded(
+    db: Session, make_item: ItemFactory, admin_user: User, status_code: str
+) -> None:
+    venue = _venue(db, "ebay")
+    _placed(
+        db,
+        priced_item(make_item, "Item", Decimal("10.00")),
+        venue,
+        admin_user,
+        price=Decimal("20.00"),
+        status_code=status_code,
+    )
+    db.commit()
+
+    result = SL_FULFILMENT.run(db, FulfilmentParams())
+    assert result.rows == []
+
+
+@pytest.mark.parametrize("status_code", ["pending", "paid", "packed"])
+def test_pending_paid_and_packed_orders_are_included(
+    db: Session, make_item: ItemFactory, admin_user: User, status_code: str
+) -> None:
+    venue = _venue(db, "ebay")
+    _placed(
+        db,
+        priced_item(make_item, "Item", Decimal("10.00")),
+        venue,
+        admin_user,
+        price=Decimal("20.00"),
+        status_code=status_code,
+    )
+    db.commit()
+
+    result = SL_FULFILMENT.run(db, FulfilmentParams())
+    assert len(result.rows) == 1
+
+
+def test_oldest_first(db: Session, make_item: ItemFactory, admin_user: User) -> None:
+    venue = _venue(db, "ebay")
+    newer = _placed(
+        db,
+        priced_item(make_item, "Newer", Decimal("10.00")),
+        venue,
+        admin_user,
+        price=Decimal("20.00"),
+        status_code="paid",
+        buyer_name="amy",
+    )
+    newer.placed_at = _at_noon(date.today() - timedelta(days=1))
+    older = _placed(
+        db,
+        priced_item(make_item, "Older", Decimal("10.00")),
+        venue,
+        admin_user,
+        price=Decimal("20.00"),
+        status_code="paid",
+        buyer_name="bo",
+    )
+    older.placed_at = _at_noon(date.today() - timedelta(days=10))
+    db.commit()
+
+    result = SL_FULFILMENT.run(db, FulfilmentParams())
+    assert [r["order"] for r in result.rows] == [f"#{older.id}", f"#{newer.id}"]
+
+
+def test_a_deleted_items_share_does_not_count_toward_items(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    buyer = venue_buyer(db, venue, "amy")
+    lot = lot_writes.create_lot(db, title="Two coins", description="")
+    live = priced_item(make_item, "Live", Decimal("10.00"))
+    deleted = priced_item(make_item, "Deleted", Decimal("10.00"))
+    lot_writes.add_member(db, lot, live)
+    lot_writes.add_member(db, lot, deleted)
+    listing = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("50.00"),
+        title="Lot",
+        description="",
+        external_id=None,
+    )
+    order = order_writes.place_order(
+        db,
+        buyer,
+        [Line(listing_id=listing.id, quantity=1, unit_price=Decimal("50.00"))],
+        admin_user,
+        venue=venue,
+        status_code="paid",
+    )
+    deleted.deleted_at = utcnow()
+    db.commit()
+
+    result = SL_FULFILMENT.run(db, FulfilmentParams())
+    row = next(r for r in result.rows if r["order"] == f"#{order.id}")
+    assert row["items"] == 1
+    assert row["amount"] == Decimal("50.00")
+
+
+def test_fulfilment_totals_amount_is_the_sum_of_the_rows(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    _placed(
+        db,
+        priced_item(make_item, "A", Decimal("10.00")),
+        venue,
+        admin_user,
+        price=Decimal("25.00"),
+        status_code="paid",
+        buyer_name="amy",
+    )
+    _placed(
+        db,
+        priced_item(make_item, "B", Decimal("20.00")),
+        venue,
+        admin_user,
+        price=Decimal("45.00"),
+        status_code="pending",
+        buyer_name="bo",
+    )
+    db.commit()
+
+    result = SL_FULFILMENT.run(db, FulfilmentParams())
+    assert result.totals is not None
+    assert len(result.rows) == 2  # orders count is the row count
+    assert result.totals["amount"] == sum(
+        (cast(Decimal, r["amount"]) for r in result.rows), Decimal("0")
+    )
+    assert result.totals["items"] == sum(cast(int, r["items"]) for r in result.rows)
+
+
+def test_nothing_waiting_to_ship_returns_no_totals(db: Session) -> None:
+    result = SL_FULFILMENT.run(db, FulfilmentParams())
+    assert result.rows == []
+    assert result.totals is None
+    assert result.drills == []
+
+
+# ===========================================================================
+# sl_aging
+# ===========================================================================
+
+
+def _received(db: Session, item: InventoryItem, *, arrived_on: date) -> None:
+    """Move `item` through a real `ordered` -> `received` transition."""
+    item.status_id = code_id(db, ItemStatus, "ordered")
+    db.flush()
+    set_status(db, item, code_id(db, ItemStatus, "received"), arrived_on=arrived_on)
+
+
+def test_bucket_by_months_since_received(db: Session, make_item: ItemFactory) -> None:
+    item = priced_item(make_item, "Aged", Decimal("50.00"))
+    _received(db, item, arrived_on=_months_ago(8))
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows[0]["age"] == "6-11"
+    assert result.rows[0]["items"] == 1
+    assert result.rows[0]["total_cost"] == Decimal("50.00")
+
+
+def test_buckets_are_ordered_youngest_first(
+    db: Session, make_item: ItemFactory
+) -> None:
+    older = priced_item(make_item, "Older", Decimal("10.00"))
+    _received(db, older, arrived_on=_months_ago(8))
+    newer = priced_item(make_item, "Newer", Decimal("10.00"))
+    _received(db, newer, arrived_on=_months_ago(2))
+    also_old = priced_item(make_item, "Also old", Decimal("10.00"))
+    _received(db, also_old, arrived_on=_months_ago(30))
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    ages = [r["age"] for r in result.rows]
+    assert ages.index("0-5") < ages.index("6-11") < ages.index("24+")
+
+
+def test_no_receipt_transition_is_unknown(db: Session, make_item: ItemFactory) -> None:
+    priced_item(make_item, "No history", Decimal("25.00"))
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows[0]["age"] == "Unknown"
+    assert any("no recorded receipt" in note for note in result.notes)
+
+
+def test_kinds_within_a_bucket_are_ordered_by_sort_order(
+    db: Session, make_item: ItemFactory
+) -> None:
+    make_item(
+        kind="currency", title="Note", item_cost=Decimal("15.00"), tax_rate=Decimal("0")
+    )
+    make_item(
+        kind="coin", title="Coin", item_cost=Decimal("15.00"), tax_rate=Decimal("0")
+    )
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    kinds = [r["kind"] for r in result.rows]
+    assert kinds.index("Coin") < kinds.index("Currency")
+
+
+def test_an_item_on_an_active_listing_is_excluded(
+    db: Session, make_item: ItemFactory
+) -> None:
+    venue = _venue(db, "ebay")
+    item = priced_item(make_item, "Listed", Decimal("50.00"))
+    _item_listing(db, item, venue, status=ListingStatus.active)
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows == []
+
+
+def test_an_item_on_a_paused_listing_is_excluded(
+    db: Session, make_item: ItemFactory
+) -> None:
+    venue = _venue(db, "ebay")
+    item = priced_item(make_item, "Paused", Decimal("50.00"))
+    _item_listing(db, item, venue, status=ListingStatus.paused)
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows == []
+
+
+def test_an_item_in_an_open_lot_is_excluded(
+    db: Session, make_item: ItemFactory
+) -> None:
+    lot = _lot(db)
+    item = priced_item(make_item, "In lot", Decimal("50.00"))
+    _lot_member(db, lot, item)
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows == []
+
+
+def test_a_released_lot_membership_does_not_exclude_the_item(
+    db: Session, make_item: ItemFactory
+) -> None:
+    lot = _lot(db)
+    item = priced_item(make_item, "Released", Decimal("50.00"))
+    _lot_member(db, lot, item, released=True)
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert len(result.rows) == 1
+
+
+def test_a_deleted_item_is_excluded(db: Session, make_item: ItemFactory) -> None:
+    item = priced_item(make_item, "Deleted", Decimal("50.00"))
+    item.deleted_at = utcnow()
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows == []
+
+
+def test_a_split_parent_item_is_excluded(db: Session, make_item: ItemFactory) -> None:
+    item = priced_item(make_item, "Split", Decimal("50.00"))
+    item.split_at = utcnow()
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows == []
+
+
+def test_a_non_received_or_non_held_item_is_excluded(
+    db: Session, make_item: ItemFactory
+) -> None:
+    make_item(
+        status_id=code_id(db, ItemStatus, "ordered"),
+        item_cost=Decimal("10.00"),
+        tax_rate=Decimal("0"),
+    )
+    make_item(
+        disposition_id=code_id(db, Disposition, "sold"),
+        item_cost=Decimal("10.00"),
+        tax_rate=Decimal("0"),
+    )
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows == []
+
+
+def test_a_split_childs_age_comes_from_its_live_parents_receipt(
+    db: Session, make_item: ItemFactory
+) -> None:
+    parent = priced_item(make_item, "Parent", Decimal("30.00"))
+    _received(db, parent, arrived_on=_months_ago(8))
+    child = priced_item(make_item, "Child", Decimal("20.00"))
+    child.parent_item_id = parent.id
+    parent.split_at = utcnow()
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert len(result.rows) == 1
+    assert result.rows[0]["age"] == "6-11"
+    assert result.rows[0]["items"] == 1
+    assert result.rows[0]["total_cost"] == Decimal("20.00")
+
+
+def test_aging_totals_equal_the_sum_of_the_rows(
+    db: Session, make_item: ItemFactory
+) -> None:
+    priced_item(make_item, "A", Decimal("10.00"))
+    priced_item(make_item, "B", Decimal("20.00"))
+    db.commit()
+
+    result = SL_AGING.run(db, AgingParams())
+    assert result.totals is not None
+    assert result.totals["items"] == sum(cast(int, r["items"]) for r in result.rows)
+    assert result.totals["total_cost"] == sum(
+        (cast(Decimal, r["total_cost"]) for r in result.rows), Decimal("0")
+    )
+    assert result.drills == [None] * len(result.rows)
+
+
+def test_nothing_held_returns_no_totals(db: Session) -> None:
+    result = SL_AGING.run(db, AgingParams())
+    assert result.rows == []
+    assert result.totals is None
+    assert result.drills == []
+
+
+# ===========================================================================
+# sl_auctions
+# ===========================================================================
+
+
+def test_a_draft_auction_shows_no_figures(
+    db: Session, heritage_venue: SalesVenue
+) -> None:
+    build_auction(db, heritage_venue, title="Draft sale")
+    db.commit()
+
+    result = SL_AUCTIONS.run(db, AuctionsParams())
+    row = next(r for r in result.rows if r["auction"] == "Draft sale")
+    assert row["status"] == "Draft"
+    assert row["lots"] is None
+    assert row["sold"] is None
+    assert row["unsold"] is None
+    assert row["hammer_total"] is None
+    assert row["fees"] is None
+
+
+def test_a_settled_auctions_figures_are_known(
+    db: Session, heritage_venue: SalesVenue, make_item: ItemFactory, admin_user: User
+) -> None:
+    auction = build_auction(db, heritage_venue, title="September sale")
+    lots = [
+        add_lot(
+            db,
+            auction,
+            priced_item(make_item, f"Lot {n}", Decimal("100.00")),
+            lot_number=str(n),
+            reserve=None,
+            price=Decimal("10.00"),
+        )
+        for n in range(1, 4)
+    ]
+    schedule(db, auction)
+    close(db, auction)
+    settle(
+        db,
+        auction,
+        lines=[
+            SettlementLine(lots[0].id, AuctionLotResult.sold, Decimal("150.00"), "amy"),
+            SettlementLine(lots[1].id, AuctionLotResult.sold, Decimal("250.00"), "amy"),
+            SettlementLine(lots[2].id, AuctionLotResult.unsold),
+        ],
+        fees={"amy": [FeeLine("commission", Decimal("40.00"))]},
+        settled_by=admin_user,
+    )
+    db.commit()
+
+    result = SL_AUCTIONS.run(db, AuctionsParams())
+    row = next(r for r in result.rows if r["auction"] == "September sale")
+    assert row["status"] == "Settled"
+    assert row["lots"] == 3
+    assert row["sold"] == 2
+    assert row["unsold"] == 1
+    assert row["hammer_total"] == Decimal("400.00")
+    assert row["fees"] == Decimal("40.00")
+
+
+def test_unsold_includes_a_withdrawn_lot(
+    db: Session, heritage_venue: SalesVenue, make_item: ItemFactory, admin_user: User
+) -> None:
+    auction = build_auction(db, heritage_venue, title="Mixed sale")
+    lots = [
+        add_lot(
+            db,
+            auction,
+            priced_item(make_item, f"L{n}", Decimal("50.00")),
+            lot_number=str(n),
+            reserve=None,
+            price=Decimal("5.00"),
+        )
+        for n in range(1, 3)
+    ]
+    schedule(db, auction)
+    close(db, auction)
+    settle(
+        db,
+        auction,
+        lines=[
+            SettlementLine(lots[0].id, AuctionLotResult.unsold),
+            SettlementLine(lots[1].id, AuctionLotResult.withdrawn),
+        ],
+        fees={},
+        settled_by=admin_user,
+    )
+    db.commit()
+
+    result = SL_AUCTIONS.run(db, AuctionsParams())
+    row = next(r for r in result.rows if r["auction"] == "Mixed sale")
+    assert row["sold"] == 0
+    assert row["unsold"] == 2
+    assert row["hammer_total"] == Decimal("0")
+    assert row["fees"] == Decimal("0")
+
+
+def test_auction_rows_are_ordered_by_status(
+    db: Session, heritage_venue: SalesVenue
+) -> None:
+    settled = build_auction(db, heritage_venue, title="Settled one")
+    settled.status = AuctionStatus.settled
+    scheduled = build_auction(db, heritage_venue, title="Scheduled one")
+    scheduled.status = AuctionStatus.scheduled
+    build_auction(db, heritage_venue, title="Draft one")
+    db.commit()
+
+    result = SL_AUCTIONS.run(db, AuctionsParams())
+    order = [r["auction"] for r in result.rows]
+    assert (
+        order.index("Draft one")
+        < order.index("Scheduled one")
+        < order.index("Settled one")
+    )
+
+
+def test_auction_drill_is_the_auctions_page(
+    db: Session, heritage_venue: SalesVenue
+) -> None:
+    build_auction(db, heritage_venue, title="Any sale")
+    db.commit()
+
+    result = SL_AUCTIONS.run(db, AuctionsParams())
+    assert result.drills == ["/auctions"] * len(result.rows)
+
+
+def test_no_auctions_returns_no_totals(db: Session) -> None:
+    result = SL_AUCTIONS.run(db, AuctionsParams())
+    assert result.rows == []
+    assert result.totals is None
+    assert result.drills == []
