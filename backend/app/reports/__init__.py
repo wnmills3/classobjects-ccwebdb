@@ -28,7 +28,7 @@ from .data_quality import (
     DQ_PHOTOS,
     DQ_PURCHASES,
 )
-from .purchasing import PR_OUTSTANDING
+from .purchasing import PR_OUTSTANDING, PR_RECEIVED, PR_SOURCES, PR_SPEND
 from .registry import REPORTS, register
 from .selling import SL_OFFERED
 
@@ -46,6 +46,9 @@ __all__ = [
     "DQ_PHOTOS",
     "DQ_PURCHASES",
     "PR_OUTSTANDING",
+    "PR_RECEIVED",
+    "PR_SOURCES",
+    "PR_SPEND",
     "REPORTS",
     "SL_OFFERED",
     "register",

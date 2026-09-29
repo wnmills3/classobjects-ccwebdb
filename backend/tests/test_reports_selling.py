@@ -336,7 +336,7 @@ def test_days_listed_is_today_minus_listed_at(
     `America/New_York`, measured directly). Anchoring to UTC midnight
     instead would land on the wrong side of local midnight and be off by a
     day, which is exactly the failure this test caught before
-    `_local_date` existed.
+    `local_date` existed.
     """
     venue = _venue(db, "ebay")
     _item_listing(db, make_item(), venue, listed_at=_local_noon(7), title="Week old")
@@ -350,11 +350,11 @@ def test_days_listed_is_today_minus_listed_at(
 def test_local_date_uses_the_local_zone_not_the_session_zone(
     db: Session, make_item: ItemFactory
 ) -> None:
-    """`_local_date` matters exactly when the session's zone is not local.
+    """`local_date` matters exactly when the session's zone is not local.
 
     `SET LOCAL TIME ZONE 'UTC'` makes *this session* hand `listed_at` back
     tagged UTC regardless of what zone the test machine itself is in -- the
-    situation `_local_date`'s docstring describes. `23:30` local, seven days
+    situation `local_date`'s docstring describes. `23:30` local, seven days
     ago, is deliberately close to local midnight: read back under a UTC
     session, that instant's UTC calendar date can be a day later than its
     local one (measured directly on this machine, `America/New_York`), so a
@@ -365,7 +365,7 @@ def test_local_date_uses_the_local_zone_not_the_session_zone(
     only a savepoint release), so it is still in effect when the report
     itself reads the row back.
 
-    Mutation-tested: removing `.astimezone()` from `_local_date` (leaving a
+    Mutation-tested: removing `.astimezone()` from `local_date` (leaving a
     bare `.date()`) makes this fail with `days_listed == 6`, not 7 --
     confirmed by hand and reverted; see `task-5-report.md`.
     """

@@ -24,6 +24,7 @@ from app.models import (
     ItemAttributeLink,
     ItemKind,
     ItemStatus,
+    ItemStatusHistory,
     Listing,
     ListingStatus,
     Metal,
@@ -35,6 +36,7 @@ from app.models import (
     SalesVenueKind,
     StorageLocation,
     StorageLocationKind,
+    utcnow,
 )
 from app.reports import REPORTS
 from sqlalchemy.orm import Session
@@ -162,6 +164,42 @@ def _build_modest_collection(db: Session) -> None:
             shipping_cost=Decimal("0"),
         )
         item.purchase_order_id = order.id
+        db.commit()
+
+    # `pr_received` reads `item_status_history` rows reaching `received`;
+    # nothing built above has one, so it would otherwise run its query over
+    # zero rows and never exercise its own join at all.
+    received_status_id = code_id(db, ItemStatus, "received")
+    for index in range(4):
+        order = build_purchase_order(
+            db,
+            vendor_name=f"Receiving Vendor {index}",
+            order_number=f"RCV-{index}",
+            ordered_on=today - timedelta(days=3 + index),
+            commit=False,
+        )
+        db.flush()
+        item = build_bare_item(
+            db,
+            status_id=received_status_id,
+            item_cost=Decimal("20.00") + index,
+            tax_rate=Decimal("0"),
+            shipping_cost=Decimal("0"),
+        )
+        item.purchase_order_id = order.id
+        db.flush()
+        db.add(
+            ItemStatusHistory(
+                inventory_item_id=item.id,
+                from_status_id=code_id(db, ItemStatus, "ordered"),
+                to_status_id=received_status_id,
+                changed_at=utcnow(),
+                # Half with an `arrived_on`, half falling back to
+                # `changed_at`'s local date -- both of `pr_received`'s own
+                # code paths.
+                arrived_on=today - timedelta(days=index) if index % 2 == 0 else None,
+            )
+        )
         db.commit()
 
     venue = _venue(db, "test_venue")

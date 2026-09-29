@@ -27,7 +27,7 @@ of its own) could not support anyway.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlencode
@@ -49,7 +49,7 @@ from ..models import (
     SalesVenue,
 )
 from ..offering_writes import OFFER_CURRENCY, ON_OFFER
-from .base import Column, Report, ReportResult
+from .base import Column, Report, ReportResult, local_date
 from .registry import register
 
 __all__ = ["SL_OFFERED", "OfferedParams"]
@@ -81,27 +81,6 @@ _PAUSED_BY_VENUE = aliased(SalesVenue)
 #: they are merged and sorted together in `_sl_offered`.
 _SortKey = tuple[str, object, int]
 _Entry = tuple[_SortKey, dict[str, object], str, bool]
-
-
-def _local_date(moment: datetime) -> date:
-    """`moment`'s calendar date in the system's own local time zone.
-
-    `listed_at` is `timestamptz`; the driver hands it back tagged with
-    whatever zone the *database session* is in, which need not be the
-    zone the application server itself runs in. `today` (`date.today()`,
-    in `_sl_offered`) is the system's own local date, so comparing it
-    against `listed_at`'s date verbatim -- in whatever zone the driver
-    happened to tag it -- can land on the wrong side of midnight and be
-    off by a day when the two zones disagree. `astimezone()` with no
-    argument converts to the local zone first, the same zone
-    `date.today()` reads from, so the two always agree about which
-    calendar day a moment falls on regardless of the session's own zone.
-    This is a portability guarantee, not a fix for a bug in this
-    environment specifically -- see
-    `test_local_date_uses_the_local_zone_not_the_session_zone`, which pins
-    it by forcing the session to a different zone than the system's own.
-    """
-    return moment.astimezone().date()
 
 
 def _status_text(status: ListingStatus, paused_by_venue_name: str | None) -> str:
@@ -179,7 +158,7 @@ def _item_rows(db: Session, today: date) -> list[_Entry]:
             "asking": row["price"],
             "currency": row["currency_code"],
             "cost_basis": row["total_cost"],
-            "days_listed": (today - _local_date(listed_at)).days,
+            "days_listed": (today - local_date(listed_at)).days,
         }
         drill = _item_drill(row["kind_code"], row["item_code"])
         excluded = _excluded_from_totals(status, row["paused_by_status"])
@@ -251,7 +230,7 @@ def _lot_rows(db: Session, today: date) -> list[_Entry]:
             "asking": row["price"],
             "currency": row["currency_code"],
             "cost_basis": row["cost_basis"],
-            "days_listed": (today - _local_date(listed_at)).days,
+            "days_listed": (today - local_date(listed_at)).days,
         }
         excluded = _excluded_from_totals(status, row["paused_by_status"])
         entries.append(

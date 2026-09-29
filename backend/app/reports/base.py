@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
-from typing import Literal
+from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, Date, cast, func, literal
+from sqlalchemy.orm import QueryableAttribute, Session
 
 #: How a column's values are formatted, everywhere a report is shown or
 #: exported. Never the query -- a report groups and filters however it
@@ -112,6 +113,57 @@ class DateRange(BaseModel):
         return self
 
 
+#: The three ways a report may bucket a date column into a time period.
+#: `pr_spend` and (Ruling P2-2) `mn_tax` share this one Literal, one
+#: `period_start` and one `period_label`, rather than each writing its own
+#: `date_trunc` and its own text for "2026 Q3" -- so the two reports can
+#: never drift apart on what a period is or how it reads.
+Period = Literal["month", "quarter", "year"]
+
+
+def period_start(
+    period: Period, column: ColumnElement[Any] | QueryableAttribute[Any]
+) -> ColumnElement[date]:
+    """The first day of `column`'s bucket for `period`: `date_trunc`, cast to a date.
+
+    `period` only ever reaches here as one of the three `Period` values
+    above -- a pydantic `Literal` field has already refused anything else
+    before a report's `run` is called -- but it is still passed through
+    `literal()` as a bound parameter, not interpolated into the SQL text,
+    so this function carries its own guarantee rather than resting entirely
+    on the caller's.
+    """
+    return cast(func.date_trunc(literal(period), column), Date)
+
+
+def period_label(period: Period, start: date) -> str:
+    """`start`'s own label: `"2026-09"` for a month, `"2026 Q3"`, or `"2026"`."""
+    if period == "month":
+        return f"{start.year:04d}-{start.month:02d}"
+    if period == "quarter":
+        quarter = (start.month - 1) // 3 + 1
+        return f"{start.year} Q{quarter}"
+    return str(start.year)
+
+
+def local_date(moment: datetime) -> date:
+    """`moment`'s calendar date in the system's own local time zone.
+
+    Shared by any report reading a `timestamptz` column that must be
+    compared, as a calendar day, against a local date such as
+    `date.today()` or a `DateRange` bound: the driver hands a `timestamptz`
+    back tagged with whatever zone the *database session* is in, which need
+    not be the zone the application server itself runs in.
+    `astimezone()` with no argument converts to the local zone first -- the
+    same zone `date.today()` reads from -- so the two always agree about
+    which calendar day a moment falls on regardless of the session's own
+    zone. Pinned by `test_reports_selling.py`'s
+    `test_local_date_uses_the_local_zone_not_the_session_zone`, which forces
+    the session to a different zone than the system's own.
+    """
+    return moment.astimezone().date()
+
+
 @dataclass(frozen=True)
 class Report[P: BaseModel]:
     """One entry in the catalog, generic in its own parameters model.
@@ -137,4 +189,14 @@ class Report[P: BaseModel]:
     run: Callable[[Session, P], ReportResult]
 
 
-__all__ = ["Column", "ColumnKind", "DateRange", "Report", "ReportResult"]
+__all__ = [
+    "Column",
+    "ColumnKind",
+    "DateRange",
+    "Period",
+    "Report",
+    "ReportResult",
+    "local_date",
+    "period_label",
+    "period_start",
+]

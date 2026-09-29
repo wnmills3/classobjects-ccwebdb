@@ -20,10 +20,11 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
-from datetime import datetime
-from typing import Any
+from datetime import date, datetime
+from typing import Any, get_args
 
 from pydantic import BaseModel
+from pydantic.fields import FieldInfo
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
@@ -78,12 +79,30 @@ def _data_line(columns: list[Column], widths: list[int], row: dict[str, object])
     return "  ".join(cells).rstrip()
 
 
+def _is_date_field(field: FieldInfo) -> bool:
+    """Whether a parameter field is `date` or `date | None`.
+
+    The same test `serialize.py`'s own `_param_type` makes for the catalog's
+    `type`, so the CLI and the console agree about which parameters are
+    dates without importing one another's private helper.
+    """
+    return field.annotation is date or date in get_args(field.annotation)
+
+
 def _params_line(report: Report[Any], params: BaseModel) -> str:
-    """Every parameter the report ran with, in words: `"Overdue after (days): 21"`."""
-    parts = [
-        f"{field.title or name}: {getattr(params, name)}"
-        for name, field in report.params.model_fields.items()
-    ]
+    """Every parameter the report ran with, in words: `"Overdue after (days): 21"`.
+
+    An absent date bound prints as `any`, not `None` -- the same word the
+    console's own print heading uses (`reports/values.js`) for a blank
+    `date_from`/`date_to`, since a report parameter left unset never means
+    the value "None".
+    """
+    parts = []
+    for name, field in report.params.model_fields.items():
+        value = getattr(params, name)
+        if value is None and _is_date_field(field):
+            value = "any"
+        parts.append(f"{field.title or name}: {value}")
     return ", ".join(parts)
 
 
