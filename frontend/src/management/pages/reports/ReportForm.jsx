@@ -19,9 +19,11 @@ export default function ReportForm({ report, values, error, onRun }) {
     e.preventDefault()
     // An emptied field would otherwise run silently with that parameter's
     // default (`runWith` drops a blank value) -- indistinguishable from
-    // asking for the default on purpose, so it is refused here instead.
+    // asking for the default on purpose, so it is refused here instead. A
+    // date is the one exception (Ruling P2-3): emptying it means no bound on
+    // that side, not a request for its (null) default, so it runs as-is.
     const blank = report.params.find(
-      (param) => String(draft[param.name] ?? '').trim() === '',
+      (param) => param.type !== 'date' && String(draft[param.name] ?? '').trim() === '',
     )
     if (blank) {
       setEmptyError(`Enter a value for ${blank.label}.`)
@@ -65,6 +67,11 @@ function ParamInput({ param, value, onChange }) {
           </option>
         ))}
       </select>
+    )
+  }
+  if (param.type === 'date') {
+    return (
+      <input type="date" value={value} onChange={(e) => onChange(e.target.value)} />
     )
   }
   return (

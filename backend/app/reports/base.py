@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 #: How a column's values are formatted, everywhere a report is shown or
@@ -84,6 +85,33 @@ class ReportResult:
         return self.columns[0].key if self.columns else None
 
 
+class DateRange(BaseModel):
+    """A from/to date filter, subclassed by any report scoped to a range.
+
+    `date_from` and `date_to` are each optional and independent -- either,
+    both or neither may be set. An absent bound means no limit on that
+    side, not today's date or any other stand-in default: a report reading
+    `params.date_from is None` skips that half of its own `WHERE` clause
+    rather than binding a sentinel date. `date_from` after `date_to` would
+    describe an empty range, so it is refused here, once, rather than left
+    for every subclass's own query to handle -- or fail to.
+    """
+
+    date_from: date | None = Field(default=None, title="From")
+    date_to: date | None = Field(default=None, title="To")
+
+    @model_validator(mode="after")
+    def _check_range(self) -> DateRange:
+        """Refuse `date_from` later than `date_to`; equal bounds are fine."""
+        if (
+            self.date_from is not None
+            and self.date_to is not None
+            and self.date_from > self.date_to
+        ):
+            raise ValueError("From must not be after To")
+        return self
+
+
 @dataclass(frozen=True)
 class Report[P: BaseModel]:
     """One entry in the catalog, generic in its own parameters model.
@@ -109,4 +137,4 @@ class Report[P: BaseModel]:
     run: Callable[[Session, P], ReportResult]
 
 
-__all__ = ["Column", "ColumnKind", "Report", "ReportResult"]
+__all__ = ["Column", "ColumnKind", "DateRange", "Report", "ReportResult"]

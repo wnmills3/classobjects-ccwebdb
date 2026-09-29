@@ -554,6 +554,14 @@ export const FIELD_HELP = {
       'How many days after its order date a purchase still waiting to arrive is ' +
       'marked Overdue. 21 unless changed.',
   },
+  report_date_from: {
+    title: 'From',
+    text: 'Counts from this date on. Left empty, there is no start -- everything up to To.',
+  },
+  report_date_to: {
+    title: 'To',
+    text: 'Counts up to this date. Left empty, there is no end -- everything from From on.',
+  },
   report_run: {
     title: 'Run',
     text:

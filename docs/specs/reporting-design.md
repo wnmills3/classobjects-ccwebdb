@@ -133,13 +133,23 @@ with no denomination named.
   column names come from allowlists, never from a request.
 - **Money** is `Decimal`, summed in SQL, sent as decimal strings, as
   everywhere else.
+- **Date-range parameters.** `DateRange` (`app/reports/base.py`) is the
+  shared params base for any report scoped to a date range: `date_from` and
+  `date_to`, both optional and independent, titled "From" and "To". A
+  report subclasses it (`class SpendParams(DateRange): period: ...`) rather
+  than declaring the two fields itself. `date_from` after `date_to` is
+  refused (422 from the API, exit 2 from the command line); either bound
+  absent means no limit on that side, not today's date or any other
+  stand-in default.
 
 ### API
 
 - `GET /api/reports` -- the catalog: a list of `{id, group, title, purpose,
   params}`, each parameter carrying `name`, `label` (the pydantic field's own
-  `title`), `type` (`choice`, `integer` or `text`), `default` and `choices`
-  (a `Literal` parameter's own values, else `null`).
+  `title`), `type` (`choice`, `integer`, `date` or `text`), `default` and
+  `choices` (a `Literal` parameter's own values, else `null`). A `date`
+  parameter's default is always `null`; its value on the wire and in the
+  address is ISO `YYYY-MM-DD`.
 - `GET /api/reports/{id}?<params>` -- the result as JSON:
   `{id, group, title, params (resolved), run_at (ISO, local), columns, rows,
   totals, drills, notes}`. A `Decimal` crosses as the string it prints, a
@@ -182,7 +192,10 @@ plain-text table (title, parameters, header, rows, totals, notes) and
   pr_outstanding&overdue_days=30`), so a report can be bookmarked or reopened;
   Run writes only the parameters that differ from their defaults. Leaving a
   parameter field empty is refused (`Enter a value for <label>.`), rather
-  than silently running that parameter's default.
+  than silently running that parameter's default -- except a date parameter
+  (`<input type=date>`), where emptying either From or To means no bound on
+  that side: the field is simply left out of the request and the address,
+  not refused.
 - Columns sort in the browser (a report is at most a few thousand rows), a
   header click sorting ascending, then descending, then back to the report's
   own order. Money is shown with `money()` from the decimal string, never
@@ -218,7 +231,8 @@ same page, with no report-specific code:
   hidden.
 - A heading printed only on paper names the report, its parameters in
   words, one per line ("Overdue after (days): 21"), when it was run, and its
-  row count.
+  row count. A date parameter prints as a date; an absent bound prints
+  "any" ("From: any").
 - The table's header row repeats on every page (`thead` as a table
   header group), a row is never split across pages, and the totals row
   and the report's notes follow the last row.
