@@ -963,26 +963,33 @@ def _metal_drill(
     bullion_form_code: str | None,
     params: MetalParams,
     expected: int,
-    bucket_regardless_of_fine_weight: int,
+    bucket_kind_metal_form: int,
+    bucket_kind_metal: int,
 ) -> str | None:
     """This metal x form's own coin search, kept only when its count agrees.
 
     Currency is never drilled: the currency search has no `metal` or
-    `bullion_form` filter at all. For every other kind, the fine-weight
-    condition this report groups by has no search filter of its own, so the
-    drill is kept only when `bucket_regardless_of_fine_weight` -- the same
-    kind x metal x bullion form bucket's count with no fine-weight
-    condition at all, from one extra grouped query rather than one per row
-    -- equals `expected`: every live item of that bucket already has a fine
-    weight, so nothing outside this row would be swept in.
+    `bullion_form` filter at all. A bullion row with no form is never
+    drilled either: the search has no `missing=bullion_form` to name "no
+    form" with, and leaving `bullion_form=` out entirely would sweep in
+    every other form of the same metal.
+
+    For every other row, the fine-weight condition this report groups by
+    has no search filter of its own, so the drill is kept only when the
+    bucket the search would *actually* run against -- with no fine-weight
+    condition at all -- already equals `expected`. That bucket is
+    `bucket_kind_metal_form` (kind, metal, bullion form) when the search
+    will filter on all three -- a bullion row naming a form -- and
+    `bucket_kind_metal` (kind, metal only) otherwise, since a non-bullion
+    kind's search never filters on bullion form at all, stray or not, and
+    checking the narrower triple there would miss a sibling row that a
+    real search sweeps in regardless.
 
     A "No metal" row uses `missing=metal` where that field applies to the
     kind (`MISSING_FIELDS`); where it does not (a set, say), there is no way
     to ask the search for "no metal" at all, and the row is never drilled.
     """
     if kind_code == "currency":
-        return None
-    if bucket_regardless_of_fine_weight != expected:
         return None
     query: dict[str, str] = {"kind": kind_code}
     if metal_code is not None:
@@ -991,8 +998,15 @@ def _metal_drill(
         query["missing"] = "metal"
     else:
         return None
-    if kind_code == "bullion" and bullion_form_code is not None:
+    if kind_code == "bullion":
+        if bullion_form_code is None:
+            return None
         query["bullion_form"] = bullion_form_code
+        bucket_total = bucket_kind_metal_form
+    else:
+        bucket_total = bucket_kind_metal
+    if bucket_total != expected:
+        return None
     query.update(_status_disposition_params(params))
     return f"/inventory/coins?{urlencode(query)}"
 
@@ -1075,7 +1089,7 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
     #: drill can tell whether the bucket the search would actually run
     #: against (which has no fine-weight filter to offer) holds anything
     #: this row does not already count.
-    bucket_totals: dict[tuple[int, int | None, int | None], int] = {
+    bucket_kind_metal_form: dict[tuple[int, int | None, int | None], int] = {
         (r["kind_id"], r["metal_id"], r["bullion_form_id"]): r["items"]
         for r in db.execute(
             select(
@@ -1091,6 +1105,14 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
         .mappings()
         .all()
     }
+    #: The coarser (kind, metal) bucket a non-bullion row's search actually
+    #: matches -- it has no bullion-form filter at all -- summed from the
+    #: triple above rather than asked for again: every triple sharing a
+    #: (kind, metal) is one more bullion-form value the unfiltered search
+    #: would also return.
+    bucket_kind_metal: dict[tuple[int, int | None], int] = defaultdict(int)
+    for (kind_id, metal_id, _bullion_form_id), count in bucket_kind_metal_form.items():
+        bucket_kind_metal[(kind_id, metal_id)] += count
 
     unpriced_labels: set[str] = set()
     rows: list[dict[str, object]] = []
@@ -1121,7 +1143,6 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
                 "melt": melt,
             }
         )
-        bucket = (row["kind_id"], row["metal_id"], row["bullion_form_id"])
         drills.append(
             _metal_drill(
                 row["kind_code"],
@@ -1129,7 +1150,10 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
                 row["bullion_form_code"],
                 params,
                 row["items"],
-                bucket_totals[bucket],
+                bucket_kind_metal_form[
+                    (row["kind_id"], row["metal_id"], row["bullion_form_id"])
+                ],
+                bucket_kind_metal[(row["kind_id"], row["metal_id"])],
             )
         )
 
@@ -1140,13 +1164,16 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
         "items": sum(cast(int, r["items"]) for r in rows),
         "ounces": sum((cast(Decimal, r["ounces"]) for r in rows), Decimal("0")),
         "total_cost": sum((cast(Decimal, r["total_cost"]) for r in rows), Decimal("0")),
-        "melt": sum(priced_melt, Decimal("0")),
+        # Empty, not zero, when nothing is priced: a total of zero would
+        # read as "the priced items are worth nothing" rather than "there
+        # is nothing to total".
+        "melt": sum(priced_melt, Decimal("0")) if priced_melt else None,
     }
 
     notes: list[str] = []
     if unpriced_labels:
         names = ", ".join(sorted(unpriced_labels))
-        notes.append(f"Melt value totals only metals with a recorded price: {names}.")
+        notes.append(f"Melt value leaves out metals with no recorded price: {names}.")
 
     return ReportResult(
         columns=columns, rows=rows, totals=totals, drills=drills, notes=notes
