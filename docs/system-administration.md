@@ -901,8 +901,9 @@ fails naming the missing code.
 
 `/management/reports` answers questions about the whole collection -- what is
 missing or wrong in the record, what the collection is made of, what has been
-bought and not yet arrived, and what is on offer -- without a spreadsheet or a
-one-off script. **Reports read only**: nothing here writes, and fixing what a
+bought and not yet arrived, what is on offer and what has sold, and what it
+all cost -- without a spreadsheet or a one-off script. **Reports read only**:
+nothing here writes, and fixing what a
 report finds is done where it is always done -- the item editor, a bulk edit,
 Receiving, a pass. **Manager only**, like anything that shows cost, value or
 location (`docs/specs/reporting-design.md` is the design).
@@ -910,19 +911,37 @@ location (`docs/specs/reporting-design.md` is the design).
 ### The catalog
 
 The menu lists every report by group; choosing one shows its purpose, its
-parameters and its table. Five are built so far:
+parameters and its table. Groups appear in the order the API lists them:
 
-| Id | Group | Report |
-|---|---|---|
-| `dq_issues` | Data quality | Every named data-quality check, counted across coins and currency |
-| `dq_completeness` | Data quality | Percent of live items with each field filled in, by kind |
-| `cb_holdings` | Collection | What the collection is made of: kind x denomination, with items, pieces and total cost |
-| `pr_outstanding` | Purchasing and receiving | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first |
-| `sl_offered` | Selling | Active and paused listings, items and sales lots, by venue: asking price against cost basis, and days listed |
+| Id | Group | Report | Parameters |
+|---|---|---|---|
+| `cb_holdings` | Collection | What the collection is made of: kind x denomination, with items, pieces and total cost | Status (default received), Disposition (default held) |
+| `cb_designs` | Collection | Design series held, across every non-currency kind: items, year span, total cost | Status, Disposition |
+| `cb_notes` | Collection | Note type x series designation: items, seal colors, Federal Reserve districts, star notes and fancy serials, total cost | Status, Disposition |
+| `cb_grades` | Collection | Grade band x strike type x grading service, across coins and currency, with items and total cost | Status, Disposition |
+| `cb_metal` | Collection | Metal x form, over items with a fine weight: items, ounces, cost, and melt value at the latest spot price | Status, Disposition |
+| `cb_attributes` | Collection | Every attribute and error type a live item carries, split by view, with items | Status, Disposition |
+| `dq_issues` | Data quality | Every named data-quality check, counted across coins and currency | none |
+| `dq_completeness` | Data quality | Percent of live items with each field filled in, by kind | none |
+| `dq_photos` | Data quality | Live items with no photograph, by kind and status, plus photographs filed against no item | none |
+| `dq_derived` | Data quality | Fields a machine pass filled in, and the rule that filled each one, that nobody has confirmed | none |
+| `dq_purchases` | Data quality | Purchases with a placeholder number, a missing or implausible order date, no web address, a zero-cost item, or no items | none |
+| `dq_locations` | Data quality | Live items by storage location, with items and total cost | none |
+| `mn_basis` | Money | Status x disposition of every live item: items and total cost | none |
+| `mn_tax` | Money | Period x vendor: purchases and sales tax paid, over purchases with a live item | From, To, Period (month/year, default month) |
+| `mn_value` | Money | Per item kind: live items, the ones with a recorded value, their cost and value, the difference, and items without one | Status (default received), Disposition (default held) |
+| `pr_outstanding` | Purchasing and receiving | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first | Overdue after (days) (default 21) |
+| `pr_spend` | Purchasing and receiving | Period x vendor: purchases, items, item cost, shipping, sales tax and total, over purchases with a live item | From, To, Period (month/quarter/year, default month) |
+| `pr_sources` | Purchasing and receiving | One row per vendor, and per seller a purchase has named: purchases, items, total spent, first/last order date | none |
+| `pr_received` | Purchasing and receiving | Arrival day x vendor, from acquisition-status history: items and total cost | From, To |
+| `sl_offered` | Selling | Active and paused listings, items and sales lots, by venue: asking price against cost basis, and days listed | none |
+| `sl_sales` | Selling | Month x venue: orders, gross, fees, net, cost basis and gain, for sales orders placed in range | From, To |
+| `sl_fulfilment` | Selling | Orders still open and unshipped -- pending, paid or packed -- oldest first | none |
+| `sl_aging` | Selling | Live items received and held, not on offer or in an open lot, by months since received and kind | none |
+| `sl_auctions` | Selling | One row per auction, by status; for a settled one: lots, sold, unsold, hammer total and fees | none |
 
-The rest of the catalog the spec lays out is designed, not yet built; the
-console needs no change to show a report added later -- it renders whatever
-`GET /api/reports` lists.
+The console needs no change to show a report added later -- it renders
+whatever `GET /api/reports` lists.
 
 ### Parameters and drill-downs
 
