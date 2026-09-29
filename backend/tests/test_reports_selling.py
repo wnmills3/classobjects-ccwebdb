@@ -25,6 +25,8 @@ from app.models import (
     SalesLotItem,
     SalesLotStatus,
     SalesOrder,
+    SalesOrderItem,
+    SalesOrderItemShare,
     SalesVenue,
     SalesVenueKind,
     User,
@@ -43,10 +45,12 @@ from app.reports.selling import (
     FulfilmentParams,
     OfferedParams,
     SalesParams,
+    _age_bucket,
+    _months_since,
 )
 from app.sales_venues import store_venue_id
 from app.sales_writes import FeeLine
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from tests.builders import ItemFactory, build_auction, code_id, priced_item
@@ -787,12 +791,19 @@ def test_rows_are_grouped_by_month_and_venue(
     ]
 
 
-def test_a_cancelled_order_is_excluded(
-    db: Session, make_item: ItemFactory, admin_user: User
+@pytest.mark.parametrize("status_code", ["cancelled", "refunded"])
+def test_a_cancelled_or_refunded_order_is_excluded(
+    db: Session, make_item: ItemFactory, admin_user: User, status_code: str
 ) -> None:
+    """A refund is not a sale: the money went back.
+
+    Ruling: neither a refunded order's returned money nor a cancelled
+    order's never-happened sale counts here -- the same exclusion, tested
+    with one parametrized case each.
+    """
     venue = _venue(db, "ebay")
     buyer = venue_buyer(db, venue, "amy")
-    item = priced_item(make_item, "Cancelled item", Decimal("10.00"))
+    item = priced_item(make_item, "Excluded item", Decimal("10.00"))
     listing = _offer_on(db, item, venue, price=Decimal("50.00"))
     order_writes.place_order(
         db,
@@ -800,12 +811,41 @@ def test_a_cancelled_order_is_excluded(
         [Line(listing_id=listing.id, quantity=1, unit_price=Decimal("50.00"))],
         admin_user,
         venue=venue,
-        status_code="cancelled",
+        status_code=status_code,
     )
     db.commit()
 
     result = SL_SALES.run(db, SalesParams())
     assert result.rows == []
+
+
+def test_excluded_order_count_names_how_many_were_left_out(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    venue = _venue(db, "ebay")
+    buyer = venue_buyer(db, venue, "amy")
+    for status_code in ("cancelled", "refunded"):
+        listing = _offer_on(
+            db,
+            priced_item(make_item, status_code, Decimal("10.00")),
+            venue,
+            price=Decimal("50.00"),
+        )
+        order_writes.place_order(
+            db,
+            buyer,
+            [Line(listing_id=listing.id, quantity=1, unit_price=Decimal("50.00"))],
+            admin_user,
+            venue=venue,
+            status_code=status_code,
+        )
+    db.commit()
+
+    result = SL_SALES.run(db, SalesParams())
+    assert result.rows == []
+    assert any("2 cancelled or refunded orders" in note for note in result.notes), (
+        result.notes
+    )
 
 
 def test_gain_is_the_sum_of_its_items_own_gain(
@@ -850,6 +890,66 @@ def test_gain_is_the_sum_of_its_items_own_gain(
     # b: 70% of 150.00 = 105.00, 70% of 15.00 fee = 10.50, gain 105-10.5-70 = 24.50
     assert result.rows[0]["gain"] == Decimal("10.50") + Decimal("24.50")
     assert result.rows[0]["gain"] == Decimal("35.00")
+
+
+def test_an_odd_cent_three_way_split_still_sums_exactly(
+    db: Session, make_item: ItemFactory, admin_user: User
+) -> None:
+    """100.00 split three equal ways leaves a leftover cent (`allocate`).
+
+    It has to land on one share or another rather than vanish, and the
+    row's own `gross`/`cost_basis`/`gain` -- summed in SQL and Python over
+    the shares that actually exist -- must still land on the whole exact
+    figure regardless of which share it landed on.
+    """
+    venue = _venue(db, "ebay")
+    lot = lot_writes.create_lot(db, title="Three coins", description="")
+    a = priced_item(make_item, "A", Decimal("10.00"))
+    b = priced_item(make_item, "B", Decimal("10.00"))
+    c = priced_item(make_item, "C", Decimal("10.00"))
+    lot_writes.add_member(db, lot, a)
+    lot_writes.add_member(db, lot, b)
+    lot_writes.add_member(db, lot, c)
+    listing = offering_writes.offer(
+        db,
+        lot=lot,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("100.00"),
+        title="Three coins",
+        description="",
+        external_id=None,
+    )
+    sales_writes.record_sale(
+        db,
+        listing,
+        price=Decimal("100.00"),
+        buyer_username="amy",
+        external_order_id=None,
+        fees=[],
+        recorded_by=admin_user,
+    )
+    db.commit()
+
+    # The leftover cent actually landed somewhere -- not an equal 33.33
+    # three ways, which would lose a penny of the 100.00 it came from.
+    shares = db.scalars(
+        select(SalesOrderItemShare.amount)
+        .join(
+            SalesOrderItem, SalesOrderItem.id == SalesOrderItemShare.sales_order_item_id
+        )
+        .where(SalesOrderItem.listing_id == listing.id)
+        .order_by(SalesOrderItemShare.amount)
+    ).all()
+    assert shares == [Decimal("33.33"), Decimal("33.33"), Decimal("33.34")]
+
+    result = SL_SALES.run(db, SalesParams())
+    assert result.rows[0]["gross"] == Decimal("100.00")
+    assert result.rows[0]["cost_basis"] == Decimal("30.00")
+    assert result.rows[0]["net"] == Decimal("100.00")
+    assert result.rows[0]["gain"] == Decimal("70.00")
+    assert result.totals is not None
+    assert result.totals["gross"] == Decimal("100.00")
 
 
 def test_a_deleted_items_share_is_excluded_from_every_figure(
@@ -996,7 +1096,11 @@ def test_note_names_which_statuses_count(
     db.commit()
 
     result = SL_SALES.run(db, SalesParams())
-    assert any("Cancelled" in note for note in result.notes)
+    assert any(
+        "Pending" in note and "Paid" in note and "Delivered" in note
+        for note in result.notes
+    )
+    assert not any("Cancelled" in note or "Refunded" in note for note in result.notes)
 
 
 def test_no_sales_in_range_returns_no_totals(db: Session) -> None:
@@ -1060,8 +1164,10 @@ def test_fulfilment_row_values_are_known(
     assert result.drills == ["/sales"] * len(result.rows)
 
 
-@pytest.mark.parametrize("status_code", ["shipped", "delivered", "cancelled"])
-def test_shipped_delivered_and_cancelled_orders_are_excluded(
+@pytest.mark.parametrize(
+    "status_code", ["shipped", "delivered", "cancelled", "refunded"]
+)
+def test_shipped_delivered_cancelled_and_refunded_orders_are_excluded(
     db: Session, make_item: ItemFactory, admin_user: User, status_code: str
 ) -> None:
     venue = _venue(db, "ebay")
@@ -1226,6 +1332,33 @@ def test_bucket_by_months_since_received(db: Session, make_item: ItemFactory) ->
     assert result.rows[0]["total_cost"] == Decimal("50.00")
 
 
+def test_months_since_boundaries_are_exact() -> None:
+    """Boundary arithmetic on the two private helpers `_sl_aging` buckets with.
+
+    5 months is still "0-5", 6 is already "6-11"; 11 is still "6-11", 12 is
+    already "12-23". Tested directly against `_months_since`/`_age_bucket`
+    rather than through a full report run, since nothing here can hold
+    `date.today()` still.
+    """
+    assert _months_since(date(2026, 1, 1), date(2026, 6, 1)) == 5
+    assert _age_bucket(_months_since(date(2026, 1, 1), date(2026, 6, 1))) == "0-5"
+    assert _months_since(date(2026, 1, 1), date(2026, 7, 1)) == 6
+    assert _age_bucket(_months_since(date(2026, 1, 1), date(2026, 7, 1))) == "6-11"
+    assert _months_since(date(2025, 1, 1), date(2025, 12, 1)) == 11
+    assert _age_bucket(_months_since(date(2025, 1, 1), date(2025, 12, 1))) == "6-11"
+    assert _months_since(date(2025, 1, 1), date(2026, 1, 1)) == 12
+    assert _age_bucket(_months_since(date(2025, 1, 1), date(2026, 1, 1))) == "12-23"
+
+
+def test_months_since_rounds_down_before_the_day_of_month_is_reached() -> None:
+    """Received the 20th, "today" the 10th, six calendar months later.
+
+    Only 5 whole months have actually passed, not 6: `_months_since` must
+    read the day of month, not just subtract year/month fields.
+    """
+    assert _months_since(date(2026, 1, 20), date(2026, 7, 10)) == 5
+
+
 def test_buckets_are_ordered_youngest_first(
     db: Session, make_item: ItemFactory
 ) -> None:
@@ -1249,6 +1382,7 @@ def test_no_receipt_transition_is_unknown(db: Session, make_item: ItemFactory) -
     result = SL_AGING.run(db, AgingParams())
     assert result.rows[0]["age"] == "Unknown"
     assert any("no recorded receipt" in note for note in result.notes)
+    assert any("2026-09-25" in note for note in result.notes)
 
 
 def test_kinds_within_a_bucket_are_ordered_by_sort_order(
@@ -1352,7 +1486,7 @@ def test_a_non_received_or_non_held_item_is_excluded(
     assert result.rows == []
 
 
-def test_a_split_childs_age_comes_from_its_live_parents_receipt(
+def test_a_split_childs_age_comes_from_its_split_parents_receipt(
     db: Session, make_item: ItemFactory
 ) -> None:
     parent = priced_item(make_item, "Parent", Decimal("30.00"))

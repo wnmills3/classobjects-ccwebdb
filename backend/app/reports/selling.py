@@ -24,15 +24,17 @@ data -- `paused_by_listing_id`'s own status -- never by comparing which
 item two rows happen to name, which a lot listing (no `inventory_item_id`
 of its own) could not support anyway.
 
-`sl_sales`: month x venue, over sales orders placed in range -- orders,
+`sl_sales`: month x venue, over orders placed in range whose status is a
+completed or in-progress sale -- never `cancelled` or `refunded` -- orders,
 gross, fees, net, cost basis and gain, the last two from
 `sales_order_item_share` (specific identification, spec Decisions) so an
 order's own gain is exactly the sum of its items'. `sl_fulfilment`: orders
-placed and not yet shipped, delivered or cancelled, oldest first.
+still open and unshipped (`sale_state.OPEN_ORDER_STATUSES`), oldest first.
 `sl_aging`: live items received, held, and not on offer or in an open lot,
-by months since received x kind -- the receipt itself read the way
-`pr_received` reads one, Ruling P2-7. `sl_auctions`: one row per auction,
-by status, with a settled one's lots, sold, unsold, hammer total and fees.
+by months since received x kind -- the receipt itself read through
+`app.reports.receipts`, the one definition `pr_received` also reads
+(Ruling P2-7). `sl_auctions`: one row per auction, by status, with a
+settled one's lots, sold, unsold, hammer total and fees.
 """
 
 from __future__ import annotations
@@ -60,7 +62,6 @@ from ..models import (
     InventoryItem,
     ItemKind,
     ItemStatus,
-    ItemStatusHistory,
     Listing,
     ListingStatus,
     SalesLot,
@@ -73,7 +74,9 @@ from ..models import (
     SalesVenue,
 )
 from ..offering_writes import OFFER_CURRENCY, ON_OFFER
+from ..sale_state import OPEN_ORDER_STATUSES
 from .base import Column, DateRange, Report, ReportResult, local_date, period_label
+from .receipts import receipt_day, received_transitions
 from .registry import register
 
 __all__ = [
@@ -377,12 +380,17 @@ SL_OFFERED = register(
 # sl_sales
 # ---------------------------------------------------------------------------
 
-#: `sales_order_status` codes (`backend/data/reference/operations.json`).
-#: Every status except this one counts as a sale; `_counted_statuses_note`
-#: reads the rest from the vocabulary itself rather than naming them here,
-#: so a future status added to the seed is counted -- and named in the
-#: note -- without this module changing.
-_CANCELLED_STATUS = "cancelled"
+#: `sales_order_status` codes (`backend/data/reference/operations.json`) that
+#: are a completed or in-progress sale, so its money belongs on a tax
+#: return -- never a `cancelled` order, whose sale never happened, and never
+#: a `refunded` one, whose money went back (Ruling: a refund is not a
+#: sale). `pending`, `paid` and `packed` are `sale_state.OPEN_ORDER_STATUSES`
+#: -- reused, not restated, so this report and `sale_state`'s own "is this
+#: order still open" question can never drift on what those three mean --
+#: widened with `shipped` and `delivered`, which are further along but still
+#: real sales. Named once so a future status is a deliberate addition here,
+#: never a silent default either way.
+_SALE_STATUSES = OPEN_ORDER_STATUSES | frozenset({"shipped", "delivered"})
 
 _SALES_COLUMNS = [
     Column("period", "Period", "text"),
@@ -394,19 +402,6 @@ _SALES_COLUMNS = [
     Column("cost_basis", "Cost basis", "money"),
     Column("gain", "Gain", "money"),
 ]
-
-#: Gross, fees and cost basis are summed from `sales_order_item_share` and
-#: its item, over live items only -- never `sales_order.total_amount` or
-#: `sales_order_fee` directly -- so that an order's own gain (net less
-#: basis) is exactly the sum of its items' (spec Decisions: specific
-#: identification). The two agree when every item on the order is live;
-#: this note says what happens when one is not.
-_LIVE_SHARE_NOTE = (
-    "Gross, fees, cost basis and gain count only an order's live items: a "
-    "deleted or split item's share of the order is left out of its own "
-    "order's figures, and an order with no live item at all does not "
-    "appear here."
-)
 
 
 class SalesParams(DateRange):
@@ -452,13 +447,53 @@ def _sales_prefilter(params: SalesParams) -> list[ColumnElement[bool]]:
 
 
 def _counted_statuses_note(db: Session) -> str:
-    """Which order statuses count here, read from the vocabulary itself."""
+    """Which order statuses count as a sale here, read from the vocabulary itself."""
     labels = db.scalars(
         select(SalesOrderStatus.label)
-        .where(SalesOrderStatus.code != _CANCELLED_STATUS)
+        .where(SalesOrderStatus.code.in_(_SALE_STATUSES))
         .order_by(SalesOrderStatus.sort_order)
     ).all()
-    return "Every order status except Cancelled counts: " + ", ".join(labels) + "."
+    return (
+        "Counts orders that are a completed or in-progress sale: "
+        + ", ".join(labels)
+        + "."
+    )
+
+
+def _excluded_order_count(db: Session, params: SalesParams) -> int:
+    """Orders placed in range that `sl_sales` leaves out for their status.
+
+    A cancelled or refunded order today -- read from the same date bounds
+    `_sl_sales` itself applies, exactly (`_sales_prefilter` narrows the
+    fetch, then `local_date` per row decides), so this count and the rows
+    it explains always agree about what "in range" means.
+    """
+    stmt = (
+        select(SalesOrder.placed_at)
+        .join(SalesOrderStatus, SalesOrderStatus.id == SalesOrder.sales_order_status_id)
+        .where(SalesOrderStatus.code.not_in(_SALE_STATUSES), *_sales_prefilter(params))
+    )
+    count = 0
+    for (placed_at,) in db.execute(stmt).all():
+        day = local_date(placed_at)
+        if params.date_from is not None and day < params.date_from:
+            continue
+        if params.date_to is not None and day > params.date_to:
+            continue
+        count += 1
+    return count
+
+
+def _sales_notes(db: Session, excluded: int) -> list[str]:
+    """This run's notes: which statuses counted, and how many did not."""
+    notes = [_counted_statuses_note(db)]
+    if excluded:
+        plural = "s" if excluded != 1 else ""
+        notes.append(
+            f"{excluded} cancelled or refunded order{plural} in this range "
+            "excluded: their money is not a sale."
+        )
+    return notes
 
 
 def _sl_sales(db: Session, params: SalesParams) -> ReportResult:
@@ -471,8 +506,10 @@ def _sl_sales(db: Session, params: SalesParams) -> ReportResult:
     never `sales_order.total_amount` or `sales_order_fee` directly, so a
     row's own `gain` (`net` less `cost_basis`) is exactly the sum of its
     items' gains, per share, with no second path to drift from it.
-    `live_item()` excludes a deleted or split item's share outright, per
-    `_LIVE_SHARE_NOTE`.
+    `live_item()` excludes a deleted or split item's share outright -- an
+    order with no live item at all does not appear here, and the app's own
+    writers have no path that leaves a sold item non-live, so no note
+    describes it.
     """
     stmt = (
         select(
@@ -493,7 +530,7 @@ def _sl_sales(db: Session, params: SalesParams) -> ReportResult:
         )
         .join(InventoryItem, InventoryItem.id == SalesOrderItemShare.inventory_item_id)
         .where(
-            SalesOrderStatus.code != _CANCELLED_STATUS,
+            SalesOrderStatus.code.in_(_SALE_STATUSES),
             live_item(),
             *_sales_prefilter(params),
         )
@@ -515,7 +552,11 @@ def _sl_sales(db: Session, params: SalesParams) -> ReportResult:
 
     if not groups:
         return ReportResult(
-            columns=_SALES_COLUMNS, rows=[], totals=None, drills=[], notes=[]
+            columns=_SALES_COLUMNS,
+            rows=[],
+            totals=None,
+            drills=[],
+            notes=_sales_notes(db, _excluded_order_count(db, params)),
         )
 
     rows: list[dict[str, object]] = []
@@ -564,7 +605,7 @@ def _sl_sales(db: Session, params: SalesParams) -> ReportResult:
         rows=rows,
         totals=totals,
         drills=drills,
-        notes=[_LIVE_SHARE_NOTE, _counted_statuses_note(db)],
+        notes=_sales_notes(db, _excluded_order_count(db, params)),
     )
 
 
@@ -585,10 +626,6 @@ SL_SALES = register(
 # sl_fulfilment
 # ---------------------------------------------------------------------------
 
-#: `sales_order_status` codes an order has already left behind, or never
-#: needs shipped at all -- the rest still needs the owner's attention.
-_ALREADY_SHIPPED_OR_GONE = frozenset({"shipped", "delivered", "cancelled"})
-
 _FULFILMENT_COLUMNS = [
     Column("order", "Order", "text"),
     Column("placed", "Placed", "date"),
@@ -604,7 +641,15 @@ class FulfilmentParams(BaseModel):
 
 
 def _sl_fulfilment(db: Session, _params: FulfilmentParams) -> ReportResult:
-    """One row per order placed and not yet shipped, delivered or cancelled.
+    """One row per order still open and unshipped, oldest first.
+
+    "Still owed shipment" is `sale_state.OPEN_ORDER_STATUSES` --
+    `pending`, `paid` or `packed` -- read from there rather than written out
+    again as an excluded list here: an excluded list silently treats every
+    *future* status as "to ship" too, which is wrong for a `refunded` order
+    (its money already went back) and would have been wrong the day
+    `refunded` was added if this report had shipped first. An included list
+    only ever adds a status on purpose.
 
     `items` is a grouped `COUNT`, over a live item's own share, in one
     query per report run -- the same shape `pr_outstanding` uses -- rather
@@ -634,7 +679,7 @@ def _sl_fulfilment(db: Session, _params: FulfilmentParams) -> ReportResult:
                 InventoryItem.id == SalesOrderItemShare.inventory_item_id, live_item()
             ),
         )
-        .where(SalesOrderStatus.code.not_in(_ALREADY_SHIPPED_OR_GONE))
+        .where(SalesOrderStatus.code.in_(OPEN_ORDER_STATUSES))
         .group_by(
             SalesOrder.id,
             SalesOrder.placed_at,
@@ -697,8 +742,8 @@ SL_FULFILMENT = register(
         id="sl_fulfilment",
         group="Selling",
         title="To ship",
-        purpose="Orders placed and not yet shipped, delivered or "
-        "cancelled, oldest first: customer, items, amount and days waiting.",
+        purpose="Orders still open and unshipped -- pending, paid or "
+        "packed -- oldest first: customer, items, amount and days waiting.",
         params=FulfilmentParams,
         run=_sl_fulfilment,
     )
@@ -759,33 +804,18 @@ def _months_since(received: date, today: date) -> int:
 def _receipt_dates(db: Session, item_ids: set[int]) -> dict[int, date]:
     """Each item's own latest transition to `received`, keyed by item id.
 
-    Only a transition counts -- `from_status_id IS NOT NULL` -- never the
-    opening row a brand-new item, a split child, or a seed gets: that row
-    means "started out already received," not "arrived" (the same rule
-    `pr_received` reads, Ruling P2-7). An item transitioned more than once
-    keeps its latest one, by `changed_at`. A day is `arrived_on` when
-    recorded, else `changed_at`'s local calendar date (`local_date`) -- a
-    conversion SQL cannot do without knowing the application server's own
-    time zone.
+    `receipts.received_transitions` is the one definition of a genuine
+    arrival, `pr_received`'s own base query too, so the two reports can
+    never disagree about what "received" means (Ruling P2-7). An item
+    transitioned more than once (returned and received again) keeps its
+    latest one, by `changed_at`.
     """
     if not item_ids:
         return {}
-    rows = db.execute(
-        select(
-            ItemStatusHistory.inventory_item_id,
-            ItemStatusHistory.arrived_on,
-            ItemStatusHistory.changed_at,
-        )
-        .join(ItemStatus, ItemStatus.id == ItemStatusHistory.to_status_id)
-        .where(
-            ItemStatusHistory.inventory_item_id.in_(item_ids),
-            ItemStatus.code == "received",
-            ItemStatusHistory.from_status_id.is_not(None),
-        )
-    ).all()
+    rows = db.execute(received_transitions(item_ids)).all()
     latest: dict[int, tuple[datetime, date]] = {}
     for item_id, arrived_on, changed_at in rows:
-        day = arrived_on or local_date(changed_at)
+        day = receipt_day(arrived_on, changed_at)
         if item_id not in latest or changed_at > latest[item_id][0]:
             latest[item_id] = (changed_at, day)
     return {item_id: day for item_id, (_changed_at, day) in latest.items()}
@@ -807,7 +837,7 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
 
     A split child's own receipt transition is the *parent's* opening row,
     never a transition of its own (Ruling P2-7), so a child with no receipt
-    of its own falls back to its live parent's.
+    of its own falls back to its split parent's.
     """
     offered_now = exists(
         select(1).where(
@@ -899,8 +929,9 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
         plural = "s" if unknown != 1 else ""
         notes.append(
             f"{unknown} item{plural} of {total_items} have no recorded receipt "
-            'and are bucketed "Unknown": entered already received, or with '
-            "history from before status changes were tracked."
+            'and are bucketed "Unknown" -- most items, since the '
+            "collection's status history was reset on 2026-09-25 to one "
+            "opening row per item, which is not an arrival."
         )
 
     return ReportResult(
