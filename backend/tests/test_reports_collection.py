@@ -1120,10 +1120,46 @@ def test_metal_melt_uses_the_latest_price_and_missing_price_is_a_note(
     gold = _metal_row(result, "Gold", "Coin")
     assert gold["melt"] is None
     assert result.notes == [
-        "Melt value totals only metals with a recorded price: Gold."
+        "Melt value leaves out metals with no recorded price: Gold."
     ]
     assert result.totals is not None
     assert result.totals["melt"] == Decimal("30.00")
+
+
+def test_metal_melt_note_is_omitted_when_every_row_is_priced(db: Session) -> None:
+    build_bare_item(
+        db,
+        metal_id=code_id(db, Metal, "silver"),
+        fine_weight_ozt=Decimal("1.000000"),
+        item_cost=Decimal("20.00"),
+        tax_rate=Decimal("0"),
+    )
+    db.add(
+        MetalPrice(
+            metal_id=code_id(db, Metal, "silver"),
+            quoted_at=datetime(2026, 1, 1, tzinfo=UTC),
+            price_per_ozt=Decimal("30.0000"),
+        )
+    )
+    db.commit()
+
+    result = CB_METAL.run(db, MetalParams())
+    assert result.notes == []
+
+
+def test_metal_melt_total_is_none_when_no_row_is_priced(db: Session) -> None:
+    build_bare_item(
+        db,
+        metal_id=code_id(db, Metal, "gold"),
+        fine_weight_ozt=Decimal("1.000000"),
+        item_cost=Decimal("500.00"),
+        tax_rate=Decimal("0"),
+    )
+
+    result = CB_METAL.run(db, MetalParams())
+    assert all(r["melt"] is None for r in result.rows)
+    assert result.totals is not None
+    assert result.totals["melt"] is None
 
 
 def test_metal_no_metal_row_is_covered_by_the_melt_note(db: Session) -> None:
@@ -1139,7 +1175,7 @@ def test_metal_no_metal_row_is_covered_by_the_melt_note(db: Session) -> None:
     row = _metal_row(result, "No metal", "Coin")
     assert row["melt"] is None
     assert result.notes == [
-        "Melt value totals only metals with a recorded price: No metal."
+        "Melt value leaves out metals with no recorded price: No metal."
     ]
 
 
@@ -1265,6 +1301,95 @@ def test_metal_no_metal_row_drill_uses_missing_metal_and_matches(db: Session) ->
     assert query.get("missing") == "metal"
     _, total = inventory_search(db, COIN_VIEW, params=dict(query))
     assert total == result.rows[idx]["items"]
+
+
+def test_metal_bullion_with_no_form_has_no_drill_the_bars_drill_matches(
+    db: Session,
+) -> None:
+    """No `missing=bullion_form` filter exists, so a formless row is never drilled.
+
+    Leaving `bullion_form=` off the query instead would sweep in the bar
+    below too, since both share kind and metal.
+    """
+    build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "bullion"),
+        metal_id=code_id(db, Metal, "silver"),
+        bullion_form_id=None,
+        fine_weight_ozt=Decimal("1.000000"),
+        item_cost=Decimal("30.00"),
+        tax_rate=Decimal("0"),
+        denomination_id=None,
+    )
+    build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "bullion"),
+        metal_id=code_id(db, Metal, "silver"),
+        bullion_form_id=code_id(db, BullionForm, "silver_bar"),
+        fine_weight_ozt=Decimal("1.000000"),
+        item_cost=Decimal("30.00"),
+        tax_rate=Decimal("0"),
+        denomination_id=None,
+    )
+
+    result = CB_METAL.run(db, MetalParams())
+    no_form_idx = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["metal"] == "Silver" and r["form"] == "No bullion form"
+    )
+    assert result.drills[no_form_idx] is None
+
+    bar_idx = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["metal"] == "Silver" and r["form"] == "Silver Bar"
+    )
+    assert result.drills[bar_idx] is not None
+    path, query = _parsed(cast(str, result.drills[bar_idx]))
+    assert path == "/inventory/coins"
+    assert query.get("bullion_form") == "silver_bar"
+    _, total = inventory_search(db, COIN_VIEW, params=dict(query))
+    assert total == result.rows[bar_idx]["items"]
+
+
+def test_metal_drill_is_none_when_a_coin_carries_a_stray_bullion_form(
+    db: Session,
+) -> None:
+    """A coin's search never filters on bullion form, stray or not.
+
+    One coin here carries a `bullion_form_id` by data mistake; the search's
+    `kind=coin&metal=silver` sweeps in the other coin regardless, so the
+    bucket check must be (kind, metal), not the narrower (kind, metal,
+    form) -- which would (wrongly) see only this row and call it exact.
+    """
+    build_bare_item(
+        db,
+        metal_id=code_id(db, Metal, "silver"),
+        bullion_form_id=code_id(db, BullionForm, "silver_bar"),
+        fine_weight_ozt=Decimal("0.500000"),
+        item_cost=Decimal("10.00"),
+        tax_rate=Decimal("0"),
+    )
+    build_bare_item(
+        db,
+        metal_id=code_id(db, Metal, "silver"),
+        fine_weight_ozt=Decimal("0.500000"),
+        item_cost=Decimal("10.00"),
+        tax_rate=Decimal("0"),
+    )
+
+    result = CB_METAL.run(db, MetalParams())
+    coin_silver_rows = [
+        i
+        for i, r in enumerate(result.rows)
+        if r["metal"] == "Silver" and r["form"] == "Coin"
+    ]
+    # The stray bullion form splits what is really one bucket into two SQL
+    # rows; both must still see that the search sweeps in the other one.
+    assert len(coin_silver_rows) == 2
+    for idx in coin_silver_rows:
+        assert result.drills[idx] is None
 
 
 def test_metal_excludes_deleted_and_split_items(db: Session) -> None:
