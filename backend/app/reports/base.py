@@ -148,14 +148,17 @@ def period_start(
     `DATE` column -- `PurchaseOrder.ordered_on` (`pr_spend`'s and
     `mn_tax`'s own caller) and every other caller today -- which already
     reads as a calendar day with no zone to convert, so the cast is a
-    no-op. It is **not** zone-independent for a `timestamptz` column:
-    PostgreSQL's cast from timestamptz to timestamp converts using the
-    *session's* own time zone, the same hazard `local_date` exists to avoid
-    in Python. A future caller with a timestamptz column must convert it to
-    a local calendar date itself -- in Python, the way `local_date` does --
-    before this function ever sees it; passing the raw column here would
-    bucket by whatever zone the database session happens to be in, not the
-    application server's own zone.
+    no-op. **Never pass a `timestamptz` column here**: PostgreSQL's cast
+    from timestamptz to timestamp converts using the *session's* own time
+    zone, not the application server's, so the bucket a row lands in would
+    depend on which zone the database session happens to be in rather than
+    on the calendar day the row actually falls on. A caller with a
+    timestamptz column must bucket it a different way entirely -- either in
+    Python, after converting each row's own moment to a local calendar date
+    first (`local_date`, the way `pr_received` reads a transition's day
+    through `receipts.receipt_day`), or in SQL with an explicit
+    `AT TIME ZONE` naming the zone to convert through -- never by handing
+    the raw timestamptz column to this function's own cast.
     """
     return cast(func.date_trunc(literal(period), cast(column, DateTime)), Date)
 

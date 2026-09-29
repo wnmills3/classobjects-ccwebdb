@@ -3,11 +3,12 @@
 Three reports. `mn_basis`: every live item, by acquisition status x sales
 disposition -- the same two vocabularies `cb_holdings` filters by, shown
 here whole rather than narrowed to one value of each. `mn_tax`: period x
-vendor, over purchases with a live item (Ruling P2-8, `.purchases`), sales
-tax paid. `mn_value`: per item kind, live items, the ones carrying the
-owner's own recorded numismatic value, their cost and that value, and the
-difference between the two -- never a price-guide figure, only what the
-owner has entered by hand.
+vendor, over purchases with a live item (Ruling P2-8, `.live_purchases`),
+sales tax paid. `mn_value`: per item kind, live items (by status and
+disposition, like every Collection report -- Ruling P2-10), the ones
+carrying the owner's own recorded numismatic value, their cost and that
+value, and the difference between the two -- never a price-guide figure,
+only what the owner has entered by hand.
 """
 
 from __future__ import annotations
@@ -18,13 +19,14 @@ from typing import Literal, cast
 from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
-from sqlalchemy import RowMapping, func, select
+from sqlalchemy import ColumnElement, FromClause, RowMapping, func, select
 from sqlalchemy.orm import Session
 
 from ..inventory_search import view_path
 from ..models import Disposition, InventoryItem, ItemStatus, PurchaseOrder, Vendor
 from .base import Column, DateRange, Report, ReportResult, period_label, period_start
-from .purchases import (
+from .collection import LiveParams
+from .live_purchases import (
     LIVE_ITEM_PURCHASE_NOTE,
     dated_purchase_where,
     join_live_purchase_items,
@@ -194,13 +196,13 @@ class TaxParams(DateRange):
 def _mn_tax(db: Session, params: TaxParams) -> ReportResult:
     """Period x vendor: purchases and sales tax paid, over purchases with a live item.
 
-    Reuses `pr_spend`'s own building blocks (`.purchases`) for what counts
-    as "a purchase", how it is dated, and how an undated one is reported --
-    rather than restating any of the three -- so the two reports can never
-    drift apart on what a purchase is. Three queries at three grouping
-    levels, exactly as `pr_spend` uses: the overall total (which also
-    decides the empty case), each period's own subtotal, and the period x
-    vendor rows themselves.
+    Reuses `pr_spend`'s own building blocks (`.live_purchases`) for what
+    counts as "a purchase", how it is dated, and how an undated one is
+    reported -- rather than restating any of the three -- so the two
+    reports can never drift apart on what a purchase is. Three queries at
+    three grouping levels, exactly as `pr_spend` uses: the overall total
+    (which also decides the empty case), each period's own subtotal, and
+    the period x vendor rows themselves.
     """
     period_col = period_start(params.period, PurchaseOrder.ordered_on)
     where = dated_purchase_where(params)
@@ -324,31 +326,77 @@ _VALUE_COLUMNS = [
     Column("unvalued_items", "Items without a recorded value", "count"),
 ]
 
+#: `mn_value` now takes `status`/`disposition` (Ruling P2-10), so its empty
+#: case reads as "these settings" the way every Collection report's does,
+#: not `mn_basis`'s parameterless `_NO_LIVE_ITEMS`.
+_NOTHING_MATCHES = "Nothing matches these settings."
+
 #: Never a price-guide or vendor figure -- only what the owner has typed
-#: into `InventoryItem.numismatic_value` by hand.
+#: into `InventoryItem.numismatic_value` by hand, whatever that item's own
+#: `valuation_basis` is (melt, numismatic or manual): the basis says how
+#: the owner prices the item day to day, not which column this report reads.
 _VALUE_NOTE = (
-    "Recorded value is the owner's own entry (numismatic_value); no "
-    "price-guide or vendor value is derived, seeded or shown."
+    "Recorded value is the owner's own entry (numismatic_value), whatever "
+    "the item's own valuation basis; no price-guide or vendor value is "
+    "derived, seeded or shown."
 )
 
 
-class ValueParams(BaseModel):
-    """`mn_value` takes no parameters: every live item, by kind."""
+class ValueParams(LiveParams):
+    """`mn_value` takes no parameters beyond status and disposition.
 
-
-def _value_query_string(kind_code: str) -> str:
-    """This kind's own live-item search: every status and disposition.
-
-    `view_path(kind_code)` alone, with no `status=`/`disposition=`, already
-    matches the search's own default reach for a live row (no soft-deleted
-    row, no split parent) -- the same items `mn_value` counts as `items` --
-    so `kind=` is the only filter this drill ever needs, and currency
-    (which has no `kind=` filter at all) needs none.
+    Defaults to `received`/`held` (Ruling P2-10), the same as every
+    Collection report: an owner reading "Recorded value" means what they
+    hold now, not an item sold years ago.
     """
+
+
+def _value_where(
+    src: FromClause, params: ValueParams
+) -> tuple[FromClause, list[ColumnElement[bool]]]:
+    """Add the status/disposition join and filter to `src`, atop `LIVE`.
+
+    The same shape `collection._live_where` builds for every Collection
+    report: the status and disposition joins are added only when that
+    parameter is not `all`, so a query that never joins `item_status` when
+    every status counts reads as exactly what it is -- no filter there.
+    """
+    where: list[ColumnElement[bool]] = [_LIVE]
+    if params.status != "all":
+        src = src.join(_ST, _ST.c.id == _I.c.status_id)
+        where.append(_ST.c.code == params.status)
+    if params.disposition != "all":
+        src = src.join(_DISP, _DISP.c.id == _I.c.disposition_id)
+        where.append(_DISP.c.code == params.disposition)
+    return src, where
+
+
+def _value_status_disposition_params(params: ValueParams) -> dict[str, str]:
+    """The `status=`/`disposition=` pair a drill adds, omitted at `all`."""
+    query: dict[str, str] = {}
+    if params.status != "all":
+        query["status"] = params.status
+    if params.disposition != "all":
+        query["disposition"] = params.disposition
+    return query
+
+
+def _value_query_string(kind_code: str, params: ValueParams) -> str:
+    """This kind's own search, narrowed to `params`'s own status/disposition.
+
+    The same shape `collection._query_string` builds: `kind=` for every
+    kind but currency (which has no such filter), then `status=`/
+    `disposition=` from `params`, omitted at `all` -- so the drill's own
+    count always equals this row's own `items` column, whatever `params`
+    asks for (pinned by `test_value_drill_matches_the_items_column_...`,
+    run with both the defaults and `status=all, disposition=all`).
+    """
+    query: dict[str, str] = {}
+    if kind_code != "currency":
+        query["kind"] = kind_code
+    query.update(_value_status_disposition_params(params))
     path = view_path(kind_code)
-    if kind_code == "currency":
-        return path
-    return f"{path}?{urlencode({'kind': kind_code})}"
+    return f"{path}?{urlencode(query)}" if query else path
 
 
 def _mn_value(db: Session, params: ValueParams) -> ReportResult:
@@ -361,6 +409,8 @@ def _mn_value(db: Session, params: ValueParams) -> ReportResult:
     entered". `difference` is `value - cost` over that same subset.
     """
     has_value = _I.c.numismatic_value.is_not(None)
+    src: FromClause = _I.join(_K, _K.c.id == _I.c.item_kind_id)
+    src, where = _value_where(src, params)
     rows_data = (
         db.execute(
             select(
@@ -376,8 +426,8 @@ def _mn_value(db: Session, params: ValueParams) -> ReportResult:
                     func.sum(_I.c.numismatic_value).filter(has_value), 0
                 ).label("value"),
             )
-            .select_from(_I.join(_K, _K.c.id == _I.c.item_kind_id))
-            .where(_LIVE)
+            .select_from(src)
+            .where(*where)
             .group_by(_K.c.id, _K.c.code, _K.c.label, _K.c.sort_order)
             .order_by(_K.c.sort_order, _K.c.id)
         )
@@ -390,7 +440,7 @@ def _mn_value(db: Session, params: ValueParams) -> ReportResult:
             rows=[],
             totals=None,
             drills=[],
-            notes=[_NO_LIVE_ITEMS],
+            notes=[_NOTHING_MATCHES],
         )
 
     rows: list[dict[str, object]] = []
@@ -411,7 +461,7 @@ def _mn_value(db: Session, params: ValueParams) -> ReportResult:
                 "unvalued_items": items - valued_items,
             }
         )
-        drills.append(_value_query_string(row["kind_code"]))
+        drills.append(_value_query_string(row["kind_code"], params))
 
     totals: dict[str, object] = {
         "kind": "All kinds",

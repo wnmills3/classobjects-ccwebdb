@@ -355,6 +355,51 @@ def test_tax_a_split_parent_purchase_does_not_count(db: Session) -> None:
     assert "Vendor MTS" not in {r["vendor"] for r in result.rows}
 
 
+def test_tax_purchase_with_one_deleted_and_one_live_item_counts_the_live_one(
+    db: Session,
+) -> None:
+    """The deleted item's own tax is left out; the purchase itself still counts."""
+    order = _order(
+        db, "Vendor MTDL", order_number="MTDL-1", ordered_on=date(2026, 5, 5)
+    )
+    _tax_item(db, order, item_cost=Decimal("10.00"), tax_rate=Decimal("0.10"))
+    deleted = _tax_item(
+        db, order, item_cost=Decimal("999.00"), tax_rate=Decimal("0.10")
+    )
+    deleted.deleted_at = datetime(2026, 5, 6, tzinfo=UTC)
+    db.commit()
+
+    result = MN_TAX.run(db, TaxParams())
+    row = next(r for r in result.rows if r["vendor"] == "Vendor MTDL")
+    assert row["purchases"] == 1
+    assert row["sales_tax"] == Decimal("1.00")
+
+
+def test_tax_totals_equal_the_sum_of_period_subtotals_across_two_periods(
+    db: Session,
+) -> None:
+    order_a = _order(
+        db, "Vendor MTGT1", order_number="MTGT-1", ordered_on=date(2026, 1, 10)
+    )
+    _tax_item(db, order_a, item_cost=Decimal("100.00"), tax_rate=Decimal("0.05"))
+    order_b = _order(
+        db, "Vendor MTGT2", order_number="MTGT-2", ordered_on=date(2026, 2, 20)
+    )
+    _tax_item(db, order_b, item_cost=Decimal("200.00"), tax_rate=Decimal("0.05"))
+    db.commit()
+
+    result = MN_TAX.run(db, TaxParams())
+    subtotal_rows = [r for r in result.rows if r["vendor"] == "All vendors"]
+    assert len(subtotal_rows) == 2
+    assert result.totals is not None
+    assert result.totals["purchases"] == sum(
+        cast("int", r["purchases"]) for r in subtotal_rows
+    )
+    assert result.totals["sales_tax"] == sum(
+        (cast("Decimal", r["sales_tax"]) for r in subtotal_rows), Decimal("0")
+    )
+
+
 def test_tax_totals_row_sums_the_data_rows(db: Session) -> None:
     order_a = _order(
         db, "Vendor MTT1", order_number="MTT-1", ordered_on=date(2026, 7, 1)
@@ -542,12 +587,29 @@ def test_value_totals_sum_the_rows(db: Session) -> None:
     assert result.totals["kind"] == "All kinds"
 
 
+def test_value_totals_valued_and_unvalued_items_equal_their_rows(db: Session) -> None:
+    _value_item(db, cost=Decimal("10.00"), value=Decimal("15.00"), kind="coin")
+    _value_item(db, cost=Decimal("20.00"), value=None, kind="coin")
+    _value_item(db, cost=Decimal("5.00"), value=Decimal("5.00"), kind="currency")
+    db.commit()
+
+    result = MN_VALUE.run(db, ValueParams())
+    assert result.totals is not None
+    assert result.totals["valued_items"] == sum(
+        cast("int", r["valued_items"]) for r in result.rows
+    )
+    assert result.totals["unvalued_items"] == sum(
+        cast("int", r["unvalued_items"]) for r in result.rows
+    )
+
+
 def test_value_note_states_the_owner_entered_value_only(db: Session) -> None:
     _value_item(db, cost=Decimal("1.00"), value=Decimal("1.00"))
     db.commit()
 
     result = MN_VALUE.run(db, ValueParams())
     assert any("owner" in note.lower() for note in result.notes)
+    assert any("valuation basis" in note.lower() for note in result.notes)
 
 
 def test_value_with_no_live_items_returns_no_rows(db: Session) -> None:
@@ -558,6 +620,7 @@ def test_value_with_no_live_items_returns_no_rows(db: Session) -> None:
 
 
 def test_value_drill_matches_the_items_column_for_a_coin_kind(db: Session) -> None:
+    """With the defaults (status=received, disposition=held)."""
     _value_item(db, cost=Decimal("10.00"), value=Decimal("10.00"), kind="coin")
     _value_item(db, cost=Decimal("20.00"), value=None, kind="coin")
 
@@ -565,11 +628,14 @@ def test_value_drill_matches_the_items_column_for_a_coin_kind(db: Session) -> No
     idx = next(i for i, r in enumerate(result.rows) if r["kind"] == "Coin")
     path, query = _parsed(cast("str", result.drills[idx]))
     assert path == "/inventory/coins"
+    assert query["status"] == "received"
+    assert query["disposition"] == "held"
     _, total = inventory_search(db, COIN_VIEW, params=dict(query))
     assert total == result.rows[idx]["items"]
 
 
 def test_value_drill_matches_the_items_column_for_currency(db: Session) -> None:
+    """With the defaults (status=received, disposition=held)."""
     _value_item(db, cost=Decimal("10.00"), value=Decimal("10.00"), kind="currency")
     _value_item(db, cost=Decimal("20.00"), value=None, kind="currency")
 
@@ -577,5 +643,39 @@ def test_value_drill_matches_the_items_column_for_currency(db: Session) -> None:
     idx = next(i for i, r in enumerate(result.rows) if r["kind"] == "Currency")
     path, query = _parsed(cast("str", result.drills[idx]))
     assert path == "/inventory/currency"
+    assert query["status"] == "received"
+    assert query["disposition"] == "held"
     _, total = inventory_search(db, CURRENCY_VIEW, params=dict(query))
+    assert total == result.rows[idx]["items"]
+
+
+def test_value_default_status_and_disposition_exclude_other_items(db: Session) -> None:
+    """`received`/`held` is the default filter -- an `ordered` item is left out."""
+    _value_item(db, cost=Decimal("10.00"), value=Decimal("10.00"), kind="coin")
+    other = _value_item(db, cost=Decimal("5.00"), value=None, kind="coin")
+    other.status_id = code_id(db, ItemStatus, "ordered")
+    db.commit()
+
+    result = MN_VALUE.run(db, ValueParams())
+    row = _kind_row(result, "Coin")
+    assert row["items"] == 1
+
+
+def test_value_drill_matches_the_items_column_with_status_and_disposition_all(
+    db: Session,
+) -> None:
+    """The drill's own query string, not just the default one, must agree."""
+    _value_item(db, cost=Decimal("10.00"), value=Decimal("10.00"), kind="coin")
+    other_status = _value_item(db, cost=Decimal("5.00"), value=None, kind="coin")
+    other_status.status_id = code_id(db, ItemStatus, "ordered")
+    db.commit()
+
+    result = MN_VALUE.run(db, ValueParams(status="all", disposition="all"))
+    idx = next(i for i, r in enumerate(result.rows) if r["kind"] == "Coin")
+    assert result.rows[idx]["items"] == 2
+    path, query = _parsed(cast("str", result.drills[idx]))
+    assert path == "/inventory/coins"
+    assert "status" not in query
+    assert "disposition" not in query
+    _, total = inventory_search(db, COIN_VIEW, params=dict(query))
     assert total == result.rows[idx]["items"]

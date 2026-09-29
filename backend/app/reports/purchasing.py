@@ -40,7 +40,7 @@ from .base import (
     period_label,
     period_start,
 )
-from .purchases import (
+from .live_purchases import (
     LIVE_ITEM_PURCHASE_NOTE,
     dated_purchase_where,
     join_live_purchase_items,
@@ -428,7 +428,7 @@ def _pr_sources(db: Session, params: SourcesParams) -> ReportResult:
     A purchase counts here under the same rule `pr_spend` uses -- an inner
     join to a live item, not `pr_outstanding`'s outer one -- so the two
     reports can never silently disagree about what "a purchase" means; see
-    `LIVE_ITEM_PURCHASE_NOTE` (`.purchases`). A vendor with no counted
+    `LIVE_ITEM_PURCHASE_NOTE` (`.live_purchases`). A vendor with no counted
     purchase does not appear at all. `items` and `total_spent` are simply
     the sums of the live items that same join already selected. Vendor
     rows carry the vendor's full figures; a seller row beneath one is that
