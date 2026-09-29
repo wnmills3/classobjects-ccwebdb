@@ -37,10 +37,10 @@ from .base import (
     Period,
     Report,
     ReportResult,
-    local_date,
     period_label,
     period_start,
 )
+from .receipts import receipt_day, received_transitions
 from .registry import register
 
 __all__ = [
@@ -700,43 +700,42 @@ def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
     row should never have existed, so neither did its receipt.
 
     Fetched one transition at a time, not grouped in SQL: a row's day is
-    its own `arrived_on` when recorded, else `changed_at`'s local calendar
-    date (`local_date`, `.base`) -- a conversion SQL cannot do without
+    `receipts.receipt_day` -- its own `arrived_on` when recorded, else
+    `changed_at`'s local calendar date, a conversion SQL cannot do without
     knowing the application server's own time zone -- so both the
     bucketing and the exact date-range filter happen in Python, over the
-    rows `_received_prefilter` has already narrowed.
+    rows `_received_prefilter` has already narrowed. The transitions
+    themselves come from `receipts.received_transitions`, the one query
+    `sl_aging` also reads, extended here with the item, purchase order and
+    vendor this report needs beyond it.
     """
     stmt = (
-        select(
-            InventoryItem.id.label("item_id"),
+        received_transitions()
+        .add_columns(
             InventoryItem.split_at,
             InventoryItem.total_cost,
-            ItemStatusHistory.arrived_on,
-            ItemStatusHistory.changed_at,
             Vendor.name.label("vendor_name"),
         )
-        .select_from(ItemStatusHistory)
         .join(InventoryItem, InventoryItem.id == ItemStatusHistory.inventory_item_id)
-        .join(ItemStatus, ItemStatus.id == ItemStatusHistory.to_status_id)
         .join(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
         .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
-        .where(
-            ItemStatus.code == "received",
-            ItemStatusHistory.from_status_id.is_not(None),
-            InventoryItem.deleted_at.is_(None),
-            *_received_prefilter(params),
-        )
+        .where(InventoryItem.deleted_at.is_(None), *_received_prefilter(params))
     )
     transitions = db.execute(stmt).mappings().all()
 
     children_totals = _received_children_totals(
-        db, {row["item_id"] for row in transitions if row["split_at"] is not None}
+        db,
+        {
+            row["inventory_item_id"]
+            for row in transitions
+            if row["split_at"] is not None
+        },
     )
 
     bucket_items: dict[tuple[date, str], int] = defaultdict(int)
     bucket_cost: dict[tuple[date, str], Decimal] = defaultdict(lambda: Decimal("0"))
     for row in transitions:
-        day = row["arrived_on"] or local_date(row["changed_at"])
+        day = receipt_day(row["arrived_on"], row["changed_at"])
         if params.date_from is not None and day < params.date_from:
             continue
         if params.date_to is not None and day > params.date_to:
@@ -746,7 +745,9 @@ def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
             bucket_items[key] += 1
             bucket_cost[key] += row["total_cost"]
         else:
-            items, cost = children_totals.get(row["item_id"], (0, Decimal("0")))
+            items, cost = children_totals.get(
+                row["inventory_item_id"], (0, Decimal("0"))
+            )
             if items:
                 bucket_items[key] += items
                 bucket_cost[key] += cost
