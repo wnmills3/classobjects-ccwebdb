@@ -535,6 +535,23 @@ def test_designs_no_series_sorts_last_and_currency_is_excluded(db: Session) -> N
     assert sum(cast(int, r["items"]) for r in result.rows) == 2
 
 
+def test_designs_are_ordered_by_the_vocabularys_sort_order_then_label(
+    db: Session,
+) -> None:
+    """Sort order wins over label: "Lincoln Cent" placed before "Large Cent"."""
+    lincoln = code_id(db, Series, "lincoln_cent")
+    large = code_id(db, Series, "large_cent")
+    cast(Series, db.get(Series, lincoln)).sort_order = -2
+    cast(Series, db.get(Series, large)).sort_order = -1
+    _coin(db, _CENT, Decimal("1.00"), series_id=large, year_start=1850)
+    _coin(db, _CENT, Decimal("1.00"), series_id=lincoln, year_start=1950)
+    db.commit()
+
+    result = CB_DESIGNS.run(db, DesignsParams())
+    labels = [r["series"] for r in result.rows]
+    assert labels[:2] == ["Lincoln Cent", "Large Cent"]
+
+
 def test_designs_series_row_drill_matches_the_search_count(db: Session) -> None:
     series = code_id(db, Series, "lincoln_cent")
     _coin(db, _CENT, Decimal("1.00"), series_id=series)
@@ -1441,7 +1458,7 @@ def _attr_row(
     )
 
 
-def test_attributes_lists_attributes_then_errors_ordered_by_label(
+def test_attributes_lists_attributes_then_errors(
     db: Session,
 ) -> None:
     coin1 = _coin(db, _CENT, Decimal("1.00"))
@@ -1452,6 +1469,33 @@ def test_attributes_lists_attributes_then_errors_ordered_by_label(
     result = CB_ATTRIBUTES.run(db, AttributesParams())
     marks = [cast(str, r["mark"]) for r in result.rows]
     assert marks.index("Attribute") < marks.index("Error")
+
+
+def test_attributes_are_ordered_by_the_vocabularys_sort_order_then_label(
+    db: Session,
+) -> None:
+    """Within each mark, the vocabulary's sort order wins over the label."""
+    coin = _coin(db, _CENT, Decimal("1.00"))
+    attributes = db.scalars(select(ItemAttribute).order_by(ItemAttribute.label)).all()
+    first, second = attributes[0], attributes[1]
+    first.sort_order, second.sort_order = -1, -2
+    _add_attribute(db, coin, first.code)
+    _add_attribute(db, coin, second.code)
+    errors = db.scalars(select(ErrorType).order_by(ErrorType.label)).all()
+    err_first, err_second = errors[0], errors[1]
+    err_first.sort_order, err_second.sort_order = -1, -2
+    _add_error(db, coin, err_first.code)
+    _add_error(db, coin, err_second.code)
+    db.commit()
+
+    result = CB_ATTRIBUTES.run(db, AttributesParams())
+    labels = [(r["mark"], r["label"]) for r in result.rows]
+    assert labels == [
+        ("Attribute", second.label),
+        ("Attribute", first.label),
+        ("Error", err_second.label),
+        ("Error", err_first.label),
+    ]
 
 
 def test_attributes_counts_items_carrying_the_mark(db: Session) -> None:

@@ -20,15 +20,14 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
-from datetime import date, datetime
-from typing import Any, get_args
+from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
-from pydantic.fields import FieldInfo
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from .base import Column, ColumnKind, Report, ReportResult
+from .base import Column, ColumnKind, Report, ReportResult, is_date_field
 from .params import ParamError, resolve_params
 from .registry import REPORTS
 from .workbook import write_workbook
@@ -79,16 +78,6 @@ def _data_line(columns: list[Column], widths: list[int], row: dict[str, object])
     return "  ".join(cells).rstrip()
 
 
-def _is_date_field(field: FieldInfo) -> bool:
-    """Whether a parameter field is `date` or `date | None`.
-
-    The same test `serialize.py`'s own `_param_type` makes for the catalog's
-    `type`, so the CLI and the console agree about which parameters are
-    dates without importing one another's private helper.
-    """
-    return field.annotation is date or date in get_args(field.annotation)
-
-
 def _params_line(report: Report[Any], params: BaseModel) -> str:
     """Every parameter the report ran with, in words: `"Overdue after (days): 21"`.
 
@@ -100,7 +89,7 @@ def _params_line(report: Report[Any], params: BaseModel) -> str:
     parts = []
     for name, field in report.params.model_fields.items():
         value = getattr(params, name)
-        if value is None and _is_date_field(field):
+        if value is None and is_date_field(field):
             value = "any"
         parts.append(f"{field.title or name}: {value}")
     return ", ".join(parts)

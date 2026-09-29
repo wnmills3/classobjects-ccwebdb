@@ -582,6 +582,10 @@ _OPENING_ROW_NOTE = (
 )
 
 
+#: The vendor column's text for a received item recorded with no purchase.
+_NO_PURCHASE = "No purchase"
+
+
 def _received_prefilter(params: ReceivedParams) -> list[ColumnElement[bool]]:
     """A coarse, SQL-side narrowing of `pr_received`'s rows by date range.
 
@@ -678,18 +682,20 @@ def _pr_received(db: Session, params: ReceivedParams) -> ReportResult:
     rows `_received_prefilter` has already narrowed. The transitions
     themselves come from `receipts.received_transitions`, the one query
     `sl_aging` also reads, extended here with the item, purchase order and
-    vendor this report needs beyond it.
+    vendor this report needs beyond it. The purchase and vendor are outer
+    joins: an item recorded with no purchase still arrived, so its receipt
+    is counted under `_NO_PURCHASE` rather than silently dropped.
     """
     stmt = (
         received_transitions()
         .add_columns(
             InventoryItem.split_at,
             InventoryItem.total_cost,
-            Vendor.name.label("vendor_name"),
+            func.coalesce(Vendor.name, _NO_PURCHASE).label("vendor_name"),
         )
         .join(InventoryItem, InventoryItem.id == ItemStatusHistory.inventory_item_id)
-        .join(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
-        .join(Vendor, Vendor.id == PurchaseOrder.vendor_id)
+        .outerjoin(PurchaseOrder, PurchaseOrder.id == InventoryItem.purchase_order_id)
+        .outerjoin(Vendor, Vendor.id == PurchaseOrder.vendor_id)
         .where(InventoryItem.deleted_at.is_(None), *_received_prefilter(params))
     )
     transitions = db.execute(stmt).mappings().all()

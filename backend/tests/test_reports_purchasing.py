@@ -1042,6 +1042,28 @@ def test_received_more_than_once_counts_once_per_receipt(db: Session) -> None:
     assert sum(cast("int", r["items"]) for r in rows) == 2
 
 
+def test_received_counts_an_item_with_no_purchase_under_no_purchase(
+    db: Session,
+) -> None:
+    """A received item recorded without a purchase is counted, not dropped."""
+    item = build_bare_item(
+        db,
+        status_id=code_id(db, ItemStatus, "ordered"),
+        item_cost=Decimal("7.25"),
+        tax_rate=Decimal("0"),
+        shipping_cost=Decimal("0"),
+    )
+    assert item.purchase_order_id is None
+    db.commit()
+    _receive(db, item, arrived_on=date(2026, 3, 7))
+
+    result = PR_RECEIVED.run(db, ReceivedParams())
+    row = next(r for r in result.rows if r["day"] == date(2026, 3, 7))
+    assert row["vendor"] == "No purchase"
+    assert row["items"] == 1
+    assert row["total_cost"] == Decimal("7.25")
+
+
 def test_received_excludes_a_deleted_item(db: Session) -> None:
     vendor = _vendor(db, "Vendor RE4")
     order = _order_for(db, vendor, order_number="RE-4", ordered_on=date(2026, 3, 1))

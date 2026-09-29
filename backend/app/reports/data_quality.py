@@ -58,7 +58,7 @@ from ..models import (
     Vendor,
 )
 from ..purchases import GENERATED, WEB_ADDRESS
-from .base import Column, Report, ReportResult
+from .base import Column, Report, ReportResult, local_date
 from .registry import register
 from .tables import ITEM as _I
 from .tables import KIND as _K
@@ -289,7 +289,7 @@ _PHOTO_ST = ItemStatus.__table__.alias("pst")
 def _photo_drill(kind_code: str, status_code: str) -> str:
     """A kind x status cell's own search: `missing=photo`, narrowed by status.
 
-    `kind=` is added the same way `_query_string` (`collection.py`) adds it --
+    `kind=` is added the same way `kind_query_string` (`live_params.py`) adds it --
     omitted for currency, which has its own view and needs no `kind=` at all.
     """
     query: dict[str, str] = {}
@@ -558,10 +558,8 @@ def _a_year_before(day: date) -> date:
 def _purchase_gaps(row: RowMapping) -> list[str]:
     """This purchase's own gaps, in the fixed order (Ruling P2-4 for the dates).
 
-    "Entry" is `created_at`'s own local calendar date -- `astimezone()` with
-    no argument converts to the system's local zone before taking the date,
-    the same conversion `base.local_date` uses, since the database
-    session's zone need not be the application's.
+    "Entry" is `created_at`'s own local calendar date (`base.local_date`),
+    since the database session's zone need not be the application's.
     """
     gaps: list[str] = []
     order_number = row["order_number"]
@@ -577,7 +575,7 @@ def _purchase_gaps(row: RowMapping) -> list[str]:
         gaps.append(_NO_WEB_ADDRESS)
 
     if ordered_on is not None:
-        entry_date = row["created_at"].astimezone().date()
+        entry_date = local_date(row["created_at"])
         if ordered_on > entry_date:
             gaps.append(_DATE_AFTER_ENTRY)
         if ordered_on < _a_year_before(entry_date):

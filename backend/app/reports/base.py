@@ -10,9 +10,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, model_validator
+from pydantic.fields import FieldInfo
 from sqlalchemy import ColumnElement, Date, DateTime, cast, func, literal
 from sqlalchemy.orm import QueryableAttribute, Session
 
@@ -111,6 +112,16 @@ class DateRange(BaseModel):
         ):
             raise ValueError("From must not be after To")
         return self
+
+
+def is_date_field(field: FieldInfo) -> bool:
+    """Whether a parameter field is `date` or `date | None` (a `DateRange` bound).
+
+    The one test the catalog's `type`, the CLI's parameters line and the
+    workbook's parameter rows all make, so they agree about which
+    parameters are dates -- and so an absent one reads as "any" in each.
+    """
+    return field.annotation is date or date in get_args(field.annotation)
 
 
 #: The three ways a report may bucket a date column into a time period.
@@ -223,6 +234,7 @@ __all__ = [
     "Period",
     "Report",
     "ReportResult",
+    "is_date_field",
     "local_date",
     "period_label",
     "period_start",

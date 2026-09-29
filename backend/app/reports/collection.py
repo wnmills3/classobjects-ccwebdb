@@ -1,8 +1,8 @@
 """Collection: what the collection is made of.
 
 Six reports, sharing one params shape (`LiveParams`: `status`/`disposition`,
-defined once and reused rather than redeclared) and one live-row source
-(`.tables`).
+defined once in `.live_params` alongside its filter and drill helpers, and
+reused rather than redeclared) and one live-row source (`.tables`).
 
 `cb_holdings`: live items grouped by kind and then by denomination, with
 items, pieces and total cost, a subtotal row per kind, and an overall total.
@@ -25,10 +25,9 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Literal, cast
+from typing import cast
 from urllib.parse import urlencode
 
-from pydantic import BaseModel, Field
 from sqlalchemy import (
     ColumnElement,
     FromClause,
@@ -42,12 +41,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
-from ..inventory_search import COIN_VIEW, CURRENCY_VIEW, MISSING_FIELDS, view_path
+from ..inventory_search import COIN_VIEW, CURRENCY_VIEW, MISSING_FIELDS
 from ..models import (
     BullionForm,
     CurrencyDetail,
     Denomination,
-    Disposition,
     ErrorType,
     FedDistrict,
     Grade,
@@ -55,7 +53,6 @@ from ..models import (
     ItemAttribute,
     ItemAttributeLink,
     ItemError,
-    ItemStatus,
     Metal,
     MetalPrice,
     NoteType,
@@ -64,10 +61,18 @@ from ..models import (
     StrikeType,
 )
 from .base import Column, Report, ReportResult
+from .live_params import (
+    NOTHING_MATCHES,
+    DispositionParam,
+    LiveParams,
+    StatusParam,
+    kind_query_string,
+    live_where,
+    status_disposition_params,
+)
 from .registry import register
 from .tables import ITEM as _I
 from .tables import KIND as _K
-from .tables import LIVE as _LIVE
 
 __all__ = [
     "CB_ATTRIBUTES",
@@ -87,77 +92,13 @@ __all__ = [
     "StatusParam",
 ]
 
-#: `denomination`, `item_status` and `disposition`, aliased as the search
-#: aliases them, alongside the shared `i`/`k` of `.tables`.
+#: `denomination`, aliased as the search aliases it, alongside the shared
+#: `i`/`k` of `.tables`.
 _D = Denomination.__table__.alias("d")
-_ST = ItemStatus.__table__.alias("st")
-_DISP = Disposition.__table__.alias("disp")
-
-#: The seeded `item_status` codes (`backend/data/reference/operations.json`),
-#: plus `all` for no filter.
-StatusParam = Literal[
-    "ordered", "received", "canceled", "returned", "missing", "unknown", "all"
-]
-#: The seeded `disposition` codes, plus `all` for no filter.
-DispositionParam = Literal[
-    "held", "listed", "sold", "shipped", "delivered", "returned_by_buyer", "all"
-]
-
-#: The note every report shows in place of rows when nothing matches its
-#: parameters -- one literal, so every report reads the same words.
-_NOTHING_MATCHES = "Nothing matches these settings."
-
-
-class LiveParams(BaseModel):
-    """Which live items to count: by acquisition status and sales disposition.
-
-    Defaults to `received` and `held` -- what the owner has actually taken in
-    and still has -- rather than everything ever ordered or ever sold. Either
-    can be widened to `all`, which drops that filter entirely. Every
-    Collection report takes exactly these two parameters, so each one's own
-    params model subclasses this rather than redeclaring the fields.
-    """
-
-    status: StatusParam = Field(default="received", title="Status")
-    disposition: DispositionParam = Field(default="held", title="Disposition")
 
 
 class HoldingsParams(LiveParams):
     """`cb_holdings` takes no parameters beyond status and disposition."""
-
-
-def _live_where(
-    src: FromClause, params: LiveParams
-) -> tuple[FromClause, list[ColumnElement[bool]]]:
-    """Add the status/disposition join and filter to `src`, atop `LIVE`.
-
-    Shared by every report in this module: the status and disposition joins
-    are added only when that parameter is not `all`, so a query that never
-    joins `item_status` when every status counts reads as exactly what it
-    is -- no filter there.
-    """
-    where: list[ColumnElement[bool]] = [_LIVE]
-    if params.status != "all":
-        src = src.join(_ST, _ST.c.id == _I.c.status_id)
-        where.append(_ST.c.code == params.status)
-    if params.disposition != "all":
-        src = src.join(_DISP, _DISP.c.id == _I.c.disposition_id)
-        where.append(_DISP.c.code == params.disposition)
-    return src, where
-
-
-def _status_disposition_params(params: LiveParams) -> dict[str, str]:
-    """The `status=`/`disposition=` pair a drill adds, omitted at `all`.
-
-    Matches `LiveParams`' own no-filter value: a drill never states a filter
-    the report itself is not applying.
-    """
-    query: dict[str, str] = {}
-    if params.status != "all":
-        query["status"] = params.status
-    if params.disposition != "all":
-        query["disposition"] = params.disposition
-    return query
 
 
 #: Which search view an item's kind is browsed in, as `view_path` splits it:
@@ -174,34 +115,7 @@ def _source_and_where(
     src: FromClause = _I.join(_K, _K.c.id == _I.c.item_kind_id).outerjoin(
         _D, _D.c.id == _I.c.denomination_id
     )
-    return _live_where(src, params)
-
-
-def _query_string(
-    kind_code: str,
-    params: HoldingsParams,
-    *,
-    denom_code: str | None = None,
-    missing_denom: bool = False,
-) -> str:
-    """One drill's console path: the kind's search, narrowed as this row is.
-
-    Currency has its own search page and needs no `kind=`; every other kind
-    searches `/inventory/coins?kind=<code>`. `denom_code` adds
-    `denomination=<code>`; `missing_denom` adds `missing=denomination`
-    instead -- the two are mutually exclusive, one row is never both a named
-    denomination and "no denomination".
-    """
-    query: dict[str, str] = {}
-    if kind_code != "currency":
-        query["kind"] = kind_code
-    if denom_code is not None:
-        query["denomination"] = denom_code
-    elif missing_denom:
-        query["missing"] = "denomination"
-    query.update(_status_disposition_params(params))
-    path = view_path(kind_code)
-    return f"{path}?{urlencode(query)}" if query else path
+    return live_where(src, params)
 
 
 def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
@@ -243,7 +157,7 @@ def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
             rows=[],
             totals=None,
             drills=[],
-            notes=["Nothing matches these settings."],
+            notes=[NOTHING_MATCHES],
         )
 
     denom_rows = (
@@ -321,7 +235,7 @@ def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
                 "total_cost": subtotal["total_cost"],
             }
         )
-        drills.append(_query_string(kind_code, params))
+        drills.append(kind_query_string(kind_code, params))
 
     for row in denom_rows:
         kind_code = row["kind_code"]
@@ -340,7 +254,7 @@ def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
                     "total_cost": row["total_cost"],
                 }
             )
-            drills.append(_query_string(kind_code, params, denom_code=denom_code))
+            drills.append(kind_query_string(kind_code, params, denom_code=denom_code))
         else:
             rows.append(
                 {
@@ -357,7 +271,7 @@ def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
             # gets a `missing=denomination` link, whose search would come
             # back empty and disagree with this row's own count.
             drills.append(
-                _query_string(kind_code, params, missing_denom=True)
+                kind_query_string(kind_code, params, missing_denom=True)
                 if MISSING_FIELDS["denomination"].applies_to(kind_code)
                 else None
             )
@@ -419,7 +333,7 @@ def _designs_query_string(series_code: str | None, params: DesignsParams) -> str
         query["series"] = series_code
     else:
         query["missing"] = "series"
-    query.update(_status_disposition_params(params))
+    query.update(status_disposition_params(params))
     return f"/inventory/coins?{urlencode(query)}"
 
 
@@ -435,7 +349,7 @@ def _cb_designs(db: Session, params: DesignsParams) -> ReportResult:
     src: FromClause = _I.join(_K, _K.c.id == _I.c.item_kind_id).outerjoin(
         _SER, _SER.c.id == _I.c.series_id
     )
-    src, where = _live_where(src, params)
+    src, where = live_where(src, params)
     where.append(_K.c.code != "currency")
 
     columns = [
@@ -457,15 +371,21 @@ def _cb_designs(db: Session, params: DesignsParams) -> ReportResult:
             )
             .select_from(src)
             .where(*where)
-            .group_by(_SER.c.id, _SER.c.code, _SER.c.label)
-            .order_by(_SER.c.label.asc().nulls_last(), _SER.c.id.asc().nulls_last())
+            .group_by(_SER.c.id, _SER.c.code, _SER.c.label, _SER.c.sort_order)
+            # The vocabulary's own order, as its pickers list it; "No
+            # series" (all three NULL) last.
+            .order_by(
+                _SER.c.sort_order.asc().nulls_last(),
+                _SER.c.label.asc().nulls_last(),
+                _SER.c.id.asc().nulls_last(),
+            )
         )
         .mappings()
         .all()
     )
     if not rows_data:
         return ReportResult(
-            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+            columns=columns, rows=[], totals=None, drills=[], notes=[NOTHING_MATCHES]
         )
 
     rows: list[dict[str, object]] = []
@@ -561,7 +481,7 @@ def _notes_query_string(
     if note_type_code is None or series_designation is None:
         return None
     query = {"note_type": note_type_code, "series_designation": series_designation}
-    query.update(_status_disposition_params(params))
+    query.update(status_disposition_params(params))
     return f"/inventory/currency?{urlencode(query)}"
 
 
@@ -578,7 +498,7 @@ def _cb_notes(db: Session, params: NotesParams) -> ReportResult:
         .outerjoin(_CUD, _CUD.c.inventory_item_id == _I.c.id)
         .outerjoin(_NT, _NT.c.id == _CUD.c.note_type_id)
     )
-    src, where = _live_where(src, params)
+    src, where = live_where(src, params)
     where.append(_K.c.code == "currency")
 
     star_id = _attribute_id(db, _STAR_CODE)
@@ -645,7 +565,7 @@ def _cb_notes(db: Session, params: NotesParams) -> ReportResult:
     )
     if not rows_data:
         return ReportResult(
-            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+            columns=columns, rows=[], totals=None, drills=[], notes=[NOTHING_MATCHES]
         )
 
     label_rows = (
@@ -816,7 +736,7 @@ def _grades_drill(
         query["strike_type"] = strike_code
     if service_code is not None:
         query["grading_service"] = service_code
-    query.update(_status_disposition_params(params))
+    query.update(status_disposition_params(params))
     return f"/inventory/{row['view']}?{urlencode(query)}"
 
 
@@ -828,7 +748,7 @@ def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
         .outerjoin(_STRIKE, _STRIKE.c.id == _I.c.strike_type_id)
         .outerjoin(_SERVICE, _SERVICE.c.id == _I.c.grading_service_id)
     )
-    src, where = _live_where(src, params)
+    src, where = live_where(src, params)
 
     columns = [
         Column("view", "View", "text"),
@@ -873,7 +793,7 @@ def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
     )
     if not rows_data:
         return ReportResult(
-            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+            columns=columns, rows=[], totals=None, drills=[], notes=[NOTHING_MATCHES]
         )
 
     rows: list[dict[str, object]] = []
@@ -1007,7 +927,7 @@ def _metal_drill(
         bucket_total = bucket_kind_metal
     if bucket_total != expected:
         return None
-    query.update(_status_disposition_params(params))
+    query.update(status_disposition_params(params))
     return f"/inventory/coins?{urlencode(query)}"
 
 
@@ -1024,7 +944,7 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
         .outerjoin(_MT, _MT.c.id == _I.c.metal_id)
         .outerjoin(_BF, _BF.c.id == _I.c.bullion_form_id)
     )
-    src, where = _live_where(src, params)
+    src, where = live_where(src, params)
 
     columns = [
         Column("metal", "Metal", "text"),
@@ -1081,7 +1001,7 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
     )
     if not rows_data:
         return ReportResult(
-            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+            columns=columns, rows=[], totals=None, drills=[], notes=[NOTHING_MATCHES]
         )
 
     #: The same kind x metal x bullion form buckets, counted with no
@@ -1211,7 +1131,7 @@ def _mark_query_string(
 ) -> str:
     """This mark's own search, on the view it was carried on."""
     query = {key: code}
-    query.update(_status_disposition_params(params))
+    query.update(status_disposition_params(params))
     return f"/inventory/{view_name}?{urlencode(query)}"
 
 
@@ -1224,19 +1144,20 @@ def _attribute_rows(db: Session, params: AttributesParams) -> list[dict[str, obj
         .join(ial, and_(ial.c.inventory_item_id == _I.c.id, ial.c.removed_at.is_(None)))
         .join(ia, ia.c.id == ial.c.item_attribute_id)
     )
-    src, where = _live_where(src, params)
+    src, where = live_where(src, params)
 
     rows = (
         db.execute(
             select(
                 ia.c.code.label("code"),
                 ia.c.label.label("label"),
+                ia.c.sort_order.label("sort"),
                 _VIEW_NAME.label("view"),
                 func.count().label("items"),
             )
             .select_from(src)
             .where(*where)
-            .group_by(ia.c.code, ia.c.label, _VIEW_NAME)
+            .group_by(ia.c.code, ia.c.label, ia.c.sort_order, _VIEW_NAME)
         )
         .mappings()
         .all()
@@ -1245,6 +1166,7 @@ def _attribute_rows(db: Session, params: AttributesParams) -> list[dict[str, obj
         {
             "mark": _MARK_ATTRIBUTE,
             "label": row["label"],
+            "sort": row["sort"],
             "view": row["view"],
             "items": row["items"],
             "code": row["code"],
@@ -1262,19 +1184,20 @@ def _error_rows(db: Session, params: AttributesParams) -> list[dict[str, object]
         .join(ie, ie.c.inventory_item_id == _I.c.id)
         .join(et, et.c.id == ie.c.error_type_id)
     )
-    src, where = _live_where(src, params)
+    src, where = live_where(src, params)
 
     rows = (
         db.execute(
             select(
                 et.c.code.label("code"),
                 et.c.label.label("label"),
+                et.c.sort_order.label("sort"),
                 _VIEW_NAME.label("view"),
                 func.count().label("items"),
             )
             .select_from(src)
             .where(*where)
-            .group_by(et.c.code, et.c.label, _VIEW_NAME)
+            .group_by(et.c.code, et.c.label, et.c.sort_order, _VIEW_NAME)
         )
         .mappings()
         .all()
@@ -1283,6 +1206,7 @@ def _error_rows(db: Session, params: AttributesParams) -> list[dict[str, object]
         {
             "mark": _MARK_ERROR,
             "label": row["label"],
+            "sort": row["sort"],
             "view": row["view"],
             "items": row["items"],
             "code": row["code"],
@@ -1313,13 +1237,14 @@ def _cb_attributes(db: Session, params: AttributesParams) -> ReportResult:
         [*_attribute_rows(db, params), *_error_rows(db, params)],
         key=lambda r: (
             cast(str, r["mark"]) != _MARK_ATTRIBUTE,
+            cast(int, r["sort"]),
             cast(str, r["label"]),
             cast(str, r["view"]),
         ),
     )
     if not combined:
         return ReportResult(
-            columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
+            columns=columns, rows=[], totals=None, drills=[], notes=[NOTHING_MATCHES]
         )
 
     rows: list[dict[str, object]] = []

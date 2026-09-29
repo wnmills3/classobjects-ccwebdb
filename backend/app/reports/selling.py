@@ -42,11 +42,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, and_, case, exists, func, select
+from sqlalchemy import (
+    ColumnElement,
+    CompoundSelect,
+    and_,
+    case,
+    exists,
+    func,
+    select,
+    union,
+)
 from sqlalchemy.orm import Session, aliased
 
 from ..inventory_search import view_path
@@ -62,6 +71,7 @@ from ..models import (
     InventoryItem,
     ItemKind,
     ItemStatus,
+    ItemStatusHistory,
     Listing,
     ListingStatus,
     SalesLot,
@@ -664,6 +674,12 @@ def _sl_fulfilment(db: Session, _params: FulfilmentParams) -> ReportResult:
             SalesOrder.total_amount,
             Customer.display_name.label("customer_name"),
             func.count(InventoryItem.id).label("items"),
+            # A share whose item is deleted or split: counted by the share,
+            # not by the (outer-joined, live-only) item.
+            (
+                func.count(SalesOrderItemShare.inventory_item_id)
+                - func.count(InventoryItem.id)
+            ).label("left_out"),
         )
         .select_from(SalesOrder)
         .join(Customer, Customer.id == SalesOrder.customer_id)
@@ -694,7 +710,9 @@ def _sl_fulfilment(db: Session, _params: FulfilmentParams) -> ReportResult:
     drills: list[str | None] = []
     total_items = 0
     total_amount = Decimal("0")
+    left_out = 0
     for row in db.execute(stmt).mappings().all():
+        left_out += row["left_out"]
         placed = local_date(row["placed_at"])
         rows.append(
             {
@@ -728,12 +746,21 @@ def _sl_fulfilment(db: Session, _params: FulfilmentParams) -> ReportResult:
         "days_waiting": None,
     }
 
+    notes: list[str] = []
+    if left_out == 1:
+        notes.append("1 deleted or split item is left out of its order's item count.")
+    elif left_out:
+        notes.append(
+            f"{left_out} deleted or split items are left out of their orders' "
+            "item counts."
+        )
+
     return ReportResult(
         columns=_FULFILMENT_COLUMNS,
         rows=rows,
         totals=totals,
         drills=drills,
-        notes=["A deleted or split item is left out of its order's item count."],
+        notes=notes,
     )
 
 
@@ -801,18 +828,20 @@ def _months_since(received: date, today: date) -> int:
     return max(months, 0)
 
 
-def _receipt_dates(db: Session, item_ids: set[int]) -> dict[int, date]:
+def _receipt_dates(db: Session, item_ids: CompoundSelect[Any]) -> dict[int, date]:
     """Each item's own latest transition to `received`, keyed by item id.
 
+    `item_ids` is a statement selecting the ids to look up, used as an `IN`
+    subquery so no id is bound as its own parameter.
     `receipts.received_transitions` is the one definition of a genuine
     arrival, `pr_received`'s own base query too, so the two reports can
     never disagree about what "received" means (Ruling P2-7). An item
     transitioned more than once (returned and received again) keeps its
     latest one, by `changed_at`.
     """
-    if not item_ids:
-        return {}
-    rows = db.execute(received_transitions(item_ids)).all()
+    rows = db.execute(
+        received_transitions().where(ItemStatusHistory.inventory_item_id.in_(item_ids))
+    ).all()
     latest: dict[int, tuple[datetime, date]] = {}
     for item_id, arrived_on, changed_at in rows:
         day = receipt_day(arrived_on, changed_at)
@@ -872,13 +901,21 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
     candidates = db.execute(stmt).all()
     if not candidates:
         return ReportResult(
-            columns=_AGING_COLUMNS, rows=[], totals=None, drills=[], notes=[]
+            columns=_AGING_COLUMNS,
+            rows=[],
+            totals=None,
+            drills=[],
+            notes=["Nothing is held and not offered."],
         )
 
-    lookup_ids = {row.id for row in candidates}
-    lookup_ids |= {
-        row.parent_item_id for row in candidates if row.parent_item_id is not None
-    }
+    # The receipt lookup narrows by the candidates' own ids (and their split
+    # parents') through a subquery of this same statement, not an expanded
+    # `IN` list: at live scale that would bind one parameter per held item.
+    held = stmt.subquery()
+    lookup_ids = union(
+        select(held.c.id),
+        select(held.c.parent_item_id).where(held.c.parent_item_id.is_not(None)),
+    )
     receipts = _receipt_dates(db, lookup_ids)
 
     today = date.today()
@@ -926,12 +963,15 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
 
     notes: list[str] = []
     if unknown:
-        plural = "s" if unknown != 1 else ""
+        subject = (
+            f"1 item of {total_items} has no recorded receipt and is"
+            if unknown == 1
+            else f"{unknown} items of {total_items} have no recorded receipt and are"
+        )
         notes.append(
-            f"{unknown} item{plural} of {total_items} have no recorded receipt "
-            'and are bucketed "Unknown" -- most items, since the '
-            "collection's status history was reset on 2026-09-25 to one "
-            "opening row per item, which is not an arrival."
+            f'{subject} bucketed "Unknown": the collection\'s status history '
+            "was reset on 2026-09-25 to one opening row per item, which is not "
+            "an arrival."
         )
 
     return ReportResult(
@@ -1057,7 +1097,11 @@ def _sl_auctions(db: Session, _params: AuctionsParams) -> ReportResult:
     fetched = db.execute(stmt).all()
     if not fetched:
         return ReportResult(
-            columns=_AUCTIONS_COLUMNS, rows=[], totals=None, drills=[], notes=[]
+            columns=_AUCTIONS_COLUMNS,
+            rows=[],
+            totals=None,
+            drills=[],
+            notes=["No auctions recorded."],
         )
 
     settled_ids = {row.id for row in fetched if row.status is AuctionStatus.settled}
