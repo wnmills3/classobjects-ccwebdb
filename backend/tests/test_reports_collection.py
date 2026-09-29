@@ -767,14 +767,41 @@ def test_notes_drill_matches_the_search_count(db: Session) -> None:
 def test_notes_excludes_deleted_and_split_items(db: Session) -> None:
     deleted = _currency_note(db, _NOTE_1, Decimal("10.00"), series_year=1935)
     deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    parent = _currency_note(
+        db, _NOTE_1, Decimal("30.00"), series_year=1935, piece_count=2
+    )
+    parent.split_at = datetime(2026, 1, 1, tzinfo=UTC)
     db.commit()
-    live = _currency_note(db, _NOTE_1, Decimal("20.00"), series_year=1935)
+    _currency_note(
+        db, _NOTE_1, Decimal("20.00"), series_year=1935, parent_item_id=parent.id
+    )
 
     result = CB_NOTES.run(db, NotesParams())
     row = _notes_row(result, "Federal Reserve Note", "1935")
     assert row["items"] == 1
     assert row["total_cost"] == Decimal("20.00")
-    assert live.id
+
+
+def test_notes_totals_equal_the_sum_of_rows(db: Session) -> None:
+    a = _currency_note(
+        db, _NOTE_1, Decimal("1.11"), series_year=1935, series_letter="A"
+    )
+    b = _currency_note(db, _NOTE_1, Decimal("2.22"), series_year=1957)
+    _add_attribute(db, a, "star")
+    _add_attribute(db, b, "fancy_serial")
+
+    result = CB_NOTES.run(db, NotesParams())
+    assert result.totals is not None
+    assert result.totals["items"] == sum(cast(int, r["items"]) for r in result.rows)
+    assert result.totals["total_cost"] == sum(
+        (cast(Decimal, r["total_cost"]) for r in result.rows), Decimal("0")
+    )
+    assert result.totals["star_notes"] == sum(
+        cast(int, r["star_notes"]) for r in result.rows
+    )
+    assert result.totals["fancy_serials"] == sum(
+        cast(int, r["fancy_serials"]) for r in result.rows
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -805,12 +832,12 @@ def _graded_coin(
 
 
 def _grades_row(
-    result: ReportResult, kind: str, band: str, strike: str, service: str
+    result: ReportResult, view: str, band: str, strike: str, service: str
 ) -> dict[str, object]:
     return next(
         r
         for r in result.rows
-        if r["kind"] == kind
+        if r["view"] == view
         and r["band"] == band
         and r["strike_type"] == strike
         and r["grading_service"] == service
@@ -829,19 +856,19 @@ def test_grades_bands_split_on_numeric_value_boundaries(db: Session) -> None:
     _graded_coin(db, None, Decimal("1.00"))
 
     result = CB_GRADES.run(db, GradesParams())
-    bands = {cast(str, r["band"]) for r in result.rows if r["kind"] == "Coin"}
-    assert bands == {"1-49", "50-59", "60-64", "65-70", "Ungraded"}
+    bands = {cast(str, r["band"]) for r in result.rows if r["view"] == "Coins"}
+    assert bands == {"1-49", "50-59", "60-64", "65-70", "No numeric grade"}
     for band, expected in (
         ("1-49", 2),
         ("50-59", 2),
         ("60-64", 2),
         ("65-70", 2),
-        ("Ungraded", 1),
+        ("No numeric grade", 1),
     ):
         total = sum(
             cast(int, r["items"])
             for r in result.rows
-            if r["kind"] == "Coin" and r["band"] == band
+            if r["view"] == "Coins" and r["band"] == band
         )
         assert total == expected, band
 
@@ -849,11 +876,23 @@ def test_grades_bands_split_on_numeric_value_boundaries(db: Session) -> None:
 def test_grades_no_strike_type_is_no_strike_type_and_no_service_is_raw(
     db: Session,
 ) -> None:
+    """No competing row shares this (view, band): the drill is exact."""
     _graded_coin(db, "65", Decimal("1.00"))
 
     result = CB_GRADES.run(db, GradesParams())
-    row = _grades_row(result, "Coin", "65-70", "No strike type", "Raw")
-    assert row["items"] == 1
+    idx = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["view"] == "Coins"
+        and r["band"] == "65-70"
+        and r["strike_type"] == "No strike type"
+        and r["grading_service"] == "Raw"
+    )
+    assert result.rows[idx]["items"] == 1
+    path, query = _parsed(cast(str, result.drills[idx]))
+    assert path == "/inventory/coins"
+    _, total = inventory_search(db, COIN_VIEW, params=dict(query))
+    assert total == 1
 
 
 def test_grades_splits_coins_and_currency(db: Session) -> None:
@@ -863,18 +902,18 @@ def test_grades_splits_coins_and_currency(db: Session) -> None:
     db.commit()
 
     result = CB_GRADES.run(db, GradesParams())
-    kinds = {cast(str, r["kind"]) for r in result.rows}
-    assert kinds == {"Coin", "Currency"}
+    views = {cast(str, r["view"]) for r in result.rows}
+    assert views == {"Coins", "Currency"}
 
 
-def test_grades_ungraded_row_has_no_drill(db: Session) -> None:
+def test_grades_no_numeric_grade_row_has_no_drill(db: Session) -> None:
     _graded_coin(db, None, Decimal("1.00"))
 
     result = CB_GRADES.run(db, GradesParams())
     idx = next(
         i
         for i, r in enumerate(result.rows)
-        if r["kind"] == "Coin" and r["band"] == "Ungraded"
+        if r["view"] == "Coins" and r["band"] == "No numeric grade"
     )
     assert result.drills[idx] is None
 
@@ -882,6 +921,7 @@ def test_grades_ungraded_row_has_no_drill(db: Session) -> None:
 def test_grades_drill_matches_the_search_count_with_strike_and_service(
     db: Session,
 ) -> None:
+    """Shape 1: every key set -- the drill is the group-by key, exactly."""
     _graded_coin(db, "65", Decimal("1.00"), strike="business", service="PCGS")
     _graded_coin(db, "66", Decimal("2.00"), strike="business", service="PCGS")
     _graded_coin(db, "65", Decimal("3.00"), strike="proof", service="PCGS")
@@ -890,7 +930,7 @@ def test_grades_drill_matches_the_search_count_with_strike_and_service(
     idx = next(
         i
         for i, r in enumerate(result.rows)
-        if r["kind"] == "Coin"
+        if r["view"] == "Coins"
         and r["band"] == "65-70"
         and r["strike_type"] == "Business Strike"
         and r["grading_service"] == "PCGS"
@@ -900,6 +940,49 @@ def test_grades_drill_matches_the_search_count_with_strike_and_service(
     assert path == "/inventory/coins"
     _, total = inventory_search(db, COIN_VIEW, params=dict(query))
     assert total == 2
+
+
+def test_grades_drill_is_none_when_a_null_strike_type_has_a_competing_row(
+    db: Session,
+) -> None:
+    """Shape 2: a NULL strike type competes with a row naming one.
+
+    Both share the same view, band and service; omitting `strike_type=`
+    from the search would also match the "business" row, so the "No
+    strike type" row's own drill must be None rather than disagree.
+    """
+    _graded_coin(db, "65", Decimal("1.00"), service="PCGS")  # no strike recorded
+    _graded_coin(db, "66", Decimal("2.00"), strike="business", service="PCGS")
+
+    result = CB_GRADES.run(db, GradesParams())
+    idx = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["view"] == "Coins"
+        and r["band"] == "65-70"
+        and r["strike_type"] == "No strike type"
+        and r["grading_service"] == "PCGS"
+    )
+    assert result.drills[idx] is None
+
+
+def test_grades_drill_is_none_when_a_null_service_has_a_competing_row(
+    db: Session,
+) -> None:
+    """Shape 3: a NULL grading service ("Raw") competes with a row naming one."""
+    _graded_coin(db, "65", Decimal("1.00"), strike="business")  # no service recorded
+    _graded_coin(db, "66", Decimal("2.00"), strike="business", service="PCGS")
+
+    result = CB_GRADES.run(db, GradesParams())
+    idx = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["view"] == "Coins"
+        and r["band"] == "65-70"
+        and r["strike_type"] == "Business Strike"
+        and r["grading_service"] == "Raw"
+    )
+    assert result.drills[idx] is None
 
 
 def test_grades_totals_equal_the_sum_of_rows(db: Session) -> None:
@@ -917,13 +1000,15 @@ def test_grades_totals_equal_the_sum_of_rows(db: Session) -> None:
 def test_grades_excludes_deleted_and_split_items(db: Session) -> None:
     deleted = _graded_coin(db, "65", Decimal("1.00"))
     deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    parent = _graded_coin(db, "65", Decimal("3.00"), piece_count=2)
+    parent.split_at = datetime(2026, 1, 1, tzinfo=UTC)
     db.commit()
-    live = _graded_coin(db, "65", Decimal("2.00"))
+    _graded_coin(db, "65", Decimal("2.00"), parent_item_id=parent.id)
 
     result = CB_GRADES.run(db, GradesParams())
-    row = _grades_row(result, "Coin", "65-70", "No strike type", "Raw")
+    row = _grades_row(result, "Coins", "65-70", "No strike type", "Raw")
     assert row["items"] == 1
-    assert live.id
+    assert row["total_cost"] == Decimal("2.00")
 
 
 # ---------------------------------------------------------------------------
@@ -1034,9 +1119,71 @@ def test_metal_melt_uses_the_latest_price_and_missing_price_is_a_note(
     assert silver["melt"] == Decimal("30.00")
     gold = _metal_row(result, "Gold", "Coin")
     assert gold["melt"] is None
-    assert result.notes
+    assert result.notes == [
+        "Melt value totals only metals with a recorded price: Gold."
+    ]
     assert result.totals is not None
     assert result.totals["melt"] == Decimal("30.00")
+
+
+def test_metal_no_metal_row_is_covered_by_the_melt_note(db: Session) -> None:
+    build_bare_item(
+        db,
+        metal_id=None,
+        fine_weight_ozt=Decimal("1.000000"),
+        item_cost=Decimal("20.00"),
+        tax_rate=Decimal("0"),
+    )
+
+    result = CB_METAL.run(db, MetalParams())
+    row = _metal_row(result, "No metal", "Coin")
+    assert row["melt"] is None
+    assert result.notes == [
+        "Melt value totals only metals with a recorded price: No metal."
+    ]
+
+
+def test_metal_totals_equal_the_sum_of_rows_melt_over_priced_rows_only(
+    db: Session,
+) -> None:
+    build_bare_item(
+        db,
+        metal_id=code_id(db, Metal, "silver"),
+        fine_weight_ozt=Decimal("1.000000"),
+        item_cost=Decimal("20.00"),
+        tax_rate=Decimal("0"),
+    )
+    build_bare_item(
+        db,
+        metal_id=code_id(db, Metal, "gold"),
+        fine_weight_ozt=Decimal("1.000000"),
+        item_cost=Decimal("500.00"),
+        tax_rate=Decimal("0"),
+    )
+    db.add(
+        MetalPrice(
+            metal_id=code_id(db, Metal, "silver"),
+            quoted_at=datetime(2026, 1, 1, tzinfo=UTC),
+            price_per_ozt=Decimal("30.0000"),
+        )
+    )
+    db.commit()
+
+    result = CB_METAL.run(db, MetalParams())
+    assert result.totals is not None
+    assert result.totals["items"] == sum(cast(int, r["items"]) for r in result.rows)
+    assert result.totals["ounces"] == sum(
+        (cast(Decimal, r["ounces"]) for r in result.rows), Decimal("0")
+    )
+    assert result.totals["total_cost"] == sum(
+        (cast(Decimal, r["total_cost"]) for r in result.rows), Decimal("0")
+    )
+    priced_melt = sum(
+        (cast(Decimal, r["melt"]) for r in result.rows if r["melt"] is not None),
+        Decimal("0"),
+    )
+    assert result.totals["melt"] == priced_melt
+    assert result.totals["melt"] == Decimal("30.00")  # gold's melt excluded, not 0
 
 
 def test_metal_drill_matches_the_search_count(db: Session) -> None:
@@ -1097,6 +1244,29 @@ def test_metal_drill_is_none_when_other_items_of_the_same_metal_have_no_fine_wei
     assert result.drills[idx] is None
 
 
+def test_metal_no_metal_row_drill_uses_missing_metal_and_matches(db: Session) -> None:
+    build_bare_item(
+        db,
+        metal_id=None,
+        fine_weight_ozt=Decimal("0.500000"),
+        item_cost=Decimal("10.00"),
+        tax_rate=Decimal("0"),
+    )
+
+    result = CB_METAL.run(db, MetalParams())
+    idx = next(
+        i
+        for i, r in enumerate(result.rows)
+        if r["metal"] == "No metal" and r["form"] == "Coin"
+    )
+    assert result.drills[idx] is not None
+    path, query = _parsed(cast(str, result.drills[idx]))
+    assert path == "/inventory/coins"
+    assert query.get("missing") == "metal"
+    _, total = inventory_search(db, COIN_VIEW, params=dict(query))
+    assert total == result.rows[idx]["items"]
+
+
 def test_metal_excludes_deleted_and_split_items(db: Session) -> None:
     deleted = build_bare_item(
         db,
@@ -1106,20 +1276,29 @@ def test_metal_excludes_deleted_and_split_items(db: Session) -> None:
         tax_rate=Decimal("0"),
     )
     deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    parent = build_bare_item(
+        db,
+        metal_id=code_id(db, Metal, "silver"),
+        fine_weight_ozt=Decimal("0.500000"),
+        item_cost=Decimal("30.00"),
+        tax_rate=Decimal("0"),
+        piece_count=2,
+    )
+    parent.split_at = datetime(2026, 1, 1, tzinfo=UTC)
     db.commit()
-    live = build_bare_item(
+    build_bare_item(
         db,
         metal_id=code_id(db, Metal, "silver"),
         fine_weight_ozt=Decimal("0.500000"),
         item_cost=Decimal("20.00"),
         tax_rate=Decimal("0"),
+        parent_item_id=parent.id,
     )
 
     result = CB_METAL.run(db, MetalParams())
     row = _metal_row(result, "Silver", "Coin")
     assert row["items"] == 1
     assert row["total_cost"] == Decimal("20.00")
-    assert live.id
 
 
 # ---------------------------------------------------------------------------
@@ -1252,7 +1431,13 @@ def test_attributes_excludes_deleted_and_split_items(db: Session) -> None:
     deleted = _coin(db, _CENT, Decimal("1.00"))
     _add_attribute(db, deleted, "mule")
     deleted.deleted_at = datetime(2026, 1, 1, tzinfo=UTC)
+    parent = _coin(db, _CENT, Decimal("10.00"), piece_count=2)
+    _add_attribute(db, parent, "mule")
+    parent.split_at = datetime(2026, 1, 1, tzinfo=UTC)
     db.commit()
+    child = _coin(db, _CENT, Decimal("5.00"), parent_item_id=parent.id)
+    _add_attribute(db, child, "mule")
 
     result = CB_ATTRIBUTES.run(db, AttributesParams())
-    assert not [r for r in result.rows if r["label"] == "Mule"]
+    row = _attr_row(result, "Attribute", "Mule", "Coins")
+    assert row["items"] == 1

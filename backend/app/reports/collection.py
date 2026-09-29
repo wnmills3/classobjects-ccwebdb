@@ -23,22 +23,26 @@ drift from the rows a reader can already add up.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal, cast
 from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, FromClause, and_, case, exists, func, or_, select
+from sqlalchemy import (
+    ColumnElement,
+    FromClause,
+    RowMapping,
+    and_,
+    case,
+    exists,
+    func,
+    or_,
+    select,
+)
 from sqlalchemy.orm import Session
 
-from ..inventory_search import (
-    COIN_VIEW,
-    CURRENCY_VIEW,
-    MISSING_FIELDS,
-    ViewSpec,
-    view_path,
-)
-from ..inventory_search import search as run_search
+from ..inventory_search import COIN_VIEW, CURRENCY_VIEW, MISSING_FIELDS, view_path
 from ..models import (
     BullionForm,
     CurrencyDetail,
@@ -154,6 +158,13 @@ def _status_disposition_params(params: LiveParams) -> dict[str, str]:
     if params.disposition != "all":
         query["disposition"] = params.disposition
     return query
+
+
+#: Which search view an item's kind is browsed in, as `view_path` splits it:
+#: currency has its own; every other kind is `COIN_VIEW`. Shared by
+#: `cb_grades` and `cb_attributes`, the two reports that group across both
+#: views at once.
+_VIEW_NAME = case((_K.c.code == "currency", CURRENCY_VIEW.name), else_=COIN_VIEW.name)
 
 
 def _source_and_where(
@@ -735,12 +746,14 @@ _SERVICE = GradingService.__table__.alias("gs")
 
 _NO_STRIKE_TYPE = "No strike type"
 _RAW = "Raw"
-_UNGRADED = "Ungraded"
+#: Not "Ungraded": a grade can be a word (Circulated, Ungraded itself) with
+#: no `numeric_value` at all, and this band is exactly "no number to band".
+_NO_NUMERIC_GRADE = "No numeric grade"
 
-#: Band rank -> (label, `grade_min`, `grade_max`). Ungraded (rank 5) has no
-#: entry: there is no search term for "no grade at all" that matches this
-#: report's own reach across every item kind, not only the ones
-#: `missing=grade` (`MISSING_FIELDS`) applies to, so it is never drilled.
+#: Band rank -> (label, `grade_min`, `grade_max`). Rank 5 (no numeric grade)
+#: has no entry: there is no search term for it that matches this report's
+#: own reach across every item kind, not only the ones `missing=grade`
+#: (`MISSING_FIELDS`) applies to.
 #: `49%`/`59%`/`64%` (not `49`/`59`/`64`) so a plus grade at the top of a
 #: band -- 49+, rank 49.5 -- stays inside it, matching the band's own numeric
 #: cutoff on `numeric_value` rather than falling out through `grade_rank`.
@@ -751,8 +764,8 @@ _BANDS: dict[int, tuple[str, str, str]] = {
     4: ("65-70", "65", "70%"),
 }
 
-#: Ungraded (no grade at all, or a grade with no numeric value) ranks last;
-#: reused, unlabeled, in both the SELECT list and the GROUP BY.
+#: No numeric grade (no grade at all, or a grade with no numeric value)
+#: ranks last; reused, unlabeled, in both the SELECT list and the GROUP BY.
 _BAND_RANK = case(
     (or_(_I.c.grade_id.is_(None), _GR.c.numeric_value.is_(None)), 5),
     (_GR.c.numeric_value <= 49, 1),
@@ -761,43 +774,50 @@ _BAND_RANK = case(
     else_=4,
 )
 
-#: `Coin` is every non-currency kind -- `COIN_VIEW`'s own reach exactly --
-#: since the grade, strike type and grading service filters this report
-#: drills through are shared by both search views.
-_KIND_VIEW = case((_K.c.code == "currency", "Currency"), else_="Coin")
-
 
 def _grades_drill(
-    db: Session,
-    spec: ViewSpec,
-    band_rank: int,
-    strike_code: str | None,
-    grading_service_code: str | None,
-    params: GradesParams,
-    expected: int,
+    rows_data: Sequence[RowMapping], row: RowMapping, params: GradesParams
 ) -> str | None:
-    """This band's own search, kept only when it returns exactly this row's count.
+    """This band's own search, kept only when no other row would be swept in.
 
-    A present strike type or grading service narrows the search the same way
-    this row is narrowed; a missing one is left unfiltered, since "no strike
-    type" and "no grading service" ("Raw") are not something the search can
-    ask for directly. Whether leaving it out still names exactly this row
-    depends on what else shares the same band, so the candidate query is run
-    and the link kept only when it agrees (Review Focus #4).
+    `grade_min`/`grade_max` state the band exactly, and a present strike
+    type or grading service narrows the search exactly too -- together they
+    are precisely this row's own group-by key. A missing strike type or
+    grading service is left unfiltered instead, since "no strike type" and
+    "no grading service" ("Raw") are not something the search can ask for
+    directly; leaving it out also lets in any other row that shares this
+    view and band but names a strike type or grading service this row does
+    not filter on.
+
+    Computed from this report's own rows rather than a second query: the
+    group-by already partitions every live item into exactly these
+    buckets, so summing the buckets a wider search would also match is
+    exact, and the drill is kept only when that sum is this row's own
+    count -- no other bucket is being swept in.
     """
+    band_rank = row["band_rank"]
     if band_rank not in _BANDS:
+        return None
+    strike_code = row["strike_code"]
+    service_code = row["service_code"]
+    swept_in = sum(
+        r["items"]
+        for r in rows_data
+        if r["view"] == row["view"]
+        and r["band_rank"] == band_rank
+        and (strike_code is None or r["strike_code"] == strike_code)
+        and (service_code is None or r["service_code"] == service_code)
+    )
+    if swept_in != row["items"]:
         return None
     _, low, high = _BANDS[band_rank]
     query: dict[str, str] = {"grade_min": low, "grade_max": high}
     if strike_code is not None:
         query["strike_type"] = strike_code
-    if grading_service_code is not None:
-        query["grading_service"] = grading_service_code
+    if service_code is not None:
+        query["grading_service"] = service_code
     query.update(_status_disposition_params(params))
-    _, total = run_search(db, spec, params=dict(query))
-    if total != expected:
-        return None
-    return f"/inventory/{spec.name}?{urlencode(query)}"
+    return f"/inventory/{row['view']}?{urlencode(query)}"
 
 
 def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
@@ -811,7 +831,7 @@ def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
     src, where = _live_where(src, params)
 
     columns = [
-        Column("kind", "Kind", "text"),
+        Column("view", "View", "text"),
         Column("band", "Band", "text"),
         Column("strike_type", "Strike type", "text"),
         Column("grading_service", "Grading service", "text"),
@@ -822,7 +842,7 @@ def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
     rows_data = (
         db.execute(
             select(
-                _KIND_VIEW.label("kind"),
+                _VIEW_NAME.label("view"),
                 _BAND_RANK.label("band_rank"),
                 _STRIKE.c.code.label("strike_code"),
                 _STRIKE.c.label.label("strike_label"),
@@ -834,7 +854,7 @@ def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
             .select_from(src)
             .where(*where)
             .group_by(
-                _KIND_VIEW,
+                _VIEW_NAME,
                 _BAND_RANK,
                 _STRIKE.c.code,
                 _STRIKE.c.label,
@@ -842,7 +862,7 @@ def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
                 _SERVICE.c.label,
             )
             .order_by(
-                _KIND_VIEW,
+                _VIEW_NAME,
                 _BAND_RANK,
                 _STRIKE.c.label.asc().nulls_last(),
                 _SERVICE.c.label.asc().nulls_last(),
@@ -860,31 +880,21 @@ def _cb_grades(db: Session, params: GradesParams) -> ReportResult:
     drills: list[str | None] = []
     for row in rows_data:
         band_rank = row["band_rank"]
+        band = _BANDS[band_rank][0] if band_rank in _BANDS else _NO_NUMERIC_GRADE
         rows.append(
             {
-                "kind": row["kind"],
-                "band": _BANDS[band_rank][0] if band_rank in _BANDS else _UNGRADED,
+                "view": "Currency" if row["view"] == CURRENCY_VIEW.name else "Coins",
+                "band": band,
                 "strike_type": row["strike_label"] or _NO_STRIKE_TYPE,
                 "grading_service": row["service_label"] or _RAW,
                 "items": row["items"],
                 "total_cost": row["total_cost"],
             }
         )
-        spec = CURRENCY_VIEW if row["kind"] == "Currency" else COIN_VIEW
-        drills.append(
-            _grades_drill(
-                db,
-                spec,
-                band_rank,
-                row["strike_code"],
-                row["service_code"],
-                params,
-                row["items"],
-            )
-        )
+        drills.append(_grades_drill(rows_data, row, params))
 
     totals: dict[str, object] = {
-        "kind": "All kinds",
+        "view": "All views",
         "band": None,
         "strike_type": None,
         "grading_service": None,
@@ -948,32 +958,42 @@ def _metal_form(kind_code: str, kind_label: str, bullion_form_label: str | None)
 
 
 def _metal_drill(
-    db: Session,
     kind_code: str,
     metal_code: str | None,
     bullion_form_code: str | None,
     params: MetalParams,
     expected: int,
+    bucket_regardless_of_fine_weight: int,
 ) -> str | None:
     """This metal x form's own coin search, kept only when its count agrees.
 
     Currency is never drilled: the currency search has no `metal` or
     `bullion_form` filter at all. For every other kind, the fine-weight
-    condition this report groups by is not something the search can ask
-    for, so the candidate query is run and kept only when it happens to
-    return exactly this row's own count (Review Focus #4).
+    condition this report groups by has no search filter of its own, so the
+    drill is kept only when `bucket_regardless_of_fine_weight` -- the same
+    kind x metal x bullion form bucket's count with no fine-weight
+    condition at all, from one extra grouped query rather than one per row
+    -- equals `expected`: every live item of that bucket already has a fine
+    weight, so nothing outside this row would be swept in.
+
+    A "No metal" row uses `missing=metal` where that field applies to the
+    kind (`MISSING_FIELDS`); where it does not (a set, say), there is no way
+    to ask the search for "no metal" at all, and the row is never drilled.
     """
     if kind_code == "currency":
+        return None
+    if bucket_regardless_of_fine_weight != expected:
         return None
     query: dict[str, str] = {"kind": kind_code}
     if metal_code is not None:
         query["metal"] = metal_code
+    elif MISSING_FIELDS["metal"].applies_to(kind_code):
+        query["missing"] = "metal"
+    else:
+        return None
     if kind_code == "bullion" and bullion_form_code is not None:
         query["bullion_form"] = bullion_form_code
     query.update(_status_disposition_params(params))
-    _, total = run_search(db, COIN_VIEW, params=dict(query))
-    if total != expected:
-        return None
     return f"/inventory/coins?{urlencode(query)}"
 
 
@@ -991,7 +1011,6 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
         .outerjoin(_BF, _BF.c.id == _I.c.bullion_form_id)
     )
     src, where = _live_where(src, params)
-    where.append(_I.c.fine_weight_ozt.is_not(None))
 
     columns = [
         Column("metal", "Metal", "text"),
@@ -1005,7 +1024,9 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
     rows_data = (
         db.execute(
             select(
+                _K.c.id.label("kind_id"),
                 _MT.c.id.label("metal_id"),
+                _BF.c.id.label("bullion_form_id"),
                 _MT.c.code.label("metal_code"),
                 _MT.c.label.label("metal_label"),
                 _MT.c.sort_order.label("metal_sort"),
@@ -1020,17 +1041,17 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
                 _LATEST_PRICE.label("price_per_ozt"),
             )
             .select_from(src)
-            .where(*where)
+            .where(*where, _I.c.fine_weight_ozt.is_not(None))
             .group_by(
+                _K.c.id,
                 _MT.c.id,
+                _BF.c.id,
                 _MT.c.code,
                 _MT.c.label,
                 _MT.c.sort_order,
-                _K.c.id,
                 _K.c.code,
                 _K.c.label,
                 _K.c.sort_order,
-                _BF.c.id,
                 _BF.c.code,
                 _BF.c.label,
             )
@@ -1049,22 +1070,48 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
             columns=columns, rows=[], totals=None, drills=[], notes=[_NOTHING_MATCHES]
         )
 
-    unpriced_metals: set[str] = set()
+    #: The same kind x metal x bullion form buckets, counted with no
+    #: fine-weight condition at all -- one query, not one per row -- so a
+    #: drill can tell whether the bucket the search would actually run
+    #: against (which has no fine-weight filter to offer) holds anything
+    #: this row does not already count.
+    bucket_totals: dict[tuple[int, int | None, int | None], int] = {
+        (r["kind_id"], r["metal_id"], r["bullion_form_id"]): r["items"]
+        for r in db.execute(
+            select(
+                _K.c.id.label("kind_id"),
+                _MT.c.id.label("metal_id"),
+                _BF.c.id.label("bullion_form_id"),
+                func.count().label("items"),
+            )
+            .select_from(src)
+            .where(*where)
+            .group_by(_K.c.id, _MT.c.id, _BF.c.id)
+        )
+        .mappings()
+        .all()
+    }
+
+    unpriced_labels: set[str] = set()
     rows: list[dict[str, object]] = []
     drills: list[str | None] = []
     for row in rows_data:
         price = cast("Decimal | None", row["price_per_ozt"])
         ounces = cast(Decimal, row["ounces"])
+        # Rounded once per row (to the row's own total ounces), not once per
+        # item and then summed -- a row's melt may therefore differ from the
+        # sum of `item_valuation.melt_value` over its items by a cent.
         melt = (
             (ounces * price).quantize(_CENTS, rounding=ROUND_HALF_UP)
             if price is not None
             else None
         )
-        if price is None and row["metal_label"] is not None:
-            unpriced_metals.add(cast(str, row["metal_label"]))
+        metal_label = cast("str | None", row["metal_label"]) or _NO_METAL
+        if price is None:
+            unpriced_labels.add(metal_label)
         rows.append(
             {
-                "metal": row["metal_label"] or _NO_METAL,
+                "metal": metal_label,
                 "form": _metal_form(
                     row["kind_code"], row["kind_label"], row["bullion_form_label"]
                 ),
@@ -1074,14 +1121,15 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
                 "melt": melt,
             }
         )
+        bucket = (row["kind_id"], row["metal_id"], row["bullion_form_id"])
         drills.append(
             _metal_drill(
-                db,
                 row["kind_code"],
                 row["metal_code"],
                 row["bullion_form_code"],
                 params,
                 row["items"],
+                bucket_totals[bucket],
             )
         )
 
@@ -1096,12 +1144,9 @@ def _cb_metal(db: Session, params: MetalParams) -> ReportResult:
     }
 
     notes: list[str] = []
-    if unpriced_metals:
-        names = ", ".join(sorted(unpriced_metals))
-        notes.append(
-            f"No recorded price for {names}; melt value is empty for those "
-            "rows, and the melt total above counts only the priced ones."
-        )
+    if unpriced_labels:
+        names = ", ".join(sorted(unpriced_labels))
+        notes.append(f"Melt value totals only metals with a recorded price: {names}.")
 
     return ReportResult(
         columns=columns, rows=rows, totals=totals, drills=drills, notes=notes
@@ -1141,11 +1186,6 @@ def _mark_query_string(
     query = {key: code}
     query.update(_status_disposition_params(params))
     return f"/inventory/{view_name}?{urlencode(query)}"
-
-
-#: Which search view an item's kind is browsed in, as `view_path` splits it:
-#: currency has its own; every other kind is `COIN_VIEW`.
-_VIEW_NAME = case((_K.c.code == "currency", CURRENCY_VIEW.name), else_=COIN_VIEW.name)
 
 
 def _attribute_rows(db: Session, params: AttributesParams) -> list[dict[str, object]]:
@@ -1237,7 +1277,7 @@ def _cb_attributes(db: Session, params: AttributesParams) -> ReportResult:
     reasoning `dq_issues` gives for skipping its own total).
     """
     columns = [
-        Column("mark", "Kind", "text"),
+        Column("mark", "Mark", "text"),
         Column("label", "Label", "text"),
         Column("view", "View", "text"),
         Column("items", "Items", "count"),
