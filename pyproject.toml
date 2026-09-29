@@ -47,6 +47,13 @@ markers = [
 filterwarnings = [
     "error::DeprecationWarning",
     "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+    # A cartesian product almost always means one alias of the same table
+    # was mixed into a query built on another (e.g. `.tables`'s `ITEM`
+    # alongside the plain ORM `InventoryItem`), silently doubling every sum
+    # -- exactly the bug a first draft of `mn_tax` shipped with. Matched on
+    # the message, not every SAWarning, so an unrelated SQLAlchemy warning
+    # stays a warning.
+    "error:.*cartesian product.*:sqlalchemy.exc.SAWarning",
 ]
 
 # coverage.py records absolute file paths by default. The scanner that reads
