@@ -1,9 +1,39 @@
 # Database design
 
-The schema of the coin and banknote inventory and sales platform, as built:
-PostgreSQL, mapped by SQLAlchemy 2 in `backend/app/models/`, migrated by
-Alembic. The models are the source of truth; this document explains their
-shape and the reasons behind the constraints that are easy to break.
+**What this covers.** The PostgreSQL schema behind the coin and banknote
+inventory and sales platform: every table, what part of the business it
+serves, and the constraints that keep the record honest. The schema is mapped
+by SQLAlchemy 2 in `backend/app/models/` and migrated by Alembic
+(`backend/alembic/`); the models are the source of truth, and this document
+explains their shape and the reasons behind the rules that are easy to break.
+
+**Who it is for.** Anyone changing a model, writing a migration, a report or
+a query against the database, or deciding where a new fact belongs.
+
+**Why it matters.** The database is the business record: what was bought and
+for how much, where each piece is, what it is, what was offered and sold, and
+who changed what. Several guarantees -- an item offered in only one place, cost
+basis never shown to a buyer, history that survives corrections -- live in the
+schema and in a handful of single-writer modules, and are lost if a change
+goes around them.
+
+The sections follow the life of an item:
+
+| § | Part of the business | Tables |
+|---|---|---|
+| 3 | **Buying** -- what was acquired, from whom, at what cost | `inventory_item`, `coin_detail`, `currency_detail`, `vendor`, `seller`, `purchase_order` |
+| 4 | **Vocabulary** -- the shared words every item is classified with | 33 classifier tables, `series_alias`, `series_year_range`, `note_issue`, `reference_alias`, `reference_merge` |
+| 5 | **Identifying** -- certificates, errors, attributes, type catalogs | `item_certification`, `item_error`, `item_attribute_link`, `friedberg_number`, `pcgs_type` |
+| 6 | **Valuing** -- cost stored, worth computed | `composition`, `metal_price`, `valuation_snapshot` |
+| 7 | **Keeping track** -- status, location and who changed what | `item_status_history`, `storage_location`, `location_history`, `item_field_review`, `item_field_source`, `item_field_change` |
+| 8 | **Photographing** | `image`, `image_derivative`, `item_image`, `listing_image`, `shipment_image` |
+| 9 | **Selling** -- offers, lots, auctions, buyers, orders, shipping | `sales_venue`, `listing`, `listing_status_history`, `offer_claim`, `sales_lot`, `sales_lot_item`, `auction`, `auction_lot`, `customer`, `address`, `sales_order` and its children, `shipment` |
+| 10 | **Views** and the public boundary | `coin_inventory`, `currency_inventory`, `item_valuation`, `public_catalog` |
+| 11 | Conventions, constraints, indexes, locking, migrations | |
+| 12 | Shipped reference data | `backend/data/reference/*.json` |
+| 13 | **Logins** | `users` |
+
+Reports (`app.reports`) have no tables of their own: they read these.
 
 ---
 
@@ -12,10 +42,10 @@ shape and the reasons behind the constraints that are easy to break.
 **Classifiers are foreign keys, never free text.** Anything used to search,
 filter, group or report is a reference table with a stable code. `$20 Bill`,
 `$20 Blll` and `$20 B` are three strings and one concept. Labels are not
-copied onto the rows that use them: there is one copy of each, so a rename
-takes effect everywhere the moment it commits. Search speed comes from
-reading the base tables with only the joins a query needs, plus partial
-indexes on the facet columns (§11), not from denormalising.
+copied onto the rows that use them, so a rename takes effect everywhere the
+moment it commits. Search speed comes from reading the base tables with only
+the joins a query needs, plus partial indexes on the facet columns (§11), not
+from denormalising.
 
 **The owner's own words are kept.** `rating` holds the owner's rating as
 written and `weight_note` a weight that is not a single number, beside the
@@ -28,9 +58,10 @@ stack. Weights, which multiply into money, are `NUMERIC(12,6)`.
 What an item is worth moves with spot price and is computed at read time.
 
 **Machine guesses never masquerade as curated facts.** Reference rows, type
-catalog rows, attribute links and errors record whether they were
-`seeded`, `derived` by a rule, or entered `manual`ly (the `provenance_source`
-enum). Per-field provenance on items is `item_field_source` (§7).
+catalog rows, compositions, aliases, attribute links, errors and items record
+whether they were `seeded`, `derived` by a rule, or entered `manual`ly (the
+`provenance_source` enum). Per-field provenance on items is
+`item_field_source` (§7).
 
 **Storage location, cost basis and inventory photographs are never
 customer-visible.** This is an authorization boundary, enforced and tested
@@ -45,9 +76,9 @@ must change together, exactly one module writes them (§11).
 
 ```
   vendor ── purchase_order ── inventory_item ──┬── coin_detail ── pcgs_type
-                                  │  │         └── currency_detail ── friedberg_number
-                                  │  └── parent_item_id (lot lineage)
-                                  │
+  seller ──┘                    │  │           └── currency_detail ── friedberg_number
+                                │  └── parent_item_id (lot lineage)
+                                │
       item_certification, item_error, item_attribute_link   (identification)
       item_status_history, location_history ── storage_location
       item_field_review, item_field_source, item_field_change  (per-field state)
@@ -57,7 +88,8 @@ must change together, exactly one module writes them (§11).
   inventory_item ─┬─ listing ──────────── sales_order_item ── sales_order ── customer ── users
   sales_lot ──────┘   │  ├─ offer_claim         │                 ├─ sales_order_fee
    └─ sales_lot_item  │  ├─ listing_status_history                ├─ sales_order_change
-                      │  └─ auction_lot ── auction                └─ shipment ── shipment_image
+                      │  ├─ listing_image                         └─ shipment ── shipment_image
+                      │  └─ auction_lot ── auction
                       └─ sales_venue          sales_order_item_share ── inventory_item
 ```
 
@@ -71,9 +103,12 @@ still needs a row. What differs lives in 1:1 detail tables.
 
 ## 3. Items and acquisition
 
+The buying side: every physical object the business holds or has held, the
+purchase it came from, and who sold it (`models/core.py`).
+
 ### `inventory_item`
 
-One row per acquired item or lot (`models/core.py`).
+One row per acquired item or lot.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -87,7 +122,7 @@ One row per acquired item or lot (`models/core.py`).
 | `storage_form_id` | fk | single, roll, tube, box, bag, album, … |
 | `piece_count` | int, default 1 | how many objects the row stands for; every weight and value multiplies by it |
 | `country_id` | fk null | issuer |
-| `year_start`, `year_end` | int null | a coin's year, or a range for sets and rolls; always empty on a banknote, whose year is `currency_detail.series_year` |
+| `year_start`, `year_end` | int null | a coin's year, or a range for sets and rolls; empty on a banknote, whose year is `currency_detail.series_year` (the API refuses a year on a note; there is no constraint) |
 | `series_id` | fk null | design series (Morgan Dollar); on the item so facets group on an indexed column of the scanned table |
 | `strike_type_id` | fk null | business, proof, specimen, … — the "PR" of PR69 |
 | `grade_id` | fk null | the number (`65`, `64+`), or a non-numeric grade |
@@ -100,11 +135,11 @@ One row per acquired item or lot (`models/core.py`).
 | `parent_item_id` | fk null → `inventory_item` | the lot this piece was split from |
 | `split_at` | timestamptz null | set on a lot when it is broken into pieces |
 | `deleted_at` | timestamptz null | soft delete: the row should never have existed |
-| `local_catalog_number` | varchar null | the owner's own earlier numbering; not unique |
+| `local_catalog_number` | varchar(64) null, indexed | the owner's own earlier numbering; not unique |
 | `source_title` | varchar(500) | what the seller called the item, kept verbatim |
 | `description` | text | what a person recognizes the item by |
-| `listing_url` | varchar null | the web address of the listing it was bought from; http(s) only when entered or edited |
-| `sellers_item_id` | varchar(64) null, indexed | the seller's own id for the listing it was bought from -- eBay's item number; every piece of one listing carries it, and one listing can be bought in several orders, so **not unique** |
+| `listing_url` | varchar(1000) null | the web address of the listing it was bought from; http(s) only when entered or edited |
+| `sellers_item_id` | varchar(64) null, indexed | the seller's own id for that listing -- eBay's item number; every piece of one listing carries it, and one listing can be bought in several orders, so **not unique** |
 | `rating` | text null | the owner's rating in their own words ("66EPQ Double Quad"); searched and read as evidence, never shown to a buyer |
 | `weight_note` | text null | a weight as written where it is not a single number ("1 oz each") |
 | `item_cost`, `shipping_cost` | numeric(12,2) | cost basis inputs (§6) |
@@ -123,8 +158,8 @@ One row per acquired item or lot (`models/core.py`).
 **`item_code` never changes and is never reused.** It survives listing, sale,
 return and relisting, so one object has one history. It comes from a sequence,
 not from `id`, so a gap left by a deletion is never filled by a new item
-wearing a dead item's code. The expression is written exactly as PostgreSQL
-stores it so the migration drift test stays quiet.
+wearing a dead item's code. The default expression is written exactly as
+PostgreSQL stores it so the migration drift test stays quiet.
 
 **Split lots.** A lot bought as one thing and sold as many is split: each piece
 becomes a child with `parent_item_id` pointing at the lot, and the lot gets
@@ -154,9 +189,9 @@ banknote is refused while the note row holds a value.
 | `coin_detail` | Notes |
 |---|---|
 | `mint_id` | fk `mint` |
-| `variety` | free text |
+| `variety` | varchar(128), free text |
 | `pcgs_type_id` | fk `pcgs_type` (§5) |
-| `pcgs_status` | `unknown` \| `proposed` \| `confirmed` \| `conflicting` (check constraint) |
+| `pcgs_status` | `unknown` \| `proposed` \| `confirmed` \| `conflicting` (check constraint), default `unknown` |
 
 | `currency_detail` | Notes |
 |---|---|
@@ -164,10 +199,10 @@ banknote is refused while the note row holds a value.
 | `series_year`, `series_letter` | a series letter is **not** a mint mark |
 | `series_designation` | **generated**: `1957B`, or `1935` with no letter |
 | `seal_color_id`, `signature_combination_id`, `fed_district_id` | fks |
-| `serial_number` | text, indexed; leading zeros and star suffixes are meaning |
+| `serial_number` | varchar(64), indexed; leading zeros and star suffixes are meaning |
 | `friedberg_id` | fk `friedberg_number` (§5) |
 | `friedberg_status` | same four values as `pcgs_status` |
-| `face_plate_number`, `back_plate_number`, `plate_position` | text; needed to identify a mule, and carry check letters |
+| `face_plate_number`, `back_plate_number`, `plate_position` | varchar(16); needed to identify a mule, and carry check letters |
 | `printing_facility` | `dc` \| `fw` (check constraint), null when not known; read from the face plate when there is one -- `FW` before it is Fort Worth (`app.plates`) |
 
 A series letter (`1957-B`) and a mint mark (`1921-D`) look alike and mean
@@ -175,27 +210,28 @@ different things, so they are separate columns on separate tables.
 
 ### `vendor`, `seller` and `purchase_order`
 
+Where things were bought. The **vendor** is usually the marketplace or house
+(ebay.com, whatnot.com, a mint, a dealer); the **seller** is the account on it
+that actually sold the pieces. One seller sells many purchases.
+
 | `vendor` | Notes |
 |---|---|
 | `name` | unique (`uq_vendor_name`) |
-| `host`, `url` | the site, when there is one |
-| `vendor_kind_id` | fk null: marketplace, auction, mint, dealer |
+| `host` (indexed), `url` | the site, when there is one |
+| `vendor_kind_id` | fk null: marketplace, auction, mint, dealer, private, unknown |
 
 | `seller` | Notes |
 |---|---|
 | `name` | unique (`uq_seller_name`); the API also refuses a name that differs only in case |
 | `store_url` | their store or profile page; http(s) only |
 
-The vendor is often the marketplace; the seller is the account on it that
-sold the pieces. One seller sells many purchases.
-
 | `purchase_order` | Notes |
 |---|---|
 | `vendor_id` | fk, not null |
-| `order_number` | **text**, nullable |
-| `ordered_on` | date |
-| `source_url`, `notes` | |
 | `seller_id` | fk null, indexed: who sold it on the marketplace the vendor names |
+| `order_number` | varchar(128), nullable |
+| `ordered_on` | date, indexed |
+| `source_url`, `notes` | |
 
 `order_number` is text because marketplace and auction identifiers carry
 leading zeros, letters and separators. Many channels issue none, so it is
@@ -205,6 +241,10 @@ nullable with a partial unique index, `uq_purchase_order_vendor_number` on
 ---
 
 ## 4. Reference data and provenance
+
+The shared vocabulary: every word an item is classified with, so that
+search, facets and reports group on one concept rather than on spellings
+(`models/reference.py`).
 
 Every classifier table uses `ReferenceMixin` (`models/base.py`): `id`, `code`
 (unique, `uq_<table>_code`), `label`, `sort_order`, `is_active`, `source`.
@@ -221,12 +261,12 @@ RESTRICT`, so a classifier in use cannot vanish.
 | `currency` | USD, … | `symbol`, `minor_units` |
 | `country` | issuer | `iso_alpha2` |
 | `denomination` | a face value | `currency_id`, `face_value` numeric(12,4), `kind` (`coin` \| `note`); unique `(currency_id, face_value, kind)` |
-| `series` | design series | `year_start`, `year_end`, `applies_to`, `denomination_id`, `needs_evidence`, `seal_color_id`, `note_type_id` |
+| `series` | design series | `year_start`, `year_end`, `applies_to` (text, default `coin`), `denomination_id`, `needs_evidence`, `seal_color_id`, `note_type_id` |
 | `mint` | coin mint | `mark` (may be blank), `country_id` |
 | `grade_scale` | Sheldon, adjectival, note scale | |
 | `strike_type` | business, proof, specimen, reverse proof, … | `prefix`, `suffix` |
 | `grade` | condition | `grade_scale_id`, `numeric_value`, `is_plus`, `grade_rank` (**generated**: number + 0.5 for plus) |
-| `grade_designation` | DCAM, CAM, RD, RB, BN, FS, FB, ... ; EPQ, PPQ | `applies_to` (`coin` \| `currency`): the API refuses the other kind's |
+| `grade_designation` | DCAM, CAM, RD, RB, BN, FS, FB, … ; EPQ, PPQ | `applies_to` (`coin` \| `currency` \| `any`): the API refuses the other kind's |
 | `grading_service` | PCGS, NGC, ANACS, ICG, PMG, SEGS | |
 | `authenticity` | unverified, genuine, counterfeit, questionable | |
 | `item_attribute` | Star Note, No Motto, First Strike, CAC, Details, … | `applies_to`, `attribute_group` (`serial` \| `variety` \| `release` \| `verification` \| `qualifier`) |
@@ -237,27 +277,28 @@ RESTRICT`, so a classifier in use cannot vanish.
 | `metal` | silver, gold, copper, platinum, palladium | `symbol`, `is_precious` |
 | `valuation_basis` | melt, numismatic, manual | |
 | `error_type` | mint or printing error | `applies_to` (`coin` \| `currency` \| `any`) |
-| `item_status` | acquisition axis | |
-| `disposition` | sales axis | |
-| `storage_location_kind` | safe_deposit_box, safe, home, in_transit, sold, … | |
-| `image_role` | obverse, reverse, edge, slab, … | |
-| `vendor_kind` | marketplace, auction, mint, dealer | |
+| `item_status` | acquisition axis (§7) | |
+| `disposition` | sales axis (§7) | |
+| `storage_location_kind` | safe_deposit_box, safe, home, in_transit, consigned, sold, unknown | |
+| `image_role` | obverse, reverse, edge, detail, slab, certificate, … | |
+| `vendor_kind` | marketplace, auction, mint, dealer, private, unknown | |
 | `sales_venue_kind` | own_store, marketplace, live_auction, auction_house | |
 | `carrier` | USPS, UPS, FedEx, DHL | `tracking_url_template` |
-| `sales_order_status` | order lifecycle | |
-| `sales_fee_kind` | fee kinds on a sale | |
-| `shipment_status` | label_created, in_transit, delivered, … | |
+| `sales_order_status` | pending, paid, packed, shipped, delivered, cancelled, refunded | |
+| `sales_fee_kind` | commission, processing, listing, shipping_label, promotion, other | |
+| `shipment_status` | label_created, in_transit, delivered, lost, returned | |
 
 `REFERENCE_MODELS` in `models/__init__.py` lists them in dependency order;
-seeding, export and the `/api/reference/<table>` endpoints all walk it, and a
-test fails if a classifier table is left out.
+seeding, export and the `/api/reference/<table>` endpoints all walk it, and
+`test_every_reference_table_is_registered` fails if a classifier table is
+left out.
 
 **Grade is several facts, not one string.** `PR69DCAM PCGS` is a strike type,
 a number, a designation and a service; stored as text it makes "all my
 MS65-and-better Morgans" unanswerable. The display form is composed by the SQL
 function `grade_display(strike_prefix, strike_suffix, numeric_value, is_plus,
-label, sheldon)`, which the views call; a strike with no prefix takes MS, AU,
-XF … from the number.
+label, sheldon)`, which the views call and `app.grades` mirrors in Python; a
+strike with no prefix takes MS, AU, XF … from the number.
 
 **Series.** `series.label` is the formal name. `series_alias` (`series_id`,
 `alias`, `is_active`, `source`; unique per series) carries what people say —
@@ -300,7 +341,10 @@ all.
 
 ## 5. Identification
 
-Four concepts that are routinely conflated, kept apart:
+What an item *is*, beyond its classifiers: its grading certificate, its
+errors and attributes, and the catalog type it belongs to
+(`models/identification.py`). Four concepts that are routinely conflated,
+kept apart:
 
 | Concept | Scope | Lives in |
 |---|---|---|
@@ -315,9 +359,9 @@ All serials and numbers are text.
 
 | Table | Key and columns | Notes |
 |---|---|---|
-| `item_certification` | `id`; `inventory_item_id`, `grading_service_id`, `cert_number` | one to many: a lot may hold several certified pieces |
+| `item_certification` | `id`; `inventory_item_id`, `grading_service_id`, `cert_number` (indexed) | one to many: a lot may hold several certified pieces |
 | `item_error` | `id`; `inventory_item_id`, `error_type_id`, `details`, `source`, `noted_by_id`, `noted_at` | unique `(inventory_item_id, error_type_id)`: a miscut and an overprint on one bill are two rows, the same error twice is one |
-| `item_attribute_link` | pk `(inventory_item_id, item_attribute_id)`; `source`, `derived_by`, `noted_by_id`, `noted_at`, `removed_at` | many to many |
+| `item_attribute_link` | pk `(inventory_item_id, item_attribute_id)`; `source`, `derived_by`, `noted_by_id`, `noted_at`, `removed_at` | many to many; `derived_by` names the rule (`serial_pattern`, `attribute_rule`) |
 
 **A removed attribute stays removed.** A rule reading the serial would put a
 deleted link straight back, so a person removing one sets `removed_at`; every
@@ -327,14 +371,14 @@ reader skips such rows and every rule leaves them alone.
 
 A Friedberg or PCGS number identifies a *type*, not an object. Both are
 commercial catalogs, so both tables are **curated as notes and coins
-arrive**, not seeded. Resolution against them is a proposal, never a
-derivation: the lookup returns ranked candidates, a person confirms, and
-confirmation stamps `verified_by_id` and `verified_at` so the next lookup can
-trust the row.
+arrive**, not seeded (see `CLAUDE.md`, *Reference data*). Resolution against
+them is a proposal, never a derivation: the lookup returns ranked candidates,
+a person confirms, and confirmation stamps `verified_by_id` and `verified_at`
+so the next lookup can trust the row.
 
 | `friedberg_number` | Notes |
 |---|---|
-| `fr_number` | text, unconditionally unique (`uq_friedberg_number_fr_number`) |
+| `fr_number` | varchar(32), unconditionally unique (`uq_friedberg_number_fr_number`) |
 | `base_number`, `district_letter` | |
 | `note_type_id`, `denomination_id`, `series_year`, `series_letter`, `seal_color_id`, `signature_combination_id` | |
 | `size_class` | `large` \| `small` \| `fractional` (check constraint) |
@@ -345,19 +389,19 @@ trust the row.
 **Identity is partially unique.** `uq_friedberg_number_identity` is unique on
 `(denomination_id, series_year, series_letter, note_type_id, district_letter,
 web_press, signature_combination_id, seal_color_id, printing_facility)`
-**`NULLS NOT DISTINCT`**,
-only where denomination, year and note type are known. Partial, because a
-plain unique index would reject two differently half-known types, which is
-normal in a catalog built by hand. `NULLS NOT DISTINCT`, because most series
-have no letter and PostgreSQL otherwise treats two NULLs as different, so the
-index would never fire and one type could be recorded twice under two numbers.
-That makes every column that tells two types apart a member: many series
-differ only by signatures, and wartime issues only by seal color.
+**`NULLS NOT DISTINCT`**, only where denomination, year and note type are
+known. Partial, because a plain unique index would reject two differently
+half-known types, which is normal in a catalog built by hand. `NULLS NOT
+DISTINCT`, because most series have no letter and PostgreSQL otherwise treats
+two NULLs as different, so the index would never fire and one type could be
+recorded twice under two numbers. That makes every column that tells two
+types apart a member: many series differ only by signatures, and wartime
+issues only by seal color.
 
 | `pcgs_type` | Notes |
 |---|---|
 | `pcgs_number` | int, unique (`uq_pcgs_type_number`) |
-| `description`, `denomination_id`, `series`, `variety`, `year`, `mint_id` | |
+| `description`, `denomination_id`, `series` (text), `variety`, `year`, `mint_id` | |
 | `source`, `verified_by_id`, `verified_at` | |
 
 `uq_pcgs_type_identity` is unique on `(denomination_id, year, mint_id,
@@ -366,6 +410,9 @@ variety)` where denomination, year and mint are known.
 ---
 
 ## 6. Money and valuation
+
+What an item cost is stored once and never restated; what it is worth is
+computed from the latest spot price (`models/valuation.py`, `models/core.py`).
 
 ### Cost basis: stored
 
@@ -377,7 +424,8 @@ total_cost = item_cost + shipping_cost + sales_tax
 
 Both are `GENERATED ALWAYS AS … STORED`, so they cannot drift or be written.
 PostgreSQL forbids one generated column referencing another, so the tax
-expression is repeated inside `total_cost` from one constant in `core.py`.
+expression is repeated inside `total_cost` from one constant, `_TAX_EXPR` in
+`core.py`.
 
 `tax_rate` and `tax_includes_shipping` are columns, stamped from the
 `SALES_TAX_RATE` and `SALES_TAX_INCLUDES_SHIPPING` settings when the row is
@@ -402,8 +450,8 @@ weights non-negative, and fine within gross.
 
 Precious metals are sold by the troy ounce (31.1035 g), copper rounds often by
 the avoirdupois ounce (28.35 g); the unit a source meant should be recorded,
-not assumed. `shipment.weight_oz` is a postal weight in avoirdupois ounces and
-is unrelated.
+not assumed. `shipment.weight_oz` (numeric(10,3)) is a postal weight in
+avoirdupois ounces and is unrelated.
 
 ### `composition`
 
@@ -411,8 +459,9 @@ A public-fact lookup from legislation and mint specifications: a 1963 US dime
 is 90% silver because the law said so. `denomination_id`, `country_id`,
 `year_from`, `year_to` (null = current), `metal_id`, `fineness`,
 `gross_weight_ozt`, `fine_weight_ozt`, `note`, `source`. Unique
-`(denomination_id, country_id, year_from, metal_id)`. The item's own metal,
-fineness and weights override it where the table cannot know better.
+`(denomination_id, country_id, year_from, metal_id)` (`uq_composition_span`).
+The item's own metal, fineness and weights override it where the table cannot
+know better.
 
 ### Value: computed
 
@@ -426,9 +475,10 @@ profit_pct     = profit / nullif(total_cost, 0)
 
 These are columns of the `item_valuation` view, not of any table, because spot
 price is an input and it moves. `metal_price` (`metal_id`, `quoted_at`,
-`price_per_ozt` numeric(12,4), `source`; unique per metal and time) is a time
-series, so "as of" questions are answerable; `ix_metal_price_latest` on
-`(metal_id, quoted_at DESC)` serves the latest-quote lookup.
+`price_per_ozt` numeric(12,4), `source` text default `manual`; unique per
+metal and time) is a time series, so "as of" questions are answerable;
+`ix_metal_price_latest` on `(metal_id, quoted_at DESC)` serves the
+latest-quote lookup.
 
 ### `valuation_snapshot`
 
@@ -442,14 +492,18 @@ does not restate a past valuation.
 
 ## 7. Lifecycle, location and per-field state
 
+Keeping track of each object: whether it has arrived, where it is now and
+was before, and which of its fields a person confirmed, a pass filled in, or
+someone changed (`models/lifecycle.py`).
+
 ### Two axes
 
 How an item **came in** and how it **goes out** are different questions;
 one column would make "received and sold" unrepresentable.
 
 ```
-inventory_item.status_id       ordered → received → (canceled | returned | missing)
-inventory_item.disposition_id  held → listed → sold → shipped → delivered
+inventory_item.status_id       ordered → received → (canceled | returned | missing); also unknown
+inventory_item.disposition_id  held → listed → sold → shipped → delivered; also returned_by_buyer
 ```
 
 `missing` means paid for, not cancelled, never arrived. Status is per item,
@@ -473,16 +527,18 @@ Disposition changes caused by offering and selling belong to
 
 | `storage_location` | Notes |
 |---|---|
-| `storage_location_kind_id`, `institution`, `identifier`, `notes` | |
+| `storage_location_kind_id`, `institution`, `identifier` (box or container number), `notes` | |
 
-Unique `(storage_location_kind_id, institution, identifier)`, plus
+Unique `(storage_location_kind_id, institution, identifier)`
+(`uq_storage_location_identity`), plus
 `uq_storage_location_identity_no_identifier` on `(storage_location_kind_id,
 institution) WHERE identifier IS NULL`: the constraint alone never fires when
 `identifier` is null, and two concurrent first consignments to one auction
 house would otherwise each create a location.
 
 `location_history` (`inventory_item_id`, `storage_location_id`, `moved_at`,
-`moved_by_id`, `note`) answers "where was this in March".
+`moved_by_id`, `note`) answers "where was this in March". A sale writes two
+rows: in transit, then sold.
 
 ### Per-field state
 
@@ -492,24 +548,6 @@ house would otherwise each create a location.
 | `item_field_source` (`field_name`, `derived_by`, `derived_at`) | a pass filled this field from known facts and may refresh it; `derived_by = 'held'` means a person emptied it on purpose and no pass may fill it | `(inventory_item_id, field_name)` |
 | `item_field_change` (`field_name`, `old_value`, `new_value` JSONB, `changed_by_id`, `changed_at`) | a person's edit changed this field -- one row per change, never updated | none; indexed on `(inventory_item_id, field_name, changed_at)` |
 
-`item_field_change` is written by the item edit and the bulk edit
-(`app.field_changes`), in the same transaction as the change, only for a field
-whose value actually moved. Values are stored as the item editor sees them
-(codes for classifiers, strings for money). It is what the editor reads to say
-*who* changed a field it warns about; the passes, receiving and offering do
-not write it, so a field changed that way has no entry.
-
-`PUT /api/inventory/{id}/errors` logs the item's error set too, as one
-`errors` row holding the whole set before and after (`[{error_type,
-details}]`), since that endpoint replaces the set; saving an unchanged set
-logs nothing.
-
-The item editor's **History** panel reads it together with
-`item_status_history` and `location_history` (`app.item_history`,
-`GET /api/inventory/{id}/history`, admin-only): one list, newest first, with
-classifier codes shown by their labels and a move's origin taken from the
-previous move's destination.
-
 Per field, because attribution works field by field and a half-done item is
 the normal state. No `item_field_source` row means the value was recorded
 rather than filled by a pass, and no pass touches it; saving a field by hand
@@ -518,16 +556,34 @@ constraint, since which fields matter will change. The passes are listed in
 [system-administration.md](system-administration.md), *The passes over stored
 items*.
 
+`item_field_change` is written by `PATCH /api/inventory/{id}` and the bulk
+edit (`app.field_changes`), in the same transaction as the change, only for a
+field whose value actually moved. Values are stored as the item editor sees
+them (codes for classifiers, strings for money). It is what the editor reads
+to say *who* changed a field it warns about; the passes, receiving and
+offering do not write it, so a field changed that way has no entry.
+`PUT /api/inventory/{id}/errors` logs the item's error set too, as one
+`errors` row holding the whole set before and after (`[{error_type,
+details}]`), since that endpoint replaces the set; saving an unchanged set
+logs nothing.
+
+The item editor's **History** panel reads it together with
+`item_status_history` and `location_history` (`app.item_history`,
+`GET /api/inventory/{id}/history`, manager-only): one list, newest first,
+with classifier codes shown by their labels and a move's origin taken from the
+previous move's destination.
+
 ---
 
 ## 8. Images
 
-The **file** and its **use** are separate, because one photograph may serve
-several purposes with different visibility (`models/images.py`).
+Photographs of items, of what is shown on a listing, and of outgoing parcels
+(`models/images.py`). The **file** and its **use** are separate, because one
+photograph may serve several purposes with different visibility.
 
 | Table | Columns | Notes |
 |---|---|---|
-| `image` | `sha256` (unique), `storage_key`, `media_type`, `byte_size`, `width`, `height`, `captured_at`, `source_ref` | the file, stored once, content-addressed |
+| `image` | `sha256` (unique), `storage_key`, `media_type`, `byte_size`, `width`, `height`, `captured_at`, `source_ref` | the file, stored once, content-addressed; `source_ref` is the original filename |
 | `image_derivative` | `image_id`, `kind` (`thumb` \| `web`), `storage_key`, `width`, `height` | unique `(image_id, kind)` |
 | `item_image` | `inventory_item_id` (**nullable**), `image_id`, `image_role_id`, `is_primary`, `sort_order`, `note` | unique `(inventory_item_id, image_id)` |
 | `listing_image` | `listing_id`, `image_id`, `sort_order` | unique pair |
@@ -535,13 +591,16 @@ several purposes with different visibility (`models/images.py`).
 
 Three link tables rather than a polymorphic subject: real foreign keys, each
 constrained on its own. `item_image.inventory_item_id` is nullable because
-photographs exist before anyone decides what they show. `uq_item_image_primary`
-allows at most one `is_primary` per item; **`app.image_links` is the only
-writer of `item_image`**, because promoting a photograph means demoting the
-incumbent first in the same transaction.
+photographs exist before anyone decides what they show; a file named
+`<item_code>_<nn>` is linked by `app.photo_import`, and the console places the
+rest. `uq_item_image_primary` allows at most one `is_primary` per item;
+**`app.image_links` is the only writer of `item_image`**, because promoting a
+photograph means demoting the incumbent first in the same transaction.
 
-Bytes live in object storage, never in the database; a `StorageBackend`
-abstracts local disk from S3-compatible storage.
+Bytes live in file storage, never in the database. `app.storage` defines a
+small `StorageBackend` interface (`put`, `get`, `delete`, `exists`); the one
+implementation is `LocalStorage` on local disk, and an S3-compatible bucket
+can be added behind the same interface without touching callers.
 
 ### Metadata is stripped at ingest
 
@@ -554,7 +613,7 @@ kept. `app.imaging` removes metadata when an image enters the system:
 3. strip    drop every metadata segment
 4. verify   reopen and assert none remains -- fail the ingest if any does
 5. hash     sha256 of the cleansed file; that is the identity
-6. store    object storage; database records metadata only
+6. store    file storage; database records metadata only
 ```
 
 Rotation comes before stripping because orientation is itself metadata. Step 4
@@ -565,6 +624,10 @@ Originals are never served; public requests are answered only from
 ---
 
 ## 9. Selling
+
+Offering items on the web store and other platforms, grouping them into lots,
+running auctions, and recording buyers, orders, fees and shipments
+(`models/sales.py`, `models/auctions.py`).
 
 `sales_order_item → listing → inventory_item` is one foreign key chain to any
 kind of item, which is what the single inventory table buys. The order tables
@@ -578,7 +641,7 @@ Installation data, not shipped reference data.
 | Column | Notes |
 |---|---|
 | `code` (unique), `name`, `sales_venue_kind_id` | |
-| `is_own_store` | true on exactly one row (`uq_sales_venue_own_store`, partial on `is_own_store`); a migration creates it |
+| `is_own_store` | true on exactly one row (`uq_sales_venue_own_store`, partial on `is_own_store`); the baseline migration creates it (`store`, "Web store") |
 | `vendor_id` | fk null, unique: the same business as a purchase source, so eBay is one partner either way |
 | `account_handle`, `listing_url_template` | |
 | `commission_rate`, `processing_rate` | numeric(6,4) fractions in `[0, 1]` |
@@ -596,7 +659,7 @@ What is offered, where, and at what price.
 | Column | Notes |
 |---|---|
 | `inventory_item_id` / `sales_lot_id` | exactly one is set (`ck_listing_item_xor_lot`) |
-| `price`, `currency_id`, `quantity_available` | a lot listing has quantity ≤ 1 |
+| `price`, `currency_id`, `quantity_available` | a lot listing has quantity ≤ 1 (`ck_listing_lot_quantity_one`) |
 | `sales_venue_id` | not null: every offer is attributable to a platform |
 | `format` | `fixed_price` \| `auction` |
 | `status` | `active` \| `paused` \| `ended` |
@@ -613,8 +676,8 @@ reuse of an ended one, and `ended_at` is set once.
 
 `listing_status_history` (`listing_id`, `from_status`, `to_status`,
 `changed_at`, `note`) is the offer timeline — the opening row, each pause,
-resumption and ending. `note` says "sold" or "withdrawn", which status alone
-cannot.
+resumption and ending. `note` says why in words ("sold", "withdrawn",
+"paused for listing #12"), which status alone cannot.
 
 ### `offer_claim`: an item is offered in one place at a time
 
@@ -647,7 +710,7 @@ inventory item, which would count it beside its own members.
 | Table | Columns | Notes |
 |---|---|---|
 | `sales_lot` | `title`, `description`, `status` (`assembling` \| `offered` \| `sold` \| `dissolved`), `version` | editable only while `assembling`; never reopened, a re-offer is a new lot |
-| `sales_lot_item` | `sales_lot_id`, `inventory_item_id`, `released_at`, timestamps | unique pair; `uq_sales_lot_item_open` on `inventory_item_id WHERE released_at IS NULL` keeps an item in one open lot |
+| `sales_lot_item` | `sales_lot_id`, `inventory_item_id`, `released_at`, `created_at`, `updated_at` | unique pair; `uq_sales_lot_item_open` on `inventory_item_id WHERE released_at IS NULL` keeps an item in one open lot |
 
 Membership is released, not deleted: which coins were in a lot that sold is
 part of the sale's record. `app.lot_writes` assembles lots; once offered they
@@ -663,9 +726,13 @@ belong to `app.offering_writes`.
 An auction-format listing belongs to an auction; a timed eBay auction is an
 auction with one lot. `consigned` and `consigned_on` apply to auction houses,
 which take physical custody; custody is tracked by `consigned_on IS NOT NULL`,
-not by status. **`app.auctions` is the only writer of both tables**; it offers
+not by status. **`app.auctions` is the only writer of every auction
+transition** -- status, custody, and which `auction_lot` rows exist. It offers
 and ends through `offering_writes`, moves items through
-`lifecycle_writes.set_location`, and settles through `sales_writes`.
+`lifecycle_writes.set_location`, and settles through
+`sales_writes.record_sale_lines`. `routers.auctions` writes only what carries
+no consequence: it creates a `draft` auction and edits an auction's wording
+and dates and a lot's number and reserve.
 
 ### Customers and addresses
 
@@ -690,34 +757,35 @@ per customer and kind.
 
 | Table | Columns | Notes |
 |---|---|---|
-| `sales_order` | `customer_id`, `sales_venue_id`, `external_order_id`, `sales_order_status_id`, `shipping_address_id`, `billing_address_id`, `total_amount`, `placed_at`, `notes`, `placed_by_id`, `version` | `placed_by_id` is the buyer or an administrator acting for them |
-| `sales_order_item` | `sales_order_id`, `listing_id`, `quantity` (> 0), `unit_price`, `item_snapshot` (jsonb), `snapshot_at` | price and item description captured at sale, so later edits never rewrite history |
-| `sales_order_item_share` | `sales_order_item_id`, `inventory_item_id`, `amount`, `fee_amount` | unique pair; one row per item on every line |
+| `sales_order` | `customer_id`, `sales_venue_id`, `external_order_id`, `sales_order_status_id`, `shipping_address_id`, `billing_address_id`, `total_amount`, `placed_at`, `notes`, `placed_by_id`, `version` | `placed_by_id` is the buyer or a manager acting for them |
+| `sales_order_item` | `sales_order_id`, `listing_id`, `quantity` (> 0), `unit_price`, `item_snapshot` (jsonb), `snapshot_at` | price and item description captured at sale (`app.sale_snapshot`), so later edits never rewrite history |
+| `sales_order_item_share` | `sales_order_item_id`, `inventory_item_id`, `amount`, `fee_amount` (default 0) | unique pair; one row per item on every line |
 | `sales_order_fee` | `sales_order_id`, `sales_fee_kind_id`, `amount`, `note` | actual fees from the platform's statement |
-| `sales_order_change` | `sales_order_id`, `changed_at`, `changed_by_id`, `change`, `listing_id`, `from_value`, `to_value` | the order's edit history |
+| `sales_order_change` | `sales_order_id`, `changed_at`, `changed_by_id`, `change`, `listing_id`, `from_value`, `to_value` | the order's edit history; `change` is the `sales_order_change_kind` enum |
 | `shipment` | `sales_order_id`, `carrier_id`, `shipment_status_id`, `tracking_number`, `service_level`, `shipped_at`, `delivered_at`, `cost`, `insured_value`, `weight_oz` | on the order, one to many, so partial shipment works |
 
 **Shares are the one answer to "which items did this order carry".** A
 single-item line has one share, a lot line one per member; shares sum exactly
 to their line (`app.allocation`), so no cent is lost. Net payout is
 `total_amount − sum(sales_order_fee.amount)`, computed when asked, never
-stored. `app.order_writes` writes orders, lines and share amounts, and is the
-one place stock moves; `app.sales_writes` writes `sales_order_fee` and
-`fee_amount`.
+stored. `app.order_writes` writes orders, lines and share rows with their
+amounts, and is the one place stock moves; `app.sales_writes` writes
+`sales_order_fee` and fills in `fee_amount`.
 
 ---
 
 ## 10. Views and access boundaries
 
-Four views, defined in `models/views.py` and created by migrations (Alembic
-autogenerate reflects tables only). All exclude split and soft-deleted items.
+Four views, defined in `models/views.py` (`CREATE_VIEWS`, `DROP_VIEWS`) and
+created by migrations, since Alembic autogenerate reflects tables only. All
+exclude split and soft-deleted items.
 
 | View | Shows |
 |---|---|
 | `coin_inventory` | kinds coin, bullion, set, medal, token, with coin detail and the composed grade |
 | `currency_inventory` | kind currency, with note detail and the Friedberg number |
 | `item_valuation` | melt, reported value, profit and profit % from the latest spot price (§6) |
-| `public_catalog` | active, fixed-price, own-store listings with stock, and the public item fields |
+| `public_catalog` | active, fixed-price, own-store **item** listings with `quantity_available > 0`, and the public item fields; lot listings are not in it |
 
 **Nothing in the application reads them.** `app.inventory_search` queries the
 base tables with only the joins each query needs, which is far faster than
@@ -726,11 +794,12 @@ what each inventory and the public catalog contain.
 
 **`public_catalog` describes the authorization boundary; code enforces it.**
 The view must never expose storage location, `local_catalog_number`, cost
-basis, purchase details, lineage or inventory photographs, and
-`test_public_catalog_never_exposes_private_columns` asserts its columns
-against `PUBLIC_CATALOG_FORBIDDEN_COLUMNS`. What actually keeps those fields
-from a buyer is `routers/catalog.py:to_catalog_item`, which builds the public
-shape field by field, with `CatalogItemOut` and
+basis, purchase details, the owner's `rating`, lineage or inventory
+photographs, and `test_public_catalog_never_exposes_private_columns` asserts
+its columns against `PUBLIC_CATALOG_FORBIDDEN_COLUMNS` (which lists no image
+column, because the view selects none). What actually keeps those fields from
+a buyer is `routers/catalog.py:to_catalog_item`, which builds the public shape
+field by field, with `CatalogItemOut` and
 `test_catalogue_never_exposes_cost_basis_or_location`. Anything later built on
 the view inherits the view's rules, which is why it is kept honest.
 
@@ -743,7 +812,33 @@ exception). Foreign keys `<table>_id`. Booleans read as assertions
 (`is_active`). Timestamps `*_at`, dates `*_on`. Constraints `ck_…`, unique
 constraints and indexes `uq_…`, other indexes `ix_…`. Money
 `NUMERIC(12,2)`, rates `NUMERIC(6,4)`, weights `NUMERIC(12,6)`, all
-timestamps `timestamptz`.
+timestamps `timestamptz`. Most tables carry `created_at` and `updated_at`
+(`TimestampMixin`); history rows carry their own event time instead.
+
+**Enumerations.** Closed, code-defined vocabularies are native PostgreSQL
+enums (stored by value, `models/base.py:enum_column`); open vocabularies are
+reference tables (§4).
+
+| Enum | Values | Used by |
+|---|---|---|
+| `provenance_source` | seeded, derived, manual | reference rows, catalogs, links, items |
+| `applies_to` | coin, currency, any | `grade_designation`, `item_attribute`, `error_type` |
+| `attribute_group` | serial, variety, release, verification, qualifier | `item_attribute` |
+| `denomination_kind` | coin, note | `denomination` |
+| `derivative_kind` | thumb, web | `image_derivative` |
+| `shipment_image_kind` | packed, label, handover, damage | `shipment_image` |
+| `listing_format` | fixed_price, auction | `listing` |
+| `listing_status` | active, paused, ended | `listing`, `listing_status_history` |
+| `offer_claim_state` | active, paused, released | `offer_claim` |
+| `sales_lot_status` | assembling, offered, sold, dissolved | `sales_lot` |
+| `auction_status` | draft, scheduled, consigned, closed, settled, cancelled | `auction` |
+| `auction_lot_result` | sold, unsold, withdrawn | `auction_lot` |
+| `address_kind` | shipping, billing | `address` |
+| `sales_order_change_kind` | placed, line_added, line_removed, quantity, unit_price, customer, notes, status, total | `sales_order_change` |
+| `user_role` | manager, customer | `users` |
+
+Four short vocabularies are text columns with a check constraint instead:
+`pcgs_status`, `friedberg_status`, `size_class`, `printing_facility`.
 
 **Foreign keys.** To reference tables: `ON DELETE RESTRICT`. Detail, history
 and link rows owned by an item: `CASCADE`. References to `users` from audit
@@ -753,9 +848,9 @@ removing a member of staff never erases the record of what they did.
 **Check constraints worth knowing.** Non-negative `item_cost`,
 `shipping_cost`, prices, fees, share amounts and shipment costs;
 `piece_count > 0`; year ranges ordered; fineness a fraction; fine weight
-within gross; `pcgs_status`, `friedberg_status` and `size_class`
-vocabularies; `printing_facility` (`dc` or `fw`) on `currency_detail` and
-`friedberg_number`; `ck_listing_item_xor_lot`; address validity ordered.
+within gross; the `pcgs_status`, `friedberg_status`, `size_class` and
+`printing_facility` vocabularies; `ck_listing_item_xor_lot` and
+`ck_listing_lot_quantity_one`; address validity ordered.
 
 **Partial and special unique indexes.**
 
@@ -779,9 +874,14 @@ GIN on `attributes`; and partial facet indexes on kind, grade, metal, country,
 status, disposition and bullion form `WHERE split_at IS NULL`, which let the
 planner answer a facet `GROUP BY` with an index-only scan. Time-ordered
 history indexes on `item_status_history`, `location_history`,
-`listing_status_history` and `valuation_snapshot`; `ix_metal_price_latest`.
-Expression indexes are written exactly as PostgreSQL stores them, casts
-included, or the drift test reports them changed on every run.
+`listing_status_history`, `item_field_change` and `valuation_snapshot`;
+`ix_metal_price_latest`. Expression indexes and defaults are written exactly
+as PostgreSQL stores them, casts included, or the drift test reports them
+changed on every run.
+
+**Extension.** The baseline enables `fuzzystrmatch`, for `levenshtein()` in
+the data-quality check that finds a serial one character off another in the
+same order (`app.issues`).
 
 **Optimistic concurrency.** `inventory_item`, `listing`, `sales_venue`,
 `sales_lot`, `sales_order` and `auction` carry `version`, used as
@@ -792,7 +892,7 @@ a form would be wrong. `listing.quantity_available` is excluded: it is a
 counter decremented under a row lock.
 
 **Row locks.** Anything that moves stock or claims locks the affected rows
-`FOR UPDATE` in one fixed order — lot row, then items by ascending id, then
+`FOR UPDATE` in one fixed order — lot rows, then items by ascending id, then
 listings by ascending id, each kind in one statement — through
 `offering_writes.lock_for_sale`, so concurrent buyers can neither oversell nor
 deadlock. See [lock-order-design.md](specs/lock-order-design.md). Tests drive
@@ -807,19 +907,21 @@ with the lock removed.
 | `app.offering_writes` | `listing.status`, `listing.ended_at`, `offer_claim`, `listing_status_history`, `sales_lot.status`, `sales_lot_item.released_at`, and the dispositions they cause |
 | `app.lot_writes` | lot membership while `assembling` |
 | `app.image_links` | `item_image` |
-| `app.auctions` | `auction`, `auction_lot` |
-| `app.order_writes` | order lines and share amounts; stock decrements |
+| `app.auctions` | auction transitions (`auction.status`, custody, `auction_lot` rows) |
+| `app.order_writes` | order lines, share rows and amounts; stock decrements |
 | `app.sales_writes` | `sales_order_fee`, share `fee_amount` |
 | `app.field_sources` | `item_field_source` |
 | `app.field_changes` | `item_field_change` |
 
 **Migrations.** The first Alembic revision is a baseline:
-`backend/alembic/baseline.sql`, generated by `pg_dump` from the schema itself.
-Every later schema change is a revision on top of it. `tests/test_migrations.py`
-builds a database by running the migrations alone and asserts that
-autogenerate finds no difference from the models, and that its views and
-`grade_display()` equal the definitions in `app.models.views` and
-`app.grades`, from which the `create_all` test database is built. A
+`backend/alembic/baseline.sql`, generated by `pg_dump` from the schema itself,
+holding the tables, views, types, `grade_display()` and the rows a fresh
+install needs. Every later schema change is a revision on top of it in
+`backend/alembic/versions/`. `tests/test_migrations.py` builds a database by
+running the migrations alone and asserts that autogenerate finds no
+difference from the models, that every check constraint is carried, and that
+its views and `grade_display()` equal the definitions in `app.models.views`
+and `app.grades`, from which the `create_all` test database is built. A
 migration that changes a view runs `DROP_VIEWS` and then `CREATE_VIEWS`. The
 baseline cannot be downgraded; to go back, restore a backup.
 
@@ -830,9 +932,9 @@ baseline cannot be downgraded; to go back, restore a backup.
 Most reference rows are facts true everywhere — Sheldon grades, US mints, the
 twelve Federal Reserve districts, the composition of a pre-1965 dime — so they
 live in versioned JSON under `backend/data/reference/` and load into any
-installation:
+installation. From `backend`, with the `ccwebdb` environment active:
 
-```
+```cmd
 python -m app.seeding load [--only <table> ...]              idempotent
 python -m app.seeding export --out <dir> [--source seeded derived] [--include-inactive]
 ```
@@ -853,10 +955,10 @@ A load never overwrites a `manual` row — a person's correction outranks a
 shipped default — and a merged code (`reference_merge`) is skipped.
 
 Closed vocabularies the product defines rather than the world —
-`sales_venue_kind`, `sales_fee_kind` — are seeded by the baseline
+`sales_venue_kind` and `sales_fee_kind` — are seeded by the baseline
 migration, as are the own-store `sales_venue` row and the six `strike_type`
 rows (business, proof, specimen, reverse proof, enhanced reverse proof,
-special mint set).
+special mint set). A classifier with no seed file is skipped by the loader.
 
 Seed files hold facts only, never a catalog publisher's numbering or prices
 (`CLAUDE.md`, *Reference data*).
@@ -865,14 +967,15 @@ Seed files hold facts only, never a catalog publisher's numbering or prices
 
 ## 13. Users
 
-`users` is the login table: `email` (unique), `full_name`, `hashed_password`,
-`role` (`manager` \| `customer`), `is_active`, `token_version`, `created_at`.
-Managers see cost basis; customers do not. Tokens are stateless JWTs
-carrying `token_version`, which is bumped on every password change so that a
-reset revokes every token issued before it.
+`users` is the login table (`models/scaffold.py`): `email` (unique),
+`full_name`, `hashed_password`, `role` (`manager` \| `customer`),
+`is_active`, `token_version`, `created_at`. Managers run the console and see
+cost basis; customers do not. Tokens are stateless JWTs carrying
+`token_version`, which is bumped on every password change so that a reset
+revokes every token issued before it.
 
 It is referenced by `customer.user_id` and by the audit columns on history,
-review, catalog, error, attribute, merge and order-change rows, all
+review, catalog, error, attribute, merge and order rows, all
 `ON DELETE SET NULL`.
 
 ---
@@ -883,3 +986,4 @@ review, catalog, error, attribute, merge and order-change rows, all
   from `sales_venue` when shown.
 - No stored net payout or realized gain; both are computed from shares and
   fees when asked.
+- No S3-compatible storage backend yet; images are on local disk (§8).

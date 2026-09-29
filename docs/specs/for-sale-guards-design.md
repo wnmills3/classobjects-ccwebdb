@@ -1,9 +1,18 @@
 # Warning before a change to an item that is for sale
 
-An item a buyer is looking at, or has agreed to buy, must not change
-underneath them without someone saying they know. Every write path that can
-change such an item asks `sale_state.guard` first and refuses with **409**
-until the request carries `acknowledge_for_sale`.
+An item a buyer is looking at in the shop or on another platform, or has
+already agreed to buy, must not change underneath them without someone
+saying they know: its description, grade, errors and photographs are what
+the buyer is being shown, and a coin marked missing cannot be delivered. So
+every write that can change such an item is refused until the person making
+it acknowledges the item is for sale.
+
+Managers meet it in the management console wherever an item is edited: the
+item editor, the inventory pages' bulk edit bar, splitting, the errors panel,
+receiving, the Photos page and the Vocabularies merge. Each shows the
+listings and orders involved and asks for a tick or a confirmation. On the
+server, every such endpoint asks `sale_state.guard` first and answers
+**409** until the request carries `acknowledge_for_sale`.
 
 ## What "for sale" means
 
@@ -54,9 +63,11 @@ operator would tick a box and then be refused anyway.
 | `POST /api/inventory/{id}/split` | listings only (`kinds={"listing"}`) | body (`SplitRequest`) |
 | `PUT /api/inventory/{id}/errors` | always | body (`ItemErrorsRequest`) |
 | `POST /api/images` | when `inventory_item_id` names an item | multipart `Form` field |
+| `POST /api/images/from-url` | always (the item it is filed on) | body |
 | `POST /api/images/{image_id}/links` | always | body |
 | `DELETE /api/images/{id}` | on every item the image is linked to | query parameter |
-| `PATCH /api/image-links/{link_id}` | always | body |
+| `PATCH /api/image-links/{link_id}` | always (role, primary) | body |
+| `POST /api/image-links/{link_id}/move` | both the item it leaves and the item it joins, one acknowledgement | body |
 | `DELETE /api/image-links/{link_id}` | detach | query parameter |
 | `POST /api/reference/{table}/{code}/merge` | any affected item for sale | body (`ReferenceMergeIn`) |
 
@@ -78,8 +89,10 @@ and a DELETE has no reliable body, so its flag is a query parameter.
 - **Item errors** are guarded because the sale snapshot copies the error set:
   it is part of what a sale records.
 - **Photographs** are guarded because the shop serves an item's primary
-  image; attaching, detaching, re-roling, promoting and deleting all change
-  what a buyer sees. An unattached upload is not guarded.
+  image; attaching, fetching from a URL, moving, detaching, re-roling,
+  promoting and deleting all change what a buyer sees. An unattached upload
+  is not guarded. The guard runs before any bytes are stored, so a refused
+  upload leaves no file behind.
 - **Merge** reports first. `reference_merge.plan()` carries `for_sale_count`
   and up to ten `for_sale` item codes on `ReferenceMergeOut`, so the
   `dry_run` preview names them before anything is written; the non-dry-run
@@ -88,12 +101,13 @@ and a DELETE has no reliable body, so its flag is a query parameter.
 
 ## Where the guard lives, and where it does not
 
-**In the routers, not the writer modules.** `lifecycle_writes.set_status`,
-`splitting.split_item`, `image_links` and `reference_merge` are also called by
-CLI passes (`app.classifier_defaults`, `app.vendor_cleanup`, `app.seed`,
-`app.photo_import`) that have nobody to acknowledge a warning. A
-batch pass that auto-acknowledges is worse than no guard, because it looks
-safe. `app.photo_import` instead reports which linked items are for sale.
+**In the routers, not the writer modules.** The writers are also called
+where nobody is present to acknowledge a warning: `image_links` by the
+`app.photo_import` command-line pass, and `lifecycle_writes` and
+`offering_writes.end_offer` by other writers (auction consignment and
+settlement, splitting). A batch pass that auto-acknowledges is worse than no
+guard, because it looks safe. `app.photo_import` instead reports which
+linked items are for sale.
 
 **Not a FastAPI dependency.** Item ids arrive differently on every endpoint
 (path, body list, image join, vocabulary join), so a dependency would need
@@ -105,22 +119,31 @@ where a button exists is the wrong invariant.
 
 ## The console
 
+Two shapes, chosen by whether the page already knows the item's sale state.
+
 - **`ForSaleNotice`** -- an inline notice with an acknowledgement checkbox,
-  shared by `ItemEditForm`, `BulkEditBar`, `ErrorsPanel`, `SplitDialog`
-  and the Photos page. In `ErrorsPanel` in Receiving, which
-  saves on every change, the acknowledgement is **per editing session, not
-  per save**: re-asking on each change would train the operator to tick it
-  blind. In the item editor neither the errors nor the photographs panel
-  shows a notice of its own; the form's one acknowledgement covers
-  everything its Save applies.
-- **`ForSaleConfirm`** -- a modal driven by the 409, used by `ReceiptPanel`,
-  which holds no `sale_state` for what it receives. It names the items and
-  says the listing will be ended; confirming resubmits with
-  `acknowledge_for_sale: true`. A photograph upload after the receipt never
-  rolls the receipt back: a refusal on the upload is reported against the
-  item like any other upload failure.
+  for forms that load the item's `sale_state` up front: `ItemEditForm`,
+  `BulkEditBar`, `ErrorsPanel` and `SplitDialog`. In `ErrorsPanel` in
+  Receiving, which saves on every change, the acknowledgement is **per
+  editing session, not per save**: re-asking on each change would train the
+  operator to tick it blind. In the item editor neither the errors nor the
+  photographs panel shows a notice of its own; the form's one
+  acknowledgement covers everything its Save applies.
+- **Driven by the 409**, for pages that hold no sale state for the item:
+  - `ReceiptPanel` opens **`ForSaleConfirm`**, a modal that shows the
+    server's message and says the listing will be ended ("Record it
+    anyway" / "Leave it on sale"); confirming resubmits with
+    `acknowledge_for_sale: true`. Photographs uploaded after the receipt
+    carry the same acknowledgement.
+  - The **Photos** page attempts the link unacknowledged and, on a "For
+    sale" 409, shows the message inline in that row with **Link anyway** and
+    **Leave it unlinked** -- inline rather than modal, because the operator
+    works down a grid of rows.
 - **Vocabularies** shows the merge preview's for-sale codes, and confirming
   the merge sends the acknowledgement. No extra dialog.
+
+The console tells the refusal apart from other 409s by the message's
+opening words, "For sale".
 
 ## Tests
 
@@ -131,15 +154,18 @@ acknowledged `missing` ends the listing and releases its claim; split refuses
 an order with no acknowledgement path; merge's `dry_run` reports the codes.
 Receiving tests build their listing through `offering_writes.offer()`,
 because `conftest.build_listing` makes claimless listings and the test has to
-prove a claim was released. Each guard call site is mutation-checked: delete
-the call and a named test must go red.
+prove a claim was released. Lot cases are covered too: an offered lot's
+member warns like a listed item, and a sold lot's member warns while its
+order is open. Each guard call site has a test that fails when the call is
+removed.
 
-Frontend: `ErrorsPanel`, `ReceiptPanel`, `Vocabularies`, `ForSaleNotice` and
-`ForSaleConfirm` have tests, rendered with `renderWithProviders(..., { strict:
-true })` -- a sticky acknowledgement across auto-saves is the kind of state
-that breaks between StrictMode and a non-strict harness.
+Frontend: `ErrorsPanel`, `ReceiptPanel`, `Vocabularies`, `ForSaleNotice`,
+`ForSaleConfirm` and the Photos page have tests. `ErrorsPanel`'s are
+rendered with `renderWithProviders(..., { strict: true })`: a sticky
+acknowledgement across auto-saves is the kind of state that breaks between
+StrictMode and a non-strict harness.
 
-## Not built
+## Limits
 
-- **Image deletion in the console.** `DELETE /api/images/{id}` is guarded but
-  not exposed; the console detaches instead.
+- **Image deletion is not in the console.** `DELETE /api/images/{id}` is
+  guarded but not exposed; the console detaches instead.

@@ -1,14 +1,20 @@
 # Series classification by denomination and year
 
-A nickname finds what it names: `mercury` finds Winged Liberty Head dimes and
-`funnyback` the right $1 notes, whether or not any listing used the word. That
-works by **classifying, then searching**: items are assigned a design series
-(`inventory_item.series_id`) from their facts, and search matches a term
-against each design's label and nicknames exactly. Search also reads the
-title, description and rating text, which finds what classification cannot,
-such as a note left for review.
+Every item should carry its design series -- Morgan Dollar, Winged Liberty
+Head Dime, Funnyback -- because that is how collectors and buyers look for
+things. A nickname then finds what it names: `mercury` finds Winged Liberty
+Head dimes and `funnyback` the right $1 notes in the management console's
+inventory search (`/management/inventory/coins` and `/currency`), whether or
+not any listing used the word. That works by **classifying, then searching**: items are assigned a
+design series (`inventory_item.series_id`) from their facts, and search
+matches a term against each design's label and nicknames (`app.aliases`,
+`item-attributes-design.md`). Search also reads the title, description and
+rating text, which finds what classification cannot, such as a note left for
+review.
 
-Two passes assign series:
+Series are assigned in three places: suggested as an item is entered (the New
+item form and Receiving's Identify section), refreshed on every save, and by
+two batch passes that staff run and review:
 
 - `app.series_match` reads what a description says ("1883-O AU/UNC MORGAN
   SILVER DOLLAR"). It matches **coins only, against coin designs**; ambiguous
@@ -25,12 +31,27 @@ series a person emptied (`held`). Each records what it wrote in
 `classifier-defaults-design.md`.
 
 **On save.** Creating or editing an item runs `series_classify` for that item
-alone (`refresh_series`, from `classifier_defaults.refresh_items`): a series
-it or an accepted entry suggestion wrote, which the facts now rule out or no
-longer support, is cleared with its record, and an item left without one is
-decided as the batch decides it. The entry forms are told the design the
-facts alone decide (`suggest_series`, in `GET /api/defaults/note` and
-`/coin`), with no text read.
+alone (`refresh_series`, from `classifier_defaults.refresh_items`), in the
+same transaction:
+
+1. A series recorded as `series_classify` or `suggestion` (an entry
+   suggestion the person accepted) that the facts now rule out, or that has
+   no facts left under it, is cleared with its record -- the machine takes
+   back its own guess.
+2. An item with no series and no `held` record for it is decided as the batch
+   decides it, its own text included; a design found is written and recorded
+   as `series_classify`.
+
+A series a person chose, or one `series_match` read from the text, is never
+cleared on save; one the facts contradict appears in the batch report's
+*disagrees* list. Cases a save cannot decide are left unassigned without a
+message; the batch report lists them.
+
+**At entry.** The entry forms are told the design the facts alone decide
+(`suggest_series`, the `series` field of `GET /api/defaults/note` and
+`/coin`), with no text read: a title is the seller's words. For a note, a
+seal or class the person chose, or else the one the facts gave, is evidence
+-- a brown seal makes a $5 1934A a Hawaii note.
 
 ## What a design is
 
@@ -49,9 +70,11 @@ span for display, and `applies_to` (`coin` / `currency`). For classification:
 
 ## The pass: `python -m app.series_classify`
 
-It considers items with a known denomination and a single year (for a note,
-its series year). **Candidates** are the designs for the item's inventory whose
-ranges cover its denomination, year and letter. **Evidence** is text -- title,
+Run from `backend`; `--commit` writes. It considers items with no series, not
+`held`, and with a known denomination and a single year (for a note, its
+series year; a coin whose years are a range spans designs and is skipped).
+**Candidates** are the designs for the item's inventory whose ranges cover its
+denomination, year and letter. **Evidence** is text -- title,
 description and rating, read with `series_match`'s vocabulary -- or, for a
 note, a seal color matching the design's, or a recorded note class matching
 the design's.
@@ -84,10 +107,11 @@ Rules that keep it honest:
   "funnyback" but recorded as Series 1923 has a wrong rating or a wrong year;
   only the note in hand can say which.
 
-The report prints, per design, what would be assigned, the boundary cases, each
-conflict with its item code, and a read-only **disagrees** list: items whose
-series is already set but which the facts (or the recorded note class) rule
-out. The pass changes none of those.
+The report prints counts (assigned, boundary, conflict, ordinary, no
+candidate, no facts), what would be assigned per design, the boundary and
+conflict cases grouped by the designs in play with sample item codes, and a
+read-only **disagrees** list: items whose series is already set but which the
+facts (or the recorded note class) rule out. The pass changes none of those.
 
 Run `series_match`, then `classifier_defaults` (which decides a note's class,
 evidence for the Series 1929 designs), then `series_classify`.
@@ -165,15 +189,19 @@ and an item that says nothing is taken for the common design:
 Not designs, so not here: *star note* (a serial feature), *blue / red seal*
 (a field), *confederate*, *obsolete*, *fractional* (issuers and eras).
 
-Seeding follows the file: ranges and aliases load, re-load unchanged, and
-change when the file does. `app.seeding export` carries neither ranges nor
-aliases; the seed file is their source.
+Seeding follows the file (`app.seeding`). A design named in the file gets
+exactly the file's ranges -- added, updated, and removed when no longer
+listed -- unless someone edited the design by hand (`source` manual). Aliases
+are added and never removed, and one retired in the console stays retired.
+The reference export carries neither ranges nor aliases; the seed file is
+their source.
 
-## Not built
+## Out of scope
 
-- A console page for the review list: the pass's report is the review.
-- Friedberg numbering, which would decide note designs exactly, is not free to
-  seed.
+- There is no console page for the review list: the pass's report is the
+  review.
+- Friedberg numbering, which would decide note designs exactly, is a
+  publisher's arrangement and is not seeded.
 
 ## Sources
 

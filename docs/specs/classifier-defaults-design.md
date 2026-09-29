@@ -1,7 +1,7 @@
 # Classifier defaults from known facts
 
-Most classifiers are not independent observations; they follow from a few facts
-recorded about the object:
+Most classifiers are not independent observations; they follow from a few
+facts recorded about the object:
 
 - A $1 note of Series 1957 **is** a Silver Certificate -- the Treasury issued
   no other $1 note of that series -- with a blue seal and the signatures of
@@ -10,10 +10,14 @@ recorded about the object:
   Reserve Bank of New York.
 - A dime struck in 1963 is 90% silver because the law said so.
 
-A person enters the facts; `app.classifier_defaults` fills in the rest from
-published facts, and a person can always override. Series assignment
-(`series-classification-design.md`) works the same way and records its
-results in the same table.
+So staff enter the facts and the software fills in the rest from published
+facts, which saves typing and removes a class of entry error. It works in
+three places: live in the management console's New item form and Receiving's
+Identify section (`identify-first-entry-design.md`), on every save of an item,
+and as a batch pass over the whole collection. A person can always override.
+Design-series assignment (`series-classification-design.md`) works the same
+way and records its results in the same table. The rules live in
+`app.classifier_defaults`.
 
 ## Principles
 
@@ -24,8 +28,8 @@ results in the same table.
    is not the blue-seal issue of its series.
 3. **Visible provenance.** A default is recorded as derived, per field, so it
    can be told apart from what someone typed.
-4. **Report before writing.** The pass prints what it would do; `--commit`
-   writes.
+4. **Report before writing.** The batch pass prints what it would do;
+   `--commit` writes.
 5. **Official names.** Vocabulary follows the issuing agency first (BEP for
    notes, US Mint for coins), then the grading services, then collector usage
    independent sources agree on. Dealer lists are evidence, not authority.
@@ -33,11 +37,22 @@ results in the same table.
 ## Per-field provenance: `item_field_source`
 
 One row per (item, field) holding a derived default, with `derived_by` naming
-the rule (`app/field_sources.py`): `note_issue`, `serial_district`,
-`composition`, `series_match`, `series_classify`, `series_backfill`,
-`suggestion`, `rating`, or `held`. Field names are column names
+the rule (`app/field_sources.py`). Field names are column names
 (`note_type_id`, `fineness`), as in `item_field_review`, whether the column is
 on the item or its currency detail.
+
+| `derived_by` | Written by |
+|---|---|
+| `note_issue` | class, seal and signatures from the note's issue |
+| `serial_district` | Reserve Bank from the serial |
+| `composition` | a coin's composition, metal, fineness and weights |
+| `series_match` | design series read from the description |
+| `series_classify` | design series decided from the facts |
+| `suggestion` | a value the New item form suggested and the person left alone |
+| `held` | not a rule: a person emptied the field |
+
+`series_backfill` and `rating` also appear on existing rows and are read like
+any other rule; nothing in the code writes them.
 
 - A pass may refresh a field recorded here and never touches one that is not.
 - Saving a field by hand removes its row: from then on it is the person's.
@@ -50,6 +65,9 @@ on the item or its currency detail.
   now spans two compositions -- is cleared with its record and counted as
   *retracted*. A person's value is never cleared; one the facts contradict is
   reported instead.
+
+`GET /api/inventory/{id}` returns the item's `derived` map (field to rule,
+`held` excluded), which the editor marks.
 
 ## Currency vocabulary
 
@@ -68,28 +86,27 @@ on the item or its currency detail.
 | `treasury_note` | Treasury Note | Coin Note, Treasury Coin Note |
 
 "Legal Tender Note" is a nickname, not a class: BEP uses *legal tender* in its
-statutory sense (31 USC 5103), which covers every class. "National Currency" is
-the wording printed on National Bank Notes (and on Series 1929 Federal Reserve
-Bank Notes).
+statutory sense (31 USC 5103), which covers every class. "National Currency"
+is the wording printed on National Bank Notes (and on Series 1929 Federal
+Reserve Bank Notes).
 
-Nicknames live in the general `reference_alias` table (table, code, alias), so
-they are recognized in search and in the pickers; search matches a note class by
-name or nickname. Seal colors (blue, red, brown, green, gold, yellow) and the
-twelve Federal Reserve districts (A Boston through L San Francisco) match
-BEP's serial-number page.
+Nicknames live in the general `reference_alias` table, so they are recognized
+in search and in the pickers (`item-attributes-design.md`). Seal colors (blue,
+red, brown, green, gold, yellow) and the twelve Federal Reserve districts
+(A Boston through L San Francisco) match BEP's serial-number page.
 
 ## The facts
 
 `backend/data/reference/note_issue.json` seeds `note_issue`: one row per
-small-size issue (Series 1928-2021, $1 through $1000) with denomination,
-series year and letter, class, seal, signature combination, `serial_prefix`,
-an optional `variant` (Hawaii, North Africa, experimental and similar), and the
-sources it rests on. Every row names at least two independent sources:
-Wikipedia's per-denomination series tables, USPaperMoney.info's chronology,
-BEP's serial-number table for Series 1996 on, and the SPMC wiki for the
-Series 1929 National Bank Notes. The six rows sourced `web` (the $500 and
-$1000 Federal Reserve Notes) rest on search-result summaries and are the
-weakest.
+small-size issue (Series 1928-2021, $1 through $1000; 332 rows) with
+denomination, series year and letter, class, seal, signature combination,
+`serial_prefix`, an optional `variant` (Hawaii, North Africa, experimental and
+similar), and the sources it rests on. Every row names at least two
+independent sources: Wikipedia's per-denomination series tables,
+USPaperMoney.info's chronology, BEP's serial-number table for Series 1996 on,
+and the SPMC wiki for the Series 1929 National Bank Notes. The six rows
+sourced `web` (the $500 and $1000 Federal Reserve Notes) rest on
+search-result summaries and are the weakest.
 
 `signatures.json` holds the signer pairs. BEP writes pairs
 Secretary/Treasurer; our codes are `treasurer_secretary`.
@@ -100,6 +117,10 @@ More than one seal per class occurs only in the WWII emergency issues -- brown
 
 These are historical facts (who signed, which class, which seal) and are safe
 to seed. No Friedberg number is involved or implied.
+
+Coin compositions come from `composition.json` (`app.composition`): the
+legislated metal, fineness and weights per denomination, country and span of
+years.
 
 ### Serial numbers (BEP)
 
@@ -125,12 +146,7 @@ plate is recorded. The location tells two Friedberg numbers apart (a 2017-A
 $1 from each facility), and a face and back from different eras is how a
 mule is found.
 
-## The pass
-
-```
-python -m app.classifier_defaults            report, touching nothing
-python -m app.classifier_defaults --commit   write the defaults
-```
+## What the rules decide
 
 | Default | From | Only when |
 |---|---|---|
@@ -138,56 +154,71 @@ python -m app.classifier_defaults --commit   write the defaults
 | seal color | the issue | the issue has one seal |
 | signature combination | the issue | one pair signed it |
 | Federal Reserve district | serial number | the class is Federal Reserve Note and the serial is well formed |
-| composition, metal, fineness, gross and fine weight | denomination, country, year (`composition.json`) | one composition covers every year of the item's range |
+| composition, metal, fineness, gross and fine weight | denomination, country, year | one composition covers every year of the item's range |
+
+Note type is decided first, because seal, signatures and Bank depend on it.
 
 **Text as evidence.** Where a series was issued in several classes, a note's
 **rating** (the grade text in the owner's words) that names exactly one of
-them decides it -- "Legal Tender" picks United States Note. Titles and
-descriptions are not read: on notes they are too often a lot's listing.
+them, by label or nickname, decides it -- "Legal Tender" picks United States
+Note. Titles and descriptions are not read: on notes they are too often a
+lot's listing.
 
 **Attributes** that follow from a note's facts -- No Motto on a $1 Silver
-Certificate of Series 1928-1935F (`app.attribute_rules`) -- are added the same
-way: only where the note has no link for that attribute at all, a removed one
-included, and taken back only where the pass added it.
+Certificate of Series 1928-1935F (`app.attribute_rules`,
+`item-attributes-design.md`) -- are added the same way: only where the note
+has no link for that attribute at all, a removed one included, and taken back
+only where the rule added it.
 
 Reported and never written:
 
 | Case | Finds |
 |---|---|
+| unknown issue | a small-size series and denomination with no issue in the facts |
+| ambiguous | several classes remain and nothing decides between them |
+| disagrees | a recorded class, seal, signatures, Bank or composition the facts rule out; a note carrying an attribute its series never has |
+| needs evidence | a note whose series may or may not carry a rule's attribute (a 1935G without No Motto) |
 | serial prefix | a $5-or-higher Federal Reserve Note of Series 1996 on whose first serial letter is not its series' letter, or whose Bank letter is not a Bank |
-| disagreement | a recorded class, seal or signature the facts rule out |
 | retracted | a derived value cleared because the facts no longer support it |
-
-Order matters: note type first, because seal and signatures depend on it.
-Run this pass after `series_match` and before `series_classify`, which reads a
-note's class as evidence.
 
 ## When defaults are applied
 
 - **On every write.** Creating an item, a single edit and a bulk edit each call
   `refresh_items` in the same transaction, so a corrected series year corrects
   the class derived from it. It refreshes the design series too
-  (`series_classify.refresh_series`, `series-classification-design.md`).
-- **In batch**, by the command above.
-- **At entry.** The New item form asks `GET /api/defaults/note` (denomination,
-  series year and letter, serial, rating, plus any class, seal, signatures or
-  Bank the person chose) or `GET /api/defaults/coin` (denomination, country,
-  year, answering the metal); both also answer the design series the facts
-  decide. The lookup runs after a 250 ms pause. It sends only the person's
-  own picks -- a value sent narrows the answer and is never suggested back --
-  and marks what it filled as *suggested*. Picking a value, even the suggested
-  one, makes it the person's; clearing the denomination withdraws the
-  suggestions.
+  (`series_classify.refresh_series`).
+- **At entry.** The New item form and Receiving's Identify section ask
+  `GET /api/defaults/note` (denomination, series year and letter, serial,
+  rating, plus any class, seal, signatures or Bank the person chose) or
+  `GET /api/defaults/coin` (denomination, country, year; answers the metal).
+  Both also answer the design series the facts decide
+  (`series_classify.suggest_series`), and the note lookup returns a `warning`
+  when no issue of that denomination has that series, naming the ones on
+  record. The lookup runs after a 250 ms pause. The New item form sends only
+  the person's own picks -- a value sent narrows the answer and is never
+  suggested back -- and marks what it filled as *suggested*
+  (`management/pages/entry/suggestions.js`). Picking a value, even the
+  suggested one, makes it the person's; clearing the denomination withdraws
+  the suggestions. Suggestions the person kept are sent as `suggested` and
+  recorded as `suggestion`.
+- **In batch**, run from `backend`:
+
+  ```
+  python -m app.classifier_defaults            report, touching nothing
+  python -m app.classifier_defaults --commit   write the defaults
+  ```
+
+  Run it after `app.series_match` and before `app.series_classify`, which
+  reads a note's class as evidence.
 
 ## The editor
 
 For a banknote the item editor shows the note's own fields right after its
-kind: first what identifies it -- series year and letter, serial, face and
-back plate, where it was printed -- then Note class, Seal, Signatures and
-Reserve Bank, with a *suggested*
-mark beside a derived value whose tooltip names the rule. Only "Note class"
-(Alt+A) and "Reserve Bank" (Alt+B) have accelerators: no other free letter is
-in their labels.
+kind (`NoteFields.jsx`): first what identifies it -- series year and letter,
+serial, face and back plate, where it was printed -- then Note class, Seal,
+Signatures and Reserve Bank. A derived value carries a *suggested* mark whose
+tooltip names the rule. Only "Note class" (Alt+A) and "Reserve Bank" (Alt+B)
+have accelerators: no other free letter is in their labels.
 
 ## Out of scope
 

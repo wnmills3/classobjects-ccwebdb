@@ -1,8 +1,18 @@
 # Vocabularies that fit the item, and recording errors
 
-A form offers only the choices that can apply to the item in hand, in an
-order a person can read; a missing value can be added at the moment it is
-needed; and an error on a coin or note can be recorded with a note of its own.
+Every classifier -- denomination, grade, series, attribute, error type and the
+rest -- is a controlled vocabulary, so records stay searchable and consistent.
+That only works if the pickers are pleasant to use. So a form offers only the
+choices that can apply to the item in hand, in an order a person can read; a
+missing value can be added at the moment it is needed, without leaving the
+form; existing values are maintained on one page; and an error on a coin or
+note can be recorded with a note of its own.
+
+Staff meet this in the management console: the pickers of the New item form
+(`/management/purchases`), the item editor (from the inventory pages),
+Receiving (`/management/receiving`), and the Vocabularies page
+(`/management/vocabularies`). The shop's filters read the same ordered
+vocabularies.
 
 ## Ordering
 
@@ -24,7 +34,10 @@ needed; and an error on a coin or note can be recorded with a note of its own.
 The response says `sequenced` so clients can tell. Ordering is decided by the
 API so that the shop's filters, the console's forms and the entry panels
 cannot disagree. A value added mid-entry appears in its alphabetical place at
-once.
+once. The endpoint is public: a vocabulary reveals nothing about what anyone
+owns. `?year=` narrows a term-bounded table (signature combinations) to the
+values in office that year; it is not the pairs a note of that *series* can
+carry, which `GET /api/friedberg/signatures` answers from the issue facts.
 
 ## The Vocabularies page
 
@@ -35,7 +48,7 @@ existing values. It does not create them; see *Adding a value while entering*.
 |---|---|---|
 | **Rename** | `PATCH /api/reference/{table}/{code}` | The label only. The code is the contract (saved filters, bookmarks, integrations) and never changes. Nothing migrates: records refer by foreign key. |
 | **Move** (sequenced tables only) | same, with `sort_order` | Changes the value's position; the page shows a Position column for a sequenced vocabulary. |
-| **Retire / restore** | same, with `is_active` | Takes the value out of the pickers; every record using it stays as it is. Refused (409) for a value the application looks up by code: the tables in `_CODE_KEYED_TABLES` and the single values in `_CODE_KEYED_VALUES`. Such a value can still be renamed. |
+| **Retire / restore** | same, with `is_active` | Takes the value out of the pickers; every record using it stays as it is. Refused (409) for a value the application looks up by code: the tables in `_CODE_KEYED_TABLES` (statuses, dispositions, strike type, item kind, fee kind and other lifecycles) and the single values in `_CODE_KEYED_VALUES` (country `US`, note class `frn`, the photo roles a photograph's filename names, and a few more), both in `app/references.py`. Each value carries `retirable` so the page can say so up front. Such a value can still be renamed. |
 | **Merge into...** | `POST /api/reference/{table}/{code}/merge` | Moves every item holding the value to another, makes its names that value's aliases, and deletes it. A `dry_run` preview is shown first. Refused for a value another vocabulary or facts table uses, a code-keyed value, or a retired target; items on sale need `acknowledge_for_sale`. |
 | **Aliases** | `POST` / `DELETE .../{code}/aliases` | See `item-attributes-design.md`. |
 
@@ -57,10 +70,10 @@ arriving in a value's `extra`:
 | Vocabulary | Column | Values |
 |---|---|---|
 | `denomination` | `kind` | `coin`, `note` |
-| `series`, `error_type`, `item_attribute` | `applies_to` | `coin`, `currency`, `any` |
+| `series`, `grade_designation`, `error_type`, `item_attribute` | `applies_to` | `coin`, `currency`, `any` |
 
-The rule has two sides: `currency` on one; `coin`, `bullion`, `set`, `medal`
-and `token` on the other. `denomination.kind = note` maps to the currency
+The rule has two sides: `currency` on one; every other kind (`coin`,
+`bullion`, `set`, `medal`, `token` and the rest) on the other. `denomination.kind = note` maps to the currency
 side. A denomination is never filtered by code prefix (`usd_note_%`): a naming
 convention is not a recorded fact.
 
@@ -78,15 +91,19 @@ convention is not a recorded fact.
   seal color, Fed district, signature combination) and
   `fieldFitsKind(field, itemKind)`, which answers true for a field in neither
   set.
+- `gradeFitsKind(grade, itemKind)` -- a note is offered only the note grade
+  scale, anything else only the coin scales.
 
 The item editor filters its classifier table and its variety box through
-`fieldFitsKind`, and a kind change empties what no longer fits through it
-(`kindChange.js`); the New item form gates its set form, strike type, metal
-and Mint/Variety blocks on it. **Known gap:** the forms do not show a note's
-own fields through the helper. They are listed by hand -- the editor's
-`NOTE_CLASSIFIERS` and `NOTE_TEXT_FIELDS`, the entry form's note block and
-suggestion lists -- and shown on the item kind directly, so their agreement
-with `CURRENCY_ONLY_FIELDS` is kept by hand.
+`fieldFitsKind`, and a kind change empties what no longer fits, where the
+editor can say what went and restore it if the kind changes back
+(`kindChange.js`). The New item form gates set form, strike type, metal and
+variety on it; Identify (`management/identify.js`) asks it whether a kind has
+a mint. **Known gap:** a note's own fields are not shown through the helper.
+They are listed by hand -- `NOTE_CLASSIFIERS` and `NOTE_TEXT_FIELDS` in
+`NoteFields.jsx`, the New item form's note block and suggestion lists -- and
+shown on `isCurrencyKind` directly, so their agreement with
+`CURRENCY_ONLY_FIELDS` is kept by hand.
 
 **The API enforces the denomination rule too.** A denomination whose `kind`
 contradicts the item's kind is a 422 naming the items, on create, edit and bulk
@@ -98,9 +115,18 @@ for a stale tab or a script.
 New values are created from a field's picker: "+ Add a new value..." at the
 foot of a `ReferenceSelect`, which posts to `POST /api/reference/{table}`
 (staff only, recorded `manual`, so additions stay distinguishable from the
-shipped vocabulary and are left out of an export by default). A picker over a
-vocabulary the code branches on does not offer it (`allowAdd={false}`):
-status and strike type in the item editor, and the note fields.
+shipped vocabulary and are left out of an export by default). A picker whose
+values the code branches on, or that an add-by-label form cannot describe,
+does not offer it (`allowAdd={false}`):
+
+- the item editor: kind, status, strike type, grade designation, grading
+  service, mint and denomination (`FIXED_VOCABULARIES` in `ItemEditForm.jsx`),
+  and the note's class, seal, signatures and Reserve Bank;
+- the New item form: denomination and strike type;
+- Receiving's Identify: denomination.
+
+A denomination is a face value with a currency and a side, which a label
+alone cannot give it.
 
 For attributes and error types the add form asks for **a label only**
 (`labelOnly`):
@@ -117,17 +143,21 @@ For attributes and error types the add form asks for **a label only**
   no default, so the form has a group picker (Serial, Variety, Release,
   Qualifier, Verification) and Add stays disabled until one is chosen.
 
-Attributes can be added in the item editor, and so in Receiving's "Confirm or
-correct fields", which reuses it. Error types can be added wherever errors are
-recorded.
+Attributes can be added wherever `AttributesField` appears: the New item form
+and the item editor, and so Receiving's "Confirm or correct fields", which
+opens the editor. Error types can be added wherever errors are recorded.
 
 ## Recording errors
 
 `item_error` allows several errors per item -- a note is commonly miscut *and*
 misprinted -- each with its own free-text note; the same type cannot be
 recorded twice on one item. `GET` / `PUT /api/inventory/{id}/errors` read and
-replace the whole set. An error is never inferred from description text: a
-machine guess must not be indistinguishable from a curated fact.
+replace the whole set. The `PUT` is refused (409) for an item on offer until
+`acknowledge_for_sale` is sent, and the set before and after goes into the
+item's History like any other field change. An error is never inferred from
+description text: a machine guess must not be indistinguishable from a
+curated fact. Errors feed the suggested description, right after the grade:
+they are what an error note sells on.
 
 **One component, `ErrorsPanel`, in three places:** the item editor, New item,
 and Receiving (where a note is inspected as it arrives). Each recorded error is
@@ -137,16 +167,19 @@ recorded is not offered again, and the type picker is filtered by `applies_to`.
 | Where | Saving |
 |---|---|
 | Item editor | Held with the rest of the edit: adding, removing or re-noting an error enables Save, and Save `PUT`s the whole set (after the fields, under the form's own for-sale acknowledgement). A set that fails stays on screen with its reason. A set changed back to what was read is no change. If the set cannot be read, nothing is offered to edit, so Save can never replace a set nobody saw. |
-| Receiving | The panel `PUT`s the whole set on every change (a note's text when its box loses focus): there is no Save there to hold it for. |
+| Receiving | The panel `PUT`s the whole set on every change (a note's text when its box loses focus): there is no Save there to hold it for. For an item on offer, the acknowledgement is asked once and holds while the panel is open. |
 | New item | The item is created first, then its errors are saved. |
 
 **The two-step case is designed, not assumed.** If the create succeeds and the
 errors call fails, the form says so plainly -- the item was created, its errors
 were not -- keeps what was typed, shows the item code, and offers **Retry**.
-It never drops them silently and never pretends the item failed.
+Save is disabled until the retry succeeds, so the same piece cannot be
+entered twice. It never drops the errors silently and never pretends the item
+failed.
 
 ## Not here
 
 - Plate numbers and position for an error note live on the note's own detail
   fields.
-- Error-based search filters live in `inventory_search`.
+- Searching by error: the inventory views' `error_type=` filter and
+  `error_types` column (`inventory_search`).

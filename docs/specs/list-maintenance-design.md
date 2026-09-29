@@ -1,52 +1,60 @@
 # List maintenance
 
-*2026-09-27.* The owner-kept lists that are not vocabularies -- the Friedberg
-catalog, sellers, vendors and storage locations -- are listed, corrected and
-pruned on one console page, **Lists** (`/management/lists`). Not "catalogs": the
-shop's public side is the catalog, and the console never links to it.
-
-## Why
-
-Each of these grows by inline entry while something else is being done: a
-Friedberg number while a note is identified, a seller or vendor while a
-purchase is entered, a location while an item is placed. A slip made there
-had no way back. A Friedberg number pasted as `3007-` instead of `3007-L` could
-not be corrected in the console, and typing the right number was refused as a
-raw database error, because the same combination of attributes was already
-recorded under the wrong number. Vocabularies (`/management/vocabularies`) and
-sales platforms (`/management/platforms`) already have pages; these four did
-not.
+*2026-09-29.* The owner keeps four lists that are not vocabularies -- the
+Friedberg catalog, sellers, vendors and storage locations. Each grows by
+inline entry while something else is being done: a Friedberg number while a
+note is identified, a seller or vendor while a purchase is entered, a
+location while an item is placed. A slip made there -- a Friedberg number
+pasted as `3007-` for `3007-L`, a vendor entered twice -- is corrected or
+pruned on one management-console page, **Lists** (`/management/lists`,
+`pages/Lists.jsx`), for managers only. Vocabularies
+(`/management/vocabularies`) and sales platforms (`/management/platforms`)
+have their own pages. The page is not called "catalogs": the shop's public
+side is the catalog, and the console never links to it.
 
 ## The page
 
-One tab per catalog. Each lists its rows, filtered by a search box, with how
-many records use each row. Every row can be edited in place (**Edit**, then
-**Save** or **Cancel**). **Delete** is offered only for a row nothing uses. A
-row in use cannot be deleted: every foreign key into these tables is
-`RESTRICT`, so the server refuses it too, and says how many records hold it.
+One tab per list, kept in the address (`?tab=friedberg`, `sellers`,
+`vendors`, `locations`) so a reload or a link lands on it. Each tab lists its
+rows, filtered in the browser by a search box, with how many records use
+each row. A row is edited in place (**Edit**, then **Save** or **Cancel**);
+only the fields changed are sent, a blank as null, and the list is read
+again after every write. **Delete** is offered only for a row nothing uses.
+The server refuses the rest too -- every foreign key into these tables is
+`RESTRICT` -- with a 409 saying how many records hold it.
 
-| Tab | Shown | Editable |
-|---|---|---|
-| Friedberg numbers | number, the attributes it was recorded with, confirmed or not, items using it | number, description; **Confirm** / **Undo confirm** |
-| Sellers | name, store link, purchases | name, store link |
-| Vendors | name, link, kind, purchases and sales | name, link, kind |
-| Storage locations | kind, institution, identifier, notes, items | the same four |
+| Tab | Shown | Editable | "Uses" counts |
+|---|---|---|---|
+| Friedberg numbers | number, the type it was recorded with, description, confirmed or proposed | number, description; **Confirm** / **Undo confirm** | notes holding it |
+| Sellers | name, store link | name, store link | purchases naming the seller |
+| Vendors | name, link, kind | name, link, kind | purchases and sales platforms naming the vendor |
+| Storage locations | kind, institution, identifier, notes | the same four | items kept there now plus location-history rows to or from it |
 
-A Friedberg number's attributes are what identify its type and are not edited
-here: a type recorded with a wrong attribute is deleted, if unused, and
-recorded again from the note.
+A Friedberg number's type -- denomination, note type, series, district,
+seal, web press, printing facility -- is what the lookup matches it by and
+is not edited here: a type recorded with a wrong attribute is deleted, if
+unused, and recorded again from the note.
 
-Correcting a Friedberg number keeps every item that uses it attached -- the
+Correcting a Friedberg number keeps every note that uses it attached -- the
 items hold the catalog row, not its text. Undoing a confirmation clears the
 row's `verified_at`, so the next lookup offers it as proposed again (see
 `receiving-purchases-design.md`, **Use**).
 
+A storage location of kind `consigned` or `sold` is made by the auction or
+sale code: its row is not editable, neither kind is offered in the picker,
+and the server refuses (422) editing one or changing a location to one. A
+location an item has ever been in is part of that item's history, so it
+cannot be deleted.
+
 ## The form of a Friedberg number
 
-A number is cleaned, then checked, wherever one is saved -- recorded new,
-or corrected here -- and again when one is confirmed (`app.fr_format`, the
-rule the server holds; `friedberg-format.js` applies the same rule as it is
-typed, so Save is held back with the reason shown).
+A number is cleaned, then checked, wherever one is saved -- recorded new
+(`POST /api/friedberg`) or corrected here -- and again when one is confirmed,
+here or by the lookup. `app/fr_format.py` (`normalize_fr`, `fr_problem`) is
+the rule the server holds, applied by the request schemas;
+`frontend/src/management/friedberg-format.js` (`normalizeFr`, `frProblem`)
+applies the same rule as the number is typed, so Save is held back with the
+reason shown.
 
 - **Cleaned:** surrounding space and a `Fr.`, `Fr#` or `FR-` label in front
   of the digits are dropped, space around the hyphen is closed up, and the
@@ -54,38 +62,45 @@ typed, so Save is held back with the reason shown).
 - **Checked:** 1 to 4 digits, an optional letter (`1a`), an optional district
   `-A` to `-L`, and an optional `*` for a star note. `3007-` is refused as
   ending in a hyphen, `30070-L` as having five digits, anything else out of
-  that form as not a Friedberg number -- each with a sentence saying which.
-- **Confirming a malformed number is refused** until it is corrected: a
-  confirmed number is one the next lookup attaches in one step. It can still
-  be attached as proposed.
+  that form as not a Friedberg number -- each with a sentence saying which
+  (422).
+- **Confirming a malformed number is refused** (422, "Correct ... before
+  confirming it") until it is corrected: a confirmed number is one the next
+  lookup attaches in one step. It can still be attached as proposed.
 
 Only the form is known -- never which number belongs to which note, which is
 the publisher's arrangement (`CLAUDE.md`, *Reference data*).
 
 ## A combination already recorded
 
-Recording a number whose attributes match a row already in the catalog is
-refused with 409 and the row named: *"That combination is already recorded as
-3007- (row 14)."*, with `existing: {id, fr_number}` beside `detail`. The
-Friedberg lookup offers **Correct 3007- to 3007-L** on that refusal, which
-renames the recorded row and uses it -- the slip is repaired where it was
-noticed, without a trip to the Lists page.
+Recording a number whose type matches a row already in the catalog is
+refused with 409 and the row named: *"That combination is already recorded
+as 3007- (row 14)."*, with `existing: {id, fr_number}` beside `detail`. The
+Friedberg lookup (`FriedbergLookup.jsx`) then offers **Correct 3007- to
+3007-L**, which renames the recorded row and attaches it -- the slip is
+repaired where it was noticed, without a trip to the Lists page.
 
 ## API
 
+All manager only (`AdminUser`).
+
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/friedberg/catalog?q=` | every catalog row, with `item_count`; `q` matches the number or description |
-| `PATCH /api/friedberg/{id}` | `fr_number`, `description`, `verified` (true stamps, false clears) |
-| `DELETE /api/friedberg/{id}` | 409 while an item uses it |
-| `GET /api/sellers` | now with `order_count` |
+| `GET /api/friedberg/catalog?q=` | every catalog row, ordered by number, with `item_count`; `q` matches part of the number or description |
+| `PATCH /api/friedberg/{id}` | `fr_number`, `description`, `verified` (true stamps `verified_at` and the confirming user, false clears both) |
+| `DELETE /api/friedberg/{id}` | 409 while a note holds it |
+| `GET /api/sellers` | every seller, by name case aside, with `order_count` |
+| `PATCH /api/sellers/{id}` | `name`, `store_url` |
 | `DELETE /api/sellers/{id}` | 409 while a purchase names the seller |
-| `GET /api/vendors` | now with `order_count` (purchases and sales) |
-| `PATCH /api/vendors/{id}` | `name`, `url` (host recomputed), `vendor_kind` |
-| `DELETE /api/vendors/{id}` | 409 while anything names the vendor |
-| `GET /api/storage-locations` | now with `institution`, `identifier`, `notes`, `item_count` |
+| `GET /api/vendors` | every vendor, by name, with `order_count` (purchases and sales platforms) |
+| `PATCH /api/vendors/{id}` | `name`, `url` (`host` recomputed), `vendor_kind` (null sets `unknown`) |
+| `DELETE /api/vendors/{id}` | 409 while a purchase or sales platform names the vendor |
+| `GET /api/storage-locations` | every location with `label`, `kind`, `institution`, `identifier`, `notes`, `item_count` |
 | `PATCH /api/storage-locations/{id}` | `kind`, `institution`, `identifier`, `notes` |
 | `DELETE /api/storage-locations/{id}` | 409 while anything is or was kept there |
 
-Names stay unique the way their create routes already enforce it: a rename
-onto another row's name or number is a 409 naming that row.
+Only the fields sent change. Uniqueness is kept the way the create routes
+keep it, and a correction onto another row's value is a 409: a Friedberg
+number already recorded (naming its row), a seller or vendor name already
+used (case aside), or a storage location with the same kind, institution
+and identifier (case aside).

@@ -1,13 +1,23 @@
 # Item attributes, classifier aliases and the grade vocabulary
 
-Three related pieces:
+How an item is described decides whether it can be found and what it sells
+for: a star note, a First Strike or a CAC sticker carries a premium, and a
+buyer searches in the words collectors and grading services use. Three
+related pieces make that description precise without making staff learn the
+catalog's codes:
 
 1. **Aliases for every classifier.** "Legal Tender" is a United States Note,
-   "Ultra Cameo" is UCAM, "No God" is No Motto, "Walker" is a Walking Liberty Half.
-2. **Many attributes per item, coins as well as notes.** A coin can be DCAM
-   *and* First Strike *and* CAC-approved; a note a star note *and* a fancy
-   serial *and* No Motto.
+   "Ultra Cameo" is UCAM, "No God" is No Motto, "Walker" is a Walking Liberty
+   Half. Search and every picker recognize them.
+2. **Many attributes per item, coins as well as notes.** A coin can be First
+   Strike *and* CAC-approved; a note a star note *and* a fancy serial *and*
+   No Motto.
 3. **A grade vocabulary aligned with PCGS, NGC, PMG and CAC.**
+
+Staff meet these in the management console: aliases on the Vocabularies page
+(`/management/vocabularies`) and in every picker's Find box, attributes and
+grades in the New item form and the item editor, and all three in the
+inventory search.
 
 **Standard terms are the labels; the owner's words are aliases.** UCAM, not
 Ultra Cameo; No Motto, not No God; United States Note, not Legal Tender.
@@ -43,11 +53,13 @@ Where aliases are read:
 | **Pickers** | `ReferenceSelect` shows a Find box on a vocabulary of more than ten values (`FIND_FROM`), matching label, code or alias and showing the alias that matched; Enter picks the first. |
 | **Console** | The Vocabularies page lists each value's aliases, adds and removes them, shows a retired shipped alias struck through with a Restore, and marks a shared one. |
 
-API: every reference value carries `aliases`; with `include_inactive`, also
-`retired_aliases` and its own `is_active`. `POST
-/api/reference/{table}/{code}/aliases` adds one and `DELETE
-/api/reference/{table}/{code}/aliases?alias=` removes one; both are staff only
-and return the value.
+API: every reference value carries `aliases`; with `include_inactive`, the
+retired values come too, and each value its `retired_aliases`. `POST
+/api/reference/{table}/{code}/aliases` adds one (409 with the reason when
+`add_alias` refuses) and `DELETE /api/reference/{table}/{code}/aliases?alias=`
+removes one (404 for a name that is not a current alias); both are staff only
+and return the value. Merging a value into another
+(`vocabulary-and-errors-design.md`) makes its names the survivor's aliases.
 
 ## 2. Item attributes
 
@@ -73,22 +85,37 @@ Each attribute keeps the service's own term. The release pedigrees are kept
 apart rather than merged into one "early release", because each service
 defines its own window.
 
+Two rules add links, each recorded `derived` with its rule in `derived_by`:
+
+- **Serial patterns** (`app.serial_patterns`, `serial_pattern`): star, radar,
+  repeater, binary, solid, ladder, low serial and the rest are properties of
+  the serial, so a batch pass derives them (`python -m app.serial_patterns`,
+  `--commit` to write). Patterns need a full eight-digit serial; a shorter one
+  is reported as incomplete. Consecutive is never derived: it describes a run
+  of notes, which no single serial shows. The New item form's suggested
+  description reads the same patterns from the serial typed.
+- **Attributes from facts** (`attribute_rule`), below.
+
 **Removal is recorded for every link** (`app.item_attributes`), not only
-derived ones: deleting a link a person added would let the serial check add it
+derived ones: deleting a link a person added would let the serial pass add it
 straight back. Setting a removed attribute again clears the mark and keeps the
 link's source. Every reader -- the item detail, search, the `attribute=`
 filter, the star check -- skips a removed link, and every pass that adds links
 skips an item holding *any* link for that attribute, removed ones included.
 
 API: the item detail lists `attributes` (code, label, group, source,
-derived_by). `PATCH /api/inventory/{id}` takes `attributes` as the whole set,
-checked against the item's kind after any kind change in the same request; a
-change moves the item's version, so a stale form is a 409. Bulk edit refuses
-`attributes`. Search matches attribute names and aliases and filters on
-`attribute=<code>`.
+derived_by). `POST /api/inventory` and `PATCH /api/inventory/{id}` take
+`attributes` as the whole set, checked against the item's kind after any kind
+change in the same request; an unknown code or one of the other kind is a 422
+naming it. A change moves the item's version, so a stale form is a 409. Bulk
+edit refuses `attributes`. Search matches attribute names and aliases and
+filters on `attribute=<code>`.
 
-Console: the item editor's Attributes row shows chips (marked *read* when a
-rule made them) and a picker of the attributes that fit the item's kind.
+Console: `AttributesField`, in the New item form and the item editor, shows
+chips (marked *read*, with the rule in the tooltip, when a rule made them)
+and a picker of the attributes that fit the item's kind. Changing an item
+across note and coin drops the attributes that no longer fit in the editor
+(`kindChange.js`), and all of them in the New item form.
 
 ### Attributes from facts: No Motto
 

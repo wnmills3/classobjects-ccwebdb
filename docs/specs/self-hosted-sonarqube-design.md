@@ -1,8 +1,15 @@
 # Self-hosted SonarQube Server for ccwebdb
 
-SonarQube runs locally, so code and analysis data never leave the machine,
-while the SonarQube MCP tools keep working. Day-to-day commands are in
-`docs/runtime-operations.md`, section "SonarQube (local server)".
+*2026-09-29.* SonarQube tracks the code's quality over time -- issues,
+duplication, test coverage and a quality gate -- for the backend and
+frontend together, as a second opinion beside the lint and test gates of
+`scripts\ccweb_check.cmd`. It is a developer tool, not part of the product:
+the developer runs it on this machine through four `scripts\ccweb_sonar_*.cmd`
+scripts, reads the dashboard at `http://localhost:9000`, and Claude Code
+queries it through the SonarQube MCP tools. It runs locally in Podman
+containers, so code and analysis data never leave the machine. Day-to-day
+commands are in `docs/runtime-operations.md`, section "SonarQube (local
+server)".
 
 Out of scope: TLS, LAN or CI exposure, user management, auto-start on boot,
 and Developer Edition features (branch analysis, PR decoration). Community
@@ -49,8 +56,8 @@ Named volumes: `sonar-db-data`, `sonarqube-data`, `sonarqube-extensions`,
 |---|---|
 | `ccweb_sonar_start.cmd` | Starts the podman machine if it is not responding (one attempt). Refuses if port 9000 is held by anything but its own container. Creates the network and volumes if absent, creates or starts both containers, and polls `/api/system/status` until `UP` (up to 300 tries, sleeping with `ping` between them; first boot takes 1-3 minutes); on timeout prints the last 30 log lines and exits non-zero. |
 | `ccweb_sonar_stop.cmd` | Stops both containers, keeps the volumes, and exits non-zero unless `podman ps` confirms both are gone. |
-| `ccweb_sonar_scan.cmd` | Fails fast if the server is not responding (it never starts it: an implicit start would make a stale dashboard look current) or `SONAR_TOKEN` is unset. Then runs the backend tests with coverage, the frontend tests with coverage, and the scanner; refuses to publish if any step fails. |
-| `ccweb_sonar_mcp.cmd` | Launches the MCP server for Claude Code over stdio. Checks only `SONAR_TOKEN` (errors to stderr) and writes nothing else to stdout, which would corrupt the protocol stream. |
+| `ccweb_sonar_scan.cmd` | Fails fast if the server is not responding (it never starts it: an implicit start would make a stale dashboard look current) or `SONAR_TOKEN` is unset. Then, with the ccwebdb conda environment's Python and Node (`ccweb_env.cmd`), runs the backend tests with coverage, the frontend tests with coverage, and the scanner with the repository mounted at `/usr/src`; refuses to publish if any step fails. |
+| `ccweb_sonar_mcp.cmd` | Launches the MCP server for Claude Code over stdio, on `sonar-net`, with the project key `classobjects-ccwebdb` and the repository mounted read-only. Checks only `SONAR_TOKEN` (errors to stderr) and writes nothing else to stdout, which would corrupt the protocol stream. |
 
 **Why a separate MCP launcher.** The CLI's own `sonar run mcp` starts its
 container on the default bridge network with `SONARQUBE_URL=http://localhost:9000`
@@ -67,21 +74,21 @@ server)*).
 `sonar-project.properties` at the repository root:
 
 - `sonar.projectKey=classobjects-ccwebdb`
-- `sonar.sources=backend/app,frontend/src` (migrations are excluded as
-  generated noise)
+- `sonar.sources=backend/app,frontend/src` (Alembic's generated migrations,
+  under `backend/alembic`, lie outside it)
 - `sonar.tests=backend/tests,frontend/src`, with `sonar.test.inclusions`
   naming `*.test.js`, `*.test.jsx` and `src/test/**` -- frontend tests sit
   beside their components, and without the inclusion they count as uncovered
   source
-- `sonar.python.coverage.reportPaths=coverage.xml`
+- `sonar.python.version=3.13`, `sonar.python.coverage.reportPaths=coverage.xml`
 - `sonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info`
 - `sonar.exclusions=frontend/dist/**,frontend/node_modules/**`
 
 **Coverage paths must resolve inside the scanner's container.** The scan
 script runs, from the repository root:
 
-```
-pytest -q --cov=backend/app --cov-report=xml:coverage.xml
+```cmd
+python -m pytest -q --cov=backend/app --cov-report=xml:coverage.xml
 ```
 
 with `relative_files = true` under `[tool.coverage.run]` in `pyproject.toml`.

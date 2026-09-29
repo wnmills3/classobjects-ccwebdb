@@ -1,10 +1,14 @@
 # Management console: separating the shop from the back office
 
-The frontend is two applications built from one Vite project: the **shop**,
-served at `/`, and the **management console**, served at `/management`. The shop's
-bundle contains no console module -- not lazily loaded, not present -- so an
-anonymous visitor neither downloads the console's code nor learns that its
-pages exist.
+*2026-09-29.* The business has two audiences: buyers browsing the public
+shop, and the owner and managers running inventory, purchases, sales and
+reports. The frontend is therefore two applications built from one Vite
+project: the **shop**, served at `/`, and the **management console**, served
+at `/management`. The shop's bundle contains no console module -- not lazily
+loaded, not present -- so an anonymous visitor neither downloads the
+console's code nor learns what its pages are or which endpoints they call.
+This document covers how the two are kept apart and how that is verified; it
+is of interest to whoever adds a page or a shared module.
 
 ## What this is and is not
 
@@ -29,7 +33,7 @@ frontend/
   scripts/check-bundle-isolation.mjs
   src/
     shared/   transport and calls both use (api.js), auth, reference pickers,
-              kinds, formatting, LoginForm, shared.css
+              kinds, formatting, useRequest, LoginForm, shared.css
     store/    StoreApp.jsx, cart, pages/, styles.css
     management/    ManagementApp.jsx, api.js, HelpScope, fieldHelp, shortcuts,
               pages/, styles.css
@@ -67,7 +71,8 @@ split removed.
 
 ### Sessions are shared
 
-The JWT lives in `localStorage` under one key and is sent as a bearer token.
+The tokens live in `localStorage` under one key (`ccwebdb.tokens`,
+`shared/api.js`) and the access token is sent as a bearer token.
 Both applications are same-origin, so a session obtained in either works in
 both. The console therefore has its **own `/management/login` route** rather than
 redirecting to the shop's; both wrap the shared `LoginForm`. **The shop never

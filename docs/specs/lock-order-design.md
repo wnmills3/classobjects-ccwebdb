@@ -1,8 +1,16 @@
 # Lock order for the selling writers
 
-How every write that touches more than one kind of selling row takes its row
-locks, and why. The code is `offering_writes.lock_for_sale` and the private
-`_acquire` behind it; this note explains the rule and lists who follows it.
+A shopper's checkout, a manager offering a coin on eBay, a receipt marking a
+coin missing and an auction settlement can all touch the same coin at the
+same moment. Each takes row locks on lots, items and listings; if two of them
+took those in different orders, Postgres would find a deadlock and abort one
+-- an HTTP 500 on a money path instead of the clean refusal either path
+gives. This spec is the rule that prevents that, for anyone changing a
+selling writer: one acquisition order, owned by one function,
+`offering_writes.lock_for_sale` (and the private `_acquire` behind it), which
+every such writer goes through. It has no page of its own; its effect is that
+concurrent sales, offers and edits either succeed or are refused with a
+message.
 
 ## The rule
 
@@ -38,8 +46,7 @@ Two writers need the same rows for different reasons.
 
 So the order that carries a guarantee is the canonical one. If the two
 writers disagreed, a checkout and a concurrent offer of the same coin could
-each hold what the other waits for, and Postgres would abort one of them: an
-HTTP 500 on a money path instead of the clean refusal either path gives.
+each hold what the other waits for, and Postgres would abort one of them.
 Every money-path request commits once, at the end, so an abort never leaves
 anything half-written -- the cost is a bad error, not bad data.
 
@@ -113,11 +120,18 @@ in `refuse_if_lot_unheld`, and here.
 | `order_writes.revise_order` | `_lock_listings`, after its own `sales_order` row lock |
 | `order_writes.return_stock` | `_lock_listings`, after the caller's `sales_order` row lock |
 | `sales_writes.record_sale_lines` | `lock_for_sale(listing_ids=...)` |
-| `routers.inventory.receive_items` | `lock_for_sale(listing_ids=..., item_ids=..., including_paused=True)` before its first write, then `refuse_if_lot_unheld` |
+| `routers.inventory.receive_items` | for `missing`, `returned` or `canceled`: `lock_for_sale(listing_ids=..., item_ids=..., including_paused=True)` before its first write, then `refuse_if_lot_unheld` (in `_end_offers_holding`) |
 | `routers.inventory.bulk_edit`, `update_item` | the same, when the edit changes an offered item's status or disposition |
 | `splitting.split_item` | `end_offer`, while holding the parent item row |
 | `auctions.settle` | `_lock_auction`, then `lock_for_sale(item_ids=...)` over every coin in the auction |
 | `auctions.add_lot`, `remove_lot`, `cancel` | `_lock_auction`, then `offer` / `end_offer` |
+
+`auctions.consign` takes `_lock_auction` and then moves items through
+`lifecycle_writes.set_location`, which writes item rows and takes no lot or
+listing row. `schedule` and `close` touch only the auction row and rely on
+its `version` column. Every transition that reaches an auction's coins takes
+the auction row first; a `cancel` that wrote the auction row last would take
+lots, items and listings before it, the inverse of `settle`.
 
 **Receiving** takes its locks before it writes any `inventory_item` row, and
 its `offers_holding` read *above* the locks only chooses what to lock. The
@@ -140,6 +154,8 @@ to compare; that is safe because `add_lot` refuses any auction that is not
 
 ## Every `with_for_update` in `backend/app`
 
+Statements and `db.refresh(..., with_for_update=True)` calls alike:
+
 | Site | Row kind | Role |
 |---|---|---|
 | `offering_writes._lock_lots` | `sales_lot` | acquisition, step 1 |
@@ -153,14 +169,15 @@ to compare; that is safe because `add_lot` refuses any auction that is not
 | `routers.orders.update_order_status` | `sales_order` | taken before `return_stock` |
 | `auctions._lock_auction` | `auction` | outermost row for every auction transition |
 | `splitting.split_item` | `inventory_item` | the parent, held across the `end_offer` call |
-| `routers.users._admin_count` | `user` | single kind, no selling rows: the active managers, locked so two saves cannot remove the last two |
+| `routers.users._admin_count` | `users` | single kind, no selling rows: the active managers, locked so two saves cannot each remove one of the last two |
 
 ## Related rules
 
 - **Ending is idempotent.** `offering_writes._end` returns early on a listing
   that is already `ended`, so a second `POST /api/listings/{id}/end` cannot
   rewrite a `sold` lot to `dissolved`
-  (`test_ending_a_sold_lot_s_listing_again_leaves_it_sold`). It lives in
+  (`test_ending_a_sold_lot_s_listing_again_leaves_it_sold`,
+  `tests/test_offers_api.py`). It lives in
   `_end` because that is the single writer of `sales_lot.status`.
 - **No false conflicts on items.** `_after_stock_change` writes
   `inventory_item.disposition`, which carries a version column; the items are

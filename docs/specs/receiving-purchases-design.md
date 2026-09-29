@@ -1,8 +1,18 @@
 # Receiving purchases: logging what actually arrived
 
 A package arrives. Somebody opens it, checks what is inside against what was
-bought, puts the objects somewhere, and records that this happened. The
-Receiving page (`/management/receiving`) and `POST /api/inventory/receive` are how.
+bought, puts the objects somewhere, and records that this happened. Until
+then a purchase is only a promise: an item cannot be offered for sale until
+it is received, and a parcel that never comes has to be closed out as
+missing, returned or cancelled rather than left outstanding forever.
+
+The owner or a manager does this on the **Receiving** page
+(`/management/receiving`, **Receive** in the console menu), usually by
+following **Receive these** from a purchase or the Order link on an
+inventory row. The page finds the outstanding items, and a dialog per item
+records the outcome, the date it arrived, where it was put, and optionally
+photographs, corrections and errors, all through
+`POST /api/inventory/receive` and the item endpoints.
 
 ## What receiving is here
 
@@ -70,7 +80,7 @@ re-reads the row with `populate_existing` must flush in between;
   and `missing` are both receivable: a parcel written off as missing
   sometimes turns up.
 - **Location** is set through `set_location` only for `received` with a
-  `storage_location_id`; an unknown id is 422.
+  `storage_location_id`; an unknown id is 422 whatever the outcome.
 - **Unknown item id**: 404 naming the ids. **Unknown outcome**: 422 naming
   the four.
 - **A for-sale item** (`missing`, `returned`, `canceled` only): refused with
@@ -89,10 +99,11 @@ All admin-only.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/inventory/{view}/search` | the search; `view` is `coins` or `currency` |
-| `GET /api/purchase-orders/{id}` | the order a `?order=` link names: number, vendor, date, seller's page, lines |
-| `GET /api/storage-locations` | the *Storage location* choices |
+| `GET /api/purchase-orders/{id}` | the purchase a `?order=` link names: order number, vendor, date, vendor page, seller |
+| `GET /api/storage-locations`, `POST /api/storage-locations` | the *Storage location* choices, and adding one inline |
 | `GET /api/inventory/{id}` | the item being received (kind, sale state) |
-| `POST /api/inventory/{id}/reviewed`, `PATCH /api/inventory/{id}`, `PUT /api/inventory/{id}/errors` | confirm or correct fields, record errors |
+| `POST /api/inventory/{id}/reviewed`, `PATCH /api/inventory/{id}`, `PUT /api/inventory/{id}/errors` | save Identify, confirm or correct fields, record errors |
+| `GET /api/friedberg`, `POST /api/friedberg`, `PATCH /api/friedberg/{id}`, `POST /api/inventory/{id}/friedberg` | a banknote's catalog-number lookup |
 | `POST /api/images` | photographs of the item being received |
 
 The search filters Receiving uses: `order_number` (partial, case-insensitive
@@ -106,7 +117,8 @@ authorization boundary: a public listing that leaked the safe-deposit box
 holding an item would be a security failure. `routers/catalog.py`
 (`to_catalog_item`) builds every public response field by field, and
 `test_catalogue_never_exposes_cost_basis_or_location` tests it; the
-`public_catalog` view only states the rule (see `database-design.md` §10).
+`public_catalog` view states the same rule (`docs/database-design.md` §10),
+and `test_public_catalog_never_exposes_private_columns` tests the view.
 
 ## The page
 
@@ -142,9 +154,10 @@ Receiving
   silently.
 
 **`?order=<id>`** -- the link from the inventory screens' Order column and
-from Purchases' *Receive these*. The page loads that order, shows its
-header (order number, vendor, order date, and a link to the seller's page)
-and runs the search at once **by the order's id** (the `purchase_order_id`
+from Purchases' *Receive these*. The page loads that purchase, shows its
+header (purchase `#id`, order number, vendor, order date, a link to the
+vendor's page, and the seller, linked when their page is known) and runs the
+search at once **by the purchase's id** (the `purchase_order_id`
 filter) with the default *Not yet arrived* status. Not by its number: an
 order number is unique only per vendor and is sometimes not recorded, so a
 number match would show other orders' items or none. The field shows the
@@ -156,22 +169,24 @@ error belongs to that order and clears when the address changes.
 **Receiving one item.** Choosing a row opens a dialog for that item:
 
 - First, **Identify** (`receiving/IdentifySection.jsx`): the facts that
-  identify the piece, filled from the item and saved with **Receive** only
-  (`identify-first-entry-design.md`).
+  identify the piece, filled from the item and saved with **Receive** only,
+  as a `PATCH` sent just before the receipt (`identify-first-entry-design.md`).
+  Missing, Returned and Cancelled leave the item as it was.
 - *Arrived* (defaults to the operator's local today), *Storage location*
   (`LocationSelect`, which can add a location inline),
   *Note*, *Photo*, and the four buttons **Receive**, **Missing**,
   **Returned**, **Cancelled**, each sending its own code in one request.
 - The location and date the previous receipt used seed the next dialog, so a
-  parcel of twenty into one location is not twenty identical picks.
-- **Confirm or correct fields** (collapsed) opens `ReviewPane`, the inventory
+  parcel of twenty into one location is not twenty identical picks. The note
+  is not carried over: it describes one object.
+- **Confirm or correct fields** opens `ReviewPane`, the inventory
   page's own review component: *confirm* writes `.../reviewed`, editing
   writes `PATCH`. It is disabled while Identify has unsaved changes; Identify
   is hidden while it is open and reads the item again when it closes. While it is closed, `ErrorsPanel` records mint or printing
   errors; only one of the two is mounted at a time, because each replaces the
   item's whole error set (the editor's on its Save, this one on every change).
-- For a banknote, a collapsed catalog-number lookup (`FriedbergLookup`) is
-  offered. A match found in the owner's catalog has one **Use** button that
+- For a banknote, **Look up Friedberg number** opens a catalog-number lookup
+  (`FriedbergLookup`). A match found in the owner's catalog has one **Use** button that
   puts it on the note at once: as confirmed when the catalog row was
   confirmed before (it is verified), as proposed when it never was. Only a
   number not in the catalog -- typed, or pasted from the web search that a
@@ -181,10 +196,14 @@ error belongs to that order and clears when the address changes.
   with that row named, and **Correct 3007- to 3007-L** renames the recorded
   row and uses it. In the item editor the choice is held until the editor's
   Save.
-- Photographs upload after the receipt, the first as primary. **A failed
-  upload never rolls back the receipt**: the arrival is the fact, the
-  photograph evidence added to it. The failure is shown against the file and
-  the dialog stays open to retry.
+- *Photo* takes files from the file box, dropped onto it, or pasted into it
+  with Ctrl+V; anything that is not an image is refused with its name.
+  Photographs upload after the receipt, the first as primary, carrying the
+  receipt's for-sale acknowledgement. **A failed upload never rolls back the
+  receipt**: the arrival is the fact, the photograph evidence added to it.
+  The dialog stays open with an error naming each failed file; the chosen
+  files are cleared, since resending would resend the receipt, and a
+  photograph is added later from the item's own photographs.
 - A refused receipt (409, 422, network) keeps every field as typed.
 - A for-sale refusal opens `ForSaleConfirm`, which says the listing will be
   ended; confirming resubmits with `acknowledge_for_sale`.
@@ -196,8 +215,8 @@ all the same, and must not stay listed as outstanding.
 
 ## Tests
 
-Backend (`tests/test_receiving.py`, `tests/test_for_sale_guards.py`,
-`tests/test_offer_races.py`):
+Backend (`tests/test_receiving.py`, `tests/test_lifecycle_writes.py`,
+`tests/test_for_sale_guards.py`, `tests/test_offer_races.py`):
 
 - `set_status` writes one history row per change with the previous status.
   A history mechanism nothing forces quietly stops working, so removing the
@@ -208,8 +227,11 @@ Backend (`tests/test_receiving.py`, `tests/test_for_sale_guards.py`,
   history rows survive.
 - `missing` records history exactly as `received` does; location and
   `location_history` are written together, and only for `received`.
-- The future-date bound; unknown outcome and location.
-- The `public_catalog` view still exposes no storage location.
+- The future-date bound (today and one day ahead of UTC accepted); unknown
+  outcome; the reply names the outcome; a shopper cannot receive.
+- For-sale items: `missing` is refused until acknowledged, then ends the
+  listing (a lot's listing included) and releases its claim; a receipt
+  racing a checkout of the coin's lot has one clean winner.
 
 Frontend (`Receiving.test.jsx`, `receiving/ItemFinder.test.jsx`,
 `receiving/ReceiptPanel.test.jsx`): the default search asks for `ordered` and
@@ -219,8 +241,9 @@ a `?order=` link shows the header and searches by the order's id (an
 unnumbered order included), the search repeats whenever the dialog closes,
 more than a page of matches is reported, a failed link's error clears on the
 next link, a late response for an abandoned search is dropped, the help area
-explains the focused field, each outcome sends its own code, and a failed
-upload keeps the receipt and the dialog open.
+explains the focused field, each outcome sends its own code, a dropped or
+pasted image is added like a chosen one, and a failed upload keeps the
+receipt and the dialog open.
 
 ## Limits
 
