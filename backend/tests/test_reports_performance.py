@@ -18,6 +18,7 @@ from decimal import Decimal
 import pytest
 from app.models import (
     Denomination,
+    Image,
     InventoryItem,
     ItemKind,
     ItemStatus,
@@ -28,6 +29,8 @@ from app.models import (
     SalesLotStatus,
     SalesVenue,
     SalesVenueKind,
+    StorageLocation,
+    StorageLocationKind,
 )
 from app.reports import REPORTS
 from sqlalchemy.orm import Session
@@ -193,6 +196,26 @@ def _build_modest_collection(db: Session) -> None:
         title="A lot",
     )
     db.add(lot_listing)
+    db.commit()
+
+    # `dq_locations` groups by storage location; `dq_photos`' "Unfiled
+    # photographs" row reads `image` left unlinked by any `item_image` row.
+    # Cheap to add here so the performance guard exercises both paths too.
+    location = StorageLocation(
+        storage_location_kind_id=code_id(db, StorageLocationKind, "home"),
+        identifier="Perf test box",
+    )
+    db.add(location)
+    db.flush()
+    listing_items[0].storage_location_id = location.id
+    db.add(
+        Image(
+            sha256="0" * 64,
+            storage_key="orig/unfiled-perf.jpg",
+            media_type="image/jpeg",
+            byte_size=10,
+        )
+    )
     db.commit()
 
 
