@@ -52,6 +52,12 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 #: must not silently return stock that has already been posted.
 SHIPPED_STATUSES = frozenset({"packed", "shipped", "delivered"})
 
+#: Statuses a cancellation must not return stock from: the stock has left
+#: (`SHIPPED_STATUSES`), was already returned (`cancelled`), or the money went
+#: back (`refunded`) -- a status that does not say whether the coins came
+#: back, and whose ordinary case is a refund after shipping.
+NO_STOCK_RETURN_STATUSES = SHIPPED_STATUSES | {"cancelled", "refunded"}
+
 # The same 404 whether the order does not exist or belongs to another
 # customer, so order ids cannot be probed.
 _ORDER_NOT_FOUND = "Order not found"
@@ -317,7 +323,7 @@ def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
     its listing is ended too, and the platform is the more useful news.
 
     Asked only of a cancellation that would really return stock: see the call
-    site, which shares `return_stock`'s own `SHIPPED_STATUSES` condition.
+    site, which shares `return_stock`'s own `NO_STOCK_RETURN_STATUSES` condition.
 
     `paused` is deliberately not asked about. A listing whose stock an order
     holds cannot become paused afterwards -- pausing happens when the item is
@@ -380,8 +386,8 @@ def update_order_status(
     # catalog; a shipped order's goods have left, so cancelling it moves no
     # stock and is how a refund is recorded. Re-sending `cancelled` on an
     # already-cancelled order is a no-op.
-    returns_stock = payload.status == "cancelled" and previous not in (
-        SHIPPED_STATUSES | {"cancelled"}
+    returns_stock = (
+        payload.status == "cancelled" and previous not in NO_STOCK_RETURN_STATUSES
     )
     # An order whose stock cannot be put back cannot be cancelled here --
     # `_no_stock_to_return` says which shape it is and why, and is where the

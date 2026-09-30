@@ -404,7 +404,7 @@ def test_an_auction_house_sale_can_be_cancelled_as_a_refund(
 
     An auction house has already shipped for us by the time its sale is
     recorded, so `sales_writes._STATUS_BY_VENUE_KIND` starts that order at
-    **delivered** -- which is in `routers.orders.SHIPPED_STATUSES`. When the
+    **delivered** -- which is in `routers.orders.NO_STOCK_RETURN_STATUSES`. When the
     cancel refusal was narrowed to unshipped orders, every auction-house sale
     moved from "always refused" to "always allowed" in one step, and nothing
     covered it: the branch tests a shipped *store* lot order and an unshipped
@@ -418,9 +418,9 @@ def test_an_auction_house_sale_can_be_cancelled_as_a_refund(
     cancelling is how the refund is recorded. The assertions below are that
     pair: the order really cancels, and no stock came back.
 
-    The mutation that proves it: drop `previous not in SHIPPED_STATUSES |
-    {"cancelled"}` from the refusal at `routers.orders` and confirm this goes
-    red with a 409 naming Heritage.
+    The mutation that proves it: drop `previous not in
+    NO_STOCK_RETURN_STATUSES` from the refusal at `routers.orders` and confirm
+    this goes red with a 409 naming Heritage.
     """
     heritage_listing_id = heritage_listing.id
     recorded = _post(client, heritage_listing_id, admin_headers)

@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from decimal import Decimal
 
+import pytest
+
 from app.models import (
     Listing,
     SalesOrderItemShare,
@@ -564,5 +566,30 @@ def test_cancelling_after_shipping_does_not_return_stock(
         client.patch(
             f"/api/orders/{order['id']}", json={"status": state}, headers=admin_headers
         )
+    db.refresh(listing)
+    assert listing.quantity_available == 3
+
+
+@pytest.mark.parametrize("path", [("refunded",), ("shipped", "refunded")])
+def test_cancelling_a_refunded_order_does_not_return_stock(
+    path: tuple[str, ...],
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """A refunded order's money went back; cancelling it moves no stock.
+
+    Whether the coins came back is not something `refunded` records, and a
+    refund after shipping is the ordinary case. Returning stock here would
+    offer the next buyer coins that have already left.
+    """
+    order = post_order(client, customer_headers, listing.id, 2).json()
+    for state in (*path, "cancelled"):
+        response = client.patch(
+            f"/api/orders/{order['id']}", json={"status": state}, headers=admin_headers
+        )
+        assert response.status_code == 200, response.text
     db.refresh(listing)
     assert listing.quantity_available == 3
