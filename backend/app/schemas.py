@@ -995,8 +995,12 @@ class InventoryItemUpdate(BaseModel):
     is one vocabulary at this boundary rather than two.
 
     Every field optional, and applied with `exclude_unset`, so an omitted
-    field is left alone rather than nulled.
+    field is left alone rather than nulled. An unknown field is a 422, not
+    dropped: a misspelt field, or one this edit cannot change
+    (`purchase_order_id`), would otherwise answer 200 for a change never made.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     #: The version read before editing. Send it and a conflicting save is a
     #: 409 rather than a silent overwrite; omit it to mean "set this
@@ -1113,6 +1117,8 @@ class BulkEditRequest(BaseModel):
     edits accept exactly the same fields and the same codes. Two field lists
     would drift.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     #: At least one. "Apply to nothing" is far more likely a selection that
     #: was lost than something anyone meant.

@@ -571,3 +571,43 @@ def test_a_note_keeps_a_retired_seal_colour_it_already_holds(
     )
     assert refused.status_code == 422, refused.text
     assert "Retired seal_color" in refused.json()["detail"]
+
+
+def test_an_unknown_field_is_refused_not_dropped(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A field the edit does not know is a 422, and nothing else is applied.
+
+    Dropped silently, a misspelt field or one this route cannot change
+    (`purchase_order_id`) answered 200 with the rest applied, so the caller
+    believed a change was made that never was. `ItemCreate` already refuses.
+    """
+    item = build_bare_item(db, source_title="before")
+
+    response = client.patch(
+        f"/api/inventory/{item.id}",
+        json={"source_title": "after", "purchase_order_id": 1},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert "purchase_order_id" in response.text
+    db.refresh(item)
+    assert item.source_title == "before"
+
+
+def test_a_bulk_edit_refuses_an_unknown_field(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Bulk takes the same fields as a single edit, so it refuses the same way."""
+    item = build_bare_item(db, source_title="before")
+
+    for body in (
+        {"ids": [item.id], "changes": {"source_title": "after", "sorce_title": "x"}},
+        {"ids": [item.id], "changes": {"source_title": "after"}, "id": [item.id]},
+    ):
+        response = client.post("/api/inventory/bulk", json=body, headers=admin_headers)
+        assert response.status_code == 422, response.text
+
+    db.refresh(item)
+    assert item.source_title == "before"
