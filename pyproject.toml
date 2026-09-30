@@ -8,6 +8,9 @@ dependencies = [
     "email-validator>=2.3.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    # Runtime, not dev: reports, app.workbook_backup and app.ebay_orders
+    # all write or read .xlsx.
+    "openpyxl>=3.1.5",
     "pillow>=12.3.0",
     "psycopg[binary]>=3.3.5",
     "pydantic-settings>=2.15.0",
@@ -20,7 +23,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "mypy>=2.3.1",
-    "openpyxl>=3.1.5",
     "pdfplumber>=0.11.10",
     "piexif>=1.1.3",
     "psutil>=7.2.2",
