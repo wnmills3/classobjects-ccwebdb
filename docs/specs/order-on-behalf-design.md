@@ -113,6 +113,9 @@ code: `pending`, `paid`, `packed`, `shipped`, `delivered`, `cancelled`,
   while it is unpacked, because there is nothing to return the stock to.
 - Cancelling a `packed`, `shipped` or `delivered` order moves no stock; it is
   how a refund is recorded, whatever the listing's state.
+- Cancelling a `refunded` order moves no stock either: `refunded` says the
+  money went back, not that the coins did, and its ordinary case is a refund
+  after shipping.
 - A cancelled order cannot be moved to another status: its stock is back on
   sale. Re-sending `cancelled` is harmless.
 

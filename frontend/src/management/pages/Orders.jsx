@@ -26,12 +26,12 @@ const STATUSES = [
   'refunded',
 ]
 
-//: The statuses past which cancelling returns no stock, mirroring
-//: `routers.orders.SHIPPED_STATUSES`. The goods have left, so there is
-//: nothing to put back and nothing to strand -- cancelling is how a refund
-//: is recorded. Kept in the same order as STATUSES above for reading, not
-//: because anything here depends on it.
-const SHIPPED_STATUSES = ['packed', 'shipped', 'delivered']
+//: The statuses from which cancelling returns no stock, mirroring
+//: `routers.orders.NO_STOCK_RETURN_STATUSES` (less `cancelled`, which is
+//: disabled on its own). The goods have left, or the money went back, so
+//: nothing is put back and nothing can be stranded. Kept in the same order
+//: as STATUSES above for reading, not because anything here depends on it.
+const NO_STOCK_RETURN_STATUSES = ['packed', 'shipped', 'delivered', 'refunded']
 
 export default function Orders() {
   // Read again after every write; this is the only place the list is set.
@@ -176,7 +176,7 @@ export default function Orders() {
                       // left to put the stock back on. Each line says so
                       // (`listing_ended`), so the rule here is the server's
                       // own, not an approximation of it.
-                      const unshipped = !SHIPPED_STATUSES.includes(order.status)
+                      const unshipped = !NO_STOCK_RETURN_STATUSES.includes(order.status)
                       const outsideSale =
                         s === 'cancelled' &&
                         order.sales_venue_code !== 'store' &&
