@@ -12,7 +12,6 @@ from collections.abc import Callable
 from decimal import Decimal
 
 import pytest
-
 from app.models import (
     Listing,
     SalesOrderItemShare,
