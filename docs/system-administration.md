@@ -748,11 +748,16 @@ Cancelling an order that is pending or paid returns its stock to the catalog
 offered to the next buyer. Cancelling once it is packed, shipped or delivered
 returns no stock; that is how a refund is recorded.
 
-Two kinds of pending or paid order **cannot be cancelled**, because the
+**Refunding works the same way.** Refunding a pending or paid order returns
+its stock (the page asks first), and the order can then only be cancelled,
+never shipped. Refunding once it is packed, shipped or delivered returns no
+stock, and the order may still be moved on if the refund was a mistake.
+
+Two kinds of pending or paid order **cannot be cancelled or refunded**, because the
 listing they sold has already ended and there is nothing to put the stock
 back on: a sale recorded from an outside platform, and an order that bought a
 **sales lot**. The API refuses with a 409 naming what is in the way; the
-Sales page grays out **cancelled** on an outside-platform order. Once such an
+Sales page grays out **cancelled** and **refunded** on an outside-platform order. Once such an
 order is packed it can be cancelled like any other (no stock returns). There is no "undo an outside sale" path: if one falls through,
 restore the item's status and disposition by hand and offer it again.
 

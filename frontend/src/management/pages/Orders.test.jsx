@@ -147,6 +147,31 @@ describe('owner Orders', () => {
     expect(api.setOrderStatus).toHaveBeenCalledWith(12, 'cancelled')
   })
 
+  it('asks before refunding an unshipped order, whose stock goes back', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = await renderPage()
+    await user.selectOptions(within(rowFor(12)).getByRole('combobox'), 'refunded')
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/back on sale/))
+    expect(api.setOrderStatus).not.toHaveBeenCalled()
+  })
+
+  it('does not offer a refund before shipping for a sale made on another platform', async () => {
+    // Refunding it would return stock to a listing the sale ended; the
+    // server refuses that as it refuses a cancellation.
+    api.listOrders.mockResolvedValue([
+      { ...ORDERS[0], sales_venue_code: 'ebay', sales_venue_name: 'eBay' },
+    ])
+    renderWithProviders(<Orders />, {
+      auth: adminAuth(),
+      route: '/orders',
+      strict: true,
+    })
+    await screen.findByText('Ada Lovelace')
+    const select = within(rowFor(12)).getByRole('combobox')
+    expect(within(select).getByRole('option', { name: /refunded/i })).toBeDisabled()
+  })
+
   it('locks the status of a cancelled order', async () => {
     await renderPage()
     expect(within(rowFor(11)).getByRole('combobox')).toBeDisabled()

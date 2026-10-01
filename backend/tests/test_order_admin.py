@@ -80,6 +80,31 @@ def test_cancelling_a_shop_order_that_bought_a_lot_is_refused(
     assert current["status"] == "pending"
 
 
+def test_refunding_an_unshipped_lot_order_is_refused_like_cancelling(
+    client: TestClient,
+    db: Session,
+    store_lot_listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    """A refund before shipping returns stock, so it meets the same refusal."""
+    listing_id = store_lot_listing.id
+    placed = post_order(client, customer_headers, listing_id, 1)
+    assert placed.status_code == 201, placed.text
+    order_id = placed.json()["id"]
+
+    refused = _set(client, admin_headers, order_id, "refunded")
+
+    assert refused.status_code == 409, refused.text
+    assert "cannot be refunded" in refused.json()["detail"]
+    db.expire_all()
+    still = db.get(Listing, listing_id)
+    assert still is not None
+    assert still.quantity_available == 0
+    current = client.get(f"/api/orders/{order_id}", headers=admin_headers).json()
+    assert current["status"] == "pending"
+
+
 def test_a_shipped_lot_order_can_still_be_cancelled_as_a_refund(
     client: TestClient,
     db: Session,
