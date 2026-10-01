@@ -288,6 +288,12 @@ class InventoryItem(TimestampMixin, Base):
     #: A range, because a mint set or a roll spans several years.
     year_start: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     year_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: The piece carries no date at all -- a gold bar, an undated round --
+    #: as distinct from a year not recorded yet (owner, 2026-10-01). It holds
+    #: no year while set, and "No year recorded" does not list it.
+    no_date: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
 
     # -- condition --------------------------------------------------------
     #: Business strike, proof, specimen... -- the "PR" of PR69, kept apart
@@ -575,6 +581,10 @@ class InventoryItem(TimestampMixin, Base):
         CheckConstraint(
             "year_end IS NULL OR year_start IS NULL OR year_end >= year_start",
             name="ck_inventory_item_year_range",
+        ),
+        CheckConstraint(
+            "NOT no_date OR (year_start IS NULL AND year_end IS NULL)",
+            name="ck_inventory_item_no_date_no_years",
         ),
         CheckConstraint(
             "fineness IS NULL OR (fineness > 0 AND fineness <= 1)",

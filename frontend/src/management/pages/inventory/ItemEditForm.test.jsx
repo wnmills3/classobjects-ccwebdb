@@ -860,6 +860,27 @@ describe('ItemEditForm years', () => {
 
   const rangeBox = () => screen.getByRole('checkbox', { name: 'Range of years' })
 
+  it('marks a piece as having no date, clearing its year in the same save', async () => {
+    const user = await open({ year_start: 2020, year_end: 2020 })
+    await user.click(screen.getByRole('checkbox', { name: 'No date' }))
+
+    expect(screen.getByRole('spinbutton', { name: 'Year' })).toBeDisabled()
+    expect(rangeBox()).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ no_date: true, year_start: null, year_end: null }),
+      ),
+    )
+  })
+
+  it('opens a piece with no date ticked and its year shut', async () => {
+    await open({ year_start: null, year_end: null, no_date: true })
+    expect(screen.getByRole('checkbox', { name: 'No date' })).toBeChecked()
+    expect(screen.getByRole('spinbutton', { name: 'Year' })).toBeDisabled()
+  })
+
   it('asks for one year when the item has one', async () => {
     await open({ year_start: 1878, year_end: 1878 })
     expect(screen.getByRole('spinbutton', { name: 'Year' })).toHaveValue(1878)

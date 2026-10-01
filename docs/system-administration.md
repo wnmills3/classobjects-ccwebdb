@@ -477,6 +477,10 @@ refused naming the field. `storage_location_id` moves the item through
 `set_location` (*Status and location have one door*) and never needs
 `acknowledge_for_sale`, since a location does not show to a buyer. A banknote holds no year of its own:
 `year_start`/`year_end` sent for a note is refused (422); send `series_year`.
+`no_date: true` says a piece has no date at all (a gold bar): it clears the
+years, is refused beside a year in the same request and on a note, and takes
+the piece off "No year recorded". A year sent later clears it. Bulk edit
+refuses `no_date` by name; it is set one item at a time.
 
 **Editable classifiers**, set by code rather than id: `item_kind`, `country`,
 `denomination`, `bullion_form`, `set_form`, `strike_type`, `grade`,
