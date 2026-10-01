@@ -58,9 +58,13 @@ reason shown.
 
 - **Cleaned:** surrounding space and a `Fr.`, `Fr#` or `FR-` label in front
   of the digits are dropped, space around the hyphen is closed up, and the
-  district letter is capitalised -- ` Fr. 3005-d ` is kept as `3005-D`.
+  district letter is capitalised -- ` Fr. 3005-d ` is kept as `3005-D`. A
+  mule's `m` after the district stays lower-case, with any star after it:
+  `3007-EM` and `3007-e*m` are kept as `3007-Em` and `3007-Em*`.
 - **Checked:** 1 to 4 digits, an optional letter (`1a`), an optional district
-  `-A` to `-L`, and an optional `*` for a star note. `3007-` is refused as
+  `-A` to `-L`, an optional `m` after the district for a mule (the answer
+  the Friedberg web search is asked for when plates are given), and an
+  optional `*` for a star note. `3007-` is refused as
   ending in a hyphen, `30070-L` as having five digits, anything else out of
   that form as not a Friedberg number -- each with a sentence saying which
   (422).

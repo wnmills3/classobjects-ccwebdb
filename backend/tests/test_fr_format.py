@@ -21,6 +21,9 @@ from app.fr_format import fr_problem, normalize_fr
         ("French", "French"),
         ("9907 - l", "9907-L"),
         ("9a", "9a"),
+        ("9907-lm", "9907-Lm"),
+        ("9907-EM", "9907-Em"),
+        ("Fr. 9907-e*m", "9907-Em*"),
     ],
 )
 def test_a_number_is_cleaned_before_it_is_kept(typed: str, kept: str) -> None:
@@ -28,7 +31,19 @@ def test_a_number_is_cleaned_before_it_is_kept(typed: str, kept: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "number", ["1", "9", "9901", "9901-L", "9901-A*", "12a", "12a-B"]
+    "number",
+    [
+        "1",
+        "9",
+        "9901",
+        "9901-L",
+        "9901-A*",
+        "12a",
+        "12a-B",
+        "9907-Em",
+        "9907-Em*",
+        "9901m",
+    ],
 )
 def test_a_well_formed_number_passes(number: str) -> None:
     assert fr_problem(number) is None
@@ -42,6 +57,8 @@ def test_a_well_formed_number_passes(number: str) -> None:
         ("99070-L", "5 digits"),
         ("9907-M", "form"),
         ("9907-LL", "form"),
+        ("9907-Lmm", "form"),
+        ("9907-mL", "form"),
         ("L-9907", "form"),
         ("99 07", "form"),
     ],
