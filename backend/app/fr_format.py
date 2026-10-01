@@ -1,8 +1,9 @@
 """The shape of a Friedberg number, checked where one is saved or confirmed.
 
 Only the *form* is known here -- digits, an optional letter, a district, a
-mule's `m`, a star -- never which number belongs to which note: that mapping is the
-publisher's arrangement, which `CLAUDE.md` forbids shipping. The form is what
+mule's `m`, a star, a seal shade -- never which number belongs to which
+note: that mapping is the publisher's arrangement, which `CLAUDE.md` forbids
+shipping. The form is what
 catches a slip: `3007-` pasted for `3007-L` (owner's report, 2026-09-27), a
 stray space, or a `Fr. ` prefix that one row of the catalog carried and the
 rest did not.
@@ -25,7 +26,14 @@ _SPACED_HYPHEN = re.compile(r"\s*-\s*")
 #: 1 to 4 digits, an optional letter (`1a`), a district `-A` to `-L`, `m` for
 #: a mule (`3007-Em`; without a district the optional letter already holds
 #: it), and `*` for a star note.
-_FORM = re.compile(r"^(?P<digits>\d+)[A-Za-z]?(?:-[A-L]m?)?\*?$")
+#: Then, after a space, `LGS` or `DGS` for a light or dark green seal --
+#: `2008-B LGS` (owner, 2026-10-01). The seal is a catalog fact of its own,
+#: so the two shades are already two types; the suffix keeps their numbers
+#: apart.
+_FORM = re.compile(r"^(?P<digits>\d+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$")
+#: A seal shade typed at the end, any case and spacing: taken off before the
+#: rest is cleaned, and put back as ` LGS` / ` DGS`.
+_SHADE = re.compile(r"\s+(?P<shade>lgs|dgs)$", re.IGNORECASE)
 #: A district with a mule's `m`, the star typed either side of it: kept as
 #: `Em*`, the `m` lower-case so capitalising the district cannot turn it into
 #: a second district letter.
@@ -34,6 +42,16 @@ _MULE_DISTRICT = re.compile(r"(?P<district>[a-l])(?P<a>\*?)m(?P<b>\*?)", re.IGNO
 
 def normalize_fr(raw: str) -> str:
     """The number as it is kept: trimmed, unprefixed, its district in capitals."""
+    number = raw.strip()
+    shade = _SHADE.search(number)
+    suffix = f" {shade['shade'].upper()}" if shade else ""
+    if shade:
+        number = number[: shade.start()]
+    return _normalize_base(number) + suffix
+
+
+def _normalize_base(raw: str) -> str:
+    """The number before any seal shade, cleaned."""
     number = _SPACED_HYPHEN.sub("-", _PREFIX.sub("", raw.strip()))
     head, hyphen, district = number.partition("-")
     if not hyphen:
@@ -48,13 +66,15 @@ def normalize_fr(raw: str) -> str:
 def fr_traits(number: str) -> tuple[bool, bool]:
     """Whether `number` is a star note's and whether it is a mule's.
 
-    Read from the number alone: a trailing `*` is a star note, an `m` before
-    it (or at the end) a mule. These tell apart notes whose catalog facts are
-    all the same -- a mule differs only in its plates, a star note only in its
-    serial -- so they are part of a type's identity. The same rule, in SQL,
-    generates `friedberg_number.is_star` and `is_mule`.
+    Read from the number alone, past any seal shade: a `*` ending the rest
+    is a star note, an `m` before it (or ending the rest) a mule. These tell
+    apart notes whose catalog facts are all the same -- a mule differs only in
+    its plates, a star note only in its serial -- so they are part of a type's
+    identity. The same rule, in SQL, generates `friedberg_number.is_star` and
+    `is_mule`.
     """
-    return number.endswith("*"), number.rstrip("*").endswith("m")
+    base = re.sub(r" (?:LGS|DGS)$", "", number)
+    return base.endswith("*"), base.rstrip("*").endswith("m")
 
 
 def fr_problem(number: str) -> str | None:
@@ -68,7 +88,7 @@ def fr_problem(number: str) -> str | None:
         return (
             f"{number} is not in the form of a Friedberg number: digits, then an "
             "optional letter, then -A to -L for a district, then m for a mule, "
-            "then * for a star note."
+            "then * for a star note, then LGS or DGS for a seal shade."
         )
     digits = len(match["digits"])
     if digits > 4:

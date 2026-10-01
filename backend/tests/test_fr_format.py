@@ -24,6 +24,10 @@ from app.fr_format import fr_problem, fr_traits, normalize_fr
         ("9907-lm", "9907-Lm"),
         ("9907-EM", "9907-Em"),
         ("Fr. 9907-e*m", "9907-Em*"),
+        ("9908-b lgs", "9908-B LGS"),
+        ("9908-B   dgs ", "9908-B DGS"),
+        ("9908-b* lgs", "9908-B* LGS"),
+        ("9908-em lgs", "9908-Em LGS"),
     ],
 )
 def test_a_number_is_cleaned_before_it_is_kept(typed: str, kept: str) -> None:
@@ -43,6 +47,11 @@ def test_a_number_is_cleaned_before_it_is_kept(typed: str, kept: str) -> None:
         "9907-Em",
         "9907-Em*",
         "9901m",
+        "9908-B LGS",
+        "9908-B DGS",
+        "9908-B* LGS",
+        "9908-Em* DGS",
+        "9908 LGS",
     ],
 )
 def test_a_well_formed_number_passes(number: str) -> None:
@@ -59,6 +68,9 @@ def test_a_well_formed_number_passes(number: str) -> None:
         ("9907-LL", "form"),
         ("9907-Lmm", "form"),
         ("9907-mL", "form"),
+        ("9908-B XGS", "form"),
+        ("9908-BLGS", "form"),
+        ("9908-B LGS*", "form"),
         ("L-9907", "form"),
         ("99 07", "form"),
     ],
@@ -78,6 +90,10 @@ def test_a_slip_is_named(number: str, says: str) -> None:
         ("9901-Lm*", (True, True)),
         ("9901m", (False, True)),
         ("12a", (False, False)),
+        ("9901-L LGS", (False, False)),
+        ("9901-L* LGS", (True, False)),
+        ("9901-Lm DGS", (False, True)),
+        ("9901-Lm* DGS", (True, True)),
     ],
 )
 def test_star_and_mule_are_read_from_the_number(
