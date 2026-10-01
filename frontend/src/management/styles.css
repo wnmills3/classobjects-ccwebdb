@@ -340,15 +340,20 @@ fieldset.identify {
   padding: 0.4rem 0.9rem 0.6rem;
 }
 
-/* The year box with its "Range of years" switch beside it, in one column. */
+/* The year box with its "Range of years" switch beside it, in one column.
+   The box never shrinks below room for four digits and the number spinner:
+   at `min-width: 0` the New item form's column squeezed it to about 70px,
+   where 1881 was hidden behind the arrows (owner, 2026-10-01). Where the
+   column is too narrow for both, the switch wraps below instead. */
 .year-input {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.6rem;
 }
 .year-input input[type='number'] {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 6.5rem;
+  min-width: 6.5rem;
 }
 .year-input label.checkbox {
   white-space: nowrap;
