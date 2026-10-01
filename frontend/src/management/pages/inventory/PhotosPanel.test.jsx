@@ -21,7 +21,13 @@ vi.mock('../../api', () => ({
   },
 }))
 
+vi.mock('../../../shared/api', async (importOriginal) => ({
+  ...(await importOriginal()),
+  api: { addReferenceValue: vi.fn() },
+}))
+
 import { api } from '../../api'
+import { api as sharedApi } from '../../../shared/api'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 import PhotosPanel from './PhotosPanel'
 
@@ -135,6 +141,34 @@ describe('PhotosPanel', () => {
     )
 
     expect(onEditsChange).toHaveBeenCalledWith({ 6: { image_role: 'obverse' } })
+    expect(api.updateImageLink).not.toHaveBeenCalled()
+  })
+
+  it('adds a new kind of photograph by its name, and holds it', async () => {
+    // The owner, 2026-10-01: "Coolness" had nowhere to be added.
+    const user = userEvent.setup()
+    const onEditsChange = vi.fn()
+    sharedApi.addReferenceValue.mockResolvedValue({})
+    api.listItemImages.mockResolvedValue([
+      link({ link_id: 6, image_id: 35, image_role: null }),
+    ])
+    renderWithProviders(<PhotosPanel itemId={12} onEditsChange={onEditsChange} />, {
+      reference: roles,
+    })
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'image_role' }),
+      '__add__',
+    )
+    await user.type(screen.getByPlaceholderText('label'), 'Coolness')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(sharedApi.addReferenceValue).toHaveBeenCalledWith('image_role', {
+      code: 'coolness',
+      label: 'Coolness',
+      extra: {},
+    })
+    expect(onEditsChange).toHaveBeenCalledWith({ 6: { image_role: 'coolness' } })
     expect(api.updateImageLink).not.toHaveBeenCalled()
   })
 
