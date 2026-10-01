@@ -384,7 +384,7 @@ so the next lookup can trust the row.
 | `size_class` | `large` \| `small` \| `fractional` (check constraint) |
 | `web_press` | boolean null: web-press and sheet-fed printings are different types |
 | `printing_facility` | `dc` \| `fw` (check constraint), null when not known: a 2017-A $1 printed in Washington and one printed in Fort Worth are different types |
-| `is_star`, `is_mule` | boolean, generated from `fr_number`: a trailing `*` is a star note, an `m` before it (or at the end) a mule (`app.fr_format.fr_traits` reads the same rule) |
+| `is_star`, `is_mule` | boolean, generated from `fr_number`, read past any seal shade (` LGS`, ` DGS`): a `*` ending the rest is a star note, an `m` before it (or ending the rest) a mule (`app.fr_format.fr_traits` reads the same rule, and a test holds the two together) |
 | `description`, `source`, `verified_by_id`, `verified_at` | |
 
 **Identity is partially unique.** `uq_friedberg_number_identity` is unique on

@@ -17,6 +17,10 @@ describe('normalizeFr', () => {
     ['9907-lm', '9907-Lm'],
     ['9907-EM', '9907-Em'],
     ['Fr. 9907-e*m', '9907-Em*'],
+    ['9908-b lgs', '9908-B LGS'],
+    ['9908-B   dgs ', '9908-B DGS'],
+    ['9908-b* lgs', '9908-B* LGS'],
+    ['9908-em lgs', '9908-Em LGS'],
   ])('keeps %j as %j', (typed, kept) => {
     expect(normalizeFr(typed)).toBe(kept)
   })
@@ -34,6 +38,11 @@ describe('frProblem', () => {
     '9907-Em',
     '9907-Em*',
     '9901m',
+    '9908-B LGS',
+    '9908-B DGS',
+    '9908-B* LGS',
+    '9908-Em* DGS',
+    '9908 LGS',
   ])('passes %j', (number) => {
     expect(frProblem(number)).toBeNull()
   })
@@ -46,6 +55,9 @@ describe('frProblem', () => {
     ['9907-LL', 'form'],
     ['9907-Lmm', 'form'],
     ['9907-mL', 'form'],
+    ['9908-B XGS', 'form'],
+    ['9908-BLGS', 'form'],
+    ['9908-B LGS*', 'form'],
     ['L-9907', 'form'],
     ['99 07', 'form'],
   ])('names the slip in %j', (number, says) => {

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.fr_format import fr_traits
 from app.models import (
     CurrencyDetail,
     Denomination,
@@ -17,9 +18,11 @@ from app.models import (
     InventoryItem,
     ItemKind,
     NoteType,
+    ProvenanceSource,
     User,
 )
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, code_id
@@ -356,6 +359,62 @@ def test_a_mule_and_a_star_are_types_of_their_own(
             "/api/friedberg", json=_typed(number, None), headers=admin_headers
         )
         assert resp.status_code == 201, (number, resp.text)
+
+
+def test_a_seal_shade_is_part_of_the_number(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """`2008-B LGS` beside `2008-B`: the shade tells the two seals apart.
+
+    The seal itself is already part of a type's identity; it was the form of
+    the number that refused the suffix (owner, 2026-10-01).
+    """
+    plain = client.post(
+        "/api/friedberg",
+        json={**_typed("9921-B", None), "seal_color": "green"},
+        headers=admin_headers,
+    )
+    shade = client.post(
+        "/api/friedberg",
+        json={**_typed("9921-b lgs", None), "seal_color": "blue"},
+        headers=admin_headers,
+    )
+    star = client.post(
+        "/api/friedberg",
+        json={**_typed("9921-B* LGS", None), "seal_color": "blue"},
+        headers=admin_headers,
+    )
+    assert plain.status_code == 201, plain.text
+    assert shade.status_code == 201, shade.text
+    assert shade.json()["fr_number"] == "9921-B LGS"
+    # A star note of the same shade is a type of its own too: the star is
+    # read past the shade.
+    assert star.status_code == 201, star.text
+
+
+def test_the_database_reads_star_and_mule_as_fr_traits_does(db: Session) -> None:
+    """The generated columns and `fr_traits` are one rule written twice."""
+    numbers = [
+        "9931-L",
+        "9932-L*",
+        "9933-Lm",
+        "9934-Lm*",
+        "9935m",
+        "9936-L LGS",
+        "9937-L* LGS",
+        "9938-Lm DGS",
+        "9939-Lm* DGS",
+    ]
+    for number in numbers:
+        db.add(FriedbergNumber(fr_number=number, source=ProvenanceSource.manual))
+    db.flush()
+    stored = {
+        row.fr_number: (row.is_star, row.is_mule)
+        for row in db.scalars(
+            select(FriedbergNumber).where(FriedbergNumber.fr_number.in_(numbers))
+        )
+    }
+    assert stored == {number: fr_traits(number) for number in numbers}
 
 
 def test_a_second_plain_number_for_a_type_with_a_mule_is_still_a_conflict(

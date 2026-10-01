@@ -213,16 +213,21 @@ class FriedbergNumber(TimestampMixin, Base):
     #: of the identity below, as `web_press` is.
     printing_facility: Mapped[str | None] = mapped_column(String(2), nullable=True)
     #: A star note's number (`3006-A*`) and a mule's (`3007-Em`), read from
-    #: `fr_number` -- the same rule as `app.fr_format.fr_traits`. Generated,
+    #: `fr_number`, past any seal shade (`3006-A* LGS`) -- the same rule as
+    #: `app.fr_format.fr_traits`. Generated,
     #: so they can never disagree with the number. Part of the identity
     #: below: a mule differs from its plain type only by its plates and a star
     #: note only by its serial, neither a catalog fact, so without these the
     #: one on file refused the other (owner, 2026-09-30).
     is_star: Mapped[bool] = mapped_column(
-        Boolean, Computed("fr_number LIKE '%*'", persisted=True), nullable=False
+        Boolean,
+        Computed("fr_number ~ '[*]( (LGS|DGS))?$'", persisted=True),
+        nullable=False,
     )
     is_mule: Mapped[bool] = mapped_column(
-        Boolean, Computed("fr_number ~ 'm[*]?$'", persisted=True), nullable=False
+        Boolean,
+        Computed("fr_number ~ 'm[*]?( (LGS|DGS))?$'", persisted=True),
+        nullable=False,
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
