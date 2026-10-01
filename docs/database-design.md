@@ -123,6 +123,7 @@ One row per acquired item or lot.
 | `piece_count` | int, default 1 | how many objects the row stands for; every weight and value multiplies by it |
 | `country_id` | fk null | issuer |
 | `year_start`, `year_end` | int null | a coin's year, or a range for sets and rolls; empty on a banknote, whose year is `currency_detail.series_year` (the API refuses a year on a note; there is no constraint) |
+| `no_date` | boolean, default false | the piece carries no date at all (a gold bar, an undated round), as distinct from a year not recorded; `ck_inventory_item_no_date_no_years` keeps it from holding a year as well, and "No year recorded" (`issue=no_year`, `missing=year`) does not list it |
 | `series_id` | fk null | design series (Morgan Dollar); on the item so facets group on an indexed column of the scanned table |
 | `strike_type_id` | fk null | business, proof, specimen, … — the "PR" of PR69 |
 | `grade_id` | fk null | the number (`65`, `64+`), or a non-numeric grade |

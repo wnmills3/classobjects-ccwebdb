@@ -428,6 +428,13 @@ export const FIELD_HELP = {
       "seller's listing. It records that a person looked; the rating pass leaves " +
       'a confirmed field alone.',
   },
+  no_date: {
+    title: 'No date',
+    text:
+      'Tick for a piece that carries no date at all -- a gold bar, an undated ' +
+      'round. Different from leaving the year empty, which means not recorded ' +
+      'yet: a piece with no date is not listed under "No year recorded".',
+  },
   year_range: {
     title: 'Range of years',
     text:

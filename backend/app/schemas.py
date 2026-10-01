@@ -898,6 +898,8 @@ class ItemDetailOut(InventoryItemOut):
     # shape a split's pieces come back as and has no reason to carry these.
     description: str = ""
     year_end: int | None = None
+    #: The piece has no date at all, as distinct from a year not recorded.
+    no_date: bool = False
     fineness: Decimal | None = None
     gross_weight_ozt: Decimal | None = None
     fine_weight_ozt: Decimal | None = None
@@ -1027,6 +1029,10 @@ class InventoryItemUpdate(BaseModel):
 
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
     year_end: int | None = Field(default=None, ge=-3000, le=2200)
+    #: True: the piece has no date at all -- its years are cleared and it
+    #: leaves "No year recorded". A year sent later clears it. Refused beside
+    #: a year in the same request, and on a note (its year is its series year).
+    no_date: bool | None = None
     fineness: Decimal | None = Field(default=None, ge=0, le=1, decimal_places=4)
     gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
     fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
@@ -1165,6 +1171,9 @@ class ItemCreate(BaseModel):
 
     year_start: int | None = Field(default=None, ge=-3000, le=2200)
     year_end: int | None = Field(default=None, ge=-3000, le=2200)
+    #: The piece has no date at all (a gold bar), not merely one unknown.
+    #: Refused with a year, and on a note.
+    no_date: bool = False
 
     #: Pieces in the lot itself. A lot is simply piece_count > 1 -- splitting
     #: it into individually tracked pieces is a later step.
@@ -1253,6 +1262,18 @@ class ItemCreate(BaseModel):
         if value not in {"ordered", "received"}:
             raise ValueError(f"status must be 'ordered' or 'received', not {value!r}")
         return value
+
+    @model_validator(mode="after")
+    def _refuse_a_date_beside_no_date(self) -> ItemCreate:
+        """No date and a year are a contradiction; a note has no date flag."""
+        if self.no_date and (self.year_start is not None or self.year_end is not None):
+            raise ValueError("no_date: a piece with no date cannot also have a year")
+        if self.no_date and self.item_kind == "currency":
+            raise ValueError(
+                "no_date: not valid for item_kind 'currency' -- a note's year is "
+                "its series year"
+            )
+        return self
 
     @model_validator(mode="after")
     def _refuse_cross_kind_details(self) -> ItemCreate:

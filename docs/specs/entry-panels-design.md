@@ -95,6 +95,7 @@ serve the Lists page (`list-maintenance-design.md`).
 | `source_title` | required, 1-500 |
 | `description` | default "" |
 | `year_start`, `year_end` | a start with no end is a single year; end before start is a 422; refused for `currency` (a note's year is its `series_year`) |
+| `no_date` | default false; true says the piece has no date at all (a gold bar). Refused with a year, and for `currency`. The form's **No date** box clears the year and holds it shut |
 | `piece_count` | default 1, >= 1 |
 | `item_cost`, `shipping_cost` | default 0.00, >= 0, 2 places |
 | `tax_rate`, `tax_includes_shipping` | null -> the configured default |

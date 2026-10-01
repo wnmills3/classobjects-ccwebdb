@@ -552,10 +552,11 @@ MISSING_FIELDS: dict[str, MissingField] = {
     # A note's year is its series year (owner, 2026-09-25); every other kind
     # keeps its own year_start. The CASE, not two separate checks, is what
     # keeps "kind determines which column" a single expression rather than
-    # two that could drift apart.
+    # two that could drift apart. A piece with no date at all is not
+    # missing one (owner, 2026-10-01).
     "year": MissingField(
         "(CASE WHEN k.code = 'currency' THEN cud.series_year IS NULL "
-        "ELSE i.year_start IS NULL END)",
+        "ELSE i.year_start IS NULL AND NOT i.no_date END)",
         join=(_J_CUR_DETAIL,),
     ),
     "denomination": MissingField("i.denomination_id IS NULL", kinds=_CLASSIFIED_KINDS),

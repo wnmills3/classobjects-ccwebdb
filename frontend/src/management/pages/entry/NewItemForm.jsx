@@ -57,6 +57,8 @@ const BLANK = {
   description: '',
   year_start: '',
   year_end: '',
+  // The piece carries no date at all (a gold bar), not merely one unknown.
+  no_date: false,
   piece_count: '1',
   item_cost: '',
   shipping_cost: '',
@@ -286,6 +288,18 @@ export default function NewItemForm({
     setForm((f) => ({ ...f, year_end: f.year_start }))
   }
 
+  // No date clears the years and holds them shut: the server refuses the
+  // two together (owner, 2026-10-01).
+  function toggleNoDate(e) {
+    const noDate = e.target.checked
+    if (noDate) setRanged(false)
+    setForm((f) =>
+      noDate
+        ? { ...f, no_date: true, year_start: '', year_end: '' }
+        : { ...f, no_date: false },
+    )
+  }
+
   // The coin scales and the note scale do not share values (MS64 means
   // nothing for a banknote), so a grade picked under one kind is cleared
   // rather than carried over, silently wrong, to the other. Only that
@@ -366,6 +380,7 @@ export default function NewItemForm({
       tax_rate: defaults?.tax_rate ?? null,
       tax_includes_shipping: defaults?.tax_includes_shipping ?? null,
       ...yearsOf(form, isCurrency),
+      ...(form.no_date && !isCurrency && { no_date: true }),
     }
 
     for (const [key, label] of [
@@ -624,6 +639,7 @@ export default function NewItemForm({
                   type="number"
                   value={form.year_start}
                   onChange={ranged ? set('year_start') : setYear}
+                  disabled={form.no_date}
                   {...accel('y')}
                 />
                 <label className="checkbox">
@@ -631,10 +647,20 @@ export default function NewItemForm({
                     type="checkbox"
                     checked={ranged}
                     onChange={toggleRange}
+                    disabled={form.no_date}
                     {...accel('r')}
                   />
                   {/* */}
                   <AccessLabel text="Range of years" accessKey="r" />
+                </label>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.no_date}
+                    onChange={toggleNoDate}
+                  />
+                  {/* */}
+                  No date
                 </label>
               </span>
             </div>

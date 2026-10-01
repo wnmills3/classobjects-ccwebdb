@@ -535,12 +535,38 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     )
   }
 
+  // No date: the piece carries none at all (a gold bar), as distinct from a
+  // year not recorded. Ticking it clears the years in the same save; the
+  // server refuses the two together (owner, 2026-10-01).
+  const noDate = value('no_date') === true
+  function toggleNoDate(e) {
+    if (e.target.checked) {
+      setRanged(false)
+      setDraft({ ...draft, no_date: true, year_start: null, year_end: null })
+    } else {
+      setDraft({ ...draft, no_date: false })
+    }
+  }
+
   const rangeToggle = (
-    <label className="checkbox" data-help="year_range">
-      <input type="checkbox" checked={ranged} onChange={toggleRange} {...accel('r')} />
-      {/* */}
-      <AccessLabel text="Range of years" accessKey="r" />
-    </label>
+    <>
+      <label className="checkbox" data-help="year_range">
+        <input
+          type="checkbox"
+          checked={ranged}
+          onChange={toggleRange}
+          disabled={noDate}
+          {...accel('r')}
+        />
+        {/* */}
+        <AccessLabel text="Range of years" accessKey="r" />
+      </label>
+      <label className="checkbox" data-help="no_date">
+        <input type="checkbox" checked={noDate} onChange={toggleNoDate} />
+        {/* */}
+        No date
+      </label>
+    </>
   )
 
   // The suggestion reads the saved item, so it is offered only while
@@ -940,6 +966,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 <input
                   id={yearId}
                   type="number"
+                  disabled={noDate}
                   value={value('year_start')}
                   onChange={
                     ranged

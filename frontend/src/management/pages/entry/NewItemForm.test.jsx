@@ -61,6 +61,40 @@ describe('NewItemForm: a coin', () => {
   })
 })
 
+describe('NewItemForm: a piece with no date', () => {
+  it('clears and holds shut the year, and sends no_date', async () => {
+    // A 5 g gold bar has no date at all (owner, 2026-10-01).
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 1, item_code: 'CC-000001' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+
+    await fillTitle(user, '5 g Valcambi gold bar')
+    await user.type(screen.getByRole('spinbutton', { name: /year/i }), '2020')
+    await user.click(screen.getByRole('checkbox', { name: 'No date' }))
+
+    const year = screen.getByRole('spinbutton', { name: /year/i })
+    expect(year).toHaveValue(null)
+    expect(year).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: 'Range of years' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    const sent = api.createInventoryItem.mock.calls[0][0]
+    expect(sent.no_date).toBe(true)
+    expect(sent).not.toHaveProperty('year_start')
+    expect(sent).not.toHaveProperty('year_end')
+  })
+
+  it('sends no no_date for an ordinary dated coin', async () => {
+    const user = userEvent.setup()
+    api.createInventoryItem.mockResolvedValue({ id: 1, item_code: 'CC-000001' })
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+    await fillTitle(user, '1881-S Morgan')
+    await user.type(screen.getByRole('spinbutton', { name: /year/i }), '1881')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.createInventoryItem.mock.calls[0][0]).not.toHaveProperty('no_date')
+  })
+})
+
 describe("NewItemForm: the seller's item id", () => {
   it('is sent, and kept for the next piece of the same listing', async () => {
     const user = userEvent.setup()

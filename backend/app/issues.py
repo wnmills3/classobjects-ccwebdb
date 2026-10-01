@@ -46,8 +46,9 @@ _J_CUR_DETAIL = "LEFT JOIN currency_detail cud ON cud.inventory_item_id = i.id"
 
 
 SHARED_ISSUES: dict[str, Issue] = {
+    # A piece marked as having no date at all is not missing one.
     "no_year": Issue(
-        "i.year_start IS NULL",
+        "i.year_start IS NULL AND NOT i.no_date",
         description="No year recorded",
     ),
     "no_country": Issue(

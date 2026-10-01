@@ -163,6 +163,7 @@ def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
     if spec.year_start is not None:
         overrides["year_start"] = spec.year_start
         overrides["year_end"] = spec.year_start
+        overrides["no_date"] = False
     if spec.description is not None:
         overrides["description"] = spec.description
 
@@ -981,6 +982,7 @@ def create_item(payload: ItemCreate, db: DbSession, admin: AdminUser) -> ItemDet
         description=payload.description,
         year_start=years[0],
         year_end=years[1],
+        no_date=payload.no_date,
         piece_count=payload.piece_count,
         item_cost=payload.item_cost,
         shipping_cost=payload.shipping_cost,
@@ -1204,6 +1206,7 @@ def item_detail(
                 "description",
                 "year_start",
                 "year_end",
+                "no_date",
                 "fineness",
                 "gross_weight_ozt",
                 "fine_weight_ozt",
@@ -1391,6 +1394,36 @@ def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemS
 def _is_note_after(item: InventoryItem, data: dict[str, object]) -> bool:
     """Whether the item is a banknote once this change is made."""
     return (data.get("item_kind") or item.item_kind.code) == "currency"
+
+
+def _no_date_after(item: InventoryItem, data: dict[str, object]) -> bool:
+    """Whether the item has no date once this change is made.
+
+    `no_date` sent true clears the years, and is refused beside a year sent
+    in the same request -- the two contradict -- and on a note, whose year is
+    its series year. A year sent alone dates the piece, so it clears the
+    flag; anything else leaves it as it was. A note never holds it: an item
+    turned into a note loses it with its years.
+    """
+    sent = data.get("no_date")
+    years_sent = [field for field in YEAR_FIELDS if data.get(field) is not None]
+    if sent:
+        if years_sent:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"{item.item_code}: a piece with no date cannot also have "
+                f"a year ({', '.join(sorted(years_sent))} sent).",
+            )
+        if _is_note_after(item, data):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"{item.item_code}: a note has no 'no date' -- its year is "
+                "its series year.",
+            )
+        return True
+    if _is_note_after(item, data) or years_sent:
+        return False
+    return item.no_date if sent is None else False
 
 
 def _refuse_note_year(items: Sequence[InventoryItem], data: dict[str, object]) -> None:
@@ -2123,6 +2156,12 @@ def bulk_edit(
             status_code=422,
             detail="attributes are set one item at a time. Nothing was changed.",
         )
+    if "no_date" in data:
+        # Refused by name rather than dropped: nothing below writes it.
+        raise HTTPException(
+            status_code=422,
+            detail="no_date is set one item at a time. Nothing was changed.",
+        )
     _refuse_null_scalars(data)
     # The fields as sent, before `_split_grade` reshapes them: the change log
     # records these, in the editor's own terms.
@@ -2223,6 +2262,8 @@ def bulk_edit(
     for item in items:
         if (pair := years[item.id]) is not None:
             item.year_start, item.year_end = pair
+            if pair != (None, None):
+                item.no_date = False
         if status_id is not None:
             set_status(db, item, status_id, user_id=admin.id)
 
@@ -2348,9 +2389,10 @@ def update_item(
     # Before anything is set: a refused year leaves the item untouched. A
     # note holds none: its series year is its year.
     _refuse_note_year([item], data)
+    no_date = _no_date_after(item, data)
     years = (
         (None, None)
-        if _is_note_after(item, data)
+        if _is_note_after(item, data) or no_date
         else resolve_years((item.year_start, item.year_end), data)
     )
     if years is not None:
@@ -2408,6 +2450,7 @@ def update_item(
             setattr(item, field, data[field])
     if years is not None:
         item.year_start, item.year_end = years
+    item.no_date = no_date
     # After the classifiers: a kind changed in this request decides which
     # attributes fit.
     if attributes is not None:
