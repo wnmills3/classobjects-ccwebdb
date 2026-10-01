@@ -24,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from ..deps import AdminUser, DbSession
-from ..fr_format import fr_problem, fr_traits
+from ..fr_format import fr_problem, fr_traits, seal_shade
 from ..models import (
     CurrencyDetail,
     Denomination,
@@ -141,6 +141,39 @@ def _refuse_to_confirm_a_slip(row: FriedbergNumber) -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Correct {row.fr_number} before confirming it: {problem}",
         )
+
+
+#: The seal an `LGS` number goes with. Added by hand on live, not seeded, so
+#: it is named by code; where it is missing, no recorded seal is light green
+#: and an LGS number is refused against any seal that is recorded.
+LIGHT_GREEN_SEAL = "light_green"
+
+
+def _refuse_shade_mismatch(
+    db: Session, fr_number: str, seal_color_id: int | None, whose: str
+) -> None:
+    """422 when a number's seal shade contradicts a recorded seal.
+
+    `2008-B LGS` is a light green seal's number (owner, 2026-10-01), so a
+    seal recorded as anything else is a slip in one of the two; `DGS` on a
+    light green seal is the same slip the other way. A seal not recorded yet
+    contradicts nothing and is allowed.
+    """
+    shade = seal_shade(fr_number)
+    if shade is None or seal_color_id is None:
+        return
+    seal = db.get_one(SealColor, seal_color_id)
+    light = seal.code == LIGHT_GREEN_SEAL
+    if shade == "LGS" and not light:
+        problem = f"is a light green seal's number, but {whose} seal is {seal.label}"
+    elif shade == "DGS" and light:
+        problem = f"is a dark green seal's number, but {whose} seal is {seal.label}"
+    else:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail=f"{fr_number} {problem}. Correct one of them.",
+    )
 
 
 def _items_using(db: Session, friedberg_id: int) -> int:
@@ -375,6 +408,7 @@ def create_friedberg_number(
         description=payload.description,
         source=ProvenanceSource.manual,
     )
+    _refuse_shade_mismatch(db, row.fr_number, row.seal_color_id, "its")
     held = _same_combination(db, row)
     if held is not None:
         raise CombinationRecorded(held)
@@ -469,6 +503,7 @@ def update_catalog_row(
             )
         # Adding or dropping a mule's `m` or a star changes which type the
         # row is, and the type may already be on file under another number.
+        _refuse_shade_mismatch(db, payload.fr_number, row.seal_color_id, "this row's")
         held = _same_combination(db, row, fr_number=payload.fr_number)
         if held is not None:
             raise CombinationRecorded(held)
@@ -574,6 +609,8 @@ def attach_friedberg(
 
     if payload.status == "confirmed":
         _refuse_to_confirm_a_slip(friedberg)
+    # What the note in hand shows is what the number must agree with.
+    _refuse_shade_mismatch(db, friedberg.fr_number, detail.seal_color_id, "the note's")
     detail.friedberg_id = friedberg.id
     detail.friedberg_status = payload.status
     if payload.status == "confirmed":

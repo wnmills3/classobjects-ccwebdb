@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["fr_problem", "fr_traits", "normalize_fr"]
+__all__ = ["fr_problem", "fr_traits", "normalize_fr", "seal_shade"]
 
 #: `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label for the number, not part of it --
 #: taken off only where digits follow, so a word starting "fr" is left whole.
@@ -61,6 +61,12 @@ def _normalize_base(raw: str) -> str:
         star = "*" if mule["a"] or mule["b"] else ""
         return f"{head}-{mule['district'].upper()}m{star}"
     return f"{head}-{district.upper()}"
+
+
+def seal_shade(number: str) -> str | None:
+    """`LGS` or `DGS` when `number` ends with a seal shade, else None."""
+    match = re.search(r" (LGS|DGS)$", number)
+    return match.group(1) if match else None
 
 
 def fr_traits(number: str) -> tuple[bool, bool]:

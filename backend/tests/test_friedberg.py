@@ -19,6 +19,7 @@ from app.models import (
     ItemKind,
     NoteType,
     ProvenanceSource,
+    SealColor,
     User,
 )
 from fastapi.testclient import TestClient
@@ -362,13 +363,14 @@ def test_a_mule_and_a_star_are_types_of_their_own(
 
 
 def test_a_seal_shade_is_part_of_the_number(
-    client: TestClient, admin_headers: dict[str, str]
+    db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
     """`2008-B LGS` beside `2008-B`: the shade tells the two seals apart.
 
     The seal itself is already part of a type's identity; it was the form of
     the number that refused the suffix (owner, 2026-10-01).
     """
+    _light_green(db)
     plain = client.post(
         "/api/friedberg",
         json={**_typed("9921-B", None), "seal_color": "green"},
@@ -376,12 +378,12 @@ def test_a_seal_shade_is_part_of_the_number(
     )
     shade = client.post(
         "/api/friedberg",
-        json={**_typed("9921-b lgs", None), "seal_color": "blue"},
+        json={**_typed("9921-b lgs", None), "seal_color": "light_green"},
         headers=admin_headers,
     )
     star = client.post(
         "/api/friedberg",
-        json={**_typed("9921-B* LGS", None), "seal_color": "blue"},
+        json={**_typed("9921-B* LGS", None), "seal_color": "light_green"},
         headers=admin_headers,
     )
     assert plain.status_code == 201, plain.text
@@ -692,3 +694,114 @@ def test_a_non_admin_is_refused(
     """Staff-only throughout: a customer gets 403, not a filtered view."""
     resp = client.get("/api/friedberg", headers=customer_headers)
     assert resp.status_code == 403, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Seal shade: an LGS number goes with a light green seal
+# ---------------------------------------------------------------------------
+
+
+def _light_green(db: Session) -> int:
+    """The `light_green` seal, which the owner added by hand on live."""
+    existing = db.scalar(select(SealColor).where(SealColor.code == "light_green"))
+    if existing is not None:
+        return existing.id
+    row = SealColor(code="light_green", label="Light Green")
+    db.add(row)
+    db.commit()
+    return row.id
+
+
+def test_an_lgs_number_with_another_seal_is_refused(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The suffix says light green; a recorded seal that is not is a slip."""
+    _light_green(db)
+    refused = client.post(
+        "/api/friedberg",
+        json={**_typed("9941-B LGS", None), "seal_color": "green"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 422, refused.text
+    assert "light green" in refused.json()["detail"].lower()
+
+    accepted = client.post(
+        "/api/friedberg",
+        json={**_typed("9941-B LGS", None), "seal_color": "light_green"},
+        headers=admin_headers,
+    )
+    assert accepted.status_code == 201, accepted.text
+
+
+def test_an_lgs_number_with_no_seal_recorded_is_allowed(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Not knowing the seal yet is an incomplete record, not a contradiction."""
+    _light_green(db)
+    resp = client.post(
+        "/api/friedberg", json=_typed("9942-B LGS", None), headers=admin_headers
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_a_dgs_number_with_a_light_green_seal_is_refused(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The other shade's half of the same rule."""
+    _light_green(db)
+    refused = client.post(
+        "/api/friedberg",
+        json={**_typed("9943-B DGS", None), "seal_color": "light_green"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 422, refused.text
+
+
+def test_an_lgs_number_cannot_be_attached_to_a_note_with_another_seal(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """What the note in hand shows is what the number must agree with."""
+    light = _light_green(db)
+    green_note = _currency_item(db)
+    assert green_note.currency_detail is not None
+    green_note.currency_detail.seal_color_id = code_id(db, SealColor, "green")
+    light_note = _currency_item(db)
+    assert light_note.currency_detail is not None
+    light_note.currency_detail.seal_color_id = light
+    db.commit()
+    friedberg = _add_friedberg(db, fr_number="9944-B LGS")
+
+    refused = client.post(
+        f"/api/inventory/{green_note.id}/friedberg",
+        json={"friedberg_id": friedberg.id, "status": "proposed"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 422, refused.text
+    db.refresh(green_note.currency_detail)
+    assert green_note.currency_detail.friedberg_id is None
+
+    attached = client.post(
+        f"/api/inventory/{light_note.id}/friedberg",
+        json={"friedberg_id": friedberg.id, "status": "proposed"},
+        headers=admin_headers,
+    )
+    assert attached.status_code == 200, attached.text
+
+
+def test_correcting_a_number_to_lgs_checks_the_rows_seal(
+    db: Session, client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Adding the suffix later meets the same rule as recording it."""
+    _light_green(db)
+    row = client.post(
+        "/api/friedberg",
+        json={**_typed("9945-B", None), "seal_color": "green"},
+        headers=admin_headers,
+    ).json()
+
+    refused = client.patch(
+        f"/api/friedberg/{row['id']}",
+        json={"fr_number": "9945-B LGS"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 422, refused.text
