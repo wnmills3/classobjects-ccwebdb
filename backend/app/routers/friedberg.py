@@ -24,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from ..deps import AdminUser, DbSession
-from ..fr_format import fr_problem
+from ..fr_format import fr_problem, fr_traits
 from ..models import (
     CurrencyDetail,
     Denomination,
@@ -83,7 +83,8 @@ class CombinationRecorded(Exception):
 
 
 #: The columns of `uq_friedberg_number_identity`, compared NULLS NOT DISTINCT
-#: as that index does.
+#: as that index does -- less `is_star` and `is_mule`, which
+#: `_same_combination` reads from the number.
 _IDENTITY = (
     "denomination_id",
     "series_year",
@@ -97,11 +98,18 @@ _IDENTITY = (
 )
 
 
-def _same_combination(db: Session, row: FriedbergNumber) -> FriedbergNumber | None:
+def _same_combination(
+    db: Session, row: FriedbergNumber, *, fr_number: str | None = None
+) -> FriedbergNumber | None:
     """The catalog row that already has `row`'s identifying attributes.
 
     Only where the index applies: a denomination, a series year and a note
     type all known. A half-known type is allowed to repeat.
+
+    The star and the mule are read from the number (`fr_traits`) rather than
+    from `row.is_star`/`is_mule`, which the database generates and a row not
+    yet flushed -- or one about to take a corrected `fr_number` -- does not
+    hold yet.
     """
     if (
         row.denomination_id is None
@@ -109,10 +117,14 @@ def _same_combination(db: Session, row: FriedbergNumber) -> FriedbergNumber | No
         or row.note_type_id is None
     ):
         return None
+    star, mule = fr_traits(fr_number if fr_number is not None else row.fr_number)
     conditions = [
         getattr(FriedbergNumber, column).is_not_distinct_from(getattr(row, column))
         for column in _IDENTITY
     ]
+    conditions += [FriedbergNumber.is_star.is_(star), FriedbergNumber.is_mule.is_(mule)]
+    if row.id is not None:
+        conditions.append(FriedbergNumber.id != row.id)
     return db.scalar(select(FriedbergNumber).where(*conditions).limit(1))
 
 
@@ -455,6 +467,11 @@ def update_catalog_row(
                 detail=f"fr_number {payload.fr_number!r} is already recorded as "
                 f"row {clash.id}",
             )
+        # Adding or dropping a mule's `m` or a star changes which type the
+        # row is, and the type may already be on file under another number.
+        held = _same_combination(db, row, fr_number=payload.fr_number)
+        if held is not None:
+            raise CombinationRecorded(held)
         row.fr_number = payload.fr_number
     if "description" in sent:
         row.description = payload.description

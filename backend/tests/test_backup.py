@@ -53,6 +53,8 @@ def test_generated_columns_are_read_from_the_models() -> None:
         "currency_detail.series_designation",
         "grade.grade_rank",
         "listing.is_active",
+        "friedberg_number.is_star",
+        "friedberg_number.is_mule",
     }, "a generated column was added or removed; the backup skips whatever it finds"
 
     # And the derivation is genuinely reading the schema, not returning a

@@ -341,6 +341,69 @@ def test_the_same_type_and_press_twice_is_still_a_conflict(
     assert again.status_code == 409, again.text
 
 
+def test_a_mule_and_a_star_are_types_of_their_own(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """The same note, its mule and its star note are three numbers.
+
+    A mule differs only in its plates and a star note only in its serial,
+    neither of which is a catalog fact -- so before the number's own `m` and
+    `*` were part of the identity, the mule on file refused the plain number
+    for the same note (owner, 2026-09-30), and the plain one refused the mule.
+    """
+    for number in ("9915-Bm", "9915-B", "9915-B*", "9915-Bm*"):
+        resp = client.post(
+            "/api/friedberg", json=_typed(number, None), headers=admin_headers
+        )
+        assert resp.status_code == 201, (number, resp.text)
+
+
+def test_a_second_plain_number_for_a_type_with_a_mule_is_still_a_conflict(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Telling a mule apart must not let the plain type be recorded twice."""
+    for number in ("9916-Bm", "9916-B"):
+        resp = client.post(
+            "/api/friedberg", json=_typed(number, None), headers=admin_headers
+        )
+        assert resp.status_code == 201, resp.text
+    again = client.post(
+        "/api/friedberg", json=_typed("9917-B", None), headers=admin_headers
+    )
+    assert again.status_code == 409, again.text
+    assert again.json()["existing"]["fr_number"] == "9916-B"
+    mule_again = client.post(
+        "/api/friedberg", json=_typed("9917-Bm", None), headers=admin_headers
+    )
+    assert mule_again.status_code == 409, mule_again.text
+    assert mule_again.json()["existing"]["fr_number"] == "9916-Bm"
+
+
+def test_correcting_a_mule_onto_a_plain_type_on_file_is_a_409(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """Dropping the `m` from a mule whose plain type is recorded is refused.
+
+    It would make two rows one type; refused by name, not as a 500 from the
+    identity index.
+    """
+    plain = client.post(
+        "/api/friedberg", json=_typed("9918-B", None), headers=admin_headers
+    ).json()
+    mule = client.post(
+        "/api/friedberg", json=_typed("9918-Bm", None), headers=admin_headers
+    ).json()
+
+    refused = client.patch(
+        f"/api/friedberg/{mule['id']}",
+        json={"fr_number": "9919-B"},
+        headers=admin_headers,
+    )
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["existing"]["id"] == plain["id"]
+
+
 def test_the_same_series_under_two_signature_pairs_are_two_types(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:

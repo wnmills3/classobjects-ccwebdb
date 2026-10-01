@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["fr_problem", "normalize_fr"]
+__all__ = ["fr_problem", "fr_traits", "normalize_fr"]
 
 #: `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label for the number, not part of it --
 #: taken off only where digits follow, so a word starting "fr" is left whole.
@@ -43,6 +43,18 @@ def normalize_fr(raw: str) -> str:
         star = "*" if mule["a"] or mule["b"] else ""
         return f"{head}-{mule['district'].upper()}m{star}"
     return f"{head}-{district.upper()}"
+
+
+def fr_traits(number: str) -> tuple[bool, bool]:
+    """Whether `number` is a star note's and whether it is a mule's.
+
+    Read from the number alone: a trailing `*` is a star note, an `m` before
+    it (or at the end) a mule. These tell apart notes whose catalog facts are
+    all the same -- a mule differs only in its plates, a star note only in its
+    serial -- so they are part of a type's identity. The same rule, in SQL,
+    generates `friedberg_number.is_star` and `is_mule`.
+    """
+    return number.endswith("*"), number.rstrip("*").endswith("m")
 
 
 def fr_problem(number: str) -> str | None:
