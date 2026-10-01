@@ -141,6 +141,10 @@ export function ReferenceSelect({
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState({ code: '', label: '', group: '' })
   const [error, setError] = useState('')
+  // Said after a typed label turned out to be a value already there, which
+  // is chosen instead -- visible, so it does not look like an add that did
+  // nothing. Cleared by the next pick.
+  const [notice, setNotice] = useState('')
   const [find, setFind] = useState('')
   // Always derived: a label-only form stores it, and the code-and-label
   // form falls back to it when the code box is left empty.
@@ -159,10 +163,28 @@ export function ReferenceSelect({
     if (labelOnly) {
       // The label a person typed may already name a value under another
       // wording -- or the same one, typed again. Either way the code already
-      // exists, so posting it would only 409; selecting it is what they meant.
+      // exists, so posting it would only 409. Choosing it is what they meant
+      // when this picker offers it, and is said; when it does not -- retired,
+      // or filtered out (already on the item, or the other kind of item) --
+      // choosing it would change nothing visible, so the reason is given.
       const existing = values?.find((entry) => entry.code === code)
       if (existing) {
-        selectAndClose(existing.code)
+        if (existing.is_active === false) {
+          setError(
+            `${existing.label} already exists but is retired. ` +
+              'Restore it in Vocabularies to use it.',
+          )
+        } else if (filter && !filter(existing)) {
+          setError(
+            `${existing.label} already exists but is not offered here: it is ` +
+              'already chosen, or belongs to the other kind of item.',
+          )
+        } else {
+          selectAndClose(existing.code)
+          setNotice(
+            `${existing.label} already exists, so it was chosen rather than added again.`,
+          )
+        }
         return
       }
     }
@@ -297,6 +319,7 @@ export function ReferenceSelect({
       <select
         value={value ?? ''}
         onChange={(e) => {
+          setNotice('')
           if (allowAdd && e.target.value === '__add__') setAdding(true)
           else onChange(e)
         }}
@@ -311,9 +334,6 @@ export function ReferenceSelect({
             {entry.label}
             {match.alias ? ` (${match.alias})` : ''}
             {entry.is_active === false ? ' (retired)' : ''}
-            {/* Values not shipped are marked, so a curated vocabulary
-              can be told apart from one collection's guesses. */}
-            {entry.source === 'seeded' ? '' : ' *'}
           </option>
         ))}
         {find && found.length === 0 && (
@@ -323,6 +343,11 @@ export function ReferenceSelect({
         )}
         {allowAdd && <option value="__add__">+ Add a new value...</option>}
       </select>
+      {notice && (
+        <span className="muted" role="status">
+          {notice}
+        </span>
+      )}
     </div>
   )
 }

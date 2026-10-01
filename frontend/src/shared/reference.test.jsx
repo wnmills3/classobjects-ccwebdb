@@ -217,7 +217,9 @@ describe('ReferenceSelect adding a value by its label alone', () => {
     expect(screen.getByText('off_center')).toBeInTheDocument()
   })
 
-  it('selects an existing value instead of posting when the derived code already exists', async () => {
+  it('selects an existing value instead of posting, and says so', async () => {
+    // Selected silently, a value typed again looked like an add that did
+    // nothing (owner, 2026-09-30: "Flipper" typed beside "Flipper *").
     const user = userEvent.setup()
     const onChange = renderAttributePicker()
     await openAddForm(user)
@@ -226,6 +228,54 @@ describe('ReferenceSelect adding a value by its label alone', () => {
 
     expect(api.addReferenceValue).not.toHaveBeenCalled()
     expect(onChange).toHaveBeenCalledWith({ target: { value: 'star_note' } })
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Star Note already exists, so it was chosen rather than added again.',
+    )
+  })
+
+  it('refuses, rather than invisibly choosing, an existing value that is retired', async () => {
+    const user = userEvent.setup()
+    const onChange = renderAttributePicker({}, [
+      ...ATTRIBUTES,
+      { ...value('flipper', 'Flipper'), is_active: false },
+    ])
+    await openAddForm(user)
+    await user.type(screen.getByPlaceholderText('label'), 'Flipper')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(api.addReferenceValue).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/Flipper already exists but is retired/),
+    ).toBeInTheDocument()
+  })
+
+  it('refuses an existing value this picker does not offer, naming why', async () => {
+    // AttributesField filters out what the item already carries and what
+    // belongs to the other kind of item; choosing it anyway did nothing visible.
+    const user = userEvent.setup()
+    const onChange = renderAttributePicker({
+      filter: (entry) => entry.code !== 'star_note',
+    })
+    await openAddForm(user)
+    await user.type(screen.getByPlaceholderText('label'), 'Star Note')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    expect(api.addReferenceValue).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/Star Note already exists but is not offered here/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a value added in the app by its label alone, with no marker', () => {
+    // Where a value came from is not the picker's business (owner,
+    // 2026-09-30): the " *" it once added read as part of the name.
+    renderAttributePicker({}, [
+      ...ATTRIBUTES,
+      { ...value('flipper', 'Flipper'), source: 'manual' },
+    ])
+    expect(screen.getByRole('option', { name: 'Flipper' })).toBeInTheDocument()
   })
 
   it('asks for code and label as before when labelOnly is not set', async () => {
