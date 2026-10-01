@@ -606,10 +606,14 @@ note's series year and letter, denomination, serial and plates, or a coin's
 year, mint and denomination, saved only with Receive), arrival date, storage
 location, note, photographs, the four outcome buttons, the "Confirm or correct
 fields" pane, the errors panel and, for a banknote, the Friedberg lookup.
-After each receipt the search repeats, so what arrived drops off the list. The
-endpoint takes a list, but the console sends one item per dialog: that is the
-trade for the panel always being on screen, where a panel rendered under a
-long table sat below the fold and clicking seemed to do nothing.
+After each receipt the search repeats, so what arrived drops off the list.
+
+When the whole parcel arrived, **Receive all N still ordered** (shown on a
+linked order with two or more lines still `ordered`) opens one dialog over
+all of them: one arrival date, one location, one note, and the four outcome
+buttons, recorded in one all-or-nothing request. Photographs and the
+Friedberg lookup are off there, since each belongs to one object. Lines
+already received, or closed out as missing, are not included.
 
 The **arrival date and storage location carry to the next item**, so a parcel
 of twenty into one box is picked once. The **note does not carry**: it

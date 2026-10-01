@@ -247,9 +247,12 @@ receipt and the dialog open.
 
 ## Limits
 
-- **One item per receipt.** The endpoint takes a list, but the page receives
-  one item per dialog; twenty coins are twenty dialogs, each seeded from the
-  last.
+- **One item per receipt, or the whole remainder.** A line opens a dialog
+  for that one item, seeded from the last. On a linked order with two or
+  more lines still `ordered`, **Receive all N still ordered** opens the same
+  dialog over all of them: one date, one location, one all-or-nothing
+  request, with no photograph or Friedberg lookup, which belong to one
+  object. A split shipment is still received line by line.
 - **Each search request returns one page of 200 rows** per view and status.
   More than that is reported with its count; a larger order is narrowed with
   the other fields.
