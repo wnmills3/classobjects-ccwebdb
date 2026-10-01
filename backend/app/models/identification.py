@@ -22,6 +22,7 @@ from datetime import datetime
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -211,6 +212,18 @@ class FriedbergNumber(TimestampMixin, Base):
     #: is 3005-A from Washington and 3006-A from Fort Worth, so this is part
     #: of the identity below, as `web_press` is.
     printing_facility: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    #: A star note's number (`3006-A*`) and a mule's (`3007-Em`), read from
+    #: `fr_number` -- the same rule as `app.fr_format.fr_traits`. Generated,
+    #: so they can never disagree with the number. Part of the identity
+    #: below: a mule differs from its plain type only by its plates and a star
+    #: note only by its serial, neither a catalog fact, so without these the
+    #: one on file refused the other (owner, 2026-09-30).
+    is_star: Mapped[bool] = mapped_column(
+        Boolean, Computed("fr_number LIKE '%*'", persisted=True), nullable=False
+    )
+    is_mule: Mapped[bool] = mapped_column(
+        Boolean, Computed("fr_number ~ 'm[*]?$'", persisted=True), nullable=False
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     source: Mapped[ProvenanceSource] = mapped_column(
@@ -247,6 +260,8 @@ class FriedbergNumber(TimestampMixin, Base):
             "signature_combination_id",
             "seal_color_id",
             "printing_facility",
+            "is_star",
+            "is_mule",
             unique=True,
             postgresql_nulls_not_distinct=True,
             postgresql_where=text(

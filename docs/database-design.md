@@ -384,11 +384,13 @@ so the next lookup can trust the row.
 | `size_class` | `large` \| `small` \| `fractional` (check constraint) |
 | `web_press` | boolean null: web-press and sheet-fed printings are different types |
 | `printing_facility` | `dc` \| `fw` (check constraint), null when not known: a 2017-A $1 printed in Washington and one printed in Fort Worth are different types |
+| `is_star`, `is_mule` | boolean, generated from `fr_number`: a trailing `*` is a star note, an `m` before it (or at the end) a mule (`app.fr_format.fr_traits` reads the same rule) |
 | `description`, `source`, `verified_by_id`, `verified_at` | |
 
 **Identity is partially unique.** `uq_friedberg_number_identity` is unique on
 `(denomination_id, series_year, series_letter, note_type_id, district_letter,
-web_press, signature_combination_id, seal_color_id, printing_facility)`
+web_press, signature_combination_id, seal_color_id, printing_facility,
+is_star, is_mule)`
 **`NULLS NOT DISTINCT`**, only where denomination, year and note type are
 known. Partial, because a plain unique index would reject two differently
 half-known types, which is normal in a catalog built by hand. `NULLS NOT
@@ -396,7 +398,10 @@ DISTINCT`, because most series have no letter and PostgreSQL otherwise treats
 two NULLs as different, so the index would never fire and one type could be
 recorded twice under two numbers. That makes every column that tells two
 types apart a member: many series differ only by signatures, and wartime
-issues only by seal color.
+issues only by seal color. A mule differs from its plain type only by its
+plates and a star note only by its serial -- neither a catalog fact -- so
+the number's own `m` and `*` are members too: `3007-E`, `3007-Em` and
+`3007-E*` are three types.
 
 | `pcgs_type` | Notes |
 |---|---|

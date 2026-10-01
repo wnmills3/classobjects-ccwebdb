@@ -84,6 +84,12 @@ Friedberg lookup (`FriedbergLookup.jsx`) then offers **Correct 3007- to
 3007-L**, which renames the recorded row and attaches it -- the slip is
 repaired where it was noticed, without a trip to the Lists page.
 
+A mule (`3007-Em`) and a star note (`3007-E*`) are types of their own,
+so neither is refused by the plain number on file, nor the plain number by
+them. Correcting a row's number is refused the same way (409, the row
+named) when adding or dropping its `m` or `*` would make it a type already
+recorded under another number.
+
 ## API
 
 All manager only (`AdminUser`).

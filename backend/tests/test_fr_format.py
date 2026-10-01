@@ -7,7 +7,7 @@ says which note any of them belongs to.
 from __future__ import annotations
 
 import pytest
-from app.fr_format import fr_problem, normalize_fr
+from app.fr_format import fr_problem, fr_traits, normalize_fr
 
 
 @pytest.mark.parametrize(
@@ -67,3 +67,20 @@ def test_a_slip_is_named(number: str, says: str) -> None:
     problem = fr_problem(number)
     assert problem is not None
     assert says in problem
+
+
+@pytest.mark.parametrize(
+    ("number", "traits"),
+    [
+        ("9901-L", (False, False)),
+        ("9901-L*", (True, False)),
+        ("9901-Lm", (False, True)),
+        ("9901-Lm*", (True, True)),
+        ("9901m", (False, True)),
+        ("12a", (False, False)),
+    ],
+)
+def test_star_and_mule_are_read_from_the_number(
+    number: str, traits: tuple[bool, bool]
+) -> None:
+    assert fr_traits(number) == traits
