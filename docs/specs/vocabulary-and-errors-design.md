@@ -135,7 +135,12 @@ For attributes and error types the add form asks for **a label only**
   underscores ("Mismatched Serial" -> `mismatched_serial`) -- and shown before
   saving.
 - **If that code already exists**, the existing value is selected rather than
-  refused: the same name means the same thing.
+  added again -- the same name means the same thing -- and the picker says so.
+  When the picker does not offer it (retired, already on the item, or the
+  other kind of item), nothing is selected and the reason is shown instead.
+- **Where a value came from is not shown.** `source` (seeded, derived,
+  manual) is kept on the row, but the picker shows the label alone: values
+  gathered over time may be folded into the base set (owner, 2026-09-30).
 - **Kind** is inferred from the item being entered with `sideFor`, sent as
   `applies_to` in `extra`. A value with no marker would match nothing and
   vanish from the list that created it.
