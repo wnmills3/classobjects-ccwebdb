@@ -69,7 +69,12 @@ reason shown.
   optional `*` for a star note, and an optional ` LGS` or ` DGS` for a
   light or dark green seal (`2008-B LGS`, `2008-B* LGS`). The seal is
   already part of a type's identity, so the two shades are two types; the
-  suffix keeps their numbers apart. `3007-` is refused as
+  suffix keeps their numbers apart. The shade must agree with the seal:
+  an `LGS` number whose seal is recorded as anything but Light Green
+  (`light_green`), or a `DGS` number on a light green seal, is refused
+  (422) when it is recorded, when a row's number is corrected to it, and
+  when it is attached to a note whose seal says otherwise. A seal not
+  recorded yet contradicts nothing. `3007-` is refused as
   ending in a hyphen, `30070-L` as having five digits, anything else out of
   that form as not a Friedberg number -- each with a sentence saying which
   (422).
