@@ -40,6 +40,14 @@ function orderIdFromParams(params) {
  * dialog, so a parcel of twenty into one location is not twenty identical
  * dropdown picks. After each receipt `epoch` is bumped, which repeats the
  * search: the item just received leaves the "not yet arrived" list.
+ *
+ * **Receive all** (owner, 2026-09-30): on a linked order with two or more
+ * lines still `ordered`, one button opens the same dialog over all of them --
+ * one arrival date, one location, one all-or-nothing request. It is the
+ * parcel that arrived whole; a split shipment is still received line by line.
+ * The order is read again after every receipt (`epoch` is in its key), so
+ * the count never offers a line that has just arrived; the server's 409 on
+ * an already-received item is the backstop.
  */
 export default function Receiving() {
   const [params] = useSearchParams()
@@ -53,13 +61,23 @@ export default function Receiving() {
   // leaves the page once the address names a different order or none. Its
   // `data` is kept while the next order loads, so `order` also waits on
   // `busy` rather than showing the previous order's header.
-  const link = useRequest(orderId, () => api.getPurchaseOrder(orderId))
-  const waitingForOrder = link.busy
+  //
+  // Read again after every receipt, so "still ordered" stays true. Only the
+  // first read of an order is waiting: a re-read keeps this order's answer
+  // on screen, and must not unmount the search under the operator.
+  const link = useRequest(orderId == null ? null : `${orderId}:${epoch}`, () =>
+    api.getPurchaseOrder(orderId),
+  )
+  const waitingForOrder = link.busy && link.data?.id !== orderId
   const linkError = link.error
   const order = orderId != null && !waitingForOrder && !linkError ? link.data : null
 
   const scope = `order:${orderId}`
   const openLine = receiving?.scope === scope ? receiving.line : null
+  // Offered only from a settled read, never from the previous one.
+  const stillOrdered =
+    order && !link.busy ? order.lines.filter((line) => line.status === 'ordered') : []
+  const openAll = receiving?.scope === scope && receiving.all ? receiving.all : null
 
   function handleReceiptDone(used) {
     if (used) setLastReceipt(used)
@@ -112,6 +130,16 @@ export default function Receiving() {
           )}
         </h2>
       )}
+      {stillOrdered.length > 1 && (
+        <p>
+          <button
+            type="button"
+            onClick={() => setReceiving({ scope, all: stillOrdered.map((l) => l.id) })}
+          >
+            Receive all {stillOrdered.length} still ordered
+          </button>
+        </p>
+      )}
       {!waitingForOrder && (
         <div className="admin-form">
           <ItemFinder
@@ -132,6 +160,25 @@ export default function Receiving() {
           </h2>
           <ReceiptPanel
             itemIds={[openLine.id]}
+            initial={lastReceipt}
+            onDone={handleReceiptDone}
+          />
+          <button type="button" className="link" onClick={closeReceipt}>
+            Close
+          </button>
+        </ModalDialog>
+      )}
+
+      {openAll && (
+        <ModalDialog
+          label={`Receive ${openAll.length} items on ${purchaseNumber(orderId)}`}
+          onClose={closeReceipt}
+        >
+          <h2>
+            All {openAll.length} items still ordered on {purchaseNumber(orderId)}
+          </h2>
+          <ReceiptPanel
+            itemIds={openAll}
             initial={lastReceipt}
             onDone={handleReceiptDone}
           />

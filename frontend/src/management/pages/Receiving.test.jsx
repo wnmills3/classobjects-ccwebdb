@@ -319,3 +319,88 @@ describe('an open dialog belongs to the order it was opened from', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
+
+describe('Receive all', () => {
+  /** Order 1 with two lines still ordered, one received and one missing. */
+  function orderWithLines() {
+    const line = (id, status) => ({
+      id,
+      item_code: `CC-000${id}`,
+      source_title: `Line ${id}`,
+      description: '',
+      item_kind: 'coin',
+      item_cost: '10.00',
+      status,
+    })
+    return {
+      id: 1,
+      order_number: '27-1234',
+      vendor: 'eBay',
+      ordered_on: '2026-08-30',
+      lines: [
+        line(501, 'ordered'),
+        line(502, 'received'),
+        line(503, 'ordered'),
+        line(504, 'missing'),
+      ],
+    }
+  }
+
+  it('receives every line still ordered, and only those, in one request', async () => {
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(orderWithLines())
+    api.receiveItems.mockResolvedValue({ received: 2 })
+    renderOnOrder()
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Receive all 2 still ordered' }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveAccessibleName(/2 items/)
+    await user.click(within(dialog).getByRole('button', { name: 'Receive' }))
+
+    await waitFor(() =>
+      expect(api.receiveItems).toHaveBeenCalledWith(
+        expect.objectContaining({ item_ids: [501, 503], outcome: 'received' }),
+      ),
+    )
+    expect(api.receiveItems).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads the order again after the receipt, so the button goes', async () => {
+    const user = userEvent.setup()
+    api.getPurchaseOrder.mockResolvedValue(orderWithLines())
+    api.receiveItems.mockResolvedValue({ received: 2 })
+    renderOnOrder()
+    // Typed by the operator, so a remounted search would lose it -- the
+    // order number alone would not show that, as a remount refills it.
+    await user.click(await screen.findByRole('radio', { name: 'Coins' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Receive all 2 still ordered' }),
+    )
+    const dialog = await screen.findByRole('dialog')
+
+    const received = orderWithLines()
+    received.lines = received.lines.map((l) =>
+      l.status === 'ordered' ? { ...l, status: 'received' } : l,
+    )
+    api.getPurchaseOrder.mockResolvedValue(received)
+    await user.click(within(dialog).getByRole('button', { name: 'Receive' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Receive all/ })).toBeNull(),
+    )
+    // The search stayed mounted through the re-read.
+    expect(screen.getByRole('radio', { name: 'Coins' })).toBeChecked()
+  })
+
+  it('is not offered for a single line still ordered', async () => {
+    const order = orderWithLines()
+    order.lines = order.lines.filter((l) => l.id !== 503)
+    api.getPurchaseOrder.mockResolvedValue(order)
+    renderOnOrder()
+    await morganButton()
+    expect(screen.queryByRole('button', { name: /Receive all/ })).toBeNull()
+  })
+})

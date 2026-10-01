@@ -516,12 +516,25 @@ export default function NewItemForm({
   // the failure clears.
   const disabled = saving || Boolean(disabledReason) || Boolean(errorSaveFailure)
 
+  // The error is drawn at the head of the form and Save sits at its foot,
+  // so a refusal is scrolled into view: unseen, a refused Save looked like
+  // one that did nothing (owner, 2026-09-30). `?.` because jsdom has no
+  // scrollIntoView.
+  const errorRef = useRef(null)
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: 'center' })
+  }, [error])
+
   useSaveShortcut(() => submit(false), !disabled && form.source_title.trim() !== '')
 
   return (
     <div className="admin-form">
       <h3>New item</h3>
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" ref={errorRef}>
+          {error}
+        </p>
+      )}
       {errorSaveFailure && (
         <button type="button" onClick={retrySaveErrors} disabled={saving}>
           Retry

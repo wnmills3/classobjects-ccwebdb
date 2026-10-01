@@ -443,6 +443,25 @@ describe('NewItemForm: a range with no Year from', () => {
   })
 })
 
+describe('NewItemForm: a refusal is brought into view', () => {
+  it('scrolls to the error, which sits above the form, when Save is refused', async () => {
+    // Save is at the foot of a long form and the error at its head: unseen,
+    // a refused Save looked like a Save that did nothing (owner, 2026-09-30).
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const user = userEvent.setup()
+    render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    const error = await screen.findByText('Title is required.')
+    expect(scrollIntoView).toHaveBeenCalled()
+    expect(scrollIntoView.mock.contexts).toContain(error)
+    expect(api.createInventoryItem).not.toHaveBeenCalled()
+    delete Element.prototype.scrollIntoView
+  })
+})
+
 describe('NewItemForm: disabled while the purchase-wide tax rate is invalid', () => {
   it('disables both Save buttons and shows the reason', () => {
     render(
