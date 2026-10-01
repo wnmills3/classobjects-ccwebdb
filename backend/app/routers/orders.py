@@ -19,6 +19,7 @@ from ..models import (
     ListingStatus,
     SalesOrder,
     SalesOrderChange,
+    SalesOrderChangeKind,
     SalesOrderItem,
     SalesOrderStatus,
     SalesVenue,
@@ -57,6 +58,11 @@ SHIPPED_STATUSES = frozenset({"packed", "shipped", "delivered"})
 #: back (`refunded`) -- a status that does not say whether the coins came
 #: back, and whose ordinary case is a refund after shipping.
 NO_STOCK_RETURN_STATUSES = SHIPPED_STATUSES | {"cancelled", "refunded"}
+
+#: Statuses that end an order and so return its stock when it has not
+#: shipped. A refund before shipping is a cancellation with the money gone
+#: back: kept, the stock was held by the order for ever.
+STOCK_RETURNING_STATUSES = frozenset({"cancelled", "refunded"})
 
 # The same 404 whether the order does not exist or belongs to another
 # customer, so order ids cannot be probed.
@@ -297,6 +303,27 @@ def list_order_changes(
     ]
 
 
+def _refund_returned_stock(db: Session, order_id: int) -> bool:
+    """Whether this order's refund put its stock back, read from its history.
+
+    The status row that made it `refunded` names what it was refunded from:
+    an unshipped status means the stock came back (`update_order_status`). An
+    order with no such row -- written before the history was, or refunded
+    after shipping -- returned nothing.
+    """
+    refunded_from = db.scalar(
+        select(SalesOrderChange.from_value)
+        .where(
+            SalesOrderChange.sales_order_id == order_id,
+            SalesOrderChange.change == SalesOrderChangeKind.status,
+            SalesOrderChange.to_value == "refunded",
+        )
+        .order_by(SalesOrderChange.id.desc())
+        .limit(1)
+    )
+    return refunded_from is not None and refunded_from not in NO_STOCK_RETURN_STATUSES
+
+
 def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
     """Why this order's stock could not be put back, or None when it can.
 
@@ -360,13 +387,14 @@ def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
 def update_order_status(
     order_id: int, payload: OrderStatusUpdate, db: DbSession, admin: AdminUser
 ) -> OrderOut:
-    """Advance an order. Cancelling an unshipped store one returns its stock.
+    """Advance an order. Cancelling or refunding an unshipped one returns its stock.
 
     An **unshipped** order whose listing has already ended cannot be
-    cancelled -- a sale recorded from an outside platform, or a lot bought in
-    the shop -- because there is nothing to return the stock to
-    (`_no_stock_to_return`). Once it has shipped, cancelling returns no stock
-    and so strands nothing, and is how a refund is recorded.
+    cancelled or refunded -- a sale recorded from an outside platform, or a
+    lot bought in the shop -- because there is nothing to return the stock to
+    (`_no_stock_to_return`). Once it has shipped, either returns no stock and
+    so strands nothing. An order refunded before it shipped, like a cancelled
+    one, cannot be moved on: its stock is back on sale.
 
     Locks and re-reads the `sales_order` row -- order first, listings second
     (inside `return_stock`), the same sequence `revise_order` uses -- so the
@@ -387,7 +415,8 @@ def update_order_status(
     # stock and is how a refund is recorded. Re-sending `cancelled` on an
     # already-cancelled order is a no-op.
     returns_stock = (
-        payload.status == "cancelled" and previous not in NO_STOCK_RETURN_STATUSES
+        payload.status in STOCK_RETURNING_STATUSES
+        and previous not in NO_STOCK_RETURN_STATUSES
     )
     # An order whose stock cannot be put back cannot be cancelled here --
     # `_no_stock_to_return` says which shape it is and why, and is where the
@@ -404,7 +433,8 @@ def update_order_status(
         if blocked is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Order #{order_id} {blocked}. It cannot be cancelled here.",
+                detail=f"Order #{order_id} {blocked}. "
+                f"It cannot be {payload.status} here.",
             )
     # Cancelling an unshipped order put its stock back on sale. Moving it on
     # again would leave an order standing on stock already offered to the next
@@ -414,6 +444,19 @@ def update_order_status(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Order #{order_id} is cancelled and its stock has been "
             "returned. Place a new order instead.",
+        )
+    # The same for a refund that returned the stock. Cancelling it after is
+    # harmless -- `refunded` returns nothing more -- and a refund recorded
+    # after shipping moved no stock, so it may still be moved on.
+    if (
+        previous == "refunded"
+        and payload.status not in STOCK_RETURNING_STATUSES
+        and _refund_returned_stock(db, order_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Order #{order_id} was refunded before it shipped and its "
+            "stock has been returned. Place a new order instead.",
         )
 
     # The status write, its history row and (on a cancellation) returning

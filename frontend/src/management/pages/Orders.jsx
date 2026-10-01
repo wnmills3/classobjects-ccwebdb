@@ -49,11 +49,22 @@ export default function Orders() {
   async function changeStatus(order, status) {
     // Cancelling an unshipped order puts its stock back on sale, and the
     // server then refuses to move the order on again -- so it is asked about.
+    // Refunding one before it ships does the same.
     if (
       status === 'cancelled' &&
       !window.confirm(
         `Cancel order #${order.id} for ${order.customer_name}? Unshipped stock goes ` +
           'back on sale, and a cancelled order cannot be reopened.',
+      )
+    ) {
+      return
+    }
+    if (
+      status === 'refunded' &&
+      !NO_STOCK_RETURN_STATUSES.includes(order.status) &&
+      !window.confirm(
+        `Refund order #${order.id} for ${order.customer_name}? It has not shipped, ` +
+          'so its stock goes back on sale and the order cannot then be shipped.',
       )
     ) {
       return
@@ -176,13 +187,15 @@ export default function Orders() {
                       // left to put the stock back on. Each line says so
                       // (`listing_ended`), so the rule here is the server's
                       // own, not an approximation of it.
+                      //
+                      // A refund before shipping returns the stock too, so
+                      // it is refused in the same cases.
                       const unshipped = !NO_STOCK_RETURN_STATUSES.includes(order.status)
+                      const returnsStock = s === 'cancelled' || s === 'refunded'
                       const outsideSale =
-                        s === 'cancelled' &&
-                        order.sales_venue_code !== 'store' &&
-                        unshipped
+                        returnsStock && order.sales_venue_code !== 'store' && unshipped
                       const endedListing =
-                        s === 'cancelled' &&
+                        returnsStock &&
                         !outsideSale &&
                         unshipped &&
                         order.items.some((line) => line.listing_ended)

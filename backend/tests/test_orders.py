@@ -569,26 +569,106 @@ def test_cancelling_after_shipping_does_not_return_stock(
     assert listing.quantity_available == 3
 
 
-@pytest.mark.parametrize("path", [("refunded",), ("shipped", "refunded")])
-def test_cancelling_a_refunded_order_does_not_return_stock(
+def _walk(
+    client: TestClient, headers: dict[str, str], order_id: int, *states: str
+) -> None:
+    """Move an order through `states`, each of which must be accepted."""
+    for state in states:
+        response = client.patch(
+            f"/api/orders/{order_id}", json={"status": state}, headers=headers
+        )
+        assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize(
+    ("path", "available"),
+    [
+        # Refunded before it shipped: the coins never left, so they go back.
+        (("refunded",), 5),
+        (("paid", "refunded"), 5),
+        # Refunded after: they left, and nothing comes back.
+        (("shipped", "refunded"), 3),
+        (("paid", "packed", "refunded"), 3),
+    ],
+)
+def test_a_refund_returns_stock_only_before_shipping(
     path: tuple[str, ...],
+    available: int,
     client: TestClient,
     listing: Listing,
     customer_headers: dict[str, str],
     admin_headers: dict[str, str],
     db: Session,
 ) -> None:
-    """A refunded order's money went back; cancelling it moves no stock.
+    """A refund moves stock exactly as a cancellation does.
 
-    Whether the coins came back is not something `refunded` records, and a
-    refund after shipping is the ordinary case. Returning stock here would
-    offer the next buyer coins that have already left.
+    Before shipping, a refunded order that kept its stock held the coins for
+    ever: nothing could release them, and they could never be sold again.
     """
     order = post_order(client, customer_headers, listing.id, 2).json()
-    for state in (*path, "cancelled"):
-        response = client.patch(
-            f"/api/orders/{order['id']}", json={"status": state}, headers=admin_headers
-        )
-        assert response.status_code == 200, response.text
+    _walk(client, admin_headers, order["id"], *path)
+    db.refresh(listing)
+    assert listing.quantity_available == available
+
+
+@pytest.mark.parametrize(
+    ("path", "available"),
+    [(("refunded",), 5), (("shipped", "refunded"), 3)],
+)
+def test_cancelling_a_refunded_order_moves_no_more_stock(
+    path: tuple[str, ...],
+    available: int,
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """The refund already settled the stock; cancelling after it moves none.
+
+    Returned once already, or gone with the parcel: a second return would
+    offer the next buyer coins that are not there.
+    """
+    order = post_order(client, customer_headers, listing.id, 2).json()
+    _walk(client, admin_headers, order["id"], *path, "cancelled")
+    db.refresh(listing)
+    assert listing.quantity_available == available
+
+
+def test_an_order_refunded_before_shipping_cannot_be_moved_on(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """Its stock is back on sale, so shipping it would sell the coins twice."""
+    order = post_order(client, customer_headers, listing.id, 2).json()
+    _walk(client, admin_headers, order["id"], "refunded")
+
+    refused = client.patch(
+        f"/api/orders/{order['id']}", json={"status": "shipped"}, headers=admin_headers
+    )
+
+    assert refused.status_code == 409, refused.text
+    assert "refunded before it shipped" in refused.json()["detail"]
+    db.refresh(listing)
+    assert listing.quantity_available == 5
+    # Re-sending the refund stays harmless.
+    _walk(client, admin_headers, order["id"], "refunded")
+    db.refresh(listing)
+    assert listing.quantity_available == 5
+
+
+def test_an_order_refunded_after_shipping_can_still_be_moved_on(
+    client: TestClient,
+    listing: Listing,
+    customer_headers: dict[str, str],
+    admin_headers: dict[str, str],
+    db: Session,
+) -> None:
+    """No stock moved, so a refund recorded by mistake can be taken back."""
+    order = post_order(client, customer_headers, listing.id, 2).json()
+    _walk(client, admin_headers, order["id"], "shipped", "refunded", "delivered")
     db.refresh(listing)
     assert listing.quantity_available == 3
