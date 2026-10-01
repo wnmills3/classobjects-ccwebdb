@@ -137,7 +137,9 @@ stored; only the *link* is withheld.
   `ErrorsPanel`: thumbnails in `sort_order` with role and primary shown;
   add, change role, make primary, **Move** to another item, and **Remove**,
   which detaches and never deletes the photograph. **Nothing in it writes
-  until the editor's Save.**
+  until the editor's Save** -- except a new kind of photograph, which the
+  role picker's **+ Add a new value...** creates at once by its name (code
+  derived, as for attributes); choosing it for the photograph is still held.
   A new photograph is added from a file, dropped onto the picker, pasted from
   the clipboard with **Ctrl+V** while the picker has focus, or from a **web
   address**, and listed as not saved yet, with Discard. A dropped file that

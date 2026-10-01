@@ -353,7 +353,12 @@ export default function PhotosPanel({
                       onChange={(e) =>
                         hold(row, { image_role: e.target.value || null })
                       }
-                      allowAdd={false}
+                      // A new kind of photograph is added here by its name,
+                      // as an attribute is (owner, 2026-10-01). The value is
+                      // created at once; this photograph's use of it is held
+                      // for Save like any other role change.
+                      allowAdd
+                      labelOnly
                     />
                     {!row.primary && (
                       <button
