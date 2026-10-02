@@ -20,7 +20,9 @@ import { HelpContext } from './help-context'
  * disagree. Escape is intercepted and routed through `onClose` for that same
  * reason -- left to the browser, the element closes itself while the parent
  * still thinks it is open, and clicking the same row again changes no state
- * and so reopens nothing.
+ * and so reopens nothing. One dialog may open another from inside itself (a
+ * confirmation, an enlarged photograph); Escape then closes the one on top
+ * and leaves the one beneath open.
  *
  * **It has a help band of its own** at its bottom. A modal covers the
  * console's band, so the forms inside -- the item editor above all -- would
@@ -46,6 +48,10 @@ export default function ModalDialog({ label, onClose, children }) {
       className="edit-dialog"
       aria-label={label}
       onCancel={(e) => {
+        // A dialog opened from inside this one is its child in React's tree,
+        // and React hands that dialog's Escape up to this handler as well:
+        // only an Escape aimed at this dialog closes it.
+        if (e.target !== e.currentTarget) return
         e.preventDefault()
         onClose()
       }}

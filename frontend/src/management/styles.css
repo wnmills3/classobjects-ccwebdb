@@ -332,6 +332,28 @@
 .edit-dialog::backdrop {
   background: rgb(0 0 0 / 45%);
 }
+/* A thumbnail that opens its large rendition: a button that looks like the
+   picture it holds, and the dialog's picture kept inside the window. */
+.image-enlarge {
+  background: none;
+  border: 0;
+  cursor: zoom-in;
+  display: inline-block;
+  line-height: 0;
+  padding: 0;
+}
+.image-enlarge:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.image-dialog {
+  text-align: center;
+}
+.image-dialog img {
+  max-height: 70vh;
+  max-width: 100%;
+  object-fit: contain;
+}
 /* Receiving's Identify section: the theme's border, not the browser's. */
 fieldset.identify {
   border: 1px solid var(--border);

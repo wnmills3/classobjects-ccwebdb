@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../../api'
+import EnlargeableImage from '../../EnlargeableImage'
 import ItemPicker from '../ItemPicker'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
@@ -328,7 +329,11 @@ export default function PhotosPanel({
             const changed = Object.keys(edit).some((key) => key !== 'error')
             return (
               <li key={row.link_id}>
-                <img src={row.thumbnail_url} alt={label} />
+                <EnlargeableImage
+                  src={row.thumbnail_url}
+                  largeSrc={row.image_url}
+                  alt={label}
+                />
                 {row.primary && !leaving(edit) && (
                   <span className="primary-marker">Primary</span>
                 )}

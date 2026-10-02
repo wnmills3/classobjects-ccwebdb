@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
+import EnlargeableImage from '../EnlargeableImage'
 import ItemPicker from './ItemPicker'
 
 /**
@@ -122,7 +123,11 @@ function PhotoRow({ row, onLinked }) {
 
   return (
     <li className="photo-picker-row">
-      <img src={row.thumbnail_url} alt="Unattached photograph" />
+      <EnlargeableImage
+        src={row.thumbnail_url}
+        largeSrc={row.image_url}
+        alt="Unattached photograph"
+      />
       <ItemPicker onPick={pickItem} />
       {selected && (
         <p className="muted">
