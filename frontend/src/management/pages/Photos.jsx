@@ -7,8 +7,9 @@ import ItemPicker from './ItemPicker'
  * The photographs the import pass could not place, and the ones detached
  * from the wrong item.
  *
- * The import that read item codes out of ~673 filenames refused to guess on
- * purpose: a name that does not follow the convention, an unknown item
+ * The import pass (`app.photo_import`) reads item codes out of filenames and
+ * refuses to guess on purpose: a name that does not follow the convention, an
+ * unknown item
  * code, a deleted or split item, two files claiming one slot, or a slot
  * already occupied all come out *unattached* rather than filed under a
  * best-effort guess. `PhotosPanel` (the item editor's photographs tab) is
@@ -24,8 +25,8 @@ import ItemPicker from './ItemPicker'
  *
  * Every row's item picker searches by item code rather than offering the
  * receiving-flow's `ItemFinder`: that component defaults to items that have
- * not arrived yet and forces a coins/currency choice before a code can even
- * be typed, which is the wrong shape for a photograph whose item is
+ * not arrived yet and has no item-code field at all, which is the wrong
+ * shape for a photograph whose item is
  * probably already received (and may already be sold). What it does borrow
  * from `ItemFinder` is the technique -- a code does not say which view the
  * item lives in, so both `coins` and `currency` are searched in parallel and

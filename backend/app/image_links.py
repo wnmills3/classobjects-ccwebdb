@@ -268,8 +268,8 @@ def detach(db: Session, link: ItemImage) -> None:
 
     If it was the item's primary, the next photograph in display order takes
     over -- see `fill_primary_vacancy`. Without that, unfiling the primary
-    from an item holding three photographs left all three unreachable to a
-    buyer.
+    from an item holding three photographs would leave all three unreachable
+    to a buyer.
     """
     item_id = link.inventory_item_id
     db.delete(link)

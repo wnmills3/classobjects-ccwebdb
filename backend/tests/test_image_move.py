@@ -1,8 +1,7 @@
 """Moving a filed photograph to another item, and naming it for its new place.
 
-A photograph filed on the wrong item used to take two steps -- remove it in
-one item's editor, file it again from /management/photos -- and kept the name
-of the item it left (`CC-008078_01.jpg` on CC-008079).
+One step moves a photograph filed on the wrong item, and a name that says its
+old place (`CC-008078_01.jpg`) is rewritten for the new one.
 """
 
 from __future__ import annotations

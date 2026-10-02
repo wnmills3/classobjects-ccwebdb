@@ -32,7 +32,7 @@ def test_a_customer_s_contact_details_can_be_corrected(
 def test_clearing_the_required_name_is_a_422_naming_it(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """The column is NOT NULL: an explicit null was a 500 (code review, 2026-09-23)."""
+    """The column is NOT NULL: an explicit null is a 422 naming it, not a 500."""
     customer = _customer(db)
     resp = client.patch(
         f"/api/customers/{customer.id}",

@@ -23,7 +23,7 @@ Usage::
 
     python -m app.seeding load                  # idempotent, safe to re-run
     python -m app.seeding export --out data/reference/exported
-    python -m app.seeding export --source seeded derived
+    python -m app.seeding export --out DIR --source seeded derived
 """
 
 from __future__ import annotations
@@ -391,9 +391,9 @@ def _seed_series_year_ranges(
 ) -> Counter:
     """Load each design's year ranges, which the generic loader cannot carry.
 
-    Unlike an alias, a range is corrected rather than accumulated: when the
-    Morgan dollar's single span became three ranges, keeping the old span as
-    well would have left every dollar since 1878 a Morgan. So a design named
+    Unlike an alias, a range is corrected rather than accumulated: if a
+    design's single span is replaced by three ranges, keeping the old span as
+    well would leave every year it covered that design. So a design named
     in the file gets exactly the file's ranges -- missing ones added, changed
     ones updated, and ones no longer listed removed. A design the file does
     not mention keeps whatever it has, and a design someone has edited by

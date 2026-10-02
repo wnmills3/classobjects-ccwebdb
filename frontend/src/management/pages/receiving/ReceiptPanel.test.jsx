@@ -56,10 +56,8 @@ const ITEM = {
   reviewed: [],
 }
 
-// Reproduces the shape of the real parent (`Receiving.jsx`): `itemIds` is
-// owned by something above `ReceiptPanel` and can change out from under it
-// while review is open, the same as ticking or unticking a checkbox in
-// `OutstandingList` would.
+// `itemIds` is owned by something above `ReceiptPanel` (`Receiving.jsx`), so
+// this harness lets it change out from under the panel while review is open.
 function SelectionOwner({ initialIds }) {
   const [ids, setIds] = useState(initialIds)
   return (
@@ -128,8 +126,7 @@ describe('ReceiptPanel', () => {
     // 2026-09-10 in UTC, so a component that reverted to `toISOString()`
     // would show the wrong day. Faking only `Date` (not timers) -- faking
     // setTimeout/setInterval as well stalls React's own scheduling and
-    // testing-library's async queries, which is why an earlier draft of this
-    // test hung.
+    // testing-library's async queries, and the test hangs.
     const previousTz = process.env.TZ
     process.env.TZ = 'America/New_York'
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -211,8 +208,8 @@ describe('ReceiptPanel', () => {
     // A photograph is evidence of one physical object. Attaching it to
     // every selected item (or to "the first" of them) would put a wrong
     // provenance record on the rest, and a wrong record reads as a right
-    // one -- worse than no photograph at all. This is the regression the
-    // `flatMap` implementation had: it would fail this test.
+    // one -- worse than no photograph at all. An implementation that
+    // uploaded each photograph to every id (a `flatMap`) would fail this.
     renderWithProviders(<ReceiptPanel itemIds={[412, 413]} onDone={vi.fn()} />)
 
     const input = await screen.findByLabelText(/photo/i)
@@ -280,8 +277,7 @@ describe('ReceiptPanel', () => {
   })
 
   it('keeps the review queue frozen when the selection changes underneath it', async () => {
-    // Reproduces the reviewer's probe: two ids, open review, press Next,
-    // untick the second item. Without a frozen snapshot, ReviewPane's `ids`
+    // Two ids, open review, press Next, then drop the second id. Without a frozen snapshot, ReviewPane's `ids`
     // prop shrinks to one entry while its internal `at` index is still 1,
     // so `ids[at]` is `undefined` and it renders "2 of 1".
     renderWithProviders(<SelectionOwner initialIds={[412, 413]} />)
@@ -421,9 +417,10 @@ describe('ReceiptPanel', () => {
 
   it("shows only the editor's own errors panel while the review pane is open, not a second one behind it", async () => {
     // ItemEditForm (mounted by ReviewPane) has its own ErrorsPanel for the
-    // same item. Both are self-saving and each PUT replaces the item's whole
-    // set, so if the per-line panel here stayed mounted too, an error added
-    // in one would silently discard one added in the other.
+    // same item. Each PUT replaces the item's whole set -- the editor's on
+    // its Save, this panel's on every change -- so if the per-line panel
+    // here stayed mounted too, an error added in one would silently discard
+    // one added in the other.
     renderWithProviders(<ReceiptPanel itemIds={[412]} onDone={vi.fn()} />)
     await screen.findByRole('button', { name: 'Add error' })
     expect(document.querySelectorAll('.errors-panel')).toHaveLength(1)
@@ -460,10 +457,8 @@ describe('ReceiptPanel', () => {
   })
 
   it("warns in the errors panel when the selected item's sale_state is not empty", async () => {
-    // Task 8 wired `itemSaleState` into ErrorsPanel, but no test here ever
-    // populated `sale_state` -- so until now the wiring was only checked by
-    // reading the code. A component that dropped `sale_state` on the way to
-    // ErrorsPanel, or never fetched it, would fail this.
+    // A component that dropped `sale_state` on the way to ErrorsPanel, or
+    // never fetched it, would fail this.
     api.getInventoryItem.mockResolvedValue({
       ...ITEM,
       sale_state: [{ text: 'listing #3 at 189.00 on eBay' }],

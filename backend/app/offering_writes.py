@@ -217,11 +217,9 @@ def _holding_claims() -> Select[tuple[OfferClaim]]:
 
     Two conditions, and both are needed. The claim is `active` or `paused`,
     never `released`. And the listing behind it is still on offer: a claim's
-    state follows its listing's status (see `OfferClaim`), but this module was
-    not always the only writer of that status -- the catalog API's retired
-    `PATCH .../is_active` withdrew a listing without touching its claims -- so
-    a claim left reading `paused` on a listing an older write ended holds
-    nothing. Everything that asks whether a claim holds its item *now* asks
+    state follows its listing's status (see `OfferClaim`), but stored rows
+    can disagree: a claim left reading `paused` on a listing that has ended
+    holds nothing. Everything that asks whether a claim holds its item *now* asks
     through here, or the answers disagree and an item is either offered
     twice or never allowed back to `held`. The past-tense question -- has a
     claim ever named this item, released ones included -- is a different
@@ -356,12 +354,11 @@ def _lock_items(db: Session, item_ids: Collection[int]) -> None:
     `_lock_listing_rows` passes `populate_existing` and
     `splitting.split_item` locks with `db.refresh(..., with_for_update=True)`.
 
-    The re-read is also what stopped a *false* conflict on the money path.
+    The re-read also prevents a *false* conflict on the money path.
     `order_writes._after_stock_change` writes `inventory_item.disposition`,
-    which carries a version column and was not locked at all until these
-    rows came to be taken here for a checkout too: an unrelated concurrent
-    edit to a coin made a revision or a cancellation fail with
-    `StaleDataError` and a person was told to reload
+    which carries a version column: without the lock and re-read here, an
+    unrelated concurrent edit to a coin makes a revision or a cancellation
+    fail with `StaleDataError`
     (`tests/test_order_revision_race.py`).
     """
     ids = sorted(set(item_ids))
@@ -382,8 +379,8 @@ def _names_any(
     """The one definition of "this listing names one of these items".
 
     Both halves, always: the listings written *against* an item, and any
-    listing written against something else whose claim names it -- a lot's,
-    since phase 3. Asking only the first half silently ignores exactly the
+    listing written against something else whose claim names it -- a lot's.
+    Asking only the first half silently ignores exactly the
     case the claim table exists for.
 
     `claim_states` is the only difference between the two tenses built on
@@ -757,7 +754,7 @@ def lock_for_sale(
     """Take every row a sale or an offer touches, in the canonical order.
 
     The public door onto `_acquire`, and the reason the order has one owner
-    rather than four call sites that agree by hand.
+    rather than call sites that agree by hand.
 
     **Two entry points, one closure.** `offer` enters from *items* -- one
     item, or a lot's members, already frozen under the lot's own row lock by
@@ -876,7 +873,7 @@ def _locked_offers(db: Session, item_id: int) -> Sequence[Listing]:
     """The listings that already hold this item, locked and re-read.
 
     Both the listings written against the item and any written against
-    something else that claims it (a lot, in phase 3). `populate_existing`
+    something else that claims it (a lot). `populate_existing`
     for the reason `_lock_listing_rows` gives: a row already in the
     session's identity map would otherwise come back locked but stale.
 
@@ -1370,7 +1367,7 @@ def _end(
 
     **Why here and not in `end_offer`.** This module is the single writer of
     `sales_lot.status`, so an invariant each caller has to remember is the
-    "four call sites that agree by hand" shape this branch exists to remove.
+    "call sites that agree by hand" shape this guard exists to remove.
     A guard in `end_offer` would also miss the `paused_by_it` loop there,
     which calls this function directly.
 
@@ -1413,12 +1410,12 @@ def _end(
     # `lock_for_sale` pass takes the lot of the listing being ended as its
     # first statement, so by the time the UPDATE below runs this transaction
     # is holding that row already and the path's order is the canonical
-    # lot -> items -> listings. That reason is new, and it is the one that
+    # lot -> items -> listings. That is the reason that
     # generalises -- but it rests on the caller's pass having named *this*
     # lot, which is true of `end_offer` and is worth checking rather than
     # assuming if `_end` ever gains a second entry point.
     #
-    # The second, which held before that and still does independently: the
+    # The second, which holds independently: the
     # lot reached here always has a listing, so it is never a lot a
     # concurrent `offer` could be holding -- that lot is still `assembling`
     # and has no listing. Every `lot_writes` path that *waits* on a lot row
@@ -1452,8 +1449,8 @@ def end_offer(
     comes back at the price it had, and an item nothing offers any more goes
     back to `held`.
 
-    `sold=True` is the settlement of a sale made on this listing -- phase 2's
-    record-a-sale and phase 4's auction settlement both end their listing this
+    `sold=True` is the settlement of a sale made on this listing -- Record
+    sale and auction settlement both end their listing this
     way. A store listing paused for it is **ended** rather than resumed, so a
     sold item cannot reappear in the shop, and the items are left alone: the
     sale path owns the move to `sold`.
@@ -1486,8 +1483,7 @@ def end_offer(
     listing = locked.listings[listing.id]
 
     # Still paused, not merely pointing here. A listing ended while it was
-    # paused keeps the pointer -- the catalog API's retired
-    # `PATCH .../is_active` ended one without clearing it -- and resuming
+    # paused can keep the pointer, and resuming
     # that would put a listing an administrator deliberately withdrew back
     # into the public shop, re-claiming the item with it.
     #
@@ -1554,10 +1550,8 @@ def end_offer(
             # This cleanup is scoped to the `listed` branch only, not to
             # every item `_still_offered` excluded. `_still_offered`
             # returning False means every `HELD_BY` claim on this item, if
-            # any remain, is on a listing it did not count -- one an older
-            # write ended without releasing its claim (the retired catalog
-            # `PATCH .../is_active` is the one still-live example; see
-            # `_holding_claims` and
+            # any remain, is on a listing it did not count -- one that ended
+            # without releasing its claim (see `_holding_claims` and
             # `test_a_withdrawn_store_listing_is_not_resurrected`). Nothing
             # legitimately holds a `listed` item once this decides it is
             # `held` again, so a stray claim does not either -- leaving it

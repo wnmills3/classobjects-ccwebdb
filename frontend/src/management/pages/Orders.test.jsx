@@ -229,7 +229,7 @@ describe('owner Orders', () => {
     // refuses a cancellation that would really return stock. A shipped order
     // returns none, so cancelling one is allowed -- it is how a refund is
     // recorded. An `auction_house` sale is created `delivered`, so every one
-    // arrives in this state; greying the option out made that workflow
+    // arrives in this state; greying the option out would make that workflow
     // unreachable from the console.
     api.listOrders.mockResolvedValue([
       {

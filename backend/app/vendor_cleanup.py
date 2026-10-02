@@ -113,8 +113,8 @@ def run(
     owner actually bought from. Rolls back unless `commit`.
 
     `commit` is keyword-only, as it is on every other pass here. Positional,
-    it sat between two sequences, where passing `renames` one argument early
-    made it the commit flag -- a non-empty list being truthy, that is a
+    between two sequences, a `renames` list passed one argument early would
+    become the commit flag -- a non-empty list being truthy, that is a
     silent write instead of a refusal.
     """
     report = Report()

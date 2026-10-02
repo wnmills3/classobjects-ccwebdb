@@ -1,7 +1,6 @@
 """Grading in the item editor: service, designation and certificate numbers.
 
-The editor could set none of them (owner, 2026-09-23: EPQ could not be
-chosen for a note). Designations say which kind they fit
+The editor sets all three. Designations say which kind they fit
 (`grade_designation.applies_to`) and the API refuses the other kind's;
 certificate numbers are edited as a set on `PATCH /inventory/{id}`.
 """

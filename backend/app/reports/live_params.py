@@ -1,6 +1,6 @@
 """Status and disposition: the two parameters every held-items report takes.
 
-Every Collection report and `mn_value` (Ruling P2-10) count live items
+Every Collection report and `mn_value` count live items
 narrowed by acquisition status and sales disposition. The parameters
 (`LiveParams`), the joins and filters they add (`live_where`), the pair a
 drill-down restates (`status_disposition_params`), a kind's own drill

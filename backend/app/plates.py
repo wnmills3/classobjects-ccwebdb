@@ -1,6 +1,6 @@
 """A banknote's plate numbers, and the printing location the face plate names.
 
-The owner, 2026-09-25: the face and back plate numbers, with where the note
+The face and back plate numbers, with where the note
 was printed, tell a Friedberg number apart -- a 2017-A $1 is Fr. 3005-A from
 Washington, DC or Fr. 3006-A from Fort Worth -- and a mismatched face and back
 is how a mule is found (the web search's answer carries an "m" suffix then).
@@ -13,8 +13,8 @@ is how a mule is found (the web search's answer carries an "m" suffix then).
   given -- ``FW`` means Fort Worth, no prefix Washington -- so the two cannot
   disagree; set by hand only where no face plate is recorded.
 
-Facts of the note in hand, not a catalogue's arrangement (CLAUDE.md,
-*Reference data*).
+Facts of the note in hand, not a catalogue's arrangement
+(`docs/reference-data.md`).
 """
 
 from __future__ import annotations

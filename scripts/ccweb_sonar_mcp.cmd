@@ -9,7 +9,7 @@ rem  the container itself, so it dies at startup with "Connection refused".
 rem  The CLI exposes no --network flag. Joining sonar-net and addressing the
 rem  server by container name is exactly what ccweb_sonar_scan.cmd already does.
 rem
-rem  Claude Code runs this over stdio; do not echo anything to stdout here, or
+rem  The MCP client runs this over stdio; do not echo anything to stdout here, or
 rem  it will corrupt the protocol stream.
 rem
 rem  Contract: pre-flights only SONAR_TOKEN (exits non-zero to stderr if

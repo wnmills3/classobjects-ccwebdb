@@ -6,11 +6,9 @@ keeping one inventory table buys; with split coin/currency tables every order
 line would need two nullable foreign keys and a constraint saying exactly one
 is set.
 
-**Naming note.** `docs/database-design.md` calls these `order` and
-`order_item`. `order` is a reserved word in SQL, so every reference to it in a
-view or a hand-written query would need quoting -- and the name is already
-taken by the scaffold storefront. They are `sales_order` and
-`sales_order_item` here, which is unambiguous in both directions.
+**Naming note.** These are `sales_order` and `sales_order_item`, not `order`
+and `order_item`: `order` is a reserved word in SQL, so every reference to it
+in a view or a hand-written query would need quoting.
 """
 
 from __future__ import annotations
@@ -287,9 +285,9 @@ class Listing(TimestampMixin, Base):
         default=ListingStatus.active,
         nullable=False,
     )
-    #: Generated from `status`, so every reader written before statuses
-    #: existed -- checkout, the public catalog, the for-sale warning -- keeps
-    #: its meaning. It cannot be written; set `status`.
+    #: Generated from `status`, for the readers that ask only whether a
+    #: listing is on offer -- checkout, the public catalog, the for-sale
+    #: warning. It cannot be written; set `status`.
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         Computed("status = 'active'::listing_status", persisted=True),
@@ -674,7 +672,7 @@ class SalesOrder(TimestampMixin, Base):
         DateTime(timezone=True), default=utcnow, nullable=False, index=True
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    #: The account that entered the order: the buyer, or an administrator
+    #: The account that entered the order: the buyer, or a manager
     #: acting for them. Null for orders placed before this was recorded.
     placed_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

@@ -1,10 +1,11 @@
 """The one definition of "an item's receipt" -- shared by `pr_received` and `sl_aging`.
 
-Ruling P2-7: a receipt is a status transition *to* `received` --
+A receipt is a status transition *to* `received`
+(docs/specs/reporting-design.md, Decisions) --
 `item_status_history.from_status_id IS NOT NULL` -- never the opening row a
-brand-new item, a split child, or a seed gets, and never the live
-database's one-time history reset (2026-09-25) to a single opening row per
-item. Both reports read this one predicate through `received_transitions`,
+brand-new item, a split child, or a seed gets, nor the single opening row an
+item whose history starts at its current status carries. Both reports read
+this one predicate through `received_transitions`,
 and both read a transition's calendar day through `receipt_day`, so neither
 can drift from what "received" means to the other.
 """

@@ -1,8 +1,8 @@
 """A photograph filed after an item's others, and named as it is stored.
 
-An upload once filed every photograph at position 0, so a reverse added to
-an item listed before its obverse; and a file converted on the way in (a
-WebP stored as JPEG) kept its old extension in its recorded name.
+An upload files each photograph after the item's last, so a reverse lists
+after its obverse; and a file converted on the way in (a WebP stored as JPEG)
+is recorded under the extension it is stored with.
 """
 
 from __future__ import annotations

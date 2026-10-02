@@ -34,8 +34,7 @@ import ItemEditForm from './ItemEditForm'
 import { COIN_VIEW, CURRENCY_VIEW } from './specs'
 
 /**
- * Every field a person can fill in explains itself (owner, 2026-09-24: the
- * find-and-list pickers and the search panel's dropdowns had no help).
+ * Every field a person can fill in explains itself.
  *
  * Walks every input, dropdown and text box actually rendered and requires a
  * `data-help` topic above it that has text. A literal-key scan of the source

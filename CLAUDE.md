@@ -98,16 +98,12 @@ skill specifies a different path, format, or workflow, this file wins.
 
 ## Reference data
 
-Before any retrieved data goes into the repository, seed files, or the
-database, establish that it is free to use. This is enforced, not advisory:
-the catalog is sold, so reference data shipped inside the product is
-redistributed with it.
-
-The line is **fact vs. arrangement**. Safe: who held an office and when, design
-series names and year spans, mint specifications and legislated compositions,
-common collector nicknames. Not safe: **Friedberg** numbering, **Pick**
-numbering, vendor price-guide values, or any catalog's mapping of attributes
-to its own numbers.
+The rule is in **`docs/reference-data.md`**; code and documents cite that
+file, never this one. In one line: before any retrieved data goes into the
+repository, seed files, or the database, establish that it is free to use --
+a fact may be shipped, a publisher's arrangement (**Friedberg** or **Pick**
+numbering, price-guide values, a catalog's mapping of attributes to its own
+numbers) may not.
 
 ## Working style
 

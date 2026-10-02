@@ -40,8 +40,9 @@ items hold the catalog row, not its text. Undoing a confirmation clears the
 row's `verified_at`, so the next lookup offers it as proposed again (see
 `receiving-purchases-design.md`, **Use**).
 
-A storage location of kind `consigned` or `sold` is made by the auction or
-sale code: its row is not editable, neither kind is offered in the picker,
+A storage location of kind `consigned` is made by the auction code, and
+`sold` is reserved (nothing creates one): such a row is not editable,
+neither kind is offered in the picker,
 and the server refuses (422) editing one or changing a location to one. A
 location an item has ever been in is part of that item's history, so it
 cannot be deleted.
@@ -83,7 +84,7 @@ reason shown.
   lookup attaches in one step. It can still be attached as proposed.
 
 Only the form is known -- never which number belongs to which note, which is
-the publisher's arrangement (`CLAUDE.md`, *Reference data*).
+the publisher's arrangement (`docs/reference-data.md`).
 
 ## A combination already recorded
 

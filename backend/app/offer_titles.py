@@ -20,7 +20,7 @@ wording. `source_title` remains the fallback only when the record holds no
 fact worth naming, so an unclassified item is no worse off than before.
 
 Facts, not a catalog's arrangement: every part is a label from this
-database's own vocabularies (see CLAUDE.md, *Reference data*).
+database's own vocabularies (see `docs/reference-data.md`).
 """
 
 from __future__ import annotations

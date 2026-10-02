@@ -2,8 +2,8 @@
 
 Creating an item, correcting one, drafting one and cataloguing a Friedberg
 number all take `schemas.SeriesYear`: 1690 (the first paper money issued in
-America) to 2200. They disagreed before, and the correction path refused
-pre-1861 years the collection holds.
+America) to 2200, so a pre-1861 year the collection holds is accepted on
+every path.
 """
 
 from __future__ import annotations

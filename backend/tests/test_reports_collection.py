@@ -147,9 +147,9 @@ def test_kinds_are_ordered_by_item_kind_sort_order_not_by_label(db: Session) -> 
     """Kinds sort by `item_kind.sort_order`, not alphabetically.
 
     `Bullion` < `Coin` alphabetically, but `item_kind.sort_order` says Coin
-    (10) comes before Bullion (30) -- the controller ruled every vocabulary
-    shows in its own `sort_order`, and this is the one place two kinds' rows
-    could interleave if that were wrong.
+    (10) comes before Bullion (30) -- every vocabulary shows in its own
+    `sort_order`, and this is the one place two kinds' rows could interleave
+    if that were wrong.
     """
     _coin(db, _CENT, Decimal("1.00"))
     build_bare_item(

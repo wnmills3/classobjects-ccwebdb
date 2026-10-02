@@ -57,7 +57,7 @@ def test_the_note_scale_is_the_graders_points_from_poor_1_to_70(
 def test_every_note_grade_has_a_number(db: Session) -> None:
     """A bare "UNC" on a note is the bottom of its range, N60 (the owner).
 
-    The words once had rows of their own, which no range search could find.
+    A word with a row of its own and no number is one no range search finds.
     """
     assert {code for code, _label, n in note_scale(db) if n is None} == set()
 

@@ -17,8 +17,8 @@ import { useHelpBand } from './help-context'
  * shows in an area of its own below the form instead.
  *
  * Nothing is added inside the labels themselves: a control placed in a label
- * with no `for` can take the label from its field (measured 2026-09-23 with a
- * "?" button), and this needs none.
+ * with no `for` can take the label from its field (a "?" button does), and
+ * this needs none.
  *
  * The last field explained stays shown when focus moves to one with no help,
  * rather than the explanation flickering away between fields. Scopes nest:

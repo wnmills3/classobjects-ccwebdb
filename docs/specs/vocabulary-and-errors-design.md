@@ -140,7 +140,7 @@ For attributes and error types the add form asks for **a label only**
   other kind of item), nothing is selected and the reason is shown instead.
 - **Where a value came from is not shown.** `source` (seeded, derived,
   manual) is kept on the row, but the picker shows the label alone: values
-  gathered over time may be folded into the base set (owner, 2026-09-30).
+  gathered over time may be folded into the base set.
 - **Kind** is inferred from the item being entered with `sideFor`, sent as
   `applies_to` in `extra`. A value with no marker would match nothing and
   vanish from the list that created it.

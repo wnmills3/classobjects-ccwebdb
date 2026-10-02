@@ -21,8 +21,8 @@ status a refusal gets is decided by the class, never by the order of
 its own from the grid, and `sales_writes`' from the `record_sale_lines`
 call inside it.
 
-**A write is all or nothing.** Every endpoint that calls into
-`app.auctions` does so inside `routers._tx.committing`, which rolls back on
+**A write is all or nothing.** Every endpoint that has `app.auctions`
+write does so inside `routers._tx.committing`, which rolls back on
 any exception and re-raises, so a refusal leaves the session clean for
 whatever uses it next.
 
@@ -388,11 +388,9 @@ def update_auction_lot(
     same as every other transition in this router.
 
     `payload.lot_number` is captured into a local before the `try`: reading
-    `auction_lot.lot_number` in the `IntegrityError` clause, as `dict.get`'s
-    default, which Python evaluates unconditionally, would be a live ORM
-    attribute read on the common path, after a failed flush on the error
-    path, which is exactly what this module's own docstring says every
-    other endpoint avoids. A repeated `lot_number` can
+    `auction_lot.lot_number` in the `IntegrityError` clause would be an ORM
+    attribute read after a failed flush, which this module's own docstring
+    says every endpoint avoids. A repeated `lot_number` can
     only be the one this request just tried to set -- a reserve-only change
     cannot violate `uq_auction_lot_auction_lot_number` -- so the captured
     value is always the right one to name.

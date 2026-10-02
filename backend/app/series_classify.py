@@ -283,7 +283,7 @@ def decide(
 
 
 def _with_facts(*columns: ColumnElement[Any] | QueryableAttribute[Any]) -> Select[Any]:
-    """`columns` of every live item, joined to its kind and currency detail.
+    """`columns` of every unsplit item, joined to its kind and currency detail.
 
     The shape both `_items` and `disagreements` read; each adds its own
     columns and its own condition on `series_id`.
@@ -325,7 +325,7 @@ def _items(
     An item whose series a person emptied (`held`) is not unclassified: it
     stays empty.
 
-    The last column says whether the title and description are **lot text**:
+    The `lot_text` column says whether the title and description are **lot text**:
     shared, word for word, with another piece of the same order. A lot's
     pieces carry the lot's listing, so "Large Cents,
     Morgans, Mercury dimes" on a 1943 cent describes the lot, not the cent,

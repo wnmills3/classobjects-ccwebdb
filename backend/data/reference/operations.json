@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "Metal, valuation, lifecycle, errors and the operational vocabularies.",
+    "Metal, valuation, lifecycle and the operational vocabularies.",
     "The two lifecycle axes are deliberately separate tables: how an item came",
     "in and how it goes out are different questions, and one column cannot",
     "represent 'received and sold'.",

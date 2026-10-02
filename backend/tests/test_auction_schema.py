@@ -3,8 +3,8 @@
 Each of these is a constraint rather than a rule in Python, for the same
 reason `test_sales_lot_schema.py` gives: a rule two concurrent requests could
 both believe they satisfy needs to live in the database, not just in the
-application. This is schema only -- nothing writes these tables yet, so every
-row here is built by hand rather than through a writer that does not exist.
+application. This is schema only: every row here is built by hand rather than
+through `app.auctions`, whose own rules are tested in `test_auctions.py`.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """Grades as a strike type and a number, and back again.
 
-docs/specs/item-attributes-design.md, decisions 1-3. A coin's grade is split:
+docs/specs/item-attributes-design.md, section 3. A coin's grade is split:
 ``PR69+`` is strike type ``proof`` with grade ``69+``; ``MS65`` is
 ``business`` with ``65``. Adjectival grades take the bottom of their standard
 range, with the owner's ladder for UNC and BU: plain is Uncirculated (60),
@@ -47,7 +47,7 @@ _PREFIX_STRIKE = {
 _COMPOUND = re.compile(r"^(MS|PR|PF|SP|AU|XF|EF|VF|VG|AG|FR|PO|F|G|P)-?(\d{1,2})(\+*)$")
 _NOTE = re.compile(r"^N\d{1,2}\+?$")
 
-#: Adjectival coin grades: strike type and number (decision 3).
+#: Adjectival coin grades: strike type and number (spec, section 3).
 ADJECTIVAL: dict[str, tuple[str, int]] = {
     "UNC": (BUSINESS, 60),
     "BU": (BUSINESS, 60),
@@ -162,7 +162,7 @@ _PREFIX_RANGES: dict[str, tuple[int, int]] = {
 }
 
 #: Search words for the owner's ladder, to the rank each step spans:
-#: BU is 60-62, BU+ 63-64, BU++ 65-66 (decision 3).
+#: BU is 60-62, BU+ 63-64, BU++ 65-66 (spec, *Searching a grade*).
 _LADDER_STEPS = ((60, 62), (63, 64), (65, 66))
 _LADDER_WORDS = {"UNC": None, "BU": None, "CHOICE": 1, "GEM": 2}
 

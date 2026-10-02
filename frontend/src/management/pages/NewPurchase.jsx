@@ -549,9 +549,6 @@ export default function NewPurchase() {
     }
   }
 
-  // Guarded by the same token a pick takes: a reload landing after "Start
-  // another purchase", another pick, or a later reload must not put an old
-  // answer back on screen (code review, 2026-09-23).
   // The item open in the editor, from the items table: an entry fixed where
   // it was made rather than found again on the inventory screens.
   const [editing, setEditing] = useState(null)
@@ -563,6 +560,9 @@ export default function NewPurchase() {
     reloadPurchase()
   }
 
+  // Guarded by the same token a pick takes: a reload landing after "Start
+  // another purchase", another pick, or a later reload must not put an old
+  // answer back on screen.
   function reloadPurchase() {
     if (!purchase) return
     fetchPurchase(purchase.id, setReloadError)

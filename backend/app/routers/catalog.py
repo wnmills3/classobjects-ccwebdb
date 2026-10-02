@@ -10,15 +10,12 @@ is how a shop is actually operated.
 A **lot** listing has no `inventory_item` at all: it offers a group of coins
 reached through `sales_lot_item`, and the shop shows it as one thing for sale
 whose `members` describe what is in it. The join to `inventory_item` is an
-outer one for that reason -- it was an inner join, which dropped every lot
-listing out of the shop -- and `to_catalog_item` has a branch for each shape.
+outer one for that reason -- an inner join would drop every lot listing out
+of the shop -- and `to_catalog_item` has a branch for each shape.
 
 Writing a listing -- offering an item, changing its price or wording, ending
-it -- is `app.routers.offers`. This module used to also create, update and
-delete catalog entries; that path let "Manage" create an item and a listing
-together, which contradicted entering nothing outside a purchase, and it could
-never offer an item the business already owned. `app.offering_writes` is now
-the only writer of `listing.status` and the claims that go with it.
+it -- is `app.routers.offers`. `app.offering_writes` is the only writer of
+`listing.status` and the claims that go with it.
 """
 
 from __future__ import annotations
@@ -132,8 +129,8 @@ def _photograph(item: InventoryItem) -> dict[str, str]:
 def _years(item: InventoryItem) -> tuple[int | None, int | None]:
     """The years a buyer is shown: a note's are its series year.
 
-    A note holds no year of its own (owner, 2026-09-25) -- its series year is
-    its year -- so it is read from the note's detail here, not stored twice.
+    A note holds no year of its own -- its series year is its year -- so it
+    is read from the note's detail here, not stored twice.
     """
     detail = item.currency_detail
     if detail is not None and detail.series_year is not None:
@@ -303,8 +300,6 @@ def list_catalog(
             detail="Manager privileges required to see withdrawn listings",
         )
 
-    # or_() returns a ColumnElement, which is wider than the
-    # BinaryExpression the first append would otherwise pin this to.
     # The shop's catalog is the web store's active fixed-price listings, and
     # `app.offering_writes` is where that rule lives -- in this SQL form and
     # in the Python one checkout asks. `include_inactive` is the admin preview
@@ -347,7 +342,7 @@ def list_catalog(
         filters.append(Listing.quantity_available > 0)
 
     # An **outer** join, because a lot listing's `inventory_item_id` is NULL
-    # and an inner join dropped every one of them from the shop outright.
+    # and an inner join would drop every one of them from the shop outright.
     # The consequence is deliberate rather than tolerated: each of the item
     # filters above (`kind`, `country`, `metal`, `year_min`, `year_max`)
     # compares a column of the missing row, so a lot listing matches none of

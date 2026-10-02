@@ -132,7 +132,7 @@ def test_a_location_change_records_where_it_went(db: Session) -> None:
 def test_editing_the_status_through_the_api_records_it(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The gap this module exists to close: before it, this wrote nothing."""
+    """An edit through the API writes history, with who made it."""
     item = build_bare_item(db, status_id=_status_id(db, "ordered"))
     db.commit()
 
@@ -210,9 +210,9 @@ def test_no_item_lacks_history_across_every_creation_path_a_test_can_drive(
         headers=admin_headers,
     )
 
-    # `split_lot` is test scaffolding built directly with `build_bare_item`, which
+    # `parent` is test scaffolding built directly with `build_bare_item`, which
     # deliberately bypasses these helpers so tests can set up arbitrary
-    # starting states -- it is not one of the four creation paths under
+    # starting states -- it is not one of the three creation paths under
     # test, so it is excluded from the check below rather than expected to
     # satisfy it.
     parent = build_split_lot(db)

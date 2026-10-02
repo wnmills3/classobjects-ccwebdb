@@ -24,8 +24,8 @@ Ultra Cameo; No Motto, not No God; United States Note, not Legal Tender.
 
 ## 1. Aliases
 
-Two tables hold them: `series_alias` for design series (it predates the
-general table and keeps its own shape) and `reference_alias` (table, row,
+Two tables hold them: `series_alias` for design series (keyed by the
+series itself, in its own shape) and `reference_alias` (table, row,
 alias) for every other vocabulary. Both carry `is_active` and a `source`.
 `app/aliases.py` hides the split from its callers:
 
@@ -175,8 +175,8 @@ one grading service's designation, and the holder names one or the other.
 PF, EF and PO need no rows: grades are numbers and `app.grades` reads those
 prefixes.
 
-**Designations** (one per item): DCAM, CAM, RD, RB, BN, FS, 5FS, 6FS, FB, FT,
-FBL, FH, PL, DMPL, EPQ, PPQ. FT is NGC's Full Torch (PCGS calls it FB); 5FS and
+**Designations** (one per item): DCAM, UCAM, CAM, RD, RB, BN, FS, 5FS, 6FS,
+FB, FT, FBL, FH, PL, DMPL, EPQ, PPQ. FT is NGC's Full Torch (PCGS calls it FB); 5FS and
 6FS are NGC's Jefferson nickel steps.
 
 **CAC is not a grading service.** A CAC sticker verifies another service's

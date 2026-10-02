@@ -369,7 +369,7 @@ describe('OffersPanel', () => {
   }
 
   // The row says what is being sold for 1000.00, and it is not this coin.
-  // Without the subject cell every row on this panel was silently "the item
+  // Without the subject cell every row on this panel is silently "the item
   // you are looking at", which is how a lot's price reads as a coin's.
   it('names the lot a coin is offered inside, rather than the coin', async () => {
     api.listListings.mockResolvedValue([SHOP_LOT])

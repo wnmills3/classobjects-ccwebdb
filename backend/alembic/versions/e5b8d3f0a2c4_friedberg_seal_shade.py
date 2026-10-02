@@ -1,7 +1,7 @@
 """Friedberg numbers: read the star and the mule past a seal shade.
 
 A light or dark green seal is written after the number -- `2008-B LGS`,
-`2008-B* LGS` (owner, 2026-10-01) -- so `is_star` and `is_mule`, which read
+`2008-B* LGS` -- so `is_star` and `is_mule`, which read
 the end of `fr_number`, would call `2008-B* LGS` neither and refuse it beside
 `2008-B LGS`. Both expressions now look past the shade, as
 `app.fr_format.fr_traits` does.

@@ -15,11 +15,9 @@ import { useRequest } from '../../../shared/useRequest'
  * (`edits`, keyed by link id), are held and shown as not saved yet until the
  * editor's Save applies them, like every other change in the editor.
  *
- * Until now `api.uploadImage` had exactly one caller: the receiving screen,
- * so a photograph could only ever be attached at the moment an item
- * arrived. The owner photographs at leisure, often well after receiving --
- * this panel is what gives an item a second, later chance to gain one, in
- * the place the owner already returns to finish a record: the item editor.
+ * The owner photographs at leisure, often well after receiving, so an item
+ * gains a photograph here as well as when it arrives: in the place the owner
+ * already returns to finish a record, the item editor.
  *
  * The filed photographs are read from the server on mount and again once
  * the editor's Save has applied what was held (`reloadKey`); the held
@@ -34,9 +32,7 @@ import { useRequest } from '../../../shared/useRequest'
  *
  * A held "Move" files the photograph on another item, found by its code,
  * in one step -- the server places it after that item's photographs and
- * names it for its place there. Before this, a photograph on the wrong item
- * was removed here and filed again from /management/photos, keeping the old
- * item's name.
+ * names it for its place there.
  *
  * No for-sale notice of its own: nothing here writes, and the editor's one
  * acknowledgement covers everything its Save applies.
@@ -92,12 +88,6 @@ export default function PhotosPanel({
   // row would fall back to showing the raw code instead of its label.
   const vocabulary = useReference('image_role', { includeRetired: true }) ?? []
   const byCode = new Map(vocabulary.map((entry) => [entry.code, entry]))
-  // What a photograph added next is held as: the obverse, then the reverse,
-  // whichever the item lacks; once it has both, nothing, and its own picker
-  // in the held list asks. The role is chosen beside the photograph it
-  // belongs to, never beside the add controls -- a picker there sat under
-  // the photograph just added and read as its label, so a person set the
-  // first photograph's side on the second (owner's report, CC-008085).
   const [address, setAddress] = useState('')
   // The photograph whose Move picker is open, and what it last refused.
   const [moving, setMoving] = useState(null)
@@ -121,6 +111,11 @@ export default function PhotosPanel({
     ...shown.filter((row) => !leaving(row.edit)).map((row) => row.role),
     ...pending.map((entry) => entry.role),
   ])
+  // What a photograph added next is held as: the obverse, then the reverse,
+  // whichever the item lacks; once it has both, nothing, and its own picker
+  // in the held list asks. The role is chosen beside the photograph it
+  // belongs to, never beside the add controls, where a picker reads as the
+  // label of the photograph above it.
   const nextSide = ['obverse', 'reverse'].find((code) => !held.has(code)) ?? ''
   const activeRoles = vocabulary.filter((entry) => entry.is_active !== false)
 
@@ -132,12 +127,12 @@ export default function PhotosPanel({
   /**
    * What choosing a file, dropping one, and pasting one all funnel into --
    * the input, `handleDrop` and `handlePaste` below call nothing else. Each
-   * file is held exactly as `upload` always held its one, the obverse then
-   * the reverse then unlabelled, counting whatever a batch has already
-   * claimed as it goes. A file that is not a photograph refuses the whole
-   * drop or paste with a message naming it, rather than silently skipping
-   * it -- the file box itself never reaches this branch, since
-   * `accept="image/*"` already keeps a non-image out of `e.target.files`.
+   * file is held as the obverse, then the reverse, then unlabelled, counting
+   * whatever a batch has already claimed as it goes. A file that is not a
+   * photograph refuses the whole drop or paste with a message naming it,
+   * rather than silently skipping it -- the file box itself never reaches
+   * this branch, since `accept="image/*"` already keeps a non-image out of
+   * `e.target.files`.
    */
   function addFiles(fileList) {
     const files = Array.from(fileList ?? []).filter(Boolean)
@@ -354,7 +349,7 @@ export default function PhotosPanel({
                         hold(row, { image_role: e.target.value || null })
                       }
                       // A new kind of photograph is added here by its name,
-                      // as an attribute is (owner, 2026-10-01). The value is
+                      // as an attribute is. The value is
                       // created at once; this photograph's use of it is held
                       // for Save like any other role change.
                       allowAdd

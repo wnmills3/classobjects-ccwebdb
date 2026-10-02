@@ -12,7 +12,7 @@ describe('webSearchText', () => {
     ).toBe('What is the Friedberg number for Series 1963-A $1?')
   })
 
-  it('names where it was printed, which tells 3005-A from 3006-A', () => {
+  it('names where it was printed, which tells two numbers apart', () => {
     const text = webSearchText({
       seriesYear: '2017',
       seriesLetter: 'A',
@@ -25,7 +25,7 @@ describe('webSearchText', () => {
 
   it('gives the plates and asks for the m suffix of a mule', () => {
     // A face and back from different eras make a mule; the owner reads the
-    // "m" suffix off the answer (2026-09-25).
+    // "m" suffix off the answer.
     const text = webSearchText({
       seriesYear: '1935',
       facePlate: 'E82',

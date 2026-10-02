@@ -5,18 +5,12 @@ No authorization of any kind is needed to browse. The one exception is
 is checked here rather than by a dependency because the endpoint itself has
 to answer a signed-out browser.
 
-Ported from the scaffold's test_coins.py. One behavior did not survive and
-should not have: the scaffold enforced a unique `sku` per catalog row. The
-target schema has no such key, because two identical Morgan dollars are two
-physical objects and two rows. Forcing artificial uniqueness on them was a
-property of the demo, not of the domain.
+A catalog row has no unique `sku`: two identical Morgan dollars are two
+physical objects and two rows.
 
-The catalog used to also write: `POST`/`PATCH`/`DELETE /api/catalog` created
-an item and a listing together, edited either, and deleted an unsold one. That
-path is retired (the offers API replaces it -- `test_offers_api.py`,
-`test_offering_writes.py`), because it could not offer an item the business
-already owned, and creating an item outside a purchase is the bug the entry
-panels were built to stop.
+The catalog has no write endpoints. Offers are made and edited through the
+offers API (`test_offers_api.py`, `test_offering_writes.py`), which can offer
+an item the business already owns; an item is created only on a purchase.
 """
 
 from __future__ import annotations
@@ -88,8 +82,8 @@ def test_a_stranger_cannot_ask_to_see_withdrawn_listings(
     """`include_inactive` is described as an admin preview, so make it one.
 
     The endpoint is public and must stay so -- the shop answers signed-out
-    browsers. But the parameter was honored for anyone who passed it, so
-    every listing the owner had ever withdrawn was one query string away.
+    browsers. Were the parameter honored for anyone who passed it, every
+    listing the owner had ever withdrawn would be one query string away.
     That set is the stock taken off sale, mostly because it sold elsewhere:
     a history of the collection no buyer is owed.
     """
@@ -206,9 +200,7 @@ def test_limit_is_bounded(client: TestClient) -> None:
 #: That edit is the point, not an inconvenience. Adding a field to
 #: `CatalogItemOut` means editing this set in the same commit, which is a
 #: review checkpoint on "should a buyer see this?" -- the checkpoint a
-#: deny-list never offers. The evidence is in this file's own history: the
-#: deny list had drifted into two unequal halves, and the weaker half was
-#: silently wrong.
+#: deny-list never offers.
 #:
 #: Written out rather than derived from `CatalogItemOut.model_fields`,
 #: deliberately. A derived set agrees with the model by construction, so it
@@ -250,8 +242,7 @@ EXPECTED_PUBLIC_FIELDS = {
 
 #: Every key one member of a lot may carry: `EXPECTED_PUBLIC_FIELDS` less the
 #: listing's own fields, because a member has no price, no stock and no
-#: listing of its own. Hand-written for the reason above -- this is the half
-#: that was silently the weaker one.
+#: listing of its own. Hand-written for the reason above.
 EXPECTED_MEMBER_FIELDS = {
     "inventory_item_id",
     "item_code",
@@ -494,11 +485,11 @@ def test_a_buyers_order_line_calls_a_lot_what_the_shop_called_it(
 ) -> None:
     """The same purchase, seen afterwards, must carry the same name.
 
-    `routers.orders._sold_as` preferred the snapshot's `lot.title` -- the
-    group's working name, which the test above establishes is not for buyers
-    -- over the listing wording sitting beside it in the same snapshot. So
-    the shop said "Two Morgan Dollars" and the buyer's own order said
-    "Working name nobody should see". Asserted against the catalog entry
+    `routers.orders._sold_as` names a lot by the listing wording in the
+    snapshot, not by the `lot.title` beside it -- the group's working name,
+    which the test above establishes is not for buyers. Otherwise the shop
+    would say "Two Morgan Dollars" and the buyer's own order "Working name
+    nobody should see". Asserted against the catalog entry
     rather than against a literal, because agreeing with each other is the
     property that matters.
     """
@@ -526,7 +517,7 @@ def test_a_lot_entry_counts_every_piece_in_it(
     One member is a five-coin roll, so the three candidate answers are all
     different: 7 (the truth), 3 (the number of members, which a multi-piece
     member makes wrong) and 1 (the field's default, which reads exactly like
-    a genuine single coin and is what a lot reported before).
+    a genuine single coin).
     """
     lot = make_lot(
         [
@@ -558,9 +549,9 @@ def test_a_lot_entry_never_carries_cost_or_location(
     the serialized payload catches a private name appearing anywhere at all,
     including inside a structure neither model declares today.
 
-    Both allow-lists are the same ones the single-item boundary test uses.
-    Two lists drift, and the member half is the one a reader is most likely
-    to widen.
+    `EXPECTED_PUBLIC_FIELDS` is the same list the single-item boundary test
+    uses. Two lists drift, and the member half is the one a reader is most
+    likely to widen.
     """
     db.commit()
     entry = _entry(client, store_lot_listing.id)
@@ -630,11 +621,12 @@ def test_buying_a_lot_ends_it_sold_and_releases_its_members(
 
     The lifecycle is `assembling -> offered -> sold | dissolved`
     (`docs/specs/selling-design.md`), and `released_at` is set when the lot is
-    sold or dissolved. Without this, a shop checkout left the lot `offered`
-    for ever: its members sold, their membership rows still open -- blocking
-    the already-sold coins under `uq_sales_lot_item_open` -- and the listing
-    active at quantity zero. `ck_listing_lot_quantity_one` caps a lot listing
-    at one unit, so there is no partly-sold lot to reason about.
+    sold or dissolved. Without this, a shop checkout would leave the lot
+    `offered` for ever: its members sold, their membership rows still open
+    -- blocking the already-sold coins under `uq_sales_lot_item_open` -- and
+    the listing active at quantity zero. `ck_listing_lot_quantity_one`
+    caps a lot listing at one unit, so there is no partly-sold lot to
+    reason about.
     """
     db.commit()
     lot = store_lot_listing.sales_lot
@@ -666,7 +658,7 @@ def test_a_sold_lots_page_still_says_which_coins_it_held(
     The detail endpoint serves an ended listing on purpose, so a page someone
     bookmarked can say the offer is over. Asked through
     `offering_writes.offered_items` -- "what does this listing offer now" --
-    that page came back as a group with nothing in it, because ending a lot
+    that page would be a group with nothing in it, because ending a lot
     releases every membership in the same transaction. `members_held` is the
     past-tense reader that answers it.
     """

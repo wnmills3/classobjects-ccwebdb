@@ -268,7 +268,7 @@ def test_an_item_shows_and_is_found_by_its_listing_id(
 def test_a_listing_id_is_typed_in_and_changed(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """For items the pass could not fill, a person types it (owner, 2026-09-25)."""
+    """For items the pass could not fill, a person types it."""
     order = PurchaseOrder(vendor_id=_ebay(db).id)
     db.add(order)
     db.commit()
@@ -300,9 +300,9 @@ def test_a_listing_id_is_typed_in_and_changed(
 def test_a_set_form_is_entered_and_changed(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """Set form on entry and in the editor -- "Mixed Sets" is one (2026-09-25).
+    """Set form on entry and in the editor -- "Mixed Sets" is one.
 
-    Kept beside the purchase tests: the owner met it entering a purchase.
+    Kept beside the purchase tests: it is chosen while entering a purchase.
     """
     order = PurchaseOrder(vendor_id=_ebay(db).id)
     db.add(order)

@@ -1,18 +1,16 @@
 """Order numbers and listing ids for eBay purchases, from eBay's purchase history.
 
-The owner, 2026-09-25: 1,234 eBay purchases were recorded without an order
-number, so they could not be found or checked against eBay. Their purchase
+An eBay purchase recorded without an order number cannot be found or
+checked against eBay. The purchase
 history -- workbooks from the "eBay Download History" Chrome extension, one per
 year, a row per line bought (OrderNumber, OrderDate, ItemID, Seller, ItemName,
 ItemPrice, ...) -- supplies both the order number and eBay's item id.
 
 **The item id is the key, not the words.** Every one of those purchases links
 its eBay listing (`https://www.ebay.com/itm/<item id>`), and so do most items
-(`listing_url`); the history has the item id on every line. Measured against
-the 1,738 eBay purchases that already had a number, the item id gives back the
-same order number for 1,680; of the 58 that disagree, 8 are typos in the
-stored number and the rest name another order of the same day -- so those are
-listed for a person, never changed here.
+(`listing_url`); the history has the item id on every line. A stored number
+that disagrees with the history's is listed for a person, never changed
+here: it may be a typo, or name another order of the same day.
 
 What the pass does, all in one transaction:
 

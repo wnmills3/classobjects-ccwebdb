@@ -159,8 +159,7 @@ def _assert_no_metadata(data: bytes) -> None:
             # Order matters: GPS data is reached through the 0x8825 pointer,
             # which is itself a top-level EXIF entry, so anything carrying
             # GPS also makes the general check below fire. Tested after it,
-            # this branch could never be reached, and the one line naming the
-            # module's headline guarantee was dead code.
+            # this branch could never be reached.
             if exif.get_ifd(_EXIF_GPS_IFD):
                 raise MetadataRemainsError("GPS data survived the strip")
             raise MetadataRemainsError(

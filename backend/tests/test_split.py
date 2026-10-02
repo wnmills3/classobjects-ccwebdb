@@ -262,7 +262,7 @@ def test_the_tax_rounding_difference_is_reported_not_hidden(
 ) -> None:
     """The tax rounding difference is reported, not hidden.
 
-    Taxes is generated per row, so the sum of rounded taxes need not equal
+    `sales_tax` is generated per row, so the sum of rounded taxes need not equal
     the rounded tax of the sum. Whatever the difference is, it is stated.
     """
     parent = build_split_lot(
@@ -384,8 +384,8 @@ def test_a_listed_lot_is_marked_split_without_autoflush(
     with `split_at` null: a lot that has been split, still claiming it has
     not, and so splittable a second time.
 
-    Only a *listed* lot reaches `end_offer` at all, which is why the plain
-    split tests never saw it.
+    Only a *listed* lot reaches `end_offer` at all, so the plain split tests
+    cannot show it.
     """
     item_id = item_id_of(listing)
 
@@ -607,21 +607,12 @@ def test_a_coin_offered_inside_a_lot_cannot_be_split(
 ) -> None:
     """A member of an *offered* sales lot is refused, acknowledgement or not.
 
-    The sibling of "a coin sold inside a lot can no longer be split"
-    (`7ea6eb0`), one step earlier in the lifecycle: that one closed the
-    **sold** case, this one the **offered** case, and the two failed the same
-    way because both asked `listing.inventory_item_id`, which is NULL on a
-    lot listing. `split_item`'s listing loop still asks it -- deliberately,
-    it is what ends an *item's own* listings -- so a lot listing is invisible
-    there and nothing ended the lot's offer.
-
-    Measured before the fix, through this exact route: unacknowledged gave
-    409 with the for-sale warning (`sale_state._offering` reads claims, so
-    the *warning* was always lot-aware), and acknowledged gave **200**. The
-    coin was split, and the lot went on offering it: listing `active`, lot
-    `offered`, membership open, claim `active`, `offered_items` still naming
-    a parent with `split_at` set. A buyer looking at a group containing a
-    coin that no longer exists as a whole item -- while
+    `split_item`'s listing loop asks `listing.inventory_item_id`, which is
+    NULL on a lot listing -- deliberately, it is what ends an *item's own*
+    listings -- so a lot listing is invisible there and nothing would end
+    the lot's offer. Unrefused, the coin is split while the lot goes on
+    offering it: listing `active`, lot `offered`, membership open, claim
+    `active`, `offered_items` naming a parent with `split_at` set -- while
     `offering_writes._refuse_unofferable` refuses to offer a split item and
     `lot_writes._refuse_unofferable` refuses to put one in a lot.
 

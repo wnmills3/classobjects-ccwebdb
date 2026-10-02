@@ -1,7 +1,7 @@
 """A performance guard: every registered report runs in under a second.
 
 A guard, not a benchmark (`docs/specs/reporting-design.md`, *Testing*):
-`REPORTS` is parametrized directly, so a report a later phase adds is
+`REPORTS` is parametrized directly, so a report added later is
 covered the moment its module is registered, with no test of its own to
 write. The data set is modest -- enough that a report's query touches more
 than a handful of rows at every join, so an accidental N+1 (a Python loop
@@ -55,7 +55,7 @@ from tests.builders import build_bare_item, build_purchase_order, code_id, usd_i
 #: under what a real N+1 query or an unindexed scan would take, and well
 #: over what any registered report actually takes today (a few
 #: milliseconds each, measured on the live collection -- see the spec's
-#: "What exists, and is reused").
+#: "What reports are built on").
 _BUDGET_SECONDS = 1.0
 
 #: A spread of coin and note denominations, so `cb_holdings` groups more

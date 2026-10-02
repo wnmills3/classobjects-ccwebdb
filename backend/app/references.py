@@ -52,7 +52,7 @@ _CODE_KEYED_TABLES = frozenset(
         "valuation_basis",
         "authenticity",
         "sales_venue_kind",
-        # `sales_writes.record_sale` resolves every fee line's kind through
+        # `sales_writes.record_sale_lines` resolves every fee line's kind through
         # `require_code`, which filters on `is_active`: retiring `commission`
         # would make every sale charging one fail with 422 "Unknown fee",
         # naming a code the dialog itself had just offered.

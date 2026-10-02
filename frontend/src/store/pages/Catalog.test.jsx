@@ -139,7 +139,7 @@ const LOT = {
 
 describe('a lot in the catalog grid', () => {
   it('says a lot is a lot', async () => {
-    // Without this the card carried a blank line where a coin's country,
+    // Without this the card carries a blank line where a coin's country,
     // year and grade go: an anonymous box at a group's price, which reads as
     // one very expensive coin.
     api.listCatalog.mockResolvedValue(page([LOT]))
@@ -148,9 +148,9 @@ describe('a lot in the catalog grid', () => {
   })
 
   it('shows a lot card with its first coin, not an empty frame', async () => {
-    // A lot has no thumbnail of its own by design. The card used to fall
-    // through to the "no photograph" hatching for every lot, however many
-    // photographed coins were in it.
+    // A lot has no thumbnail of its own by design. Without a member's picture
+    // the card falls through to the "no photograph" hatching for every lot,
+    // however many photographed coins are in it.
     api.listCatalog.mockResolvedValue(page([LOT]))
     renderWithProviders(<Catalog />)
     const picture = await screen.findByRole('img', {

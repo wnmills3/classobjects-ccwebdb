@@ -166,9 +166,8 @@ export default function OffersPanel({ item, onChanged }) {
             {listings.map((l) => (
               <tr key={l.id} className={l.status === 'active' ? '' : 'muted'}>
                 <td>{l.venue_name}</td>
-                {/* What this offer is *of*. Every row on this panel used to
-                    be this one coin, so there was nothing to say; a lot
-                    listing offers a group, and without this the group's
+                {/* What this offer is *of*. A lot listing offers a group, not
+                    this one coin, and without this the group's
                     price reads as the coin's -- "1000.00" against a coin
                     the owner paid 500 for. `subjectOf` names a lot by its
                     title and size, the same way the Listings page, the end

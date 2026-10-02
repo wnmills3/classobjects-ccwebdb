@@ -123,10 +123,9 @@ def test_both_money_tables_refuse_a_negative_amount(db: Session) -> None:
     """A share's `amount` has the same floor a fee's does.
 
     Asserted against the database rather than the model: a share is written by
-    `order_writes._sync_shares` today, and the point of the constraint is the
-    writer that does not exist yet. The two named constraints are checked
-    together because the fee's floor was there from the start and the share's
-    was not -- a test naming only one could pass while the other was missing.
+    `order_writes._sync_shares`, and the point of the constraint is any
+    other writer. The two named constraints are checked together because a
+    test naming only one could pass while the other was missing.
     """
     names = set(
         db.scalars(
@@ -140,8 +139,8 @@ def test_both_money_tables_refuse_a_negative_amount(db: Session) -> None:
     assert "ck_sales_order_fee_non_negative" in names
     assert "ck_sales_order_item_share_non_negative" in names
 
-    # `match` names the constraint: both foreign keys on this table are
-    # RESTRICT, so an unmatched `IntegrityError` would also be raised by the
+    # `match` names the constraint: both ids below are foreign keys, so an
+    # unmatched `IntegrityError` would also be raised by the
     # invented ids below and this test would pass without the check existing.
     # Inside a savepoint (`begin_nested`), not bare: the INSERT is raw SQL, so
     # the failure aborts the transaction without deactivating the *session* the

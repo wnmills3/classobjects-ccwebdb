@@ -1,8 +1,8 @@
 /**
  * The warning shown before changing an item a buyer is looking at.
  *
- * One component for what were two hand-rolled copies, in `ItemEditForm` and
- * `BulkEditBar`, and a third was about to be written for `ErrorsPanel`. The
+ * One component for every caller -- `ItemEditForm`, `BulkEditBar`,
+ * `ErrorsPanel`, `SplitDialog` -- rather than a hand-rolled copy in each. The
  * wording names every reason rather than saying "this is for sale": a person
  * with two offers open needs to know which one they are about to change.
  *

@@ -1,6 +1,6 @@
 """The description the item editor's Suggest button offers (`app.item_descriptions`).
 
-In the owner's style (2026-09-24): grade, designation and attributes first,
+In the owner's style: grade, designation and attributes first,
 then year, face value and serial, then the note type and seal -- no field
 labels, no district, signatures or grading service.
 """
@@ -156,8 +156,8 @@ def test_a_coin_leads_with_its_name_then_its_metal(db: Session) -> None:
 def test_a_coins_variety_follows_its_name(db: Session) -> None:
     """An overmintmark is entered as the variety and read after the name.
 
-    Owner, 2026-10-02: "O/S" goes in Variety (`fieldHelp.js`), and the
-    description and the listing title both carry it.
+    "O/S" goes in Variety (`fieldHelp.js`), and the description and the
+    listing title both carry it.
     """
     item = build_item(
         db,

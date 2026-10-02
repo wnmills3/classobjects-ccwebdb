@@ -1,9 +1,9 @@
 """A note holds no year of its own: its series year is its year.
 
-Owner, 2026-09-25: the item's years exist for coins and for lots of mixed
-years (a tube of Morgans). Storing a note's series year a second time only
-let the two disagree, so a note's years stay empty, a year sent for one is
-refused by name, and what searches a note by year reads its series year.
+The item's years exist for coins and for lots of mixed years (a tube of
+Morgans). Storing a note's series year a second time would only let the two
+disagree, so a note's years stay empty, a year sent for one is refused by
+name, and what searches a note by year reads its series year.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def test_a_note_entered_holds_its_series_year_and_no_other(
         None,
         1934,
     )
-    # CC-007663's case: a Year typed for a note is refused, by name.
+    # A Year typed for a note is refused, by name.
     refused = client.post(
         "/api/inventory",
         json={

@@ -1,7 +1,7 @@
 """The item field change log: who changed which field, and when.
 
-The owner's request (2026-09-23): a conflict in the item editor should say
-who made the other change. `item_field_change` records each field an edit
+A conflict in the item editor says who made the other change.
+`item_field_change` records each field an edit
 actually changes; the item detail and the 409 name the latest change.
 """
 

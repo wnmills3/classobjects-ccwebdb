@@ -1,6 +1,9 @@
 // Its own module, apart from FriedbergLookup.jsx: a component module that
 // also exports a plain function defeats Fast Refresh.
 
+//: Where it was printed, as a dealer's listing says it.
+const PRINTED_AT = { dc: 'printed in Washington DC', fw: 'printed in Fort Worth' }
+
 /**
  * The question to ask Google's AI Mode for this note's Friedberg number.
  *
@@ -13,11 +16,8 @@
  *
  * The owner reads the result and types the number in. Nothing here fetches
  * or stores what a search finds -- a machine collecting Friedberg numbers
- * is the harvesting CLAUDE.md's reference-data rule forbids.
+ * is the harvesting `docs/reference-data.md` forbids.
  */
-//: Where it was printed, as a dealer's listing says it.
-const PRINTED_AT = { dc: 'printed in Washington DC', fw: 'printed in Fort Worth' }
-
 export function webSearchText(fields, labels = {}) {
   const label = (table, code) => (code ? (labels[table]?.[code] ?? code) : '')
   const series = fields.seriesYear
@@ -35,8 +35,8 @@ export function webSearchText(fields, labels = {}) {
   ]
   const note = parts.filter(Boolean).join(' ')
   // The plates are how a mule is told apart: a face and back from
-  // different eras. The answer's "m" suffix says it is one (owner,
-  // 2026-09-25), so the question asks for it.
+  // different eras. The answer's "m" suffix says it is one, so the
+  // question asks for it.
   const plates = [
     fields.facePlate ? `face plate ${fields.facePlate}` : '',
     fields.backPlate ? `back plate ${fields.backPlate}` : '',

@@ -45,10 +45,10 @@ const NO_ACCOUNT = { email: '', full_name: '', role: 'customer', password: '' }
 /**
  * Opening an account for someone else: a customer who asked, or a colleague.
  *
- * The shop's own registration only ever makes customers, and promotion needed
- * the person to register first. There is no mail to send an invitation, so
- * the administrator sets the first password and passes it on, as "Set
- * password" already works. A refusal is shown here rather than in place of
+ * The shop's own registration only ever makes customers, so this is the one
+ * way to open an account for someone who has not registered. There is no
+ * mail to send an invitation, so the administrator sets the first password
+ * and passes it on, as "Set password" already works. A refusal is shown here rather than in place of
  * the table, so what was typed survives to be corrected.
  */
 function NewAccountForm({ onCreated, onCancel }) {
@@ -156,9 +156,8 @@ function Accounts({ notify }) {
   }
 
   // Only when the list never loaded. A failed action lands in `error` too --
-  // the last-administrator 409 most of all -- and returning it instead of the
-  // page unmounted the table and the password field mid-entry. The refusal is
-  // information about a row, so the rows have to stay on screen.
+  // the last-administrator 409 most of all -- and that refusal is information
+  // about a row, so the rows and the password field stay on screen.
   if (error && !rows) return <p className="error">{error}</p>
   if (!rows) return <p className="muted">Loading...</p>
 
@@ -362,9 +361,9 @@ function Customers({ notify }) {
   }
 
   // Only when the list never loaded. `saveEdit` puts its refusal here, and
-  // returning it instead of the table unmounted the row being edited --
-  // taking `draft`, the operator's unsaved typing, off screen with no way
-  // back, since nothing clears `error` but a later successful load.
+  // the row being edited must stay mounted: `draft`, the operator's unsaved
+  // typing, is on screen only while it is, and nothing clears `error` but a
+  // later successful load.
   if (error && !rows) return <p className="error">{error}</p>
   if (!rows) return <p className="muted">Loading...</p>
   if (rows.length === 0)

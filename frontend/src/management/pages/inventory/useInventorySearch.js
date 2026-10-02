@@ -29,9 +29,9 @@ export function useInventorySearch(view) {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   // Bumped to fetch the same query again. After an edit the URL has not
-  // changed, so nothing the effect depends on has either; `apply({})` was
-  // used for this and rebuilt an identical query string, which re-ran
-  // nothing and left the edited row showing its old values.
+  // changed, so nothing the effect depends on has either; `apply({})` only
+  // rebuilds an identical query string, which re-runs nothing and would
+  // leave the edited row showing its old values.
   const [reloads, setReloads] = useState(0)
 
   const current = Object.fromEntries(params.entries())

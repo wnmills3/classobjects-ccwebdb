@@ -80,7 +80,7 @@ def test_a_far_future_arrival_date_is_refused(
     Two or more days past UTC's today is what an actual fat-fingered date
     looks like -- a single day ahead is a legitimate "today" for anyone in a
     timezone ahead of UTC, so the bound sits one day wider than UTC's own
-    calendar date (see the endpoint's comment).
+    calendar date (see `routers._resolve.refuse_future`).
     """
     item = _ordered(db)
     # Matches the endpoint's own reference point (UTC), not local wall-clock
@@ -127,8 +127,7 @@ def test_one_day_ahead_of_utc_is_accepted(
     calendar date can lead UTC's by up to a day (anywhere east of it, once
     UTC has not yet reached local midnight). Refusing that would reject a
     genuine same-day receipt for a large share of the world for several
-    hours every evening, which is exactly the bug this bound was widened to
-    fix.
+    hours every evening.
     """
     item = _ordered(db)
     one_ahead = datetime.now(UTC).date() + timedelta(days=1)
@@ -291,7 +290,7 @@ def test_receiving_with_a_location_writes_it_and_its_history(
 def test_a_missing_outcome_with_a_location_writes_neither(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """`storage_location_id` is documented as "only meaningful when received".
+    """`storage_location_id` is applied only when the outcome is `received`.
 
     Sent alongside `missing` anyway, it must be ignored outright: not the
     item's column, not a history row -- an item marked missing has not been
@@ -335,9 +334,9 @@ def test_the_reply_says_which_outcome_was_recorded(
 ) -> None:
     """A cancellation must not answer "received".
 
-    The endpoint takes `missing`, `returned` and `canceled` as well, and
-    replied `{"received": n}` to all of them -- describing the opposite of
-    what it had just done for three of the four.
+    The endpoint takes `missing`, `returned` and `canceled` as well, and a
+    reply of `{"received": n}` to those would describe the opposite of what
+    it had just done.
 
     Both outcomes are checked, because a reply that simply echoed a constant
     string would satisfy either one alone.

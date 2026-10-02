@@ -77,10 +77,10 @@ describe('date', () => {
   })
 
   it('shows a calendar day as that day, west of Greenwich too', () => {
-    // Order 3922, dated 2026-09-23, showed "Sep 22" in the owner's Eastern
-    // time: the string was read as midnight UTC. The suite runs in UTC
-    // (vite.config.js), where the two readings agree, so this test sets the
-    // owner's zone for its own duration -- Node re-reads TZ live.
+    // A calendar day read as midnight UTC shows as the day before in Eastern
+    // time ("2026-09-23" as "Sep 22"). The suite runs in UTC
+    // (vite.config.js), where the two readings agree, so this test sets an
+    // Eastern zone for its own duration -- Node re-reads TZ live.
     const saved = process.env.TZ
     process.env.TZ = 'America/New_York'
     try {

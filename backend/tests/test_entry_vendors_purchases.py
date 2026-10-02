@@ -264,10 +264,11 @@ def test_the_same_vendor_and_order_number_twice_is_a_409(
 def test_two_numberless_purchases_for_one_vendor_are_both_allowed(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The partial unique index only guards a real order number.
+    """Each is given its own generated number, so neither collides.
 
-    A blank order number is not an order number -- see the note on
-    `PurchaseOrder`.
+    `uq_purchase_order_vendor_number` refuses the same vendor and number
+    twice; two purchases entered with no number take two different
+    `Order-NNNN` numbers.
     """
     vendor = _vendor(db, "Numberless Vendor")
     first = client.post(
@@ -327,7 +328,7 @@ def test_a_concurrent_duplicate_order_number_is_a_409_not_a_500(
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two racing creations of the same vendor + order number: same fix as vendors.
+    """Two racing creations of the same vendor + order number: as for vendors.
 
     `uq_purchase_order_vendor_number` is the backstop when the pre-check
     itself misses a row committed just after it ran.

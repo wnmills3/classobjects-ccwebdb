@@ -9,21 +9,15 @@ specifications.
 implementation reads `coin_inventory`, which is what those views are for. It is
 also thirty times slower, because the view joins fourteen tables and every
 query pays for all of them -- a `count(*)` that needs no join at all, a facet
-that needs one. Measured when this was decided, over 6,370 coins: a page plus
+that needs one. Measured over 6,370 coins: a page plus
 facets took 220 ms through the view and 7 ms against the base tables with
-only the joins each query actually needs.
+only the joins each query actually needs. The ratio widens with the
+collection.
 
-That benchmark is a record of the decision, not a current reading -- the
-`coins` view counts 4,384 as of 2026-09-20, the difference being how bullion
-and sets are counted rather than anything lost. The ratio is the part that
-matters, and it widens with the collection rather than narrowing.
-
-That measurement settled a design question. Copying classifier labels onto
-every item would have made searching fast, at the price of a second copy of
-every label that can drift from the first. It turned out to buy nothing: the
-speed was available without giving up the single source of truth, because the
-cost was never the normalization. It was asking a fourteen-way join for one
-column.
+Copying classifier labels onto every item would also make searching fast,
+at the price of a second copy of every label that can drift from the first.
+It is not needed: the cost is not the normalization but asking a
+fourteen-way join for one column.
 
 The views remain the right thing for reading a whole item.
 
@@ -288,7 +282,7 @@ _SHARED_COLUMNS: dict[str, Col] = {
     "id": Col("i.id"),
     "item_code": Col(_C_ITEM_CODE),
     "source_title": Col(_C_SOURCE_TITLE),
-    # `title` often holds only a denomination -- "0.25", "Mint Set", "5" --
+    # `source_title` often holds only a denomination -- "0.25", "Mint Set", "5" --
     # not a name. What a person recognizes the item
     # by lives in `description`, which is why it is returned as well and is
     # what the browse screens show.
@@ -390,9 +384,8 @@ COIN_VIEW = ViewSpec(
         # `unknown` and `other`: an item nobody has classified yet is
         # precisely the item someone needs to find, and `issue=kind_unknown`
         # exists to find it. A narrower list here reads as "no misclassified
-        # items" while the check behind it never runs at all -- which is what
-        # happened before this was widened: 33 `unknown` and 81 `other` items
-        # were in neither search view, invisible to every screen.
+        # items" while the check behind it never runs at all, and leaves
+        # `unknown` and `other` items in neither search view.
         "k.code <> 'currency'",
     ),
     columns={
@@ -472,8 +465,8 @@ CURRENCY_VIEW = ViewSpec(
         "series_designation": Filt("cud.series_designation", join=(_J_CUR_DETAIL,)),
         "friedberg_status": Filt("cud.friedberg_status", join=(_J_CUR_DETAIL,)),
         "serial_number": Filt("cud.serial_number", "ilike", (_J_CUR_DETAIL,)),
-        # A note's year is its series year; it holds no other (owner,
-        # 2026-09-25), so Year from / to read that.
+        # A note's year is its series year; it holds no other, so Year
+        # from / to read that.
         "year_min": Filt("cud.series_year", "gte", (_J_CUR_DETAIL,)),
         "year_max": Filt("cud.series_year", "lte", (_J_CUR_DETAIL,)),
     },
@@ -549,11 +542,11 @@ _CLASSIFIED_KINDS = frozenset({"coin", "currency"})
 #: column keys are exactly the `missing=` values, which is also the contract
 #: `dq_completeness` documents for its own percent columns.
 MISSING_FIELDS: dict[str, MissingField] = {
-    # A note's year is its series year (owner, 2026-09-25); every other kind
+    # A note's year is its series year; every other kind
     # keeps its own year_start. The CASE, not two separate checks, is what
     # keeps "kind determines which column" a single expression rather than
     # two that could drift apart. A piece with no date at all is not
-    # missing one (owner, 2026-10-01).
+    # missing one.
     "year": MissingField(
         "(CASE WHEN k.code = 'currency' THEN cud.series_year IS NULL "
         "ELSE i.year_start IS NULL AND NOT i.no_date END)",
@@ -562,12 +555,12 @@ MISSING_FIELDS: dict[str, MissingField] = {
     "denomination": MissingField("i.denomination_id IS NULL", kinds=_CLASSIFIED_KINDS),
     "grade": MissingField("i.grade_id IS NULL", kinds=_CLASSIFIED_KINDS),
     "country": MissingField("i.country_id IS NULL"),
-    # Optional for a note (owner, 2026-09-28): its year is the series year,
+    # Optional for a note: its year is the series year,
     # so the design series adds nothing a note must have.
     "series": MissingField("i.series_id IS NULL", kinds=_ALL_KINDS - {"currency"}),
-    # Not applicable to currency (Decisions, docs/specs/reporting-design.md),
-    # nor to a set, which is often of mixed metals (owner, 2026-09-28); every
-    # other kind, bullion included, is a single metal object.
+    # Not applicable to currency (`dq_completeness`,
+    # docs/specs/reporting-design.md), nor to a set, which is often of mixed
+    # metals; every other kind, bullion included, is a single metal object.
     "metal": MissingField("i.metal_id IS NULL", kinds=_ALL_KINDS - {"currency", "set"}),
     "photo": MissingField(
         "NOT EXISTS (SELECT 1 FROM item_image ii WHERE ii.inventory_item_id = i.id)"

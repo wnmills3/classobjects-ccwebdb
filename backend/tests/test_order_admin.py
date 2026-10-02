@@ -117,9 +117,8 @@ def test_a_shipped_lot_order_can_still_be_cancelled_as_a_refund(
     Cancelling returns stock only when the order has not shipped
     (`SHIPPED_STATUSES`), so cancelling a shipped one moves nothing that
     could be stranded -- it is how a refund is recorded once the coins have
-    left. Refusing it bought no safety and closed a real workflow, which is
-    what the first version of this refusal did by asking about the listing
-    whatever the order's status.
+    left. Refusing it would buy no safety and close a real workflow, so the
+    refusal asks about the order's status, not only the listing.
     """
     listing_id = store_lot_listing.id
     placed = post_order(client, customer_headers, listing_id, 1)
@@ -176,7 +175,7 @@ def test_mine_is_only_the_callers_own_orders_even_for_an_administrator(
     customer_headers: dict[str, str],
     admin_headers: dict[str, str],
 ) -> None:
-    """The shop's "Your orders" asks for mine; for an admin it listed everyone's."""
+    """The shop's "Your orders" asks for mine, or an admin is listed everyone's."""
     post_order(client, customer_headers, listing.id, 1)
     post_order(client, admin_headers, listing.id, 1)
 
@@ -199,8 +198,8 @@ def test_a_cancelled_order_cannot_be_revived_after_its_stock_returned(
     """Cancelling returned the stock; moving the order on again would sell it twice.
 
     5 on hand, 2 ordered leaves 3; cancelling puts back 2 for 5. Setting the
-    order to paid afterwards used to succeed with the 5 still listed -- an
-    order for 2 standing on stock already offered to the next buyer.
+    order to paid afterwards would leave the 5 still listed -- an order for
+    2 standing on stock already offered to the next buyer.
     """
     order = post_order(client, customer_headers, listing.id, 2).json()
     assert _set(client, admin_headers, order["id"], "cancelled").status_code == 200

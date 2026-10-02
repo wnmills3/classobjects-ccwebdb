@@ -2,9 +2,9 @@
 
 Only the *form* is known here -- digits, an optional letter, a district, a
 mule's `m`, a star, a seal shade -- never which number belongs to which
-note: that mapping is the publisher's arrangement, which `CLAUDE.md` forbids
-shipping. The form is what
-catches a slip: `3007-` pasted for `3007-L` (owner's report, 2026-09-27), a
+note: that mapping is the publisher's arrangement, which
+`docs/reference-data.md` forbids shipping. The form is what
+catches a slip: `3007-` pasted for `3007-L`, a
 stray space, or a `Fr. ` prefix that one row of the catalog carried and the
 rest did not.
 
@@ -27,7 +27,7 @@ _SPACED_HYPHEN = re.compile(r"\s*-\s*")
 #: a mule (`3007-Em`; without a district the optional letter already holds
 #: it), and `*` for a star note.
 #: Then, after a space, `LGS` or `DGS` for a light or dark green seal --
-#: `2008-B LGS` (owner, 2026-10-01). The seal is a catalog fact of its own,
+#: `2008-B LGS`. The seal is a catalog fact of its own,
 #: so the two shades are already two types; the suffix keeps their numbers
 #: apart.
 _FORM = re.compile(r"^(?P<digits>\d+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$")

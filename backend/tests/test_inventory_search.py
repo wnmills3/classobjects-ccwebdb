@@ -159,9 +159,9 @@ def test_a_purchase_order_id_finds_exactly_that_order(
 ) -> None:
     """A link naming one order must show that order and no other.
 
-    Matching its number instead was wrong twice over (code review,
-    2026-09-23): "1001" also matched "11001" and another vendor's "1001", and
-    an order recorded with no number could not be searched for at all.
+    Matching its number instead would be wrong twice over: "1001" also
+    matches "11001" and another vendor's "1001", and an order recorded with
+    no number could not be searched for at all.
     """
     wanted = _order(
         db, number="1001", vendor_name="ebay.com", ordered_on=date(2025, 4, 1)
@@ -279,7 +279,7 @@ def test_a_pasted_search_ignores_the_whitespace_around_it(
 ) -> None:
     """Text copied from an order page or a spreadsheet brings a space or a tab.
 
-    Matched as typed, `%11-15110-51877 %` found nothing, and neither did an
+    Matched as typed, `%11-15110-51877 %` finds nothing, and neither does an
     item code copied out of a table cell.
     """
     order = build_purchase_order(
@@ -497,8 +497,8 @@ def test_each_page_names_every_column_it_can_sort_by(
 ) -> None:
     """The table makes a header clickable only when the server lists it.
 
-    Every header used to look sortable while the server refused most of them,
-    so clicking Grade or Status put an error on the page. Each listed name is
+    The server refuses most columns as a sort, so a header that merely looked
+    sortable would put an error on the page when clicked. Each listed name is
     actually sorted by here, so the list cannot claim a sort that would fail.
     """
     coin(db)
@@ -727,7 +727,7 @@ def test_missing_series_never_matches_currency(
 ) -> None:
     """A note's design series is optional, so an empty one is not missing.
 
-    Its year is the series year (owner, 2026-09-28).
+    Its year is the series year.
     """
     note(db, series_id=None)  # would match if the filter were not kind-aware
 
@@ -740,7 +740,7 @@ def test_missing_metal_ignores_a_set(
 ) -> None:
     """Metal does not apply to a set, while a coin with none is still found.
 
-    A set is often of mixed metals (owner, 2026-09-28).
+    A set is often of mixed metals.
     """
     build_bare_item(db, item_kind_id=code_id(db, ItemKind, "set"), metal_id=None)
     gap = coin(db, metal_id=None)

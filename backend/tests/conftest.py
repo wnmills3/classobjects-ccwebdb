@@ -159,8 +159,8 @@ def engine() -> Iterator[Engine]:
     # this, a test of the public_catalog authorization boundary would silently
     # have nothing to check.
     with test_engine.begin() as conn:
-        # The views compose grades with this function, which the migration
-        # that split strike type from grade creates.
+        # The views compose grades with this function, which the baseline
+        # migration creates on a real database.
         conn.execute(text(GRADE_DISPLAY_SQL))
         for statement in CREATE_VIEWS:
             conn.execute(text(statement))
@@ -180,8 +180,7 @@ def engine() -> Iterator[Engine]:
     with Session(test_engine) as session:
         seed_all(session)
         # The baseline migration creates the web store platform on a real
-        # database;
-        # this one is built from the models, so it is created here.
+        # database; this one is built from the models, so it is created here.
         ensure_store_venue(session)
         # Likewise the fee kind vocabulary: the baseline seeds it with an
         # INSERT because it is a closed vocabulary the product defines, not
@@ -245,58 +244,41 @@ class ClaimInvariantViolation(AssertionError):
 
     A distinct subclass of `AssertionError`, not a bare one, so
     `test_claim_invariant.py`'s `xfail(raises=...)` can narrow to exactly
-    this failure rather than any assertion failure in the suite. The
-    original plan was to narrow with `xfail(match=...)` instead, on the
-    message text -- but `match` is `pytest.raises`'s parameter, not
-    `xfail`'s; mypy caught this (`xfail` has no such overload) before it
-    ever ran. `raises=<type>` is the only narrowing lever `xfail` actually
-    exposes, so a dedicated type is how this gets the same protection: an
-    unrelated crash elsewhere in either phase still fails the suite instead
-    of being absorbed as "expected."
+    this failure rather than any assertion failure in the suite.
+    `raises=<type>` is the only narrowing `xfail` has (`match` is
+    `pytest.raises`'s parameter, not `xfail`'s), so a dedicated type is how
+    this gets that protection: an unrelated crash elsewhere in either phase
+    still fails the suite instead of being absorbed as "expected."
     """
 
 
 def check_claim_invariant(db: Session) -> None:
     """Assert every claim's state equals its listing's status, right now.
 
-    The join matches a claim to its listing on `listing_id` alone -- nothing
-    more. A tempting refinement is to also require
-    `OfferClaim.inventory_item_id == Listing.inventory_item_id`, matching only
-    a listing's "own" claim; an earlier version of this function did exactly
-    that, to wave off some `test_offering_writes.py` scaffolding that builds a
-    claim for a different item on an existing `listing_id`. That refinement is
-    wrong, not merely narrower, for two reasons `docs/specs/selling-design.md`
-    makes concrete:
+    The join matches a claim to its listing on `listing_id` alone. It must
+    not also require
+    `OfferClaim.inventory_item_id == Listing.inventory_item_id`, for two
+    reasons:
 
-    - Phase 3 makes `Listing.inventory_item_id` **nullable** (a lot listing
-      carries `sales_lot_id` instead, enforced by a check constraint) and a
-      lot's claims carry *member* item ids, never the (absent) listing item
-      id. Under the item-id join, `NULL = <member id>` is unknown in SQL, so
-      the inner join drops every member claim -- the invariant would grade
-      **zero** rows for a lot listing, and the day lots ship, this check's
-      docstring's promise silently inverts into "nothing here is ever
-      wrong," with nothing failing to announce it.
-    - Even in phase 2, `uq_offer_claim_pair` is already a unique constraint
-      on `(listing_id, inventory_item_id)`, so the item-id join reduces any
+    - A lot listing's `inventory_item_id` is NULL (it carries `sales_lot_id`
+      instead, enforced by a check constraint) and its claims carry *member*
+      item ids. Under the item-id join, `NULL = <member id>` is unknown in
+      SQL, so the inner join would drop every member claim and the invariant
+      would grade **zero** rows for a lot listing, with nothing failing to
+      announce it.
+    - `uq_offer_claim_pair` is a unique constraint on
+      `(listing_id, inventory_item_id)`, so the item-id join reduces any
       listing to *at most one* matching claim row by construction -- the
-      wrong cardinality for the very shape phase 3 introduces (one claim per
-      lot member, several rows sharing a `listing_id`).
-    - `offer` and `_move_claims` (`app/offering_writes.py`) are the only two
-      places in `backend/app/` that construct an `OfferClaim`, and both set
-      `inventory_item_id` from the listing's own item. A row where the claim's
-      item differs from the listing's item is, by definition, one the
-      sanctioned writer cannot produce -- exactly the anomaly this check
-      exists to surface. A join whose exclusion rule is "drop everything the
-      writer could not have written" is inverted with respect to "a
-      disagreement means something wrote around it": it hides the very rows
-      that would prove that.
+      wrong cardinality for a lot listing, which has one claim per member,
+      several rows sharing a `listing_id`.
 
-    The right fix for that scaffolding is the `claim_invariant_waiver` marker
-    (registered in `pyproject.toml`), applied per test with a `reason=`, not a
-    join condition that quietly matches less everywhere.
+    Test scaffolding that builds a claim around `offering_writes` takes the
+    `claim_invariant_waiver` marker (registered in `pyproject.toml`), applied
+    per test with a `reason=`, not a join condition that quietly matches less
+    everywhere.
 
     One query, no per-row loads, because the autouse fixture below calls this
-    roughly 1,300 times. Pulled out as its own function -- rather than written
+    after every test. Pulled out as its own function -- rather than written
     inline in the fixture -- so `test_claim_invariant.py` can call the exact
     check the fixture runs and prove it actually raises on a broken claim,
     without needing a second, hand-rolled copy of the query that could drift
@@ -325,8 +307,8 @@ class LotInvariantViolation(AssertionError):
     `xfail(raises=...)` proof in `test_claim_invariant.py` narrows on the
     exact type, so sharing one would let either proof pass on the other's
     failure. And `claim_invariant_waiver` absorbs *any*
-    `ClaimInvariantViolation` (the documented limit at this fixture's
-    docstring): reusing that type would silently exempt the three waived
+    `ClaimInvariantViolation` (the limit `_claim_invariant`'s docstring
+    documents): reusing that type would silently exempt the three waived
     tests from this rule as well, which is exactly the accident this check
     exists to prevent.
     """
@@ -341,7 +323,7 @@ def check_lot_invariant(db: Session) -> None:
     empty and is assembled a coin at a time.
 
     One query, no per-row loads: the autouse fixture below calls this
-    roughly 1,300 times.
+    after every test.
     """
     open_in_closed = db.execute(
         select(SalesLotItem.sales_lot_id, SalesLot.status)
@@ -490,8 +472,8 @@ _AUCTION_LOTS_ON_OFFER = frozenset(
 )
 
 #: Statuses in which the house may still hold an auction's coins. `close`
-#: accepts a `consigned` auction without clearing `consigned_on` (ruling R13),
-#: so `closed` is one of them; `cancel` and `settle` clear the date.
+#: accepts a `consigned` auction without clearing `consigned_on`, so `closed`
+#: is one of them; `cancel` and `settle` clear the date.
 _AUCTION_CUSTODY_POSSIBLE = frozenset({AuctionStatus.consigned, AuctionStatus.closed})
 
 
@@ -547,7 +529,7 @@ def check_auction_invariant(db: Session) -> None:
       is never paused -- only a store listing is.
     - A `settled` auction has a result on every lot, and every lot's listing
       is `ended`.
-    - A `cancelled` auction has no lots: `cancel` deletes them (ruling R11).
+    - A `cancelled` auction has no lots: `cancel` deletes them.
     - A `sold` lot has a hammer price and a buyer; any other lot has neither.
     - A lot details an auction-format listing. Not the converse: the Offer
       dialog puts a coin on eBay by auction with no `auction` behind it.
@@ -624,19 +606,17 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     parameter. A test with no `db` anywhere never pays for a session or a
     live PostgreSQL connection it would otherwise not have needed; a dozen
     test files (`test_config.py`, `test_logpipe.py`, `test_photo_names.py`
-    and others) have no `db` parameter anywhere and stay exactly as
-    database-free as before this fixture existed.
+    and others) have no `db` parameter anywhere and stay database-free.
 
     The fetch happens *before* ``yield``, not after, and that placement is
-    load-bearing, confirmed with a throwaway probe before relying on it: a
-    fixture that calls ``getfixturevalue("db")`` during its own setup is
-    registered as one of `db`'s dependents in the same way a static `db`
-    parameter would be, so pytest still defers `db`'s rollback-and-close
-    until after this fixture's teardown runs. Calling it *after* `yield`
-    instead does not get that ordering for free -- the probe reproduced
-    exactly that failure: `db` was already torn down by the time this
-    fixture's teardown tried to fetch it, because nothing had told pytest
-    this fixture needed `db` kept alive that long. (`request.getfixturevalue`
+    load-bearing: a fixture that calls ``getfixturevalue("db")`` during its
+    own setup is registered as one of `db`'s dependents in the same way a
+    static `db` parameter would be, so pytest still defers `db`'s
+    rollback-and-close until after this fixture's teardown runs. Calling it
+    *after* `yield` instead does not get that ordering: `db` is already torn
+    down by the time this fixture's teardown tries to fetch it, because
+    nothing has told pytest this fixture needs `db` kept alive that long.
+    (`request.getfixturevalue`
     during teardown is also documented as deprecated for a fixture not
     already requested, which is the same trap from a different angle.)
     ``client`` depends on `db`, so any test using `client` still has `db` in
@@ -646,26 +626,25 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     Two further consequences of running for every test in the suite, worth
     naming rather than discovering later:
 
-    - `test_offer_races.py`, `test_settlement_race.py`, `test_concurrency.py`,
-      `test_concurrent_writes.py` and `test_order_revision_race.py` -- five
-      files whose tests take ``committed``, never ``db`` -- each race real,
+    - The tests in `test_offer_races.py`, `test_settlement_race.py`,
+      `test_concurrency.py`, `test_concurrent_writes.py` and
+      `test_order_revision_race.py`, and one test in `test_user_admin.py`,
+      take ``committed``, never ``db``: each races real,
       independently committing sessions against that shared fixture and
-      delete the rows the race made in the fixture's own teardown. `db` is in
+      deletes the rows the race made in the fixture's own teardown. `db` is in
       none of those tests' closures, so **this autouse check does not run for
       any of them at all** -- genuinely skipped, the same way a `db`-free
       test is. And even where `db` did happen to be in scope, a fixture
       requested explicitly by a test (``committed``) is torn down *before*
-      an autouse fixture the test never named (confirmed with a throwaway
-      probe: `committed teardown` then `auto teardown` then a fixture
-      `committed` itself depends on), so ``committed``'s cleanup would
-      already have deleted whatever the race wrote before this fixture's
-      check could see it. `test_offer_races.py` and
+      an autouse fixture the test never named, so ``committed``'s cleanup
+      would already have deleted whatever the race wrote before this
+      fixture's check could see it. `test_offer_races.py` and
       `test_settlement_race.py` are the two that commit claims, lot
       memberships and auctions for real, and their own `committed` fixtures
       call `check_all_invariants` on the `cleanup` session immediately before
       deleting anything (inside a `try`/`finally` so a real violation still
       leaves the database clean for the rest of the run -- see
-      `test_offer_races.py::_cleanup_race_rows`). The other three commit no
+      `test_offer_races.py::_cleanup_race_rows`). The other four commit no
       claims, lots or auctions, so the same gap exists there in principle
       but has nothing to grade in practice; anyone adding such writes to one
       of them needs to call `check_all_invariants` explicitly the same way,
@@ -673,8 +652,7 @@ def _claim_invariant(request: pytest.FixtureRequest) -> Iterator[None]:
     - A test that caught an `IntegrityError` from an ORM flush and never
       called `db.rollback()` afterward is the one real case this skips:
       SQLAlchemy deactivates the session's transaction on that specific
-      failure (measured directly against this project's own Postgres setup,
-      not assumed -- `rollback()` and `close()` both leave `db.is_active`
+      failure (`rollback()` and `close()` both leave `db.is_active`
       `True` again, so neither is what this guards against). Querying a
       session in that state raises a `PendingRollbackError` unrelated to the
       invariant, which would turn "invariant broken" into a misleading
@@ -1027,8 +1005,8 @@ def _item_kwargs(
     # `storage_quantity` is this fixture's own spelling of the piece count and
     # `piece_count` is the column's own name. Both are popped, so whichever
     # spelling the caller used cannot also reach the constructor through
-    # `**overrides` and collide with the keyword below -- which is what made
-    # `make_item(piece_count=4)` raise "got multiple values for piece_count".
+    # `**overrides` and collide with the keyword below -- otherwise
+    # `make_item(piece_count=4)` raises "got multiple values for piece_count".
     piece_count = overrides.pop("storage_quantity", overrides.pop("piece_count", 1))
     # `**overrides: object` erases the value type. These keys are classifier
     # codes by this helper's contract, and `code_id` fails loudly (no row
@@ -1122,9 +1100,9 @@ def build_listing(db: Session, **overrides: object) -> Listing:
 def item_of(listing: Listing) -> InventoryItem:
     """The one item a listing names, for a test that depends on there being one.
 
-    `Listing.inventory_item` became optional when a listing was allowed to
-    name a sales lot instead of a single coin (selling design, phase 3): a
-    lot listing leaves `inventory_item_id` NULL and reaches its coins through
+    `Listing.inventory_item` is optional because a listing may name a sales
+    lot instead of a single coin: a lot
+    listing leaves `inventory_item_id` NULL and reaches its coins through
     `sales_lot_item`. Every listing `build_listing` makes is a single-item
     one, so a test built on it genuinely depends on the item being there.
 

@@ -1,6 +1,6 @@
 """The whole database as one Excel workbook, and back again.
 
-A backup a person can open, read and correct (owner, 2026-09-24): the
+A backup a person can open, read and correct: the
 database is the record. One sheet per
 table, every stored column, the ids and foreign keys exactly as stored, so an
 import rebuilds the same database -- relationships and all.
@@ -35,7 +35,7 @@ items: restore into a new one, compare it, then switch to it.
 **A broken link is refused, all of them at once.** Every foreign key is
 checked against the workbook's own rows before anything is written, and the
 refusal lists each row that points at nothing. With `--unknown-for-missing`
-(owner, 2026-09-24) a link into a *vocabulary* -- a table with a code and a
+a link into a *vocabulary* -- a table with a code and a
 label, such as `grade` or `mint` -- is pointed at that vocabulary's Unknown
 row instead, and every substitution is reported. The Unknown row is the one
 coded `unknown` (or labeled Unknown) if the sheet has one; otherwise it is
@@ -46,7 +46,7 @@ not given one by guesswork: add an `unknown` row to its sheet. A link into
 anything else -- an item, an order -- is still refused; there is no Unknown
 item.
 
-**Column widths are remembered** (owner, 2026-09-24): each export sizes its
+**Column widths are remembered**: each export sizes its
 columns from `data/workbook_widths.json`, keyed by sheet and column *name*
 rather than letter, so a width follows its column when a migration adds or
 moves one. Resize columns in an export, save it, and `widths FILE` records

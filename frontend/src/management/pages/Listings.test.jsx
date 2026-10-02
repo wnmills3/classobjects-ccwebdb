@@ -77,9 +77,9 @@ const HERITAGE = {
   version: 2,
 }
 
-// A store listing that is genuinely on offer rather than set aside. This is
-// the row that used to carry a Record sale button, which would have sold a
-// shop item past the cart and past checkout.
+// A store listing that is genuinely on offer rather than set aside: the row
+// that must carry no Record sale button, which would sell a shop item past
+// the cart and past checkout.
 const ACTIVE_STORE = {
   ...STORE,
   id: 31,
@@ -161,7 +161,7 @@ async function openEditor(user) {
   return screen.getByRole('dialog', { name: 'Edit C-0007 on eBay' })
 }
 
-/** End the offer on a row, through the confirmation that now guards it. */
+/** End the offer on a row, through the confirmation that guards it. */
 async function endOffer(user, row) {
   await user.click(within(row).getByRole('button', { name: 'End' }))
   const dialog = screen.getByRole('dialog')
@@ -477,12 +477,12 @@ describe('Listings', () => {
     expect(within(paused).queryByRole('button', { name: 'Record sale…' })).toBeNull()
   })
 
-  // Not on the store's own rows, however active they are. `record_sale` maps
-  // `own_store` to `paid` and would happily take one -- selling a shop item
-  // past the cart, past checkout, and minting an "Undisclosed buyer (store)"
-  // if the username were left blank. Whether that is wanted for an in-person
-  // or show sale is the owner's decision, open in
-  // `docs/specs/selling-design.md`; the button is not offered until it is made.
+  // Not on the store's own rows, however active they are. Recording a sale
+  // of a store listing would be a second way to sell a shop item -- past the
+  // cart and past checkout -- so the API refuses it
+  // (`sales_writes._refuse_store_sale`) and the button is not offered. An
+  // in-person sale of a shop item is an order on the customer's behalf, from
+  // the Sales page (`docs/specs/selling-design.md`, *Rules*).
   it('does not offer Record sale on the store platform', async () => {
     api.listListings.mockResolvedValue([EBAY, ACTIVE_STORE])
     renderPage()
@@ -495,9 +495,9 @@ describe('Listings', () => {
     ).toBeInTheDocument()
   })
 
-  // The `venues.find(...)?.kind === 'auction_house'` lookup this page does for
-  // `RecordSaleDialog` had no test opening the dialog on such a row, so the
-  // lookup could have returned anything.
+  // Opens the dialog on an auction house row, the only shape that exercises
+  // the `venues.find(...)?.kind === 'auction_house'` lookup this page does
+  // for `RecordSaleDialog`.
   it('tells an auction house row that a blank buyer is the undisclosed one', async () => {
     const user = userEvent.setup()
     api.listListings.mockResolvedValue([HERITAGE])
@@ -622,10 +622,9 @@ describe('Listings', () => {
 })
 
 describe('a lot listing', () => {
-  // `listing.inventory_item_id` became nullable when lots arrived, and
-  // `ListingOut.item_code` with it. This page was in no task's file list, so
-  // every lot row rendered a blank first cell and built the aria-label
-  // "Edit null on eBay" -- on the page whose whole job is listing offers.
+  // A lot listing has no item: `ListingOut.item_code` is null for it
+  // (`ck_listing_item_xor_lot`). The row and the edit window must name the
+  // lot instead of printing the null.
   beforeEach(() => {
     api.listListings.mockResolvedValue([LOT])
   })
@@ -634,9 +633,8 @@ describe('a lot listing', () => {
     renderPage()
     const row = await screen.findByRole('row', { name: /^eBay/ })
     expect(within(row).getByText('Three Morgans (3 items)')).toBeInTheDocument()
-    // The word itself, because that is what the broken version printed --
-    // and an assertion that merely finds *something* in the cell passes
-    // against a cell holding "null".
+    // The word itself: an assertion that merely finds *something* in the
+    // cell passes against a cell holding "null".
     expect(within(row).queryByText('null')).toBeNull()
   })
 

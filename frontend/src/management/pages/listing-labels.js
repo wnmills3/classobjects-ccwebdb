@@ -56,11 +56,9 @@ export function isLot(listing) {
  * What a listing is an offer *of*, named the way a person would name it.
  *
  * An item's permanent code for an item listing, and for a **lot** listing the
- * lot's own title with how many coins are in it. `ListingOut.item_code` has
- * been nullable since lots existed -- a lot is not an item and has no code --
- * and every screen that read it unconditionally printed the word `null`:
- * "Edit null on eBay", "null is withdrawn from eBay at 1000.00", and a blank
- * first cell on the page whose whole job is listing offers.
+ * lot's own title with how many coins are in it. `ListingOut.item_code` is
+ * null for a lot -- a lot is not an item and has no code -- so a screen that
+ * reads it unconditionally prints the word `null`.
  *
  * Both halves come off the row itself. `item_title` is the item's
  * `source_title` or the **lot's** title -- one field the console can always

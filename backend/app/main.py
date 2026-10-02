@@ -92,7 +92,7 @@ app.include_router(reports.router, prefix=settings.api_prefix)
 # above is not merely avoided; it has no code path left to reintroduce it.
 #
 # `test_settlement_input_invalid_is_a_422_not_a_409` and
-# `test_a_plain_auction_refused_is_still_a_409`
+# `test_a_plain_auction_refused_from_settle_is_still_a_409`
 # (`backend/tests/test_auctions_api.py`) are what stand behind this, the same
 # way `test_sale_input_invalid_from_record_sale_is_a_422_not_a_409` stands
 # behind this module's own registration for `sales_writes`' identical pair.
@@ -167,8 +167,8 @@ def _server_misconfigured(request: Request, exc: Exception) -> JSONResponse:
 
     `auctions.consign` and `sales_venues.ensure_store_venue`/`store_venue_id`
     each raise `errors.ReferenceDataMissing`, naming exactly what is missing
-    and the command that fixes it -- a migrated-but-unseeded database, the
-    real state this project's own live database is in today. With no handler
+    and the command that fixes it -- a migrated-but-unseeded database. With
+    no handler
     registered for it, that message would reach only the server log:
     Starlette's default handler for an exception nothing catches answers a
     bare, bodyless 500, and an operator staring at the console learns nothing

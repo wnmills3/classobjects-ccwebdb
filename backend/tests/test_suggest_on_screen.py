@@ -1,10 +1,10 @@
 """The editor's suggestion reads the screen: unsaved changes included.
 
 `POST /api/inventory/{id}/suggested-description` takes what Save would send
-and describes the item as if it were saved, writing nothing (owner,
-2026-10-01: a suggestion that waited for Save got in the way). Each test
-checks the on-screen wording against the wording after really saving the
-same change, so the two can never describe one item differently.
+and describes the item as if it were saved, writing nothing: a suggestion
+that waited for Save would get in the way. Each test checks the on-screen
+wording against the wording after really saving the same change, so the two
+can never describe one item differently.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def _error_code(db: Session, side: AppliesTo) -> str:
     [
         (COIN, {"grade": "MS65", "year_start": 1884, "year_end": 1884, "mint": "O"}),
         (COIN, {"piece_count": 3, "grading_service": None}),
-        # An overmintmark typed into Variety (owner, 2026-10-02).
+        # An overmintmark typed into Variety.
         (COIN, {"variety": "O/S"}),
         (NOTE, {"serial_number": "B27182818C", "series_letter": "A", "grade": "N66"}),
         (NOTE, {"seal_color": None}),

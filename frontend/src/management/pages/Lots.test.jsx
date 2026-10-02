@@ -151,14 +151,13 @@ describe('Lots', () => {
     // The heading row and ONE row for the lot. A lot is one thing however
     // many coins are in it -- `OfferIn` carries one price, one title and one
     // listing number for it -- so a dialog with a row per coin would be
-    // asking for four prices the API has nowhere to put.
+    // asking for three prices the API has nowhere to put.
     expect(within(screen.getByRole('dialog')).getAllByRole('row')).toHaveLength(2)
   })
 
   it('shows a load failure without blanking the page', async () => {
-    // A venues- or lots-load failure taking the page down is the exact bug
-    // 872e219 fixed on main on 2026-09-19 ("Stop a refused action taking the
-    // console page down with it"). The page must stay usable.
+    // A venues- or lots-load failure must not take the page down: the error
+    // is shown and the page stays usable.
     api.listLots.mockRejectedValue(new ApiError(500, 'boom', {}))
     renderWithProviders(<Lots />, { strict: true })
     expect(await screen.findByText(/boom/)).toBeVisible()
@@ -193,9 +192,8 @@ describe('Lots', () => {
   })
 
   it('discards a lot through its own question, and says the coins are safe', async () => {
-    // The only destructive action on the page, and `api.deleteLot` had no
-    // assertion anywhere in the repository. `delete_lot` refuses a lot that
-    // was ever offered, so what this can destroy is an afternoon of
+    // The only destructive action on the page. `delete_lot` refuses a lot
+    // that was ever offered, so what this can destroy is an afternoon of
     // assembling -- which is worth both a question and a confirmation that
     // names what was NOT destroyed.
     const user = userEvent.setup()
@@ -252,8 +250,7 @@ describe('Lots', () => {
     // mount: a ref left at `useRef(true)` and only disarmed in its cleanup
     // is false for the rest of the dialog's life, so `if (!mounted.current)
     // return` in the catch below swallows the message and the operator sees
-    // a Save that did nothing at all. That exact trap has silenced a
-    // save-failure message on `main` before, which is why this renders with
+    // a Save that did nothing at all. That is why this renders with
     // `strict: true` -- the harness does not by default.
     const user = userEvent.setup()
     api.listLots.mockResolvedValue({ lots: [] })
@@ -278,7 +275,7 @@ describe('Lots', () => {
 
   it('does not send a lot with no title', async () => {
     // `SalesLotIn.title` is `min_length=1`, and the API's refusal for a blank
-    // one is a schema complaint about a Decimal-shaped constraint -- true,
+    // one is a schema complaint about a string's length -- true,
     // and no help to someone who has not typed anything yet.
     const user = userEvent.setup()
     api.listLots.mockResolvedValue({ lots: [] })

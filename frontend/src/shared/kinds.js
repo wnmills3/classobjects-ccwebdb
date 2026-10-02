@@ -8,8 +8,8 @@
  *
  * Only the console's forms read it. It lives in `shared/` so that anything
  * in the shop asking the same question reads this rule rather than a copy:
- * a per-form copy is exactly how the item editor came to offer a banknote a
- * metal after the entry form had stopped.
+ * with a copy per form, one form can offer a banknote a metal while another
+ * does not.
  */
 
 /** Whether an item of this kind is paper money. */
@@ -31,7 +31,7 @@ export function sideFor(itemKind) {
 
 //: Fields a banknote does not have. Coin, bullion, set, medal and token all do.
 //: The years among them: a note's year is its series year, and it holds no
-//: other (owner, 2026-09-25) -- the server refuses one sent for a note.
+//: other -- the server refuses one sent for a note.
 export const COIN_ONLY_FIELDS = new Set([
   'strike_type',
   'metal',
@@ -58,9 +58,8 @@ export const CURRENCY_ONLY_FIELDS = new Set([
  * Whether a FIELD belongs on the form for an item of `itemKind`.
  *
  * Every form asks this question, and asking it here rather than by hand is
- * the point: the drift this module exists to stop -- the item editor keeping
- * a metal box the entry form had already dropped -- began as two forms each
- * holding their own idea of which fields are a coin's.
+ * the point: two forms each holding their own idea of which fields are a
+ * coin's drift apart.
  *
  * A field named in neither set belongs to both kinds, so the default is true;
  * a form block that holds more than one field is gated on the field that

@@ -1,8 +1,8 @@
 """Characterisation tests for `series_match.run`.
 
-test_series covers `build_rules` and `match`; `run` -- the function that walks
-the collection and writes the classification -- was not covered, which is the
-part a refactor could break silently.
+test_series covers `build_rules` and `match`; this covers `run` -- the
+function that walks the collection and writes the classification, the part a
+refactor could break silently.
 
 Written against the code as it stands: their job is to detect a change, not to
 argue what the behavior ought to be.

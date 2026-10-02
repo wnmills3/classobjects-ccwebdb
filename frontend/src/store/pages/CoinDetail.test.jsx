@@ -3,11 +3,9 @@ import { screen } from '@testing-library/react'
 import { Link, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Only the method the page is supposed to call. That is deliberate: the page
-// called `api.getCoin`, which does not exist on the real client, so every
-// visit threw `TypeError: api.getCoin is not a function` before the page
-// could render. A mock listing every method would have hidden that; this one
-// fails the same way production did.
+// Only the method the page is supposed to call. That is deliberate: a page
+// calling a method the real client does not have throws before it can
+// render, and a mock listing every method would hide that.
 vi.mock('../../shared/api', () => ({ api: { getCatalogItem: vi.fn() } }))
 
 import { api } from '../../shared/api'
@@ -92,8 +90,8 @@ describe('CoinDetail', () => {
 
   it('never shows the previous entry while the next one loads', async () => {
     // A link from one entry to another changes the id without remounting
-    // the page; the first coin stayed on screen, under the second's URL,
-    // until the second arrived.
+    // the page; the first coin must not stay on screen, under the second's
+    // URL, until the second arrives.
     const user = userEvent.setup()
     let arrive
     api.getCatalogItem.mockImplementation((id) =>
@@ -126,7 +124,7 @@ describe('CoinDetail', () => {
 // A LOT: a group of coins sold as one thing. Every item-describing field is
 // null -- no single kind, grade, metal or year describes a group -- and so is
 // every photograph, because a lot has none of its own. `members` is the whole
-// description, and the page read none of it.
+// description.
 const LOT = {
   id: 12,
   title: 'Three Morgan Dollars, 1881-1883',
@@ -216,9 +214,9 @@ describe('a lot in the shop', () => {
 
   it('shows a photograph of the lot, taken from the coin that has one', async () => {
     // A lot's own `image_url` is null by design -- "its members carry theirs"
-    // -- so the page showed no picture at all for something being sold for
-    // 1200.00. The alt text says which coin it is rather than passing it off
-    // as a photograph of the group.
+    // -- so without a member's picture the page shows none at all for
+    // something being sold for 1200.00. The alt text says which coin it is
+    // rather than passing it off as a photograph of the group.
     api.getCatalogItem.mockResolvedValue(LOT)
     show()
 
@@ -232,9 +230,9 @@ describe('a lot in the shop', () => {
     // The detail endpoint serves an ended listing on purpose, so a page
     // someone bookmarked can say the offer is over. `_lot_entry` reads
     // `members_held`, the past-tense question, so the list is FULL after a
-    // sale -- `offered_items` would have answered "none" for exactly the
-    // page a buyer is most likely to be looking at. A page that hid the
-    // members once the lot was sold would throw that away again.
+    // sale -- `offered_items` would answer "none" for exactly the page a
+    // buyer is most likely to be looking at. A page that hid the members
+    // once the lot was sold would throw that away.
     api.getCatalogItem.mockResolvedValue({
       ...LOT,
       quantity_available: 0,

@@ -39,6 +39,6 @@
     {"code": "mismatched_serial", "label": "Mismatched Serial Numbers", "applies_to": "currency", "sort_order": 310},
 
     {"code": "other", "label": "Other", "applies_to": "any", "sort_order": 900,
-     "_note": "error_details carries the specifics; the interesting part rarely fits a vocabulary."}
+     "_note": "item_error.details carries the specifics; the interesting part rarely fits a vocabulary."}
   ]
 }

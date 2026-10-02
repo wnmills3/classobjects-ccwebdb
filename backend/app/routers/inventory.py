@@ -736,26 +736,25 @@ def receive_items(
     # in the canonical order, through the one function that owns it
     # (`offering_writes.lock_for_sale`: lot rows, then items, then listings).
     #
-    # Load-bearing, and it was the last inversion left after the lock order
-    # was given a single owner. `set_status` below writes `inventory_item`
-    # rows -- taking their exclusive row locks at the flush that follows --
-    # and only then did `end_offer` run, whose own pass waits on the *lot*
-    # row. So receiving used to acquire items before lots, the inverse of
-    # every other writer, and an administrator marking a lot's member
-    # `missing` while a shopper checked that lot out could each hold what the
-    # other waited for: `order_writes._lock_listings` takes the lot row as
-    # its first statement and then waits on the member row this endpoint
-    # holds. Taking the whole set here puts receiving in the same order as
-    # everything else, and the `end_offer` calls below then re-lock rows this
+    # Load-bearing. `set_status` below writes `inventory_item` rows -- taking
+    # their exclusive row locks at the flush that follows -- and `end_offer`
+    # runs after it, whose own pass waits on the *lot* row. Without this pass
+    # receiving would acquire items before lots, the inverse of every other
+    # writer, and an administrator marking a lot's member `missing` while a
+    # shopper checked that lot out could each hold what the other waited
+    # for: `order_writes._lock_listings` takes the lot row as its first
+    # statement and then waits on the member row this endpoint holds. Taking
+    # the whole set here puts receiving in the same order as everything
+    # else, and the `end_offer` calls below then re-lock rows this
     # transaction already holds.
     #
-    # Measured, and the abort is not the only loss the inversion permits --
-    # nor the one observed. With the pass removed the race test loses eight
-    # of eight to a `StaleDataError`, because the receipt's unlocked UPDATE
-    # of the member row queues behind the checkout and then writes through a
-    # version that has moved. Both are a 500 for an operator, and locking
-    # and re-reading first removes both -- the second is the same false
-    # conflict `offering_writes._lock_items`' docstring describes.
+    # The deadlock is not the only loss the inversion permits. With the pass
+    # removed the race test fails on a `StaleDataError`, because the
+    # receipt's unlocked UPDATE of the member row queues behind the checkout
+    # and then writes through a version that has moved. Both are a 500 for
+    # an operator, and locking and re-reading first removes both -- the
+    # second is the same false conflict `offering_writes._lock_items`'
+    # docstring describes.
     #
     # `including_paused=True` so the item set derived here is exactly the
     # `_affected_items` set `end_offer` will ask for, rather than a narrower
@@ -772,8 +771,7 @@ def receive_items(
     # concurrent `offer` can create a new one. Acting on this list would then
     # end a listing somebody else had already ended -- which for a lot
     # listing rewrites `sales_lot.status` from `sold` to `dissolved`, two
-    # histories the spec says never collapse into one. The race test caught
-    # exactly that.
+    # histories the spec says never collapse into one.
     #
     # Re-reading is enough rather than a loop **for the listing rows**:
     # `_lock_listing_rows` takes every live offer holding one of these items
@@ -1343,26 +1341,23 @@ def _share_of(item_id: int) -> ScalarSelect[Decimal]:
 def get_item_sales(item_id: int, db: DbSession, _admin: AdminUser) -> list[ItemSaleOut]:
     """Every sale of this item, newest first, each with the item as sold.
 
-    Sales **inside a lot** included. Until lots could be sold this asked only
-    `listing.inventory_item_id`, which is NULL on a lot listing, so a coin
-    sold as part of a group showed no sale history at all -- while this
-    docstring promised every sale of it. The lot's own listing is reached
-    through the shares the sale wrote, one per member.
+    Sales **inside a lot** included. `listing.inventory_item_id` is NULL on a
+    lot listing, so the lot's own listing is reached through the shares the
+    sale wrote, one per member.
 
     A subquery rather than a join to `sales_order_item_share`, so a line
     stays one row however many members its lot had: joining would repeat the
     line once per share and the response would list the same sale three
-    times. The ordering is unchanged.
+    times.
 
     **`quantity` and `unit_price` belong to the line, not to the coin**, and
     for a lot line they are the whole group's -- one lot at 1,000.00 against
     a member that cost 200. Reaching a lot's sale without saying so would put
     the group's price beside one coin on the screen an owner uses to ask what
-    happened to that coin, which is a worse answer than the empty list it
-    replaced. So every row also carries `sales_lot_id`, which says the sale
-    was a group sale, and `share_amount`, this coin's own cost-weighted share
-    of it. The fields that were already here keep their meanings exactly, so
-    an item sale reads as it always did.
+    happened to that coin, which would mislead. So every row also carries
+    `sales_lot_id`, which says the sale was a group sale, and `share_amount`,
+    this coin's own cost-weighted share of it. On an item sale `sales_lot_id`
+    is null and the line's figures are the coin's own.
     """
     item = _get_item(db, item_id)
     rows = db.execute(
@@ -1436,9 +1431,9 @@ def _no_date_after(item: InventoryItem, data: dict[str, object]) -> bool:
 def _refuse_note_year(items: Sequence[InventoryItem], data: dict[str, object]) -> None:
     """A note has no year of its own: its series year is its year.
 
-    Owner, 2026-09-25: the item's years exist for coins and for lots of
-    mixed years; storing a note's series year a second time only gave the
-    two a chance to disagree, and three did. A note's year is left empty and
+    The item's years exist for coins and for lots of mixed years; storing a
+    note's series year a second time would only give the two a chance to
+    disagree. A note's year is left empty and
     everything that shows or searches one reads `series_year`.
     """
     sent = [field for field in YEAR_FIELDS if data.get(field) is not None]
@@ -1609,9 +1604,8 @@ def _dry_run_save(db: Session, item: InventoryItem, data: dict[str, Any]) -> Non
     what follows from the facts -- a coin's metal, fineness and weights from
     its composition, a note's type, seal and signatures from its series.
     That pass reads the database, which is why this flushes rather than
-    imitating it in memory (owner, 2026-10-01: the fine weight a save fills
-    was missing from the suggestion). Writes inside the caller's transaction
-    only; the caller rolls it back.
+    imitating it in memory. Writes inside the caller's transaction only; the
+    caller rolls it back.
     """
     coin_changes = {f: data.pop(f) for f in COIN_DETAIL_FIELDS if f in data}
     _split_grade(data)
@@ -1683,8 +1677,8 @@ def suggest_description_for(
     The editor sends what Save would send, and the errors its panel holds.
     `_dry_run_save` applies the edit as Save does, defaults included, inside
     this request's transaction; the item is described as that left it, and
-    everything is rolled back (owner, 2026-10-01). The rows it touched are
-    locked only for those milliseconds; nothing is ever committed.
+    everything is rolled back. The rows it touched are locked only for those
+    milliseconds; nothing is ever committed.
     """
     item = _get_item(db, item_id)
     data = payload.changes.model_dump(exclude_unset=True)
@@ -2050,8 +2044,7 @@ def _refuse_coin_only_fields(
         ):
             carried_on.append(item.item_code)
     if sent_on:
-        # Plain 422, as the attributes guard below does: the named constant
-        # is deprecated in Starlette and warns, and test output stays clean.
+        # A plain 422, as the attributes guard below uses.
         raise HTTPException(
             status_code=422,
             detail=(
@@ -2565,7 +2558,7 @@ def update_item(
                 resolved = code_to_id(db, model, value, field, keep=held)
             # Status is the one classifier with a history table behind it.
             # Going through set_status is what keeps that table true; a plain
-            # setattr here is the bug this endpoint used to have. Status is
+            # setattr here would leave no history row. Status is
             # a REQUIRED_CLASSIFIER, so require_code already refused a null
             # code above and resolved is never None here.
             if field == "status":
@@ -2667,9 +2660,10 @@ def split(
     time to the parts cut hardest.
 
     **`total_cost` may differ by a cent or two, and the difference is
-    reported.** `sales_tax` is a generated column, `round((item_cost + shipping_cost) *
-    tax_rate, 2)`, computed per row. The sum of several rounded taxes is not
-    always the rounded tax of the sum -- splitting $100 three ways at 6.35%
+    reported.** `sales_tax` is a generated column, `round((item_cost +
+    shipping_cost where tax_includes_shipping) * tax_rate, 2)`, computed per
+    row. The sum of several rounded taxes is not always the rounded tax of
+    the sum -- splitting $100 three ways at 6.35%
     gives 2.12 + 2.12 + 2.12 = 6.36 against the lot's 6.35. That penny is
     inherent to dividing a rounded figure, so it is surfaced rather than
     quietly absorbed into one piece.
@@ -2916,19 +2910,17 @@ def delete_item(item_id: int, db: DbSession, _admin: AdminUser) -> None:
     offering something no view can find.
 
     The offer guard is permanent, not a "do this first": any offer refuses,
-    ended ones included, and nothing removes a listing row (the catalog's
-    `DELETE /api/catalog/{listing_id}` was retired in phase 2, and
+    ended ones included, and nothing removes a listing row (no endpoint deletes one, and
     `offer_claim` references the row `ON DELETE RESTRICT` anyway). That is the
     intended rule -- once a coin has been offered, the offer is part of the
     sales history -- so the message says so rather than naming a step that
     cannot clear it.
 
-    It asks `sale_state.ever_offered`, not a query of its own. The old query
-    was `Listing.inventory_item_id == item.id`, which a lot listing -- whose
-    `inventory_item_id` is null -- can never match, so a coin offered only
-    inside a lot was deleted silently. Routing through the shared predicate
-    is what stops that happening again for the next shape of offer: the claim
-    half it reads is written one row per member.
+    It asks `sale_state.ever_offered`, not a query of its own:
+    `Listing.inventory_item_id == item.id` can never match a lot listing,
+    whose `inventory_item_id` is null, so a coin offered only inside a lot
+    would be deleted silently. The shared predicate also covers the next
+    shape of offer: the claim half it reads is written one row per member.
 
     The lot guard is the clearable one, and deliberately separate -- but
     `lot_holding` matches *any* lot with an open membership, `offered`

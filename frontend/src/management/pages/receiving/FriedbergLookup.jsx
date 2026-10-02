@@ -47,9 +47,9 @@ function openWebSearch(text) {
   )
 }
 
-//: Google's AI Mode shortcut. It keeps `q` through its redirect (measured
-//: 2026-09-23: /ai?q= -> /aimode?q=), where `/search?udm=50` was stripped
-//: for a request without a browser session.
+//: Google's AI Mode shortcut. It keeps `q` through its redirect
+//: (/ai?q= -> /aimode?q=), where `/search?udm=50` is stripped for a request
+//: without a browser session.
 const AI_SEARCH = 'https://www.google.com/ai?q='
 
 /** The search and record calls' filters, from the form's fields; blanks omitted. */
@@ -65,9 +65,9 @@ function filtersOf(fields) {
   }
   if (fields.district) filters.district_letter = fields.district
   if (fields.press in PRESS) filters.web_press = PRESS[fields.press]
-  // Washington or Fort Worth: a 2017-A $1 is 3005-A from one, 3006-A from
-  // the other. The plates are not catalog fields -- they go only into
-  // the web search's question, which is how a mule is found.
+  // Washington or Fort Worth: one series and value can carry a different
+  // number from each. The plates are not catalog fields -- they go only
+  // into the web search's question, which is how a mule is found.
   if (fields.printing) filters.printing_facility = fields.printing
   return filters
 }
@@ -106,14 +106,16 @@ function fromItem(item) {
 /**
  * Identify a banknote's Friedberg number from what the owner can see on it.
  *
- * Searches the owner's own accumulating catalog (`GET /friedberg`) -- never
- * a licensed dataset. The table ships empty by design (see `CLAUDE.md`'s ban
- * on shipping a publisher's arrangement), so most of what this renders, for a
- * long while, is the "no match" path: record the number read off the note or
- * slab (`POST /friedberg`) and attach it (`POST /inventory/{id}/friedberg`).
+ * Searches the owner's own accumulating catalog (`GET /api/friedberg`) --
+ * never a licensed dataset. The table ships empty by design
+ * (`docs/reference-data.md` forbids shipping a publisher's arrangement), so
+ * most of what this renders, for a long while, is the "no match" path:
+ * record the number read off the note or slab (`POST /api/friedberg`) and
+ * attach it (`POST /api/inventory/{id}/friedberg`).
  *
- * The owner asks for this explicitly -- nothing here runs until "Look up" is
- * pressed, unlike the signature-combination narrowing, which is public fact
+ * In Receiving the owner asks for this explicitly -- no search runs until
+ * "Look up" is pressed (the item editor's `searchNow` is the exception,
+ * below), unlike the signature-combination narrowing, which is public fact
  * (already seeded server-side) and safe to refresh as soon as a year is
  * typed.
  *
@@ -123,7 +125,7 @@ function fromItem(item) {
  * never land after a faster, later one and make a result clickable that no
  * longer matches what is on screen.
  *
- * `item` is the note's detail (`GET /inventory/{id}`), when the caller has
+ * `item` is the note's detail (`GET /api/inventory/{id}`), when the caller has
  * it: the fields start from what the note records. `onAttached` is told
  * after a number is attached, so a caller showing the current number can
  * read it again. With `onChoose` (the item editor) nothing is attached: the
@@ -210,7 +212,7 @@ export default function FriedbergLookup({
   const [recordError, setRecordError] = useState('')
   const [recording, setRecording] = useState(false)
   // A number refused because its type is already on file under another --
-  // the owner's slip of recording `3007-` for `3007-L`: which row holds it,
+  // the owner's slip of recording `9907-` for `9907-L`: which row holds it,
   // the number typed, and the status its Save button named. Offered as one
   // click that corrects that row and uses it.
   const [correction, setCorrection] = useState(null)
@@ -227,13 +229,13 @@ export default function FriedbergLookup({
 
   // Narrows to the pairs a note of this series can carry -- the seeded
   // `note_issue` facts, the public-fact half of this feature. Not the pairs
-  // in office in the series year: that hid every lettered series' later
+  // in office in the series year: that hides every lettered series' later
   // signers (1963-A is Granahan / Fowler). Asked once typing pauses, not per
   // keystroke of the year.
   //
   // A choice the narrowed list leaves out is **kept**, never cleared: it is
-  // usually what the note itself records, and clearing it silently is how a
-  // right answer vanished before. The pulldown shows it marked instead.
+  // usually what the note itself records, and clearing it silently would
+  // lose a right answer. The pulldown shows it marked instead.
   //
   // A year that is not a whole number ("19x") names no series: nothing is
   // asked, since the server would refuse it, and no pair is offered. It is
@@ -366,10 +368,10 @@ export default function FriedbergLookup({
    * Put a match on this note, in one step.
    *
    * A verified catalog row was confirmed once already for these search
-   * fields, so it is attached as confirmed -- asking again was a second
-   * Save for a decision already made (owner, 2026-09-27). A row only ever
-   * proposed, such as an AI answer saved unchecked, stays proposed: Use
-   * never confirms a guess on its own.
+   * fields, so it is attached as confirmed -- asking again would be a
+   * second Save for a decision already made. A row only ever proposed, such
+   * as an AI answer saved unchecked, stays proposed: Use never confirms a
+   * guess on its own.
    */
   function applyMatch(row) {
     attach(row.id, row.verified ? 'confirmed' : 'proposed', row.fr_number)
@@ -404,7 +406,7 @@ export default function FriedbergLookup({
       })
       // Recorded now, whatever happens to the attach: listed as a match, so
       // a retry after a failed attach only attaches, instead of recording it
-      // again and being refused as a duplicate (code review, 2026-09-23).
+      // again and being refused as a duplicate.
       setResults((rows) => [...(rows ?? []), created])
       const attached = await attach(created.id, status, created.fr_number)
       if (attached) {
@@ -676,7 +678,7 @@ export default function FriedbergLookup({
               </label>
               {/* Offered with matches too: a match can be a wrong number
                   recorded earlier, and the web is where the right one is
-                  found (owner, 2026-09-24). Only a miss opens it unasked. */}
+                  found. Only a miss opens it unasked. */}
               <button type="button" onClick={searchWeb} title={searchText}>
                 Search the web
               </button>

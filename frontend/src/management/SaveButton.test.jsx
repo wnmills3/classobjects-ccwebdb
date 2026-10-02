@@ -9,7 +9,7 @@ describe('SaveButton', () => {
     const button = screen.getByRole('button', { name: 'Save' })
     expect(button).toHaveAttribute('aria-keyshortcuts', 'Control+S')
     expect(button).not.toHaveAttribute('accesskey')
-    // Shown beside it, where the underlined letter used to say it.
+    // Shown beside it: an underlined letter alone would read as Alt+S.
     expect(screen.getByText('Ctrl+S')).toBeInTheDocument()
   })
 

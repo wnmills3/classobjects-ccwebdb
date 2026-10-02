@@ -1,4 +1,4 @@
-"""Races around the "an item is offered once" rule (selling design, phase 2).
+"""Races around the "an item is offered once" rule (`docs/specs/selling-design.md`).
 
 Real, committing sessions, each with its own connection -- not ``TestClient``,
 which funnels every request through Starlette's single portal and so could
@@ -99,16 +99,15 @@ def _cleanup_race_rows(cleanup: Session) -> None:
 
     The claim delete matches on `listing_id` as well as `inventory_item_id`,
     not `inventory_item_id` alone -- a claim can name a *different* item than
-    the listing it holds (the lot-member shape `test_offering_writes.py`'s
-    `claim_invariant_waiver`-marked tests already exercise, and which phase 3
-    writes for real: `offer` on a lot writes one claim per member, and a lot
-    listing has no item of its own at all). Without the `listing_id` half,
+    the listing it holds (the lot-member shape: `offer` on a lot writes one
+    claim per member, and a lot listing has no item of its own at all).
+    Without the `listing_id` half,
     such a claim would survive this delete, and the `listing` delete just
     below it would then fail on `offer_claim.listing_id`'s
     `ondelete="RESTRICT"` -- inside this same `finally`, replacing whatever
     `ClaimInvariantViolation` the `try` raised with a foreign-key error
-    instead. No longer latent, and this is the one file in the suite that
-    commits claims for real, so it is the one place it would surface.
+    instead. This is the one file in the suite that commits claims for
+    real, so it is the one place it would surface.
 
     A **lot** listing's `inventory_item_id` is NULL, so matching listings on
     that column alone leaves every lot listing this file commits behind --
@@ -207,8 +206,8 @@ def committed(engine: Engine) -> Iterator[sessionmaker[Session]]:
     deleting them, not after (see `_cleanup_race_rows`). `_claim_invariant`
     (conftest.py) is autouse, but this fixture is requested explicitly by
     name, and pytest tears an explicitly-requested fixture down before an
-    autouse one the test never named -- confirmed with a standalone probe,
-    not assumed. Left unchecked, this fixture's own cleanup would delete
+    autouse one the test never named. Left unchecked, this fixture's own
+    cleanup would delete
     every row the race committed before `_claim_invariant` ever got to look
     at them, so the suite-wide check would silently grade nothing for
     exactly the file where a second writer racing `offering_writes` is most
@@ -644,10 +643,10 @@ def test_offering_elsewhere_and_ending_the_store_listing_leave_no_orphan(
     assert len(active) <= 1, (outcomes, active)
     # Both operations are legitimate on their own; the item lock the pair
     # share is what has to make them safe together, not a rejection of one of
-    # them. `"stale"` names the defect this test found: `end_offer` mutating
-    # a `Listing` object the caller loaded before a concurrent `offer`
-    # elsewhere paused it underneath them, using a version already gone by
-    # the time this function's own item lock let it proceed.
+    # them. `"stale"` would be `end_offer` mutating a `Listing` object the
+    # caller loaded before a concurrent `offer` elsewhere paused it
+    # underneath them, using a version already gone by the time this
+    # function's own item lock let it proceed.
     assert "stale" not in outcomes, outcomes
 
 
@@ -657,10 +656,10 @@ def test_two_lots_cannot_both_claim_one_item(
     """Two lots being assembled around one coin at once: exactly one gets it.
 
     Survives: removing the `uq_sales_lot_item_open` index from
-    `SalesLotItem.__table_args__` (`app/models/sales.py:481-486`) makes this
-    fail -- both memberships are then accepted and the coin is open in two
-    lots at once, which is the one thing `sales_lot_item` exists to prevent.
-    Measured, eight runs of eight: `AssertionError: ['won', 'won']`.
+    `SalesLotItem.__table_args__` (`app/models/sales.py`) makes this fail
+    with `AssertionError: ['won', 'won']` -- both memberships are then
+    accepted and the coin is open in two lots at once, which is the one
+    thing `sales_lot_item` exists to prevent.
 
     The race is decided by the *membership commit*, not by the offer. A
     losing thread rolls its whole transaction back, membership included, so
@@ -703,7 +702,7 @@ def test_two_lots_cannot_both_claim_one_item(
                     session, lot, session.get_one(InventoryItem, shared)
                 )
                 # Three more of this thread's own, between the contended
-                # INSERT and the COMMIT. `add_member`'s own docstring says
+                # INSERT and the COMMIT. `add_member`'s own comment says
                 # `uq_sales_lot_item_open` "is the backstop, not the check
                 # above" -- and reaching the backstop means both threads must
                 # get past `lot_holding` before *either* commits. Committing
@@ -758,26 +757,22 @@ def test_offering_a_lot_races_offering_one_of_its_members(
     `offering_writes._lock_items` (`app/offering_writes.py`) makes this
     fail -- neither writer holds the coin's row, both decide on what they
     read before the other committed, and the loser's disposition write dies
-    on `InventoryItem.version` instead of being refused with a reason.
-    Measured, six runs of six: `AssertionError: ['stale', 'won']`.
+    on `InventoryItem.version` instead of being refused with a reason:
+    `AssertionError: ['stale', 'won']`.
 
-    **Re-measured after `offer` began taking these rows through
-    `lock_for_sale`: fourteen of sixteen, not sixteen of sixteen.** Two runs
-    of the mutated code passed. This mutation was always a race about which
-    thread gets to its disposition write first, so it reproduces *often*
-    rather than *always*; the earlier "six of six" was a smaller sample of
-    the same thing, not a stronger result. The guarantee itself is not
-    probabilistic -- what varies is only whether the two threads overlap
-    closely enough for the missing lock to matter on a given run.
+    That mutation is a race about which thread gets to its disposition
+    write first, so it reproduces *often* rather than *always*. The
+    guarantee itself is not probabilistic -- what varies is only whether
+    the two threads overlap closely enough for the missing lock to matter
+    on a given run.
 
-    **Not** `uq_offer_claim_active`, which is what this test was originally
-    specified against. Measured six runs of six with that index removed and
-    the item lock left in: all six pass. The lock serializes the two
-    writers, so the loser is refused by `_locked_offers` or `_refuse_grouped`
-    -- an ordinary sequential check -- and the partial unique index is never
-    reached. It is a real backstop and it is not what this race proves;
-    a test naming it here would be a test that cannot fail for its stated
-    reason. With *both* guards removed this also fails, six of six.
+    **Not** `uq_offer_claim_active`. With that index removed and the item
+    lock left in, this still passes: the lock serializes the two writers,
+    so the loser is refused by `_locked_offers` or `_refuse_grouped` -- an
+    ordinary sequential check -- and the partial unique index is never
+    reached. It is a real backstop and it is not what this race proves; a
+    test naming it here would be a test that cannot fail for its stated
+    reason. With *both* guards removed this also fails.
     """
     shared = _seed_item(committed)
     partner = _seed_item(committed)
@@ -869,45 +864,36 @@ def test_two_checkouts_race_for_one_lot(
     in `offering_writes._acquire` -- `_lock_lots`, `_lock_items` and
     `_lock_listing_rows` -- makes this fail: both checkouts then decide on a
     `quantity_available` they read before the other committed, and the loser
-    dies on `Listing.version` rather than being told what is left. Measured,
-    eight runs of eight: `AssertionError: ['stale', 'won']`.
+    dies on `Listing.version` rather than being told what is left:
+    `AssertionError: ['stale', 'won']`.
 
-    **Re-measured when the lock order was given a single owner, and the named
-    mutation had to change.** It used to be the listing lock alone, in
-    `order_writes._lock_listings`. That statement now reaches through
+    `order_writes._lock_listings` reaches the listing lock through
     `offering_writes.lock_for_sale`, which takes the lot's row and the
     members' rows *before* it -- and **any one of those three serializes two
-    checkouts of one lot on its own**. Measured: removing only the listing
-    lock passes eight of eight, and leaving only the item lock passes four of
-    four. The guarantee is over-determined now rather than less well
-    protected, which is why this test names three sites instead of one; the
-    *ordering* those three are taken in is what
+    checkouts of one lot on its own**: removing only the listing lock, or
+    leaving only the item lock, still passes. The guarantee is
+    over-determined, which is why this test names three sites instead of
+    one; the *ordering* those three are taken in is what
     `test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`
     (`tests/test_offering_writes.py`) measures, because no single-lock
     mutation can reach it.
 
-    **This is not the obvious race**, and the substitution is
-    deliberate. The obvious one is a checkout racing a *pause* of the same
-    lot, the pause coming from offering one member elsewhere. No such pause
-    exists any more: `offering_writes._refuse_grouped` refuses offering a
-    member of an `offered` lot at all, and a lot cannot be re-offered
-    (`_lot_members` refuses a lot that is not `assembling`) nor can a member
-    join a second open lot (`uq_sales_lot_item_open`) -- so nothing in the
-    code can pause an offered lot's store listing. Written that way, the
-    race passed because the pause was simply refused, which is
-    `_refuse_grouped`'s guarantee and not a concurrency one; and in the
-    fuller run it instead hit
-    a genuine Postgres deadlock, because `place_order` took listings before
-    items while `offering_writes.offer` took items before listings. That
-    deadlock was reported as a defect, and is now fixed and pinned by
-    `test_buying_a_lot_races_offering_one_of_its_coins` below.
+    **This is not the obvious race**, and the substitution is deliberate.
+    The obvious one is a checkout racing a *pause* of the same lot, the
+    pause coming from offering one member elsewhere. No such pause exists:
+    `offering_writes._refuse_grouped` refuses offering a member of an
+    `offered` lot at all, and a lot cannot be re-offered (`_lot_members`
+    refuses a lot that is not `assembling`) nor can a member join a second
+    open lot (`uq_sales_lot_item_open`) -- so nothing in the code can pause
+    an offered lot's store listing. A checkout racing an offer of one
+    member is `test_buying_a_lot_races_offering_one_of_its_coins` below.
 
     Two checkouts of one lot listing is the guarantee that *is* both real and
     lot-specific: `_settle_sold_lots` must end the lot exactly once, and its
     members must be paid their shares exactly once.
 
-    This race is also what proved the lock-order design note wrong about an
-    offered lot's membership being frozen outright. The loser reads the two
+    An offered lot's membership is frozen only while its listing is on
+    offer (`docs/specs/lock-order-design.md`). The loser reads the two
     members, waits, and finds none: `offering_writes._end` released them when
     the winner's sale ended the listing. `lock_for_sale`'s confirming re-read
     holds the set frozen only while the listing is still on offer, and this
@@ -1003,11 +989,11 @@ def test_buying_a_lot_races_offering_one_of_its_coins(
 ) -> None:
     """A checkout of a lot and an offer of one of its coins never deadlock.
 
-    The cross-writer race the phase-3 branch could not write. `place_order`
-    took the listing and then the items; `offering_writes.offer` took the
-    items and then the listings, so a checkout of a lot and an offer of one
-    of its coins could each hold what the other waited for and Postgres
-    aborted one of them. `"deadlock"` below is that abort, and it is asserted
+    If `place_order` took the listing before the items while
+    `offering_writes.offer` took the items before the listings, a checkout
+    of a lot and an offer of one of its coins could each hold what the
+    other waited for and Postgres would abort one of them. `"deadlock"`
+    below is that abort, and it is asserted
     against separately from `"refused"` for the reason this file already
     asserts `"stale"` separately: a loser is entitled to be *refused*, with a
     reason a person can act on, never to a 500 from an aborted transaction.
@@ -1021,25 +1007,21 @@ def test_buying_a_lot_races_offering_one_of_its_coins(
     whether anyone gets an error page.
 
     Survives: **bypassing the single owner** from `order_writes._lock_listings`
-    -- putting back its own
+    -- giving it its own
     `select(Listing).where(...).order_by(Listing.id).with_for_update()`, so
-    that module takes listings first again while `offering_writes` still
-    takes items first -- makes this fail. Measured, eight runs of eight:
-    `AssertionError: ['bought', 'deadlock']`, which is also what the
-    pre-fix code gave, eight runs of eight, before the owner existed.
+    that module takes listings first while `offering_writes` still takes
+    items first -- makes this fail with
+    `AssertionError: ['bought', 'deadlock']`.
 
     **Inverting `offering_writes._acquire` does *not* make this fail**, and
     that is worth stating rather than leaving as a gap: the inversion moves
-    both writers at once, so they still agree and there is still no cycle
-    (measured, eight runs of eight green). A deadlock needs *disagreement*,
+    both writers at once, so they still agree and there is still no cycle.
+    A deadlock needs *disagreement*,
     not a particular direction. The inversion is caught by
     `test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order`
     (`tests/test_offering_writes.py`), which measures the sequence of kinds
     on one connection. The two tests are a pair and neither covers the
     other's mutation.
-
-    Stability: twenty runs of twenty green with the fix in place, no result
-    varying.
     """
     members = [_seed_item(committed) for _ in range(2)]
     store_id = _store_venue_id(committed)
@@ -1154,19 +1136,15 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
 ) -> None:
     """A checkout of a lot and a receipt against one of its coins never deadlock.
 
-    The second cross-writer pair, found in review after the first commit.
-    `routers.inventory.receive_items` wrote its `inventory_item` status rows
-    and flushed them -- taking their exclusive row locks -- and only then
-    called `end_offer`, whose pass waits on the **lot** row. So receiving
-    acquired items before lots, the inverse of every other writer, and an
-    administrator marking a lot's member `missing` while a shopper checked
-    that lot out could each hold what the other waited for:
+    `routers.inventory.receive_items` takes the `lock_for_sale` pass before
+    its first write. Writing and flushing its `inventory_item` status rows
+    first -- taking their exclusive row locks -- and only then calling
+    `end_offer`, whose pass waits on the **lot** row, would acquire items
+    before lots, the inverse of every other writer. An administrator
+    marking a lot's member `missing` while a shopper checked that lot out
+    could then each hold what the other waited for:
     `order_writes._lock_listings` takes the lot row as its first statement
     and then waits on the member row receiving holds.
-
-    Not a regression of the lock-order fix -- the same pair deadlocked before
-    it, on the listing instead of the lot -- and closed by giving receiving
-    the same `lock_for_sale` pass before its first write.
 
     **Both may succeed here, and that is correct** -- unlike the offer race
     above, where one side is always refused. `acknowledge_for_sale=True` is
@@ -1176,43 +1154,40 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
     *checkout* gets in first. `"deadlock"` is asserted against separately for
     the reason this file already asserts `"stale"` separately.
 
-    **This test found a hole in the first version of its own fix**, which is
-    why the state assertions below are as specific as they are. Receiving read
-    `offers_holding` once, before the locks, and ended those listings
-    afterwards. A checkout that committed in between left the receipt ending
-    a listing already ended -- and `_end` with `sold=False` rewrote
-    `sales_lot.status` from `sold` to `dissolved`, two histories the spec says
-    never collapse into one, on a lot somebody had just bought. The read
-    before the locks now only *chooses what to lock*; the authoritative read
-    is the second one, under them.
+    The state assertions below are as specific as they are because of what
+    the receipt reads. Its read of `offers_holding` before the locks only
+    *chooses what to lock*; the authoritative read is the second one, under
+    them. Ending the listings from the first would let a checkout that
+    committed in between leave the receipt ending a listing already ended
+    -- and `_end` with `sold=False` would rewrite `sales_lot.status` from
+    `sold` to `dissolved`, two histories the spec says never collapse into
+    one, on a lot somebody had just bought.
 
-    Survives, two separate mutations, each measured eight runs of eight:
+    Survives, two separate mutations:
 
     - Removing the `lock_for_sale` pass from
-      `routers.inventory.receive_items` -- either back below the `db.flush()`
-      that follows `set_status`, where the inversion was, or altogether,
-      which is the exact pre-fix arrangement -- makes this fail
-      `['bought', 'stale']`. **Not** `'deadlock'`, on this interleaving:
-      the checkout reaches the member row first, the receipt's unlocked
-      UPDATE queues behind it and then writes through a version that has
-      moved, so the loss lands as `StaleDataError` rather than as a Postgres
-      abort. The abort is the other possible loss of the same inversion --
-      the receipt holding the member row while waiting on the lot -- and it
-      was not observed in sixteen mutated runs. Both are a 500 for an
-      operator, and the pass removes both: it locks and re-reads the member
-      row before writing it, which is the same false conflict
-      `offering_writes._lock_items`' docstring describes.
+      `routers.inventory.receive_items` -- either moving it below the
+      `db.flush()` that follows `set_status`, or altogether -- makes this
+      fail `['bought', 'stale']`. **Not** `'deadlock'`, on this
+      interleaving: the checkout reaches the member row first, the
+      receipt's unlocked UPDATE queues behind it and then writes through a
+      version that has moved, so the loss lands as `StaleDataError` rather
+      than as a Postgres abort. The abort is the other possible loss of the
+      same inversion -- the receipt holding the member row while waiting on
+      the lot. Both are a 500 for an operator, and the pass removes both:
+      it locks and re-reads the member row before writing it, which is the
+      same false conflict `offering_writes._lock_items`' docstring
+      describes.
     - Ending the listings from the *first* `offers_holding` read instead of
       the second makes it fail on `lot.status`: `AssertionError: dissolved`,
       after a completed sale.
 
-    Stability: **16 runs, 16 passes, and the outcome was
-    `['bought', 'marked']` all sixteen times**, measured. The checkout always
-    reaches the lot row first here, so **the `else` branch below has never
-    been observed to run.** It is kept because which side wins is a property
-    of this machine's timing rather than of the code, and a test asserting
-    only the observed branch would quietly stop checking anything the day
-    that changed. The state it describes is covered by a test that always
+    The checkout reaches the lot row first on this machine, so the outcome
+    is `['bought', 'marked']` and **the `else` branch below is not expected
+    to run.** It is kept because which side wins is a property of the
+    machine's timing rather than of the code, and a test asserting only the
+    observed branch would quietly stop checking anything the day that
+    changed. The state it describes is covered by a test that always
     runs: `test_marking_a_coin_missing_first_refuses_the_checkout_of_its_lot`
     below, which is the same pair in a fixed order rather than a race.
     """
@@ -1259,7 +1234,7 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
                 barrier.wait(timeout=10)
                 # The router handler itself, not a re-implementation of it:
                 # the sequence under test is the one `receive_items` runs,
-                # including the flush that used to come before the lot lock.
+                # including the flush that follows `set_status`.
                 # It commits internally, as `update_order_status` does in
                 # `test_order_revision_race.py`.
                 receive_items(payload, session, operator)
@@ -1296,7 +1271,6 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
             # The sale stands whole. `sold`, **not** `dissolved`: the receipt
             # arrived after the sale had already ended this listing, so it has
             # no offer left to end and must not rewrite the lot's history.
-            # This is the assertion the first version of the fix failed.
             assert lot.status is SalesLotStatus.sold, lot.status
             assert verify.get_one(Listing, listing_id).quantity_available == 0
             for member_id in members:
@@ -1338,9 +1312,9 @@ def test_marking_a_coin_missing_first_refuses_the_checkout_of_its_lot(
 
     The deterministic companion to
     `test_buying_a_lot_races_marking_one_of_its_coins_missing`. That race is
-    honest about which side wins -- measured sixteen of sixteen, the checkout
-    does -- so the state a receipt-first ordering leaves would otherwise be
-    asserted only in a branch nothing ever executes. Here the order is
+    honest about which side wins -- the checkout does -- so the state a
+    receipt-first ordering leaves would otherwise be asserted only in a
+    branch that is not expected to run. Here the order is
     imposed: the receipt commits, and only then does the checkout run.
 
     Not a concurrency guarantee, and it does not pretend to be one. It is the

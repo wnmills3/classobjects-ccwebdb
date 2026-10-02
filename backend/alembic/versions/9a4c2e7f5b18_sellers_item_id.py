@@ -1,6 +1,6 @@
 """The seller's own id for the listing an item was bought from.
 
-The owner, 2026-09-25: eBay's item number, kept on each item, so a lot's
+eBay's item number, kept on each item, so a lot's
 pieces stay traceable to their listing and a purchase can be matched to the
 seller's order records. Added empty; `app.ebay_orders` fills it from each
 item's listing link.

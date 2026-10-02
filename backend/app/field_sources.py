@@ -1,6 +1,6 @@
 """Which fields of an item hold a derived default, and which are a person's.
 
-The rule (docs/specs/classifier-defaults-design.md, option B):
+The rule (docs/specs/classifier-defaults-design.md, *Per-field provenance*):
 
 - A pass that fills a field from known facts records it here.
 - A pass may later refresh a field recorded here, and never touches one

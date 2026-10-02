@@ -58,8 +58,9 @@ serve the Lists page (`list-maintenance-design.md`).
 - `POST /api/storage-locations` -- `kind` (a `storage_location_kind` code),
   `institution` and `identifier` (trimmed; blank -> null), `notes`. 201 with
   the location; 409 for one that exists (same kind, institution and
-  identifier, case aside); 422 for an unknown kind, or `consigned` / `sold`,
-  which the auction and sale code make.
+  identifier, case aside); 422 for an unknown kind, or `consigned` / `sold`:
+  the auction code makes a consigned location, and `sold` is reserved
+  (nothing creates one).
 - Every location picker -- New item, the item editor, Receiving -- is
   `LocationSelect`: the locations, "--" for not recorded, and "+ Add a
   location..." opening an inline kind / bank or place / box form.
@@ -192,9 +193,7 @@ page:
   item form and the item editor: "Morgan Dollar runs 1878-1921; 1800 is
   outside it. Check the year." (`management/series-years.js`, from the
   series' own `year_start`/`year_end`). A notice, never a refusal: a
-  tribute piece or restrike can fall outside the design's years. Found by
-  the owner as an 1800 Morgan dollar whose description had no weight, since
-  no composition covers 1800.
+  tribute piece or restrike can fall outside the design's years.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that

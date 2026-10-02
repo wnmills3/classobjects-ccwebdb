@@ -70,8 +70,8 @@ rem --- already in play? -----------------------------------------------------
 rem  "Active" has to be true of PATH, not only of the variables that describe
 rem  it. They can disagree: Git Bash rebuilds PATH when it starts and drops the
 rem  conda entries, but CONDA_DEFAULT_ENV, CONDA_PREFIX and CONDA_SHLVL survive,
-rem  so a shell can say ccwebdb while a bare `python` is base's -- measured on
-rem  2026-09-16 with CONDA_SHLVL=2, and `gh` in ccwebdb was not found at all.
+rem  so a shell can say ccwebdb while a bare `python` is base's and a tool
+rem  installed only in ccwebdb is not found at all.
 rem  So the claim is accepted only when the first python on PATH is the
 rem  environment's own; otherwise the environment is activated again, which
 rem  rebuilds PATH. A stale variable left by a deleted environment fails too.

@@ -1,7 +1,7 @@
 """Two people editing one item: a save is merged field by field.
 
-The owner's ruling (2026-09-23): changes made elsewhere should not stop a
-save unless they touched a field this save changes. A save sends `base` --
+Changes made elsewhere do not stop a save unless they touched a field this
+save changes. A save sends `base` --
 the value each field it changes had when the edit began, as
 `GET /inventory/{id}` returned it -- and is refused only for a field someone
 else has changed since, naming it with both values.

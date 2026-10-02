@@ -11,8 +11,8 @@ different serial numbers.
 
 Both catalogs are commercial, with no bulk license available, so both are
 curated tables that grow with use rather than seeded datasets. Resolution
-against them is a **proposal**, never a derivation -- see the resolver in
-`app.identification`.
+against them is a **proposal**, never a derivation -- see
+`app.routers.friedberg`.
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ class ItemError(Base):
     )
     #: Free text, per error -- so miscut and overprint on the same bill each
     #: get their own note rather than sharing one field. Never inferred from
-    #: free text: see the note on `ErrorType`.
+    #: free text: see the note in `backend/data/reference/error_type.json`.
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: A machine guess must never be indistinguishable from a curated fact.
     source: Mapped[ProvenanceSource] = mapped_column(
@@ -214,11 +214,11 @@ class FriedbergNumber(TimestampMixin, Base):
     printing_facility: Mapped[str | None] = mapped_column(String(2), nullable=True)
     #: A star note's number (`3006-A*`) and a mule's (`3007-Em`), read from
     #: `fr_number`, past any seal shade (`3006-A* LGS`) -- the same rule as
-    #: `app.fr_format.fr_traits`. Generated,
-    #: so they can never disagree with the number. Part of the identity
-    #: below: a mule differs from its plain type only by its plates and a star
-    #: note only by its serial, neither a catalog fact, so without these the
-    #: one on file refused the other (owner, 2026-09-30).
+    #: `app.fr_format.fr_traits`. Generated, so they can never disagree with
+    #: the number. Part of the identity below: a mule differs from its plain
+    #: type only by its plates and a star note only by its serial, neither a
+    #: catalog fact, so without these the index would hold all three to be
+    #: one type.
     is_star: Mapped[bool] = mapped_column(
         Boolean,
         Computed("fr_number ~ '[*]( (LGS|DGS))?$'", persisted=True),
@@ -247,13 +247,12 @@ class FriedbergNumber(TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("fr_number", name="uq_friedberg_number_fr_number"),
-        # NULLS NOT DISTINCT: most series have no letter, so with NULLs
-        # distinct this index never fired for them and the same type could be
-        # recorded twice under two numbers (measured 2026-09-23). Which makes
-        # every column that tells two types apart a member: the signatures
-        # (many series differ by nothing else) and the seal (a wartime brown
-        # or yellow seal beside the regular blue) were missing, and two real
-        # types were refused as one (code review, 2026-09-23).
+        # NULLS NOT DISTINCT: most series have no letter, and with NULLs
+        # distinct the index would not fire for them, so the same type could
+        # be recorded twice under two numbers. For the same reason every
+        # column that tells two types apart is a member: the signatures (many
+        # series differ by nothing else) and the seal (a wartime brown or
+        # yellow seal beside the regular blue) among them.
         Index(
             "uq_friedberg_number_identity",
             "denomination_id",

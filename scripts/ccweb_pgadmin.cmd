@@ -110,10 +110,10 @@ curl -s -o nul --max-time 2 "%~1" >nul 2>&1
 if not errorlevel 1 exit /b 0
 set /a _tries+=1
 if !_tries! GEQ %~2 exit /b 1
-rem  One second. `timeout /t` is the obvious choice and is what
-rem  ccweb_startup.cmd uses, but it aborts with "Input redirection is not
-rem  supported" whenever stdin is not a console - which is any invocation from
-rem  a script, a CI step or a tool. ping has no such restriction: -n 2 sends
-rem  two packets one second apart, so it waits ~1s.
+rem  One second. `timeout /t` is the obvious choice, but it aborts with
+rem  "Input redirection is not supported" whenever stdin is not a console -
+rem  which is any invocation from a script, a CI step or a tool. ping has no
+rem  such restriction: -n 2 sends two packets one second apart, so it waits
+rem  ~1s.
 ping -n 2 127.0.0.1 >nul 2>&1
 goto waiturl_loop

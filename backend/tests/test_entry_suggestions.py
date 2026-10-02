@@ -108,7 +108,7 @@ def test_a_draft_note_reads_as_the_same_note_saved(
 def test_a_fancy_serial_is_promoted_before_it_is_saved(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """Three distinct digits: a trinary, named right after the grade."""
+    """Two distinct digits, the same both ways: a binary radar, after the grade."""
     draft = client.post(
         DRAFT,
         json={**NOTE, "serial_number": "B12211221A", "grade_designation": None},

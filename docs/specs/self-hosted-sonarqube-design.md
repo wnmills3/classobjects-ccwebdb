@@ -5,8 +5,8 @@ duplication, test coverage and a quality gate -- for the backend and
 frontend together, as a second opinion beside the lint and test gates of
 `scripts\ccweb_check.cmd`. It is a developer tool, not part of the product:
 the developer runs it on this machine through four `scripts\ccweb_sonar_*.cmd`
-scripts, reads the dashboard at `http://localhost:9000`, and Claude Code
-queries it through the SonarQube MCP tools. It runs locally in Podman
+scripts, reads the dashboard at `http://localhost:9000`, and the development
+tool queries it through the SonarQube MCP tools. It runs locally in Podman
 containers, so code and analysis data never leave the machine. Day-to-day
 commands are in `docs/runtime-operations.md`, section "SonarQube (local
 server)".
@@ -39,7 +39,7 @@ Containers on a private podman network, `sonar-net`:
 | `sonar-db` | `postgres:16` | none; network-internal only |
 | `sonarqube` | `sonarqube:community` | `127.0.0.1:9000` only |
 | scanner | `sonarsource/sonar-scanner-cli` | ephemeral, one run per scan |
-| MCP server | `sonarsource/sonarqube-mcp` | ephemeral, stdio to Claude Code |
+| MCP server | `sonarsource/sonarqube-mcp` | ephemeral, stdio to the MCP client |
 
 The database publishes **no host port**, and SonarQube binds **`127.0.0.1`,
 not `0.0.0.0`**, so it is unreachable from the LAN whatever the firewall says:
@@ -57,7 +57,7 @@ Named volumes: `sonar-db-data`, `sonarqube-data`, `sonarqube-extensions`,
 | `ccweb_sonar_start.cmd` | Starts the podman machine if it is not responding (one attempt). Refuses if port 9000 is held by anything but its own container. Creates the network and volumes if absent, creates or starts both containers, and polls `/api/system/status` until `UP` (up to 300 tries, sleeping with `ping` between them; first boot takes 1-3 minutes); on timeout prints the last 30 log lines and exits non-zero. |
 | `ccweb_sonar_stop.cmd` | Stops both containers, keeps the volumes, and exits non-zero unless `podman ps` confirms both are gone. |
 | `ccweb_sonar_scan.cmd` | Fails fast if the server is not responding (it never starts it: an implicit start would make a stale dashboard look current) or `SONAR_TOKEN` is unset. Then, with the ccwebdb conda environment's Python and Node (`ccweb_env.cmd`), runs the backend tests with coverage, the frontend tests with coverage, and the scanner with the repository mounted at `/usr/src`; refuses to publish if any step fails. |
-| `ccweb_sonar_mcp.cmd` | Launches the MCP server for Claude Code over stdio, on `sonar-net`, with the project key `classobjects-ccwebdb` and the repository mounted read-only. Checks only `SONAR_TOKEN` (errors to stderr) and writes nothing else to stdout, which would corrupt the protocol stream. |
+| `ccweb_sonar_mcp.cmd` | Launches the MCP server for the MCP client over stdio, on `sonar-net`, with the project key `classobjects-ccwebdb` and the repository mounted read-only. Checks only `SONAR_TOKEN` (errors to stderr) and writes nothing else to stdout, which would corrupt the protocol stream. |
 
 **Why a separate MCP launcher.** The CLI's own `sonar run mcp` starts its
 container on the default bridge network with `SONARQUBE_URL=http://localhost:9000`
@@ -122,4 +122,4 @@ proves nothing about whether a container starts or a report is read:
 - **Coverage is non-zero.** 0% means the report was never mapped, the most
   common silent failure in this wiring.
 - The quality gate is queryable.
-- The `mcp__sonarqube__*` tools load after a Claude Code restart.
+- The `mcp__sonarqube__*` tools load after the development tool restarts.

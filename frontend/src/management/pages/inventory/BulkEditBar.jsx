@@ -53,8 +53,8 @@ const BULK_FIELDS = [
  * "Group into lot...": the selection becomes a new lot, or joins one.
  *
  * **Two calls for a new lot, not one.** `SalesLotIn` is `extra="forbid"` and
- * holds a title and a description: a lot "begins assembling and empty;
- * members are a PATCH" (`create_sales_lot`), so a POST carrying
+ * holds a title and a description: a lot "begins `assembling` and empty;
+ * members are a PATCH" (its own docstring), so a POST carrying
  * `add_item_ids` is a 422, not a shortcut. The membership PATCH that follows
  * is itself all-or-nothing, so a refused one leaves the new lot standing and
  * empty -- which is what the message then says, rather than leaving the

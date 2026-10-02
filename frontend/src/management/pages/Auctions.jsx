@@ -40,8 +40,8 @@ import { SaveButton } from '../SaveButton'
  * `SettlementGrid.jsx`, rendered here once the auction is `closed` -- the
  * only status `app.auctions.settle` accepts.
  *
- * A load failure shows the error and leaves the page standing, per 872e219 --
- * an operator who has lost the whole page cannot react to what it says.
+ * A load failure shows the error and leaves the page standing -- an operator
+ * who has lost the whole page cannot react to what it says.
  */
 
 /** `AuctionStatus`, in the order an auction moves through them. */
@@ -59,8 +59,9 @@ const AUCTION_STATUS_LABEL = {
 //: reserve and the lot itself may all still change before the sale has run.
 const LOT_EDITABLE_STATUSES = ['draft', 'scheduled', 'consigned']
 
-//: `app.auctions.add_lot` accepts only these two -- adding lots stops the
-//: moment the sale is scheduled to close, well before it actually closes.
+//: `app.auctions.add_lot` accepts only these two -- a narrower window than
+//: `LOT_EDITABLE_STATUSES` above: a consigned auction's lots can still be
+//: renumbered or removed, but none can be added.
 const LOTS_ADDABLE_STATUSES = ['draft', 'scheduled']
 
 const CREATE_KEYS = { venue: 'p', title: 't', externalId: 'n' }
@@ -792,7 +793,7 @@ function AuctionDetail({ auction, venues, locations, onChanged }) {
         >
           <p>
             {subjectOf(removing.listing)} is withdrawn from the sale. Nothing brings
-            this lot number back; adding the same items again is a new lot.
+            this lot back; adding the same items again is a new lot.
           </p>
         </ReturnLocationConfirm>
       )}
@@ -838,9 +839,9 @@ export default function Auctions() {
   }
 
   // Any of the three loads failing is said at the top, and the page keeps
-  // its own shell either way -- per 872e219, losing the whole page (the
-  // heading, "New auction...", any open dialog) is not an acceptable answer
-  // to a load failure the owner still needs to see and react to.
+  // its own shell either way -- losing the whole page (the heading, "New
+  // auction...", any open dialog) is not an acceptable answer to a load
+  // failure the owner still needs to see and react to.
   const error = auctionsError || venuesError || storage.error
   const selected = (auctions ?? []).find((a) => a.id === selectedId) ?? null
 

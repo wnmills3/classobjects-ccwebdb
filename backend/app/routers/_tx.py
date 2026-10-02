@@ -1,7 +1,8 @@
 """The transaction boundary the writing routers share.
 
-Every write endpoint commits once, at the end, and a failure anywhere in the
-write rolls the whole request back, so a refusal leaves nothing half-written
+An endpoint that writes through `committing` commits once, at the end, and a
+failure anywhere in the block rolls the whole request back, so a refusal
+leaves nothing half-written
 and the session clean for whatever uses it next. In production
 `database.get_db` closes the session after the request anyway; the `client`
 fixture in `tests/conftest.py` shares one session across every request in a

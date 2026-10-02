@@ -30,13 +30,13 @@ const SAMPLE_ID = '123456789'
 /**
  * Alt+letter for each field of the platform form, as every other console edit
  * window has (`docs/system-administration.md`). Gathered in one table so a
- * repeat is visible rather than scattered through the markup, and checked by
- * the test below it.
+ * repeat is visible rather than scattered through the markup, and checked
+ * against the rendered dialog by the test beside it.
  *
  * No letter is D, E or F: Chrome and Edge keep those for the address bar and
- * menus on Windows. Save is V, the same letter it is in the item editor and
- * the order editor. Each letter appears in its own label, so `AccessLabel`
- * has something to underline. Cancel has none -- Escape closes the dialog,
+ * menus on Windows. Save is Ctrl+S, not a letter (`SaveButton.jsx`). Each
+ * letter appears in its own label, so `AccessLabel` has something to
+ * underline. Cancel has none -- Escape closes the dialog,
  * which `ModalDialog` already handles.
  */
 const KEYS = {

@@ -1,8 +1,8 @@
 """A coin's mint and variety are editable (`PATCH /inventory/{id}`).
 
-They were set only when an item was created, so a mint mark found later --
-"1885-O" in a seller's title -- could not be recorded (owner, 2026-09-24).
-They live on the coin's own detail row; a banknote refuses them.
+A mint mark found after the item was created -- "1885-O" in a seller's title
+-- is recorded here. Both live on the coin's own detail row; a banknote
+refuses them.
 """
 
 from __future__ import annotations

@@ -194,9 +194,11 @@ def _dq_completeness(db: Session, _params: DqCompletenessParams) -> ReportResult
     note, grade or denomination on bullion -- renders that cell `None`
     rather than 0% or 100%, because "no field to be missing" is a different
     fact from "every field is missing". Where `app.issues` states no kind
-    restriction for a field (country, series, photograph, storage location,
+    restriction for a field (year, country, photograph, storage location,
     listing link, seller's item id), this report follows it in applying that
     field to every kind -- a judgment call, not a rule read from `issues.py`.
+    Series is the exception, optional for currency
+    (`MISSING_FIELDS["series"]`).
 
     Every `count(*) FILTER` below runs `MISSING_FIELDS[key].sql` -- the same
     text the `missing=` filter itself runs -- so a cell's implied "missing"
@@ -560,7 +562,7 @@ def _a_year_before(day: date) -> date:
 
 
 def _purchase_gaps(row: RowMapping) -> list[str]:
-    """This purchase's own gaps, in the fixed order (Ruling P2-4 for the dates).
+    """This purchase's own gaps, in the fixed order.
 
     "Entry" is `created_at`'s own local calendar date (`base.local_date`),
     since the database session's zone need not be the application's.

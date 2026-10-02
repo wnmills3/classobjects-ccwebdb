@@ -11,8 +11,9 @@ it.
 
 **Two exceptions, both deliberate.** ``series_alias.series_id`` and
 ``series_year_range.series_id`` cascade, because those rows belong to their
-series rather than referring to it -- they are `reference_merge._OWNED`, and
-deleting a series is meant to take them with it. Everything else restricts.
+series rather than referring to it (`series_alias` is
+`reference_merge._OWNED`), and deleting a series is meant to take them with
+it. Everything else restricts.
 """
 
 from __future__ import annotations
@@ -446,7 +447,7 @@ class GradeDesignation(ReferenceMixin, Base):
 
 
 class GradingService(ReferenceMixin, Base):
-    """PCGS, NGC, ANACS, ICG, PMG, SEGS."""
+    """PCGS, NGC, ANACS, ICG, PMG, SEGS, CACG, ..."""
 
     __tablename__ = "grading_service"
 
@@ -531,9 +532,9 @@ class ReferenceAlias(Base):
 
     "Legal Tender Note" is a United States Note; "National Currency" is a
     National Bank Note. Text uses the other names, so search and the pickers
-    must recognize them. One table serves every vocabulary (note types now, grade
-    designations next: Ultra Cameo for UCAM) rather than one alias table per
-    classifier. `series_alias` predates it and stays.
+    must recognize them. One table serves every vocabulary (note types, strike
+    types, item attributes, grade designations: Ultra Cameo for UCAM) rather
+    than one alias table per classifier. Series have their own, `series_alias`.
 
     The row is named by table and id, not by a foreign key -- a key cannot
     point at "any table". Seed files name it by code, as everywhere else.
@@ -618,7 +619,7 @@ class ItemAttribute(ReferenceMixin, Base):
     These are attributes, not grades, which is why they are a link table rather
     than another column on the item: a coin can be DCAM *and* First Strike
     *and* CAC-approved, a note a star note *and* a fancy serial *and* No
-    Motto. Was `note_attribute`, which held serial features only.
+    Motto.
     """
 
     __tablename__ = "item_attribute"
@@ -636,7 +637,7 @@ class ItemAttribute(ReferenceMixin, Base):
 
 
 class SealColor(ReferenceMixin, Base):
-    """Treasury seal color: blue, red, brown, green, gold."""
+    """Treasury seal color: blue, red, brown, green, gold, yellow."""
 
     __tablename__ = "seal_color"
 
@@ -668,7 +669,7 @@ class SignatureCombination(ReferenceMixin, Base):
 
 
 class Metal(ReferenceMixin, Base):
-    """silver, gold, copper, platinum, palladium."""
+    """silver, gold, platinum, palladium, copper, nickel, zinc, clad."""
 
     __tablename__ = "metal"
 
@@ -711,7 +712,7 @@ class ErrorType(ReferenceMixin, Base):
 
 
 class ItemStatus(ReferenceMixin, Base):
-    """Acquisition lifecycle: ordered, received, canceled, returned, missing."""
+    """Acquisition lifecycle: ordered, received, canceled, returned, missing, ..."""
 
     __tablename__ = "item_status"
 
@@ -723,7 +724,7 @@ class Disposition(ReferenceMixin, Base):
 
 
 class StorageLocationKind(ReferenceMixin, Base):
-    """safe_deposit_box, safe, home, in_transit, sold, unknown."""
+    """safe_deposit_box, safe, home, in_transit, consigned, sold, unknown."""
 
     __tablename__ = "storage_location_kind"
 
@@ -740,7 +741,7 @@ class ImageRole(ReferenceMixin, Base):
 
 
 class VendorKind(ReferenceMixin, Base):
-    """Acquisition channel: marketplace, auction, mint, dealer."""
+    """Acquisition channel: marketplace, auction, mint, dealer, private, unknown."""
 
     __tablename__ = "vendor_kind"
 

@@ -88,10 +88,10 @@ class ReferenceMixin:
         #
         # These declarations mirror DeclarativeBase's own TYPE_CHECKING block
         # and must keep matching it. A redeclaration that agrees is harmless;
-        # one that "improves" on it is an override conflict on all 37 concrete
-        # tables. Writing __tablename__ as ClassVar[str] rather than Any -- the
-        # obvious improvement, since it is a string -- cost 29 findings the
-        # first time it was tried. Only __init__ deviates, taking `object`
+        # one that "improves" on it is an override conflict on every concrete
+        # table. Writing __tablename__ as ClassVar[str] rather than Any -- the
+        # obvious improvement, since it is a string -- is exactly such a
+        # conflict. Only __init__ deviates, taking `object`
         # where SQLAlchemy takes `Any` so it satisfies ANN401; `object` is the
         # stricter of the two and `Any` overrides in either direction, so this
         # changes nothing mypy checks.

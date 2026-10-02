@@ -60,9 +60,8 @@ SMALL_SIZE_FROM = 1928
 
 #: A low serial is one padded with at least this many leading zeros, and a
 #: high serial is one whose first digit is this. Both are the owner's
-#: definitions, which are positional -- an earlier version compared the
-#: numeric value against a ceiling, which is a different question and got
-#: 00000494 wrong.
+#: definitions, which are positional: comparing the numeric value against a
+#: ceiling is a different question.
 LOW_SERIAL_ZEROS = 4
 HIGH_SERIAL_FIRST_DIGIT = "9"
 
@@ -159,8 +158,9 @@ def analyse(serial: str) -> set[str]:
 #: letter, with a star replacing either letter on a replacement note.
 WELL_FORMED = re.compile(r"^(?:\*|[A-Z]{1,2})\d{8}[*A-Z]$")
 
-#: A letter with digits on both sides. Structurally impossible on a real
-#: note, so this is the one thing data entry refuses outright.
+#: A letter with digits on both sides. Not the shape of a small-size US
+#: serial, so data entry warns: it is usually the suffix letter typed one
+#: position early.
 INTERNAL_LETTER = re.compile(r"\d[A-Z]\d")
 
 #: The highest an eight-digit serial can be. Structural, not a print run.
@@ -192,9 +192,9 @@ class SerialIssue:
 
 def _shape_issues(cleaned: str) -> list[SerialIssue]:
     """What the arrangement of letters and digits says about the serial."""
-    # An internal letter is a transposition, not a variant. Letters belong at
-    # the ends -- one or two in front, one behind -- and a serial with one in
-    # the middle is a typo every time: S97535476A entered as S9753547A6.
+    # An internal letter is usually a transposition. Letters belong at the
+    # ends -- one or two in front, one behind -- so a serial with one in the
+    # middle is warned about: S97535476A entered as S9753547A6.
     if INTERNAL_LETTER.search(cleaned):
         return [
             SerialIssue(

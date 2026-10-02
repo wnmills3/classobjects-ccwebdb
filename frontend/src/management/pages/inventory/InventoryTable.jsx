@@ -17,8 +17,8 @@ function cell(row, key, kind) {
  * The order column: a link into Receiving for the purchase order an item
  * arrived on, or a dash when none is recorded.
  *
- * Named by its own number when the vendor issued one; 1,857 eBay listings
- * never got a vendor order number, so those fall back to the vendor and the
+ * Named by its own number when the vendor issued one; many eBay listings
+ * have no vendor order number, so those fall back to the vendor and the
  * date ordered -- still enough to tell one order from another.
  */
 function orderCell(row) {
@@ -47,13 +47,12 @@ function sortMarker(current, key) {
  * row's item.
  *
  * `sortable` is what the server says it can sort by, sent with every page.
- * Only those headers are clickable: every header used to look sortable while
- * the server refused most of them, and a click put "cannot sort by" on the
- * page instead of sorting.
+ * Only those headers are clickable: the server refuses any other column
+ * ("cannot sort by"), so a header it cannot sort by must not look sortable.
  *
  * `config.detail`, when set, names a field shown on a second line under each
  * item, spanning the columns. The description is read rather than compared,
- * and long, so it no longer takes a column of its own.
+ * and long, so it takes no column of its own.
  */
 export default function InventoryTable({
   config,

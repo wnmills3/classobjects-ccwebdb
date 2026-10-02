@@ -298,13 +298,12 @@ def test_an_outside_sale_gets_a_share_at_version_one(
 ) -> None:
     """Recording an outside sale carries a share too, at a fresh version.
 
-    `sale_state` (a later task) will find an order's items through shares
-    no matter where the order came from, so an outside sale's line needs
-    one exactly as a checkout line does. `version == 1` is pinned
-    separately: it is correct by construction (a single INSERT, priced
-    before it happens), but nothing else here checks it, and version is
-    exactly what regressed when `place_order`'s insert/update ordering was
-    wrong the first time.
+    `sale_state.orders_holding` finds an order's items through shares no
+    matter where the order came from, so an outside sale's line needs one
+    exactly as a checkout line does. `version == 1` is pinned separately:
+    it is correct by construction (a single INSERT, priced before it
+    happens), but nothing else here checks it, and a wrong insert/update
+    ordering in `place_order` is what would move it.
     """
     buyer = venue_buyer(db, ebay_venue, "coinfan88")
     order = place_order(
@@ -387,7 +386,7 @@ def test_checkout_still_refuses_a_listing_from_another_platform(
     """Without a venue this is checkout, and checkout is the shop only.
 
     This is the guard that stops a shop request buying an eBay listing; the
-    new keyword must not have opened it.
+    `venue` keyword must not open it.
     """
     customer = _new_customer(db)
 
@@ -969,13 +968,12 @@ def test_cancelling_relists_an_item_that_had_sold_out(
     admin_headers: dict[str, str],
     db: Session,
 ) -> None:
-    """Ruling 1: `return_stock` must relist on its own.
+    """`return_stock` relists on its own.
 
     `place_order` marks the item `sold` once its listing hits zero;
     `return_stock` must reverse that when a cancellation puts the last unit
     back, the same before/after-zero rule every stock-moving path uses --
-    not "relist whenever the listing is active", which the inline code this
-    replaced did.
+    not "relist whenever the listing is active".
     """
     order = _place(client, customer_headers, listing.id, 5)
     db.refresh(listing)
@@ -1013,12 +1011,12 @@ def _sell_the_lot(db: Session, listing: Listing, admin_user: User) -> SalesOrder
 def test_revising_a_lot_line_redistributes_every_share(
     db: Session, offered_lot_listing: Listing, admin_user: User
 ) -> None:
-    """The update branch had no lot case at all, because the guard returned first.
+    """A revised lot line moves its shares with its money.
 
-    `_sync_shares` returned immediately when `listing.inventory_item_id is
-    None`, so a revised lot line's money would move while its shares stayed
-    where they were -- silently, since nothing sums them back. The mutation
-    that proves this test: restore the early return and confirm it goes red.
+    An early return in `_sync_shares` when `listing.inventory_item_id is
+    None` would let a revised lot line's money move while its shares stayed
+    where they were -- silently, since nothing sums them back. That early
+    return is the mutation that makes this test fail.
 
     The redistribution is read off the shares that exist, not off the lot's
     current members: `record_sale` ends the offer, which releases every
@@ -1066,11 +1064,11 @@ def test_the_history_of_a_lot_line_is_titled_by_the_lot(
     offered_lot_listing: Listing,
     admin_user: User,
 ) -> None:
-    """`order_changes` read `row.listing.inventory_item.source_title` too.
+    """`list_order_changes` titles a lot line by its lot.
 
-    A third crash site of the same shape as `_sold_as`, on a page an
-    operator reaches from the order itself: a lot listing has no
-    `inventory_item`, so the history 500ed rather than naming the lot.
+    A lot listing has no `inventory_item`, so the title cannot be read from
+    `row.listing.inventory_item.source_title`; it is the lot's, as
+    `_sold_as` gives for the order itself.
     """
     order = _sell_the_lot(db, offered_lot_listing, admin_user)
     revise_order(

@@ -374,11 +374,12 @@ def test_reference_codes_are_unique(db: Session) -> None:
     db.rollback()
 
 
-def test_seeded_and_derived_rows_are_distinguishable(db: Session) -> None:
-    """Seeded and derived rows stay distinguishable.
+def test_seeded_rows_are_marked_seeded(db: Session) -> None:
+    """The shipped grades carry `source = 'seeded'`.
 
-    The distinction that makes exporting a catalog to another
-    installation safe: one collection's guesses are not shipped as facts.
+    Seeded apart from derived is the distinction that makes exporting a
+    catalog to another installation safe: one collection's guesses are not
+    shipped as facts.
     """
     # scalar_one(), like the view assertions above: a count query returns
     # exactly one row, so a missing one is a broken query, not a zero.
@@ -487,7 +488,7 @@ def test_plate_numbers_accept_a_check_letter(db: Session) -> None:
 
 
 def test_an_item_can_carry_two_different_errors(db: Session) -> None:
-    """Miscut and overprint commonly appear on the same bill."""
+    """A coin can be both a doubled die and struck off center."""
     item = build_bare_item(db)
     doubled_die = code_id(db, ErrorType, "doubled_die")
     off_center = code_id(db, ErrorType, "off_center")

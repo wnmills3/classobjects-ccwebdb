@@ -63,7 +63,7 @@ describe('NewItemForm: a coin', () => {
 
 describe('NewItemForm: a piece with no date', () => {
   it('clears and holds shut the year, and sends no_date', async () => {
-    // A 5 g gold bar has no date at all (owner, 2026-10-01).
+    // A 5 g gold bar has no date at all.
     const user = userEvent.setup()
     api.createInventoryItem.mockResolvedValue({ id: 1, item_code: 'CC-000001' })
     render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
@@ -122,7 +122,7 @@ describe("NewItemForm: the seller's item id", () => {
 describe('NewItemForm: a set', () => {
   it("sends the set's form, which a note never shows", async () => {
     // "Mixed Sets" is a set form, not a denomination: a denomination is one
-    // face value (owner, 2026-09-25).
+    // face value.
     const user = userEvent.setup()
     api.createInventoryItem.mockResolvedValue({ id: 5, item_code: 'CC-000005' })
     render(<NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />)
@@ -162,8 +162,8 @@ describe('NewItemForm: a banknote', () => {
   // The entry form asks `fieldFitsKind` which fields are a coin's rather than
   // listing them itself, so this form and the item editor read one set
   // (`COIN_ONLY_FIELDS`). Every name in that set is checked, not a sample:
-  // the drift being guarded against -- the editor keeping a metal box this
-  // form had dropped -- was exactly one field going its own way.
+  // the drift being guarded against -- one form keeping a box the other has
+  // dropped -- is exactly one field going its own way.
   it("offers none of a coin's own fields once the kind is currency", async () => {
     const user = userEvent.setup()
     render(<NewItemForm purchaseOrderId={9} defaults={{}} onSaved={vi.fn()} />)
@@ -180,8 +180,8 @@ describe('NewItemForm: a banknote', () => {
   })
 
   it('asks a note for its series year only, and sends no other year', async () => {
-    // Two year boxes on a note is where 1935 went into Year and the series
-    // year stayed blank (CC-007663). The server sets a note's year from its
+    // Two year boxes on a note is where a series year goes into Year and
+    // the series year stays blank. The server sets a note's year from its
     // series year.
     const user = userEvent.setup()
     api.createInventoryItem.mockResolvedValue({ id: 3, item_code: 'CC-000003' })
@@ -338,8 +338,8 @@ describe('NewItemForm: Save and add another', () => {
 
     expect(onSaved).toHaveBeenCalledWith({ id: 5, item_code: 'CC-000005' })
 
-    // Shared fields kept, per the controller's exact list -- status and
-    // series year among them.
+    // Shared fields kept, exactly `SHARED_ON_REPEAT` -- status and series
+    // year among them.
     expect(screen.getByLabelText('item_kind')).toHaveValue('currency')
     expect(screen.getByRole('radio', { name: 'Received' })).toBeChecked()
     expect(screen.getByLabelText('country')).toHaveValue('US')
@@ -461,8 +461,7 @@ describe('NewItemForm: denomination choices', () => {
 })
 
 describe('NewItemForm: a year outside the series', () => {
-  // Owner, 2026-10-01: an 1800 Morgan dollar, found only because its
-  // description came out without a weight.
+  // An 1800 Morgan dollar: the series runs 1878 on, so the year is a typo.
   const withMorgan = emptyReference({
     tables: {
       series: [
@@ -519,7 +518,7 @@ describe('NewItemForm: a range with no Year from', () => {
 describe('NewItemForm: a refusal is brought into view', () => {
   it('scrolls to the error, which sits above the form, when Save is refused', async () => {
     // Save is at the foot of a long form and the error at its head: unseen,
-    // a refused Save looked like a Save that did nothing (owner, 2026-09-30).
+    // a refused Save looks like a Save that did nothing.
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
     const user = userEvent.setup()

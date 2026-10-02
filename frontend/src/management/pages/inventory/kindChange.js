@@ -42,7 +42,8 @@ const NOTE_SCALARS = [
 
 //: What a coin weighs and is made of. Not on the form, but a note that kept
 //: them would go on counting as silver in the collection's fine-metal total.
-//: And its years: a note's year is its series year, and it holds no other.
+//: And its variety and its years: a note's year is its series year, and it
+//: holds no other.
 const COIN_MEASURES = [
   'fineness',
   'gross_weight_ozt',

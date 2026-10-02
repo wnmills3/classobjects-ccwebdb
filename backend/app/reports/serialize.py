@@ -68,8 +68,8 @@ def catalog() -> list[dict[str, object]]:
     """The catalog: every registered report, in registry order.
 
     Each entry carries its parameters' name, label (the pydantic field's own
-    `title`), type, default and choices -- everything a parameter form (the
-    console, or the CLI's `--help`) needs, without importing a report
+    `title`), type, default and choices -- everything the console's
+    parameter form needs, without importing a report
     module's params class directly.
     """
     entries: list[dict[str, object]] = []

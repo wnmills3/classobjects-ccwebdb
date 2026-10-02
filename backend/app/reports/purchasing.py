@@ -572,9 +572,9 @@ _RECEIVED_NOTE = (
 
 #: `lifecycle_writes.record_initial_status` writes this same `to_status`
 #: for a brand-new item's *opening* row (`from_status_id IS NULL`) -- a
-#: console entry, a split child, or a seed -- and the live database's own
-#: history was once reset to a single opening row per item at its current
-#: status. Neither is an arrival, so both are excluded by the same
+#: console entry, a split child, or a seed -- and an item whose history
+#: starts at its current status has only such a row. Neither is an arrival,
+#: so both are excluded by the same
 #: `from_status_id IS NOT NULL` test, and this note says so in plain words.
 _OPENING_ROW_NOTE = (
     "Items entered already received, and history recorded before status "

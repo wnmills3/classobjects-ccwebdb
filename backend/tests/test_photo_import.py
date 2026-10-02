@@ -66,12 +66,12 @@ def test_a_dry_run_writes_nothing(db: Session, tmp_path: Path) -> None:
 def test_a_dry_run_leaves_media_storage_untouched(
     db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The database assertion above cannot see this, and that was the bug.
+    """The database assertion above cannot see media storage.
 
     `image_store.ingest` writes the original and both derivatives through
-    `storage.put` *before* any rollback, so a dry run that ingested left three
-    files per photograph in media storage with no rows pointing at them --
-    while printing "nothing written". The media root is redirected at a
+    `storage.put` *before* any rollback, so a dry run that ingested would
+    leave three files per photograph in media storage with no rows pointing at
+    them -- while printing "nothing written". The media root is redirected at a
     temporary directory so that what the run does to storage is observable at
     all, and so that the suite cannot write into the repository's own `media/`.
     """
@@ -280,8 +280,9 @@ def test_an_existing_primary_is_never_demoted_silently(
 ) -> None:
     """A hand-attached photograph keeps the primary, and the report says so.
 
-    Every console upload files at `sort_order` 0, so a hand-attached
-    photograph is invisible to the occupied check -- the import files its
+    A console upload files after the item's last photograph, not at the
+    `_01` slot (0 here), so a hand-attached primary can be invisible to the
+    occupied check -- the import files its
     `_01` at sequence 1 and, without this rule, `attach(is_primary=True)`
     would take the primary away from it with no line in any bucket.
     """

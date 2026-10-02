@@ -1,7 +1,7 @@
 """Correcting and pruning the owner-kept lists (`list-maintenance-design.md`).
 
 Friedberg numbers used here are synthetic -- the 9900s, past any real
-number -- per `CLAUDE.md`.
+number -- per `docs/reference-data.md`.
 """
 
 from __future__ import annotations
@@ -150,8 +150,8 @@ def test_recording_a_combination_already_on_file_names_that_row(
 ) -> None:
     """A slip's combination is named, with the row, not as a database error.
 
-    The owner's case: `3007-` recorded by a slip, then `3007-L` refused with
-    a raw database error that never said which row held the combination.
+    A slip such as `3007-` holds the combination that `3007-L` then needs;
+    the refusal must say which row holds it.
     """
     identity = {
         "denomination_id": code_id(db, Denomination, "usd_note_1"),

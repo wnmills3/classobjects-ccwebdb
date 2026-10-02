@@ -1,8 +1,8 @@
 """Purchases always have a number, and their details can be changed.
 
 A purchase created with no order number of its own is given the next
-generated one, `Order-0001` and up (owner, 2026-09-24): one entered with
-none could not be found again. `PATCH /api/purchase-orders/{id}` changes
+generated one, `Order-0001` and up: one entered with none could not be
+found again. `PATCH /api/purchase-orders/{id}` changes
 the number, date, web address or notes afterwards.
 """
 

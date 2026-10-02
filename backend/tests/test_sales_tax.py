@@ -27,7 +27,7 @@ def configure(monkeypatch: pytest.MonkeyPatch, rate: str, *, shipping: bool) -> 
 
 
 def test_the_shipped_default_is_6_35_percent_including_shipping() -> None:
-    """The defaults reproduce every figure the database held before them.
+    """The defaults are 6.35%, shipping included.
 
     Whatnot's own order report confirms both: 375.74 x 6.35% = 23.86, exactly
     what it charged, shipping included.

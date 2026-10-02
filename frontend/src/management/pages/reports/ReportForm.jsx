@@ -6,7 +6,8 @@ import { choiceText, paramHelp } from './values'
  * A report's parameters, built from the catalog's description of them, and
  * Run.
  *
- * A choice is a dropdown, an integer a number box, anything else a text box.
+ * A choice is a dropdown, a date a date box, an integer a number box, anything
+ * else a text box.
  * The form holds its own draft; the page keys it by the address, so a new
  * address -- another report, Back, a link -- starts it again from there.
  * `error` is why the last run was refused, shown beside the fields it names.
@@ -20,7 +21,7 @@ export default function ReportForm({ report, values, error, onRun }) {
     // An emptied field would otherwise run silently with that parameter's
     // default (`runWith` drops a blank value) -- indistinguishable from
     // asking for the default on purpose, so it is refused here instead. A
-    // date is the one exception (Ruling P2-3): emptying it means no bound on
+    // date is the one exception: emptying it means no bound on
     // that side, not a request for its (null) default, so it runs as-is.
     const blank = report.params.find(
       (param) => param.type !== 'date' && String(draft[param.name] ?? '').trim() === '',

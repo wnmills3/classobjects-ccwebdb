@@ -161,10 +161,11 @@ python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 Paste that value into `JWT_SECRET` in `.env`. `.env` is gitignored;
-`.env.example` is committed and documents every key, including the sales-tax
-settings stamped onto each new item.
-[system-administration.md](system-administration.md) (*Settings*) says which
-must change before anything outside this machine can reach the system.
+`.env.example` is committed and holds the keys a new installation sets,
+including the sales-tax settings stamped onto each new item.
+[system-administration.md](system-administration.md) (*Settings*) lists every
+setting and says which must change before anything outside this machine can
+reach the system.
 
 ## 7. Install dependencies
 
@@ -187,8 +188,9 @@ the procedure is in [system-administration.md](system-administration.md)
 (*Backing up and restoring*). Two things to know before starting:
 
 - `python -m app.workbook_backup import FILE --to URL` loads only into an
-  empty database already at the current migration (`alembic upgrade head`
-  first), and refuses the database `DATABASE_URL` in `.env` names. Restore
+  empty database at the same migration revision as the workbook (for a
+  workbook exported from the current code, `alembic upgrade head` first), and
+  refuses the database `DATABASE_URL` in `.env` names. Restore
   into a database of another name, then point `DATABASE_URL` at it (or
   restore before `.env` names `ccwebdb`); the full procedure is in
   *The workbook backup* in system-administration.md.

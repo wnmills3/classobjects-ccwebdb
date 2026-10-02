@@ -153,11 +153,9 @@ def plan(
         item_column = column.table.c[RECORD_TABLES[owner]]
         items.update(db.scalars(select(item_column).where(column == source.id)))
         if owner in _ONCE_PER_ITEM:
-            # Counted here as well as in `merge`, because the dry run calls
-            # only this function. Without it the preview promised to move N
-            # rows and always reported 0 dropped, then the real merge dropped
-            # some -- the one number in the preview that could not be
-            # believed. Same predicate as `merge`, which deletes them.
+            # Counted here, and only here, because the dry run calls only this
+            # function: the preview's dropped count is then the one the
+            # merge makes true. Same predicate as `merge`, which deletes them.
             has_target = select(item_column).where(column == target.id)
             result.dropped += (
                 db.scalar(

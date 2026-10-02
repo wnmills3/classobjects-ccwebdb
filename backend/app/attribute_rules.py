@@ -10,7 +10,7 @@ Silver Certificates (BEP, bep.gov/currency/faqs), so:
 | Series 1935G               | printed both ways: needs evidence         |
 | Series 1935H, 1957 on      | never                                     |
 
-"Godless" is kept to that $1 run (decision 5), which is where collectors
+"Godless" is kept to that $1 run, which is where collectors
 use the word. `app.classifier_defaults` applies the rules; what it adds is
 a derived link (`derived_by` `attribute_rule`), which a person may remove
 and which then stays removed.

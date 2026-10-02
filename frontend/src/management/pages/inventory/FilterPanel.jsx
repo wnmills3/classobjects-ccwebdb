@@ -38,7 +38,7 @@ const helpFor = (param) => HELP_FOR[param] ?? param
  * results would change while the box still showed the old text.
  *
  * Every field has an Alt+letter accelerator, underlined in its label. The
- * search box gained a visible "Search" label for that reason: an underline
+ * search box has a visible "Search" label for that reason: an underline
  * needs somewhere to be.
  */
 export default function FilterPanel({
@@ -147,10 +147,10 @@ export default function FilterPanel({
             )
           })}
 
-          {/* Text filters match anywhere in the value and ignore case, so a
-            partial serial finds the note. `%` and `_` reach the SQL pattern
-            unescaped and work as wildcards -- `_` for one character, which
-            is what finds a run of consecutive notes. */}
+          {/* Text filters other than Grade match anywhere in the value and
+            ignore case, so a partial serial finds the note. `%` and `_` reach
+            the SQL pattern unescaped and work as wildcards -- `_` for one
+            character, which is what finds a run of consecutive notes. */}
           {(config.textFilters ?? []).map(([label, param, placeholder, letter]) => (
             <label key={param} data-help={helpFor(param)}>
               <Label text={label} letter={letter} />

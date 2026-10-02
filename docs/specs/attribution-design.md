@@ -259,7 +259,7 @@ search and the same edit API.
 
 The owner records Friedberg numbers read from their own notes and slabs; none
 are seeded, fetched or hardcoded, because the catalog's numbering is a
-publisher's arrangement (`CLAUDE.md`, Reference data). `app/routers/friedberg.py`
+publisher's arrangement (`docs/reference-data.md`). `app/routers/friedberg.py`
 serves the owner's private catalog:
 
 | Endpoint | Does |
@@ -292,8 +292,10 @@ reference-data rule forbids.
 ## Valuation (not built): the rules that bind it
 
 The `metal_price` and `valuation_snapshot` tables exist
-(`docs/database-design.md`); nothing computes or records a valuation yet.
-These constraints bind it when it is built.
+(`docs/database-design.md`). The `cb_metal` report computes melt value from
+the latest `metal_price`; nothing in the application records a spot price or
+a valuation snapshot, and no asking price is derived. These constraints bind
+valuation when it is built.
 
 **Cost-plus.** The asking price derives from what was paid and a markup the
 owner chooses, informed by a wholesale reference. The derived number is the

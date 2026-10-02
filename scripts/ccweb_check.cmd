@@ -95,8 +95,9 @@ if exist "frontend\node_modules\eslint" (
     if errorlevel 1 set "FAILED=!FAILED! prettier"
 
     echo === frontend tests ===
-    rem  Run from frontend so vitest picks up vite.config.js; node is not
-    rem  on PATH, so the script is invoked directly rather than via npm.
+    rem  Run from frontend so vitest picks up vite.config.js. Invoked with
+    rem  the environment's node by full path, like every other tool here,
+    rem  not via npm.
     pushd frontend
     "%NODE%" node_modules\vitest\vitest.mjs run
     if errorlevel 1 set "FAILED=!FAILED! vitest"

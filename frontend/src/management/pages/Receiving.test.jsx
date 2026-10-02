@@ -8,8 +8,8 @@ vi.mock('../api', () => ({
     getPurchaseOrder: vi.fn(),
     listStorageLocations: vi.fn(),
     receiveItems: vi.fn(),
-    //: One line at a time means `ReceiptPanel` always has exactly one item,
-    //: so it always looks the kind up -- that is what decides whether the
+    //: A single line gives `ReceiptPanel` exactly one item, and with one
+    //: item it looks the kind up -- that is what decides whether the
     //: Friedberg lookup is offered.
     getInventoryItem: vi.fn(),
     uploadImage: vi.fn(),
@@ -261,7 +261,7 @@ describe('receiving one line at a time', () => {
     expect(await screen.findByText(/obverse\.jpg.*file too large/i)).toBeInTheDocument()
 
     // The receipt was recorded, so closing must search again: the item is
-    // no longer "not yet arrived" (code review, 2026-09-23).
+    // not "not yet arrived" any more.
     const before = api.searchInventory.mock.calls.length
     await user.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }),

@@ -126,11 +126,10 @@ def test_an_ended_listing_still_refuses_and_the_message_says_so(
 ) -> None:
     """The refusal is permanent, and must not name a step that cannot clear it.
 
-    Ending an offer leaves the listing row in place, and nothing removes one
-    -- the catalog's delete endpoint was retired in phase 2. So "withdraw
-    the listing first" was a remedy that could never work. The rule itself is
-    right: once a coin has been offered the offer is part of the sales
-    history, so the message has to state that instead.
+    Ending an offer leaves the listing row in place, and nothing removes
+    one, so "withdraw the listing first" would name a remedy that cannot
+    work. Once a coin has been offered the offer is part of the sales
+    history, and the message has to state that instead.
     """
     listing = build_listing(db, is_active=False)
     response = client.delete(
@@ -149,16 +148,15 @@ def test_an_item_in_an_assembling_lot_cannot_be_deleted(
     db: Session,
     lot_of_three: SalesLot,
 ) -> None:
-    """A lot listing names no item, so the listing guard never saw a member.
+    """A lot listing names no item, so the listing guard never sees a member.
 
-    `delete_item` asked two questions -- pieces split from the item, and
-    `Listing.inventory_item_id == item.id` -- and a lot's listing carries a
-    null `inventory_item_id`, so a coin in a lot passed both and was soft
-    deleted out from under the group it belongs to. Nothing else in
-    `delete_item` looked at memberships or claims.
+    A lot's listing carries a null `inventory_item_id`, so a guard on
+    `Listing.inventory_item_id == item.id` would let a coin in a lot be soft
+    deleted out from under the group it belongs to.
 
-    The assertions below pin *why* this 409 happens: neither of the two old
-    guards matches, so a refusal can only come from the lot-aware one.
+    The assertions below pin *why* this 409 happens: the item has no pieces
+    split from it and no listing naming it, so a refusal can only come from
+    the lot-aware guard.
     """
     db.commit()
     members = lot_writes.open_members(db, lot_of_three)
@@ -244,8 +242,8 @@ def test_a_dissolved_lot_s_member_cannot_be_deleted(
     db.commit()
 
     # The state that makes this the discriminating case: no open membership
-    # left, and the listing names the lot rather than the coin -- so both the
-    # old listing guard and a "in a lot right now" guard answer no.
+    # left, and the listing names the lot rather than the coin -- so both a
+    # listing-by-item guard and an "in a lot right now" guard answer no.
     assert sales_lot.status is SalesLotStatus.dissolved
     assert lot_writes.open_members(db, sales_lot) == []
     assert offered_lot_listing.inventory_item_id is None

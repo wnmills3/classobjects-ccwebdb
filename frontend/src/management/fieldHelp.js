@@ -6,9 +6,10 @@
  * same way. `HelpScope` shows the entry for whichever field has focus; a
  * field opts in with `data-help="<key>"` on its label.
  *
- * Public numismatic fact only -- what is printed where on a note, and what
- * it means. Never a catalog's numbering or a price guide's values, per
- * CLAUDE.md's reference-data rule.
+ * Public numismatic fact -- what is printed where on a note, and what it
+ * means -- and never a price guide's values. Two entries, `printing_facility`
+ * and `fr_number`, quote a Friedberg number as an example of its form;
+ * `docs/reference-data.md` is the rule on a catalog's numbering.
  */
 export const FIELD_HELP = {
   // -- the purchase ---------------------------------------------------------

@@ -20,7 +20,7 @@ rem This script lives in scripts\, so the repo root is one level up.
 rem %%~fI resolves the "..\" to a real absolute path with no trailing slash.
 for %%I in ("%~dp0..") do set "REPO=%%~fI"
 
-rem  Put ccwebdb in play for pg_ctl. Unlike the other scripts a failure here
+rem  Put ccwebdb in play for pg_ctl. Unlike startup, a failure here
 rem  does NOT abort: stopping things by port needs no environment, and a
 rem  broken environment is exactly when you most want a way out. Only the
 rem  PostgreSQL step depends on it, and it says so when skipped.
@@ -38,7 +38,7 @@ call "%~dp0ccweb_logdir.cmd"
 
 rem An unrecognised argument is refused, never ignored. Git bash rewrites
 rem /keepdb into a path such as C:/Program Files/Git/keepdb, and ignoring that
-rem once stopped a database the caller had asked to keep running.
+rem would stop a database the caller asked to keep running.
 set "KEEPDB="
 if /I "%~1"=="/keepdb" set "KEEPDB=1"
 if /I "%~1"=="--keepdb" set "KEEPDB=1"
@@ -140,10 +140,9 @@ rem ---------------------------------------------------------------------------
 :killpid
 rem  %1 = pid, %2 = label.  /T also takes child processes.
 if "%~1"=="" goto :eof
-rem  find.exe by full path. Run from Git Bash -- Claude Code's shell, or the
-rem  `!` prefix -- a bare `find` is Git Bash's Unix find, which took the PID
-rem  for a path, printed "No such file or directory" and failed, so every live
-rem  PID was reported "already gone" and only the port sweep below stopped it.
+rem  find.exe by full path. Run from Git Bash, a bare `find` is the Unix
+rem  find, which takes the PID for a path and fails, so every live PID would
+rem  be reported "already gone" and only the port sweep would stop it.
 tasklist /FI "PID eq %~1" 2>nul | "%SystemRoot%\System32\find.exe" "%~1" >nul
 if errorlevel 1 (
     echo [1/3] %~2      pid %~1 already gone

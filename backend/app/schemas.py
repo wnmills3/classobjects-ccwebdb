@@ -882,7 +882,7 @@ class ItemDetailOut(InventoryItemOut):
     #: suggestions; saving one by hand makes it the person's.
     derived: dict[str, str] = Field(default_factory=dict)
     #: The purchase it was bought on, read-only here: the editor links to it,
-    #: and the purchase's own page changes its number (owner, 2026-09-24).
+    #: and the purchase's own page changes its number.
     purchase_order_id: int | None = None
     order_number: str | None = None
     vendor: str | None = None
@@ -1013,7 +1013,7 @@ class InventoryItemUpdate(BaseModel):
     #: a save is merged field by field: a change made elsewhere since then
     #: stops it only if it touched one of these fields (409 naming each, with
     #: both values), and `version` is not compared. Without it, `version`
-    #: guards the whole item as before.
+    #: guards the whole item.
     base: dict[str, Any] | None = None
 
     source_title: str | None = Field(default=None, min_length=1, max_length=500)
@@ -1502,8 +1502,7 @@ class InventoryPageOut(BaseModel):
     #: from its code alone; this is what a chip's tooltip reads from.
     issue_descriptions: dict[str, str] = Field(default_factory=dict)
     #: The columns this view can be sorted by. The table makes only these
-    #: headers clickable: every header used to look sortable while the server
-    #: refused most of them, putting "cannot sort by" on the page instead.
+    #: headers clickable; the server refuses any other with "cannot sort by".
     sortable: list[str] = Field(default_factory=list)
 
 
@@ -1836,7 +1835,7 @@ class OfferIn(BaseModel):
 
     A lot is one thing however many coins are in it, so a lot body carries
     one price, title, description and external id at the top level rather
-    than a row per item. Exactly one of `items` and `lot_id`: passing both or
+    than a row per item. Exactly one of `items` and `lot_id`: refusing both or
     neither is what keeps `offering_writes.offer`'s two `ValueError`s
     unreachable from outside this API, which `test_offering_writes.py`
     asserts is the case.
@@ -1882,8 +1881,7 @@ class OfferIn(BaseModel):
         `ck_listing_lot_quantity_one` caps a lot listing at one unit and
         `offering_writes.offer` already forces it, so an explicit `2` would
         be accepted and quietly ignored -- the caller would believe two lots
-        were on offer. Nothing could reach that override before this schema
-        gained `lot_id`; now that a caller can, it is a 422 instead.
+        were on offer. So it is a 422 instead.
         """
         if self.lot_id is not None and self.items:
             raise ValueError("Offer items or a lot, not both")
@@ -1915,7 +1913,7 @@ class ListingOut(BaseModel):
 
     `external_url` is **computed for this response** from the platform's
     `listing_url_template` when the listing has an external id and no URL of
-    its own; it is never written back to the row. Phase 1's design says the
+    its own; it is never written back to the row. The
     column holds what a person typed, and a derived value stored there would
     go stale the day a platform changes its URLs.
 
@@ -2319,11 +2317,11 @@ class SettleIn(BaseModel):
 
         Two groups whose spelling merely *casefolds* to the same buyer --
         `CoinFan88` and `coinfan88` -- are `app.auctions.settle`'s own job to
-        catch and name: each survives into the `Mapping` this
-        schema builds, because a `dict` keyed on the literal strings keeps
-        both. An **exact** repeat of one spelling would not: building that
-        `Mapping` from this list would let the second entry silently
-        overwrite the first, which is the "a lookup miss must not default
+        catch and name: each survives into the `Mapping`
+        `routers.auctions` builds from this list, because a `dict` keyed on
+        the literal strings keeps both. An **exact** repeat of one spelling
+        would not: building that `Mapping` from this list would let the second
+        entry silently overwrite the first, which is the "a lookup miss must not default
         silently" hazard for a write instead of a read. Caught here, before
         that `Mapping` is ever built, rather than let one buyer's fees
         vanish.
@@ -2447,10 +2445,12 @@ class PurchaseOrderLineOut(BaseModel):
     #: it because a line can have a description and no title.
     source_title: str
     description: str
-    #: An `item_kind` code: coin, currency, bullion, set, medal, token, other.
+    #: An `item_kind` code: coin, currency, bullion, set, medal, token, other,
+    #: unknown.
     item_kind: str
     item_cost: Decimal
-    #: An `item_status` code: ordered, received, canceled, returned, missing.
+    #: An `item_status` code: ordered, received, canceled, returned, missing,
+    #: unknown.
     status: str
 
 

@@ -129,7 +129,7 @@ def test_a_refresh_reads_the_designs_once(
     db: Session, make_item: ItemFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A bulk edit of thousands is one refresh; reading the vocabulary per step
-    # is what made it slow.
+    # would make it slow.
     dimes = [_dime(db, make_item, 1942) for _ in range(3)]
     real = series_classify.load_designs
     calls: list[int] = []

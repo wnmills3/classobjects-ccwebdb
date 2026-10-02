@@ -1,9 +1,9 @@
 """Account administration: who can sign in, and with what rights.
 
 Distinct from `customers`, which is who you ship to. A person may have both, an
-account without ever buying, or a customer record without an account -- guest
-checkout creates exactly that. Keeping them apart is why this module manages
-only credentials and rights.
+account without ever buying, or a customer record without an account -- a sale
+recorded on an outside platform creates exactly that. Keeping them apart is
+why this module manages only credentials and rights.
 
 Accounts are never deleted, only deactivated. A user who has placed orders
 cannot be removed without breaking the history those orders belong to, and
@@ -81,7 +81,7 @@ _EMAIL_TAKEN = "An account with that email already exists"
 def create_user(body: AccountCreate, db: DbSession, _: AdminUser) -> User:
     """Open an account for a customer or a fellow administrator.
 
-    The shop's registration makes only customers, and promotion needed the
+    The shop's registration makes only customers, and promotion needs the
     person to have registered first; this is how an administrator adds either
     directly.
     """

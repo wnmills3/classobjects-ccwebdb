@@ -16,7 +16,7 @@ Layout follows `docs/database-design.md`:
     images          files, derivatives and their uses (section 8)
     sales           listings, customers, orders, shipments (section 9)
     auctions        consigning lots to a sale, and settling it (section 9)
-    scaffold        the users table, all that remains of the demo
+    scaffold        the users table (section 13)
 """
 
 from __future__ import annotations
@@ -138,15 +138,14 @@ from .valuation import Composition, MetalPrice, ValuationSnapshot
 #: Reference tables, in dependency order. Seeding, export **and the reference
 #: API** all walk this list, so a new classifier table joins the process by
 #: being added here -- and a table left out of it has no
-#: `/api/reference/<table>` endpoint at all, which is how `sales_fee_kind`
-#: reached the console with a vocabulary the dialog could never fetch.
-#: `test_every_reference_table_is_registered` (`tests/test_reference.py`) is
-#: what now catches the omission rather than a 404 in a browser.
+#: `/api/reference/<table>` endpoint at all.
+#: `test_every_reference_table_is_registered` (`tests/test_reference.py`)
+#: catches the omission.
 #:
-#: A table with no `backend/data/reference/<table>.json` is fine here:
+#: A table with no rows in any `backend/data/reference/*.json` is fine here:
 #: `seeding.seed_all` skips a table with no rows, which is how
-#: `sales_venue_kind` and `sales_fee_kind` -- both seeded by their migration
-#: -- have always been listed without a seed file.
+#: `sales_fee_kind` -- seeded by the baseline migration -- is listed without
+#: seed rows.
 REFERENCE_MODELS: tuple[type[ReferenceMixin], ...] = (
     ItemKind,
     SetForm,

@@ -34,8 +34,9 @@ import { orNull } from '../../shared/text'
  * `OfferDialog.jsx`'s per-item rows make.
  *
  * No letter is D, E or F: Chrome and Edge keep those for the address bar and
- * menus on Windows. Save is not V here -- "Record sale" has no V -- so it is
- * C, the letter that survives in both "Record sale" and "Recording...".
+ * menus on Windows. The button is not a `SaveButton` -- its label is "Record
+ * sale" -- so it takes an Alt letter of its own: C, which survives in both
+ * "Record sale" and "Recording...". Ctrl+S records as well.
  */
 const KEYS = {
   price: 'r',
@@ -111,9 +112,8 @@ export default function RecordSaleDialog({
         // `false` is the spec's default: a line's money is divided among the
         // items it carried by each one's cost basis, and **equal** is only
         // ever chosen explicitly. For a single-item sale the two are the
-        // same thing, which is what this said when no lot could be sold.
-        // A lot listing can now be sold here, so the choice is real -- and
-        // this dialog deliberately offers no control for it. Cost-weighted
+        // same thing; for a lot listing the choice is real -- and this
+        // dialog deliberately offers no control for it. Cost-weighted
         // is the right default, an equal division is the rarer case, and
         // adding a control nobody has asked for would put a question in
         // front of every outside sale. The gap is recorded in
@@ -153,8 +153,7 @@ export default function RecordSaleDialog({
 
   // `subjectOf`, not `item_code`. The Listings page offers "Record sale..."
   // on any active row that is not the shop's own, and a lot listing on eBay
-  // is exactly such a row: this read "Record sale of null on eBay" -- on the
-  // window that enters the money.
+  // is exactly such a row, and it has no item code to name.
   const label = `Record sale of ${subjectOf(listing)} on ${listing.venue_name}`
 
   return (

@@ -9,10 +9,10 @@ import ForSaleNotice from '../ForSaleNotice'
 /**
  * The set as it leaves this panel: no note is null, never the empty string.
  *
- * A row added with the note box left alone already sent null, but a note
- * typed and then cleared sent "". The two mean the same thing to a person and
- * are different rows to the database, so one of them would come back as an
- * empty note that reads as a note. Normalized on the way out only: what is
+ * A row added with the note box left alone holds null; a note typed and then
+ * cleared holds "". The two mean the same thing to a person and are different
+ * rows to the database, where "" would come back as an empty note that reads
+ * as a note. Normalized on the way out only: what is
  * being typed stays exactly as typed.
  */
 function withNoEmptyDetails(rows) {
@@ -142,13 +142,12 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
   const loading = !controlled && rows === null
 
   // The heading is inside the panel rather than at each of the three mount
-  // points, so every one of them says what this is: without it the panel read
-  // as a stray dropdown whose only accessible name was the table's own name,
+  // points, so every one of them says what this is: without it the panel reads
+  // as a stray dropdown whose only accessible name is the table's own name,
   // `error_type`. `field` is the shape the item editor's other rows use (see
   // AttributesField): the label in the first grid column, the controls in the
   // second. In Receiving and the new-item form, where no `.edit-form` grid is
-  // in play, it lays out as a plain block -- still labeled, which is the
-  // part that was missing everywhere.
+  // in play, it lays out as a plain block, still labeled.
   return (
     <div className="field errors-panel" data-help="errors">
       <span>Errors</span>
@@ -191,8 +190,8 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
               onChange={(e) => setType(e.target.value)}
               allowAdd
               labelOnly
-              // No top-level `applies_to` field -- see AttributesField in
-              // ItemEditForm.jsx for the same shape. An error type added here
+              // No top-level `applies_to` field -- see AttributesField.jsx
+              // for the same shape. An error type added here
               // without the item's side would fit no kind and vanish from
               // this very picker the moment it appeared (`fitsKind`, whose
               // exact inverse `sideFor` is); `error_type` has no
@@ -205,7 +204,7 @@ export default function ErrorsPanel({ itemId, kind, value, onChange, saleState }
             />
             {/* Labeled, not just placeheld: a placeholder disappears the
                 moment anything is typed, and "details" beside a picker whose
-                own name is `error_type` said nothing about which error it
+                own name is `error_type` says nothing about which error it
                 belongs to. */}
             <input
               aria-label="details for the error being added"

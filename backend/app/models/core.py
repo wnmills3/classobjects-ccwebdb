@@ -289,8 +289,8 @@ class InventoryItem(TimestampMixin, Base):
     year_start: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     year_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: The piece carries no date at all -- a gold bar, an undated round --
-    #: as distinct from a year not recorded yet (owner, 2026-10-01). It holds
-    #: no year while set, and "No year recorded" does not list it.
+    #: as distinct from a year not recorded yet. It holds no year while set,
+    #: and "No year recorded" does not list it.
     no_date: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), nullable=False
     )
@@ -355,6 +355,16 @@ class InventoryItem(TimestampMixin, Base):
         nullable=False,
     )
 
+    #: The design series -- Morgan Dollar, Winged Liberty Head Dime.
+    #:
+    #: On the item rather than on `coin_detail` so that faceting groups by an
+    #: indexed foreign key on the table already being scanned: grouping by a
+    #: joined column is most of the cost of a search. It also lets a banknote
+    #: carry a series without a second path.
+    series_id: Mapped[int | None] = mapped_column(
+        ForeignKey("series.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+
     # -- lineage ----------------------------------------------------------
     #: The lot this piece was broken out of, if it was.
     #:
@@ -363,15 +373,6 @@ class InventoryItem(TimestampMixin, Base):
     #: it here, so the cost basis of every piece can be traced back to the
     #: purchase it actually came from -- which is the whole requirement for a
     #: defensible gain calculation years later.
-    #: The design series -- Morgan Dollar, Winged Liberty Head Dime.
-    #:
-    #: On the item rather than on `coin_detail` so that faceting groups by an
-    #: indexed foreign key on the table already being scanned. Measured
-    #: earlier: grouping by a joined column was most of the cost of the whole
-    #: search. It also lets a banknote carry a series without a second path.
-    series_id: Mapped[int | None] = mapped_column(
-        ForeignKey("series.id", ondelete="RESTRICT"), index=True, nullable=True
-    )
     parent_item_id: Mapped[int | None] = mapped_column(
         ForeignKey(_FK_INVENTORY_ITEM, ondelete="RESTRICT"),
         index=True,
@@ -423,7 +424,7 @@ class InventoryItem(TimestampMixin, Base):
     #: number (`https://www.ebay.com/itm/<id>`). Every piece of one listing
     #: carries the same id, so a lot's pieces stay traceable to it, and it
     #: is how a purchase is matched to the seller's order records
-    #: (`app.ebay_orders`, owner 2026-09-25). Text: ids are identifiers, not
+    #: (`app.ebay_orders`). Text: ids are identifiers, not
     #: quantities. **Not unique**, and not an order: a seller lists many of
     #: one coin under one id and it is bought in several orders (CC-000684
     #: and CC-000685 share 124766588249 across two), so the index is plain.
@@ -497,11 +498,11 @@ class InventoryItem(TimestampMixin, Base):
     # -- weight, in troy ounces, never a float ----------------------------
     #: Weight multiplies straight into money, so it gets the same treatment as
     #: money: NUMERIC, not float. Six decimal places represents every real
-    #: figure exactly, down to a silver dime at 0.072338 ozt.
+    #: figure exactly, down to a silver dime at 0.072340 ozt.
     gross_weight_ozt: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 6), nullable=True
     )
-    #: The melt input. A Morgan dollar weighs 0.859370 ozt but contains only
+    #: The melt input. A Morgan dollar weighs 0.859380 ozt but contains only
     #: 0.773440 ozt of silver, because it is 90% fine.
     fine_weight_ozt: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 6), nullable=True

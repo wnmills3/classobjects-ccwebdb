@@ -52,9 +52,8 @@ describe('EndOfferConfirm', () => {
 
   it('names the lot and its size rather than a null item code', () => {
     // The whole reason this dialog names anything: "a person who has two
-    // offers open needs to know which one this is". It asked "End listing #7
-    // for null on eBay?" for every lot, which answers that question with
-    // nothing at all.
+    // offers open needs to know which one this is". A lot has no item code,
+    // and "for null on eBay" would answer that question with nothing at all.
     show(LOT)
     expect(
       screen.getByRole('heading', {
@@ -90,7 +89,7 @@ describe('EndOfferConfirm', () => {
   })
 
   it('still says a paused row resumes nothing', () => {
-    // The pre-existing split, kept: ending a paused store listing destroys
+    // Ending a paused store listing destroys
     // the row that was set aside, and leaves the offer that paused it alone.
     show({ ...ITEM, status: 'paused' })
     expect(screen.getByText(/that offer is not affected/)).toBeVisible()

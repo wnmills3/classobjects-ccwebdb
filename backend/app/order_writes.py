@@ -141,7 +141,7 @@ def _lock_listings(db: Session, ids: set[int]) -> dict[int, Listing]:
     listings belong to, then their items, then the listings -- each kind in
     one ascending statement, with a confirming re-read of the member set. It
     is the same function `offer` and `end_offer` call, which is what makes the
-    order a single definition rather than four call sites that agree by hand.
+    order a single definition rather than call sites that agree by hand.
 
     What stays this function's own is everything after the lock.
     ``populate_existing`` matters as much as the lock itself -- without it, a
@@ -321,9 +321,7 @@ def _sync_shares(
     own docstring asks callers not to widen -- and, worse, would leave the
     collection **cached empty** for the rest of the session: adding the share
     with `db.add` does not invalidate a relationship collection an earlier
-    read already populated. That stale empty collection is what made
-    `sales_writes` and `routers.offers` read shares with their own `select()`
-    instead of the relationship. With the flag, a checkout line's shares are
+    read already populated. With the flag, a checkout line's shares are
     never consulted and never poisoned.
 
     **Where the member list comes from differs by branch, and that is the
@@ -345,8 +343,7 @@ def _sync_shares(
     same cost weighting, rather than moved into one row.
 
     An update branch that finds no shares at all -- a line written before
-    shares existed -- falls through to the insert branch, which is what the
-    single-item version of this function did.
+    shares existed -- falls through to the insert branch.
 
     Fees are not known at checkout or a plain revision -- neither prices
     them -- so a new share's `fee_amount` keeps its zero default, and an
@@ -407,8 +404,8 @@ def place_order(
     A line that buys a **lot** listing outright ends that listing as sold and
     ends the lot with it, which a sold-out item listing does not get
     (`_settle_sold_lots` has the whole of why). Only for a shop order: a sale
-    recorded from elsewhere passes a `venue`, and `sales_writes.record_sale`
-    ends its own listing.
+    recorded from elsewhere passes a `venue`, and
+    `sales_writes.record_sale_lines` ends its own listings.
 
     `external_order_id` is the platform's own order number, for a sale
     recorded from elsewhere; None for a shop checkout. It is a constructor
@@ -481,7 +478,7 @@ def place_order(
     # Lot listings this order buys outright, to be ended as sold once the
     # shares below exist -- see `_settle_sold_lots` for both halves of why.
     # Only for a shop order: a sale recorded from somewhere else passes a
-    # `venue`, and `sales_writes.record_sale` ends that listing itself.
+    # `venue`, and `sales_writes.record_sale_lines` ends that listing itself.
     sold_lots: list[Listing] = []
     for line in sorted(lines, key=lambda line: line.listing_id):
         listing = listings[line.listing_id]

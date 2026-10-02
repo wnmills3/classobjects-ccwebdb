@@ -1,4 +1,4 @@
-"""Sales platforms (selling design, phase 1)."""
+"""Sales platforms (docs/specs/selling-design.md)."""
 
 from __future__ import annotations
 

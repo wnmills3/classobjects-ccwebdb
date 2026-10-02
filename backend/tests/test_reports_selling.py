@@ -282,9 +282,9 @@ def test_a_lots_cost_basis_is_the_sum_of_its_live_open_members(
 ) -> None:
     """A deleted member and one released from the lot both contribute nothing.
 
-    Released is not named in the task brief, but it is the same kind of
-    fact as deleted: `released_at` means "no longer in this lot"
-    (`lot_writes.open_members` reads it the same way), so a row this report
+    Released is the same kind of fact as deleted: `released_at` means "no
+    longer in this lot" (`lot_writes.open_members` reads it the same way),
+    so a row this report
     would otherwise double-count as still held is excluded here too.
     """
     venue = _venue(db, "ebay")
@@ -379,11 +379,9 @@ def test_days_listed_is_today_minus_listed_at(
 
     Anchored to local noon (`_local_noon`), not UTC midnight of a calendar
     date: `listed_at` is `timestamptz`, and the database session may hand
-    it back tagged with a zone offset from UTC (this machine's,
-    `America/New_York`, measured directly). Anchoring to UTC midnight
+    it back tagged with a zone offset from UTC. Anchoring to UTC midnight
     instead would land on the wrong side of local midnight and be off by a
-    day, which is exactly the failure this test caught before
-    `local_date` existed.
+    day, which is the failure `local_date` prevents.
     """
     venue = _venue(db, "ebay")
     _item_listing(db, make_item(), venue, listed_at=_local_noon(7), title="Week old")
@@ -404,17 +402,16 @@ def test_local_date_uses_the_local_zone_not_the_session_zone(
     situation `local_date`'s docstring describes. `23:30` local, seven days
     ago, is deliberately close to local midnight: read back under a UTC
     session, that instant's UTC calendar date can be a day later than its
-    local one (measured directly on this machine, `America/New_York`), so a
-    bare `.date()` with no conversion back to local would read the wrong
-    day. `SET LOCAL` is scoped to the current transaction; `conftest.py`'s
+    local one (it is in `America/New_York`), so a bare `.date()` with no
+    conversion back to local would read the wrong day. `SET LOCAL` is scoped
+    to the current transaction; `conftest.py`'s
     `db` fixture keeps one real transaction open for the whole test
     (`join_transaction_mode="create_savepoint"` makes `db.commit()` below
     only a savepoint release), so it is still in effect when the report
     itself reads the row back.
 
-    Mutation-tested: removing `.astimezone()` from `local_date` (leaving a
-    bare `.date()`) makes this fail with `days_listed == 6`, not 7 --
-    confirmed by hand and reverted; see `task-5-report.md`.
+    Survives: removing `.astimezone()` from `local_date` (leaving a bare
+    `.date()`) makes this fail with `days_listed == 6`, not 7.
     """
     venue = _venue(db, "ebay")
     db.execute(text("SET LOCAL TIME ZONE 'UTC'"))
@@ -797,7 +794,7 @@ def test_a_cancelled_or_refunded_order_is_excluded(
 ) -> None:
     """A refund is not a sale: the money went back.
 
-    Ruling: neither a refunded order's returned money nor a cancelled
+    Neither a refunded order's returned money nor a cancelled
     order's never-happened sale counts here -- the same exclusion, tested
     with one parametrized case each.
     """
@@ -1403,7 +1400,7 @@ def test_no_receipt_transition_is_unknown(db: Session, make_item: ItemFactory) -
     result = SL_AGING.run(db, AgingParams())
     assert result.rows[0]["age"] == "Unknown"
     assert any("no recorded receipt" in note for note in result.notes)
-    assert any("2026-09-25" in note for note in result.notes)
+    assert any("which is not an arrival" in note for note in result.notes)
 
 
 def test_kinds_within_a_bucket_are_ordered_by_sort_order(
@@ -1589,7 +1586,7 @@ def test_nothing_held_returns_no_totals(db: Session) -> None:
     assert result.notes == ["Nothing is held and not offered."]
 
 
-def test_the_unknown_note_agrees_in_number_and_gives_the_reset_as_its_reason(
+def test_the_unknown_note_agrees_in_number_and_gives_its_reason(
     db: Session, make_item: ItemFactory
 ) -> None:
     priced_item(make_item, "No history", Decimal("25.00"))
@@ -1599,7 +1596,7 @@ def test_the_unknown_note_agrees_in_number_and_gives_the_reset_as_its_reason(
 
     (note,) = SL_AGING.run(db, AgingParams()).notes
     assert note.startswith("1 item of 2 has no recorded receipt and is bucketed")
-    assert "2026-09-25" in note
+    assert "which is not an arrival" in note
     assert "most" not in note
 
     priced_item(make_item, "Also no history", Decimal("25.00"))

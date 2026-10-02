@@ -125,7 +125,7 @@ def is_date_field(field: FieldInfo) -> bool:
 
 
 #: The three ways a report may bucket a date column into a time period.
-#: `pr_spend` and (Ruling P2-2) `mn_tax` share this one Literal, one
+#: `pr_spend` and `mn_tax` share this one Literal, one
 #: `period_start` and one `period_label`, rather than each writing its own
 #: `date_trunc` and its own text for "2026 Q3" -- so the two reports can
 #: never drift apart on what a period is or how it reads.

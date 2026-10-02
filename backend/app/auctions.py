@@ -7,10 +7,10 @@ same single-writer discipline `offering_writes.py` keeps for
 `lifecycle_writes.py` keeps for `inventory_item.storage_location_id`.
 `routers.auctions` creates a `draft` auction and edits its wording and
 dates, and a lot's number and reserve, directly: fields with no consequence
-for this module to own. It also constructs `StorageLocation`
+for this module to own. This module also writes `storage_location`
 rows: `_consigned_location` creates a house's consigned location on first
-use (spec, *Consignment custody*), and nothing else in `backend/app`
-constructs one, so no other writer of that table is bypassed.
+use (spec, *Consignment custody*). The only other writer of that table is
+`routers.acquisitions`, which creates the locations the owner adds by hand.
 
 Adding or removing a lot **is** an offer or an ending, so this module calls
 `offering_writes.offer` and `offering_writes.end_offer` for that half rather
@@ -21,7 +21,7 @@ call `lifecycle_writes.set_location` rather than assigning
 `inventory_item.storage_location_id` directly. And settling a lot **is** a
 sale, so `settle` calls `sales_writes.record_sale_lines` for the money rather
 than writing `sales_order`, `sales_order_fee` or `sales_order_item_share`
-here (spec, *Where record-a-sale lives*); what it needs beyond recording one
+here (spec, *Who writes what*); what it needs beyond recording one
 sale is several listings on one order, because a house bills per buyer.
 
 `remove_lot`, `cancel` and `settle` share the `returned_to_location_id`
@@ -761,7 +761,7 @@ class SettlementLine:
     `buyer_username` of `None` means two different things depending on the
     platform, which is why `settle` reads it against the venue's kind rather
     than on its own: at an auction house it is the standing **undisclosed
-    buyer** the spec's *Decisions* table gives every house that does not name
+    buyer** the spec's *Rules* table gives every house that does not name
     its buyers, and anywhere else it is a blank the owner still has to fill
     in.
     """
@@ -833,8 +833,8 @@ def _lock_auction(db: Session, auction: Auction) -> Auction:
     re-reads `settled`, and is refused by `settle`'s own status check with a
     message rather than by a unique index or a half-written second order.
 
-    `db.flush()` first, because `Session.refresh` expires an instance
-    *before* it reloads: a pending change to this auction would be discarded
+    `db.flush()` first, because `populate_existing` overwrites the instance
+    with the row as read: a pending change to this auction would be discarded
     rather than written. `populate_existing` for the reason
     `offering_writes._lock_listing_rows` gives -- a row already in the
     identity map comes back locked but stale without it.
@@ -1093,9 +1093,10 @@ def settle(
 
     `fees` is keyed by buyer username -- `None` for an auction house's
     undisclosed buyer -- because a house bills per buyer **order**, not per
-    lot. That is the one thing settlement needed that recording a single
-    sale did not, and it is why `sales_writes` grew `record_sale_lines`
-    rather than this module growing a loop over `record_sale`: two lots to
+    lot. That is the one thing settlement needs that recording a single
+    sale does not, and it is why `settle` calls
+    `sales_writes.record_sale_lines` rather than looping over `record_sale`:
+    two lots to
     one buyer are one order with two lines, and the order's fee divides
     across the coins of both.
 

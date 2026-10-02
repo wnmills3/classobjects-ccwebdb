@@ -74,8 +74,8 @@ describe('InventoryTable', () => {
   })
 
   it('does not offer a sort the server cannot perform', async () => {
-    // The server lists what it can sort by; a header outside that list used
-    // to look clickable and put "cannot sort by" on the page.
+    // The server lists what it can sort by; a header outside that list must
+    // not be clickable, or a click puts "cannot sort by" on the page.
     const user = userEvent.setup()
     const { props } = setup({ sortable: ['item_code'] })
     await user.click(screen.getByRole('columnheader', { name: /cost/i }))
