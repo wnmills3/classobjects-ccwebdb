@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
 import HelpScope from '../HelpScope'
 import { useRequest } from '../../shared/useRequest'
+import ItemEditDialog from './inventory/ItemEditDialog'
+import { useLinkedItem } from './inventory/useLinkedItem'
 import ReportForm from './reports/ReportForm'
 import ReportView from './reports/ReportView'
 import { refusalText } from './reports/values'
@@ -24,6 +27,10 @@ import { refusalText } from './reports/values'
  * Everything in the address but `report` is handed to the API as it stands,
  * which validates it: a bad value, or a parameter the report does not have,
  * comes back as a 422 and is shown beside the form by the parameter's label.
+ *
+ * **A row naming one item opens its editor here**, over the report, so
+ * closing it returns to the report rather than to an inventory page; a save
+ * runs the report again, since the item may no longer belong in it.
  */
 export default function Reports() {
   const [search, setSearch] = useSearchParams()
@@ -51,6 +58,11 @@ export default function Reports() {
     if (next.toString() === search.toString()) run.reload()
     else setSearch(next)
   }
+
+  // The item a row's link asked for, `{ view, code }`, while its editor is
+  // open or being found.
+  const [opening, setOpening] = useState(null)
+  const opened = useLinkedItem(opening?.view, opening?.code)
 
   const values = report
     ? Object.fromEntries(
@@ -90,21 +102,36 @@ export default function Reports() {
                   report={report}
                   values={values}
                   error={run.error}
+                  busy={run.busy}
+                  ranAt={result?.run_at}
                   onRun={runWith}
                 />
-                {run.busy && <p className="muted">Running...</p>}
                 {result && (
                   <ReportView
                     key={`${runKey}|${result.run_at}`}
                     report={report}
                     result={result}
                     sent={sent}
+                    onOpenItem={setOpening}
                   />
                 )}
+                {opened.problem && <p className="error">{opened.problem}</p>}
               </>
             )}
           </div>
         </div>
+        {opened.id && (
+          <ItemEditDialog
+            key={opened.id}
+            itemId={opened.id}
+            onSaved={() => {
+              setOpening(null)
+              run.reload()
+            }}
+            onChanged={run.reload}
+            onClose={() => setOpening(null)}
+          />
+        )}
       </section>
     </HelpScope>
   )

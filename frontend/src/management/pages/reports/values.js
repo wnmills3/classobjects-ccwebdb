@@ -62,6 +62,24 @@ export function choiceText(choice) {
 }
 
 /**
+ * The one item a row's drill-down names, as `{ view, code }`, or null.
+ *
+ * A drill that is an inventory view asked for a single item code and nothing
+ * else (`/inventory/coins?item=CC-000412`, or `?item_code=`) is a link to
+ * that item; the Reports page opens its editor in place rather than leaving
+ * for the view. A drill with any other filter is a search and stays a link.
+ */
+export function itemOfDrill(drill) {
+  const [path, query = ''] = String(drill ?? '').split('?')
+  const view = /^\/inventory\/(coins|currency)$/.exec(path)?.[1]
+  if (!view) return null
+  const asked = [...new URLSearchParams(query)]
+  if (asked.length !== 1) return null
+  const [[key, code]] = asked
+  return (key === 'item' || key === 'item_code') && code ? { view, code } : null
+}
+
+/**
  * A parameter's value in words, as the print heading gives it.
  *
  * An absent date bound (an emptied date means no limit, not a

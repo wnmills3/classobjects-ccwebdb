@@ -8,6 +8,7 @@ import {
   cellText,
   compareValues,
   isBlank,
+  itemOfDrill,
   paramText,
   withMissing,
 } from './values'
@@ -29,7 +30,7 @@ const PORTRAIT_COLUMNS = 6
  * `sent` is the parameters the result was asked for with; the workbook is
  * asked for with exactly the same ones.
  */
-export default function ReportView({ report, result, sent }) {
+export default function ReportView({ report, result, sent, onOpenItem }) {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
   const fileUrl = useRef(null)
@@ -97,7 +98,7 @@ export default function ReportView({ report, result, sent }) {
       </div>
       {exportError && <p className="error">{exportError}</p>}
 
-      {rowCount > 0 && <ReportTable result={result} />}
+      {rowCount > 0 && <ReportTable result={result} onOpenItem={onOpenItem} />}
       {result.notes.length > 0 && (
         <ul className="report-notes">
           {result.notes.map((note) => (
@@ -117,10 +118,11 @@ export default function ReportView({ report, result, sent }) {
  * row still links where it did. A row with a drill-down links to it from
  * the cell of the report's `link_column` -- the one naming what the link
  * opens, such as a listing's item code -- or from its first cell when the
- * result names none; a percentage links to the same page narrowed to the
+ * result names none. A drill-down naming a single item is handed to
+ * `onOpenItem` instead of being followed; a percentage links to the same page narrowed to the
  * items missing that column's field.
  */
-function ReportTable({ result }) {
+function ReportTable({ result, onOpenItem }) {
   const [sort, setSort] = useState({ key: null, descending: false })
   const { columns } = result
   const linkKey = result.link_column ?? columns[0]?.key
@@ -189,6 +191,7 @@ function ReportTable({ result }) {
                   value={row[column.key]}
                   drill={drill}
                   linked={column.key === linkKey}
+                  onOpenItem={onOpenItem}
                 />
               </td>
             ))}
@@ -214,10 +217,22 @@ function alignment(column) {
   return NUMERIC_KINDS.has(column.kind) ? 'num' : undefined
 }
 
-function Cell({ column, value, drill, linked }) {
+function Cell({ column, value, drill, linked, onOpenItem }) {
   const text = cellText(column.kind, value)
   if (!drill || isBlank(value)) return text
-  if (linked) return <Link to={drill}>{text}</Link>
+  if (linked) {
+    // A drill naming one item opens its editor over the report, so closing
+    // it comes back here; any other drill is a page to go to.
+    const item = onOpenItem ? itemOfDrill(drill) : null
+    if (item) {
+      return (
+        <button type="button" className="link" onClick={() => onOpenItem(item)}>
+          {text}
+        </button>
+      )
+    }
+    return <Link to={drill}>{text}</Link>
+  }
   if (column.kind === 'percent') {
     return <Link to={withMissing(drill, column.key)}>{text}</Link>
   }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { dateTime } from '../../../shared/format'
 import { choiceText, paramHelp } from './values'
 
 /**
@@ -11,8 +12,10 @@ import { choiceText, paramHelp } from './values'
  * The form holds its own draft; the page keys it by the address, so a new
  * address -- another report, Back, a link -- starts it again from there.
  * `error` is why the last run was refused, shown beside the fields it names.
+ * Beside Run it says the run is out (`busy`), or when the answer on screen
+ * was run (`ranAt`).
  */
-export default function ReportForm({ report, values, error, onRun }) {
+export default function ReportForm({ report, values, error, busy, ranAt, onRun }) {
   const [draft, setDraft] = useState(values)
   const [emptyError, setEmptyError] = useState('')
 
@@ -51,9 +54,16 @@ export default function ReportForm({ report, values, error, onRun }) {
         </div>
       )}
       {(emptyError || error) && <p className="error">{emptyError || error}</p>}
-      <button type="submit" data-help="report_run">
-        Run
-      </button>
+      <div className="row">
+        <button type="submit" data-help="report_run">
+          Run
+        </button>
+        {/* The same rows often come back, so the time is what shows that
+            pressing Run ran the report again. */}
+        <span className="muted" role="status">
+          {busy ? 'Running...' : ranAt ? `Ran ${dateTime(ranAt)}` : ''}
+        </span>
+      </div>
     </form>
   )
 }
