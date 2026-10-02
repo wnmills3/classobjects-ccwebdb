@@ -6,7 +6,7 @@ vi.mock('../../api', () => ({
     getInventoryItem: vi.fn(),
     getItemSales: vi.fn(),
     getItemHistory: vi.fn(),
-    getSuggestedDescription: vi.fn(),
+    suggestDescriptionFromScreen: vi.fn(),
     updateInventoryItem: vi.fn(),
     setItemReview: vi.fn(),
     getItemErrors: vi.fn(),

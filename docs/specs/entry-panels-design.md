@@ -180,8 +180,12 @@ page:
   which builds the item in memory, adds the attributes its serial earns, and
   writes a description in the owner's style: grade, errors and attributes
   first, then what the piece is. It fills the box for editing and writes
-  nothing; the item editor's button asks `GET
-  /api/inventory/{id}/suggested-description` of the saved item.
+  nothing. The item editor's button posts what it shows to `POST
+  /api/inventory/{id}/suggested-description`: its unsaved changes as Save
+  would send them, and the errors panel's set when that has changed. They
+  are put onto the loaded item in memory, described, and rolled back, so
+  the button never waits for Save. `GET` on the same path still describes
+  the saved record.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
