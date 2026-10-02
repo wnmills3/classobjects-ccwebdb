@@ -12,6 +12,8 @@ separating them.
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,7 +28,15 @@ from .imaging import (
 from .models import DerivativeKind, Image, ImageDerivative
 from .storage import get_storage
 
-__all__ = ["DERIVATIVE_SIZES", "ingest"]
+__all__ = ["DERIVATIVE_SIZES", "ingest", "is_web_address"]
+
+_WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def is_web_address(value: str | None) -> bool:
+    """Whether `value` is an `http(s)` address: the only kind kept as a source."""
+    return bool(value and _WEB_ADDRESS.match(value))
+
 
 #: Longest edge per rendition. Both are generated at ingest rather than on
 #: demand: a catalog page asks for dozens of thumbnails at once, and
@@ -69,12 +79,15 @@ def ingest(
     """Cleanse, store and record one file. Idempotent by content.
 
     `source_url` is the web address the bytes were fetched from, when they
-    were; it is kept on the image.
+    were; it is kept on the image. Anything that is not an `http(s)` address
+    is not kept: the console shows what is stored as a link.
 
     Raises `imaging.ImageRejected` if the bytes are not something we are
     willing to store.
     """
     cleansed = cleanse(raw)
+    if not is_web_address(source_url):
+        source_url = None
 
     existing = db.scalar(select(Image).where(Image.sha256 == cleansed.sha256))
     if existing is not None:
