@@ -519,7 +519,9 @@ Note Green Seal." for a note, "MS64 First Strike 1921-S Morgan Dollar.
 Silver, 0.7734 ozt fine." for a coin -- with recorded errors beside the attributes, right after the grade ("Error Note, Misaligned Print (Reverse) 1963A $1 ..."). No field
 labels, district, signatures or grading service. It writes nothing; Save
 keeps it. It is never disabled: unsaved edits, photographs and errors
-are described as shown, and nothing else is saved by it. A listing's
+are described as shown. The server makes a dry run of Save, defaults
+included, and rolls it back, so the wording matches what Save would give
+and nothing is kept; the item's row is locked only for that request. A listing's
 suggested title carries the
 designation too ("PMG 64 EPQ").
 

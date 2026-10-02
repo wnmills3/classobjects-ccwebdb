@@ -182,10 +182,12 @@ page:
   first, then what the piece is. It fills the box for editing and writes
   nothing. The item editor's button posts what it shows to `POST
   /api/inventory/{id}/suggested-description`: its unsaved changes as Save
-  would send them, and the errors panel's set when that has changed. They
-  are put onto the loaded item in memory, described, and rolled back, so
-  the button never waits for Save. `GET` on the same path still describes
-  the saved record.
+  would send them, and the errors panel's set when that has changed. The
+  server runs Save's own steps on them inside the request's transaction --
+  defaults included, so the metal and fine weight a save fills from the
+  composition are there -- describes the item as that left it, and rolls
+  everything back. The button never waits for Save. `GET` on the same path
+  still describes the saved record.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
