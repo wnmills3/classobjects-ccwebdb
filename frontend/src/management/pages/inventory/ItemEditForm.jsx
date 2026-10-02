@@ -97,6 +97,12 @@ const CLASSIFIERS = [
   // A coin's own detail. `P` is Philadelphia; blank is not recorded.
   ['Mint', 'mint', 'mint', null],
   ['Denomination', 'denomination', 'denomination', 'm'],
+  // The design series, offered for the item's kind. A pass fills it from the
+  // denomination and year or from the description, so this is where a wrong
+  // answer is corrected.
+  ['Series', 'series', 'series', null],
+  // A bar or a round has no face value: its shape is recorded here.
+  ['Bullion form', 'bullion_form', 'bullion_form', null],
   // What kind of set -- proof set, mint set, mixed sets. A coin's side only.
   ['Set form', 'set_form', 'set_form', null],
   ['Country', 'country', 'country', 'u'],
@@ -1142,7 +1148,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 filter={
                   key === 'grade'
                     ? (grade) => gradeFitsKind(grade, value('item_kind'))
-                    : key === 'denomination' || key === 'grade_designation'
+                    : key === 'denomination' ||
+                        key === 'grade_designation' ||
+                        key === 'series'
                       ? (entry) => fitsKind(entry, value('item_kind'))
                       : undefined
                 }
