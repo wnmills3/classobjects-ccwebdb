@@ -511,15 +511,16 @@ is deleted, a new one is recorded as graded by the item's grading service.
 separated) beside the grade; each change is logged in `item_field_change`.
 
 **Suggest description** under the Description box fills the draft with a
-description written from the item's saved record
-(`GET /api/inventory/{id}/suggested-description`, `app.item_descriptions`),
+description written from what the editor shows, unsaved changes included
+(`POST /api/inventory/{id}/suggested-description`, `app.item_descriptions`),
 in the owner's style: grade, designation and attributes first, then what it
 is -- "Superb Gem Unc 67 EPQ Radar 1999 $1 S/N F06566560R. Federal Reserve
 Note Green Seal." for a note, "MS64 First Strike 1921-S Morgan Dollar.
 Silver, 0.7734 ozt fine." for a coin -- with recorded errors beside the attributes, right after the grade ("Error Note, Misaligned Print (Reverse) 1963A $1 ..."). No field
 labels, district, signatures or grading service. It writes nothing; Save
-keeps it. It is disabled while other edits are unsaved,
-since it reads the saved item. A listing's suggested title carries the
+keeps it. It is never disabled: unsaved edits, photographs and errors
+are described as shown, and nothing else is saved by it. A listing's
+suggested title carries the
 designation too ("PMG 64 EPQ").
 
 **A kind change moves the detail row** (`app.item_kinds`). An item made a

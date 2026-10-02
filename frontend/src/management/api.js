@@ -67,8 +67,11 @@ export const api = {
   getItemSales: (id) => send(`/api/inventory/${id}/sales`),
   // Everything logged about an item, newest first: edits, status, location.
   getItemHistory: (id) => send(`/api/inventory/${id}/history`),
-  // A description written from the item's saved record; writes nothing.
-  getSuggestedDescription: (id) => send(`/api/inventory/${id}/suggested-description`),
+  // A description of the item as the editor shows it: `changes` as Save would
+  // send them, `errors` the panel's whole set (omitted: the saved ones).
+  // Writes nothing.
+  suggestDescriptionFromScreen: (id, body) =>
+    send(`/api/inventory/${id}/suggested-description`, { method: 'POST', body }),
   // The same wording for an item not saved yet, from the New item form.
   suggestDraftDescription: (draft) =>
     send('/api/inventory/suggested-description', { method: 'POST', body: draft }),

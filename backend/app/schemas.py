@@ -1398,6 +1398,21 @@ class ItemDraftIn(BaseModel):
     errors: list[ItemErrorIn] = Field(default_factory=list)
 
 
+class ItemSuggestIn(BaseModel):
+    """What the item editor shows that is not saved yet, for a description.
+
+    `changes` is exactly what Save would send (`InventoryItemUpdate`), so a
+    suggestion reads the screen rather than the saved record. `errors`, when
+    sent, is the whole set the errors panel holds; omitted, the saved errors
+    are read. Nothing is written.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    changes: InventoryItemUpdate = Field(default_factory=InventoryItemUpdate)
+    errors: list[ItemErrorIn] | None = None
+
+
 class ItemErrorsRequest(BaseModel):
     """The whole set of errors an item carries.
 

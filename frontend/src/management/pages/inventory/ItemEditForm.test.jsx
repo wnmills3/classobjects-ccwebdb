@@ -562,13 +562,13 @@ describe('Mint and variety', () => {
 
 describe('Suggest description', () => {
   beforeEach(() => {
-    api.getSuggestedDescription = vi.fn()
+    api.suggestDescriptionFromScreen = vi.fn()
   })
 
   it('puts the suggestion into the draft for the owner to edit and save', async () => {
     const user = userEvent.setup()
     api.getInventoryItem.mockResolvedValue({ ...item, version: 4 })
-    api.getSuggestedDescription.mockResolvedValue({
+    api.suggestDescriptionFromScreen.mockResolvedValue({
       description: 'Series 1999 $1 Federal Reserve Note. Graded PMG 67 EPQ.',
     })
     api.updateInventoryItem.mockResolvedValue({})
@@ -577,7 +577,7 @@ describe('Suggest description', () => {
 
     await user.click(screen.getByRole('button', { name: 'Suggest description' }))
     const box = await screen.findByDisplayValue(/Graded PMG 67 EPQ/)
-    expect(api.getSuggestedDescription).toHaveBeenCalledWith(12)
+    expect(api.suggestDescriptionFromScreen).toHaveBeenCalledWith(12, { changes: {} })
     // Nothing is saved until Save.
     expect(api.updateInventoryItem).not.toHaveBeenCalled()
     await user.type(box, ' Radar.')
@@ -592,22 +592,75 @@ describe('Suggest description', () => {
     )
   })
 
-  it('waits for other edits to be saved, since it reads the saved record', async () => {
+  it('reads what is on the screen: unsaved edits are sent, not waited for', async () => {
+    // Owner, 2026-10-01: the suggestion used to wait for Save.
     const user = userEvent.setup()
     api.getInventoryItem.mockResolvedValue({
       ...item,
       version: 4,
       source_title: 'Dime',
     })
+    api.suggestDescriptionFromScreen.mockResolvedValue({ description: 'A dime.' })
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     await user.type(await screen.findByDisplayValue('Dime'), '!')
-    expect(screen.getByRole('button', { name: 'Suggest description' })).toBeDisabled()
-    expect(screen.getByText(/Save your other changes first/)).toBeInTheDocument()
+
+    const suggest = screen.getByRole('button', { name: 'Suggest description' })
+    expect(suggest).toBeEnabled()
+    await user.click(suggest)
+    expect(api.suggestDescriptionFromScreen).toHaveBeenCalledWith(12, {
+      changes: { source_title: 'Dime!' },
+    })
+    expect(await screen.findByDisplayValue('A dime.')).toBeInTheDocument()
+    // The edit is still there, waiting for Save.
+    expect(screen.getByDisplayValue('Dime!')).toBeInTheDocument()
+  })
+
+  it('does not send the description being replaced', async () => {
+    const user = userEvent.setup()
+    api.suggestDescriptionFromScreen.mockResolvedValue({ description: 'New words.' })
+    render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
+    const box = await screen.findByDisplayValue('Mercury Dime')
+    await user.type(box, ' typed')
+    await user.click(screen.getByRole('button', { name: 'Suggest description' }))
+    expect(api.suggestDescriptionFromScreen).toHaveBeenCalledWith(12, { changes: {} })
+  })
+
+  it('stays offered while only photographs wait to be saved', async () => {
+    const user = userEvent.setup()
+    api.suggestDescriptionFromScreen.mockResolvedValue({
+      description: '1916-D Mercury dime.',
+    })
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      {
+        reference: emptyReference({
+          tables: {
+            image_role: [
+              { code: 'obverse', label: 'Obverse', source: 'seeded', extra: {} },
+            ],
+          },
+        }),
+      },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    await user.upload(
+      await screen.findByLabelText('Photo'),
+      new File(['a'], 'front.jpg', { type: 'image/jpeg' }),
+    )
+
+    const suggest = screen.getByRole('button', { name: 'Suggest description' })
+    expect(suggest).toBeEnabled()
+    await user.click(suggest)
+    expect(await screen.findByDisplayValue('1916-D Mercury dime.')).toBeInTheDocument()
+    // The held photograph is still held.
+    expect(
+      screen.getByRole('combobox', { name: 'What front.jpg shows' }),
+    ).toBeInTheDocument()
   })
 
   it('keeps the description when there is nothing to suggest', async () => {
     const user = userEvent.setup()
-    api.getSuggestedDescription.mockResolvedValue({ description: '' })
+    api.suggestDescriptionFromScreen.mockResolvedValue({ description: '' })
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
     await user.click(screen.getByRole('button', { name: 'Suggest description' }))

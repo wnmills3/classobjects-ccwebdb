@@ -569,22 +569,32 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     </>
   )
 
-  // The suggestion reads the saved item, so it is offered only while
-  // nothing but the description itself is waiting to be saved.
-  const unsavedOtherThanDescription = Object.keys(draft).some(
-    (key) => key !== 'description',
-  )
-
+  // The suggestion reads the screen: every unsaved change, as Save would
+  // send it, and the errors the panel holds (owner, 2026-10-01). It used to
+  // read the saved record and so waited for Save.
   async function suggestDescription() {
+    // Not the description itself: the suggestion is what replaces it.
+    const changes = { ...draft }
+    delete changes.description
+    if (Array.isArray(changes.cert_numbers)) {
+      changes.cert_numbers = changes.cert_numbers.filter(Boolean)
+    }
+    const body = { changes }
+    if (errorsChanged) {
+      body.errors = errors.map((row) => ({
+        error_type: row.error_type,
+        details: row.details ?? null,
+      }))
+    }
     try {
-      const { description } = await api.getSuggestedDescription(itemId)
+      const { description } = await api.suggestDescriptionFromScreen(itemId, body)
       if (!description) {
         setSuggestNote('Nothing recorded yet to describe it from.')
         return
       }
       // Into the draft only: the owner edits it, and Save keeps it.
       setDraft({ ...draft, description })
-      setSuggestNote('Suggested from the record -- edit it, then Save to keep it.')
+      setSuggestNote('Suggested from what is shown -- edit it, then Save to keep it.')
     } catch (err) {
       setSuggestNote(err.message)
     }
@@ -891,19 +901,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         {/* Outside the label: a button inside a label with no `for`
             takes the label from its input. */}
         <div className="row">
-          <button
-            type="button"
-            className="link"
-            disabled={unsavedOtherThanDescription}
-            onClick={suggestDescription}
-          >
+          <button type="button" className="link" onClick={suggestDescription}>
             Suggest description
           </button>
-          <span className="muted">
-            {unsavedOtherThanDescription
-              ? 'Save your other changes first: the suggestion is written from the saved record.'
-              : suggestNote}
-          </span>
+          <span className="muted">{suggestNote}</span>
         </div>
 
         {/* The seller's listing id -- eBay's item number. Filled from the

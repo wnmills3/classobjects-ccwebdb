@@ -49,7 +49,7 @@ from .models import (
 )
 from .offer_titles import name_of
 
-__all__ = ["FANCY_SERIAL", "Features", "suggested_description"]
+__all__ = ["FANCY_SERIAL", "Features", "saved_features", "suggested_description"]
 
 #: The attribute that says only "some digit pattern": left out beside one.
 FANCY_SERIAL = "fancy_serial"
@@ -87,6 +87,31 @@ def _grade(item: InventoryItem) -> str | None:
     return grade
 
 
+def saved_features(db: Session, item: InventoryItem) -> Features:
+    """A saved item's attributes and errors, as `Features` gives an unsaved one's."""
+    return Features(
+        attributes=saved_attributes(db, item),
+        errors=list(
+            db.execute(
+                select(ErrorType.label, ItemError.details)
+                .join(ErrorType, ErrorType.id == ItemError.error_type_id)
+                .where(ItemError.inventory_item_id == item.id)
+                .order_by(ErrorType.sort_order, ErrorType.label)
+            ).tuples()
+        ),
+    )
+
+
+def saved_attributes(db: Session, item: InventoryItem) -> list[str]:
+    """A saved item's attribute labels, in the order a description lists them."""
+    held = item_attributes.held_attributes(db, item.id)
+    # "Fancy Serial" is the umbrella over the digit patterns: beside the
+    # pattern itself -- Trinary, Radar -- it says nothing more.
+    if len(held) > 1:
+        held = [h for h in held if h.code != FANCY_SERIAL]
+    return [h.label for h in held]
+
+
 def _features(db: Session, item: InventoryItem, given: Features | None) -> list[str]:
     """Attributes then errors, as one part: ``Radar, Misaligned Print (Reverse)``.
 
@@ -94,23 +119,8 @@ def _features(db: Session, item: InventoryItem, given: Features | None) -> list[
     details in brackets. Comma-separated, so several do not run together.
     `given` stands in for the tables when the item is not saved.
     """
-    if given is not None:
-        attributes, errors = given.attributes, given.errors
-    else:
-        held = item_attributes.held_attributes(db, item.id)
-        # "Fancy Serial" is the umbrella over the digit patterns: beside the
-        # pattern itself -- Trinary, Radar -- it says nothing more.
-        if len(held) > 1:
-            held = [h for h in held if h.code != FANCY_SERIAL]
-        attributes = [h.label for h in held]
-        errors = list(
-            db.execute(
-                select(ErrorType.label, ItemError.details)
-                .join(ErrorType, ErrorType.id == ItemError.error_type_id)
-                .where(ItemError.inventory_item_id == item.id)
-                .order_by(ErrorType.sort_order, ErrorType.label)
-            ).tuples()
-        )
+    features = given if given is not None else saved_features(db, item)
+    attributes, errors = features.attributes, features.errors
     labels = [_SERIAL_SUFFIX.sub("", label) for label in attributes]
     labels += [
         f"{label} ({details})" if details else label for label, details in errors
