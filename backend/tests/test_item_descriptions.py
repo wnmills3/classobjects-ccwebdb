@@ -11,6 +11,7 @@ from decimal import Decimal
 
 from app.item_descriptions import suggested_description
 from app.models import (
+    CoinDetail,
     CurrencyDetail,
     Denomination,
     ErrorType,
@@ -150,6 +151,32 @@ def test_a_coin_leads_with_its_name_then_its_metal(db: Session) -> None:
         f"1947 {_label(db, Series, 'morgan_dollar')}. "
         f"{_label(db, Metal, 'silver')}, 0.7734 ozt fine."
     )
+
+
+def test_a_coins_variety_follows_its_name(db: Session) -> None:
+    """An overmintmark is entered as the variety and read after the name.
+
+    Owner, 2026-10-02: "O/S" goes in Variety (`fieldHelp.js`), and the
+    description and the listing title both carry it.
+    """
+    item = build_item(
+        db,
+        year_start=1900,
+        series_id=code_id(db, Series, "morgan_dollar"),
+        metal_id=code_id(db, Metal, "silver"),
+        fine_weight_ozt=Decimal("0.773440"),
+        grading_service_id=None,
+        grade_id=None,
+    )
+    db.add(CoinDetail(inventory_item_id=item.id, variety="O/S"))
+    db.commit()
+    db.refresh(item)
+
+    assert suggested_description(db, item) == (
+        f"1900 {_label(db, Series, 'morgan_dollar')} O/S. "
+        f"{_label(db, Metal, 'silver')}, 0.77344 ozt fine."
+    )
+    assert "Morgan Dollar O/S" in suggested_title(db, item)
 
 
 def test_an_item_with_nothing_recorded_gets_an_empty_suggestion(db: Session) -> None:
