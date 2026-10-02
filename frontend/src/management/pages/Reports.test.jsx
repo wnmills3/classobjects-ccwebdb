@@ -8,7 +8,20 @@ vi.mock('../api', () => ({
     listReports: vi.fn(),
     runReport: vi.fn(),
     downloadReportWorkbook: vi.fn(),
+    searchInventory: vi.fn(),
   },
+}))
+
+// The editor itself is tested where it lives; here it is the fact that it
+// opened, for which item, and what the page does when it saves or closes.
+vi.mock('./inventory/ItemEditDialog', () => ({
+  default: ({ itemId, onSaved, onClose }) => (
+    <div role="dialog" aria-label="Edit item">
+      <p>editing item {itemId}</p>
+      <button onClick={onSaved}>Save</button>
+      <button onClick={onClose}>Close</button>
+    </div>
+  ),
 }))
 
 import { api } from '../api'
@@ -327,6 +340,97 @@ describe('Reports page', () => {
     await user.click(screen.getByRole('button', { name: 'Run' }))
 
     await waitFor(() => expect(api.runReport).toHaveBeenCalledTimes(2))
+  })
+
+  it('says beside Run when the answer on screen was run', async () => {
+    const user = userEvent.setup()
+    const answer = outstanding({ overdue_days: '30' })
+    const first = { ...answer, run_at: '2026-09-28T10:15:00-04:00' }
+    const second = { ...answer, run_at: '2026-09-28T10:16:30-04:00' }
+    api.runReport.mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+    renderAt('/reports?report=pr_outstanding&overdue_days=30')
+    const said = await screen.findByText(`Ran ${dateTime(first.run_at)}`)
+    expect(said).toHaveAttribute('role', 'status')
+
+    await user.click(screen.getByRole('button', { name: 'Run' }))
+
+    // The same rows come back: the time is what shows the report ran again.
+    expect(
+      await screen.findByText(`Ran ${dateTime(second.run_at)}`),
+    ).toBeInTheDocument()
+  })
+
+  describe('a row that names one item', () => {
+    // The outstanding report's shape, with rows that drill to single items.
+    const itemRows = () => ({
+      ...outstanding({ overdue_days: '30' }),
+      drills: ['/inventory/coins?item_code=CC-000458', '/inventory/coins?kind=coin'],
+    })
+
+    beforeEach(() => {
+      api.runReport.mockImplementation(() => Promise.resolve(itemRows()))
+      api.searchInventory.mockResolvedValue({
+        rows: [
+          // Part of the code matches both; only the exact one may open.
+          { id: 4580, item_code: 'CC-0004580' },
+          { id: 458, item_code: 'CC-000458' },
+        ],
+      })
+    })
+
+    it('opens the editor over the report and leaves the address alone', async () => {
+      const user = userEvent.setup()
+      renderAt('/reports?report=pr_outstanding&overdue_days=30')
+      await user.click(await screen.findByRole('button', { name: 'Order-0012' }))
+
+      expect(await screen.findByText('editing item 458')).toBeInTheDocument()
+      expect(api.searchInventory).toHaveBeenCalledWith('coins', {
+        item_code: 'CC-000458',
+        limit: 200,
+      })
+      expect(screen.getByTestId('address').textContent).toBe(
+        '?report=pr_outstanding&overdue_days=30',
+      )
+      // The report is still there, behind the editor.
+      expect(screen.getByRole('cell', { name: 'Order-0012' })).toBeInTheDocument()
+    })
+
+    it('comes back to the report when the editor is closed', async () => {
+      const user = userEvent.setup()
+      renderAt('/reports?report=pr_outstanding&overdue_days=30')
+      await user.click(await screen.findByRole('button', { name: 'Order-0012' }))
+      await user.click(await screen.findByRole('button', { name: 'Close' }))
+
+      expect(screen.queryByRole('dialog', { name: 'Edit item' })).toBeNull()
+      expect(screen.getByRole('cell', { name: 'Order-0012' })).toBeInTheDocument()
+      // Closing changed nothing, so nothing is asked again.
+      expect(api.runReport).toHaveBeenCalledTimes(1)
+    })
+
+    it('runs the report again after a save, since the row may be gone', async () => {
+      const user = userEvent.setup()
+      renderAt('/reports?report=pr_outstanding&overdue_days=30')
+      await user.click(await screen.findByRole('button', { name: 'Order-0012' }))
+      await user.click(await screen.findByRole('button', { name: 'Save' }))
+
+      await waitFor(() => expect(api.runReport).toHaveBeenCalledTimes(2))
+      expect(screen.queryByRole('dialog', { name: 'Edit item' })).toBeNull()
+    })
+
+    it('leaves a drill that is a search as a link to that search', async () => {
+      renderAt('/reports?report=pr_outstanding&overdue_days=30')
+      const search = await screen.findByRole('link', { name: 'Order-0020' })
+      expect(search).toHaveAttribute('href', '/inventory/coins?kind=coin')
+    })
+
+    it('says so when the item the row names cannot be found', async () => {
+      const user = userEvent.setup()
+      api.searchInventory.mockResolvedValue({ rows: [] })
+      renderAt('/reports?report=pr_outstanding&overdue_days=30')
+      await user.click(await screen.findByRole('button', { name: 'Order-0012' }))
+
+      expect(await screen.findByText('No item CC-000458 found.')).toBeInTheDocument()
+    })
   })
 
   it('runs a choice parameter from a dropdown', async () => {

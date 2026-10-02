@@ -1057,7 +1057,10 @@ normal question. Leaving any other parameter empty is refused ("Enter a value
 for ..."), rather than silently running that parameter's default. The report and its parameters are kept in the
 address (`/management/reports?report=pr_outstanding&overdue_days=30`), so a result can be
 bookmarked or reopened; Run writes only the parameters that differ from their
-defaults.
+defaults. Pressing **Run** on an unchanged form runs the report again, and the
+time beside the button ("Ran ...") is when the answer on screen was run. The
+help band explains Run, Export workbook and Print while the pointer is over
+them, as it does any console button that has help.
 
 A row that names items links to where they are: the inventory search narrowed
 to that row's values, or Receiving's `?order=<id>`. A percent cell in
@@ -1065,9 +1068,11 @@ to that row's values, or Receiving's `?order=<id>`. A percent cell in
 -- the items with that field empty, kind-aware, the same test the report
 itself counts by. The inventory page shows that filter as a chip reading
 "Missing: <field>"; clicking the chip removes it. A row standing for exactly one item, rather than a count of
-many, links straight to that item's editor with `?item=CC-######`; opening the
-inventory search on that address opens the item on load, not only from a
-click in the table.
+many, opens that item's editor over the report itself: closing the editor
+returns to the report, and saving runs the report again, since the item may
+no longer belong in it. The same item can be reached by address,
+`/management/inventory/coins?item=CC-######`: opening the inventory search on
+that address opens the item on load, not only from a click in the table.
 
 ### Export workbook and Print
 

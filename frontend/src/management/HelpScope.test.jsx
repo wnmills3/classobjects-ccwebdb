@@ -38,6 +38,43 @@ function Go({ to }) {
   )
 }
 
+describe('help for a button', () => {
+  function Actions() {
+    return (
+      <HelpProvider>
+        <HelpScope>
+          <label data-help="series_year">
+            Series year
+            <input type="text" />
+          </label>
+          <button type="button" data-help="report_print">
+            Print
+          </button>
+        </HelpScope>
+        <HelpBar />
+      </HelpProvider>
+    )
+  }
+
+  it('is shown when the pointer is over it, since clicking would press it', async () => {
+    renderWithProviders(<Actions />)
+    const band = screen.getByRole('contentinfo', { name: 'Field help' })
+
+    await userEvent.hover(screen.getByRole('button', { name: 'Print' }))
+
+    expect(band).toHaveTextContent(FIELD_HELP.report_print.text)
+  })
+
+  it('leaves a field to be explained by focus, not by the pointer passing', async () => {
+    renderWithProviders(<Actions />)
+    const band = screen.getByRole('contentinfo', { name: 'Field help' })
+
+    await userEvent.hover(screen.getByLabelText(/series year/i))
+
+    expect(band).toHaveTextContent(/click in a field/i)
+  })
+})
+
 describe('the console help band', () => {
   function Shell() {
     return (

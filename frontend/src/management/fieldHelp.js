@@ -605,6 +605,7 @@ export const FIELD_HELP = {
     title: 'Drill down',
     text:
       'A linked value opens the page behind that row: the items it counts, or the ' +
-      'purchase to receive. A linked percentage opens the items missing that field.',
+      'purchase to receive. A linked item code opens that item to edit, over the ' +
+      'report. A linked percentage opens the items missing that field.',
   },
 }

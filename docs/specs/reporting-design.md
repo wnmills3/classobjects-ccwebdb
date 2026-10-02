@@ -229,11 +229,18 @@ and exits 2. Read-only, so no `--commit`.
   header click sorting ascending, then descending, then back to the report's
   own order. Money is shown with `money()` from the decimal string, never
   parsed into a float.
+- Pressing Run on an unchanged form runs the report again. Beside the button
+  the form says "Running..." while the request is out and then when the
+  answer on screen was run ("Ran <time>"), since the same rows often come
+  back and nothing else would show that it ran.
 - A row with a drill-down links to the page that fixes or shows it, in the
-  same tab. An `sl_offered` row that offers one item links straight to that
-  item's editor: `/inventory/<coins|currency>?item=CC-######`
-  (`dq_series_years` links to the search narrowed by `item_code` instead).
-  The inventory page reads `item` from its own address and opens
+  same tab. A drill that names exactly one item -- an `sl_offered` row
+  offering one item (`/inventory/<coins|currency>?item=CC-######`), a
+  `dq_series_years` row (`?item_code=CC-######`) -- is not followed: the
+  Reports page opens that item's editor over the report
+  (`reports/values.js`, `itemOfDrill`), so closing it returns to the report,
+  and a save runs the report again. The same address works on its own: the
+  inventory page reads `item` from its own address and opens
   that item's editor on load (not only from a click in its table), then
   drops `item` from the address again when the editor closes, replacing that
   history entry rather than pushing a new one, so Back does not reopen it.

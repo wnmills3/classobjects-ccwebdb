@@ -1,7 +1,5 @@
 import { useState } from 'react'
 
-import { api } from '../api'
-import { useRequest } from '../../shared/useRequest'
 import BulkEditBar from './inventory/BulkEditBar'
 import FilterPanel from './inventory/FilterPanel'
 import InventoryTable from './inventory/InventoryTable'
@@ -9,30 +7,7 @@ import ItemEditDialog from './inventory/ItemEditDialog'
 import ReviewPane from './inventory/ReviewPane'
 import { COIN_VIEW, CURRENCY_VIEW, PAGE_SIZE } from './inventory/specs'
 import { useInventorySearch } from './inventory/useInventorySearch'
-
-/**
- * The item a report's link names (`?item=CC-001234`), as `{ id, problem }`.
- *
- * Found through the search's item-code filter, which matches part of a
- * code, so only the row whose code is exactly the one asked for counts:
- * `CC-00001` must not open `CC-000012`. `problem` says why nothing opened.
- */
-function useLinkedItem(view, code) {
-  const wanted = code?.trim()
-  const request = useRequest(wanted ? `${view}:${wanted}` : null, () =>
-    api
-      .searchInventory(view, { item_code: wanted, limit: 200 })
-      .then(
-        (body) =>
-          body.rows.find((row) => row.item_code.toLowerCase() === wanted.toLowerCase())
-            ?.id ?? null,
-      ),
-  )
-  if (!wanted || request.busy) return { id: null, problem: '' }
-  if (request.error) return { id: null, problem: request.error }
-  if (request.data == null) return { id: null, problem: `No item ${code} found.` }
-  return { id: request.data, problem: '' }
-}
+import { useLinkedItem } from './inventory/useLinkedItem'
 
 /**
  * Staff inventory browse, one screen per kind.
