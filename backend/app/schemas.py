@@ -190,6 +190,8 @@ class ImageOut(BaseModel):
     width: int | None = None
     height: int | None = None
     captured_at: datetime | None = None
+    #: The web address it was fetched from, when it was.
+    source_url: str | None = None
     thumbnail_url: str
     image_url: str
 
@@ -212,6 +214,8 @@ class ImageLinkOut(BaseModel):
     is_primary: bool = False
     sort_order: int = 0
     captured_at: datetime | None = None
+    #: The web address the photograph was fetched from, when it was.
+    source_url: str | None = None
     #: These two names are `routers.images.image_urls`'s own keys, so the
     #: helper can be splatted straight in. It returns `image_url`, not
     #: `web_url` -- matching `ImageOut`, which does the same.

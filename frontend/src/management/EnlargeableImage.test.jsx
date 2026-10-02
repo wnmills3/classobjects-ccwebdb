@@ -49,6 +49,28 @@ describe('EnlargeableImage', () => {
     expect(dialog()).toBeNull()
   })
 
+  it('links to where the photograph was fetched from, when that is known', async () => {
+    const user = userEvent.setup()
+    const from = 'https://i.ebayimg.com/images/g/abc/s-l500.jpg'
+    renderWithProviders(
+      <EnlargeableImage src={THUMB} largeSrc={LARGE} alt="Obverse" sourceUrl={from} />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Enlarge Obverse' }))
+    const link = within(dialog()).getByRole('link', {
+      name: 'Where it came from',
+      hidden: true,
+    })
+    expect(link).toHaveAttribute('href', from)
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  it('offers no such link for a photograph uploaded from a file', async () => {
+    const user = userEvent.setup()
+    open()
+    await user.click(screen.getByRole('button', { name: 'Enlarge Obverse' }))
+    expect(within(dialog()).queryByRole('link', { hidden: true })).toBeNull()
+  })
+
   it('is a plain picture when there is no large rendition to show', () => {
     renderWithProviders(<EnlargeableImage src={THUMB} alt="Obverse" />)
     expect(screen.getByRole('img', { name: 'Obverse' })).toBeInTheDocument()

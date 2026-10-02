@@ -591,7 +591,7 @@ photograph may serve several purposes with different visibility.
 
 | Table | Columns | Notes |
 |---|---|---|
-| `image` | `sha256` (unique), `storage_key`, `media_type`, `byte_size`, `width`, `height`, `captured_at`, `source_ref` | the file, stored once, content-addressed; `source_ref` is the original filename |
+| `image` | `sha256` (unique), `storage_key`, `media_type`, `byte_size`, `width`, `height`, `captured_at`, `source_ref`, `source_url` | the file, stored once, content-addressed; `source_ref` is the original filename, `source_url` the web address it was fetched from, when it was |
 | `image_derivative` | `image_id`, `kind` (`thumb` \| `web`), `storage_key`, `width`, `height` | unique `(image_id, kind)` |
 | `item_image` | `inventory_item_id` (**nullable**), `image_id`, `image_role_id`, `is_primary`, `sort_order`, `note` | unique `(inventory_item_id, image_id)` |
 | `listing_image` | `listing_id`, `image_id`, `sort_order` | unique pair |

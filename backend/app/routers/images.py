@@ -66,6 +66,7 @@ def to_image_out(image: Image) -> ImageOut:
         width=image.width,
         height=image.height,
         captured_at=image.captured_at,
+        source_url=image.source_url,
         **image_urls(image.sha256),
     )
 
@@ -181,7 +182,12 @@ def add_image_from_url(
 
     position = image_links.next_position(db, item.id)
     try:
-        image = ingest(db, raw, source_ref=f"{item.item_code}_{position:02d}.jpg")
+        image = ingest(
+            db,
+            raw,
+            source_ref=f"{item.item_code}_{position:02d}.jpg",
+            source_url=payload.url,
+        )
     except ImageRejected as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -276,7 +282,10 @@ def list_images(
         ).all()
         return [
             ImageLinkOut(
-                image_id=row.id, captured_at=row.captured_at, **image_urls(row.sha256)
+                image_id=row.id,
+                captured_at=row.captured_at,
+                source_url=row.source_url,
+                **image_urls(row.sha256),
             )
             for row in rows
         ]
@@ -302,6 +311,7 @@ def link_out(db: Session, link: ItemImage) -> ImageLinkOut:
         is_primary=link.is_primary,
         sort_order=link.sort_order,
         captured_at=link.image.captured_at,
+        source_url=link.image.source_url,
         **image_urls(link.image.sha256),
     )
 

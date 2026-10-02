@@ -97,6 +97,9 @@ class Image(TimestampMixin, Base):
     )
     #: The original filename or path, for tracing an import back to its source.
     source_ref: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    #: The web address the photograph was fetched from, when it was: a
+    #: seller's listing picture. Null for one uploaded from a file.
+    source_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
 
     derivatives: Mapped[list[ImageDerivative]] = relationship(
         back_populates="image", cascade="all, delete-orphan"

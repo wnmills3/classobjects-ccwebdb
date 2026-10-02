@@ -126,6 +126,7 @@ function PhotoRow({ row, onLinked }) {
       <EnlargeableImage
         src={row.thumbnail_url}
         largeSrc={row.image_url}
+        sourceUrl={row.source_url}
         alt="Unattached photograph"
       />
       <ItemPicker onPick={pickItem} />
