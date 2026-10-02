@@ -22,6 +22,8 @@ looked at, and only its empty fields are filled. Two sources, in order:
   commonest gross weight, fineness and fine weight among those. Guessed
   values are never counted as peers, and a peer weight is not applied to an
   item whose own fineness differs -- a sterling round is not a .999 one.
+  Peers that record no fineness are taken to be fine metal, so their weight
+  goes only to an item of unknown fineness or of .999 and above.
 
 Fine weight is then gross weight times fineness, by the same rule a save
 applies (`classifier_defaults.weight_outcome`), unless the peers record a
@@ -263,6 +265,27 @@ def _peers(
     return peers
 
 
+#: At or above this an item is fine metal: what peers recording a fine
+#: weight and no fineness are taken to be.
+_FINE = Decimal("0.999")
+
+
+def _same_metal(fineness: Decimal | None, peer_fineness: Decimal | None) -> bool:
+    """Whether peers' weight can stand for an item of this fineness.
+
+    An item whose fineness is unknown takes its peers' as it stands. One
+    whose fineness is known takes their weight only when theirs is the same
+    -- or, where the peers record none, when the item is fine metal: a
+    sterling medal among one-ounce .999 rounds is not one of them, whatever
+    its form says.
+    """
+    if fineness is None:
+        return True
+    if peer_fineness is None:
+        return fineness >= _FINE
+    return fineness == peer_fineness
+
+
 def plan(db: Session) -> Plan:
     """Every guess the pass would write. Writes nothing."""
     rows = (
@@ -324,7 +347,7 @@ def plan(db: Session) -> Plan:
                 (item.bullion_form_id, item.metal_id)
             ]
             why = f"{agreeing} of {total} items of its form and metal"
-            if fineness is None or peer_fineness is None or fineness == peer_fineness:
+            if _same_metal(fineness, peer_fineness):
                 if fineness is None and peer_fineness is not None:
                     guess("fineness", peer_fineness, WEIGHT_PEERS, why)
                     fineness = peer_fineness
