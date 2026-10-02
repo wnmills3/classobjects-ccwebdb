@@ -107,6 +107,11 @@ class Facet:
 
     `table=None` means the column already holds the value and needs no lookup,
     which is how a plain integer like `series_year` is faceted.
+
+    `filter` names the filter that narrows by this facet where the two are
+    called differently (`item_kind` is counted, `kind` is filtered); the
+    facet is counted without that filter, so its picker goes on offering the
+    other values.
     """
 
     id_column: str
@@ -114,6 +119,7 @@ class Facet:
     join: tuple[str, ...] = ()
     alias: str = "i"
     label_column: str = "code"
+    filter: str | None = None
 
 
 @dataclass(frozen=True)
@@ -418,13 +424,15 @@ COIN_VIEW = ViewSpec(
     sortable=(*_SHARED_SORT, "fine_weight_ozt"),
     facets={
         **_SHARED_FACETS,
-        "item_kind": Facet("item_kind_id", "item_kind"),
+        "item_kind": Facet("item_kind_id", "item_kind", filter="kind"),
         "metal": Facet("metal_id", "metal"),
         "bullion_form": Facet("bullion_form_id", "bullion_form"),
         # Resolves to `mark` because the matching filter compares against
         # `m.mark`. Offering `mint.code` here would list values the filter
         # then rejects with a 422.
-        "mint_mark": Facet("mint_id", "mint", (_J_COIN_DETAIL,), "cd", "mark"),
+        "mint_mark": Facet(
+            "mint_id", "mint", (_J_COIN_DETAIL,), "cd", "mark", filter="mint"
+        ),
     },
     issues=COIN_ISSUES,
 )
@@ -481,7 +489,12 @@ CURRENCY_VIEW = ViewSpec(
         "note_type": Facet("note_type_id", "note_type", (_J_CUR_DETAIL,), "cud"),
         "seal_color": Facet("seal_color_id", "seal_color", (_J_CUR_DETAIL,), "cud"),
         "fed_district_letter": Facet(
-            "fed_district_id", "fed_district", (_J_CUR_DETAIL,), "cud", "letter"
+            "fed_district_id",
+            "fed_district",
+            (_J_CUR_DETAIL,),
+            "cud",
+            "letter",
+            filter="fed_district",
         ),
         # No reference table: the column already holds the value the filter
         # compares against.
@@ -966,19 +979,30 @@ def count_facets(
     offering all of them buries the ones present. Counted against the current
     filters, so the numbers describe what narrowing further would do.
 
+    **A facet is counted without its own filter.** With Status set to
+    Received, the status counts are still those of every status under the
+    other filters -- what choosing each one instead would give. Counted with
+    its own filter, a picker offers only the value already chosen, and the
+    way from Received to Returned is to clear it first and look again.
+
     Grouped by foreign key id, which uses the existing indexes, then resolved
     to codes in one small lookup per table. Grouping by the code instead would
     force every join first.
 
     `names` is `names_matching(db, spec, query)`, read here when not given.
     """
-    clauses, joins, bound = _conditions(
-        spec, params, query, _names(db, spec, query, names)
-    )
-    where = " WHERE " + " AND ".join(clauses)
+    matched = _names(db, spec, query, names)
+    shared = _conditions(spec, params, query, matched)
 
     results: dict[str, list[dict[str, Any]]] = {}
     for name, facet in spec.facets.items():
+        own = facet.filter or name
+        if params.get(own) in (None, ""):
+            clauses, joins, bound = shared
+        else:
+            others = {key: value for key, value in params.items() if key != own}
+            clauses, joins, bound = _conditions(spec, others, query, matched)
+        where = " WHERE " + " AND ".join(clauses)
         facet_joins = list(joins)
         if facet.join:
             facet_joins.append(facet.join)

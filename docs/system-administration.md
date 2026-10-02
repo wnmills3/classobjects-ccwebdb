@@ -442,7 +442,10 @@ denomination and their descriptions a lot number.
 
 Text is matched as written: `ms65` and `ms-65` find different items.
 
-The dropdowns and year boxes narrow whatever the search finds. A dropdown
+The dropdowns and year boxes narrow whatever the search finds. Each dropdown
+lists the values present among the items the *other* filters find, with a
+count beside each, so a dropdown already set still offers its other values:
+with Status on Received, Returned is still there to choose. A dropdown
 reading **None recorded** is disabled because no matching item has that field
 filled in. The **Item code** and **Seller's item id** boxes, and on currency
 the **Serial number** box, match part of the value and take the same `%` and
