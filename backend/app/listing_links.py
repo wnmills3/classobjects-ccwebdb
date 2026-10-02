@@ -15,9 +15,18 @@ its purchase's when that is recognisably a lot's page (it carries a lot id),
 and a purchase with none takes the one address its items share. A purchase
 whose items name several lots gives none and takes none.
 
-Nothing already recorded is replaced. `create_item` applies the purchase
-rule as each item is entered; this module's pass fills what older records
-lack, every item's change logged in its History under the person named.
+An eBay purchase's own web address is its order page, built from its order
+number: `https://order.ebay.com/ord/show?orderId=<number>`. eBay removes a
+listing's page after a while and keeps the order's, so the purchase takes
+the order page when it has no address, when its address is eBay's list of
+purchases (which names no order), and when its address is a listing's page
+that one of its items already carries -- that listing is still recorded, on
+the item. Any other address an eBay purchase holds is kept and reported.
+
+Otherwise nothing already recorded is replaced. `create_item` applies the
+purchase rule as each item is entered; this module's pass fills what older
+records lack, every item's change logged in its History under the person
+named.
 
     python -m app.listing_links                          report, touching nothing
     python -m app.listing_links --commit --by EMAIL      fill the gaps
@@ -39,6 +48,7 @@ from sqlalchemy.orm import Session
 
 from . import field_changes
 from .database import SessionLocal
+from .ebay_orders import ORDER_PAGE
 from .models import InventoryItem, PurchaseOrder, User, Vendor
 
 #: Where each site puts a listing's own id in its web address. An order page
@@ -53,6 +63,11 @@ _EBAY_ID = re.compile(r"^\d{9,15}$")
 _WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 #: Vendors whose order holds many listings: their order page is no lot's.
 _MARKETPLACES = ("ebay", "whatnot")
+#: An order number as eBay writes one; only these build an order page.
+_EBAY_ORDER_NUMBER = re.compile(r"^\d{2}-\d{5}-\d{5}$")
+_EBAY_ORDER_PAGE = re.compile(r"order\.ebay\.[a-z.]+/ord/", re.IGNORECASE)
+#: eBay's list of everything bought: an address that names no order.
+_EBAY_PURCHASES = re.compile(r"ebay\.[a-z.]+/mye/myebay/purchase", re.IGNORECASE)
 
 
 def listing_id_from(url: str | None) -> str | None:
@@ -93,6 +108,10 @@ class Plan:
     listing_ids: dict[int, str] = field(default_factory=dict)
     listing_urls: dict[int, str] = field(default_factory=dict)
     order_urls: dict[int, str] = field(default_factory=dict)
+    #: eBay purchases taking their order page, by purchase id.
+    order_pages: dict[int, str] = field(default_factory=dict)
+    #: eBay purchases whose other address is kept: (purchase id, address).
+    kept: list[tuple[int, str]] = field(default_factory=list)
 
 
 def plan(db: Session) -> Plan:
@@ -141,6 +160,40 @@ def plan(db: Session) -> Plan:
             (only,) = lots
             if _web_address(only):
                 todo.order_urls[order.id] = only
+
+    # The listings each purchase's items carry, as recorded or as planned
+    # above: a listing page on an eBay purchase gives way only to these.
+    carried: dict[int, set[str]] = {}
+    for item, order, _vendor in rows:
+        for listing in (
+            item.sellers_item_id,
+            todo.listing_ids.get(item.id),
+            listing_id_from(item.listing_url),
+            listing_id_from(todo.listing_urls.get(item.id)),
+        ):
+            if listing:
+                carried.setdefault(order.id, set()).add(listing)
+    seen: set[int] = set()
+    for _item, order, vendor in rows:
+        if order.id in seen:
+            continue
+        seen.add(order.id)
+        if not _is_ebay(vendor):
+            continue
+        if not _EBAY_ORDER_NUMBER.match(order.order_number or ""):
+            continue
+        current = (order.source_url or "").strip()
+        if _EBAY_ORDER_PAGE.search(current):
+            continue
+        listing = listing_id_from(current)
+        if (
+            not current
+            or _EBAY_PURCHASES.search(current)
+            or (listing is not None and listing in carried.get(order.id, set()))
+        ):
+            todo.order_pages[order.id] = ORDER_PAGE.format(order.order_number)
+        else:
+            todo.kept.append((order.id, current))
     return todo
 
 
@@ -173,11 +226,14 @@ def apply(db: Session, todo: Plan, user_id: int) -> dict[str, int]:
         )
     for order_id, url in todo.order_urls.items():
         db.get_one(PurchaseOrder, order_id).source_url = url
+    for order_id, url in todo.order_pages.items():
+        db.get_one(PurchaseOrder, order_id).source_url = url
     db.flush()
     return {
         "listing_ids": len(todo.listing_ids),
         "listing_urls": len(todo.listing_urls),
         "order_urls": len(todo.order_urls),
+        "order_pages": len(todo.order_pages),
     }
 
 
@@ -195,6 +251,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"seller's item ids to read from addresses: {len(todo.listing_ids)}")
         print(f"listing addresses to fill: {len(todo.listing_urls)}")
         print(f"purchase web addresses to fill: {len(todo.order_urls)}")
+        print(f"eBay purchases to take their order page: {len(todo.order_pages)}")
+        for order_id, url in todo.kept:
+            print(f"  kept, purchase #{order_id}: {url}")
         if not args.commit:
             print("dry run: nothing written (--commit --by EMAIL to apply)")
             return 0

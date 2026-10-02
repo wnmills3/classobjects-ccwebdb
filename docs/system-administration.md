@@ -205,7 +205,7 @@ would change and writes no database rows.
 | `python -m app.series_match` | assigns a coin's series from the design its title or description names | `--commit` |
 | `python -m app.series_classify` | assigns series from denomination and year, for coins the text left and all notes | `--commit` |
 | `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial | `--commit` |
-| `python -m app.listing_links` | fills an item's listing address and seller's item id each from the other; outside eBay and Whatnot, an item and its purchase share one lot page, and each takes it from the other when missing (`docs/specs/entry-panels-design.md`, *Listing links*) | `--commit --by EMAIL` |
+| `python -m app.listing_links` | fills an item's listing address and seller's item id each from the other; outside eBay and Whatnot, an item and its purchase share one lot page, and each takes it from the other when missing; an eBay purchase takes its order page, built from its order number (`docs/specs/entry-panels-design.md`, *Listing links*) | `--commit --by EMAIL` |
 | `python -m app.ebay_orders` | fills eBay purchases' missing order numbers and items' listing ids from eBay's purchase history | `FILE... [--review FILE.xlsx] [--commit --by EMAIL]` |
 | `python -m app.photo_import` | links photographs to items by filename | `[--root DIR] [--commit]` |
 | `python -m app.vendor_cleanup` | merges, renames, re-kinds or deletes purchase sources, by explicit instruction | see *Cleaning up purchase sources* |
