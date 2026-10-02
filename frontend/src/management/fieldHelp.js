@@ -227,6 +227,13 @@ export const FIELD_HELP = {
       'Denomination blank for a set of several face values -- a denomination is one ' +
       'face value. A value that is missing can be added here by its name.',
   },
+  bullion_form: {
+    title: 'Bullion form',
+    text:
+      'What shape a piece of bullion takes: bar, round and so on. A bar or a round ' +
+      'has no face value, so it is recorded here and Denomination is left blank. ' +
+      'A value that is missing can be added here by its name.',
+  },
   storage_location_id: {
     title: 'Storage location',
     text:

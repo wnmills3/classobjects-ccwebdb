@@ -560,6 +560,90 @@ describe('Mint and variety', () => {
   })
 })
 
+describe('Series and bullion form', () => {
+  const vocabularies = emptyReference({
+    tables: {
+      series: [
+        {
+          code: 'atb_quarters',
+          label: 'America the Beautiful Quarters',
+          source: 'seeded',
+          extra: { applies_to: 'coin' },
+        },
+        {
+          code: 'state_quarters',
+          label: 'State Quarters',
+          source: 'seeded',
+          extra: { applies_to: 'coin' },
+        },
+        {
+          code: 'small_size',
+          label: 'Small Size',
+          source: 'seeded',
+          extra: { applies_to: 'currency' },
+        },
+      ],
+      bullion_form: [{ code: 'bar', label: 'Bar', source: 'seeded', extra: {} }],
+      item_kind: [
+        { code: 'coin', label: 'Coin', source: 'seeded', extra: {} },
+        { code: 'currency', label: 'Currency', source: 'seeded', extra: {} },
+      ],
+    },
+  })
+
+  async function open(overrides) {
+    api.getInventoryItem.mockResolvedValue({ ...item, version: 3, ...overrides })
+    api.updateInventoryItem.mockResolvedValue({})
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+  }
+
+  it('lets a wrong series be corrected', async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'coin', series: 'atb_quarters' })
+    const series = screen.getByRole('combobox', { name: 'series' })
+    expect(series).toHaveValue('atb_quarters')
+    // A coin is offered a coin's series, not a note's.
+    expect(within(series).queryByRole('option', { name: 'Small Size' })).toBeNull()
+    await user.selectOptions(series, 'state_quarters')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({
+          series: 'state_quarters',
+          base: expect.objectContaining({ series: 'atb_quarters' }),
+        }),
+      ),
+    )
+  })
+
+  it('lets a coin record its bullion form, and offers a note none', async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'coin', bullion_form: null })
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'bullion_form' }),
+      'bar',
+    )
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ bullion_form: 'bar' }),
+      ),
+    )
+  })
+
+  it('does not offer a note a bullion form', async () => {
+    await open({ item_kind: 'currency' })
+    expect(screen.queryByRole('combobox', { name: 'bullion_form' })).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'series' })).toBeInTheDocument()
+  })
+})
+
 describe('Suggest description', () => {
   beforeEach(() => {
     api.suggestDescriptionFromScreen = vi.fn()
