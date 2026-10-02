@@ -188,6 +188,13 @@ page:
   composition are there -- describes the item as that left it, and rolls
   everything back. The button never waits for Save. `GET` on the same path
   still describes the saved record.
+- **A coin dated outside its series** is said beside the year, in the New
+  item form and the item editor: "Morgan Dollar runs 1878-1921; 1800 is
+  outside it. Check the year." (`management/series-years.js`, from the
+  series' own `year_start`/`year_end`). A notice, never a refusal: a
+  tribute piece or restrike can fall outside the design's years. Found by
+  the owner as an 1800 Morgan dollar whose description had no weight, since
+  no composition covers 1800.
 - Pickers are `ReferenceSelect`, filtered to the item's kind
   (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
   for currency and the coin scales otherwise; changing kind across that
