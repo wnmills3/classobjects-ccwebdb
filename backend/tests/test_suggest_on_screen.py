@@ -83,6 +83,8 @@ def _error_code(db: Session, side: AppliesTo) -> str:
     [
         (COIN, {"grade": "MS65", "year_start": 1884, "year_end": 1884, "mint": "O"}),
         (COIN, {"piece_count": 3, "grading_service": None}),
+        # An overmintmark typed into Variety (owner, 2026-10-02).
+        (COIN, {"variety": "O/S"}),
         (NOTE, {"serial_number": "B27182818C", "series_letter": "A", "grade": "N66"}),
         (NOTE, {"seal_color": None}),
     ],
