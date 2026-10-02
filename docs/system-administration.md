@@ -175,7 +175,7 @@ $0.35 where 6.35% of $5.40 is $0.34); those pennies stay as computed.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `MEDIA_ROOT` | `<repo>\media` | where image bytes live. **Bytes are never stored in the database**, so no database backup includes them. Back this up separately |
+| `MEDIA_ROOT` | `<repo>\media` | where image bytes live. **Bytes are never stored in the database**, so no database backup includes them: `python -m app.media_backup copy` backs them up (*Backing up and restoring*) |
 | `THUMBNAIL_MAX_PX` | `320` | longest edge of the small rendition |
 | `WEB_MAX_PX` | `1600` | longest edge of the large rendition. Originals are never served |
 | `MAX_UPLOAD_BYTES` | 25 MB | refused before anything is decoded |
@@ -217,8 +217,9 @@ any pass with `--commit` on the live database, take a verified backup and
 read the dry-run counts.
 
 The other command-line modules are not passes: `app.seeding` and `app.seed`
-(reference data and a new database's first manager), `app.backup` and
-`app.workbook_backup` (*Backing up and restoring*), and `app.reports`
+(reference data and a new database's first manager), `app.backup`,
+`app.workbook_backup` and `app.media_backup` (*Backing up and restoring*),
+and `app.reports`
 (*Reports*). None of them has a dry run.
 
 ### eBay order numbers and listing ids
@@ -1283,13 +1284,42 @@ purchase sources*).
 A backup is only as good as the proof that it restores. This section says
 which kind of backup to take for which purpose, how to prove it, and how to
 restore. **Photograph bytes are in no database backup** -- they live under
-`MEDIA_ROOT` (*Settings*); back that folder up separately.
+`MEDIA_ROOT` (*Settings*), and `app.media_backup` copies them
+(*Photographs*, below). The workbook export runs that copy itself; a
+`pg_dump` file and a database copy do not.
 
 | Kind | Command | Use it for |
 |---|---|---|
 | **`pg_dump` file** | `pg_dump -Fc` (see *Applying a schema release*, step 1) | **the** backup before a migration or any risky `--commit`; a file that can leave the machine |
 | **Workbook** | `python -m app.workbook_backup export` | a backup a person can open, read and correct, and the only bulk way in or out of the database |
 | **Database copy** | `python -m app.backup` | a working copy beside live, on this server or any SQLAlchemy URL |
+| **Photographs** | `python -m app.media_backup copy` | the image bytes, which none of the three above holds |
+
+### Photographs
+
+```cmd
+python -m app.media_backup copy [<folder>]     media storage -> <folder>
+python -m app.media_backup check [<folder>]    <folder> against the image rows
+```
+
+The folder defaults to `ccwebdb-backups\media`. `copy` writes every file the
+image rows name -- each original and its two renditions -- under the same
+path it has in `MEDIA_ROOT`. One folder serves every backup: a photograph is
+named by its content, so a file already copied is kept and a run copies only
+what is new. Each original is hashed as it is copied; one that is missing
+from `MEDIA_ROOT`, or is no longer the bytes its row describes, is named and
+the command exits 1.
+
+`check` is the proof: it re-reads the folder, hashes every original against
+its row and confirms every rendition is there, and exits 1 naming anything
+missing or damaged. Run it after a copy that matters.
+
+**To restore**, copy the folder's contents into `MEDIA_ROOT`, keeping the
+layout:
+
+```cmd
+robocopy "%USERPROFILE%\dev\ccwebdb-backups\media" "<repo>\media" /E
+```
 
 Backups are kept beside the repository, in `ccwebdb-backups\` (on this
 machine `%USERPROFILE%\dev\ccwebdb-backups\`); the workbook export writes
@@ -1376,10 +1406,17 @@ itself, not the models, so none is missed.
 ```cmd
 python -m app.workbook_backup export                        live -> ccwebdb-backups\ccwebdb_<time>.xlsx
 python -m app.workbook_backup export --out <file.xlsx>      ... to a file you name
+    [--media <folder> | --no-media]                         where its photographs go, or none
 python -m app.workbook_backup import <file.xlsx> --to <url> workbook -> an empty database
     [--unknown-for-missing]                                 a vocabulary link to nothing -> Unknown
 python -m app.workbook_backup compare <url>                 live vs <url>, every row of every table
 ```
+
+An export also copies the photographs (*Photographs*, above) into a `media`
+folder beside the workbook, or the folder `--media` names, and exits 1 when
+one could not be backed up; `--no-media` writes the workbook alone. An import
+loads rows only: the pictures come back by copying that folder to
+`MEDIA_ROOT`.
 
 **Reading and editing it.** An empty cell is NULL; an empty string is written
 `""`. Timestamps are ISO text with their time zone (one typed with no zone is

@@ -105,6 +105,7 @@ backend/
     seed.py              first administrator plus five demo items (never on live)
     backup.py            database-to-database copy with --verify
     workbook_backup.py   the whole database to and from one Excel workbook
+    media_backup.py      the photographs' bytes copied to a folder, and checked there
     logpipe.py           size-bounded log files for the dev runtime
   alembic/               migrations, from a squashed baseline.sql
   data/reference/        shipped vocabularies as versioned JSON
