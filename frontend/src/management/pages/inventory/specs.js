@@ -35,6 +35,12 @@ export const SHARED_KEYS = {
   clear: 'c',
 }
 
+//: The seller's own id for the listing an item was bought from -- eBay's item
+//: number -- matched in part, on both views. The one filter with no letter:
+//: every letter of its label that the browser leaves free is another
+//: field's on one view or the other.
+const SELLERS_ITEM_ID = ["Seller's item id", 'sellers_item_id', '126845170680', null]
+
 export const COIN_VIEW = {
   view: 'coins',
   title: 'Coins & bullion',
@@ -84,6 +90,7 @@ export const COIN_VIEW = {
   // the value like the other text filters -- a term is a range of grades.
   textFilters: [
     ['Item code', 'item_code', 'CC-000123', 'i'],
+    SELLERS_ITEM_ID,
     ['Grade', 'grade', '65, 55%, BU+, BU%, PR69+', 'g'],
   ],
   facetFilters: [
@@ -160,6 +167,7 @@ export const CURRENCY_VIEW = {
   textFilters: [
     ['Serial number', 'serial_number', 'B0808450_  (_ = one char, % = any)', 'b'],
     ['Item code', 'item_code', 'CC-000123', 'i'],
+    SELLERS_ITEM_ID,
     // Typed, as on the coin view: 64, 64%, UNC, UNC%.
     ['Grade', 'grade', '64, 58%, UNC, UNC%', 'g'],
   ],

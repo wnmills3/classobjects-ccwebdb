@@ -443,8 +443,11 @@ Text is matched as written: `ms65` and `ms-65` find different items.
 
 The dropdowns and year boxes narrow whatever the search finds. A dropdown
 reading **None recorded** is disabled because no matching item has that field
-filled in. The **Item code** box, and on currency the **Serial number** box,
-take the same `%` and `_` wildcards.
+filled in. The **Item code** and **Seller's item id** boxes, and on currency
+the **Serial number** box, match part of the value and take the same `%` and
+`_` wildcards. Seller's item id is the seller's own id for the listing an item
+was bought from -- eBay's item number -- so one number finds every piece split
+from that listing.
 
 The **Grade** box takes a grade, not text:
 

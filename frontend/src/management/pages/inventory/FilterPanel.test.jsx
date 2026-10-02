@@ -182,9 +182,35 @@ describe('FilterPanel keyboard accelerators', () => {
       ['Year to', SHARED_KEYS.yearTo],
       ['Clear filters', SHARED_KEYS.clear],
     ]
-    const own = [...view.facetFilters, ...view.textFilters].map((f) => [f[0], f[3]])
+    const own = [...view.facetFilters, ...view.textFilters]
+      .map((f) => [f[0], f[3]])
+      // The one field with no letter, by name, so a second cannot slip in.
+      .filter(([label, letter]) => !(label === NO_LETTER && letter === null))
     return [...shared, ...own]
   }
+
+  //: Its label holds no letter the browser leaves free that another field on
+  //: one view or the other does not already use.
+  const NO_LETTER = "Seller's item id"
+
+  it("offers the seller's item id on both views, with no letter", () => {
+    for (const view of [COIN_VIEW, CURRENCY_VIEW]) {
+      expect(view.textFilters).toContainEqual([
+        NO_LETTER,
+        'sellers_item_id',
+        expect.any(String),
+        null,
+      ])
+    }
+  })
+
+  it("searches by the seller's item id typed into its box", async () => {
+    const { props } = setup({ config: { ...config, ...COIN_VIEW }, facets: {} })
+    const box = screen.getByRole('textbox', { name: NO_LETTER })
+    expect(box).not.toHaveAttribute('accesskey')
+    await userEvent.type(box, '126845170680{Enter}')
+    expect(props.apply).toHaveBeenCalledWith({ sellers_item_id: '126845170680' })
+  })
 
   for (const view of [COIN_VIEW, CURRENCY_VIEW]) {
     describe(view.title, () => {

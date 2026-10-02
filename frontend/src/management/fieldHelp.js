@@ -528,6 +528,13 @@ export const FIELD_HELP = {
     title: 'Item code',
     text: 'All or part of an item code: CC-006140, or 6140.',
   },
+  sellers_item_id_filter: {
+    title: "Seller's item id",
+    text:
+      "All or part of the seller's id for the listing an item was bought from -- " +
+      "eBay's item number. Every piece split from one listing keeps it, so one " +
+      'number can find several items.',
+  },
   year_from: {
     title: 'Year from',
     text: 'Only items dated this year or later. Leave blank for no lower limit.',

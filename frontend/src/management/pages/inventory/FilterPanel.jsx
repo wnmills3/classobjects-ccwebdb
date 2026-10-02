@@ -22,6 +22,7 @@ const HELP_FOR = {
   grade: 'grade_filter',
   serial_number: 'serial_filter',
   item_code: 'item_code_filter',
+  sellers_item_id: 'sellers_item_id_filter',
 }
 const helpFor = (param) => HELP_FOR[param] ?? param
 
