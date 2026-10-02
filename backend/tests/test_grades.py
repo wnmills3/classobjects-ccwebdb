@@ -337,7 +337,13 @@ def test_the_strike_type_is_a_filter_and_a_column(
     ).json()
     assert response["rows"][0]["grade"] == "PR65"
     assert response["rows"][0]["strike_type"] == "proof"
-    assert {f["value"] for f in response["facets"]["strike_type"]} == {"proof"}
+    # It is a facet too, and one counted without its own filter: the picker
+    # goes on offering the strike types the filter set aside.
+    assert {f["value"] for f in response["facets"]["strike_type"]} == {
+        "business",
+        "proof",
+        "sms",
+    }
 
 
 @pytest.mark.parametrize("term", ["MS55", "BU+++", "XYZ", "65++"])

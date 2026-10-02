@@ -15,6 +15,7 @@ from app.models import (
     ItemError,
     ItemImage,
     ItemKind,
+    ItemStatus,
     PurchaseOrder,
     SealColor,
 )
@@ -583,6 +584,50 @@ def test_facets_reflect_the_current_filters(
     total_in_facet = sum(f["count"] for f in filtered["facets"]["item_kind"])
 
     assert total_in_facet == filtered["total"]
+
+
+def test_a_facet_goes_on_offering_the_values_its_own_filter_excludes(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """With Status set, the status picker still offers the other statuses.
+
+    Counted with its own filter, the picker would offer only the status
+    already chosen, and an item just marked Returned could not be found by
+    choosing Returned. The other filters still narrow the counts, and every
+    other facet still counts under this one.
+    """
+    received = code_id(db, ItemStatus, "received")
+    returned = code_id(db, ItemStatus, "returned")
+    coin(db, status_id=received, year_start=2020)
+    coin(db, status_id=received, year_start=2021)
+    coin(db, status_id=returned, year_start=2022)
+    coin(db, status_id=returned, year_start=1881)
+
+    body = search(
+        client, "coins", admin_headers, facets=True, status="received", year_min=2000
+    ).json()
+
+    assert body["total"] == 2
+    statuses = {f["value"]: f["count"] for f in body["facets"]["status"]}
+    # The year filter narrows it (one returned coin is from 1881); the status
+    # filter does not.
+    assert statuses == {"received": 2, "returned": 1}
+    # Another facet is counted under the status filter as before.
+    assert sum(f["count"] for f in body["facets"]["item_kind"]) == 2
+
+
+def test_a_facet_named_differently_from_its_filter_is_also_kept_open(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """`item_kind` is counted and `kind` is filtered: the same rule holds."""
+    coin(db)
+    build_bare_item(db, item_kind_id=code_id(db, ItemKind, "bullion"))
+
+    body = search(client, "coins", admin_headers, facets=True, kind="coin").json()
+
+    assert body["total"] == 1
+    kinds = {f["value"]: f["count"] for f in body["facets"]["item_kind"]}
+    assert kinds == {"coin": 1, "bullion": 1}
 
 
 def test_facets_are_opt_in(
