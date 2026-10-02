@@ -9,6 +9,8 @@ import {
   isCurrencyKind,
 } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
+import { useReference } from '../../../shared/reference-context'
+import { seriesYearProblem } from '../../series-years'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import { isMoney } from '../../../shared/cents'
@@ -200,6 +202,15 @@ export default function NewItemForm({
   const yearEndId = useId()
 
   const isCurrency = isCurrencyKind(form.item_kind)
+  // A coin dated outside its design series' years is almost always a typo.
+  const seriesVocabulary = useReference('series')
+  const yearWarning = isCurrency
+    ? ''
+    : seriesYearProblem(
+        (seriesVocabulary ?? []).find((entry) => entry.code === form.series),
+        form.year_start,
+        form.year_end,
+      )
 
   // Picking a value, even the suggested one, makes it the person's. Clearing
   // the denomination leaves no facts to suggest from, so the form takes back
@@ -663,6 +674,11 @@ export default function NewItemForm({
                   No date
                 </label>
               </span>
+              {yearWarning && (
+                <p className="notice" role="status">
+                  {yearWarning}
+                </p>
+              )}
             </div>
             {ranged && (
               <div data-help="year_end">

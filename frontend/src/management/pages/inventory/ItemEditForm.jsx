@@ -10,6 +10,7 @@ import {
 } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
+import { seriesYearProblem } from '../../series-years'
 import { AccessLabel } from '../../AccessLabel'
 import { accel, useSaveShortcut } from '../../shortcuts'
 import ForSaleNotice from '../ForSaleNotice'
@@ -371,6 +372,16 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // `in`, not `??`: a year cleared in the draft is null, and must not fall
   // back to showing the stored year it is about to replace.
   const value = (key) => (key in draft ? draft[key] : item[key]) ?? ''
+  // A coin dated outside its design series' years is almost always a typo
+  // (owner, 2026-10-01: an 1800 Morgan dollar).
+  const yearWarning =
+    item && !isCurrencyKind(value('item_kind'))
+      ? seriesYearProblem(
+          (vocab.series ?? []).find((entry) => entry.code === value('series')),
+          value('year_start'),
+          value('year_end'),
+        )
+      : ''
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
 
   // A new kind empties what the item can no longer have (`kindChange.js`).
@@ -982,6 +993,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               {ranged ? claim('year_start') : yearClaim()}
               {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
             </div>
+            {yearWarning && (
+              <p className="notice" role="status">
+                {yearWarning}
+              </p>
+            )}
             {ranged && (
               <div className="field" data-help="year_end">
                 <label htmlFor={yearEndId}>

@@ -898,6 +898,52 @@ describe('Changing the kind', () => {
   })
 })
 
+describe('ItemEditForm: a year outside the series', () => {
+  const withMorgan = emptyReference({
+    tables: {
+      series: [
+        {
+          code: 'morgan_dollar',
+          label: 'Morgan Dollar',
+          source: 'seeded',
+          extra: { year_start: 1878, year_end: 1921, applies_to: 'coin' },
+        },
+      ],
+    },
+  })
+
+  async function open(fields) {
+    api.getInventoryItem.mockResolvedValue({ ...item, ...fields })
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      {
+        reference: withMorgan,
+      },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+    return userEvent.setup()
+  }
+
+  it('says so for a saved item dated outside its series', async () => {
+    await open({ series: 'morgan_dollar', year_start: 1800, year_end: 1800 })
+    expect(
+      screen.getByText(/Morgan Dollar runs 1878-1921; 1800 is outside it/),
+    ).toBeInTheDocument()
+  })
+
+  it('says nothing once the year is corrected on screen', async () => {
+    const user = await open({
+      series: 'morgan_dollar',
+      year_start: 1800,
+      year_end: 1800,
+    })
+    const year = screen.getByRole('spinbutton', { name: 'Year' })
+    await user.clear(year)
+    await user.type(year, '1880')
+    expect(screen.queryByText(/is outside it/)).toBeNull()
+  })
+})
+
 describe('ItemEditForm years', () => {
   // A single year is stored as start == end; a range is for a multi-year set
   // or a coin dated only to an era. 13 items in the collection have a range,

@@ -460,6 +460,45 @@ describe('NewItemForm: denomination choices', () => {
   })
 })
 
+describe('NewItemForm: a year outside the series', () => {
+  // Owner, 2026-10-01: an 1800 Morgan dollar, found only because its
+  // description came out without a weight.
+  const withMorgan = emptyReference({
+    tables: {
+      series: [
+        {
+          code: 'morgan_dollar',
+          label: 'Morgan Dollar',
+          source: 'seeded',
+          extra: { year_start: 1878, year_end: 1921, applies_to: 'coin' },
+        },
+      ],
+    },
+  })
+
+  it('says so beside the year, and still lets it be saved', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <NewItemForm purchaseOrderId={7} defaults={{}} onSaved={vi.fn()} />,
+      { reference: withMorgan },
+    )
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'series' }),
+      'morgan_dollar',
+    )
+    await user.type(screen.getByRole('spinbutton', { name: /year/i }), '1800')
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Morgan Dollar runs 1878-1921; 1800 is outside it.',
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+
+    await user.clear(screen.getByRole('spinbutton', { name: /year/i }))
+    await user.type(screen.getByRole('spinbutton', { name: /year/i }), '1880')
+    expect(screen.queryByText(/is outside it/)).toBeNull()
+  })
+})
+
 describe('NewItemForm: a range with no Year from', () => {
   it('refuses a Year to with an empty Year from, rather than dropping it', async () => {
     const user = userEvent.setup()
