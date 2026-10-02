@@ -6,10 +6,19 @@ table, every stored column, the ids and foreign keys exactly as stored, so an
 import rebuilds the same database -- relationships and all.
 
     python -m app.workbook_backup export [--out FILE]      live -> workbook
+        [--media FOLDER | --no-media]                      and its photographs
     python -m app.workbook_backup import FILE --to URL     workbook -> database
         [--unknown-for-missing]                            broken link -> Unknown row
     python -m app.workbook_backup compare URL              live vs URL, row by row
     python -m app.workbook_backup widths FILE              remember FILE's column widths
+
+**The photographs go with it.** The database holds each image's row and
+never its bytes, so an export also copies the bytes from media storage into
+a `media` folder beside the workbook (`app.media_backup`), or the folder
+`--media` names; `--no-media` writes the workbook alone. One folder serves
+every export -- only photographs not yet there are copied -- and the export
+exits 1, naming each file, when one could not be backed up. An import loads
+rows only: copy that folder back to `MEDIA_ROOT` to restore the pictures.
 
 **The tables come from the database itself**, by reflection, not from the
 models: a table that has no model would be lost silently by a model-driven
@@ -89,11 +98,14 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import URL, Connection, Engine, make_url
 from sqlalchemy.exc import DBAPIError, OperationalError
+from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.types import TypeEngine
 
+from . import media_backup
 from .backup import generated_columns, resync_sequence, stored_columns
 from .config import REPO_ROOT, settings
+from .storage import get_storage
 
 __all__ = [
     "EMPTY_STRING",
@@ -890,6 +902,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     exp = sub.add_parser("export", help="write the live database to a workbook")
     exp.add_argument("--out", type=Path, help="the file; default ccwebdb-backups/")
+    exp.add_argument(
+        "--media",
+        type=Path,
+        help="where the photographs are copied; default a media folder beside the file",
+    )
+    exp.add_argument("--no-media", action="store_true", help="write the workbook only")
     imp = sub.add_parser("import", help="load a workbook into an empty database")
     imp.add_argument("file", type=Path)
     imp.add_argument("--to", required=True, help="the database URL to load into")
@@ -919,6 +937,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             counts = export_workbook(live, path)
             _print_counts(counts)
             print(f"wrote {path}")
+            if not args.no_media:
+                # The workbook holds every image row and no picture: the bytes
+                # are in media storage, so they are copied beside it.
+                folder = args.media or path.parent / "media"
+                with Session(live) as db:
+                    done = media_backup.copy_media(db, get_storage(), folder)
+                media_backup.report(done, folder)
+                if done.problems:
+                    return 1
         elif args.command == "import":
             imported = import_workbook(
                 args.file, args.to, unknown_for_missing=args.unknown_for_missing
