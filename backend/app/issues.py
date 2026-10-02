@@ -98,6 +98,18 @@ COIN_ISSUES: dict[str, Issue] = {
         "k.code = 'unknown'",
         description="Its kind is not recorded",
     ),
+    # Owner, 2026-10-01: an 1800 Morgan dollar, found only because no
+    # composition covers 1800 and so its description had no weight. A typo,
+    # a tribute piece or the wrong series; a person decides which. A
+    # subquery rather than a join, so it needs no clause from the search.
+    "year_outside_series": Issue(
+        "i.year_start IS NOT NULL AND EXISTS (SELECT 1 FROM series s "
+        "WHERE s.id = i.series_id AND s.year_start IS NOT NULL "
+        "AND (i.year_start < s.year_start OR (s.year_end IS NOT NULL "
+        "AND coalesce(i.year_end, i.year_start) > s.year_end)))",
+        description="Dated outside its design series' years: a typo, a "
+        "tribute piece, or the wrong series",
+    ),
     "no_weight_bullion": Issue(
         "i.fine_weight_ozt IS NULL AND k.code = 'bullion'",
         description="Bullion with no weight; its value cannot be computed",
