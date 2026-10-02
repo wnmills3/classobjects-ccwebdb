@@ -370,6 +370,10 @@ but not primary, and reported under `primary`. A photograph linked onto an
 item that is for sale is reported by item code. Unattached photographs are
 filed by hand on the console's **Photos** page (`/management/photos`).
 
+On that page and in the item editor's photographs, clicking a picture opens
+it enlarged in a window of its own; **Cancel** or Escape closes that window
+and leaves the editor beneath it open.
+
 ## Finding items
 
 Finding the right items is the start of most console work -- editing,

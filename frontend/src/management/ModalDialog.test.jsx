@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -25,6 +25,30 @@ function Console() {
     </HelpProvider>
   )
 }
+
+describe('ModalDialog Escape', () => {
+  it('closes only the dialog on top when one is opened inside another', () => {
+    const closeOuter = vi.fn()
+    const closeInner = vi.fn()
+    renderWithProviders(
+      <ModalDialog label="Edit item" onClose={closeOuter}>
+        <ModalDialog label="Obverse" onClose={closeInner}>
+          <p>Enlarged</p>
+        </ModalDialog>
+      </ModalDialog>,
+    )
+    const inner = screen.getByRole('dialog', { name: 'Obverse', hidden: true })
+    // Escape reaches a native dialog as its `cancel` event, which does not
+    // bubble in the page; React still offers it to the dialog around it.
+    fireEvent(inner, new Event('cancel', { cancelable: true }))
+    expect(closeInner).toHaveBeenCalledTimes(1)
+    expect(closeOuter).not.toHaveBeenCalled()
+
+    const outer = screen.getByRole('dialog', { name: 'Edit item', hidden: true })
+    fireEvent(outer, new Event('cancel', { cancelable: true }))
+    expect(closeOuter).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('ModalDialog help band', () => {
   it('explains a focused field at the bottom of the dialog, not behind it', async () => {
