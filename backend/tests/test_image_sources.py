@@ -42,11 +42,22 @@ def test_the_manifest_gives_each_address_once_in_order(tmp_path: Path) -> None:
     manifest = tmp_path / "images_manifest.csv"
     manifest.write_text(
         f"item_code,url,status\nCC-000001,{B},ok\nCC-000002,{A},ok\n"
-        f"CC-000003,{B},ok\nCC-000004,,missing\n",
+        f"CC-000003,{B},ok\nCC-000004,,missing\n"
+        # What is stored is shown as a link: only a web address is read.
+        "CC-000005,javascript:alert(1),ok\nCC-000006,file:///c:/x.jpg,ok\n",
         encoding="utf-8",
     )
 
     assert read_manifest(manifest) == [B, A]
+
+
+@pytest.mark.parametrize(
+    "address", ["javascript:alert(1)", "data:text/html,x", "//i.ebayimg.com/a.jpg", ""]
+)
+def test_only_a_web_address_is_kept_as_a_source(db: Session, address: str) -> None:
+    image = ingest(db, make_jpeg(color=(5, 6, 7)), "CC-000001_01.jpg", address)
+
+    assert image.source_url is None
 
 
 def test_an_address_goes_to_the_image_holding_its_files_content(

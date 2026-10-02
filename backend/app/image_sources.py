@@ -35,6 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal
+from .image_store import is_web_address
 from .imaging import ImageRejected, cleanse
 from .models import Image
 
@@ -60,12 +61,17 @@ class Plan:
 
 
 def read_manifest(path: Path) -> list[str]:
-    """Every distinct address in the manifest's `url` column, in file order."""
+    """Every distinct web address in the manifest's `url` column, in file order.
+
+    Only `http(s)` addresses: the column is a file's content, and what is
+    stored is later shown as a link.
+    """
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         if "url" not in (reader.fieldnames or []):
             raise ValueError(f"{path} has no `url` column")
-        return list(dict.fromkeys(row["url"].strip() for row in reader if row["url"]))
+        urls = (row["url"].strip() for row in reader if row["url"])
+        return list(dict.fromkeys(url for url in urls if is_web_address(url)))
 
 
 def _file_for(folder: Path, url: str) -> Path | None:

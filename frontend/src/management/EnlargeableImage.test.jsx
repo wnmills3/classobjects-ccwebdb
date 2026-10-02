@@ -71,6 +71,23 @@ describe('EnlargeableImage', () => {
     expect(within(dialog()).queryByRole('link', { hidden: true })).toBeNull()
   })
 
+  it.each(['javascript:alert(1)', 'data:text/html,x', '//i.ebayimg.com/a.jpg', 'x'])(
+    'makes no link of a stored address that is not a web address: %s',
+    async (stored) => {
+      const user = userEvent.setup()
+      renderWithProviders(
+        <EnlargeableImage
+          src={THUMB}
+          largeSrc={LARGE}
+          alt="Obverse"
+          sourceUrl={stored}
+        />,
+      )
+      await user.click(screen.getByRole('button', { name: 'Enlarge Obverse' }))
+      expect(within(dialog()).queryByRole('link', { hidden: true })).toBeNull()
+    },
+  )
+
   it('is a plain picture when there is no large rendition to show', () => {
     renderWithProviders(<EnlargeableImage src={THUMB} alt="Obverse" />)
     expect(screen.getByRole('img', { name: 'Obverse' })).toBeInTheDocument()
