@@ -1,6 +1,6 @@
 """Data quality: what is missing or wrong in the record.
 
-Six reports. `dq_issues` counts every named check from `app.issues` across
+Seven reports. `dq_issues` counts every named check from `app.issues` across
 both inventory views, reusing `inventory_search.count_issues` so a row's
 count can never disagree with its own drill-down's search. `dq_completeness`
 reports, per item kind, the percent of live items with each of ten fields
@@ -13,7 +13,8 @@ fields a machine pass filled in that nobody has confirmed by examination.
 `dq_purchases` finds purchases with a data gap -- a placeholder order
 number, a missing or implausible order date, no web address, a zero-cost
 item, or no items at all. `dq_locations` totals live items by where they
-physically are.
+physically are. `dq_series_years` lists coins dated outside their design
+series' years, with the same predicate as `issue=year_outside_series`.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ from ..inventory_search import (
     count_issues,
     view_path,
 )
+from ..issues import COIN_ISSUES
 from ..item_history import location_label
 from ..models import (
     CurrencyDetail,
@@ -54,6 +56,7 @@ from ..models import (
     ItemImage,
     ItemStatus,
     PurchaseOrder,
+    Series,
     StorageLocation,
     Vendor,
 )
@@ -71,6 +74,7 @@ __all__ = [
     "DQ_LOCATIONS",
     "DQ_PHOTOS",
     "DQ_PURCHASES",
+    "DQ_SERIES_YEARS",
 ]
 
 
@@ -782,5 +786,89 @@ DQ_LOCATIONS = register(
         purpose="Live items by storage location, with items and total cost.",
         params=DqLocationsParams,
         run=_dq_locations,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# dq_series_years
+# ---------------------------------------------------------------------------
+
+
+class DqSeriesYearsParams(BaseModel):
+    """No parameters: every live coin with a series and a year, every time."""
+
+
+#: The same SQL text `?issue=year_outside_series` runs, so the report and
+#: its drill-down search can never disagree about which coins are listed.
+_OUTSIDE_SERIES = COIN_ISSUES["year_outside_series"].sql
+
+
+def _years_text(start: int, end: int | None) -> str:
+    """``1990``, or ``1999-2009`` for a range."""
+    return str(start) if end in (None, start) else f"{start}-{end}"
+
+
+def _dq_series_years(db: Session, _params: DqSeriesYearsParams) -> ReportResult:
+    """One row per live coin dated outside its series' years, by series then year.
+
+    Coins only: a note's year is its series year, and the note lookup has
+    its own check. Each row drills to the coin search narrowed to that one
+    item, where it can be opened and corrected.
+    """
+    stmt = (
+        select(
+            _I.c.item_code,
+            _I.c.source_title,
+            _I.c.year_start,
+            _I.c.year_end,
+            Series.label.label("series"),
+            Series.year_start.label("series_start"),
+            Series.year_end.label("series_end"),
+        )
+        .select_from(_I)
+        .join(_K, _K.c.id == _I.c.item_kind_id)
+        .join(Series, Series.id == _I.c.series_id)
+        .where(_LIVE, _K.c.code != "currency", text(_OUTSIDE_SERIES))
+        .order_by(Series.label, _I.c.year_start, _I.c.item_code)
+    )
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    for row in db.execute(stmt).mappings().all():
+        start, end = row["series_start"], row["series_end"]
+        rows.append(
+            {
+                "item": row["item_code"],
+                "title": row["source_title"],
+                "year": _years_text(row["year_start"], row["year_end"]),
+                "series": row["series"],
+                "series_years": f"{start} on" if end is None else f"{start}-{end}",
+            }
+        )
+        drills.append(
+            f"{view_path('coin')}?{urlencode({'item_code': row['item_code']})}"
+        )
+    return ReportResult(
+        columns=[
+            Column("item", "Item", "text"),
+            Column("title", "Title", "text"),
+            Column("year", "Year", "text"),
+            Column("series", "Series", "text"),
+            Column("series_years", "Series years", "text"),
+        ],
+        rows=rows,
+        drills=drills,
+    )
+
+
+DQ_SERIES_YEARS = register(
+    Report(
+        id="dq_series_years",
+        group="Data quality",
+        title="Coins dated outside their series",
+        purpose="Coins whose year falls outside their design series' years -- "
+        "a typo, a tribute piece, or the wrong series.",
+        params=DqSeriesYearsParams,
+        run=_dq_series_years,
     )
 )

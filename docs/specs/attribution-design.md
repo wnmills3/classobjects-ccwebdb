@@ -157,6 +157,7 @@ the available ones for that view.
 | `unreviewed` | both | no field confirmed by anyone |
 | `kind_unknown` | coin | its kind is not recorded (`unknown`) |
 | `no_weight_bullion` | coin | bullion with no fine weight |
+| `year_outside_series` | coin | dated outside its design series' years |
 | `repeated_identity` | coin | a certification number on more than one row |
 | `repeated_identity` | currency | a serial on more than one note |
 | `star_mismatch` | currency | the serial's asterisk and the `star` attribute disagree |

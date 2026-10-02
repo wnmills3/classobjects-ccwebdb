@@ -1024,6 +1024,7 @@ parameters and its table. Groups appear in the order the API lists them:
 | `dq_photos` | Data quality | Photographs | Live items with no photograph, by kind and status, plus photographs filed against no item | none |
 | `dq_derived` | Data quality | Filled by a rule, not yet confirmed | Fields a machine pass filled in, and the rule that filled each one, that nobody has confirmed | none |
 | `dq_purchases` | Data quality | Purchases with gaps | Purchases with a placeholder number, a missing or implausible order date, no web address, a zero-cost item, or no items | none |
+| `dq_series_years` | Data quality | Coins dated outside their series | Coins whose year falls outside their design series' years -- a typo, a tribute piece, or the wrong series; each row opens that coin | none |
 | `dq_locations` | Data quality | Where items are | Live items by storage location, with items and total cost | none |
 | `pr_outstanding` | Purchasing and receiving | Not yet arrived | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first | Overdue after (days) (default 21) |
 | `pr_spend` | Purchasing and receiving | Spending | Period x vendor: purchases, items, item cost, shipping, sales tax and total, over purchases with a live item | From, To, Period (month/quarter/year, default month) |

@@ -5,7 +5,7 @@ as a whole: what is missing or wrong in the record, what the collection is
 made of, what has been bought and not yet arrived, what is on offer and what
 has sold, and what it all cost. They are for the owner and managers only,
 on the management console's **Reports** page (`/management/reports`), and
-the same 24 reports run from the command line and export to a workbook or
+the same 25 reports run from the command line and export to a workbook or
 print on paper.
 
 Reports read; they never write. Fixing what a report finds is done where it
@@ -63,6 +63,7 @@ or ever sold.
 | `dq_photos` | Photographs | Live items with no photograph, by kind and status, then a final row for photographs filed against no item at all. A kind x status row drills to `?missing=photo` narrowed by status; the unfiled row drills to `/photos`. |
 | `dq_derived` | Filled by a rule, not yet confirmed | Field x rule: `item_field_source` rows with no matching `item_field_review` for the same item and field (a field a person emptied on purpose, `HELD`, is excluded). No drills: this is a finer question than `issue=unreviewed` and the two counts can disagree in either direction, so no row claims to reproduce that search. |
 | `dq_purchases` | Purchases with gaps | One row per purchase with at least one gap, newest first: order number, vendor, order date, and its gaps in a fixed order -- a generated placeholder number, no order date, no web address, an order date after the purchase's own entry date, an order date more than a year before entry, an item with zero cost, or no items at all (a purchase whose only items are deleted or split reads as "no items", not as dropped from the report). A row drills to `/receiving?order=<id>`. |
+| `dq_series_years` | Coins dated outside their series | One row per live coin whose year falls outside its design series' years -- a typo, a tribute piece or the wrong series: item, title, year (`1999-2009` for a range), series, and the series' years (`1986 on` for one still struck); by series, then year. Coins only (a note's year is its series year). Runs the same SQL text as `issue=year_outside_series`, so the report and the filter list the same coins. A row drills to `/inventory/coins?item_code=<code>`. |
 | `dq_locations` | Where items are | Live items by storage location, one row per location as the console's own location picker lists them -- two locations sharing a label are still two rows, disambiguated `<label> (#<id>)` -- plus a "None recorded" row, with items and total cost; an overall total. No drill: the inventory search has no filter for one specific location. |
 
 ### Purchasing and receiving -- what has been bought and has not yet arrived

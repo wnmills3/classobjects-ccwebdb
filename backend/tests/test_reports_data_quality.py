@@ -42,12 +42,14 @@ from app.reports.data_quality import (
     DQ_LOCATIONS,
     DQ_PHOTOS,
     DQ_PURCHASES,
+    DQ_SERIES_YEARS,
     DqCompletenessParams,
     DqDerivedParams,
     DqIssuesParams,
     DqLocationsParams,
     DqPhotosParams,
     DqPurchasesParams,
+    DqSeriesYearsParams,
     _a_year_before,
 )
 from sqlalchemy.orm import Session
@@ -1066,3 +1068,71 @@ def test_a_deleted_and_a_split_item_are_excluded_from_dq_locations(db: Session) 
     result = DQ_LOCATIONS.run(db, DqLocationsParams())
     row = next(r for r in result.rows if r["location"] == location_label(location))
     assert row["items"] == 1
+
+
+# ---------------------------------------------------------------------------
+# dq_series_years
+# ---------------------------------------------------------------------------
+
+
+def _morgan(db: Session) -> int:
+    """The Morgan dollar series, with its years set here rather than assumed."""
+    series_id = code_id(db, Series, "morgan_dollar")
+    series = db.get(Series, series_id)
+    assert series is not None
+    series.year_start, series.year_end = 1878, 1921
+    db.commit()
+    return series_id
+
+
+def test_dq_series_years_lists_a_coin_dated_outside_its_series(db: Session) -> None:
+    """The owner's case: an 1800 Morgan dollar (2026-10-01)."""
+    morgan = _morgan(db)
+    typo = build_bare_item(db, series_id=morgan, year_start=1800, year_end=1800)
+    build_bare_item(db, series_id=morgan, year_start=1880, year_end=1880)
+    build_bare_item(db, series_id=morgan, year_start=1878, year_end=1921)
+
+    result = DQ_SERIES_YEARS.run(db, DqSeriesYearsParams())
+
+    assert [row["item"] for row in result.rows] == [typo.item_code]
+    row = result.rows[0]
+    assert (row["year"], row["series_years"]) == ("1800", "1878-1921")
+    assert result.drills == [f"/inventory/coins?item_code={typo.item_code}"]
+
+
+def test_dq_series_years_catches_a_range_past_the_end(db: Session) -> None:
+    morgan = _morgan(db)
+    item = build_bare_item(db, series_id=morgan, year_start=1920, year_end=1925)
+    result = DQ_SERIES_YEARS.run(db, DqSeriesYearsParams())
+    assert [(r["item"], r["year"]) for r in result.rows] == [
+        (item.item_code, "1920-1925")
+    ]
+
+
+def test_dq_series_years_leaves_out_notes_and_coins_it_cannot_judge(
+    db: Session,
+) -> None:
+    """A note's year is its series year; no year or no series is no finding."""
+    morgan = _morgan(db)
+    build_bare_item(db, series_id=morgan, year_start=None)
+    build_bare_item(db, series_id=None, year_start=1800)
+    build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        series_id=morgan,
+        year_start=1800,
+    )
+    assert DQ_SERIES_YEARS.run(db, DqSeriesYearsParams()).rows == []
+
+
+def test_dq_series_years_lists_what_its_issue_filter_finds(db: Session) -> None:
+    """Report and `?issue=year_outside_series` run one predicate."""
+    morgan = _morgan(db)
+    build_bare_item(db, series_id=morgan, year_start=1800, year_end=1800)
+    build_bare_item(db, series_id=morgan, year_start=1950, year_end=1950)
+    build_bare_item(db, series_id=morgan, year_start=1900, year_end=1900)
+
+    reported = {r["item"] for r in DQ_SERIES_YEARS.run(db, DqSeriesYearsParams()).rows}
+    found, _ = inventory_search(db, COIN_VIEW, params={"issue": "year_outside_series"})
+    assert reported == {row["item_code"] for row in found}
+    assert len(reported) == 2
