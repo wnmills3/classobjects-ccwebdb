@@ -49,6 +49,9 @@ on the item or its currency detail.
 | `series_match` | design series read from the description |
 | `series_classify` | design series decided from the facts |
 | `suggestion` | a value the New item form suggested and the person left alone |
+| `weight` | fine weight worked out as gross weight times fineness |
+| `weight_text` | a weight or fineness `app.bullion_weights` read from the item's own title, description or weight as written |
+| `weight_peers` | a weight or fineness `app.bullion_weights` took from what most items of the same bullion form and metal hold |
 | `held` | not a rule: a person emptied the field |
 
 `series_backfill` and `rating` also appear on existing rows and are read like
@@ -155,8 +158,19 @@ mule is found.
 | signature combination | the issue | one pair signed it |
 | Federal Reserve district | serial number | the class is Federal Reserve Note and the serial is well formed |
 | composition, metal, fineness, gross and fine weight | denomination, country, year | one composition covers every year of the item's range |
+| fine weight | gross weight times fineness | the item is not a note, has both, and no composition decides its fine weight |
 
 Note type is decided first, because seal, signatures and Bank depend on it.
+
+**Weight.** A coin's weight is its composition's. A bar, a round or a medal
+has no denomination, so its gross weight and fineness are entered by hand --
+per piece, in troy ounces or grams, kept in troy ounces -- and the fine weight
+is worked out from them: filled when empty, kept in step with the two while
+it is the rule's, cleared when either is gone, and left alone once a person
+types it (a one-ounce gold coin holds 1 troy ounce and weighs more). A weight
+`app.bullion_weights` guessed is derived like any other default, but it has no
+composition to lose: a composition's facts replace it, and their absence does
+not take it back.
 
 **Text as evidence.** Where a series was issued in several classes, a note's
 **rating** (the grade text in the owner's words) that names exactly one of

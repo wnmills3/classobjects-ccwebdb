@@ -903,6 +903,7 @@ class ItemDetailOut(InventoryItemOut):
     fineness: Decimal | None = None
     gross_weight_ozt: Decimal | None = None
     fine_weight_ozt: Decimal | None = None
+    weight_note: str | None = None
     #: What the item is worth to a collector, as last recorded -- the
     #: "value" column the offer dialog shows beside cost when pricing.
     #: Read-only here: nothing in the editor sets it yet.
@@ -1036,6 +1037,8 @@ class InventoryItemUpdate(BaseModel):
     fineness: Decimal | None = Field(default=None, ge=0, le=1, decimal_places=4)
     gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
     fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
+    #: The weight as written, where it is not one number ("1 oz each").
+    weight_note: str | None = Field(default=None, max_length=200)
     piece_count: int | None = Field(default=None, ge=1)
     item_cost: Money | None = None
     shipping_cost: Money | None = None
@@ -1211,6 +1214,12 @@ class ItemCreate(BaseModel):
     series: str | None = Field(default=None, max_length=64)
     bullion_form: str | None = Field(default=None, max_length=64)
     set_form: str | None = Field(default=None, max_length=64)
+    #: Weight, per piece, in troy ounces, and the fraction of it that is the
+    #: metal. A fine weight left out is worked out from the other two.
+    fineness: Decimal | None = Field(default=None, gt=0, le=1, decimal_places=4)
+    gross_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
+    fine_weight_ozt: Decimal | None = Field(default=None, ge=0, decimal_places=6)
+    weight_note: str | None = Field(default=None, max_length=200)
     #: null -> `single`.
     storage_form: str | None = Field(default=None, max_length=64)
     #: null -> `unverified`.

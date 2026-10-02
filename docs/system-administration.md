@@ -205,6 +205,7 @@ would change and writes no database rows.
 | `python -m app.series_match` | assigns a coin's series from the design its title or description names | `--commit` |
 | `python -m app.series_classify` | assigns series from denomination and year, for coins the text left and all notes | `--commit` |
 | `python -m app.serial_patterns` | derives star, radar, repeater and similar designations from a note's serial | `--commit` |
+| `python -m app.bullion_weights` | guesses the weight and fineness of a bar, round or medal with no fine weight, from its own words or from what most items of its form and metal hold; each guess is marked "suggested" in the editor (*Weight*) | `[--list] --commit --by EMAIL` |
 | `python -m app.listing_links` | fills an item's listing address and seller's item id each from the other; outside eBay and Whatnot, an item and its purchase share one lot page, and each takes it from the other when missing; an eBay purchase takes its order page, built from its order number (`docs/specs/entry-panels-design.md`, *Listing links*) | `--commit --by EMAIL` |
 | `python -m app.ebay_orders` | fills eBay purchases' missing order numbers and items' listing ids from eBay's purchase history | `FILE... [--review FILE.xlsx] [--commit --by EMAIL]` |
 | `python -m app.photo_import` | links photographs to items by filename | `[--root DIR] [--commit]` |
@@ -346,6 +347,36 @@ Note classes use BEP's names: United States Note ("Legal Tender Note" is an
 alias), National Bank Note, Federal Reserve Note, Federal Reserve Bank Note,
 Silver and Gold Certificate, Fractional Currency, Demand Note, Treasury Note.
 
+### Weight
+
+Everything but a note has four weight fields, in the item editor and on New
+item: **Gross weight**, **Fineness**, **Fine weight** and **Weight as
+written**. A weight is per piece -- Pieces multiplies it in the reports --
+and is typed in troy ounces or grams, by the unit picker beside the box; it
+is kept in troy ounces either way (a gram is 0.032151 troy ounces).
+
+A coin's weight comes from its composition (*Classifier defaults*). A bar, a
+round or a medal has none, so its weight is entered: gross weight and
+fineness, and the fine weight is worked out as their product when it is left
+empty. Type the fine weight when it is what is known. Emptying it keeps it
+empty.
+
+For the items entered before these fields existed, `python -m
+app.bullion_weights` guesses. It looks only at bullion, medals and tokens
+with no fine weight, fills only empty fields, and takes:
+
+- a weight ("5 oz", "1/2 oz", "10 grams", "1 Kilo", "One Ounce") and a
+  fineness (".999", "sterling", "22K") from the item's own title, description
+  and weight as written, when they state exactly one;
+- otherwise the weight most items of the same bullion form and metal already
+  hold, when at least six in ten of them (and at least five) agree -- and
+  never onto an item whose own fineness differs.
+
+A dry run by default; `--list` names every item and the reason for its
+guess. Each guess shows as "suggested" beside the field in the editor, with
+where it came from, until someone saves that field by hand; guesses are never
+counted as evidence for later guesses.
+
 ### Filing photographs: the photo import pass
 
 `python -m app.photo_import` walks a directory (`--root`, default
@@ -475,7 +506,7 @@ relisting, because a returned item resumes its own history.
 
 **Editable scalars:** `source_title`, `description`, `sellers_item_id`,
 `listing_url`, `year_start`, `year_end`, `fineness`, `gross_weight_ozt`,
-`fine_weight_ozt`, `piece_count`, `item_cost`, `shipping_cost`, `tax_rate`,
+`fine_weight_ozt`, `weight_note`, `piece_count`, `item_cost`, `shipping_cost`, `tax_rate`,
 `tax_includes_shipping` (`EDITABLE_SCALARS`, `routers/inventory.py`).
 `tax_rate` and `tax_includes_shipping` are NOT NULL, and a null for either is
 refused naming the field. `storage_location_id` moves the item through

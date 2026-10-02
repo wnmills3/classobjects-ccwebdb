@@ -3,7 +3,8 @@
 docs/specs/classifier-defaults-design.md. For a banknote, the denomination and
 series decide the class, and with it the seal and the signatures; a Federal
 Reserve Note's serial names its issuing Bank. For a coin, denomination,
-country and year decide its composition. A person enters the facts; this
+country and year decide its composition, and for anything but a note a gross
+weight and a fineness decide the fine weight. A person enters the facts; this
 fills the rest.
 
 The rules, per field:
@@ -49,6 +50,8 @@ from .field_sources import (
     HELD,
     NOTE_ISSUE,
     SERIAL_DISTRICT,
+    WEIGHT,
+    WEIGHT_RULES,
     forget,
     record_derived,
     sources_by_item,
@@ -499,20 +502,27 @@ def coin_outcome(
     item: InventoryItem,
     derived: set[str],
     held: frozenset[str] = frozenset(),
+    retractable: set[str] | None = None,
 ) -> Outcome:
     """Composition, metal, fineness and weights from denomination and year.
 
     A range of years has a composition only when one covers all of it: a
     1999-2008 quarter set is clad throughout, a 1909-2022 cent lot is not.
+
+    `derived` columns may be overwritten by a composition's facts;
+    `retractable` (every derived column unless given) are the ones cleared
+    when no composition applies. A weight guessed for a bar or round is the
+    first and not the second: it has no composition to lose.
     """
     out = Outcome()
     current = {column: getattr(item, column) for column in COMPOSITION_COLUMNS}
+    retractable = derived if retractable is None else retractable
     if (
         item.denomination_id is None
         or item.country_id is None
         or item.year_start is None
     ):
-        _retract(out, current, derived, COMPOSITION_COLUMNS)
+        _retract(out, current, retractable, COMPOSITION_COLUMNS)
         return out
     first = item.year_start
     last = item.year_end if item.year_end is not None else first
@@ -528,7 +538,7 @@ def coin_outcome(
         None,
     )
     if found is None:
-        _retract(out, current, derived, COMPOSITION_COLUMNS)
+        _retract(out, current, retractable, COMPOSITION_COLUMNS)
         return out
     options: dict[str, set[object]] = {
         column: {getattr(found, column if column != "composition_id" else "id")}
@@ -551,6 +561,50 @@ def coin_outcome(
         )
     out.count = "coin: composition known"
     return out
+
+
+#: Fine weight is stored to six places, as the column is.
+_SIX_PLACES = Decimal("0.000001")
+
+
+def fine_weight(gross: Decimal, fineness: Decimal) -> Decimal:
+    """The metal in a piece: its gross weight times its fineness."""
+    return (gross * fineness).quantize(_SIX_PLACES)
+
+
+def weight_outcome(item: InventoryItem, out: Outcome, recorded: dict[str, str]) -> None:
+    """Add to `out` the fine weight that gross weight and fineness decide.
+
+    Worked from the values as `out` leaves them, so a composition's own fine
+    weight stands. An empty fine weight is filled; one this rule filled is
+    kept in step with its two inputs and cleared when either is gone. A fine
+    weight a person typed, or emptied, is left alone.
+    """
+    written = {column: value for column, value, _ in out.writes}
+    if "fine_weight_ozt" in written:
+        return
+
+    def now(column: str) -> Decimal | None:
+        if column in written:
+            value = written[column]
+            return value if isinstance(value, Decimal) else None
+        return None if column in out.retracts else getattr(item, column)
+
+    rule = recorded.get("fine_weight_ozt")
+    if rule == HELD:
+        return
+    gross, fineness, current = (
+        now("gross_weight_ozt"),
+        now("fineness"),
+        now("fine_weight_ozt"),
+    )
+    if gross is None or fineness is None:
+        if rule == WEIGHT and current is not None:
+            out.retracts.append("fine_weight_ozt")
+        return
+    target = fine_weight(gross, fineness)
+    if current is None or (rule == WEIGHT and current != target):
+        out.writes.append(("fine_weight_ozt", target, WEIGHT))
 
 
 def _note_facts(
@@ -661,7 +715,9 @@ def classify(db: Session, item_ids: Collection[int] | None = None) -> Report:
             report.counts.update(counts)
             report.review += [Case(item.item_code, r, d) for r, d in cases]
         else:
-            outcome = coin_outcome(facts, item, mine, held)
+            guessed = {f for f, rule in recorded.items() if rule in WEIGHT_RULES}
+            outcome = coin_outcome(facts, item, mine, held, mine - guessed)
+            weight_outcome(item, outcome, recorded)
             on_note = False
         if outcome.count:
             report.counts[outcome.count] += 1

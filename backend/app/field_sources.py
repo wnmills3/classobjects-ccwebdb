@@ -32,6 +32,16 @@ SERIES_CLASSIFY = "series_classify"
 SERIES_BACKFILL = "series_backfill"
 SUGGESTION = "suggestion"
 RATING = "rating"
+#: Fine weight worked out as gross weight times fineness.
+WEIGHT = "weight"
+#: A weight or fineness read from the item's own title or description.
+WEIGHT_TEXT = "weight_text"
+#: A weight or fineness taken from what most items of its form and metal hold.
+WEIGHT_PEERS = "weight_peers"
+
+#: The rules that guess a weight. A composition's own facts replace what they
+#: wrote, but losing the composition does not take their values back.
+WEIGHT_RULES: frozenset[str] = frozenset({WEIGHT, WEIGHT_TEXT, WEIGHT_PEERS})
 
 #: Not a rule: a person emptied the field, and it is to stay empty.
 HELD = "held"
