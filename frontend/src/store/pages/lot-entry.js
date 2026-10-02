@@ -6,8 +6,8 @@
  * item-describing field -- kind, grade, metal, year -- keeps its default,
  * because no single value of any of them describes a group. What a buyer
  * gets instead is `members`, and the shop has to read it: rendered as though
- * it were a coin, a lot came out as a bare title and a price, with no
- * picture, no specifications and no sign that it is several coins at all.
+ * it were a coin, a lot is a bare title and a price, with no picture, no
+ * specifications and no sign that it is several coins at all.
  *
  * A plain module rather than exports from a page: a component module that
  * also exports something else breaks Fast Refresh
@@ -64,10 +64,9 @@ export const thumbnail = (entry) => pictureOf(entry, 'thumbnail_url')
 /**
  * The one line under a title: what the thing is, in a few words.
  *
- * For a coin, its country, year and grade, as the grid has always shown. For
- * a lot, how many things are in it -- which is the fact that distinguishes a
- * group from a single coin at the price of a group, and the reason a lot
- * with none of it rendered as an anonymous, expensive-looking coin.
+ * For a coin, its country, year and grade. For a lot, how many things are
+ * in it -- the fact that distinguishes a group from a single coin at the
+ * price of a group; without it a lot reads as an anonymous, expensive coin.
  *
  * Both numbers when they differ. `piece_count` is how many **objects** the
  * entry is and is summed across the members, so a lot of three entries one

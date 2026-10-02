@@ -6,9 +6,8 @@ prove is that `app.auctions` hands off to `offering_writes` correctly rather
 than reimplementing its rules -- the same reason `test_lot_writes.py` builds
 its fixtures through `offering_writes.offer` rather than a bare `Listing(...)`.
 
-Rulings R8, R9 and R10 are covered here too: the status boundaries of each
-transition, the `add_lot`/`consign` staleness regression, and
-`returned_to_location_id`.
+Also covered here: the status boundaries of each transition, a lot added
+after `auction.lots` was loaded, and `returned_to_location_id`.
 """
 
 from __future__ import annotations
@@ -141,8 +140,7 @@ def ebay_auction(db: Session, ebay_venue: SalesVenue) -> Auction:
 def closed_auction(db: Session, auction: Auction) -> Auction:
     """An auction already closed, so no more lots may be added.
 
-    `close` no longer accepts `draft` (ruling R8), so this fixture must
-    schedule first -- closing straight from `draft` is now itself a refusal,
+    `close` refuses `draft`, so this fixture schedules first; the refusal is
     covered by `test_closing_a_draft_auction_is_refused`.
     """
     schedule(db, auction)
@@ -166,9 +164,7 @@ def items_of(auction_row: Auction) -> list[InventoryItem]:
 
     Every listing `add_lot` creates is a **lot** listing -- even a single
     item is wrapped into a lot of one (`_lot_of_one`) -- so this only ever
-    walks `Listing.sales_lot`, never `Listing.inventory_item`. An earlier
-    version branched on both and the item-listing branch was dead code;
-    removed rather than kept unreachable.
+    walks `Listing.sales_lot`, never `Listing.inventory_item`.
     """
     items: list[InventoryItem] = []
     for row in auction_row.lots:
@@ -187,11 +183,8 @@ def location_history(db: Session, item: InventoryItem) -> list[StorageLocation]:
     relationship -- nothing else in the codebase needed one. Every row this
     module writes carries a real, non-`NULL` location: `consign` and the
     return-from-consignment path both call `lifecycle_writes.set_location`
-    with a concrete id, never `None`. An earlier version of this helper
-    handled a `None` location for that reason and the branch was dead code;
-    removed rather than kept unreachable -- a
-    `NULL` move, if this file ever needs one, asserts loudly here instead of
-    silently returning `None`.
+    with a concrete id, never `None`, so a `NULL` move, if this file ever
+    needs one, asserts loudly here instead of silently returning `None`.
     """
     rows = db.scalars(
         select(LocationHistory)
@@ -261,7 +254,7 @@ def test_a_single_item_becomes_a_lot_of_one(
 def test_add_lot_accepts_explicit_title_description_and_external_id(
     db: Session, auction: Auction, received_item: InventoryItem
 ) -> None:
-    """Ruling 1's overrides, not just its defaults."""
+    """An explicit title, description and external id override the defaults."""
     auction_lot = add_lot(
         db,
         auction,
@@ -307,24 +300,19 @@ def test_a_zero_starting_bid_is_the_default(
 def test_add_lot_is_visible_to_consign_even_if_lots_was_loaded_first(
     db: Session, auction: Auction, make_item: ItemFactory
 ) -> None:
-    """Regression: a lot added after `auction.lots` was loaded is seen.
+    """A lot added after `auction.lots` was loaded is seen.
 
-    `AuctionLot(auction_id=auction.id, ...)` fired no backref event, so a
-    session that had already loaded `auction.lots` kept seeing a stale,
-    short collection -- and `consign` and `cancel` both iterate it. Loading
-    `auction.lots` *before* the add is exactly the shape every other fixture
-    in this file avoided by loading it only afterward, which is why 15
-    passing tests missed this the first time. `AuctionLot(auction=auction,
-    listing=listing, ...)` -- relationship assignment -- is the fix.
+    `AuctionLot(auction_id=auction.id, ...)` fires no backref event, so a
+    session that had already loaded `auction.lots` would keep a stale, short
+    collection. `AuctionLot(auction=auction, listing=listing, ...)` --
+    relationship assignment -- keeps it current. Loading `auction.lots`
+    *before* the add is the shape that tells the two apart.
 
     `item` is built *before* `auction.lots` is loaded, not after: `make_item`
     commits internally (`tests/conftest.py`'s `build_item`), and a commit
     expires every loaded attribute in the session by default -- including
     `auction.lots` -- which would silently reload it fresh on next access and
-    mask the very bug this test exists to catch. This ordering mistake is
-    exactly why the first version of this test passed against the
-    FK-only construction it was meant to red; caught by mutation-testing this
-    test itself, not assumed.
+    mask the very bug this test exists to catch.
     """
     item = make_item(title="Late addition")
     assert auction.lots == []  # loads and caches the (empty) collection last
@@ -416,7 +404,7 @@ def test_removing_a_lot_from_a_closed_auction_is_refused(
     """`remove_lot`'s own status gate.
 
     Distinct from `cancel`'s: `remove_lot` refuses `closed` even though
-    `cancel` (ruling R8) now accepts it -- pulling a single lot out of a
+    `cancel` accepts it -- pulling a single lot out of a
     closed auction makes no sense; abandoning the whole auction does.
     """
     schedule(db, auction_with_three_lots)
@@ -429,7 +417,7 @@ def test_removing_a_lot_from_a_closed_auction_is_refused(
 def test_removing_a_lot_from_a_consigned_auction_requires_a_return_location(
     db: Session, house_auction: Auction
 ) -> None:
-    """Ruling R9: items physically left the premises; withdrawal must say where."""
+    """Items physically left the premises; withdrawal must say where."""
     consign(db, house_auction, on_date=date(2026, 10, 1))
     (auction_lot,) = house_auction.lots
     with pytest.raises(AuctionRefused, match="returned_to_location_id"):
@@ -439,7 +427,7 @@ def test_removing_a_lot_from_a_consigned_auction_requires_a_return_location(
 def test_removing_a_lot_from_a_consigned_auction_moves_its_items_back(
     db: Session, house_auction: Auction
 ) -> None:
-    """Ruling R9: the items physically come home before the lot is withdrawn."""
+    """The items physically come home before the lot is withdrawn."""
     consign(db, house_auction, on_date=date(2026, 10, 1))
     (auction_lot,) = house_auction.lots
     items = list(items_of(house_auction))
@@ -476,7 +464,7 @@ def test_scheduling_a_scheduled_auction_is_refused(
 
 
 def test_closing_a_draft_auction_is_refused(db: Session, auction: Auction) -> None:
-    """Ruling R8: a `draft` auction never happened -- there is nothing to close."""
+    """A `draft` auction never happened -- there is nothing to close."""
     with pytest.raises(AuctionRefused, match="draft"):
         close(db, auction)
 
@@ -511,7 +499,7 @@ def test_cancelling_removes_every_lot(
 def test_cancelling_a_closed_auction_is_allowed(
     db: Session, auction_with_three_lots: Auction
 ) -> None:
-    """Ruling R8: a closed sale can still be abandoned.
+    """A closed sale can still be abandoned.
 
     `close` accepts `scheduled`/`consigned` only, so this schedules first;
     the point under test is that `cancel`, unlike `remove_lot`, does not
@@ -549,7 +537,7 @@ def test_cancelling_a_cancelled_auction_is_refused(
 def test_cancelling_a_consigned_auction_requires_a_return_location(
     db: Session, house_auction: Auction
 ) -> None:
-    """Ruling R9: every lot needs somewhere to return its items to."""
+    """Every lot needs somewhere to return its items to."""
     consign(db, house_auction, on_date=date(2026, 10, 1))
     with pytest.raises(AuctionRefused, match="returned_to_location_id"):
         cancel(db, house_auction)
@@ -577,7 +565,7 @@ def test_cancelling_a_consigned_auction_with_no_lots_requires_a_return_location(
 def test_cancelling_a_consigned_auction_returns_items_and_clears_consigned_on(
     db: Session, house_auction: Auction
 ) -> None:
-    """Ruling R9: nothing is left claiming a house that no longer holds the coins."""
+    """Nothing is left claiming a house that no longer holds the coins."""
     consign(db, house_auction, on_date=date(2026, 10, 1))
     items = list(items_of(house_auction))
     home = _home_location(db)
@@ -592,21 +580,21 @@ def test_cancelling_a_consigned_auction_returns_items_and_clears_consigned_on(
 
 
 # --------------------------------------------------------------------------
-# Ruling R13: custody is tracked by consigned_on, not status
+# Custody is tracked by consigned_on, not status
 # --------------------------------------------------------------------------
 
 
 def test_cancelling_a_closed_consigned_auction_requires_a_return_location(
     db: Session, house_auction: Auction
 ) -> None:
-    """The defect ruling R13 exists to close.
+    """Custody is `consigned_on`, not the status.
 
     `close` accepts a `consigned` auction and does not clear `consigned_on`,
-    so `consign -> close -> cancel` used to read `status == closed`, not
-    `consigned`, and skip the return-location requirement entirely --
-    leaving every coin filed at the house with nothing linking it back to
-    the cancelled auction. Keying the requirement on `auction.consigned_on
-    is not None` instead closes it.
+    so after `consign -> close` the status reads `closed` while every coin
+    is still at the house. A `cancel` keyed on `status == consigned` would
+    skip the return-location requirement and leave every coin filed at the
+    house with nothing linking it back to the cancelled auction; it keys the
+    requirement on `auction.consigned_on is not None`.
     """
     consign(db, house_auction, on_date=date(2026, 10, 1))
     close(db, house_auction)
@@ -648,10 +636,9 @@ def test_removing_one_lot_from_a_consigned_auction_leaves_consigned_on_set(
     auction's is still at the house -- so returning one lot out of two must
     not clear it, even though that lot's own items really did come home.
 
-    Reaches the rule through a path that can actually occur (ruling R14, fix
-    round 3, replacing round 2's post-`close` version of this test): the
+    Reaches the rule through a path that can actually occur: the
     auction stays `consigned`, never `close`d, because `remove_lot` refuses
-    `closed` unconditionally now -- pulling a single lot from a *closed*
+    `closed` unconditionally -- pulling a single lot from a *closed*
     auction is `settle`'s job (`AuctionLotResult.withdrawn`), not this
     function's.
     """
@@ -703,7 +690,7 @@ def test_removing_one_lot_from_a_consigned_auction_leaves_consigned_on_set(
 def test_removing_a_lot_from_a_closed_auction_is_refused_even_if_consigned(
     db: Session, house_auction: Auction
 ) -> None:
-    """Ruling R14: `closed` refuses unconditionally.
+    """`closed` refuses unconditionally.
 
     Complements `test_removing_a_lot_from_a_closed_auction_is_refused`,
     which covers a `closed` auction that was **never** consigned; this
@@ -729,7 +716,7 @@ def test_cancelling_a_never_consigned_auction_still_needs_no_return_location(
     """The predicate must not over-fire: no custody means no requirement.
 
     Same scenario `test_cancelling_removes_every_lot` already exercises,
-    named explicitly here as the other side of ruling R13:
+    named explicitly here as the other side of the custody rule:
     `auction_with_three_lots` was never consigned, so
     `auction.consigned_on is None` throughout, and `cancel` must still ask
     for nothing.
@@ -781,7 +768,7 @@ def test_consign_fails_loudly_if_the_consigned_kind_is_missing(
 ) -> None:
     """A migrated-but-unseeded database says so, rather than guessing or crashing.
 
-    The ruling: naming the missing kind and the seeder
+    The rule: naming the missing kind and the seeder
     command, never creating the kind on the fly or falling back to another
     one, and never letting a `None` lookup reach an opaque error.
     """
@@ -870,17 +857,16 @@ def test_marking_one_member_of_an_auction_lot_missing_is_refused(
 ) -> None:
     """`POST /inventory/receive` must not end an auction lot's offer. 409.
 
-    The third door onto an orphaned `auction_lot`, after
-    `routers.offers.end_listing` and `sales_writes.record_sale`, and the one
-    that stayed open longest. It was thought
-    unreachable because a coin in an auction has already been received --
-    false by one line: the "already received" refusal in `receive_items` is
+    A receipt is one of three doors onto an orphaned `auction_lot`, with
+    `routers.offers.end_listing` and `sales_writes.record_sale`. It is
+    reachable although a coin in an auction has already been received:
+    the "already received" refusal in `receive_items` is
     conditioned on `payload.outcome == "received"`, and `missing`, `returned`
     and `canceled`, the three outcomes that *end an offer*, skip it. From
     there `offering_writes.offers_holding` is format-blind and hands the
     endpoint the lot's `auction`-format listing through its derived half.
 
-    **The multi-member case, which nothing on the branch covered.** The race
+    **The multi-member case.** The race
     suite's own helper builds single-coin lots, so the damage it could show
     was confined to the contested coin. Here one member of a two-member lot
     is marked `missing`. Measured against the unguarded endpoint, by removing
@@ -907,8 +893,8 @@ def test_marking_one_member_of_an_auction_lot_missing_is_refused(
     as `get_db` discards it in production when the handler raises.
 
     The trade is stated in the message, because the operator has to act on
-    it: remove the lot from the auction first, then record the loss. Ruling
-    R25 accepted the same two-step for Record sale.
+    it: remove the lot from the auction first, then record the loss. Record
+    sale has the same two-step.
     """
     listing = auction_lot.listing
     lot = listing.sales_lot
@@ -978,9 +964,8 @@ def test_marking_a_coin_on_a_direct_auction_listing_missing_ends_it(
     The Offer dialog offers a coin directly on eBay by auction; no
     `auction_lot` row exists, so there is nothing to take it out of first.
     `_refuse_auction_lots` keyed on `format` alone would have refused this
-    with advice that cannot be followed. It keys on the `auction_lot` row
-    now, so the receipt ends
-    the offer the way it ends any other.
+    with advice that cannot be followed. It keys on the `auction_lot` row,
+    so the receipt ends the offer the way it ends any other.
     """
     item = make_item()
     listing = offering_writes.offer(

@@ -1,9 +1,8 @@
 """An administrator creating an account for someone else.
 
-Self-registration in the shop always makes a customer, and promotion was the
-only way to an administrator -- so an administrator could not add a colleague,
-or open an account for a customer who asked, without that person registering
-themselves first. `POST /api/users` closes that gap, for administrators only.
+Self-registration in the shop always makes a customer. `POST /api/users` lets
+an administrator add a colleague, or open an account for a customer who asked,
+without that person registering themselves first. Administrators only.
 """
 
 from __future__ import annotations

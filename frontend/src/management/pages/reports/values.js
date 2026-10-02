@@ -64,7 +64,7 @@ export function choiceText(choice) {
 /**
  * A parameter's value in words, as the print heading gives it.
  *
- * An absent date bound (Ruling P2-3: an emptied date means no limit, not a
+ * An absent date bound (an emptied date means no limit, not a
  * refusal) prints as "any" rather than blank, since a heading with nothing
  * after the colon would read as if the parameter had been dropped.
  */

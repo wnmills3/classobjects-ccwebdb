@@ -145,10 +145,9 @@ def test_the_baseline_seeds_the_fee_kinds(migrated_url: str) -> None:
 
 
 #: A hand-written restatement of a *subset* of the models' CHECK constraints
-#: -- not generated from the models, and not a claim of completeness. (The
-#: models declare 32 constraints named `ck_*`; this list has 6.) Two things
-#: this independence buys, verified directly against this repo's installed
-#: Alembic (1.19.1), not assumed:
+#: -- not generated from the models, and not a claim of completeness: the
+#: models declare many more `ck_*` constraints than the 6 here. What this
+#: independence buys, given how Alembic's `compare_metadata` behaves:
 #:
 #: - `compare_metadata` (the diff `test_migrations_match_models` runs) *does*
 #:   detect an added or removed named CHECK -- `_compare_check_constraints`
@@ -201,8 +200,9 @@ _SALES_LOT_ITEM_OPEN_INDEXDEF = (
 def test_the_migration_carries_every_check_constraint(migrated_url: str) -> None:
     """Each hand-picked CHECK exists in the migration, with the right predicate.
 
-    Presence alone is not enough -- see `_CHECKS_THE_SELLING_WORK_ADDED`'s own
-    docstring for why `compare_metadata` cannot be trusted for either the
+    Presence alone is not enough -- see the comment above
+    `_CHECKS_THE_SELLING_WORK_ADDED` for why `compare_metadata` cannot be
+    trusted for either the
     expression or the "deleted from both sides" case. While built against the
     same `migrated_url` database, this also asserts `uq_sales_lot_item_open`'s
     partial-index predicate, which no comparator here checks at all.
@@ -259,7 +259,7 @@ def test_the_migration_carries_every_check_constraint(migrated_url: str) -> None
 
 
 #: The database objects outside `Base.metadata` whose definitions matter:
-#: the four views, and `grade_display()`, which three of them call.
+#: the four views, and `grade_display()`, which two of them call.
 _DEFINITIONS = (
     "SELECT 'view ' || c.relname, pg_get_viewdef(c.oid) FROM pg_class c "
     "JOIN pg_namespace n ON n.oid = c.relnamespace "

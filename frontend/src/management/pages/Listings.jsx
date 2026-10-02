@@ -16,8 +16,8 @@ import { orNull } from '../../shared/text'
 import { SaveButton } from '../SaveButton'
 
 /**
- * The Listings page: every offer the business has out, and the two things
- * that may be done to one.
+ * The Listings page: every offer the business has out, and the three things
+ * that may be done to one: edit it, end it, or record its sale.
  *
  * This page never sets a listing's status. `app/offering_writes.py` is the
  * only writer of status and of the claim that keeps an item offered in one
@@ -38,8 +38,8 @@ import { SaveButton } from '../SaveButton'
  * against the rendered dialog by the test beside it.
  *
  * No letter is D, E or F: Chrome and Edge keep those for the address bar and
- * menus on Windows. Save is V, the same letter it is in the item editor, the
- * order editor and the platform form.
+ * menus on Windows. Save is Ctrl+S, not a letter (`SaveButton.jsx`), as in
+ * every other console edit window.
  */
 const KEYS = {
   price: 'r',
@@ -112,8 +112,7 @@ function ListingForm({ listing, onSaved, onClose }) {
     }
   }
 
-  // `subjectOf`, not `item_code`: a lot listing has none, and this read as
-  // "Edit null on eBay" for every one of them.
+  // `subjectOf`, not `item_code`: a lot listing has none.
   const label = `Edit ${subjectOf(listing)} on ${listing.venue_name}`
 
   return (
@@ -166,7 +165,8 @@ function ListingForm({ listing, onSaved, onClose }) {
 }
 
 /**
- * The Listings page: what is offered, filtered, with Edit and End per row.
+ * The Listings page: what is offered, filtered, with Edit, End and Record sale
+ * per row.
  */
 export default function Listings() {
   const [listings, setListings] = useState(null)
@@ -371,8 +371,7 @@ export default function Listings() {
               <tr key={l.id} className={l.status === 'active' ? '' : 'muted'}>
                 <td>{l.venue_name}</td>
                 {/* The item's code, or the lot by name and size: a lot
-                    listing has no code of its own and this cell was empty
-                    for every one of them. */}
+                    listing has no code of its own. */}
                 <td>{subjectOf(l)}</td>
                 <td>{l.title}</td>
                 <td>{labelFor(FORMATS, l.format)}</td>
@@ -433,12 +432,12 @@ export default function Listings() {
                       And never on a store row. Recording a sale of a store
                       listing is a second way to sell a shop item -- past the
                       cart, past checkout, minting an "Undisclosed buyer
-                      (store)" when the buyer is left blank. Decided
-                      2026-09-22 (ruling S4): the API refuses it too
-                      (`sales_writes._refuse_store_sale`), and an in-person
-                      sale of a shop item is an order on the customer's
-                      behalf, from the Sales page. An unmatched platform (the venue
-                      list failed to load, and the table still shows) reads as
+                      (store)" when the buyer is left blank. The API refuses
+                      it too (`sales_writes._refuse_store_sale`), and an
+                      in-person sale of a shop item is an order on the
+                      customer's behalf, from the Sales page. An unmatched
+                      platform (the venue list failed to load, and the table
+                      still shows) reads as
                       "not the store", the same way `isAuctionHouse` below
                       reads an unmatched one as "not an auction house":
                       guessing the other way would hide the button on every

@@ -163,8 +163,8 @@ def test_a_dry_run_reports_the_rows_it_would_drop(
 ) -> None:
     """The preview's `dropped` must mean what the merge will do.
 
-    `dry_run` runs `plan` alone, which never counted duplicates, so every
-    preview said `dropped: 0` and the merge then dropped some. It is the one
+    `dry_run` runs `plan` alone, so `plan` has to count the duplicates the
+    merge will drop. It is the one
     number in a confirmation dialog that cannot be checked afterwards --
     whoever approved the merge has already lost the rows it did not mention.
 

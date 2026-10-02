@@ -436,7 +436,7 @@ def test_the_services_other_words_resolve(db: Session, word: str, code: str) -> 
     """Ultra Cameo and UC are UCAM's; NGC's DPL is still DMPL's alias.
 
     UCAM is a row of its own, not DCAM's alias: the holder says one or the
-    other and the record keeps what it says (owner, 2026-09-24).
+    other and the record keeps what it says.
     """
     found = aliases.resolve(db, GradeDesignation, word)
     assert found is not None

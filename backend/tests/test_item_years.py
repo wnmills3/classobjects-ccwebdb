@@ -49,7 +49,7 @@ def test_a_single_year_stays_single_when_its_year_changes(
 def test_a_start_year_with_no_end_becomes_a_single_year(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """The second shape a single year was stored in, left by the demo seed."""
+    """A start year with no end year is also a single year."""
     item = build_bare_item(db, year_start=1881, year_end=None)
 
     assert _patch(client, admin_headers, item, year_start=1882).status_code == 200

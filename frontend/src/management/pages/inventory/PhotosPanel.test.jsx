@@ -14,8 +14,8 @@ vi.mock('../../api', () => ({
     moveImageLink: vi.fn(),
     // The item picker's lookup, for Move.
     searchInventory: vi.fn(),
-    // Never called by this panel -- see "Remove detaches, never deletes"
-    // below. Mocked anyway so a mistaken call is a clean assertion failure
+    // Never called by this panel -- see 'holds "Remove", and never deletes the
+    // photograph' below. Mocked anyway so a mistaken call is a clean assertion failure
     // rather than a TypeError on an undefined function.
     deleteImage: vi.fn(),
   },
@@ -145,7 +145,6 @@ describe('PhotosPanel', () => {
   })
 
   it('adds a new kind of photograph by its name, and holds it', async () => {
-    // The owner, 2026-10-01: "Coolness" had nowhere to be added.
     const user = userEvent.setup()
     const onEditsChange = vi.fn()
     sharedApi.addReferenceValue.mockResolvedValue({})

@@ -1,8 +1,8 @@
 """Settling an auction: one transaction, and the money reconciles to the cent.
 
-`app.auctions.settle` is the second caller
-`sales_writes`' single entry point was built for (spec, *Where record-a-sale
-lives*), so most of what these tests prove is that settlement hands off to
+`app.auctions.settle` is the caller `sales_writes.record_sale_lines`, the
+second door into its one implementation, exists for (spec, *Who writes
+what*), so most of what these tests prove is that settlement hands off to
 `sales_writes`, `offering_writes` and `lifecycle_writes` correctly rather
 than growing a second copy of fees, shares, endings or location moves --
 the same discipline `test_auctions.py` holds the auction transitions to.
@@ -83,9 +83,8 @@ _UNEVEN_COSTS = (Decimal("500.00"), Decimal("300.00"), Decimal("200.00"))
 
 
 #: The house's own number for the sale, carried by the `auction` fixture so
-#: `external_order_id` is never `None` in this file. A fixture that left it
-#: unset made ruling R18 unwritable by any test: `settle` could have stopped
-#: copying it and every assertion would still have compared `None` to `None`.
+#: `external_order_id` is never `None` in this file: with it unset, `settle`
+#: could stop copying it and every assertion would compare `None` to `None`.
 _SALE_NUMBER = "SIG-2026-09"
 
 
@@ -243,7 +242,7 @@ def consigned_closed_auction(
     """Two lots that physically left the premises, and whose sale has closed.
 
     `consign` then `close`: `close` leaves `consigned_on` set, which is why
-    custody is keyed on that date rather than on the status (ruling R13).
+    custody is keyed on that date rather than on the status.
     """
     for number in range(1, 3):
         add_lot(
@@ -285,7 +284,7 @@ def lots_of(db: Session, auction: Auction) -> list[AuctionLot]:
 
     Never `auction.lots`: that collection carries no `order_by`, and a
     settlement is exactly the call most likely to have been preceded by
-    something that left it stale -- the defect once found in `add_lot`.
+    something that left it stale.
     Reading it back is also how these tests stay honest about what `settle`
     wrote rather than about what the session remembers.
     """
@@ -392,19 +391,13 @@ def test_settling_creates_one_order_per_buyer(
 def test_every_buyer_s_order_carries_the_auction_s_sale_number(
     db: Session, closed_auction: Auction, admin_user: User
 ) -> None:
-    """Ruling R18: `external_order_id` is the **sale** number, on every order.
+    """`external_order_id` is the **sale** number, on every order.
 
     It is what the owner reconciles an auction house's statement against, and
     the statement names the sale rather than one order per buyer inside it --
     so the same value deliberately appears on both orders here. Nothing
     constrains the column to be unique, so that is the reconciliation key
     rather than a collision.
-
-    Written by a test because it was written by none: every fixture in this
-    file left `Auction.external_id` at `None` until now, so `settle` could
-    have stopped copying it altogether and every assertion in the suite would
-    still have compared `None` to `None`. Nothing would have noticed until a
-    statement did not match.
     """
     lots = lots_of(db, closed_auction)
     orders = settle(
@@ -450,8 +443,8 @@ def test_an_auction_house_may_leave_the_buyer_undisclosed(
 ) -> None:
     """Heritage does not name its buyers, so one standing customer holds them.
 
-    The spec's *Decisions* table: "one 'undisclosed buyer' per auction house
-    that does not name buyers". So a missing username at a house is the
+    The spec's *Rules* table: one "undisclosed buyer" per platform that does
+    not name buyers. So a missing username at a house is the
     ordinary case, not the "sold lot lacks a buyer" the *Errors* section
     refuses -- see `test_a_marketplace_lot_must_name_its_buyer`, which is
     where that refusal really lives.
@@ -620,9 +613,9 @@ def test_a_withdrawn_lot_returns_its_items_exactly_as_an_unsold_one_does(
 ) -> None:
     """`withdrawn` is what "was in a closed auction and did not sell" means.
 
-    Which is why the public `remove_lot` refuses a closed auction (ruling
-    R14): a lot pulled out after the sale has a settlement result, not no
-    record at all. So it comes home the same way an unsold lot does.
+    Which is why the public `remove_lot` refuses a closed auction: a lot
+    pulled out after the sale has a settlement result, not no record at all.
+    So it comes home the same way an unsold lot does.
     """
     lots = lots_of(db, consigned_closed_auction)
     coins = [members_of(db, row)[0] for row in lots]
@@ -767,7 +760,7 @@ def test_fees_are_divided_the_same_way_as_the_price(
 ) -> None:
     """One fee, one order, four coins across two lots -- divided by cost basis.
 
-    This is the genuinely new arithmetic on this branch. A hammer price is a
+    This is the arithmetic settlement adds to a single sale. A hammer price is a
     *line's* money and divides among that lot's coins; a fee is the
     *order's* money, because the house bills per buyer, and divides across
     every coin on every line. The two allocations therefore have different
@@ -865,7 +858,7 @@ def test_settlement_is_refused_when_a_sold_lot_has_no_price(
     message is the same sentence *without* `cannot be settled:` -- the same
     deliberate duplication `cancel` has -- so matching on the words alone
     passes off whichever guard fired, and mutating the grid check away leaves
-    this green. Tightened the same way the return-location test was.
+    this green.
     """
     lots = lots_of(db, closed_auction)
     lines = [SettlementLine(row.id, AuctionLotResult.unsold) for row in lots]
@@ -883,7 +876,7 @@ def test_one_lot_given_two_results_is_refused(
 
     Whichever row won would be arbitrary, and the loser would be a result the
     owner entered and the system silently discarded. Advertised in `settle`'s
-    docstring and, until now, written by no test.
+    docstring.
     """
     lots = lots_of(db, closed_auction)
     lines = [SettlementLine(row.id, AuctionLotResult.unsold) for row in lots]
@@ -901,9 +894,8 @@ def test_a_lot_that_did_not_sell_cannot_carry_a_hammer_price(
 
     Silently ignoring it would be worse than refusing: the owner typed a
     number, and `auction_lot.hammer_price` would then read `NULL` beside a
-    figure they believe they entered. Advertised in `settle`'s docstring and,
-    until now, written by no test -- and the message names the result so the
-    grid can point at the right cell.
+    figure they believe they entered. Advertised in `settle`'s docstring; the
+    message names the result so the grid can point at the right cell.
     """
     lots = lots_of(db, closed_auction)
     lines = [SettlementLine(row.id, AuctionLotResult.unsold) for row in lots]
@@ -919,8 +911,8 @@ def test_a_marketplace_lot_must_name_its_buyer(
 ) -> None:
     """Only an auction house may leave a buyer undisclosed.
 
-    The spec's *Errors* line -- settle refuses when a sold lot "lacks a
-    price or buyer" -- read against its *Decisions* table, which gives the
+    The spec's *Errors* paragraph -- settle refuses a sold lot with no hammer
+    price or no buyer -- read against its *Rules* table, which gives the
     undisclosed buyer to auction houses alone. eBay always names who bought
     it, so a blank there is a half-filled grid rather than a real fact.
     """
@@ -940,7 +932,7 @@ def test_a_negative_fee_refuses_the_whole_settlement(
 ) -> None:
     """A refund is not a negative fee, and one bad number stops everything.
 
-    `SettlementInputInvalid` by name (ruling R15) -- the wider
+    `SettlementInputInvalid` by name -- the wider
     `AuctionRefused` would keep passing if the pair were collapsed, since
     this is a subclass of it.
     """
@@ -971,8 +963,8 @@ def test_a_sub_cent_hammer_price_is_refused(
     written out a second time.
 
     `SettlementInputInvalid`, not the wider `AuctionRefused`: sub-cent binds
-    hammer prices and not only fees, and it is bad input either way (ruling
-    R15). Naming the narrower class is what makes this fail if the pair is
+    hammer prices and not only fees, and it is bad input either way.
+    Naming the narrower class is what makes this fail if the pair is
     ever collapsed -- `pytest.raises(AuctionRefused)` would keep passing,
     since the narrower one is a subclass.
     """
@@ -993,8 +985,8 @@ def test_a_refusal_lists_every_problem_lot_not_just_the_first(
 ) -> None:
     """The console shows a grid; fixing one problem at a time is miserable.
 
-    Three different faults across four lots, and the message names all of
-    them by lot number.
+    Four different faults, one on each of four lots, and the message names
+    all of them by lot number.
     """
     lots = lots_of(db, closed_auction)
     with pytest.raises(AuctionRefused) as caught:
@@ -1061,10 +1053,9 @@ def test_fees_for_a_buyer_who_bought_nothing_are_refused(
     """A fee with no order to sit on would be money silently dropped.
 
     The buyer who *did* buy is named in two cases here, `CoinFan88` on the
-    lots and `coinfan88` in the fees, so this also proves ruling R17's
-    folding did not widen the comparison into matching everything: `ghost`
-    casefolds to itself and still bought nothing. One test rather than two
-    near-identical ones, which is what the first attempt at this left behind.
+    lots and `coinfan88` in the fees, so this also proves the case
+    folding does not widen the comparison into matching everything: `ghost`
+    casefolds to itself and still bought nothing.
     """
     with pytest.raises(AuctionRefused, match="bought nothing"):
         settle(
@@ -1278,7 +1269,7 @@ def test_settlement_ends_only_item_listings_it_did_not_name(
 
 
 # --------------------------------------------------------------------------
-# Which refusal (ruling R15), and who the buyer is (ruling R17)
+# Which refusal, and who the buyer is
 # --------------------------------------------------------------------------
 
 
@@ -1293,10 +1284,10 @@ def test_bad_money_and_a_conflict_are_different_refusals(
     asserts `isinstance` in the direction that can fail: the money one *is*
     a `SettlementInputInvalid`, the conflict one is *not*.
 
-    This is also the only thing standing between a reversed pair of `except`
-    clauses in the auctions router and every 422 silently becoming a 409 -- mypy
-    cannot see that ordering, because the narrower type is still assignable
-    to the wider one.
+    `app.main` registers a handler per class, so the narrower one answers 422
+    and the wider one 409 (`test_settlement_input_invalid_is_a_422_not_a_409`
+    in `test_auctions_api.py`); this test is what keeps `settle` raising the
+    right one of the two.
     """
     lots = lots_of(db, closed_auction)
     sold = sold_everything(db, closed_auction, price=Decimal("100.00"), buyer="amy")
@@ -1355,9 +1346,9 @@ def test_two_spellings_of_one_buyer_make_one_order(
     """`CoinFan88` and `coinfan88` are one person, so they are one order.
 
     Grouping case-sensitively while `buyers.venue_buyer` matches
-    case-insensitively wrote **two orders against a single customer** --
-    which reconciles against the house's statement one order short, with
-    nothing in the schema saying the two belong together (ruling R17).
+    case-insensitively would write **two orders against a single customer**
+    -- which reconciles against the house's statement one order short, with
+    nothing in the schema saying the two belong together.
 
     The fee is keyed with a third spelling, so this also proves the `fees`
     mapping is folded the same way rather than only the lots.

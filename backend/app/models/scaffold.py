@@ -1,17 +1,8 @@
 """The user account table.
 
-This module is what remains of the original storefront scaffold. Its flat
-`coins` catalog and its `orders` tables were superseded by the target schema
--- `inventory_item`, `listing`, `sales_order` -- and have been removed.
-
-`users` was never scaffold: it is the login table the whole application uses,
-and the target schema references it from `customer`, `item_status_history`,
-`location_history` and both type catalogs.
-
-One rename outlived the tables. The scaffold's PostgreSQL enum type was called
-``item_kind``, and the target schema has a reference *table* of that name; in
-PostgreSQL a table implicitly creates a composite type, so the two collided.
-The enum was renamed to ``coin_kind`` and then dropped with `coins`.
+`users` is the login table the whole application uses. The schema references
+it from `customer`, `sales_order`, both type catalogs and every table that
+records who did something.
 """
 
 from __future__ import annotations
@@ -28,14 +19,14 @@ __all__ = ["User", "UserRole"]
 
 
 class UserRole(enum.StrEnum):
-    """What a login may do. Administrators see cost basis; customers do not."""
+    """What a login may do. Managers see cost basis; customers do not."""
 
     manager = "manager"
     customer = "customer"
 
 
 class User(Base):
-    """A login. Referenced by customer, history rows and both type catalogs."""
+    """A login. Referenced by customers, orders and every who-did-it column."""
 
     __tablename__ = "users"
 

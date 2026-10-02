@@ -1,9 +1,8 @@
 """The public title an offer starts from (`app.offer_titles`).
 
-The offer dialog used to pre-fill a listing's title with `source_title`, the
-seller's wording from the purchase -- often "1" or "$1 Bill", sometimes a
-Whatnot line in capitals -- which went onto eBay unless the operator
-rewrote it. These tests pin the composed title for the shapes the collection
+`source_title` is the seller's wording from the purchase -- often "1" or
+"$1 Bill", sometimes a Whatnot line in capitals -- and is not what should go
+onto eBay. These tests pin the composed title for the shapes the collection
 actually has, and the fallback for an item with nothing to compose from.
 """
 
@@ -123,7 +122,7 @@ def test_a_note_is_titled_by_series_face_value_and_type(db: Session) -> None:
 
 
 def test_an_unclassified_item_keeps_the_seller_wording(db: Session) -> None:
-    """Nothing to compose from but a year: the old default is the fallback."""
+    """Nothing to compose from but a year: the seller's wording is the fallback."""
     item = build_item(
         db,
         title="Copper Round 1oz",

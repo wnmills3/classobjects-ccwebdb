@@ -5,8 +5,8 @@
  * was when each field now being edited was last known to the form. A change
  * made elsewhere then matters only if it touched a field being edited here;
  * every other field simply takes the new value. The server applies the same
- * rule to a save that sends its base (`PATCH /inventory/{id}`, `base`), and
- * these comparisons mirror `_same_value` there.
+ * rule to a save that sends its base (`PATCH /api/inventory/{id}`, `base`),
+ * and these comparisons mirror `app.field_changes.same_value`.
  */
 
 import { FIELD_HELP } from '../../fieldHelp'

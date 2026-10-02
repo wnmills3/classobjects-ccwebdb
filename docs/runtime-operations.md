@@ -2,11 +2,11 @@
 
 **What this covers.** Starting, stopping and inspecting the development
 runtime -- PostgreSQL, the FastAPI backend and the Vite frontend -- plus the
-helper scripts around them (psql, pgAdmin, the quality gate, Claude Code, and
-the local SonarQube server).
+helper scripts around them (psql, pgAdmin, the quality gate, the
+`ccweb_claude.cmd` launcher, and the local SonarQube server).
 
 **Who it is for.** Anyone running the system on this machine, by hand or from
-an automated caller such as Claude Code.
+an automated caller.
 
 **Why it matters.** The scripts are the supported way to run the services:
 they put the right conda environment in play, start PostgreSQL so it survives
@@ -41,8 +41,8 @@ Run from the repository root:
 caller waiting for the pipe to close waits for as long as the servers run,
 and the call hangs. Check the result with `ccweb_status.cmd` instead.
 
-**No need to activate the conda environment first.** Every script puts
-`ccwebdb` in play itself (*The conda environment*). The scripts locate the
+**No need to activate the conda environment first.** Every script that needs
+`ccwebdb` puts it in play itself (*The conda environment*). The scripts locate the
 repository from their own path, so they work from any directory when called
 by full path.
 
@@ -80,7 +80,9 @@ by full path.
 
 ## The conda environment
 
-Every script calls `scripts\ccweb_env.cmd` before it starts anything. It uses
+Every script that runs something from the environment calls
+`scripts\ccweb_env.cmd` before it starts anything; the SonarQube start, stop
+and MCP scripts use only podman and do not. It uses
 `ccwebdb` if that is already active and activates it if not; the activation
 lasts only as long as the script, so your own shell is left as it was. It
 also sets `ENVDIR` (the environment's folder) and `PGBIN` (PostgreSQL's
@@ -172,8 +174,8 @@ reported as `already running`.
    still accepts connections when it should not.
 
 An unrecognised argument is refused (exit 2) rather than ignored: Git Bash
-rewrites `/keepdb` into a path, and ignoring that once stopped a database the
-caller had asked to keep. If the conda environment cannot be activated, the
+rewrites `/keepdb` into a path, and ignoring it would stop a database the
+caller asked to keep. If the conda environment cannot be activated, the
 servers are still stopped; PostgreSQL is reported as skipped, and the exit
 code is 1.
 
@@ -183,13 +185,14 @@ code is 1.
 .\scripts\ccweb_claude.cmd                        new session
 .\scripts\ccweb_claude.cmd ccweb                  resume, searching for "ccweb"
 .\scripts\ccweb_claude.cmd ccweb --effort high    extra flags pass through
-.\scripts\ccweb_claude.cmd /check                 report the environment, start nothing
+.\scripts\ccweb_claude.cmd /check                 report the environment, do not start Claude Code
 .\scripts\ccweb_claude.cmd /nodb ...              skip the database check
 ```
 
 It activates `ccwebdb`, starts PostgreSQL if it is not running (nearly any
 work here needs it), changes to the repository root and starts Claude Code.
-It does not start the API or Vite. With an argument it runs
+It does not start the API or Vite. `/check` stops after the report; it still
+starts PostgreSQL unless `/nodb` is given too. With an argument it runs
 `claude --resume` with every argument passed on; `--resume` takes a session
 id or any other value as a search term, so a session name works.
 
@@ -250,8 +253,9 @@ A self-hosted SonarQube keeps the code-quality dashboard and backs the
 
 Dashboard: http://localhost:9000, project `classobjects-ccwebdb`. The server
 and its database run as podman containers (`sonarqube`, `sonar-db`) on the
-`sonar-net` network, bound to 127.0.0.1; the start script starts the podman
-machine if it is not running. All state is in four named volumes
+`sonar-net` network; the server is bound to 127.0.0.1 and the database
+publishes no host port. The start script starts the podman machine if it is
+not running. All state is in four named volumes
 (`sonar-db-data`, `sonarqube-data`, `sonarqube-extensions`,
 `sonarqube-logs`); stopping keeps them, `podman volume rm` destroys the
 analysis history and admin account.
@@ -273,7 +277,7 @@ refuses to publish if it fails.
 `mcp__sonarqube__*` tools, and also needs `SONAR_TOKEN`; why it exists rather
 than `sonar run mcp` is in
 [specs/self-hosted-sonarqube-design.md](specs/self-hosted-sonarqube-design.md).
-`.mcp.json` at the repo root points Claude Code at it; it is
+`.mcp.json` at the repo root points the MCP client at it; it is
 gitignored and hand-managed. **Re-running `sonar integrate claude` overwrites
 it** with the broken invocation; restore it to:
 

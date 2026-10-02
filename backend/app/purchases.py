@@ -19,7 +19,7 @@ __all__ = ["GENERATED", "WEB_ADDRESS"]
 #: link; anything else, `javascript:` included, is withheld.
 WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 
-#: A generated order number: `Order-0001`, `Order-0002`, ... (owner,
-#: 2026-09-24). A purchase with no number of its own could not be found by
-#: one; this gives it one, above the highest already issued.
+#: A generated order number: `Order-0001`, `Order-0002`, ... A purchase with
+#: no number of its own could not be found by one; this gives it one, above
+#: the highest already issued.
 GENERATED = re.compile(r"^Order-(\d+)$")

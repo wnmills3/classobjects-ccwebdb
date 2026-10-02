@@ -1,23 +1,23 @@
 /**
  * What each inventory view shows and filters on.
  *
- * Separated from the components because three of them read it -- the table,
- * the filter panel and the review pane -- and a specification imported in
- * three places should not live inside any one of them.
+ * Separated from the components because three modules import it -- the
+ * inventory page, which hands a view to the table and the filter panel, the
+ * filter panel and the search hook -- and a specification imported in three
+ * places should not live inside any one of them.
  *
  * `detail` is shown on a second line under each item, across the columns.
- * The description is long and read rather than compared, so it no longer
- * takes a column; that leaves room for the denomination beside the code.
+ * The description is long and read rather than compared, so it takes no
+ * column; that leaves room for the denomination beside the code.
  *
  * `searchExamples` are the "Search tips" under the search box, and each one
  * runs when clicked. The box has no field syntax: one term, matched anywhere
- * in the title, description, rating or item code, ignoring case -- plus any
- * item whose series, strike, designation, mint, note class or serial feature
- * is called that, by name or alias (app.aliases). Every example here was run
- * against the collection on 2026-09-16 and chosen for what it teaches;
- * the counts in the comments are from that run. The one most worth showing is
- * that several words are a single phrase in order: "1921 morgan" found 27
- * items and "morgan 1921" found none.
+ * in the title, description, rating, item code or the purchase's order
+ * number, ignoring case -- plus any item whose series, strike, designation,
+ * mint, note class or serial feature is called that, by name or alias
+ * (app.aliases). Each example is chosen for what it teaches. The one most
+ * worth showing is that several words are a single phrase in order:
+ * "1921 morgan" finds items that "morgan 1921" does not.
  */
 
 /**
@@ -57,26 +57,21 @@ export const COIN_VIEW = {
   searchPlaceholder:
     'Search title, description, rating, item code or a series, strike or mint name, e.g. mercury (tips below)',
   searchExamples: [
-    // 112 -- mostly through the series nickname, not the listing text.
+    // Found mostly through the series nickname, not the listing text.
     [
       'mercury',
       'a series name or nickname: finds Winged Liberty Head dimes even where the listing never says "Mercury"',
     ],
-    // 535, against 66 before a mint's name was searched: most listings give
-    // only the mint mark.
+    // The mint's name is searched because most listings give only the mint
+    // mark.
     ['denver', 'a mint, strike or designation by name or alias: proof, deep cameo, PR'],
-    // 27, against 0 for "morgan 1921".
     [
       '1921 morgan',
       'several words are one phrase, in that order: "morgan 1921" finds nothing',
     ],
-    // 8
     ['morgan%1921', '% matches anything in between, so the words can be apart'],
-    // 278
     ['19_5', '_ matches exactly one character: 1905, 1915 ... 1995'],
-    // 128, against 16 for "ms-65".
     ['ms65', 'text is matched as written: "ms65" and "ms-65" find different items'],
-    // 100
     ['cc-0012', 'part of an item code'],
   ],
   // The last element of each filter is its Alt+letter accelerator. FilterPanel
@@ -148,26 +143,18 @@ export const CURRENCY_VIEW = {
   searchPlaceholder:
     'Search title, description, rating or item code, e.g. funny%back (tips below)',
   searchExamples: [
-    // 48. The word lives only in the Rating text, spelled "Funnyback" (18)
-    // and "Funny Back" (30); % is what finds both.
-    [
-      'funny%back',
-      'the rating is searched too, and % bridges the two spellings the sheet uses',
-    ],
-    // 53
+    // The word lives only in the Rating text, spelled "Funnyback" and
+    // "Funny Back"; % is what finds both.
+    ['funny%back', 'the rating is searched too, and % bridges its two spellings'],
     ['silver certificate', 'several words are one phrase, in that order'],
-    // 3, against 1 for "1957 silver".
     ['1957%silver', '% matches anything in between, so the words can be apart'],
-    // 287: 129 listings say it, and more notes carry the serial feature.
+    // More notes carry the serial feature than listings say it.
     ['fancy', 'a fancy serial, whether the listing says so or the note records it'],
-    // 125
     ['error', 'listings that describe an error note'],
-    // 224, against 197 listings that say it.
     [
       'star',
       'star notes, by listing or by the recorded feature; the Serial number box searches the serial',
     ],
-    // 87
     ['cc-0070', 'part of an item code'],
   ],
   textFilters: [

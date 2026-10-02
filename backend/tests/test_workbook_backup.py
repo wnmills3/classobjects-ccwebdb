@@ -432,9 +432,8 @@ def test_app_backup_finds_the_tables_no_model_describes(
 ) -> None:
     """`app.backup` finds every table with no model, the migration table too.
 
-    It used to copy the models' tables only, so a restored copy had no import
-    history and no migration revision. The scratch database's tables have no
-    models at all, so every one of them must be found.
+    A copy of the models' tables alone would have no migration revision. The
+    scratch database's tables have no models at all, so every one of them must be found.
     """
     source, _ = pair
     found = [table.name for table in backup.unmodelled_tables(source)]

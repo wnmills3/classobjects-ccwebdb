@@ -603,8 +603,8 @@ kind, denomination, year, mint, serial, series year. By default it finds only
 what has not arrived (`ordered` or `missing`); **Any status** shows a whole
 order. Results come 200 at a time per kind and status; anything beyond that
 is counted on screen, so narrow the search to see it. A link naming one order
-(`/receiving?order=<id>`, from the inventory screens' order column or New
-purchase's **Receive these**) opens with that order's header and its items
+(`/management/receiving?order=<id>`, from the inventory screens' order column
+or Purchases' **Receive these**) opens with that order's header and its items
 already found, searched by the order's id (an order number is not unique
 across vendors and is sometimes not recorded).
 
@@ -1024,8 +1024,8 @@ parameters and its table. Groups appear in the order the API lists them:
 | `dq_photos` | Data quality | Photographs | Live items with no photograph, by kind and status, plus photographs filed against no item | none |
 | `dq_derived` | Data quality | Filled by a rule, not yet confirmed | Fields a machine pass filled in, and the rule that filled each one, that nobody has confirmed | none |
 | `dq_purchases` | Data quality | Purchases with gaps | Purchases with a placeholder number, a missing or implausible order date, no web address, a zero-cost item, or no items | none |
-| `dq_series_years` | Data quality | Coins dated outside their series | Coins whose year falls outside their design series' years -- a typo, a tribute piece, or the wrong series; each row opens that coin | none |
 | `dq_locations` | Data quality | Where items are | Live items by storage location, with items and total cost | none |
+| `dq_series_years` | Data quality | Coins dated outside their series | Coins whose year falls outside their design series' years -- a typo, a tribute piece, or the wrong series; each row opens that coin | none |
 | `pr_outstanding` | Purchasing and receiving | Not yet arrived | Purchases with items still ordered or missing: vendor, seller, order date, days waiting, items outstanding and their cost; oldest first | Overdue after (days) (default 21) |
 | `pr_spend` | Purchasing and receiving | Spending | Period x vendor: purchases, items, item cost, shipping, sales tax and total, over purchases with a live item | From, To, Period (month/quarter/year, default month) |
 | `pr_sources` | Purchasing and receiving | Vendors and sellers | One row per vendor, and per seller a purchase has named: purchases, items, total spent, first/last order date | none |
@@ -1163,8 +1163,8 @@ Where the label is enough:
   offered by the same picker; a value with no marker would fit no kind and
   vanish from its own list.
 - **An attribute also asks for its group** (Serial, Variety, Release,
-  Qualifier, Verification): the column is required with no default, and the
-  owner chose to be asked rather than have one picked.
+  Qualifier, Verification): the column is required with no default, so the
+  form asks rather than picking one.
 
 A value added this way is marked `manual`, which keeps it distinct from the
 shipped catalog and out of a seed export by default (below).
@@ -1183,7 +1183,7 @@ who held an office and when, design series names and year spans, mint
 specifications, legislated compositions, common collector nicknames. A
 publisher's *arrangement* is not: Friedberg numbering, Pick numbering,
 price-guide values, or any catalog's mapping of attributes to its own
-numbers. See the Reference data section of `CLAUDE.md`.
+numbers. See [reference-data.md](reference-data.md).
 
 **Loading and exporting seed files.** The shipped vocabularies live in
 `backend\data\reference\`. A seed load adds and updates rows, but never
@@ -1304,8 +1304,8 @@ old revision, and cannot be migrated or restored faithfully.
 **A backup is proved by restoring it and comparing, never by listing it.** A
 `pg_restore --list` or `python -m app.backup --list` shows that a file or copy
 exists and its size, not that it holds the collection: a copy that aborted
-partway still lists at a plausible size, and one such copy held no inventory
-items and no purchase orders at all. Restore into a new database and run:
+partway still lists at a plausible size while holding no inventory items at
+all. Restore into a new database and run:
 
 ```cmd
 python -m app.workbook_backup compare postgresql+psycopg://ccwebdb:<password>@localhost:5432/<restored name>

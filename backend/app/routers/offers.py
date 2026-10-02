@@ -130,9 +130,9 @@ def listing_out(listing: Listing) -> ListingOut:
 
     `ck_listing_item_xor_lot` makes the two mutually exclusive, so exactly one of
     the two branches below fills its half of `ListingOut` and the other half
-    stays null. This function read `listing.inventory_item.item_code`
-    unconditionally until lots existed, which made the whole Listings page
-    an `AttributeError` the moment the first lot was offered.
+    stays null. Reading `listing.inventory_item.item_code` unconditionally
+    would make the whole Listings page an `AttributeError` the moment a lot
+    is offered.
 
     A lot's `cost_basis` is the sum of its members', and `item_title` is the
     lot's own title, so the console has one title field to show whichever
@@ -468,11 +468,10 @@ def list_listings(
         )
     if item_id is not None:
         # Not `Listing.inventory_item_id == item_id`: that column is NULL on
-        # a **lot** listing, so a coin offered inside a lot matched nothing
-        # and the offers panel said "Not offered anywhere yet" about a coin
-        # that was on sale -- and then offered an "Offer for sale..." button
-        # the writer would refuse (`offering_writes._refuse_grouped`). A
-        # lookup miss must not default silently.
+        # a **lot** listing, so a coin offered inside a lot would match
+        # nothing, and the offers panel would say "Not offered anywhere yet"
+        # about a coin that is on sale and offer an "Offer for sale..."
+        # button the writer refuses (`offering_writes._refuse_grouped`).
         #
         # Through `offering_writes` rather than a claim query written here:
         # that module owns "is this item spoken for", and the released
@@ -512,8 +511,8 @@ def _refuse_rewriting_an_ended_offer(listing: Listing, data: dict[str, Any]) -> 
 
     An ended listing's price, title and description are what it was offered
     at and as -- part of the record a sale, or a settlement, reconciles
-    against. The console already hid the edit for an ended row; the API
-    took it anyway, so a stale tab or a script could rewrite history.
+    against. The console hides the edit for an ended row; this is what
+    stops a stale tab or a script from rewriting history.
     """
     if listing.status is not ListingStatus.ended:
         return
@@ -636,15 +635,10 @@ def sale_recorded(db: Session, order: SalesOrder) -> SaleRecordedOut:
     `order.fees` and each line's `.shares`: the fee total is a `sum()` the
     database can do without loading a row per fee, and the item codes need a
     join to `inventory_item` anyway, because they come back ordered by
-    `item_code` rather than by share id. (Until `place_order` stopped
-    consulting a new line's shares, these queries were also working around a
-    collection left cached empty from before the row existed -- see
-    `order_writes._sync_shares`. That hazard is gone; the queries stay for the
-    two reasons above.)
+    `item_code` rather than by share id.
 
-    `net_amount` is computed here and only here: `record_sale`'s module
-    docstring says net payout is never stored, so this is the one place the
-    subtraction happens. **Public, not private:**
+    `net_amount` is computed here and only here: net payout is never stored,
+    so this is the one place the subtraction happens. **Public, not private:**
     `routers.auctions.settle_auction` shapes every order a settlement writes
     through this same function -- one buyer's purchase looks identical
     whether it came from Record sale or from a settled auction lot, and a

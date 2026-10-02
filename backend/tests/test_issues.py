@@ -238,17 +238,16 @@ def test_an_unclassified_item_is_reachable_and_flagged(
 def test_every_issue_a_view_offers_can_actually_fire(db: Session) -> None:
     """A check that cannot return a row reads as a clean bill of health.
 
-    kind_unknown shipped in both views while COIN_VIEW excluded 'unknown' and
-    CURRENCY_VIEW excludes it still. The check is only meaningful in a view
-    whose WHERE clause can admit a matching row.
+    A view whose WHERE excludes a kind cannot return a row for a check that
+    requires it, as CURRENCY_VIEW excludes 'unknown'. The check is only
+    meaningful in a view whose WHERE clause can admit a matching row.
 
     This does not prove every issue can fire -- only that no issue's own
     `k.code` constraint structurally contradicts its view's `k.code`
     constraint. An issue naming no `k.code` at all, or one whose
     contradiction lives in a different column, passes this test whether or
-    not it can ever match a row. What it does catch is exactly the shape of
-    bug that shipped: a check moved, or shared, into a view its own kind
-    constraint rules out.
+    not it can ever match a row. What it does catch is a check moved, or
+    shared, into a view its own kind constraint rules out.
     """
     for spec in VIEWS.values():
         view_constraints = [

@@ -206,9 +206,8 @@ def _pydantic_messages(response: httpx.Response) -> list[str]:
 
     A request-validation 422 carries `detail` as a **list of error dicts**,
     not the string a router's own `HTTPException` produces. An assertion that
-    does not go through this cannot tell the two apart -- which is exactly how
-    two tests below passed on "Unknown venue: 'ebay'" while claiming to prove
-    a schema rule.
+    does not go through this cannot tell the two apart -- and "Unknown venue:
+    'ebay'" would satisfy a status-only assertion meant for a schema rule.
     """
     detail = response.json()["detail"]
     assert isinstance(detail, list), detail
@@ -225,10 +224,9 @@ def test_a_lot_body_cannot_also_carry_items(
     """Both subjects at once is what makes `offer`'s `ValueError` unreachable.
 
     `ebay_venue` and a real item, so **nothing else about this request is
-    wrong**. Without the fixture `_venue_by_code` answers 422 for an unknown
-    venue before `_one_subject` is ever consulted, and a status-only
-    assertion passes with the rule deleted -- which is what this test did
-    until the review caught it. The body is asserted for the same reason: a
+    wrong**. Without the fixture `routers._resolve.venue_by_code` answers
+    422 for an unknown venue, and a status-only assertion passes with the
+    rule deleted. The body is asserted for the same reason: a
     422 from pydantic and a 422 from the router are different answers and
     only one of them is this rule.
     """
@@ -258,8 +256,7 @@ def test_a_lot_cannot_be_offered_as_more_than_one_unit(
 
     `offering_writes.offer` forces `quantity_available=1` for a lot, so an
     explicit `2` would be accepted and quietly ignored -- the caller would
-    believe two lots were on offer. Refused instead, now that a caller can
-    reach the override at all.
+    believe two lots were on offer. Refused instead.
 
     `ebay_venue` and a body correct in every other way, so the only thing
     wrong with this request is the quantity; and the refusal is read out of
@@ -297,11 +294,7 @@ def test_a_customer_cannot_read_a_lot(
     db: Session,
     lot_of_three: SalesLot,
 ) -> None:
-    """403 for a signed-in non-administrator: 401 alone would not prove the role.
-
-    The fixture is `customer_headers`, not an invented `customer_token` --
-    conftest has no such fixture.
-    """
+    """403 for a signed-in non-administrator: 401 alone would not prove the role."""
     db.commit()
     assert client.get("/api/sales-lots", headers=customer_headers).status_code == 403
 

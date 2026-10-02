@@ -155,8 +155,8 @@ class ItemStatusHistory(Base):
 class LocationHistory(Base):
     """Every physical move.
 
-    "Where was this in March" is a question worth being able to answer, and a
-    sale writes two rows here -- in_transit, then sold.
+    "Where was this in March" is a question worth being able to answer. One
+    row per move, written by `lifecycle_writes.set_location`.
     """
 
     __tablename__ = "location_history"
@@ -240,9 +240,9 @@ class ItemFieldChange(Base):
     Written by `PATCH /inventory/{id}` and the bulk edit, in the same
     transaction as the change, one row per field whose value actually moved
     (`app.field_changes.record`). It is what lets the item editor say *who*
-    changed a field it is warning about (owner's request, 2026-09-23), and it
-    is an edit history besides. Values are stored as the item editor sees
-    them -- codes for classifiers, strings for money -- in JSONB.
+    changed a field it is warning about, and it is an edit history besides.
+    Values are stored as the item editor sees them -- codes for classifiers,
+    strings for money -- in JSONB.
 
     Not written by the machine passes (they mark their fields in
     `ItemFieldSource`) or by status moves outside the editor (receiving has
@@ -286,7 +286,9 @@ class ItemFieldSource(Base):
     note's denomination and series, a composition from a coin's denomination
     and year. A pass may refresh such a field when the facts improve. No row
     means the value is a person's, or came with the data -- and no pass ever
-    touches it. Saving a field by hand deletes its row.
+    touches it. Saving a field by hand deletes its row. The one row that is
+    not a rule's is `held`: a person emptied the field, and no pass fills it
+    until someone sets it again (`app.field_sources`).
 
     Per field, like `ItemFieldReview`, and for the same reason: an item is
     partly derived and partly typed as a normal state. The two answer
@@ -307,8 +309,9 @@ class ItemFieldSource(Base):
         nullable=False,
     )
     field_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    #: Which rule filled it: `note_issue`, `serial_district`, `composition`,
-    #: `series_classify`. Shown in the report and the editor's tooltip.
+    #: Which rule filled it -- one of the constants in `app.field_sources`
+    #: (`note_issue`, `composition`, `series_classify`, ...) -- or `held`.
+    #: Shown in the report and the editor's tooltip.
     derived_by: Mapped[str] = mapped_column(String(64), nullable=False)
     derived_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False

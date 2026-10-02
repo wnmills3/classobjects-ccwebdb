@@ -27,8 +27,8 @@ function renderCart() {
 
 describe('Cart quantity', () => {
   it('keeps the line while its quantity box is cleared to type another', async () => {
-    // Clearing the box read as quantity 0, and a quantity of 0 is a removal:
-    // the line vanished between deleting "2" and typing "3".
+    // A cleared box read as quantity 0 would be a removal: the line would
+    // vanish between deleting "2" and typing "3".
     const user = userEvent.setup()
     const cart = renderCart()
     const box = screen.getByRole('spinbutton')

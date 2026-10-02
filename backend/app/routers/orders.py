@@ -61,7 +61,7 @@ NO_STOCK_RETURN_STATUSES = SHIPPED_STATUSES | {"cancelled", "refunded"}
 
 #: Statuses that end an order and so return its stock when it has not
 #: shipped. A refund before shipping is a cancellation with the money gone
-#: back: kept, the stock was held by the order for ever.
+#: back: its stock returns too, or the order would hold it for ever.
 STOCK_RETURNING_STATUSES = frozenset({"cancelled", "refunded"})
 
 # The same 404 whether the order does not exist or belongs to another
@@ -81,17 +81,13 @@ def _sold_as(line: SalesOrderItem) -> str:
     For a lot the difference is not cosmetic. `sales_lot.title` is the
     group's working name, chosen for the office -- the catalog deliberately
     keeps it out of the shop, which
-    `test_a_lot_entry_shows_the_offer_wording_not_the_lots` pins -- and this
-    function used to prefer it over the listing wording sitting beside it in
-    the same snapshot.
+    `test_a_lot_entry_shows_the_offer_wording_not_the_lots` pins -- so the
+    listing wording sitting beside it in the same snapshot is preferred.
 
     Falling back rather than choosing: an offer made with no wording of its
     own (`listing.title` is `""` by default) is named by what it sold, which
     for a lot line is the lot's title, because a lot snapshot has no `item`
-    at all (`sale_snapshot`, version 2). Without that branch the last resort
-    below reached `listing.inventory_item.source_title`, which is `None` for
-    a lot listing -- an `AttributeError`, and a 500 on every page listing the
-    order.
+    at all (`sale_snapshot`, version 2).
     """
     snapshot = line.item_snapshot or {}
     if not isinstance(snapshot, dict):
@@ -116,9 +112,8 @@ def _sold_as(line: SalesOrderItem) -> str:
 def _listing_title(listing: Listing | None) -> str | None:
     """A listing's name for a person: its item's title, or its lot's.
 
-    The third reader of `listing.inventory_item.source_title` that a lot
-    listing's NULL item would crash -- `order_changes` below builds its
-    history rows from it.
+    Either shape, because a lot listing has no item: `list_order_changes`
+    below builds its history rows from this, and `_sold_as` falls back to it.
     """
     if listing is None:
         return None
@@ -340,9 +335,8 @@ def _no_stock_to_return(db: Session, order: SalesOrder) -> str | None:
     `sales_writes.record_sale` ended its listing when it recorded the sale.
     The second is a **lot** bought in the shop: `order_writes.place_order`
     ends that listing too, because a lot must end `sold` with its members
-    released rather than stay `offered` for ever. The second shape did not
-    exist until lots were sold in the shop, and it is reached by the most
-    ordinary path there is -- buy a lot, cancel the order -- so it is asked
+    released rather than stay `offered` for ever. The second shape is reached
+    by the most ordinary path there is -- buy a lot, cancel the order -- so it is asked
     about by listing status rather than left to the venue test, which a store
     order passes.
 
@@ -410,9 +404,9 @@ def update_order_status(
     order = found_or_404(order, _ORDER_NOT_FOUND)
 
     previous = _status_code(db, order)
-    # Cancelling an order that has not shipped returns its stock to the
-    # catalog; a shipped order's goods have left, so cancelling it moves no
-    # stock and is how a refund is recorded. Re-sending `cancelled` on an
+    # Cancelling or refunding an order that has not shipped returns its stock
+    # to the catalog; a shipped order's goods have left, so either moves no
+    # stock. Re-sending `cancelled` on an
     # already-cancelled order is a no-op.
     returns_stock = (
         payload.status in STOCK_RETURNING_STATUSES
@@ -463,8 +457,8 @@ def update_order_status(
     # stock all sit inside `committing`, whose `StaleDataError` clause turns
     # a moved version into the 409 below. `return_stock` can autoflush a
     # write to `InventoryItem.disposition`, which carries its own version
-    # column, so a concurrent edit to that item raised `StaleDataError` here
-    # and not only at `db.commit()`. `return_stock` takes its rows through
+    # column, so a `StaleDataError` can rise here and not only at
+    # `db.commit()`. `return_stock` takes its rows through
     # `order_writes._lock_listings` and so through
     # `offering_writes.lock_for_sale`, which locks and re-reads every item it
     # will write, so this is defense in depth

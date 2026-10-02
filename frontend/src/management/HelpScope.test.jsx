@@ -79,8 +79,7 @@ describe('HelpScope', () => {
     ).toBeInTheDocument()
 
     await userEvent.click(screen.getByLabelText(/series letter/i))
-    // The question that started this (2026-09-23): the letter after the
-    // year, not the letter in the seal.
+    // The letter after the year, not the letter in the seal.
     expect(screen.getByText(/the A in "SERIES 1963 A"/)).toBeInTheDocument()
     expect(screen.getByText(/not the letter in the seal/)).toBeInTheDocument()
 
@@ -100,7 +99,7 @@ describe('HelpScope', () => {
   it('leaves each label naming its own field', () => {
     renderWithProviders(<Form />)
     // Nothing is added inside a label, so none is taken from its input --
-    // the trap a "?" button inside the label fell into (2026-09-23).
+    // the trap a "?" button inside the label falls into.
     expect(screen.getByLabelText(/series letter/i).tagName).toBe('INPUT')
   })
 

@@ -24,9 +24,8 @@ import { isLot, subjectOf } from './listing-labels'
  * this is, and the page behind the dialog is covered while it is open.
  *
  * **The subject is `subjectOf`, not `item_code`.** A lot listing has no item
- * code, so this asked "End listing #7 for null on eBay?" and then reported
- * "null is withdrawn from eBay at 1000.00" -- which defeats the whole reason
- * the wording names anything, at the moment it matters. A lot is named the
+ * code, and a question naming `null` would defeat the whole reason the
+ * wording names anything, at the moment it matters. A lot is named the
  * way the catalog names it: its own title, with how many coins are in it.
  *
  * A lot also ends differently, and the difference is worth a sentence.

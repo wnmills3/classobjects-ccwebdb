@@ -6,13 +6,13 @@ run one after another and would pass even with the row lock removed.
 
 Instead the order-creation handler is invoked directly from two threads, each
 with its own real session and connection, synchronised on a barrier so their
-transactions genuinely overlap. Removing ``.with_for_update()`` from
-``create_order`` makes these tests fail, which is the point.
+transactions genuinely overlap. Removing the listing lock
+``order_writes.place_order`` takes (``_lock_listings``) makes these tests fail,
+which is the point.
 
-Ported from the scaffold onto `listing` / `sales_order_item`. The contended
-column moved from ``coins.quantity`` to ``listing.quantity_available``, and the
-lock is taken on `listing` rather than on the item -- which is correct, because
-availability is a property of the offer, not of the object.
+The contended column is ``listing.quantity_available``, and the lock is taken
+on `listing` rather than on the item -- which is correct, because availability
+is a property of the offer, not of the object.
 """
 
 from __future__ import annotations

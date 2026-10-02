@@ -3,7 +3,7 @@
 A mule differs from its plain type only by its plates, and a star note only
 by its serial -- neither is a catalog fact -- so `uq_friedberg_number_identity`
 held `3007-E`, `3007-Em` and `3007-E*` to be one type, and whichever was
-recorded first refused the others (owner, 2026-09-30). Two columns generated
+recorded first refused the others. Two columns generated
 from `fr_number` (`is_star`, `is_mule`, the rule `app.fr_format.fr_traits`
 reads) join the index.
 

@@ -1,4 +1,4 @@
-"""The offers API (selling design, phase 2).
+"""The offers API (`docs/specs/selling-design.md`).
 
 The HTTP face of `offering_writes`: offering items, listing what is offered,
 editing an offer and ending one. The writer's own rules are tested in
@@ -728,9 +728,9 @@ def test_ending_a_direct_auction_format_listing_is_allowed(
     """An auction-format listing with no auction behind it ends like any other.
 
     The Offer dialog offers a coin directly on eBay by auction; no
-    `auction_lot` row exists, so there is no auction to end it through. The
-    guard keyed on `format` alone and refused it, leaving the listing with no
-    way to be ended.
+    `auction_lot` row exists, so there is no auction to end it through. A
+    guard keyed on `format` alone would refuse it, leaving the listing with
+    no way to be ended.
     """
     listing = offering_writes.offer(
         db,
@@ -768,8 +768,8 @@ def test_the_listings_page_shows_a_lot_listing(
 ) -> None:
     """`listing_out` reads `listing.inventory_item.item_code`, which a lot has not.
 
-    Without the widening this is an `AttributeError` inside the endpoint --
-    a 500 on the page that lists every offer, not a missing row.
+    Read unguarded, that is an `AttributeError` inside the endpoint -- a 500
+    on the page that lists every offer, not a missing row.
 
     `GET /api/listings` answers a bare array, not an object with a
     `listings` key: `frontend/src/management/pages/Listings.jsx` reads it as an
@@ -809,10 +809,9 @@ def _members_of(listing: Listing) -> list[int]:
     The **open** memberships, filtered here rather than taken from
     `lot.members` whole: a released row is a coin the lot no longer offers,
     and this helper's callers pick `[0]` and then assert the endpoint finds
-    that coin's live offer. Today every fixture member is open and the two
-    lists are identical, so the filter changes nothing; the code was written
-    without it and the docstring said "offers", which would have quietly
-    started naming a released coin the first time a fixture had one.
+    that coin's live offer. Every fixture member is open, so the two lists
+    are identical and the filter changes nothing until a fixture has a
+    released member.
 
     `sorted` matches `open_members`' own `order_by(inventory_item_id)` --
     `SalesLot.members` carries no ordering of its own.
@@ -830,15 +829,15 @@ def test_one_coin_s_offers_include_the_lot_that_offers_it(
     db: Session,
     offered_lot_listing: Listing,
 ) -> None:
-    """`item_id=` filtered on a column a lot listing leaves NULL.
+    """`item_id=` must find a lot listing, whose own item column is NULL.
 
     `Listing.inventory_item_id` is null on a lot listing -- the lot's coins
-    are reached through `offer_claim` -- so filtering on it alone answered
-    `[]` for a coin that is on sale inside a lot. The console's offers panel
-    (`OffersPanel.jsx`) is the reader: it asked this endpoint per item, got
-    nothing, and printed "Not offered anywhere yet" about a coin a buyer was
-    looking at, while also offering an "Offer for sale..." button the writer
-    refuses (`offering_writes._refuse_grouped`).
+    are reached through `offer_claim` -- so filtering on it alone would
+    answer `[]` for a coin that is on sale inside a lot. The console's
+    offers panel (`OffersPanel.jsx`) is the reader: it asks this endpoint
+    per item, and on nothing would say the coin is not offered anywhere
+    while a buyer was looking at it, and show an "Offer for sale..." button
+    the writer refuses (`offering_writes._refuse_grouped`).
 
     Asserting the row's identity and its lot fields, not that the list is
     non-empty: this coin has exactly one offer, and naming it is what tells
@@ -917,16 +916,16 @@ def test_ending_a_sold_lot_s_listing_again_leaves_it_sold(
     a plain id lookup with no status filter, and calls
     `offering_writes.end_offer(sold=False)` unconditionally. So a lot bought
     in the shop -- settled as `end_offer(sold=True)`, lot `sold`, listing
-    `ended` -- was one admin API call away from being rewritten to
-    `dissolved` while its members stayed `sold`, because `end_offer` skips
-    the disposition loop for a sale and `_end` had no guard of its own.
+    `ended` -- would be one admin API call away from being rewritten to
+    `dissolved` while its members stayed `sold`, were `_end` to have no
+    guard of its own: `end_offer` skips the disposition loop for a sale.
 
     A **money path**, and reachable with no concurrency at all: a stale
     console tab, or a double-click, is enough. The guard is in
     `offering_writes._end` rather than here or in `end_offer`, for the reason
     its docstring gives -- that module is the single writer of
-    `sales_lot.status`, and an invariant every caller has to remember is the
-    "agree by hand" shape this branch exists to remove.
+    `sales_lot.status`, and an invariant every caller has to remember is
+    one a caller can forget.
 
     `ended_at` is asserted as well as the status: a second ending that
     overwrote only the timestamp would still lose the moment the offer really

@@ -13,17 +13,16 @@ left to look like an ordinary crash.
 `RuntimeError` is also the base of `NotImplementedError` and
 `RecursionError`, and of every incidental `RuntimeError` a library or a
 generator's teardown can raise anywhere in the app, including on the shop's
-anonymous routes. Handling the base class caught all of those too: it handed
-`str(exc)` verbatim to whoever asked, and because `ExceptionMiddleware` had
-already handled the exception, it never reached `ServerErrorMiddleware` --
-tracebacks stopped being logged and `TestClient` stopped re-raising, so a
-genuine bug that happened to be a `RuntimeError` became a tidy JSON 500
-wearing a "server precondition" label instead of the crash it was. A class
-that means exactly one thing closes that gap without giving anything up: the
-same three raise sites (`app.auctions.consign`,
+anonymous routes. A handler on the base class would catch all of those too:
+it would hand `str(exc)` verbatim to whoever asked, and because
+`ExceptionMiddleware` handles the exception, it would never reach
+`ServerErrorMiddleware` -- no traceback logged, no re-raise in `TestClient`
+-- so a genuine bug that happened to be a `RuntimeError` would be a tidy
+JSON 500 labelled a server precondition. A class that means exactly one
+thing avoids that: its three raise sites (`app.auctions.consign`,
 `app.sales_venues.ensure_store_venue`, `app.sales_venues.store_venue_id`)
-still answer the operator with the same message, and everything else still
-crashes loudly, the way a bug should.
+answer the operator with a message, and everything else crashes loudly, the
+way a bug should.
 """
 
 from __future__ import annotations

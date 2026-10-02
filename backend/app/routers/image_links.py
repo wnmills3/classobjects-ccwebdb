@@ -1,9 +1,9 @@
 """Changing how a photograph is filed, and unfiling it.
 
 A separate prefix from `/api/images` on purpose: that router already serves
-`/{image_id}/{kind}`, and a literal `links` segment in the same position would
-only avoid collision because `"links"` does not parse as an integer.
-Correctness by declaration order is a trap.
+`/{sha256}/{kind}`, whose first segment is a string, so a literal `links`
+segment in the same position would be told apart from a hash only by the
+order the routes are declared in. Correctness by declaration order is a trap.
 
 **Detaching is not deleting.** `DELETE /api/images/{id}` destroys the
 photograph and its stored bytes; this removes the link and leaves the
@@ -47,8 +47,8 @@ def update_link(
     # model_fields_set, not `is not None`: an omitted field is left alone, an
     # explicit null clears the role -- the same convention `routers.offers`,
     # `routers.sales_venues` and `routers.inventory` follow. Testing for None
-    # cannot tell the two apart, which made the console's blank option a
-    # no-op.
+    # cannot tell the two apart, which would make the console's blank option
+    # a no-op.
     if "image_role" in payload.model_fields_set:
         image_links.set_role(db, link, payload.image_role)
     if payload.is_primary:

@@ -191,12 +191,9 @@ def test_every_reference_table_is_registered() -> None:
     `/api/reference/<table>` -- and the console's `useReference` swallows the
     failure and caches an empty vocabulary, so the form renders with the
     picker silently missing rather than with an error anyone would notice.
-    That is exactly what happened to `sales_fee_kind`: the model, the
-    migration, the seeded codes and the dialog all shipped, and the tuple was
-    never touched, so **Record sale...** offered no fee rows at all.
-
-    Nothing else in the suite compares the two, which is why the omission
-    survived a whole branch.
+    A vocabulary left out this way gives a dialog with no rows for it --
+    **Record sale...** with no fee rows -- and nothing else in the suite
+    compares the two.
     """
     registered = {model.__tablename__ for model in REFERENCE_MODELS}
     missing = sorted(set(_classifier_tables()) - registered)
@@ -219,9 +216,8 @@ def test_the_fee_vocabulary_reaches_a_picker(client: TestClient) -> None:
     order a platform's statement reads in and it puts the catch-all "other"
     last -- alphabetical puts "Other" third, and
     `docs/system-administration.md` prints the curated order in writing.
-    This assertion would have passed under either sort before that change,
-    because by code and by label the six happen to agree; the curated order
-    differs from both, so it now pins something.
+    By code and by label the six happen to sort alike; the curated order
+    differs from both, which is what makes this assertion discriminate.
     """
     response = client.get("/api/reference/sales_fee_kind")
     assert response.status_code == 200
@@ -241,7 +237,7 @@ def test_the_catch_all_fee_kind_comes_last(client: TestClient) -> None:
     """The catch-all "other" last is the point of the curated order.
 
     The list above would also pass if the whole sequence were reversed by
-    accident; this one names the property the ruling actually rests on, and
+    accident; this one names the property the curated order rests on, and
     fails on its own if `sales_fee_kind` ever drops out of
     `_SEQUENCED_TABLES` (alphabetical puts "Other" third).
     """

@@ -1,6 +1,6 @@
 """Attributes from a note's facts: No Motto on the early $1 Silver Certificates.
 
-docs/specs/item-attributes-design.md, section 2 and decision 5. Issue facts
+docs/specs/item-attributes-design.md, section 2, "Attributes from facts". Issue facts
 are built by each test, as in test_classifier_defaults.
 """
 

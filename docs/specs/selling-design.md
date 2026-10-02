@@ -152,7 +152,7 @@ stored on a sale.
 | `sales_venue_id` | FK, not null |
 | `format` | `fixed_price` \| `auction` |
 | `status` | `active` \| `paused` \| `ended` |
-| `is_active` | `GENERATED ALWAYS AS (status = 'active') STORED`, for readers that predate `status`; nothing writes it |
+| `is_active` | `GENERATED ALWAYS AS (status = 'active') STORED`, read by `ix_listing_active` and the `public_catalog` view; nothing writes it |
 | `inventory_item_id` / `sales_lot_id` | nullable FKs; `ck_listing_item_xor_lot` requires **exactly one** |
 | `paused_by_listing_id` | FK `listing`: the offer this store listing is paused for, and so which ending resumes it |
 | `external_id`, `external_url` | the platform's id and page; the URL is derived from the template when not stored |

@@ -437,7 +437,7 @@ def test_notes_state_the_overdue_threshold(db: Session) -> None:
 
 
 # ---------------------------------------------------------------------------
-# period_label (app.reports.base), shared with mn_tax (Ruling P2-2)
+# period_label (app.reports.base), shared with mn_tax
 # ---------------------------------------------------------------------------
 
 

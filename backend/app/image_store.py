@@ -1,7 +1,7 @@
 """Storing a photograph: cleanse, put the bytes, record the row.
 
-Lifted out of `routers.images` because a CLI pass importing a router is
-backwards. What is left in the router is the HTTP: reading an upload,
+Kept out of `routers.images` because a CLI pass importing a router is
+backwards. The router holds the HTTP: reading an upload,
 translating a refusal into a 422, serving renditions.
 
 `ImageRejected` propagates rather than becoming an `HTTPException` here. The

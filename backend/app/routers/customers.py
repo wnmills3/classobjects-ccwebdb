@@ -1,9 +1,9 @@
 """Customer records: who you ship to, and where.
 
-Distinct from `users`, which is who can sign in. A guest checkout creates a
-customer with no account at all, and an account holder who has never bought
-anything has no customer record -- so the two are separate tables joined by a
-nullable `user_id`.
+Distinct from `users`, which is who can sign in. A sale recorded on an outside
+platform creates a customer with no account at all (`app.buyers`), and an
+account holder who has never bought anything has no customer record -- so the
+two are separate tables joined by a nullable `user_id`.
 
 Addresses are superseded rather than edited. A customer moves, and the order
 they placed last year must still show where it was actually sent; rewriting the

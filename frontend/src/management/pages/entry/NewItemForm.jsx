@@ -22,7 +22,7 @@ import { listingIdFrom } from '../../listing'
 import { SaveButton } from '../../SaveButton'
 
 //: Kept across "Save and add another"; everything else in BLANK is cleared.
-//: This exact set is a controller ruling (see the "Repeated entry" row in
+//: This exact set is the spec's (the "Repeated entry" row in
 //: `docs/specs/entry-panels-design.md`), not a guess at what "feels shared":
 //: `grade`, `grade_designation`, `serial_number`, `cert_number`, `variety`,
 //: `item_cost`, `shipping_cost` and `piece_count` are per-piece and always
@@ -300,7 +300,7 @@ export default function NewItemForm({
   }
 
   // No date clears the years and holds them shut: the server refuses the
-  // two together (owner, 2026-10-01).
+  // two together.
   function toggleNoDate(e) {
     const noDate = e.target.checked
     if (noDate) setRanged(false)
@@ -543,9 +543,8 @@ export default function NewItemForm({
   const disabled = saving || Boolean(disabledReason) || Boolean(errorSaveFailure)
 
   // The error is drawn at the head of the form and Save sits at its foot,
-  // so a refusal is scrolled into view: unseen, a refused Save looked like
-  // one that did nothing (owner, 2026-09-30). `?.` because jsdom has no
-  // scrollIntoView.
+  // so a refusal is scrolled into view: unseen, a refused Save looks like
+  // one that did nothing. `?.` because jsdom has no scrollIntoView.
   const errorRef = useRef(null)
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView?.({ block: 'center' })
@@ -615,7 +614,7 @@ export default function NewItemForm({
         </label>
       </div>
 
-      {/* The facts that identify the piece come first, in the order they
+      {/* Then the facts that identify the piece, in the order they
           are written ("Series 1934-A $5", "1921-D $1"); what they decide
           follows, then grading, then the purchase line. See
           docs/specs/identify-first-entry-design.md. */}
@@ -636,7 +635,7 @@ export default function NewItemForm({
             htmlFor instead -- the same layout the item editor uses.
 
             Not on a note: its year is its Series year, and a second year box
-            is where a series year got typed by mistake (owner, 2026-09-24). */}
+            is where a series year gets typed by mistake. */}
         {!isCurrency && (
           <>
             <div data-help="year_start">
@@ -874,8 +873,8 @@ export default function NewItemForm({
 
             Which fields are a coin's is asked of `fieldFitsKind` rather than
             answered here, so this form and the item editor read one list
-            (`COIN_ONLY_FIELDS`). The editor keeping a metal box this form had
-            already dropped is what that shared list exists to stop. */}
+            (`COIN_ONLY_FIELDS`), so one form cannot keep a box the other has
+            dropped. */}
         {fieldFitsKind('strike_type', form.item_kind) && (
           <label data-help="strike_type">
             Strike type
@@ -936,8 +935,8 @@ export default function NewItemForm({
           </label>
         )}
 
-        {/* Gated on Mint, the coin-only field it has always been shown
-            beside: Variety is not in COIN_ONLY_FIELDS. */}
+        {/* Gated on Mint, the field that decides the Mint/Variety pair (see
+            `fieldFitsKind`); Variety is a coin's field too. */}
         {fieldFitsKind('mint', form.item_kind) && (
           <label data-help="variety">
             Variety

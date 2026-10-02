@@ -11,7 +11,7 @@ import { HelpContext } from './help-context'
  * The console is laid out as a column the height of the window -- menu,
  * then the page, then this band -- and only the page scrolls, so a form
  * always fits between the menu and the band and the explanation never
- * scrolls out of sight (owner's request, 2026-09-23).
+ * scrolls out of sight.
  *
  * `HelpScope`s inside the page set the field. The explanation is keyed to
  * the page it came from and cleared on moving to another, so a field on the

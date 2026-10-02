@@ -214,38 +214,34 @@ def split_item(
         # line referring to something that no longer exists as sold.
         #
         # `sale_state.sold_this_item`, not `listing.inventory_item_id` on its
-        # own, which is what this asked until 2026-09-21. That column is NULL
-        # on a lot listing, so a lot sale never matched and a coin sold inside
-        # a lot was split without a word: the line's share still credits the
-        # whole cost to this parent while `allocate` below hands that same
-        # cost to the children, and the realized gain and the cost basis both
-        # double-count. Neither guard covered it -- `routers.inventory.split`
-        # narrows `sale_state.guard` to `kinds={"listing"}` precisely because
-        # this check is the unconditional one, and after a lot sale the claims
-        # are released and the listing ended, so the listing half finds
-        # nothing either.
+        # own: that column is NULL on a lot listing, so it would miss a lot
+        # sale and let a coin sold inside a lot be split. The line's share
+        # still credits the whole cost to this parent while `allocate` below
+        # hands that same cost to the children, so the realized gain and the
+        # cost basis would both double-count. No other guard covers it --
+        # `routers.inventory.split` narrows `sale_state.guard` to
+        # `kinds={"listing"}` precisely because this check is the
+        # unconditional one, and after a lot sale the claims are released and
+        # the listing ended, so the listing half finds nothing either.
         raise SplitError(f"{parent.item_code} appears in an order and cannot be split")
 
     # The sibling of the check above, one step earlier in the lifecycle: that
     # one refuses a coin already **sold** inside a lot, this one a coin still
-    # **offered** inside one. Both failed the same way before they existed,
-    # and for the same reason -- `listing.inventory_item_id` is NULL on a lot
+    # **offered** inside one. `listing.inventory_item_id` is NULL on a lot
     # listing, so a lot is invisible to any predicate built on it. The listing
-    # loop at the end of this function still asks that column, deliberately:
-    # its job is to end an item's *own* listings, and a lot listing is not
-    # one. So nothing there ended the lot's offer, and nothing here refused
-    # the split.
+    # loop at the end of this function asks that column, deliberately: its
+    # job is to end an item's *own* listings, and a lot listing is not one.
+    # So nothing there ends the lot's offer.
     #
-    # Measured through `POST /api/inventory/{id}/split` before this existed:
-    # unacknowledged gave 409 with the for-sale warning, because
-    # `sale_state._offering` reads claims and so was always lot-aware --
-    # and **acknowledged gave 200**. The coin was split while the lot went on
-    # offering it: listing `active`, lot `offered`, membership open, claim
-    # `active`, and `offered_items` still naming a parent with `split_at`
-    # set. A buyer looking at a group containing a coin that no longer exists
-    # as a whole item -- while `offering_writes._refuse_unofferable` refuses
-    # to offer a split item and `lot_writes._refuse_unofferable` refuses to
-    # put one into a lot.
+    # `sale_state.guard` does not stop it either: it warns, because
+    # `sale_state._offering` reads claims and so is lot-aware, but an
+    # acknowledged split passes. Without this refusal the coin would be split
+    # while the lot went on offering it: listing `active`, lot `offered`,
+    # membership open, claim `active`, and `offered_items` still naming a
+    # parent with `split_at` set. A buyer would be looking at a group
+    # containing a coin that no longer exists as a whole item -- while
+    # `offering_writes._refuse_unofferable` refuses to offer a split item and
+    # `lot_writes._refuse_unofferable` refuses to put one into a lot.
     #
     # Unconditional, like the order check above and unlike
     # `sale_state.guard`: `acknowledge_for_sale` is for changes a buyer

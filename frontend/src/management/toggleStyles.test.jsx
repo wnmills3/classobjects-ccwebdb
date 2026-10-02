@@ -7,9 +7,9 @@ import { afterEach, describe, expect, it } from 'vitest'
  * Radios and checkboxes sit beside their labels, not on a line of their own.
  *
  * The shared stylesheet gives inputs full-width, block, bordered text-field
- * styling. Applied to a radio, that put a dark box on its own line above the
- * label on /management/receiving, and inside `.filter-grid` the column layout meant
- * for "Denomination" above a text box stacked it there too.
+ * styling. Applied to a radio, that puts a dark box on its own line above
+ * the label on /management/receiving, and inside `.filter-grid` the column
+ * layout meant for "Denomination" above a text box stacks it there too.
  *
  * jsdom resolves the cascade but does no layout, so these check the rules that
  * decide the layout -- loaded from the real stylesheets, in the order both
@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest'
  * The two stylesheets, in the order both entry points import them.
  *
  * Read from disk rather than imported: Vitest replaces CSS imports with empty
- * strings in tests -- `?raw` included -- which left every rule missing and
+ * strings in tests -- `?raw` included -- which leaves every rule missing and
  * every assertion about a rule's absence passing for no reason at all. Located
  * from the test's own path, because under jsdom `import.meta.url` is not a
  * file URL.

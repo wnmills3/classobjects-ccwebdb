@@ -62,7 +62,7 @@ def test_register_losing_a_race_for_an_email_is_a_409_not_a_500(
 
     The loser's check is made to miss the winner's row, as it would have
     mid-race; the unique index then stops the insert, which must still read
-    as the 409, not an unhandled IntegrityError (code review, 2026-09-23).
+    as the 409, not an unhandled IntegrityError.
     """
     payload = {"email": "race@example.com", "password": "longenough"}
     assert client.post("/api/auth/register", json=payload).status_code == 201

@@ -100,7 +100,7 @@
   gap: 0.2rem;
 }
 /* A radio or checkbox goes before its label, on the same line. The column
-   above is for a caption over a text box; applied to a toggle it stacked the
+   above is for a caption over a text box; applied to a toggle it stacks the
    control above its own label. */
 .filter-grid label.checkbox {
   align-items: center;
@@ -229,9 +229,9 @@
   width: 9rem;
 }
 
-/* Two-tab pages. Accounts and customers are separate tables, so they get
-   separate tabs rather than one merged grid that would imply every customer
-   can sign in. */
+/* Tabbed pages (People, Lists). On People, accounts and customers are
+   separate tables, so they get separate tabs rather than one merged grid
+   that would imply every customer can sign in. */
 .tabs {
   display: flex;
   gap: 0.25rem;
@@ -342,9 +342,9 @@ fieldset.identify {
 
 /* The year box with its "Range of years" switch beside it, in one column.
    The box never shrinks below room for four digits and the number spinner:
-   at `min-width: 0` the New item form's column squeezed it to about 70px,
-   where 1881 was hidden behind the arrows (owner, 2026-10-01). Where the
-   column is too narrow for both, the switch wraps below instead. */
+   at `min-width: 0` the New item form's column squeezes it to about 70px,
+   where a four-digit year is hidden behind the arrows. Where the column is
+   too narrow for both, the switch wraps below instead. */
 .year-input {
   align-items: center;
   display: flex;
@@ -417,10 +417,9 @@ fieldset.identify {
   width: 2rem;
 }
 
-/* Receiving: the list of orders with something outstanding. Each row is
-   clickable rather than a native <select>, so the picked order can carry its
-   own "outstanding of total" detail instead of collapsing to plain option
-   text. */
+/* Receiving: the items a search found, and the Friedberg lookup's matches.
+   A list of rows rather than a native <select>, so each can carry its own
+   detail -- an item's code, description and order -- and its own button. */
 .order-picker {
   list-style: none;
   margin: 0 0 1rem;
@@ -475,7 +474,7 @@ fieldset.identify {
 }
 /* The menu wraps onto a second line in a window too narrow for it. Unwrapped,
    its fourteen links set a floor of about 1000px under the whole page: below
-   that the window scrolled sideways and the menu's end was off screen. */
+   that the window scrolls sideways and the menu's end is off screen. */
 .console-app .nav {
   flex-wrap: wrap;
   min-width: 0;
@@ -522,8 +521,8 @@ fieldset.identify {
   line-height: 1.4;
 }
 
-/* Receiving: the receipt panel, now inside the line's own dialog -- the
-   arrival date, storage location and note, plus the four outcome buttons. */
+/* Receiving: the receipt panel, inside its dialog -- the arrival date,
+   storage location and note, plus the four outcome buttons. */
 .receipt-panel {
   margin-top: 0.8rem;
 }

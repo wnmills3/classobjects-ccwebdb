@@ -44,8 +44,8 @@ describe('updateImageLink', () => {
 
     const body = sentBody(fetchMock)
     expect(body.is_primary).toBe(true)
-    // The bug this covers: `image_role: null` here reads as "clear the
-    // role", so promoting a photograph erased its obverse/reverse.
+    // `image_role: null` here reads as "clear the role", so promoting a
+    // photograph would erase its obverse/reverse.
     expect('image_role' in body).toBe(false)
   })
 
@@ -62,8 +62,8 @@ describe('updateImageLink', () => {
 
   it('still sends an explicit null to clear a role', async () => {
     // The console's blank option. A truthiness check on `imageRole` would
-    // drop this and make that option a no-op again -- which is the bug the
-    // endpoint's `model_fields_set` was introduced to fix.
+    // drop this and make that option a no-op, which the endpoint's
+    // `model_fields_set` exists to prevent.
     saveTokens({ access_token: 'a', refresh_token: 'r' })
     const fetchMock = captureFetch()
 
@@ -310,8 +310,8 @@ describe('attachImage', () => {
 
     const body = sentBody(fetchMock)
     expect(body.inventory_item_id).toBe(12)
-    // A place of 0 here put every photograph filed from the Photos page
-    // ahead of the item's obverse.
+    // A place of 0 here would put every photograph filed from the Photos
+    // page ahead of the item's obverse.
     expect('sort_order' in body).toBe(false)
   })
 

@@ -112,12 +112,11 @@ describe('Auctions', () => {
   })
 
   it('shows a load failure without blanking the page', async () => {
-    // Per 872e219: a load failure must show an error, not take the page
-    // down. The page's own shell (its heading) has to survive too -- a
-    // render that replaced the whole page with a bare error paragraph would
-    // still pass an assertion on the error text alone, which is exactly the
-    // defect 872e219 fixed. `Lots.jsx`'s identical-purpose test asserts the
-    // same pairing.
+    // A load failure must show an error, not take the page down. The page's
+    // own shell (its heading) has to survive too -- a render that replaced
+    // the whole page with a bare error paragraph would still pass an
+    // assertion on the error text alone. `Lots.jsx`'s identical-purpose test
+    // asserts the same pairing.
     api.listAuctions.mockRejectedValue(new ApiError(500, 'boom', {}))
     renderWithProviders(<Auctions />, { strict: true })
     expect(await screen.findByText(/boom/)).toBeVisible()
@@ -160,7 +159,7 @@ describe('Auctions', () => {
   })
 
   it('adds a single item as a lot of one, found by its item code', async () => {
-    // R27: the owner types the code the way every other item-selection
+    // The owner types the code the way every other item-selection
     // surface (OfferDialog, Lots, ItemFinder) shows it -- never a raw
     // database id -- and it is resolved through the same
     // `GET /api/inventory/{view}/search?item_code=...` the search page uses.

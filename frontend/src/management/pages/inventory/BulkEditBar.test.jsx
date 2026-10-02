@@ -239,13 +239,11 @@ describe('BulkEditBar', () => {
     expect(screen.getByRole('button', { name: 'Offer for sale...' })).toBeDisabled()
   })
 
-  // The brief for this task asserted one call --
-  // `api.createLot({add_item_ids: [1, 2]})` -- and the API refuses that body:
-  // `SalesLotIn` is `extra="forbid"` over `title` and `description` alone,
-  // because "a lot begins assembling and empty; members are a PATCH"
-  // (`routers/lots.create_sales_lot`). So a passing single-call assertion
-  // would have pinned a request that is a 422 every time it is really sent.
-  // Both calls are asserted instead, and `management/api.test.js` pins each body.
+  // Two calls, not one: `api.createLot({add_item_ids: [1, 2]})` is a body the
+  // API refuses. `SalesLotIn` is `extra="forbid"` over `title` and
+  // `description` alone -- a lot "begins `assembling` and empty; members are a
+  // PATCH" -- so a single-call assertion would pin a request that is a 422
+  // every time it is really sent. `management/api.test.js` pins each body.
   it('groups the selection into a lot', async () => {
     const user = userEvent.setup()
     api.createLot.mockResolvedValue({
@@ -349,7 +347,7 @@ describe('BulkEditBar', () => {
   })
 
   it('says "which is" when exactly one selected row is off this page', async () => {
-    // One off-page id read "and 1 more ... which are grouped too".
+    // One off-page id must not read "and 1 more ... which are grouped too".
     const user = userEvent.setup()
     renderWithProviders(<BulkEditBar ids={[1, 2, 5]} rows={ROWS} view="coins" />, {
       strict: true,

@@ -170,13 +170,6 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     )
   })
 
-  // Rendered in StrictMode on purpose: the console runs in it (see
-  // `management/main.jsx`), React then runs every effect setup/cleanup/setup on
-  // mount, and this panel once carried an `if (mounted.current)` guard that
-  // its own cleanup disarmed and no setup re-armed. Both branches of `save()`
-  // were dead for the rest of the panel's life, so in the owner's real
-  // console a failed PUT left the row looking saved with nothing said. Only a
-  // StrictMode render can see that, which is why this one asks for it.
   it('names itself, so the picker is not a stray dropdown', async () => {
     api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
     renderWithProviders(<ErrorsPanel itemId={12} kind="currency" />, {
@@ -184,8 +177,8 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     })
     await screen.findByRole('combobox', { name: 'error_type' })
 
-    // The heading, and the box beside the picker, both say what they are --
-    // the panel used to offer neither, in any of its three mount points.
+    // The heading, and the box beside the picker, both say what they are, in
+    // every one of the panel's three mount points.
     expect(screen.getByText('Errors')).toBeVisible()
     expect(
       screen.getByRole('textbox', { name: 'details for the error being added' }),
@@ -213,8 +206,8 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
   })
 
   it('sends a cleared note as no note, not as an empty one', async () => {
-    // Adding a row with the box untouched already sent null; clearing a note
-    // sent "". Same thing to a person, two different rows in the database.
+    // A row added with the box untouched holds null; a cleared note holds "".
+    // Same thing to a person, two different rows in the database.
     const user = userEvent.setup()
     api.getItemErrors.mockResolvedValue({
       inventory_item_id: 12,
@@ -238,6 +231,10 @@ describe('ErrorsPanel, self-loading (itemId set)', () => {
     )
   })
 
+  // Rendered in StrictMode on purpose: the console runs in it (see
+  // `management/main.jsx`), so React runs every effect setup, cleanup, setup
+  // on mount. A "still mounted?" guard disarmed by that first cleanup would
+  // leave both branches of `save()` dead, and a failed PUT would say nothing.
   it('shows the message and keeps the rows when a save fails', async () => {
     const user = userEvent.setup()
     api.getItemErrors.mockResolvedValue({ inventory_item_id: 12, errors: [] })
@@ -322,8 +319,8 @@ describe('ErrorsPanel, controlled (itemId null)', () => {
 })
 
 // ReferenceSelect's own add flow, exercised here since ErrorsPanel is the
-// caller that supplies addFields/labelOnly/allowAdd -- see the module
-// boundary note in ItemEditForm.test.jsx's Attributes block.
+// caller that supplies addFields/labelOnly/allowAdd -- see the note on the
+// shared/api mock at the top of this file.
 describe('ErrorsPanel, adding an error type from the picker', () => {
   it("adds a value by its label alone, marked for the item's side", async () => {
     const user = userEvent.setup()
@@ -361,8 +358,7 @@ describe('ErrorsPanel, an item that is for sale', () => {
         kind="currency"
         saleState={[{ kind: 'listing', id: 3, text: 'listing #3 at 120.00' }]}
       />,
-      // StrictMode: this panel already lost an effect guard to the mismatch
-      // between how it is tested and how the console actually runs.
+      // StrictMode: it is how the console actually runs (`management/main.jsx`).
       { reference: vocabularies, strict: true },
     )
 

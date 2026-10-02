@@ -32,11 +32,9 @@ A workbook missing any of these columns is refused by name.
 
 Every eBay purchase links its listing (`https://www.ebay.com/itm/<item id>`),
 and most items do too (`inventory_item.listing_url`), so the match is exact,
-not by words, date or price. Measured against eBay purchases that already
-had a number, the item id gave back the stored number for 1,680 of 1,738;
-of the 58 that disagree, some are typos in the stored number and the rest
-name another order of the same day. Either side could be wrong, so a
-disagreement is reported and never changed.
+not by words, date or price. The item id and a stored order number can
+disagree: a typo in the stored number, or another order of the same day.
+Either side could be wrong, so a disagreement is reported and never changed.
 
 ## One purchase per eBay order
 

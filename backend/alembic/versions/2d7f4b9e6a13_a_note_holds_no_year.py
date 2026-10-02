@@ -1,6 +1,6 @@
 """A note holds no year of its own: its series year is its year.
 
-Owner, 2026-09-25: the item's years exist for coins and for lots of mixed
+The item's years exist for coins and for lots of mixed
 years. A banknote's year is its series year, and storing it a second time
 only let the two disagree (three did). This empties the years of every note;
 what shows or searches a note's year reads `currency_detail.series_year`.

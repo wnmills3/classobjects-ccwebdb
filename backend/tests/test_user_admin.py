@@ -185,7 +185,7 @@ def test_short_passwords_are_refused(
     assert response.status_code == 422
 
 
-def test_deactivated_account_cannot_sign_in(
+def test_deactivating_an_account_is_stored_and_keeps_its_role(
     client: TestClient,
     admin_headers: dict[str, str],
     customer_user: User,

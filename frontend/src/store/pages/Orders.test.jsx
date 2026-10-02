@@ -40,7 +40,7 @@ describe('Orders', () => {
 
     expect(await screen.findByText(/order #42/i)).toBeInTheDocument()
     expect(screen.getByText('shipped')).toBeInTheDocument()
-    // placed_at is what the API sends; the page read created_at and showed
+    // placed_at is what the API sends; a page reading any other field shows
     // no date at all.
     expect(screen.getByText(/2026/)).toBeInTheDocument()
     expect(screen.getByText('1881-S Morgan Silver Dollar')).toBeInTheDocument()

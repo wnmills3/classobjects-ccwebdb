@@ -148,7 +148,7 @@ describe('send', () => {
 
     expect(err).toBeInstanceOf(ApiError)
     expect(err.status).toBe(409)
-    // The message is exactly what it was before the body was added.
+    // The message is still the flattened detail; the body rides beside it.
     expect(err.message).toBe('2 item(s) cannot be offered')
     expect(err.body).toEqual(body)
   })

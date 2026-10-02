@@ -63,8 +63,8 @@ describe('OrderEditor', () => {
     await setup(ORDER)
     // Waited for, not read once: `setup` only waits for the select to exist,
     // and a select reports '' until an <option> matching its value has
-    // rendered -- which needs both customer and account lists to resolve. Under
-    // a full parallel run that landed a tick late and the test failed.
+    // rendered -- which needs both customer and account lists to resolve, and
+    // under a full parallel run that can land a tick late.
     await waitFor(() =>
       expect(screen.getByRole('combobox', { name: 'Customer' })).toHaveValue('c:5'),
     )

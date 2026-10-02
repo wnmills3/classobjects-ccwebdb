@@ -171,15 +171,14 @@ export default function Orders() {
                       // it with a 409, so the option is grayed out here
                       // instead of offered and then refused.
                       //
-                      // **Unless it has shipped**, which is the half this
-                      // missed. The server only refuses a cancellation that
-                      // would really return stock, and a shipped order
-                      // returns none -- cancelling one is how a refund is
-                      // recorded. An `auction_house` sale is created
-                      // `delivered`, so every one of them arrives here
-                      // already past that line. Greying it out anyway made
-                      // the refund workflow the server deliberately opened
-                      // unreachable from the console.
+                      // **Unless it has shipped.** The server only refuses a
+                      // cancellation that would really return stock, and a
+                      // shipped order returns none -- cancelling one is how a
+                      // refund is recorded. An `auction_house` sale is
+                      // created `delivered`, so every one of them arrives
+                      // here already past that line. Greying it out there
+                      // would make the refund workflow the server
+                      // deliberately allows unreachable from the console.
                       //
                       // And a *store* order whose listing has ended -- a lot
                       // bought in the shop ends its listing at checkout --

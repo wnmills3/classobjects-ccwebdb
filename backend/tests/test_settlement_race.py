@@ -1,17 +1,15 @@
-"""Two settlements of one auction cannot both run (selling design, phase 4).
+"""Two settlements of one auction cannot both run.
 
 The only thing in the suite that can measure either of the two locks
-settlement takes. `app.auctions.settle` takes the
-`auction` row `FOR UPDATE` as a **new outermost lock level** (ruling R2) and
-then takes every coin in the whole auction in **one**
-`offering_writes.lock_for_sale` call (ruling R1). Neither is observable from
-a single session, because a lock nobody is
+settlement takes (docs/specs/selling-design.md). `app.auctions.settle` takes
+the `auction` row `FOR UPDATE` as the **outermost lock level** and then takes
+every coin in the whole auction in **one** `offering_writes.lock_for_sale`
+call. Neither is observable from a single session, because a lock nobody is
 contending for behaves exactly like no lock at all.
 
-A third writer joins them: `app.auctions.
-cancel` is legal on a `closed` auction (ruling R8) and used to take the
-`auction` row only as its **last** statement, the inverse of `settle`'s
-order. `test_cancelling_an_auction_races_settling_it` is that pair, and it
+A third writer joins them: `app.auctions.cancel` is legal on a `closed`
+auction and takes the `auction` row first, as `settle` does.
+`test_cancelling_an_auction_races_settling_it` is that pair, and it
 measures `_lock_auction` from the *other* side -- the two-settlement test
 below cannot, because removing the lock from `cancel` leaves `settle`'s
 intact and the test still green.
@@ -302,7 +300,7 @@ def _closed_auction(
     and the share allocation below is predictable to the cent.
 
     `consigned=True` runs `consign` between `schedule` and `close`, which is
-    the state ruling R13 is about: `close` leaves `consigned_on` set, so a
+    the state the custody rule is about: `close` leaves `consigned_on` set, so a
     closed auction's coins may still be sitting at the house.
 
     `closed=False` stops at `scheduled`, for the race between `consign` and
@@ -377,14 +375,14 @@ def test_two_settlements_of_one_auction_leave_one_set_of_orders(
     unsold coin comes home once.
 
     Survives: removing `.with_for_update()` from `auctions._lock_auction`
-    (`app/auctions.py`) makes this fail. Measured, ten runs of ten:
+    (`app/auctions.py`) makes this fail with
     `AssertionError: ['sale_refused', 'settled']`. Both settlements then read
     `closed` and both go on to record the sale; they serialize on the *items*
     instead, in `offering_writes.lock_for_sale`, and the loser reaches
-    `sales_writes.record_sale_lines` to be told
-    `Listing 1 on settle-race-house is not on offer (ended)` -- observed
-    verbatim; a `SaleRefused`, raised about a *listing*, after the loser had
-    already written three `auction_lot.result` values inside its savepoint.
+    `sales_writes.record_sale_lines` to be told its listing "is not on offer
+    (ended)" -- a `SaleRefused`, raised about a *listing*, after the loser
+    has already written three `auction_lot.result` values inside its
+    savepoint.
     **This is the precise reason `"sale_refused"` is asserted against
     separately rather than folded in with `"refused"`:**
     fold it in and this test passes against an auction row nobody locks,
@@ -394,17 +392,17 @@ def test_two_settlements_of_one_auction_leave_one_set_of_orders(
     doing its own locked re-read, not this lock working -- an accidental
     backstop, and the distinction matters because it is not general: a
     settlement whose lots were all `unsold` calls `record_sale_lines` for
-    nobody, so nothing re-reads on its behalf at all. **Measured rather than
-    argued**, by running this same race with an all-`unsold` grid against the
-    same mutation: five runs of five, `['settled', 'stale']` --
-    `StaleDataError` on `auction.version`, a 500 with nothing for an operator
-    to act on, where the sold grid at least produced a refusal. The grid this
+    nobody, so nothing re-reads on its behalf at all. This same race with an
+    all-`unsold` grid against the same mutation gives `['settled', 'stale']`
+    -- `StaleDataError` on `auction.version`, a 500 with nothing for an
+    operator to act on, where the sold grid at least produces a refusal. The
+    grid this
     test uses is the *milder* of the two failures, which is the safe
     direction for a proof to err in.
 
     Does **not** survive removing the `offering_writes.lock_for_sale` pass
-    from `settle`, and that is stated rather than left as a gap: measured ten
-    runs of ten, still green. The auction lock serializes two settlements on
+    from `settle`, and that is stated rather than left as a gap: it stays
+    green. The auction lock serializes two settlements on
     its own, so the item pass cannot be reached by *this* race at all -- it
     is there for a settlement racing some **other** writer, which is what
     `test_settling_a_consigned_auction_races_a_coin_going_missing` measures.
@@ -583,11 +581,11 @@ def test_a_forced_violation_still_leaves_the_database_clean(
     its storage locations, none of which that file deletes.
 
     A settled auction is built for real and then poisoned by hand: one sold
-    coin's claim is flipped to `released` while its listing still stands,
+    coin's claim is flipped back to `active` after its listing has ended,
     which is the mismatch `check_claim_invariant` exists to find and which no
     write path in `app/` produces. Without the `try`/`finally` split inside
-    `_cleanup_rows`, the raise would leave every row behind -- an auction, two
-    orders' worth of lines and shares, four coins -- and every later
+    `_cleanup_rows`, the raise would leave every row behind -- an auction, one
+    order's lines and shares, three coins -- and every later
     `db`-using test in the same `pytest` run would fail the suite-wide
     invariant against them.
     """
@@ -606,9 +604,9 @@ def test_a_forced_violation_still_leaves_the_database_clean(
         session.commit()
 
     with committed() as session:
-        # The unsold lot's listing is the one still holding a claim on a coin
-        # after settlement, so flipping that claim is the mismatch the
-        # invariant catches. Written by hand, bypassing `offering_writes` on
+        # Settlement ended every listing and released every claim, so setting
+        # one claim back to `active` is the mismatch the invariant catches.
+        # Written by hand, bypassing `offering_writes` on
         # purpose, exactly as `test_offer_races.py` poisons its own pair.
         claim = session.scalars(
             select(OfferClaim).where(OfferClaim.inventory_item_id == item_ids[0])
@@ -639,7 +637,7 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
 ) -> None:
     """A settlement and a receipt against one of its coins never deadlock.
 
-    The race that measures ruling **R1** -- the single
+    The race that measures the single
     `offering_writes.lock_for_sale` pass covering every coin in the whole
     auction -- which the two-settlement race above cannot reach at all,
     because the `auction` row lock serializes two settlements before either
@@ -654,8 +652,8 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
     **Two outcomes are legal, and both are asserted.**
     `routers.inventory._refuse_auction_lots` refuses a
     receipt that would end an auction-format listing -- a coin in an auction
-    goes missing in two steps, remove the lot then record the loss, the trade
-    ruling R25 already accepted for Record sale. That refusal is raised
+    goes missing in two steps, remove the lot then record the loss, the same
+    trade Record sale makes. That refusal is raised
     **after** `offering_writes.lock_for_sale` and under its locks, beside
     `refuse_if_lot_unheld`, so the receipt still acquires exactly the rows it
     always did: this is still a race test and not a refusal test, and the
@@ -670,13 +668,11 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
       live offer left to refuse and the coin is recorded missing --
       `["marked", "settled"]`.
 
-    **Both were measured, and the split is not subtle.** Running the whole
-    file: `["refused", "settled"]`, fifteen runs of fifteen. Running this
-    test with the file's two earlier tests deselected (`-k races`):
-    `["marked", "settled"]`, ten runs of ten. Nothing in the test changed
-    between those two -- only how warm the process was when the barrier
-    released -- which is exactly why the assertion names both pairs instead
-    of whichever one the machine happened to produce that afternoon.
+    **Both occur.** Running the whole file gives `["refused", "settled"]`;
+    running this test with the file's two earlier tests deselected
+    (`-k races`) gives `["marked", "settled"]`. Only how warm the process is
+    when the barrier releases differs, which is why the assertion names both
+    pairs.
     `acknowledge_for_sale=True` is still the operator saying "I know this
     coin is on offer, record it missing anyway", which is what keeps
     `sale_state.guard` from refusing before the locks are taken at all.
@@ -695,8 +691,7 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
 
     Survives: removing the `offering_writes.lock_for_sale(...)` pass from
     `auctions.settle` (`app/auctions.py`, step 3 of its docstring) makes this
-    fail. Measured, ten runs of ten, the same result every time:
-    `AssertionError: ['deadlock', 'settled']`. Without the pass, settlement's
+    fail with `AssertionError: ['deadlock', 'settled']`. Without the pass, settlement's
     first acquisition is `set_location`'s UPDATE of a coin, taken with **no
     lot row held**, and it asks for that coin's lot row afterwards through
     `end_offer` -- items before lots, the exact inversion
@@ -705,8 +700,8 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
     first.
 
     **The receipt is the victim, not the settlement**, and that is worth
-    naming rather than rounding off to "one of them deadlocks": ten of ten,
-    Postgres chose the operator marking a coin missing. Observed verbatim,
+    naming rather than rounding off to "one of them deadlocks": Postgres
+    chooses the operator marking a coin missing, as
     `sqlalchemy.exc.OperationalError` wrapping
     `psycopg.errors.DeadlockDetected`:
 
@@ -723,12 +718,12 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
 
     **The direction is what matters, not the presence of a lock.** Inverting
     the single owner would move both writers at once and produce no cycle at
-    all (measured on the phase-3 branch, `test_buying_a_lot_races_offering_
+    all (`test_offer_races.py::test_buying_a_lot_races_offering_
     one_of_its_coins`); what reproduces a deadlock is a caller that *bypasses*
     the owner, which is precisely what removing this pass makes `settle` do.
 
     Does **not** survive removing `.with_for_update()` from `_lock_auction`:
-    measured ten runs of ten, still green. Nothing else in the codebase takes
+    it stays green. Nothing else in the codebase takes
     an `auction` row, so a race with a non-auction writer cannot contend for
     it. That mutation belongs to the test above, and these two are a pair --
     neither covers the other's.
@@ -796,8 +791,8 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
                 barrier.wait(timeout=10)
                 # The router handler itself, not a re-implementation: the
                 # sequence under test is the one `receive_items` runs,
-                # including the `lock_for_sale` pass its own deadlock fix
-                # added. It commits internally.
+                # including its own `lock_for_sale` pass. It commits
+                # internally.
                 receive_items(payload, session, operator)
                 return "marked"
             except HTTPException:
@@ -875,11 +870,10 @@ def test_settling_a_consigned_auction_races_a_coin_going_missing(
             assert item.disposition.code == "held"
             # **Every** coin is home now, the contested one included, at the
             # location the settlement was told to return them to rather than
-            # still sitting in the house's consigned location. Before
-            # `_refuse_auction_lots`, a receipt that won this race ended the
-            # lot's offer, so settlement's `offered_items` came back empty
-            # for that lot and left the coin at the auction house -- which is
-            # why this assertion used to have to skip it.
+            # still sitting in the house's consigned location.
+            # `_refuse_auction_lots` is why: a receipt cannot end a lot's
+            # offer, so settlement's `offered_items` still names the
+            # contested coin.
             assert item.storage_location_id == drawer_id
 
 
@@ -890,61 +884,48 @@ def test_cancelling_an_auction_races_settling_it(
 
     The race nothing else here covers: the two settlement tests above race
     settle against settle and against a receipt, and nothing cancelled. Both
-    endpoints are admin-only, both buttons are present on a `closed` auction in the
-    console, and ruling **R8** made `cancel` legal on `closed` -- so two
-    tabs, or two operators, is all it takes.
+    endpoints are admin-only, both buttons are present on a `closed` auction
+    in the console, and `cancel` is legal on `closed` -- so two tabs, or two
+    operators, is all it takes.
 
-    **The defect.** `settle` took the `auction` row FOR UPDATE first
-    (`auctions._lock_auction`, ruling R2) and then the coins through
+    **The lock order.** `settle` takes the `auction` row FOR UPDATE first
+    (`auctions._lock_auction`) and then the coins through
     `offering_writes.lock_for_sale`: auction -> lots -> items -> listings.
-    `cancel` took no auction row at all, ended each lot's offer through
-    `offering_writes` and wrote `UPDATE auction SET status='cancelled'` as
-    its **last** statement: lots -> items -> listings -> auction. R2's own
-    argument that the new outermost level "cannot invert" was true when
-    written, because `cancel` was then gated to
-    `draft`/`scheduled`/`consigned` while `settle` proceeds only on `closed`
-    -- R8 widened `cancel` and created the second party, and nothing
-    re-derived R2 after it. The fix finishes R2 rather than undoing it:
-    `_lock_auction` is now `cancel`'s first statement too.
+    `cancel` ends each lot's offer through `offering_writes` and writes
+    `UPDATE auction SET status='cancelled'`, so it must take the `auction`
+    row first too: without `_lock_auction` as its first statement its order
+    is lots -> items -> listings -> auction, the inverse of `settle`'s, and
+    both are legal on a `closed` auction.
 
     **The mutation that reds this test:** delete the
     `auction = _lock_auction(db, auction)` line from `app.auctions.cancel`.
-    Measured, ten runs of ten red, in two shapes:
+    It fails in two shapes:
 
-    - `AssertionError: ['cancelled', 'deadlock']`, seven of ten. `settle` is
-      the victim, `sqlalchemy.exc.OperationalError` wrapping
-      `psycopg.errors.DeadlockDetected`, observed verbatim:
+    - `AssertionError: ['cancelled', 'deadlock']`. `settle` is the victim,
+      `sqlalchemy.exc.OperationalError` wrapping
+      `psycopg.errors.DeadlockDetected`, raised while locking a tuple in
+      `sales_lot`. Neither router catches `OperationalError` --
+      `routers.auctions` catches only `StaleDataError` -- so that is an
+      **HTTP 500 on a money path**, with a non-deterministic victim.
+    - `AssertionError: ['settled', 'stale']`. `settle` gets all the way
+      through without contending and `cancel`'s final `UPDATE auction ...
+      WHERE version = :v` matches no rows. That one is the *clean* 409
+      described below -- correct behavior for the unlocked code, and the
+      reason the mutation has to be judged on both assertions rather than on
+      the deadlock alone. Neither shape is reachable with the lock in place,
+      which is why the test forbids both.
 
-          deadlock detected
-          DETAIL:  Process 3544 waits for ShareLock on transaction 2027215;
-          blocked by process 56560.  Process 56560 waits for ShareLock on
-          transaction 2027214; blocked by process 3544.
-          HINT:  See server log for query details.
-          CONTEXT:  while locking tuple (0,2) in relation "sales_lot"
-
-      Neither router catches `OperationalError` -- `routers.auctions`
-      catches only `StaleDataError` -- so that is an **HTTP 500 on a money
-      path**, with a non-deterministic victim.
-    - `AssertionError: ['settled', 'stale']`, three of ten. `settle` got all
-      the way through without contending and `cancel`'s final `UPDATE
-      auction ... WHERE version = :v` matched no rows. That one is the
-      *clean* 409 described below -- correct behavior for the unlocked
-      code, and the reason the mutation has to be judged on both assertions
-      rather than on the deadlock alone. Neither shape is reachable once the
-      lock is back, which is why the test forbids both.
-
-    Restoring the line makes it green again; fifteen further runs of
-    fifteen, no failure. The red is by likelihood, not by construction: a
-    run in which `cancel` finishes all six lots before `settle` asks for the
-    auction row never overlaps and passes even without the lock. It has not
-    been observed, which is what six lots are for.
+    The red is by likelihood, not by construction: a run in which `cancel`
+    finishes all six lots before `settle` asks for the auction row never
+    overlaps and passes even without the lock, which is what six lots are
+    for.
 
     **One distinction this test deliberately preserves.** If `settle` commits
-    without ever contending, `cancel`'s final `UPDATE auction` matches zero
-    rows on `Auction.version` and raises `StaleDataError`, which
-    `routers.auctions.cancel_auction` already turns into a clean 409. That
-    path is **correct and is not the defect**; only the `DeadlockDetected`
-    abort is a 500. With the lock in place the loser never reaches that
+    without ever contending, an unlocked `cancel`'s final `UPDATE auction`
+    matches zero rows on `Auction.version` and raises `StaleDataError`, which
+    `routers.auctions.cancel_auction` turns into a clean 409. That path is
+    **correct**; only the `DeadlockDetected` abort is a 500. With the lock in
+    place the loser never reaches that
     UPDATE at all -- it waits on the auction row, re-reads the status the
     winner wrote and is refused by name -- which is why `"stale"` is
     asserted against separately here rather than folded in with `"refused"`.
@@ -955,15 +936,14 @@ def test_cancelling_an_auction_races_settling_it(
     are legal, both asserted, and the loser's message is checked against
     whichever of them happened -- a refusal with the *wrong* reason (a grid
     problem, say, which is also an `AuctionRefused`) would otherwise score as
-    a won race. Measured over fifteen runs: settlement won eleven,
-    cancellation four, every one of them a clean refusal for the loser.
+    a won race.
 
     Six lots rather than three, to widen the window the mutation needs: with
     the lock removed, `cancel` must be holding one lot's rows when `settle`
     asks for all of them, and six `end_offer` passes is six times the
     opportunity. Every lot is `unsold` and the auction is never consigned, so
     no return location is needed on either side and the test measures the
-    lock rather than ruling R13's custody contract.
+    lock rather than the custody contract.
     """
     venue_id = _house_venue(committed, f"{RACE_PREFIX}-cancel")
     admin_id = _admin(committed)
@@ -1076,7 +1056,7 @@ def test_cancelling_an_auction_races_settling_it(
             assert [row.result for row in lots] == [AuctionLotResult.unsold] * 6
         else:
             assert auction.status is AuctionStatus.cancelled
-            # `remove_lot` deletes rather than marks (ruling R11), so a
+            # `remove_lot` deletes rather than marks, so a
             # cancelled auction keeps none of its lot rows.
             assert lots == []
         assert auction.consigned_on is None
@@ -1135,12 +1115,10 @@ def test_consigning_an_auction_races_cancelling_it(
 ) -> None:
     """Consign and cancel the same scheduled auction at once: no deadlock.
 
-    Once `cancel`
-    took the `auction` row first, `consign` became the next writer that
-    reached an auction's coins before its auction row: its item moves
-    flushed before its `UPDATE auction`, so on a `scheduled` auction -- the
-    one status both accept -- each could hold what the other wanted.
-    `consign` now takes `_lock_auction` first as well.
+    `consign`'s item moves flush before its `UPDATE auction`, and `cancel`
+    takes the `auction` row first, so on a `scheduled` auction -- the one
+    status both accept -- each could hold what the other wanted. `consign`
+    takes `_lock_auction` first as well, which is what this measures.
 
     Two outcomes are legal and both are asserted: `consign` first, and the
     cancel that follows re-reads `consigned`, brings every coin back to the

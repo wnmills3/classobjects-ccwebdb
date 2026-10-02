@@ -45,7 +45,7 @@ def image_urls(sha256: str) -> dict[str, str]:
     Keyed by the content hash, not the row id. These URLs have to work in a
     plain `<img>` tag -- for an anonymous buyer in the shop and for the owner
     in the console -- and an `<img>` cannot carry a bearer token, so the route
-    behind them is public. A sequential id therefore made every photograph in
+    behind them is public. A sequential id would therefore make every photograph in
     the collection reachable by counting from 1, and most of this collection
     is not for sale. The hash is unguessable and unique (`uq_image_sha256`),
     so there is nothing left to enumerate.
@@ -355,7 +355,7 @@ def delete_image(
     """
     image = get_or_404(db, Image, image_id, "Image not found")
 
-    # This endpoint knew only an image id. The items it is attached to are
+    # This endpoint is given only an image id. The items it is attached to are
     # what the for-sale rule is about, so they are read before anything is
     # removed.
     attached = db.scalars(

@@ -1,4 +1,4 @@
-"""What is missing or wrong in the record: six data-quality reports."""
+"""What is missing or wrong in the record: the seven data-quality reports."""
 
 from __future__ import annotations
 
@@ -273,7 +273,7 @@ def _row_for(result: ReportResult, kind_label: str) -> dict[str, object]:
 def test_completeness_leaves_a_sets_metal_blank(db: Session) -> None:
     """A set's metal cell is blank, never 0% for a set with no metal.
 
-    A set is often of mixed metals, so metal does not apply (owner, 2026-09-28).
+    A set is often of mixed metals, so metal does not apply.
     """
     build_bare_item(db, item_kind_id=code_id(db, ItemKind, "set"), metal_id=None)
 
@@ -323,7 +323,7 @@ def test_completeness_per_kind_with_a_notes_year_from_series_year_and_no_metal(
     assert currency_row["denomination"] == Decimal("50.0")
     assert currency_row["grade"] == Decimal("50.0")
     assert currency_row["metal"] is None  # not applicable to currency
-    assert currency_row["series"] is None  # optional for a note (owner)
+    assert currency_row["series"] is None  # optional for a note
 
     bullion_row = _row_for(result, "Bullion")
     assert bullion_row["live_items"] == 1
@@ -671,7 +671,7 @@ def test_a_year_before_a_leap_day_falls_back_to_february_28() -> None:
 
 
 def _entry(day: date) -> datetime:
-    """A `created_at` at local noon UTC -- safe from a day's timezone shift."""
+    """A `created_at` at noon UTC -- safe from a day's timezone shift."""
     return datetime(day.year, day.month, day.day, 12, tzinfo=UTC)
 
 
@@ -1086,7 +1086,7 @@ def _morgan(db: Session) -> int:
 
 
 def test_dq_series_years_lists_a_coin_dated_outside_its_series(db: Session) -> None:
-    """The owner's case: an 1800 Morgan dollar (2026-10-01)."""
+    """An 1800 Morgan dollar: a year no Morgan was struck in."""
     morgan = _morgan(db)
     typo = build_bare_item(db, series_id=morgan, year_start=1800, year_end=1800)
     build_bare_item(db, series_id=morgan, year_start=1880, year_end=1880)

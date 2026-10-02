@@ -113,8 +113,8 @@ def _offering(db: Session, item_ids: Collection[int]) -> dict[int, set[int]]:
     # `found[item_id]` lookup would never find it again.
     #
     # A name of its own rather than reusing the claims loop's `item_id`: the
-    # two loops carry different types now (a claim's item id cannot be null,
-    # a listing's can), and one name for both hid that difference.
+    # two loops carry different types (a claim's item id cannot be null,
+    # a listing's can).
     for listed_item_id, listing_id in direct:
         if listed_item_id is not None:
             wanted.setdefault(listed_item_id, set()).add(listing_id)
@@ -227,9 +227,9 @@ def ever_offered(db: Session, item_ids: Collection[int]) -> set[int]:
 
     The same two halves as `_offering`, with the status and state filters
     dropped, and the claim half read through `offering_writes.ever_claimed`
-    rather than a second query against `offer_claim` here -- that table has
-    exactly one writer and, until this function, exactly one other reader
-    (`claims_for`), both in `offering_writes`. Asking it directly from this
+    rather than a second query against `offer_claim` here -- that table's
+    writer and its readers (`claims_for`, `ever_claimed`) are all in
+    `offering_writes`. Asking it directly from this
     module would leave "is this item spoken for" with two homes that could
     drift the moment the claim's shape changes.
 
@@ -237,8 +237,8 @@ def ever_offered(db: Session, item_ids: Collection[int]) -> set[int]:
     writes one claim per member and a lot's listing names the lot, so an item
     that has only ever been offered inside a lot is reachable this way and no
     other. Here rather than in `routers.inventory` because "is this item
-    spoken for" already has one home, and a second hand-written answer is
-    what `lot_writes._refuse_partial` had to stop being.
+    spoken for" already has one home, and a second hand-written answer
+    would drift from it.
 
     An item merely *assembling* into a lot is deliberately not here: it has
     not been offered, `remove_member` deletes its membership outright, and so
@@ -282,13 +282,11 @@ def sold_this_item(item_id: int) -> ColumnElement[bool]:
     only shape this assumes of them (`sales_order_item.listing_id` is NOT
     NULL, so that join drops nothing).
 
-    Here rather than in `routers.inventory`, where it was written, for the
+    Here rather than in `routers.inventory` for the
     reason `ever_offered` above gives for living here: "was this item sold"
     is one question and a second hand-written answer drifts from the first.
-    `splitting` asked it for itself through `listing.inventory_item_id`
-    alone and so never saw a lot sale -- it split a coin that had been sold
-    inside a lot and re-allocated the cost basis the sale's share still
-    credits to it. A domain module importing a router's private helper was
+    Asked through `listing.inventory_item_id` alone it misses a lot sale.
+    A domain module importing a router's private helper is
     the alternative, and it is also a circular import: `routers.inventory`
     imports `splitting`.
     """
@@ -329,9 +327,8 @@ def guard(
     teach an operator to tick past warnings that mean something.
 
     A 409 rather than a 422: the request is well formed and would be accepted
-    at another moment. The status code matches the two call sites this
-    replaces, and the console tells the case apart by the message's opening
-    words ("For sale").
+    at another moment. The console tells the case apart by the message's
+    opening words ("For sale").
     """
     if acknowledged:
         return

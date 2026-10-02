@@ -20,12 +20,10 @@ function orderIdFromParams(params) {
 /**
  * Receiving: find what arrived, then record it, one item at a time.
  *
- * One search form (`ItemFinder`), not a choice between "By order" and "By
- * item" (2026-09-23): its order number field takes part of the number, which
- * does what picking an order from a list did, and the same form finds an
- * item in hand whose order is not known.
+ * One search form (`ItemFinder`): its order number field takes part of the
+ * number, and the same form finds an item in hand whose order is not known.
  *
- * **`?order=<id>` still works** -- the inventory screens' Order column and
+ * **`?order=<id>` opens on that order** -- the inventory screens' Order column and
  * Purchases' "Receive these" link here that way. The order's number is
  * read and handed to the search, which runs at once with it. The search is
  * keyed on that number, so following a link to another order starts a fresh
@@ -41,7 +39,7 @@ function orderIdFromParams(params) {
  * dropdown picks. After each receipt `epoch` is bumped, which repeats the
  * search: the item just received leaves the "not yet arrived" list.
  *
- * **Receive all** (owner, 2026-09-30): on a linked order with two or more
+ * **Receive all**: on a linked order with two or more
  * lines still `ordered`, one button opens the same dialog over all of them --
  * one arrival date, one location, one all-or-nothing request. It is the
  * parcel that arrived whole; a split shipment is still received line by line.
@@ -87,7 +85,7 @@ export default function Receiving() {
   // Every close searches again, not only a clean receipt: a receipt whose
   // photograph failed to upload keeps the dialog open for the error, and
   // is recorded all the same -- closing it must not leave the item listed
-  // as not yet arrived (code review, 2026-09-23).
+  // as not yet arrived.
   function closeReceipt() {
     setReceiving(null)
     setEpoch((n) => n + 1)
@@ -100,8 +98,7 @@ export default function Receiving() {
       {linkError && <p className="error">{linkError}</p>}
       {waitingForOrder && <p className="muted">Loading...</p>}
       {/* The order a link named: who it was bought from, when, and the
-          seller's page, as the order view showed before the search
-          replaced it. */}
+          seller's page. */}
       {order && (
         <h2>
           {purchaseNumber(order.id)} &middot; {order.order_number} &middot;{' '}

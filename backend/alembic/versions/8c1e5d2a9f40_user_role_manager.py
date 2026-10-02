@@ -1,4 +1,4 @@
-"""The console's role is manager, not admin (owner, 2026-09-24).
+"""The console's role is manager, not admin.
 
 Renames the `user_role` value in place: every account that was an admin is a
 manager, and no row is rewritten.

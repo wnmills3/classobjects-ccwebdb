@@ -89,15 +89,16 @@ item can be offered.*
 
 **Receive** (`/management/receiving`) finds what has not arrived, by any part
 of an order number or by what the item is, and records one of **Receive**,
-**Missing**, **Returned** or **Cancelled** for the selected items, with an
-arrival date and a storage location, in one transaction
-(`POST /api/inventory/receive`). A purchase's "Receive these" link opens it
+**Missing**, **Returned** or **Cancelled** for the line clicked -- or, with
+**Receive all N still ordered** on a purchase's link, for every line of it
+still ordered -- with an arrival date and a storage location, in one
+transaction (`POST /api/inventory/receive`). A purchase's "Receive these" link opens it
 already searched for that order.
 
 The receipt dialog opens with the facts that identify the piece -- a note's
 series, denomination, serial and plate numbers, a coin's year, mint and
 denomination -- saved with Receive, and says what they decide. It also takes
-a note, field reviews and, with a single item selected, photographs (chosen,
+a note, field reviews and, for a single item, photographs (chosen,
 dropped or pasted). For a banknote it records the Friedberg number: the owner
 reads it off the note or looks it up (the dialog can open a Google search
 with the note's facts in a window beside it), and types it in; nothing is
@@ -195,8 +196,8 @@ Changing an item that is on offer warns first, since the buyer sees what was
 listed ([specs/for-sale-guards-design.md](specs/for-sale-guards-design.md)).
 
 **Reports** (`/management/reports`) answers questions over the whole
-collection, grouped as Collection, Purchasing and receiving, Money, Selling
-and Data quality, and exports any report as a workbook ([specs/reporting-design.md](specs/reporting-design.md)).
+collection, grouped as Collection, Data quality, Purchasing and receiving,
+Selling and Money, and exports any report as a workbook ([specs/reporting-design.md](specs/reporting-design.md)).
 
 ## What does not happen here
 

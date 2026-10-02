@@ -143,8 +143,8 @@ describe('SettlementGrid', () => {
   })
 
   it('marks every offending lot from a structured refusal, not just the first', async () => {
-    // Ruling R21: the console shows a grid, and fixing one problem at a
-    // round trip is miserable -- every problem lot is named at once.
+    // The console shows a grid, and fixing one problem at a round trip is
+    // miserable -- every problem lot is named at once.
     const user = userEvent.setup()
     const auction = closedAuction()
     api.settleAuction.mockRejectedValue(
@@ -210,8 +210,8 @@ describe('SettlementGrid', () => {
   it('disables both Settle buttons until a required return location is chosen', async () => {
     // `app.auctions.settle` refuses when the house still holds something
     // and a non-sold lot has nowhere to come back to -- the same
-    // `auction.consigned_on` predicate `RemoveLotConfirm`/`CancelConfirm`
-    // already gate on in `Auctions.jsx`. Both the "Settle..." button and
+    // `auction.consigned_on` predicate `ReturnLocationConfirm` already
+    // gates on in `Auctions.jsx`. Both the "Settle..." button and
     // the confirm dialog's own "Settle" button are covered.
     const user = userEvent.setup()
     const auction = closedAuction({ consigned_on: '2026-10-01' })
@@ -244,7 +244,7 @@ describe('SettlementGrid', () => {
   })
 
   it('groups the settlement grid buyers case-insensitively, keeping the first spelling', async () => {
-    // R28: `app.auctions._buyer_key` is `.strip().casefold()`, so `amy` and
+    // `app.auctions._buyer_key` is `.strip().casefold()`, so `amy` and
     // `Amy` are one buyer server-side; two fee sub-tables here would have
     // produced an unexplainable "fees for Amy are given twice" refusal.
     const user = userEvent.setup()

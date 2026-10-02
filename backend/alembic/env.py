@@ -21,7 +21,7 @@ from app import models  # noqa: F401
 config = context.config
 
 # Fall back to the application's configured database, but let a caller that
-# already supplied a URL (tests, or `alembic -x`) keep theirs. Overwriting
+# already set `sqlalchemy.url` on the config (the tests do) keep theirs. Overwriting
 # unconditionally would silently point every programmatic run at the
 # development database. The config is a ConfigParser, which reads `%` as
 # interpolation, so a URL-encoded password's `%` is doubled to arrive intact.

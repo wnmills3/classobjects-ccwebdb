@@ -1,6 +1,6 @@
 """The owner's own Friedberg catalog -- not a licensed dataset.
 
-`CLAUDE.md` forbids shipping a publisher's arrangement: the Friedberg
+`docs/reference-data.md` forbids shipping a publisher's arrangement: the Friedberg
 catalog's mapping of attributes to its own numbers is sold, not free to
 redistribute. Nothing here seeds, fetches, or hardcodes that mapping. What
 this module builds instead is a place for the owner to record numbers read
@@ -50,9 +50,10 @@ from ..schemas import (
 )
 from ._resolve import get_or_404
 
-#: Endpoints 1 and 2 live under `/friedberg`; endpoint 3 attaches a result to
-#: an item, which is inventory-shaped, so it gets its own router the same way
-#: `acquisitions.py` splits purchase orders from storage locations.
+#: The catalog's own endpoints live under `/friedberg`; attaching a row to an
+#: item, and clearing it, are inventory-shaped, so they get their own router
+#: the same way `acquisitions.py` splits purchase orders from storage
+#: locations.
 
 friedberg_router = APIRouter(prefix="/friedberg", tags=["friedberg"])
 item_router = APIRouter(prefix="/inventory", tags=["friedberg"])
@@ -67,9 +68,8 @@ class CombinationRecorded(Exception):
     """A number refused because its type is already in the catalog. 409.
 
     Carries the row that holds the combination, so the console can name it
-    and offer to correct that row's number -- the owner's slip of recording
-    `3007-` for `3007-L` was otherwise met with a raw database error that
-    never said which row was in the way. Rendered by `main.py` as
+    and offer to correct that row's number, rather than a raw database error
+    that never says which row is in the way. Rendered by `main.py` as
     `{detail, existing: {id, fr_number}}`.
     """
 
@@ -143,7 +143,7 @@ def _refuse_to_confirm_a_slip(row: FriedbergNumber) -> None:
         )
 
 
-#: The seal an `LGS` number goes with. Added by hand on live, not seeded, so
+#: The seal an `LGS` number goes with. Not in the seed data, so
 #: it is named by code; where it is missing, no recorded seal is light green
 #: and an LGS number is refused against any seal that is recorded.
 LIGHT_GREEN_SEAL = "light_green"
@@ -154,8 +154,8 @@ def _refuse_shade_mismatch(
 ) -> None:
     """422 when a number's seal shade contradicts a recorded seal.
 
-    `2008-B LGS` is a light green seal's number (owner, 2026-10-01), so a
-    seal recorded as anything else is a slip in one of the two; `DGS` on a
+    `2008-B LGS` is a light green seal's number, so a seal recorded as
+    anything else is a slip in one of the two; `DGS` on a
     light green seal is the same slip the other way. A seal not recorded yet
     contradicts nothing and is allowed.
     """
@@ -252,7 +252,7 @@ def search_friedberg(
     """
     # Resolved in this order, so an unknown code is refused the same way
     # whichever others were sent too. Washington or Fort Worth: a 2017-A $1 is
-    # 3005-A from one, 3006-A from the other (owner, 2026-09-25).
+    # 3005-A from one, 3006-A from the other.
     filters: list[tuple[InstrumentedAttribute[Any], object]] = [
         (
             FriedbergNumber.note_type_id,
@@ -314,8 +314,8 @@ def signature_choices(
     **Not "whose term covers the series year".** A series is named for the
     year its design was adopted, and a lettered series is printed later under
     later officials: series 1963 is Granahan / Dillon, 1963-A Granahan /
-    Fowler, whose term began in 1965. Narrowing by term hid the right pair
-    for every lettered series (2026-09-23).
+    Fowler, whose term began in 1965. Narrowing by term would hide the right
+    pair for every lettered series.
 
     So the seeded `note_issue` facts decide, matched on whatever is given. A
     blank letter matches every letter of the series -- it may just not be
@@ -417,12 +417,9 @@ def create_friedberg_number(
         db.flush()
     except IntegrityError as exc:
         db.rollback()
-        # The partial unique index on the identifying tuple: a second row
-        # proposing the same denomination/year/letter/note-type/district
-        # combination under a different fr_number. Also a real conflict, just
-        # not the one the fr_number pre-check catches.
-        # Two recordings of one type racing past the check above: the index
-        # stops the second, and it reads as the same refusal.
+        # Two recordings of one type, or of one number, racing past the
+        # checks above: the unique index stops the second, and it reads as
+        # the same refusal.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="That combination is already recorded under another number.",

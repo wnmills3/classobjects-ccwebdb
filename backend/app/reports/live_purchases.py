@@ -1,11 +1,13 @@
 """What counts as "a purchase" -- shared by `pr_spend`, `pr_sources` and `mn_tax`.
 
-Ruling P2-8: a purchase counts only when it carries at least one live item --
-an inner join to `InventoryItem` through `live_item()`, never
-`pr_outstanding`'s outer one -- so no two reports built on top of this can
-silently disagree about the same word. All three modules read this one join,
-the same date-range filter on `ordered_on`, and the same note explaining an
-excluded, undated purchase, rather than each restating its own.
+A purchase counts only when it carries at least one live item
+(docs/specs/reporting-design.md, Decisions) -- an inner join to
+`InventoryItem` through `live_item()`, never `pr_outstanding`'s outer one --
+so no two reports built on top of this can silently disagree about the same
+word. `pr_spend` and `mn_tax` read this one join, the same date-range filter
+on `ordered_on`, and the same note explaining an excluded, undated purchase,
+rather than each restating its own; `pr_sources` shares the rule and its
+note.
 """
 
 from __future__ import annotations

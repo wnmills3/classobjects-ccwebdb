@@ -30,12 +30,9 @@ def test_tables_copy_in_foreign_key_order() -> None:
 def test_generated_columns_are_read_from_the_models() -> None:
     """Every column the schema computes, found without anyone listing it.
 
-    The previous version of this test asserted a hardcoded set against a copy
-    of itself, so it could not fail. It did not: `series_designation` was added
-    as a generated column, the set was not updated, the backup tried to insert
-    it, PostgreSQL refused, and the copy aborted partway -- leaving five tables
-    empty in every backup taken afterwards, while `--list` still showed a
-    plausible 21 MB.
+    A generated column the backup tried to insert would be refused by
+    PostgreSQL and abort the copy partway, leaving later tables empty while
+    `--list` still showed a plausible size.
 
     So this walks the metadata the same way the backup does and asserts the
     answer covers every table, which is what makes it fail when the next
@@ -66,8 +63,7 @@ def test_the_backup_url_keeps_its_password() -> None:
     """`str(url)` masks the password as ***, which cannot authenticate.
 
     The failure is quiet and confusing: a URL that looks correct and is
-    refused. conftest.py documents the same trap for the test database, and
-    this module hit it too.
+    refused. conftest.py documents the same trap for the test database.
     """
     url = make_url("postgresql+psycopg://user:secret@localhost:5432/ccwebdb")
     masked = str(url.set(database="ccwebdb_bak_1"))
@@ -124,8 +120,8 @@ class _FakeSession:
 
         Only on `setval`, deliberately. Failing the first call instead makes
         the sequence *lookup* raise, which propagates whatever the code does
-        about setval -- so the test would pass against the swallowing version
-        and prove nothing. A mutation run caught exactly that.
+        about setval -- so the test would pass against a version that
+        swallowed the failure, and prove nothing.
         """
         sql = str(statement)
         self.executed.append(sql)
@@ -151,11 +147,10 @@ class _FakeResult:
 def test_a_sequence_that_cannot_be_reset_is_an_error() -> None:
     """A failed resync must not be swallowed.
 
-    This ran under a bare `except Exception: rollback()`, which produced
-    precisely the failure its own docstring warns about -- a backup that
-    reports success and collides on the first insert into it -- with nothing
-    said. The restore is the moment the collection is recovered from, so a
-    silent defect here is the most expensive kind in the codebase.
+    Swallowed, it would be a backup that reports success and collides on the
+    first insert into it, with nothing said. The restore is the moment the
+    collection is recovered from, so a silent defect here is the most
+    expensive kind in the codebase.
     """
     from app.backup import _resync_sequences
 
@@ -169,9 +164,8 @@ def test_a_sequence_that_cannot_be_reset_is_an_error() -> None:
 def test_a_dialect_without_sequences_is_skipped_quietly() -> None:
     """The one case that really is not a failure stays quiet.
 
-    Without this the fix above would turn every non-PostgreSQL target into an
-    error, which is the overcorrection that makes people restore the bare
-    `except`.
+    Without this every non-PostgreSQL target would be an error, which is the
+    overcorrection that invites a bare `except`.
     """
     from app.backup import _resync_sequences
 

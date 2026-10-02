@@ -2,10 +2,9 @@
 
 An anomaly is a check with a name, not a generic field filter.
 `issue=no_grade` means *a coin or banknote with no grade*, because bullion has
-no grade by nature and 730 rounds have no weight either -- a generic
-`grade=null` would bury 2,680 real cases under rounds that will never have
-one. (Both counts measured 2026-09-20; they move as the collection is
-cataloged, and the argument does not depend on their exact size.)
+no grade by nature and most rounds have no weight either -- a generic
+`grade=null` would bury the real cases under rounds that will never have
+one.
 
 The domain knowledge belongs here, written once, rather than in the head of
 whoever types the filter.
@@ -90,17 +89,16 @@ COIN_ISSUES: dict[str, Issue] = {
     **SHARED_ISSUES,
     # Coin-only, not shared: COIN_VIEW's own WHERE is `k.code <> 'currency'`,
     # everything that is not currency, so it is the only view an item of
-    # kind `unknown` can ever appear in. Sharing this into CURRENCY_ISSUES
-    # put it in a view whose WHERE requires `k.code = 'currency'` -- a
-    # predicate the row can never satisfy, so the check counted zero forever
-    # and read as a clean bill of health while never actually running.
+    # kind `unknown` can ever appear in. In CURRENCY_ISSUES it would sit
+    # in a view whose WHERE requires `k.code = 'currency'` -- a predicate the
+    # row can never satisfy, so the check would count zero and read as a
+    # clean bill of health while never running.
     "kind_unknown": Issue(
         "k.code = 'unknown'",
         description="Its kind is not recorded",
     ),
-    # Owner, 2026-10-01: an 1800 Morgan dollar, found only because no
-    # composition covers 1800 and so its description had no weight. A typo,
-    # a tribute piece or the wrong series; a person decides which. A
+    # A coin dated outside its design series' years (an 1800 Morgan dollar):
+    # a typo, a tribute piece or the wrong series; a person decides which. A
     # subquery rather than a join, so it needs no clause from the search.
     "year_outside_series": Issue(
         "i.year_start IS NOT NULL AND EXISTS (SELECT 1 FROM series s "
@@ -131,7 +129,7 @@ COIN_ISSUES: dict[str, Issue] = {
 
 CURRENCY_ISSUES: dict[str, Issue] = {
     **SHARED_ISSUES,
-    # A note's year is its series year; it holds no other (owner, 2026-09-25).
+    # A note's year is its series year; it holds no other.
     "no_year": Issue(
         "cud.series_year IS NULL",
         join=(_J_CUR_DETAIL,),
@@ -142,15 +140,9 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         # guard, a null serial reads as "not a star pattern" by construction
         # -- coalesce(NULL LIKE '*%', false) is false -- so a note that
         # simply has no serial typed in yet, but does carry the star
-        # attribute, looked like a disagreement. It is not one: there is
-        # nothing here to disagree with. 21 of this check's 26 original hits
-        # were exactly that.
-        #
-        # The guard also makes a `coalesce` around the LIKE expression
-        # unreachable: once serial_number is known NOT NULL, `... LIKE '*%'
-        # OR ... LIKE '%*'` can no longer evaluate to NULL, so there was
-        # nothing left for coalesce to catch. Removed rather than kept as
-        # defensive noise.
+        # attribute, would look like a disagreement. It is not one: there is
+        # nothing here to disagree with. With the guard the LIKE expression
+        # cannot be NULL, so it needs no coalesce.
         "cud.serial_number IS NOT NULL AND "
         "(cud.serial_number LIKE '*%' OR cud.serial_number LIKE '%*') "
         "<> EXISTS (SELECT 1 FROM item_attribute_link x "
@@ -167,8 +159,7 @@ CURRENCY_ISSUES: dict[str, Issue] = {
     "malformed_serial": Issue(
         "cud.serial_number ~ '[0-9][A-Z][0-9]'",
         join=(_J_CUR_DETAIL,),
-        # A warning, never a refusal. Three of the first four serials flagged
-        # by this rule were valid notes it had not anticipated.
+        # A warning, never a refusal: valid serials match this pattern too.
         description=(
             "An uppercase letter between two digits in the serial; "
             "usually a typo, sometimes real"
@@ -189,15 +180,11 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         # behind a dropped or duplicated character and are invisible to
         # equality.
         #
-        # Edit distance alone is not enough either, and finding that out cost
-        # a false start: a consecutive run of serials -- bought and stored as
-        # a deliberate set of star notes, twenty-seven of them from one
-        # purchase order -- differs from its neighbour by edit distance 1 as
-        # the *normal* case, so edit-distance-1 alone flagged 250 of them,
-        # firing hardest on exactly the deliberate run this collection is
-        # built around. Filtering by a "consecutive" attribute does not
-        # rescue it: that attribute is not reliably applied, and excluding
-        # tagged items still left 182 hits.
+        # Edit distance alone is not enough either: a consecutive run of
+        # serials, bought and kept as a set, differs from its neighbour by
+        # edit distance 1 as the *normal* case, so edit-distance-1 alone
+        # flags the run. Filtering by a "consecutive" attribute does not
+        # rescue it: that attribute is not reliably applied.
         #
         # Length is the signal that actually separates the two. A run like
         # ...160, ...161, ...162 keeps the same length; a dropped or
@@ -208,9 +195,8 @@ CURRENCY_ISSUES: dict[str, Issue] = {
         #
         # What this cannot find: a same-length substitution, `6` for `3` in
         # the middle of a serial, is indistinguishable from the next note in
-        # a consecutive run and is deliberately left unflagged. Widening this
-        # back to edit distance alone is how the check got into this state;
-        # do not.
+        # a consecutive run and is deliberately left unflagged. Do not widen
+        # this back to edit distance alone.
         #
         # Scoped to one purchase order, which is both where mistranscriptions
         # cluster and what keeps this affordable: the comparison is quadratic

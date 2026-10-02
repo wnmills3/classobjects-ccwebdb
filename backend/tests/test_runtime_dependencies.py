@@ -2,9 +2,8 @@
 
 A package listed only under `[dependency-groups] dev` is present on every
 developer machine and in every test run, so an app module importing it passes
-everything here and fails only on an install without the dev group. openpyxl
-sat there while reports, `app.workbook_backup` and `app.ebay_orders` imported
-it. This reads the imports themselves, not a hand-kept list.
+everything here and fails only on an install without the dev group. This
+reads the imports themselves, not a hand-kept list.
 """
 
 from __future__ import annotations

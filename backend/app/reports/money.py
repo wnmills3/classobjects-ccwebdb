@@ -3,9 +3,9 @@
 Three reports. `mn_basis`: every live item, by acquisition status x sales
 disposition -- the same two vocabularies `cb_holdings` filters by, shown
 here whole rather than narrowed to one value of each. `mn_tax`: period x
-vendor, over purchases with a live item (Ruling P2-8, `.live_purchases`),
+vendor, over purchases with a live item (`.live_purchases`),
 sales tax paid. `mn_value`: per item kind, live items (by status and
-disposition, like every Collection report -- Ruling P2-10), the ones
+disposition, like every Collection report), the ones
 carrying the owner's own recorded numismatic value, their cost and that
 value, and the difference between the two -- never a price-guide figure,
 only what the owner has entered by hand.
@@ -159,7 +159,7 @@ MN_BASIS = register(
 #: `mn_tax` buckets by month or year only -- a narrower choice than
 #: purchasing's three-way `Period`, but a subtype of it (every `TaxPeriod`
 #: value is also a `Period` value), so `period_start`/`period_label`
-#: (Ruling P2-2) take it unchanged.
+#: take it unchanged.
 TaxPeriod = Literal["month", "year"]
 
 _TAX_COLUMNS = [
@@ -338,7 +338,7 @@ _VALUE_NOTE = (
 class ValueParams(LiveParams):
     """`mn_value` takes no parameters beyond status and disposition.
 
-    Defaults to `received`/`held` (Ruling P2-10), the same as every
+    Defaults to `received`/`held`, the same as every
     Collection report: an owner reading "Recorded value" means what they
     hold now, not an item sold years ago.
     """

@@ -1,16 +1,16 @@
 {
   "_comment": [
     "Banknote-specific vocabulary.",
-    "Note attributes moved to attribute.json, as item attributes.",
+    "Item attributes, a note's included, are in attribute.json.",
     "Note types use the Bureau of Engraving and Printing's class names",
-    "(bep.gov/currency/history and /faqs), 2026-09-16. 'Legal Tender Note' was",
-    "folded into 'United States Note': BEP uses legal tender for every class",
+    "(bep.gov/currency/history and /faqs). 'Legal Tender Note' is an alias of",
+    "'United States Note', not a class: BEP uses legal tender for every class",
     "(31 USC 5103), so it names no class of its own. 'National Currency' is",
     "the legend printed on National Bank Notes -- and on the Series 1929",
     "Federal Reserve Bank Notes, so it is a nickname of both.",
     "",
     "reference_alias: other names for a row of any table here, matched by",
-    "import and search. {table, code, alias}."
+    "search and the pickers. {table, code, alias}."
   ],
   "note_type": [
     {

@@ -1,11 +1,11 @@
-"""The auctions API (selling design, phase 4).
+"""The auctions API (`docs/specs/selling-design.md`, *API*).
 
 The HTTP face of `app.auctions`: creating and editing auctions, adding and
 removing lots, the transitions, and settlement. The writer's own rules are
 tested in `test_auctions.py` and `test_auction_settlement.py`; what is
 checked here is the API contract on top of them -- who may call it, that a
 settlement refusal names every problem lot rather than the first, that money
-crosses the wire as a string, and -- ruling R20 -- that the narrow half of
+crosses the wire as a string, and that the narrow half of
 each refusal pair (`SettlementInputInvalid`/`AuctionRefused`,
 `sales_writes.SaleInputInvalid`/`SaleRefused`) reaches the console as a 422
 and the wide half as a 409, **regardless of which order anything is raised
@@ -13,12 +13,10 @@ or registered in**. `app.main` registers a handler per class rather than
 deciding by `except` order; the tests below prove that registration, not an
 assumption about it, is what is running.
 
-Two defects from earlier tasks are closed and regression-tested here too:
-a migrated-but-unseeded database's `RuntimeError` from `consign` now reaches
-the operator as a 500 naming the seed command instead of a bare one, and
-`test_offers_api.py` carries the matching test for the other defect --
-`POST /api/listings/{id}/end` refusing to end an auction-format listing
-directly, which is `routers.offers.py`, not this module.
+Also here: a migrated-but-unseeded database's `ReferenceDataMissing` from
+`consign` reaches the operator as a 500 naming the seed command.
+`POST /api/listings/{id}/end` refusing to end an auction lot's listing
+directly is `routers.offers`, tested in `test_offers_api.py`.
 """
 
 from __future__ import annotations
@@ -396,7 +394,7 @@ def test_adding_a_lot_to_a_closed_auction_is_refused(
     assert response.status_code == 409, response.text
     body = response.json()
     assert "closed" in body["detail"]
-    # Ruling R21: `refused` is built from the exception's own `refusals`
+    # `refused` is built from the exception's own `refusals`
     # attribute, not by splitting `detail` on "; " -- a single-reason
     # `AuctionRefused` from `add_lot` names no one lot, so `lot_number` is
     # null.
@@ -465,7 +463,7 @@ def test_removing_a_lot_from_a_closed_auction_is_refused(
     admin_headers: dict[str, str],
     closed_auction_of_two_lots: Auction,
 ) -> None:
-    """Ruling R14: `remove_lot` refuses `closed` unconditionally."""
+    """`remove_lot` refuses `closed` unconditionally."""
     lot_id = _auction_lots(db, closed_auction_of_two_lots)[0].id
     response = client.delete(
         f"/api/auctions/{closed_auction_of_two_lots.id}/lots/{lot_id}",
@@ -507,7 +505,7 @@ def test_renumbering_a_lot_in_a_closed_auction_is_refused(
     admin_headers: dict[str, str],
     closed_auction_of_two_lots: Auction,
 ) -> None:
-    """Ruling R22: `draft`, `scheduled` or `consigned` only, never `closed`.
+    """`draft`, `scheduled` or `consigned` only, never `closed`.
 
     Once closed, the lot numbers are part of the record a house's statement
     is reconciled against, and a reserve is meaningless -- the same boundary
@@ -537,7 +535,7 @@ def test_renumbering_a_lot_while_scheduled(
     scheduled_auction: Auction,
     make_item: ItemFactory,
 ) -> None:
-    """R22's allowed side, for `scheduled`.
+    """The allowed side of the renumbering rule, for `scheduled`.
 
     `test_renumbering_a_lot` covers `draft`.
     """
@@ -565,7 +563,7 @@ def test_renumbering_a_lot_while_consigned(
     scheduled_auction: Auction,
     make_item: ItemFactory,
 ) -> None:
-    """R22's allowed side, for `consigned`.
+    """The allowed side of the renumbering rule, for `consigned`.
 
     A house may still fix a lot number after custody moved, before the sale
     itself runs.
@@ -731,14 +729,11 @@ def test_consign_with_no_seed_is_a_500_naming_the_seeder(
 ) -> None:
     """The operator sees the actionable message, not a bare 500.
 
-    The live database is in exactly this state today -- migrated to this
-    branch's revision, but `python -m app.seeding load` has not run. Before
-    `app.main` registered a handler for this, it reached the console as a
-    bodyless "Internal Server Error"; the message `app.auctions.consign`
-    raises never left the server log. Registered on
-    `errors.ReferenceDataMissing` since ruling R24, not
-    on `RuntimeError` itself -- see `test_an_unrelated_runtime_error_is_not_swallowed`
-    for the regression that ruling closed.
+    A database migrated but not loaded with `python -m app.seeding load` has
+    no `consigned` kind. `app.main` answers `errors.ReferenceDataMissing`
+    with the message `app.auctions.consign` raises -- registered on that
+    class, not on `RuntimeError` itself
+    (`test_an_unrelated_runtime_error_is_not_swallowed`).
     """
     db.execute(
         delete(StorageLocationKind).where(StorageLocationKind.code == "consigned")
@@ -795,14 +790,14 @@ def test_an_unrelated_runtime_error_is_not_swallowed(
     scheduled_auction: Auction,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ruling R24: only `errors.ReferenceDataMissing` is caught.
+    """Only `errors.ReferenceDataMissing` is caught.
 
-    Before this ruling, the 500 handler was registered on `RuntimeError`
-    itself -- also the base of `NotImplementedError` and `RecursionError`,
-    and of every incidental `RuntimeError` anywhere in the app. Handling the
-    base class took a genuine bug away from `ServerErrorMiddleware` (no
-    traceback logged) and from `TestClient` (no re-raise), turning it into a
-    tidy 500 wearing a "server precondition" label. A plain `RuntimeError`
+    `RuntimeError` is also the base of `NotImplementedError` and
+    `RecursionError`, and of every incidental `RuntimeError` anywhere in the
+    app. Handling the base class would take a genuine bug away from
+    `ServerErrorMiddleware` (no traceback logged) and from `TestClient` (no
+    re-raise), turning it into a tidy 500 wearing a "server precondition"
+    label. A plain `RuntimeError`
     from a monkeypatched writer -- not `ReferenceDataMissing` -- must still
     escape this client unhandled, the same as any other unexpected crash.
     """
@@ -1019,7 +1014,7 @@ def test_settlement_refusal_lists_every_problem_lot(
     assert response.status_code == 409, response.text
     body = response.json()
     assert len(body["refused"]) == 2
-    # Ruling R21: `refused` is structured from `auctions.AuctionRefusal`, not
+    # `refused` is structured from `auctions.AuctionRefusal`, not
     # parsed back out of `detail` -- each problem here is about exactly one
     # lot, and its own `lot_number` says which, with no re-parsing needed.
     assert sorted(row["lot_number"] for row in body["refused"]) == sorted(
@@ -1065,7 +1060,7 @@ def test_a_marketplace_lot_must_name_its_buyer(
 
 
 # --------------------------------------------------------------------------
-# Ruling R20: per-class handlers, not `except` order
+# Per-class handlers, not `except` order
 # --------------------------------------------------------------------------
 
 
@@ -1123,8 +1118,6 @@ def test_a_plain_auction_refused_from_settle_is_still_a_409(
     assert response.status_code == 409, response.text
     body = response.json()
     assert body["detail"] == "a real conflict, for the test"
-    # The other three dispatch tests in this
-    # section check `refused` as well as `detail`; this one had not.
     assert body["refused"] == [
         {"reason": "a real conflict, for the test", "lot_number": None}
     ]
@@ -1138,9 +1131,8 @@ def test_sale_input_invalid_from_settle_is_a_422_not_a_409(
 ) -> None:
     """`settle` can also raise `sales_writes`' pair, from `record_sale_lines`.
 
-    A second, independent hierarchy from `AuctionRefused`'s own -- exactly
-    the shape an ordered `except` in this router would have had to get right
-    twice over, and now does not have to at all.
+    A second, independent hierarchy from `AuctionRefused`'s own, which the
+    per-class handlers cover without any `except` order to get right.
     """
 
     def _raise_invalid(*args: object, **kwargs: object) -> list[SalesOrder]:
@@ -1193,13 +1185,11 @@ def test_a_semicolon_in_a_reason_survives_the_round_trip(
     closed_auction_of_two_lots: Auction,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ruling R21: `refused` is built from `AuctionRefused.refusals`, never text-split.
+    """`refused` is built from `AuctionRefused.refusals`, never text-split.
 
-    Before this ruling, `app.main` recovered `refused` by splitting
-    `str(exc)` on `"; "` -- a text convention, not a type-checked contract,
-    that would have silently cut this single problem in two. Passing
-    `refusals` explicitly, the way `auctions.settle` itself now does, proves
-    the fix rather than merely asserting the old bug is gone: a reason
+    Splitting `str(exc)` on `"; "` -- a text convention, not a type-checked
+    contract -- would silently cut this single problem in two. Passing
+    `refusals` explicitly, the way `auctions.settle` itself does, a reason
     containing a real semicolon reaches the console as the one entry it is.
     """
     problem = "lot 1 and lot 2 cannot both be results; that is the whole problem"
@@ -1218,6 +1208,6 @@ def test_a_semicolon_in_a_reason_survives_the_round_trip(
     )
     assert response.status_code == 409, response.text
     body = response.json()
-    # Exactly one entry, the reason intact semicolon and all -- the old
-    # split-on-"; " shape would have produced two.
+    # Exactly one entry, the reason intact, semicolon and all: splitting on
+    # "; " would produce two.
     assert body["refused"] == [{"reason": problem, "lot_number": "1"}]

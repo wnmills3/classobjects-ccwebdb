@@ -19,8 +19,9 @@ podman stop sonar-db  >nul 2>&1
 
 rem --- verify -----------------------------------------------------------
 rem  A silent podman failure (machine unreachable, daemon down) must not
-rem  read as success: a piped "for /f" only ever sees findstr's exit code,
-rem  so check podman ps on its own first, before trusting an empty result.
+rem  read as success: the "for /f" below yields no names both when nothing
+rem  is running and when podman itself failed, so check podman ps on its own
+rem  first, before trusting an empty result.
 podman ps --format "{{.Names}}" >nul 2>&1
 if errorlevel 1 (
     echo ERROR: podman is not responding - cannot verify SonarQube stopped.

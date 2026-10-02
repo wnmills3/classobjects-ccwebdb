@@ -37,8 +37,8 @@ import { SaveButton } from '../SaveButton'
  * one. Reading 1400.00 as the worth of a group when two of its five coins
  * have never been valued is the mistake that figure invites.
  *
- * A failed load shows the error and leaves the page standing, per 872e219 --
- * an operator who has lost the whole page cannot react to what it says.
+ * A failed load shows the error and leaves the page standing -- an operator
+ * who has lost the whole page cannot react to what it says.
  */
 
 /** Lot statuses, in the order a lot moves through them. */
@@ -53,7 +53,7 @@ const STATUS_LABEL = {
  * Alt+letter for the fields of the lot form, as every other console edit
  * window has (`docs/system-administration.md`). No letter is D, E or F:
  * Chrome and Edge keep those for the address bar and menus on Windows. Save
- * is V, the same letter it is in the item editor and the platform form.
+ * is Ctrl+S, not a letter (`SaveButton.jsx`).
  */
 const KEYS = {
   title: 't',
@@ -187,8 +187,8 @@ export default function Lots() {
   // never are -- an old open lot must not fall off the page.
   const [pastPage, setPastPage] = useState({ shown: 0, total: 0 })
   // A load failed. Kept apart from `refusal` below, which is a *write* the
-  // API turned down: returning the error instead of the page unmounted
-  // everything the operator needed in order to react to it (872e219).
+  // API turned down. Shown above the page, never instead of it: the operator
+  // needs the page in order to react.
   const [error, setError] = useState('')
   const [refusal, setRefusal] = useState('')
   // A one-line confirmation of what was just done, cleared by the next action
@@ -371,8 +371,7 @@ export default function Lots() {
           {lot.description && <p>{lot.description}</p>}
           {/* `table`, the console's own class. `specs` is the SHOP's
               stylesheet (`store/styles.css`), which the console entry never
-              loads -- the bundle split is the point of that file -- so this
-              summary rendered unstyled. */}
+              loads -- the bundle split is the point of that file. */}
           <table className="table">
             <tbody>
               <tr>

@@ -1,8 +1,8 @@
 """The warning before a change to an item that is for sale.
 
 One file for the whole policy: `app.sale_state.guard` and each endpoint that
-calls it. The existing coverage of the two original call sites lives in
-`test_sale_snapshots.py`.
+calls it. `test_sale_snapshots.py` covers the guard too, at two of its call
+sites.
 """
 
 from __future__ import annotations
@@ -226,8 +226,8 @@ def test_receiving_an_item_that_is_not_for_sale_asks_nothing(
     # `received`, same as after a real receipt -- so a second "received"
     # outcome here would collide with the pre-existing "already received"
     # 409, which has nothing to do with the for-sale guard this test covers.
-    # Moved to `ordered`, matching how `test_receiving.py` starts every one
-    # of its own receiving tests.
+    # So it starts at `ordered`, as `test_receiving.py` starts every one of
+    # its own receiving tests.
     item = make_item()
     item.status_id = db.scalars(
         select(ItemStatus.id).where(ItemStatus.code == "ordered")
@@ -334,10 +334,10 @@ def test_an_acknowledged_status_edit_ends_the_offer(
 ) -> None:
     """Marking an offered coin missing in the editor takes it off sale.
 
-    It used to change the status and leave the listing active, so the shop
-    went on selling a coin marked missing (code review, 2026-09-23). Run
-    both ways: production's session does not autoflush, and ending an offer
-    re-reads the item, which once threw a pending status change away.
+    A status change that left the listing active would have the shop go on
+    selling a coin marked missing. Run both ways: production's session does
+    not autoflush, and ending an offer re-reads the item, which discards a
+    status change still pending.
     """
     item, made = _offered_item(db)
     db.autoflush = autoflush
@@ -603,15 +603,13 @@ def test_a_missing_piece_ends_the_lot_listing_that_held_it(
 ) -> None:
     """A piece has no listing of its own; the lot's listing is what holds it.
 
-    `receive_items` asked only for listings whose `inventory_item_id` is one
-    of the received items, so a piece going missing left the lot still on
-    sale -- offering something that can no longer be delivered, which is the
-    exact thing the comment above that query promises not to do.
+    A receipt ends every listing whose claims hold the item, not only one
+    whose `inventory_item_id` names it: otherwise a piece going missing
+    would leave the lot still on sale, offering something that can no longer
+    be delivered.
 
-    No write path builds this state yet (lot offers are phase 3), so the
-    claim is made directly. `offering_writes` already handles it everywhere
-    else, which is why the inconsistency is worth closing before the write
-    path arrives rather than after.
+    The second claim is added by hand, so one listing holds two items
+    without building a sales lot; `test_auctions.py` covers a real lot.
     """
     lot = build_item(db)
     piece = build_item(db)
@@ -659,11 +657,10 @@ def test_an_item_sold_through_a_finished_sale_still_warns(
 
     Pins `record_sale`'s end-to-end path, through a claim that is `released`
     and a listing that is `ended`: an `"order"` use is still reachable for
-    the item afterwards. **Not the mutation-discriminating case** -- the old
-    direct-link query carried no listing-status filter and read
-    `Listing.inventory_item_id`, which an ended listing still has, so it
-    already found this item too; only a lot's member, which the direct link
-    can never name, tells the two queries apart
+    the item afterwards. **Not the mutation-discriminating case** -- a
+    join through `Listing.inventory_item_id`, which an ended listing still
+    has, finds this item too; only a lot's member, which that column can
+    never name, tells the share join from the direct one
     (`test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot`).
     """
     item_id = item_id_of(ebay_listing)
@@ -685,7 +682,7 @@ def test_a_delivered_auction_house_sale_does_not_warn(
 ) -> None:
     """Delivered is deliberately excluded, the same as shipped already is.
 
-    `OPEN_ORDER_STATUSES` is `{pending, paid, packed}` -- this module's own
+    `OPEN_ORDER_STATUSES` is `{pending, paid, packed}` -- `sale_state`'s own
     docstring says an order that has shipped stops warning, because its line
     keeps a snapshot of the item as sold and the live record is no longer
     what a buyer is looking at. An auction house has already shipped for us
@@ -729,18 +726,14 @@ def test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot(
 ) -> None:
     """The one case that actually tells the two queries apart.
 
-    Every write path today (`order_writes._sync_shares`) keys a line's share
-    by `listing.inventory_item_id`, so a single-item listing's order is found
-    exactly as well by the old direct-link query as by the new share query --
-    neither `test_an_item_sold_through_a_finished_sale_still_warns` above nor
-    a delivered auction sale distinguishes them. Only a lot's member does: the
-    listing's own `inventory_item_id` names the lot, never a piece, so the
-    piece is findable only through its share. No write path divides a lot's
-    line among its members yet (phase 3), so `place_order`'s own
-    lot-shaped share (naming the lot, per today's one-item-per-listing rule)
-    is repointed to the piece directly here, the same reason
-    `test_a_missing_piece_ends_the_lot_listing_that_held_it` above adds its
-    claim directly.
+    A single-item listing's order is found as well through
+    `listing.inventory_item_id` as through its share, so neither
+    `test_an_item_sold_through_a_finished_sale_still_warns` above nor a
+    delivered auction sale tells the two joins apart. Only an item the
+    listing does not name does: here the one share `place_order` writes is
+    repointed to a second item, which is then findable only through that
+    share. `test_a_sold_lot_s_member_still_warns_while_the_order_is_open`
+    covers the same rule with a real lot.
     """
     lot = build_item(db)
     piece = build_item(db)
@@ -772,12 +765,11 @@ def test_a_lot_pieces_share_reaches_the_piece_the_direct_link_cannot(
         admin_user,
     )
     line = order.items[0]
-    # Repointed, not added alongside: phase 3 divides a line's money among
-    # its members with no share left for the lot itself, and a second share
-    # here would leave the line's shares summing to 400.00 against its own
-    # 200.00 (`SalesOrderItemShare`'s own docstring: "shares sum to their
-    # line exactly"). Same discriminating shape -- a piece findable only
-    # through a share -- without manufacturing a state the invariant forbids.
+    # Repointed, not added alongside: a second share here would leave the
+    # line's shares summing to 400.00 against its own 200.00
+    # (`SalesOrderItemShare`'s own docstring: "shares sum to their line
+    # exactly"). Same discriminating shape -- a piece findable only through
+    # a share -- without manufacturing a state the invariant forbids.
     lot_share = db.scalars(
         select(SalesOrderItemShare).where(
             SalesOrderItemShare.sales_order_item_id == line.id
@@ -835,9 +827,9 @@ def test_a_sold_lot_s_member_still_warns_while_the_order_is_open(
 ) -> None:
     """After the sale the claim is released, so only the share can find it.
 
-    This is the rule 2R decided and `sale_state`'s order half implements
+    This is the rule `sale_state`'s order half implements
     (`SalesOrderItemShare.inventory_item_id`). A lot is the case that half
-    exists for, and nothing tested it with a real lot until now. The mutation
+    exists for. The mutation
     that proves it: join the order half through `listing.inventory_item_id`
     instead of through the share, and confirm this goes red.
 
@@ -877,16 +869,15 @@ def test_a_lot_sale_refuses_a_split_of_the_member_it_sold(
 ) -> None:
     """The lot twin of the "appears in an order" refusal above.
 
-    `split_item`'s order check asked `listing.inventory_item_id`, which is
-    NULL on a lot listing -- so a coin sold inside a lot passed it and was
-    split, silently. That is the one shape of this branch's nullable-column
-    fallout that costs money: the line's `sales_order_item_share` still
+    `listing.inventory_item_id` is NULL on a lot listing, so an order check
+    that asked it would pass a coin sold inside a lot and split it,
+    silently. That would cost money: the line's `sales_order_item_share` still
     credits the parent, whose `item_cost` has just been re-allocated to two
     children, so realized gain and cost basis double-count with no error
     anywhere. The plausible route is a returned tube or mint set that went
     out inside a lot and is now being broken up.
 
-    Neither guard catches it without the fix. `sale_state.guard` passes
+    The for-sale guard does not catch it. `sale_state.guard` passes
     `kinds={"listing"}`, and the sale released the claims and ended the
     listing, so its listing half finds nothing and its order half is
     filtered out -- which is why "For sale" is asserted *absent* here: the
@@ -896,8 +887,8 @@ def test_a_lot_sale_refuses_a_split_of_the_member_it_sold(
     Acknowledging is asserted to be no way past it either, for the reason
     the single-item twin asserts the same: the refusal is not negotiable.
 
-    The mutation that proves it: restore the old
-    `where(Listing.inventory_item_id == parent.id)` in `app.splitting` and
+    The mutation that proves it: make the order check in `app.splitting` a
+    `where(Listing.inventory_item_id == parent.id)` and
     confirm this goes red on the status, the message and the split state.
     """
     lot = offered_lot_listing.sales_lot

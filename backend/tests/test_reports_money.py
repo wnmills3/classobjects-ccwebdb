@@ -238,7 +238,8 @@ def test_tax_sums_sales_tax_across_several_items(db: Session) -> None:
 
     result = MN_TAX.run(db, TaxParams())
     row = next(r for r in result.rows if r["vendor"] == "Vendor MT2")
-    # sales_tax is a generated column: round(item_cost * tax_rate, 2) per row.
+    # sales_tax is generated per row; with no shipping it is
+    # round(item_cost * tax_rate, 2).
     expected = (Decimal("10.33") * Decimal("0.05")).quantize(Decimal("0.01")) + (
         Decimal("7.77") * Decimal("0.05")
     ).quantize(Decimal("0.01"))

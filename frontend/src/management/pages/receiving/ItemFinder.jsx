@@ -18,13 +18,13 @@ const KINDS = [
 //: turns up.
 const OUTSTANDING_STATUSES = ['ordered', 'missing']
 
-//: Rows asked for per request: the endpoint's maximum. The default of 50
-//: cut a large order short with nothing on screen to say so (code review,
-//: 2026-09-23); what is still beyond this is counted and reported.
+//: Rows asked for per request: the endpoint's maximum. Its default of 50
+//: would cut a large order short with nothing on screen to say so; what is
+//: still beyond this is counted and reported.
 const PAGE = 200
 
 //: The status select's value for "no status filter at all" -- the whole of
-//: an order, received lines included, the way the old order view showed it.
+//: an order, received lines included.
 const ANY_STATUS = 'any'
 
 const EMPTY_FILTERS = {
@@ -134,10 +134,9 @@ function searchInto(
  * Receiving's one search: find what arrived by order number, by what it
  * is, or both.
  *
- * Replaced the page's "By order" / "By item" choice (2026-09-23): an order
- * number field that takes part of the number does what picking an order
- * from a list did, and the same form still finds an item in hand whose
- * order is not known. Every field is a filter `GET
+ * One form for both ways in: an order number field that takes part of the
+ * number, and the same form finds an item in hand whose order is not
+ * known. Every field is a filter `GET
  * /api/inventory/{view}/search` supports -- `order_number` matches part of
  * the number, case-insensitively -- so this only shapes the query.
  *
@@ -281,7 +280,7 @@ export default function ItemFinder({
                 checked={kind === value}
                 onChange={() => switchKind(value)}
                 // Focus starts here, so the help band explains the page the
-                // moment it opens (owner's request, 2026-09-23).
+                // moment it opens.
                 autoFocus={value === 'any'}
               />
               {label}

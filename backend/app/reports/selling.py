@@ -32,9 +32,9 @@ order's own gain is exactly the sum of its items'. `sl_fulfilment`: orders
 still open and unshipped (`sale_state.OPEN_ORDER_STATUSES`), oldest first.
 `sl_aging`: live items received, held, and not on offer or in an open lot,
 by months since received x kind -- the receipt itself read through
-`app.reports.receipts`, the one definition `pr_received` also reads
-(Ruling P2-7). `sl_auctions`: one row per auction, by status, with a
-settled one's lots, sold, unsold, hammer total and fees.
+`app.reports.receipts`, the one definition `pr_received` also reads.
+`sl_auctions`: one row per auction, by status, with a settled one's lots,
+sold, unsold, hammer total and fees.
 """
 
 from __future__ import annotations
@@ -393,8 +393,8 @@ SL_OFFERED = register(
 #: `sales_order_status` codes (`backend/data/reference/operations.json`) that
 #: are a completed or in-progress sale, so its money belongs on a tax
 #: return -- never a `cancelled` order, whose sale never happened, and never
-#: a `refunded` one, whose money went back (Ruling: a refund is not a
-#: sale). `pending`, `paid` and `packed` are `sale_state.OPEN_ORDER_STATUSES`
+#: a `refunded` one, whose money went back. `pending`, `paid` and `packed`
+#: are `sale_state.OPEN_ORDER_STATUSES`
 #: -- reused, not restated, so this report and `sale_state`'s own "is this
 #: order still open" question can never drift on what those three mean --
 #: widened with `shipped` and `delivered`, which are further along but still
@@ -657,8 +657,7 @@ def _sl_fulfilment(db: Session, _params: FulfilmentParams) -> ReportResult:
     `pending`, `paid` or `packed` -- read from there rather than written out
     again as an excluded list here: an excluded list silently treats every
     *future* status as "to ship" too, which is wrong for a `refunded` order
-    (its money already went back) and would have been wrong the day
-    `refunded` was added if this report had shipped first. An included list
+    (its money already went back). An included list
     only ever adds a status on purpose.
 
     `items` is a grouped `COUNT`, over a live item's own share, in one
@@ -835,7 +834,7 @@ def _receipt_dates(db: Session, item_ids: CompoundSelect[Any]) -> dict[int, date
     subquery so no id is bound as its own parameter.
     `receipts.received_transitions` is the one definition of a genuine
     arrival, `pr_received`'s own base query too, so the two reports can
-    never disagree about what "received" means (Ruling P2-7). An item
+    never disagree about what "received" means. An item
     transitioned more than once (returned and received again) keeps its
     latest one, by `changed_at`.
     """
@@ -854,7 +853,7 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
     """Months-since-received x kind: items and total cost, for held stock.
 
     "Held and not offered": live, `received`, `held` -- and, defensively,
-    not on any listing this module calls `ON_OFFER` and not an open member
+    not on any listing that is `offering_writes.ON_OFFER` and not an open member
     of a sales lot (`SalesLotItem.released_at IS NULL`), the same "still in
     the lot" test `_lot_rows` above and `lot_writes.open_members` read.
     Ordinarily `offering_writes.offer` already moves a member's own
@@ -864,8 +863,8 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
     trusting that invariant to hold forever, the same discipline
     `_item_rows`' `live_item()` follows.
 
-    A split child's own receipt transition is the *parent's* opening row,
-    never a transition of its own (Ruling P2-7), so a child with no receipt
+    A split child has only its own opening row, never a transition to
+    `received` (`receipts.received_transitions`), so a child with no receipt
     of its own falls back to its split parent's.
     """
     offered_now = exists(
@@ -969,9 +968,8 @@ def _sl_aging(db: Session, _params: AgingParams) -> ReportResult:
             else f"{unknown} items of {total_items} have no recorded receipt and are"
         )
         notes.append(
-            f'{subject} bucketed "Unknown": the collection\'s status history '
-            "was reset on 2026-09-25 to one opening row per item, which is not "
-            "an arrival."
+            f'{subject} bucketed "Unknown": their status history starts with '
+            "the item already received, which is not an arrival."
         )
 
     return ReportResult(
@@ -1066,9 +1064,11 @@ def _auction_fees(db: Session, auction_ids: set[int]) -> dict[int, Decimal]:
 def _sl_auctions(db: Session, _params: AuctionsParams) -> ReportResult:
     """One row per auction, ordered by status: lots, sold, unsold, hammer, fees.
 
-    The five figures are read from `auction_lot` and `sales_order_fee` for
+    Lots, sold, unsold and hammer total are read from `auction_lot` for
     every auction alike -- one query, so a draft auction with no lots costs
-    nothing extra -- but shown only for a `settled` one: a `closed`
+    nothing extra -- and fees from `sales_order_fee` in a second query over
+    the settled auctions only (`_auction_fees`). All five are shown only for
+    a `settled` one: a `closed`
     auction's lots may already carry a `result` mid-settlement, and showing
     a half-settled total would read as the finished figure. `unsold` folds
     in `withdrawn`: this report has no separate column for it, and both mean

@@ -17,9 +17,9 @@ import FriedbergLookup from './FriedbergLookup'
 import { webSearchText } from './webSearchText'
 import { emptyReference, renderWithProviders } from '../../../test/helpers'
 
-// Obviously synthetic, per CLAUDE.md's ban on shipping a publisher's
-// Friedberg arrangement -- these codes and numbers are not real catalog
-// entries, not even in a fixture pretending to be one.
+// Obviously synthetic, per `docs/reference-data.md` -- these codes and
+// numbers are not real catalog entries, not even in a fixture pretending to
+// be one.
 const SIGNATURES_ALL = [
   { code: 'TEST-SIG-A', label: 'Test Treasurer A / Test Secretary A' },
   { code: 'TEST-SIG-B', label: 'Test Treasurer B / Test Secretary B' },
@@ -54,7 +54,7 @@ const ROW_UNVERIFIED = {
 beforeEach(() => {
   vi.restoreAllMocks()
   vi.clearAllMocks()
-  // jsdom has no window.open, and a Look up with no match now opens one.
+  // jsdom has no window.open, and a Look up with no match opens one.
   vi.spyOn(window, 'open').mockImplementation(() => ({}))
   api.getSignatureChoices.mockResolvedValue({
     table: 'signature_combination',
@@ -185,8 +185,8 @@ describe('FriedbergLookup', () => {
 
     const rows = await screen.findAllByRole('listitem')
     expect(rows).toHaveLength(2)
-    // Only the number and "Use" on the row -- the owner asked for exactly
-    // that (2026-09-23): codes and status run together read as noise.
+    // Only the number and "Use" on the row: codes and status run together
+    // read as noise.
     expect(rows[0]).toHaveTextContent(/^9903\s*Use$/)
     expect(rows[1]).toHaveTextContent(/^9904\s*Use$/)
     // Would pass a component that labeled every row the same way only if
@@ -196,8 +196,8 @@ describe('FriedbergLookup', () => {
   })
 
   it('after a failed attach, a retry only attaches -- it does not record again', async () => {
-    // Recording it twice was refused as a duplicate, leaving the owner stuck
-    // (code review, 2026-09-23).
+    // Recording it twice is refused as a duplicate, which would leave the
+    // owner stuck.
     api.createFriedbergNumber.mockResolvedValue({ id: 9, fr_number: '9903' })
     api.attachFriedberg
       .mockRejectedValueOnce(new Error('network down'))
@@ -237,8 +237,8 @@ describe('FriedbergLookup', () => {
   })
 
   it('uses a verified match at once, as confirmed', async () => {
-    // Confirmed once for these search fields, it needs no second Save
-    // (owner, 2026-09-27): Use is the whole step.
+    // Confirmed once for these search fields, it needs no second Save: Use
+    // is the whole step.
     api.searchFriedberg.mockResolvedValue([ROW_VERIFIED])
     api.attachFriedberg.mockResolvedValue({
       fr_number: '9903',
@@ -402,8 +402,8 @@ describe('FriedbergLookup', () => {
     renderWithProviders(<FriedbergLookup itemId={412} item={item} />)
 
     const select = await screen.findByLabelText(/signature combination/i)
-    // Would fail the old behavior, which cleared a choice the narrowed list
-    // did not hold -- silently, and it was usually the right one.
+    // Would fail a component that cleared a choice the narrowed list does
+    // not hold -- silently, and it is usually the right one.
     await waitFor(() =>
       expect(select).toHaveTextContent(
         'Test Treasurer B / Test Secretary B (not listed for this series)',
@@ -508,8 +508,7 @@ describe('FriedbergLookup', () => {
 
   it('with a match, offers Use and still Search the web', async () => {
     // A match can be the wrong number recorded earlier: the owner then needs
-    // the web search more than ever (owner, 2026-09-24), so it is not taken
-    // away. It does not open by itself, though -- only a miss does that.
+    // the web search more than ever, so it is not taken away. It does not open by itself, though -- only a miss does that.
     api.searchFriedberg.mockResolvedValue([ROW_VERIFIED])
     renderWithProviders(<FriedbergLookup itemId={412} />)
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
@@ -660,8 +659,8 @@ describe('FriedbergLookup: the form of a number typed in', () => {
   })
 
   it('offers to correct the row that already holds the combination, then uses it', async () => {
-    // The owner's case: 3007- recorded by a slip, then 3007-L refused
-    // because its type was already on file under the slip.
+    // A number recorded without its district letter by a slip, then the
+    // right one refused because its type is already on file under the slip.
     api.createFriedbergNumber.mockRejectedValue(
       Object.assign(
         new Error('That combination is already recorded as 9928- (row 14).'),

@@ -538,8 +538,8 @@ def _cb_notes(db: Session, params: NotesParams) -> ReportResult:
     notes: list[str] = []
     if star_id is None or fancy_id is None:
         notes.append(
-            "Star notes and fancy serials are omitted: the attribute "
-            "vocabulary carries no code for one of them."
+            "A star-note or fancy-serial column is omitted when the attribute "
+            "vocabulary carries no code for it."
         )
 
     rows_data = (

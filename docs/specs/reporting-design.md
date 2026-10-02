@@ -23,8 +23,8 @@ every report row that names items links there.
 | `metal_price` | `cb_metal`'s melt value reads the latest quoted `price_per_ozt` per metal. |
 | `app/workbook_backup.py` conventions -- NULL as an empty cell, ISO timestamps, column widths | Each report exports to a workbook the same way. |
 
-Measured on the live collection (8,051 live items, 3,711 purchases), the
-aggregates these reports need take 3-9 ms each on the base tables. Reports
+The aggregates these reports need take milliseconds on the base tables
+(`test_reports_performance.py` fails any report over a second). Reports
 are therefore computed on request, from the base tables, with no cache,
 snapshot table or materialized view.
 
@@ -63,8 +63,8 @@ or ever sold.
 | `dq_photos` | Photographs | Live items with no photograph, by kind and status, then a final row for photographs filed against no item at all. A kind x status row drills to `?missing=photo` narrowed by status; the unfiled row drills to `/photos`. |
 | `dq_derived` | Filled by a rule, not yet confirmed | Field x rule: `item_field_source` rows with no matching `item_field_review` for the same item and field (a field a person emptied on purpose, `HELD`, is excluded). No drills: this is a finer question than `issue=unreviewed` and the two counts can disagree in either direction, so no row claims to reproduce that search. |
 | `dq_purchases` | Purchases with gaps | One row per purchase with at least one gap, newest first: order number, vendor, order date, and its gaps in a fixed order -- a generated placeholder number, no order date, no web address, an order date after the purchase's own entry date, an order date more than a year before entry, an item with zero cost, or no items at all (a purchase whose only items are deleted or split reads as "no items", not as dropped from the report). A row drills to `/receiving?order=<id>`. |
-| `dq_series_years` | Coins dated outside their series | One row per live coin whose year falls outside its design series' years -- a typo, a tribute piece or the wrong series: item, title, year (`1999-2009` for a range), series, and the series' years (`1986 on` for one still struck); by series, then year. Coins only (a note's year is its series year). Runs the same SQL text as `issue=year_outside_series`, so the report and the filter list the same coins. A row drills to `/inventory/coins?item_code=<code>`. |
 | `dq_locations` | Where items are | Live items by storage location, one row per location as the console's own location picker lists them -- two locations sharing a label are still two rows, disambiguated `<label> (#<id>)` -- plus a "None recorded" row, with items and total cost; an overall total. No drill: the inventory search has no filter for one specific location. |
+| `dq_series_years` | Coins dated outside their series | One row per live coin whose year falls outside its design series' years -- a typo, a tribute piece or the wrong series: item, title, year (`1999-2009` for a range), series, and the series' years (`1986 on` for one still struck); by series, then year. Coins only (a note's year is its series year). Runs the same SQL text as `issue=year_outside_series`, so the report and the filter list the same coins. A row drills to `/inventory/coins?item_code=<code>`. |
 
 ### Purchasing and receiving -- what has been bought and has not yet arrived
 
@@ -73,7 +73,7 @@ or ever sold.
 | `pr_outstanding` | Not yet arrived | One row per purchase carrying at least one live item still `ordered` or `missing`, oldest ordered first: vendor, seller, order date, days waiting, items outstanding and their cost, and an `Overdue` text column holding the word "Overdue" once days waiting exceeds the parameter (empty otherwise). Parameter: `overdue_days` (default 21). A row drills to `/receiving?order=<id>`; an overall total. |
 | `pr_spend` | Spending | Period x vendor, over purchases with a live item (a purchase with none is not counted as a purchase at all, noted by name): purchases, items, item cost, shipping, sales tax, total, with a subtotal row per period (`All vendors`) and an overall total (`All periods`). Parameters: a date range (`date_from`/`date_to`, either or both empty meaning no bound on that side) filtering by the purchase's own order date, and `period` (`month`, default, `quarter` or `year`). No drills: a period x vendor cell has no single search page. A note counts purchases excluded for having no order date at all. |
 | `pr_sources` | Vendors and sellers | One row per vendor with a counted purchase (same live-item rule as `pr_spend`), and beneath it one row per seller that vendor's purchases have named: purchases, items, total spent, first and last order date. Totals are over vendor rows only -- a seller row is a further breakdown of purchases its vendor row already counts, not more purchases. No drills. |
-| `pr_received` | Received | Arrival day x vendor, from `item_status_history`'s own transitions *to* `received` (never the opening row a new item, a split child or a seed gets, and never the one-time history reset of 2026-09-25 to a single opening row per item -- neither is an arrival, and a note says so): items and total cost; an item recorded with no purchase counts under the vendor "No purchase". A split parent's own receipt is attributed to its live children, on the parent's own day and vendor, since the pieces arrived with it. Parameter: a date range on the arrival day. No drills. An item received more than once counts once per receipt, noted. |
+| `pr_received` | Received | Arrival day x vendor, from `item_status_history`'s own transitions *to* `received` (never the opening row a new item, a split child or a seed gets -- it is not an arrival, and a note says so): items and total cost; an item recorded with no purchase counts under the vendor "No purchase". A split parent's own receipt is attributed to its live children, on the parent's own day and vendor, since the pieces arrived with it. Parameter: a date range on the arrival day. No drills. An item received more than once counts once per receipt, noted. |
 
 ### Selling -- what is on offer and what has sold
 
@@ -82,7 +82,7 @@ or ever sold.
 | `sl_offered` | On offer | Active and paused listings -- items and sales lots -- by venue, then oldest listed first: listing, what it offers, status, asking price, currency, cost basis, days listed. A coin offered elsewhere or grouped into a lot keeps its paused store-listing row (status "Paused for `<venue>` listing"), but that row is left out of both totals so the coin counts once, on the listing that superseded it, not twice (noted by count); a listing not priced in USD is left out of the asking total only (also noted). Totals: asking (USD only) and cost basis. A row drills to the item's editor, or to `/lots` for a lot. |
 | `sl_sales` | Sales | Month x venue, over sales orders placed in range whose status is a completed or in-progress sale -- pending, paid, packed, shipped or delivered, never cancelled or refunded, since that money went back (a note names the counted statuses and how many orders in range were excluded): orders, gross, fees, net, cost basis and gain, the last two summed per item share (`sales_order_item_share`, specific identification) so a bucket's own gain is exactly the sum of its items'. Parameter: a date range on the order's own placement date. A row drills to `/sales`; an overall total. |
 | `sl_fulfilment` | To ship | One row per order still open and unshipped -- `pending`, `paid` or `packed`, the open-order statuses the sales side itself uses (`sale_state`), stated as an included list so a future status is never swept in by default -- oldest first: customer, items, amount, days waiting. A row drills to `/sales`; an overall total. A deleted or split item is left out of its order's own item count; a note counts them when there are any. |
-| `sl_aging` | Held and not offered | Live items received and held, not on any active or paused listing and not an open member of a sales lot, by months since receipt (0-5, 6-11, 12-23, 24+, or "Unknown" when no receipt transition is found -- the collection's status history was reset on 2026-09-25 to one opening row per item, which is not an arrival) x kind: items, total cost. A split child with no receipt of its own falls back to its split parent's. No drills; an overall total. A note counts the "Unknown" items when there are any. |
+| `sl_aging` | Held and not offered | Live items received and held, not on any active or paused listing and not an open member of a sales lot, by months since receipt (0-5, 6-11, 12-23, 24+, or "Unknown" when no receipt transition is found -- an item whose history holds only its opening row, which is not an arrival) x kind: items, total cost. A split child with no receipt of its own falls back to its split parent's. No drills; an overall total. A note counts the "Unknown" items when there are any. |
 | `sl_auctions` | Auctions | One row per auction, ordered by status (draft through settled, then cancelled): lots, sold, unsold (withdrawn counts as unsold), hammer total and fees -- shown only for a settled auction, since a closed one may carry a result mid-settlement. A row drills to `/auctions`. No totals row: the figures are not meaningful summed across different auctions and statuses. |
 
 ### Money -- what it cost and what it is worth
@@ -177,7 +177,7 @@ or ever sold.
   address is ISO `YYYY-MM-DD`.
 - `GET /api/reports/{id}?<params>` -- the result as JSON:
   `{id, group, title, params (resolved), run_at (ISO, local), columns, rows,
-  totals, drills, notes}`. A `Decimal` crosses as the string it prints, a
+  totals, drills, link_column, notes}`. A `Decimal` crosses as the string it prints, a
   `date` as its ISO text. 404 for an unknown report; 422 for an unknown
   parameter name or a value its params model rejects -- validated by that
   model itself, the one thing `resolve_params` shares with the command line,
@@ -230,9 +230,10 @@ and exits 2. Read-only, so no `--commit`.
   own order. Money is shown with `money()` from the decimal string, never
   parsed into a float.
 - A row with a drill-down links to the page that fixes or shows it, in the
-  same tab. A row standing for exactly one item, rather than a count of many,
-  links straight to that item's editor: `/inventory/<coins|currency>?item=
-  CC-######`. The inventory page reads `item` from its own address and opens
+  same tab. An `sl_offered` row that offers one item links straight to that
+  item's editor: `/inventory/<coins|currency>?item=CC-######`
+  (`dq_series_years` links to the search narrowed by `item_code` instead).
+  The inventory page reads `item` from its own address and opens
   that item's editor on load (not only from a click in its table), then
   drops `item` from the address again when the editor closes, replacing that
   history entry rather than pushing a new one, so Back does not reopen it.
@@ -318,7 +319,7 @@ snapshots over time, which need history the database does not keep.
 | How is a sale's gain worked out? | **Per item** (specific identification): each sold item's share of the sale (`sales_order_item_share`) less that item's own cost basis. `sl_sales` uses this; no other method is offered. |
 | What grade bands does `cb_grades` use? | **Numbers**, not names: 1-49, 50-59, 60-64, 65-70, and "No numeric grade". The strike type (MS, PR) and the grading service are separate columns, not folded into the band. |
 | What counts as a purchase, for spending and tax totals? | One with **at least one live item** -- `pr_spend`, `pr_sources` and `mn_tax` all read the same rule, so a purchase whose only items are deleted or split is not silently counted by one report and not another. |
-| What counts as a receipt? | A status **transition to** `received` -- an opening row (a new item, a split child, a seed, or the collection's own history reset of 2026-09-25) is never an arrival. A split parent's receipt is attributed to its live children. |
+| What counts as a receipt? | A status **transition to** `received` -- an opening row (a new item, a split child or a seed) is never an arrival. A split parent's receipt is attributed to its live children. |
 | Which sales orders are counted as sales? | **Pending, paid, packed, shipped or delivered** -- never cancelled or refunded, since that money went back. |
 | What does `mn_value` and the Collection reports default to? | **Received and held** -- what the owner has actually taken in and still has -- widened to `all` on request. |
 | Printed as well as shown? | **Yes**: every report prints (see Printing). |

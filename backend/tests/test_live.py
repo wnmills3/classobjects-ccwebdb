@@ -25,7 +25,7 @@ _WHEN = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _build_every_state(db: Session, kind_code: str) -> None:
-    """One item of `kind_code` in each state: live, deleted, split, a child."""
+    """One item of `kind_code` per state: live, deleted, split, child, deleted child."""
     kind_id = code_id(db, ItemKind, kind_code)
     build_bare_item(db, item_kind_id=kind_id)
     build_bare_item(db, item_kind_id=kind_id, deleted_at=_WHEN)

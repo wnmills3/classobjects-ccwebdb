@@ -286,7 +286,7 @@ def test_a_snapshot_is_the_editor_s_whole_view_less_the_editing(
 def test_a_lot_listing_snapshots_every_member(
     db: Session, offered_lot_listing: Listing
 ) -> None:
-    """`take` read `listing.inventory_item` and would crash on None.
+    """A lot listing has no `inventory_item`; `take` must not need one.
 
     The snapshot is what the order keeps forever, so a lot's must name every
     coin that was in it -- the membership rows are released at sale, and the
@@ -309,8 +309,8 @@ def test_an_item_listing_s_snapshot_keeps_its_shape(
 ) -> None:
     """Widening must not move the single-item keys every reader already uses.
 
-    `snapshot_version` rises to 2 because the shape *set* changed -- a
-    snapshot may now lack `item` entirely -- and a reader has to be able to
+    `snapshot_version` is 2 because a snapshot may lack `item` entirely -- a
+    lot's does -- and a reader has to be able to
     tell which shapes it may meet. The keys themselves do not move.
     """
     snapshot = sale_snapshot.take(db, ebay_listing)
@@ -327,9 +327,9 @@ def test_an_order_line_for_a_lot_is_titled_by_the_lot(
     offered_lot_listing: Listing,
     admin_user: User,
 ) -> None:
-    """`_sold_as` fell back to `listing.inventory_item.source_title`.
+    """`listing.inventory_item` is `None` for a lot listing.
 
-    That is `None` for a lot listing, so the Sales page would raise
+    `_sold_as` falling back to its `source_title` would raise
     `AttributeError` -- a 500 on every page that includes the order -- rather
     than showing the lot's title. Reached through the API, not by calling
     `_sold_as`, because the 500 is what an operator actually meets.
@@ -355,10 +355,11 @@ def test_a_coin_sold_inside_a_lot_shows_that_sale(
     offered_lot_listing: Listing,
     admin_user: User,
 ) -> None:
-    """`GET /api/inventory/{id}/sales` filtered on `listing.inventory_item_id`.
+    """`listing.inventory_item_id` is NULL on a lot listing.
 
-    That column is NULL on a lot listing, so a coin sold inside a group had
-    no sale history at all -- an empty list where the endpoint's own
+    Filtering `GET /api/inventory/{id}/sales` on it would give a coin sold
+    inside a group no sale history at all -- an empty list where the
+    endpoint's own
     docstring promises every sale of the item, on the one screen an owner
     uses to answer "what happened to this coin". The lot's line is reached
     through the `sales_order_item_share` rows the sale writes, one per

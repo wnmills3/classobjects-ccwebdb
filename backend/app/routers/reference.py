@@ -192,8 +192,8 @@ def _limit_to_year(
     the pairs a note of that *series* can carry: a lettered series is printed
     later, under later officials (1963-A is Granahan / Fowler, in office from
     1965), so narrowing a note's signatures this way hides the right pair.
-    The Friedberg lookup used it for that until 2026-09-23 and now asks
-    `GET /friedberg/signatures`, which reads the `note_issue` facts.
+    The Friedberg lookup asks `GET /friedberg/signatures` for that, which
+    reads the `note_issue` facts.
 
     A table without a term is returned unfiltered rather than empty: the
     parameter is a narrowing where one is possible, not a requirement.
@@ -296,7 +296,7 @@ def rename_value(
 ) -> ReferenceValueOut:
     """Change what a value is called, where it sorts, or retire it.
 
-    The label only. The code is the contract -- it appears in saved filters,
+    Never the code. The code is the contract -- it appears in saved filters,
     bookmarked searches and any integration -- so it does not change, and
     renaming the label is precisely what lets a poorly worded one be fixed
     without breaking those.

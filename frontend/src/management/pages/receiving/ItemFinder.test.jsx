@@ -94,8 +94,8 @@ describe('ItemFinder', () => {
   })
 
   it('finds items in a chosen status, such as received', async () => {
-    // The owner looked for an 1857 cent already recorded as received and
-    // could not find it. Receiving it twice is still refused by the backend.
+    // An item already recorded as received can still be found. Receiving it
+    // twice is refused by the backend.
     renderWithProviders(<ItemFinder onPick={vi.fn()} />, { reference: vocabularies })
     await userEvent.selectOptions(
       screen.getByRole('combobox', { name: /status/i }),
@@ -146,7 +146,7 @@ describe('ItemFinder', () => {
     expect(screen.getByLabelText(/order number/i)).toHaveValue('27-1234')
     // No Find pressed: a link naming one order goes straight to its items --
     // by id, since a number is neither unique across vendors nor always
-    // recorded (code review, 2026-09-23).
+    // recorded.
     await waitFor(() => expect(api.searchInventory).toHaveBeenCalledTimes(4))
     expect(calls().every(([, params]) => params.purchase_order_id === 7)).toBe(true)
     expect(calls().some(([, params]) => 'order_number' in params)).toBe(false)
@@ -230,8 +230,7 @@ describe('ItemFinder', () => {
   })
 
   it('asks for full pages, and says when more matched than came back', async () => {
-    // The endpoint's default of 50 rows cut a big order short silently
-    // (code review, 2026-09-23).
+    // The endpoint's default of 50 rows would cut a big order short silently.
     api.searchInventory.mockImplementation((view, params) =>
       Promise.resolve(
         view === 'coins' && params.status === 'ordered'
@@ -252,8 +251,7 @@ describe('ItemFinder', () => {
   })
 
   it('opens with focus on Any, so the help shows at once', () => {
-    // The owner's request (2026-09-23): the page should explain itself
-    // before anything is clicked.
+    // The page explains itself before anything is clicked.
     renderWithProviders(<ItemFinder onPick={vi.fn()} />)
     expect(screen.getByRole('radio', { name: 'Any' })).toHaveFocus()
     expect(screen.getByRole('radiogroup', { name: 'Search for:' })).toBeInTheDocument()
@@ -262,7 +260,7 @@ describe('ItemFinder', () => {
   })
 
   it('explains the kind radio buttons when one is chosen', async () => {
-    // The owner found the radios left the help area unchanged (2026-09-23).
+    // A radio must change the help area, as a text field does.
     renderWithProviders(<ItemFinder onPick={vi.fn()} />)
     await userEvent.click(screen.getByLabelText(/order number/i))
     await userEvent.click(screen.getByRole('radio', { name: /currency/i }))

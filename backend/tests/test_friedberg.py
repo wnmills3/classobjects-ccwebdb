@@ -2,8 +2,7 @@
 
 Every `fr_number` used here is obviously synthetic -- in the 9900s, past
 any real Friedberg number, yet in a number's form so `app.fr_format`
-accepts it -- never a real catalog number, per `CLAUDE.md`'s ban on
-shipping a publisher's arrangement.
+accepts it -- never a real catalog number, per `docs/reference-data.md`.
 """
 
 from __future__ import annotations
@@ -318,8 +317,8 @@ def test_a_web_press_and_a_sheet_fed_printing_are_different_types(
 ) -> None:
     """Same denomination, series, note type and district; different press.
 
-    Before the press was part of the identity, the second of these was a 409
-    -- the catalog could hold only one of two real, distinct types.
+    The press is part of the identity, so the catalog holds both of two
+    real, distinct types.
     """
     web = client.post(
         "/api/friedberg", json=_typed("9911", True), headers=admin_headers
@@ -351,9 +350,9 @@ def test_a_mule_and_a_star_are_types_of_their_own(
     """The same note, its mule and its star note are three numbers.
 
     A mule differs only in its plates and a star note only in its serial,
-    neither of which is a catalog fact -- so before the number's own `m` and
-    `*` were part of the identity, the mule on file refused the plain number
-    for the same note (owner, 2026-09-30), and the plain one refused the mule.
+    neither of which is a catalog fact -- so the number's own `m` and `*`
+    are part of the identity, or the mule on file would refuse the plain
+    number for the same note, and the plain one the mule.
     """
     for number in ("9915-Bm", "9915-B", "9915-B*", "9915-Bm*"):
         resp = client.post(
@@ -365,10 +364,10 @@ def test_a_mule_and_a_star_are_types_of_their_own(
 def test_a_seal_shade_is_part_of_the_number(
     db: Session, client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """`2008-B LGS` beside `2008-B`: the shade tells the two seals apart.
+    """`9921-B LGS` beside `9921-B`: the shade tells the two seals apart.
 
-    The seal itself is already part of a type's identity; it was the form of
-    the number that refused the suffix (owner, 2026-10-01).
+    The seal itself is already part of a type's identity; the form of the
+    number takes the suffix as well.
     """
     _light_green(db)
     plain = client.post(
@@ -470,10 +469,9 @@ def test_the_same_series_under_two_signature_pairs_are_two_types(
 ) -> None:
     """Many series carry no letter and differ only by who signed them.
 
-    Once the identity index treated a missing letter as a match, it refused
-    the second of these as a duplicate: signatures were not part of what
-    identifies a type (code review, 2026-09-23). Seal color is the same
-    case -- a wartime brown or yellow seal beside the regular blue.
+    Signatures are part of what identifies a type, so the second of these
+    is not a duplicate. Seal color is the same case -- a wartime brown or
+    yellow seal beside the regular blue.
     """
     base = {
         "note_type": "silver_certificate",
@@ -612,9 +610,9 @@ def test_a_lettered_series_offers_its_own_later_signers(
 ) -> None:
     """Series 1963-A was signed by Granahan and Fowler, whose term began in 1965.
 
-    Narrowing by "whose term covers 1963" offered only Granahan / Dillon, so
-    the right pair for a 1963-A note could not be chosen (2026-09-23,
-    CC-007656). The seeded `note_issue` facts answer it exactly.
+    Narrowing by "whose term covers 1963" would offer only Granahan /
+    Dillon, so the right pair for a 1963-A note could not be chosen. The
+    seeded `note_issue` facts answer it exactly.
     """
     codes, source = _signatures(
         client,
@@ -631,7 +629,7 @@ def test_a_lettered_series_offers_its_own_later_signers(
 def test_no_letter_yet_offers_every_letter_of_the_series(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    """A blank letter may not be typed yet: wider is safe, narrower hid the answer."""
+    """A blank letter may not be typed yet: wider is safe, narrower hides it."""
     codes, _ = _signatures(
         client,
         admin_headers,
@@ -702,7 +700,7 @@ def test_a_non_admin_is_refused(
 
 
 def _light_green(db: Session) -> int:
-    """The `light_green` seal, which the owner added by hand on live."""
+    """The `light_green` seal, added here when the seed data has none."""
     existing = db.scalar(select(SealColor).where(SealColor.code == "light_green"))
     if existing is not None:
         return existing.id

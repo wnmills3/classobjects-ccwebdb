@@ -24,8 +24,8 @@ import { useMounted } from '../useMounted'
  *
  * **A lot with no result chosen is simply left out of `lines`.** That is not
  * an oversight: `app.auctions.settle` reports "lot N has no result" for
- * exactly that shape, structured per lot (`AuctionRefusal.lot_number`,
- * ruling R21), and this component's whole reason for filling `refused` into
+ * exactly that shape, structured per lot (`AuctionRefusal.lot_number`), and
+ * this component's whole reason for filling `refused` into
  * a per-row map is to show that refusal on the row it is about rather than
  * as one sentence the owner has to match back to the grid by hand.
  */
@@ -82,8 +82,8 @@ export default function SettlementGrid({
 
   // The same guard every other console form carries: Cancel or Escape can
   // close the confirmation while the settle request is still in flight, and
-  // the grid can be swapped out from under this component the moment
-  // `onSettled` moves the auction off `closed` -- see the module docstring.
+  // the grid is unmounted the moment `onSettled` moves the auction off
+  // `closed` -- `Auctions.jsx` renders it for a closed auction only.
   const mounted = useMounted()
 
   const lineFor = (lot) => lines[lot.id] ?? EMPTY_LINE
@@ -124,7 +124,7 @@ export default function SettlementGrid({
       [buyerKey]: { ...(current[buyerKey] ?? {}), [kindCode]: e.target.value },
     }))
 
-  // Refusals (ruling R21), split by whether they name one lot in particular.
+  // Refusals, split by whether they name one lot in particular.
   const problemsByLot = {}
   const generalProblems = []
   for (const row of refused) {
@@ -155,9 +155,9 @@ export default function SettlementGrid({
   // `app.auctions.settle` refuses when the house still holds something
   // (`auction.consigned_on is not None`) and at least one lot with a
   // chosen, non-sold result has nowhere named to come back to
-  // (`_grid_problems`'s own `coming_home` check). `RemoveLotConfirm` and
-  // `CancelConfirm` in `Auctions.jsx` disable their confirm button the same
-  // way, on the same `consigned_on` predicate -- this is that pattern
+  // (`_grid_problems`'s own `coming_home` check). `ReturnLocationConfirm` in
+  // `Auctions.jsx` disables its confirm button the same way, on the same
+  // `consigned_on` predicate -- this is that pattern
   // applied here, so the owner cannot walk into a refusal the console could
   // see coming.
   const needsReturnLocation =

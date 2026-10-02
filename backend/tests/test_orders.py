@@ -1,10 +1,4 @@
-"""Purchase flow: totals, inventory, visibility and status transitions.
-
-Ported from the scaffold. One test changed meaning: the scaffold's status enum
-had four values, so "refunded" was the example of an invalid one. It is now a
-real `sales_order_status` code, so the test uses a genuinely unknown value --
-otherwise it would have been asserting that a valid status is rejected.
-"""
+"""Purchase flow: totals, inventory, visibility and status transitions."""
 
 from __future__ import annotations
 
@@ -464,10 +458,9 @@ def test_cancelling_with_no_store_platform_is_a_500_naming_the_fix(
     `update_order_status` -> `_no_stock_to_return` -> `store_venue_id` is a
     **live** path: any admin cancelling an unshipped store order runs it,
     with no code change needed to reach it, unlike `app.auctions.consign`
-    which needs an auction house auction first. Before `app.main` registered
-    a handler for `RuntimeError`, this reached the console as a bodyless
-    500; now the same handler that serves `consign` closes it
-    here too, in one place, exactly as the ruling asked.
+    which needs an auction house auction first. `app.main`'s handler for
+    `errors.ReferenceDataMissing` -- the one that serves `consign` --
+    answers it with a 500 whose body names the fix.
 
     Simulated by flipping the seeded store platform's `is_own_store` rather
     than deleting the row: `sales_venue.id` is referenced by the listing and

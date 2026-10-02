@@ -91,12 +91,8 @@ def test_removing_a_member_releases_it(
 
     While a lot is `assembling` nothing has been offered or sold, so a
     removal is an edit, not history -- `released_at` is the record of a lot
-    that sold or was dissolved, and only `offering_writes` (a later task)
-    writes it. Asserting `released_at is not None` here would be wrong.
-
-    Both lots are taken as locals here. The previous draft of this test named
-    `other_lot` in its body without taking it as a parameter -- a `NameError`
-    that would have been discovered only at run time.
+    that sold or was dissolved, and only `offering_writes` writes it.
+    Asserting `released_at is not None` here would be wrong.
     """
     first, second = _lot(db, "First"), _lot(db, "Second")
     add_member(db, first, received_item)
@@ -142,13 +138,12 @@ def test_a_cancelled_orders_stock_does_not_bar_a_lot_join(
 ) -> None:
     """A cancelled order must not permanently bar an item from every lot.
 
-    Fix for I1: the first version of `_refuse_partial` restated "sold units"
-    as a bare join with no filter on order status, so a `sales_order_item`
-    row -- permanent even after the order that made it is cancelled and its
-    stock returned -- barred the item forever. `sale_state.orders_holding`
-    already excludes a cancelled order via `OPEN_ORDER_STATUSES`; this
-    reaches that same, single definition instead of a second one that
-    forgets to.
+    A `sales_order_item` row is permanent even after the order that made it
+    is cancelled and its stock returned, so "sold units" restated as a bare
+    join with no filter on order status would bar the item forever.
+    `sale_state.orders_holding` excludes a cancelled order via
+    `OPEN_ORDER_STATUSES`; `_refuse_partial` reaches that same, single
+    definition instead of a second one that forgets to.
 
     Built the way `routers.orders.update_order_status` builds it for a real
     cancellation: `order_writes.place_order` then
@@ -176,12 +171,10 @@ def test_a_cancelled_orders_stock_does_not_bar_a_lot_join(
 def test_removing_an_item_not_in_the_lot_is_refused(
     db: Session, received_item: InventoryItem
 ) -> None:
-    """Fix for I2: a double-clicked remove refuses, not a raw `NoResultFound`.
+    """A double-clicked remove refuses, not a raw `NoResultFound`.
 
-    `remove_member` used `.one()`, so nothing here would have raised
-    `LotRefused` before the fix -- a bare `NoResultFound` reached the
-    caller as a 500 instead of the 409 every other refusal in this module
-    produces.
+    A bare `NoResultFound` would reach the caller as a 500 instead of the
+    409 every other refusal in this module produces.
     """
     lot = _lot(db)
     with pytest.raises(LotRefused, match="not in lot"):
@@ -191,16 +184,16 @@ def test_removing_an_item_not_in_the_lot_is_refused(
 def test_an_unrelated_integrity_error_still_propagates(
     db: Session, received_item: InventoryItem
 ) -> None:
-    """Fix for I3: only `uq_sales_lot_item_open` is reported as "already in lot".
+    """Only `uq_sales_lot_item_open` is reported as "already in lot".
 
     A stale *released* row for this exact (lot, item) pair -- not a shape
     this module's own `remove_member` can leave behind, since it deletes
-    rather than releases, but exactly what a pre-ruling row or a future bulk
-    import could -- collides with `uq_sales_lot_item_pair` instead, a
-    different constraint, when `add_member` tries to insert a fresh open row
-    for the same pair. That must propagate as an `IntegrityError`, not get
-    misreported as "already in lot": before the fix, the `except
-    IntegrityError` here was unscoped and would have swallowed it.
+    rather than releases, but one a row written outside this module could
+    have -- collides with `uq_sales_lot_item_pair` instead, a different
+    constraint, when `add_member` tries to insert a fresh open row for the
+    same pair. That must propagate as an `IntegrityError`, not get
+    misreported as "already in lot": an unscoped `except IntegrityError`
+    would swallow it.
     """
     lot = _lot(db)
     db.execute(
@@ -218,14 +211,13 @@ def test_an_unrelated_integrity_error_still_propagates(
 def test_open_members_are_ordered_by_inventory_item_id(
     db: Session, make_item: ItemFactory
 ) -> None:
-    """Fix for I4: `open_members`'s order is id-ascending, not insertion order.
+    """`open_members`'s order is id-ascending, not insertion order.
 
     Items are added to the lot in descending id order -- the exact reverse
     of the expected result -- so this only passes if the query truly orders
     by `inventory_item_id`. A naive version of this test that added items in
     ascending order would pass even with the `ORDER BY` deleted, because
-    insertion order and id order would coincide on a fresh database (the
-    project's own "fresh-DB ids coincide" trap).
+    insertion order and id order would coincide on a fresh database.
     """
     lot = _lot(db)
     items = [make_item(title=f"Member {n}") for n in range(3)]
@@ -239,7 +231,7 @@ def test_open_members_are_ordered_by_inventory_item_id(
 def test_removing_a_member_is_frozen_once_offered(
     db: Session, received_item: InventoryItem
 ) -> None:
-    """Fix for I5: `remove_member` refuses once a lot is no longer assembling.
+    """`remove_member` refuses once a lot is no longer assembling.
 
     A buyer looking at the group must not have it silently shrink.
     """
@@ -257,21 +249,15 @@ def test_a_sold_item_cannot_be_grouped(
 ) -> None:
     """A coin a buyer has bought is not the business's to group and sell again.
 
-    `_refuse_partial` does not cover this and an earlier docstring claimed it
-    did: its order half asks `sale_state.orders_holding`, which filters to
-    `OPEN_ORDER_STATUSES` and stops seeing the item once the order ships --
-    so after shipping, nothing refused it. All three `SOLD_AWAY`
+    `_refuse_partial` does not cover this: its order half asks
+    `sale_state.orders_holding`, which filters to `OPEN_ORDER_STATUSES` and
+    stops seeing the item once the order ships. All three `SOLD_AWAY`
     dispositions, because the shipped and delivered ones are exactly the two
     an open-order check cannot reach.
 
-    The disposition is set directly rather than by selling a lot, because
-    when this test was written a member sold inside a lot was never moved
-    off `listed` (`order_writes._after_stock_change` returned silently on a
-    lot listing's NULL item id), so a lot-sale version would have gone red
-    for that reason instead of this one and would have kept passing with
-    this guard deleted. `record_sale` now moves lot members;
-    `test_a_member_sold_inside_a_lot_cannot_be_grouped_again` below now
-    drives it end to end, and this one stays for the shipped and delivered
+    The disposition is set directly;
+    `test_a_member_sold_inside_a_lot_cannot_be_grouped_again` below drives
+    the sold case end to end, and this one covers the shipped and delivered
     cases a single sale cannot reach.
     """
     lot = _lot(db)
@@ -286,11 +272,9 @@ def test_a_member_sold_inside_a_lot_cannot_be_grouped_again(
 ) -> None:
     """The coin really sold, through the real sale path, and is refused for it.
 
-    The end-to-end case the parametrised test above cannot take: until
-    `record_sale` moved lot members, selling a lot left every member at
-    `listed` and this refusal was unreachable from a real sale. That move
-    makes the guard testable
-    against the route an operator actually walks.
+    The end-to-end case the parametrised test above cannot take:
+    `record_sale` moves lot members to `sold`, which makes the guard
+    testable against the route an operator actually walks.
 
     `match` names the disposition refusal specifically, so the test cannot
     pass on some other gate -- `_refuse_unless_assembling` (a fresh lot is
@@ -357,8 +341,8 @@ def test_the_lot_lock_re_reads_the_row_it_locked(
 
     The item is built *before* the UPDATE, and that ordering is the test.
     `make_item` commits, and this session expires on commit, so building it
-    afterwards would reload `lot.status` by itself -- the first version of
-    this test did exactly that and passed with the lock deleted.
+    afterwards would reload `lot.status` by itself, and the test would pass
+    with the lock deleted.
     """
     lot = _lot(db)
     joiner = make_item()
@@ -379,10 +363,9 @@ def test_the_single_item_test_helpers_refuse_a_lot_listing(
 ) -> None:
     """Proof that `item_of`/`item_id_of` are checks, not ways to quiet mypy.
 
-    Twenty-odd tests across eight files stopped reading
-    `listing.inventory_item` directly and now go through these two helpers,
-    because that column became nullable when a listing was allowed to name a
-    lot. A helper that narrowed by asserting something always true would be a
+    Tests read a listing's item through these two helpers, because
+    `listing.inventory_item` is nullable: a listing may name a lot instead.
+    A helper that narrowed by asserting something always true would be a
     `cast` wearing an assert's clothes: the type would go quiet and every one
     of those callers would lose the check it appears to have. So the
     precondition is exercised here against the one listing shape that

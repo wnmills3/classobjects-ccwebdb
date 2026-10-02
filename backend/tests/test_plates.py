@@ -1,9 +1,9 @@
 """Face and back plates, and where a note was printed (`app.plates`).
 
-The owner, 2026-09-25: a 2017-A $1 is Fr. 3005-A from Washington and 3006-A
-from Fort Worth, and the face plate says which -- FW before it is Fort Worth.
-The two numbers here are made up (the 9900s, past any real one): the
-catalogue's arrangement is never shipped (CLAUDE.md, *Reference data*).
+A 2017-A $1 printed in Washington and one printed in Fort Worth carry
+different catalogue numbers, and the face plate says which -- FW before it is
+Fort Worth. The two numbers here are made up (the 9900s, past any real one):
+the catalogue's arrangement is never shipped (`docs/reference-data.md`).
 """
 
 from __future__ import annotations

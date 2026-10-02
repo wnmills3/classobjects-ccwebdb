@@ -45,8 +45,8 @@ describe('ForSaleNotice', () => {
 
   it('renders nothing when show is explicitly false, even with reasons to list', () => {
     // `show ?? uses.length > 0` -- `??` only falls through to `uses` when
-    // `show` is nullish. No current caller passes both, but Task 8 will, and
-    // `||` would have let a non-empty `uses` override an explicit `false`.
+    // `show` is nullish; `||` would let a non-empty `uses` override an
+    // explicit `false`.
     const { container } = render(
       <ForSaleNotice
         show={false}

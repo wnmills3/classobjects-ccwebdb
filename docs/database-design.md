@@ -268,14 +268,14 @@ RESTRICT`, so a classifier in use cannot vanish.
 | `strike_type` | business, proof, specimen, reverse proof, … | `prefix`, `suffix` |
 | `grade` | condition | `grade_scale_id`, `numeric_value`, `is_plus`, `grade_rank` (**generated**: number + 0.5 for plus) |
 | `grade_designation` | DCAM, CAM, RD, RB, BN, FS, FB, … ; EPQ, PPQ | `applies_to` (`coin` \| `currency` \| `any`): the API refuses the other kind's |
-| `grading_service` | PCGS, NGC, ANACS, ICG, PMG, SEGS | |
+| `grading_service` | PCGS, NGC, ANACS, ICG, PMG, SEGS, CACG, SELF | |
 | `authenticity` | unverified, genuine, counterfeit, questionable | |
 | `item_attribute` | Star Note, No Motto, First Strike, CAC, Details, … | `applies_to`, `attribute_group` (`serial` \| `variety` \| `release` \| `verification` \| `qualifier`) |
 | `note_type` | banknote class | |
 | `seal_color` | blue, red, brown, green, gold, … | |
 | `fed_district` | A Boston … L San Francisco | `letter`, `city`, `number` |
 | `signature_combination` | Treasurer and Secretary | `treasurer`, `secretary`, `term_from`, `term_to` |
-| `metal` | silver, gold, copper, platinum, palladium | `symbol`, `is_precious` |
+| `metal` | silver, gold, platinum, palladium, copper, nickel, zinc, clad | `symbol`, `is_precious` |
 | `valuation_basis` | melt, numismatic, manual | |
 | `error_type` | mint or printing error | `applies_to` (`coin` \| `currency` \| `any`) |
 | `item_status` | acquisition axis (§7) | |
@@ -372,7 +372,7 @@ reader skips such rows and every rule leaves them alone.
 
 A Friedberg or PCGS number identifies a *type*, not an object. Both are
 commercial catalogs, so both tables are **curated as notes and coins
-arrive**, not seeded (see `CLAUDE.md`, *Reference data*). Resolution against
+arrive**, not seeded (see `docs/reference-data.md`). Resolution against
 them is a proposal, never a derivation: the lookup returns ranked candidates,
 a person confirms, and confirmation stamps `verified_by_id` and `verified_at`
 so the next lookup can trust the row.
@@ -543,8 +543,7 @@ institution) WHERE identifier IS NULL`: the constraint alone never fires when
 house would otherwise each create a location.
 
 `location_history` (`inventory_item_id`, `storage_location_id`, `moved_at`,
-`moved_by_id`, `note`) answers "where was this in March". A sale writes two
-rows: in transit, then sold.
+`moved_by_id`, `note`) answers "where was this in March".
 
 ### Per-field state
 
@@ -562,12 +561,15 @@ constraint, since which fields matter will change. The passes are listed in
 [system-administration.md](system-administration.md), *The passes over stored
 items*.
 
-`item_field_change` is written by `PATCH /api/inventory/{id}` and the bulk
-edit (`app.field_changes`), in the same transaction as the change, only for a
-field whose value actually moved. Values are stored as the item editor sees
-them (codes for classifiers, strings for money). It is what the editor reads
-to say *who* changed a field it warns about; the passes, receiving and
-offering do not write it, so a field changed that way has no entry.
+`item_field_change` is written by `PATCH /api/inventory/{id}`, the bulk
+edit, and the two passes run under a named person (`app.ebay_orders`,
+`app.listing_links`), all through `app.field_changes`, in the same
+transaction as the change, only for a field whose value actually moved.
+Values are stored as the item editor sees them (codes for classifiers,
+strings for money). It is what the editor reads to say *who* changed a field
+it warns about; the passes that fill derived defaults (they mark
+`item_field_source`), receiving and offering do not write it, so a field
+changed that way has no entry.
 `PUT /api/inventory/{id}/errors` logs the item's error set too, as one
 `errors` row holding the whole set before and after (`[{error_type,
 details}]`), since that endpoint replaces the set; saving an unchanged set
@@ -967,7 +969,7 @@ rows (business, proof, specimen, reverse proof, enhanced reverse proof,
 special mint set). A classifier with no seed file is skipped by the loader.
 
 Seed files hold facts only, never a catalog publisher's numbering or prices
-(`CLAUDE.md`, *Reference data*).
+(`docs/reference-data.md`).
 
 ---
 

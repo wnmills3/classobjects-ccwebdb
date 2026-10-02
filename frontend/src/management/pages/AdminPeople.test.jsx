@@ -29,9 +29,8 @@ beforeEach(() => {
       is_active: true,
     },
   ])
-  // `display_name`, which is what `CustomerOut` actually returns. The fixture
-  // said `full_name` -- a field no customer response has ever carried -- so
-  // the name column rendered blank in every test here and nothing noticed.
+  // `display_name`, which is what `CustomerOut` returns; a customer response
+  // carries no `full_name`.
   api.listCustomers.mockResolvedValue([
     { id: 5, display_name: 'Ada Lovelace', email: 'ada@example.com', addresses: [] },
   ])
@@ -50,8 +49,7 @@ describe('AdminPeople', () => {
 
     await user.click(screen.getByRole('button', { name: 'Customers' }))
     expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
-    // The name too. It used to be absent because the fixture named the field
-    // wrongly, and the assertion was dropped rather than the fixture fixed.
+    // The name too, read from `display_name`.
     expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
   })
 
@@ -143,9 +141,8 @@ describe('AdminPeople', () => {
 
   it('keeps the accounts table when an action is refused', async () => {
     // The last-administrator guard answers 409, and that refusal is about a
-    // row. Replacing the page with it left the operator with an error and no
-    // rows -- unable to see which account they had just tried to change, or
-    // to act on the advice.
+    // row: the rows stay, so the operator can see which account it concerns
+    // and act on the advice.
     api.updateUser.mockRejectedValue(
       new Error('That is the last administrator; promote another first.'),
     )
@@ -162,9 +159,8 @@ describe('AdminPeople', () => {
 
   it('keeps a customer edit on screen when saving it is refused', async () => {
     // `draft` holds what the operator typed. It is React state, so it
-    // survives the failure -- but only if the input is still mounted. The
-    // page used to unmount the whole table, taking the half-finished edit
-    // with it and offering no way back.
+    // survives the failure -- but only if the input is still mounted, which
+    // is why the table stays on screen.
     api.updateCustomer.mockRejectedValue(new Error('that email is already in use'))
     const user = userEvent.setup()
     renderWithProviders(<AdminPeople />, { auth: adminAuth() })

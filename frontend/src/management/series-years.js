@@ -1,12 +1,9 @@
 /**
  * A coin's years against its design series' own years.
  *
- * A Morgan dollar dated 1800 is a typo -- the series runs 1878 on -- and it
- * was found only because the description came out without a weight: no
- * composition covers 1800, so the save had nothing to fill (owner,
- * 2026-10-01). Said beside the year, as a notice, never a refusal: the
- * series' years are a fact about the design, and a pattern or restrike can
- * fall outside them.
+ * A Morgan dollar dated 1800 is a typo -- the series runs 1878 on. Said
+ * beside the year, as a notice, never a refusal: the series' years are a
+ * fact about the design, and a pattern or restrike can fall outside them.
  */
 
 function yearOf(value) {

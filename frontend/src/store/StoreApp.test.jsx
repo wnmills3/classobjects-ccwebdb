@@ -62,8 +62,8 @@ describe('shop shell', () => {
   })
 
   it('returns to the page that asked for sign-in', async () => {
-    // The guard sent a visitor to /login and forgot where from, so signing in
-    // from a bookmarked /orders landed on the catalog.
+    // A guard that sends a visitor to /login without saying where from lands
+    // them on the catalog after signing in from a bookmarked /orders.
     const user = userEvent.setup()
     renderWithProviders(
       <SignsIn>
@@ -81,8 +81,8 @@ describe('shop shell', () => {
     ).toBeInTheDocument()
   })
 
-  // Both former owner paths, not just one: the spec names each, and a route
-  // left behind would be found by whichever URL nobody thought to assert.
+  // Both console paths the spec names, not just one: a route left in the
+  // shop would be found by whichever URL nobody thought to assert.
   // adminAuth() deliberately -- for an anonymous visitor a redirect to sign-in
   // would also satisfy "not found", so only an administrator seeing a 404
   // proves the route is absent rather than merely guarded.

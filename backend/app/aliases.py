@@ -233,8 +233,8 @@ def add_alias(
     Refused when the name is empty, too long, or already a row's own label
     or code: `resolve` tries those first, so as another row's alias it could
     never be reached, and as this row's it would add nothing. Also when
-    `row_id` names no row, and when the text is already an alias of a
-    *different* row -- five `AliasError` reasons in all, which matters
+    `row_id` names no row, and when the text is already an active alias of
+    this row -- six `AliasError` raises in all, which matters
     because `reference_merge.merge` catches `AliasError` broadly and would
     swallow any of them.
     """

@@ -20,14 +20,6 @@ const OUTCOMES = [
   ['canceled', 'Cancelled'],
 ]
 
-//: Today, as the operator's own calendar would show it -- built from local
-//: getters rather than `toISOString()`, which reports UTC's date instead.
-//: An arrival is a fact about the operator's "today," not UTC's: someone
-//: opening a parcel at 11pm in a zone behind UTC is not opening it
-//: "tomorrow" just because UTC has already turned over. See the comment on
-//: the backend's `receive_items` for the other half of this pairing -- its
-//: future-date bound is widened by a day precisely so this local default is
-//: never itself refused.
 /**
  * True for a `File` or a `DataTransferItem`/clipboard item alike -- both
  * carry a MIME `type`, which is all this ever needs to tell a photograph
@@ -37,6 +29,14 @@ function isImageFile(file) {
   return typeof file?.type === 'string' && file.type.startsWith('image/')
 }
 
+//: Today, as the operator's own calendar would show it -- built from local
+//: getters rather than `toISOString()`, which reports UTC's date instead.
+//: An arrival is a fact about the operator's "today," not UTC's: someone
+//: opening a parcel at 11pm in a zone behind UTC is not opening it
+//: "tomorrow" just because UTC has already turned over. The backend's
+//: `refuse_future` (`routers/_resolve.py`) is the other half of this
+//: pairing: its bound is UTC's today plus one day, so this local default is
+//: never itself refused.
 function todayLocal() {
   const now = new Date()
   const pad = (n) => String(n).padStart(2, '0')
@@ -51,12 +51,9 @@ function todayLocal() {
  * calls -- a partial state nobody could describe if the tenth of twenty
  * failed is the thing that endpoint exists to prevent.
  *
- * The console now mounts one panel per line, so `itemIds` is a single id in
- * practice; the plural is the endpoint's shape, kept because it is what
- * makes each submission atomic. Recording twenty items is twenty dialogs and
- * twenty requests -- each one still all-or-nothing in itself -- which is the
- * trade `docs/system-administration.md` records for the panel always being
- * on screen instead of below the fold.
+ * The console mounts this in a dialog: for one line (a single id), or over
+ * every line of an order still ordered, for Receive all (several ids, one
+ * request). `docs/system-administration.md` describes both.
  *
  * On a refused request (409 already received, 422 future date, network) the
  * catch block only ever sets `error` -- every field the operator typed stays
@@ -64,9 +61,9 @@ function todayLocal() {
  * the friction that stops people writing notes at all.
  */
 export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
-  // `initial` seeds the fields once, at mount. One panel is mounted per item
-  // now, so "once at mount" is exactly "per line" -- what the previous line
-  // was recorded against is offered again rather than re-picked.
+  // `initial` seeds the fields once, at mount: one panel is mounted per
+  // dialog, so what the last receipt was recorded against is offered again
+  // rather than re-picked.
   const [arrivedOn, setArrivedOn] = useState(() => initial.arrivedOn || todayLocal())
   const [storageLocationId, setStorageLocationId] = useState(
     initial.storageLocationId ?? '',
@@ -90,9 +87,9 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
   // The ids under review, frozen at the moment review was opened -- null
   // means review is closed. `ReviewPane` never re-reads its `ids` prop (see
   // its own docstring), so handing it the live `itemIds` prop directly would
-  // let a later tick/untick on this same panel shrink or reorder the queue
-  // out from under an index `ReviewPane` never clamps. Snapshotting here,
-  // once, is what "frozen" actually requires.
+  // let a later change to that prop shrink or reorder the queue out from
+  // under an index `ReviewPane` never clamps. Snapshotting here, once, is
+  // what "frozen" actually requires.
   const [reviewIds, setReviewIds] = useState(null)
   const [friedbergOpen, setFriedbergOpen] = useState(false)
   // The refusal the server sent, held while the operator answers it.
@@ -575,7 +572,7 @@ export default function ReceiptPanel({ itemIds, onDone, initial = {} }) {
           richer of the two.
 
           And gated on the kind being KNOWN, not merely on one item being
-          selected. `itemKind` is null before the fetch below returns and
+          selected. `itemKind` is null before the item's fetch returns and
           stays null if it fails, and null is not a neutral value here:
           `isCurrencyKind(null)` is false, so a banknote would be offered the
           coin error types, and a type added from that picker would be posted

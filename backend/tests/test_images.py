@@ -156,12 +156,10 @@ def test_surviving_gps_is_reported_as_gps(
     strip" is a different emergency from "some EXIF survived", and the person
     reading the error needs to be told which.
 
-    This could not happen before: GPS is reached through the 0x8825 pointer,
-    which is itself a top-level EXIF entry, so the general check always fired
-    first and the GPS branch was unreachable. Asserting on the message, not
-    just the exception type, is what makes that difference visible -- the old
-    code raised `MetadataRemainsError` here too, and a test that checked only
-    the type would have passed against the dead branch.
+    GPS is reached through the 0x8825 pointer, which is itself a top-level
+    EXIF entry, so the GPS check has to run ahead of the general one or it
+    is unreachable. Asserting on the message, not just the exception type,
+    is what tells the two apart: both raise `MetadataRemainsError`.
     """
     import app.imaging as imaging
 
@@ -330,11 +328,11 @@ def test_photographs_cannot_be_found_by_counting(
     token, so a listed coin's photograph must load for a signed-out buyer.
     That makes the URL itself the only thing standing between a stranger and
     a photograph of every valuable the owner keeps in a safe-deposit box.
-    Keyed by row id, `/api/images/1/web`, `/2/web`, `/3/web` walked the whole
-    collection.
+    Keyed by row id, `/api/images/1/web`, `/2/web`, `/3/web` would walk the
+    whole collection.
 
     Asserted against a real uploaded image, so the test fails if the route
-    ever accepts an id again -- not against a made-up number, which would
+    ever accepts an id -- not against a made-up number, which would
     404 whatever the route did and prove nothing.
     """
     body = client.post(
@@ -439,8 +437,7 @@ def test_re_uploading_the_same_photograph_keeps_its_role_and_primacy(
     `test_uploading_the_same_photograph_twice_stores_one_copy` posts without
     an item, so `attach` is never called; `test_only_one_photograph_can_be_
     primary` posts two *different* images. Only the same bytes against the
-    same item take the `LinkRefused` path -- the one behavior the mid-branch
-    migration onto `image_links` could have changed.
+    same item take the `LinkRefused` path.
 
     The second post is what a file picker sends: no `image_role`, no
     `is_primary`. Neither may undo the filing decision the operator already

@@ -15,5 +15,5 @@ export const RESULTS = [
   ['withdrawn', 'Withdrawn'],
 ]
 
-/** The label for a result code, or the code itself if this console does not know it. */
+/** The label for each result code. A code this console does not know has no entry. */
 export const RESULT_LABEL = Object.fromEntries(RESULTS)

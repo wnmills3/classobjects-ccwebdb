@@ -196,8 +196,8 @@ describe('ItemEditForm', () => {
 })
 
 describe('Changes made elsewhere while the form is open', () => {
-  // The owner's request (2026-09-23): warn and refresh, field by field --
-  // a change elsewhere to a field not being edited here is simply taken in.
+  // Warn and refresh, field by field: a change elsewhere to a field not being
+  // edited here is simply taken in.
   const opened = {
     ...item,
     version: 1,
@@ -593,7 +593,6 @@ describe('Suggest description', () => {
   })
 
   it('reads what is on the screen: unsaved edits are sent, not waited for', async () => {
-    // Owner, 2026-10-01: the suggestion used to wait for Save.
     const user = userEvent.setup()
     api.getInventoryItem.mockResolvedValue({
       ...item,
@@ -946,8 +945,8 @@ describe('ItemEditForm: a year outside the series', () => {
 
 describe('ItemEditForm years', () => {
   // A single year is stored as start == end; a range is for a multi-year set
-  // or a coin dated only to an era. 13 items in the collection have a range,
-  // so the form asks for one year unless the item has, or is given, a range.
+  // or a coin dated only to an era. A range is rare, so the form asks for one
+  // year unless the item has, or is given, a range.
   async function open(years) {
     api.getInventoryItem.mockResolvedValue({ ...item, ...years })
     api.updateInventoryItem.mockResolvedValue({})
@@ -1059,8 +1058,9 @@ describe('ItemEditForm years', () => {
   })
 
   it('keeps focus on Range of years while the end year comes and goes', async () => {
-    // Found in a real browser: the two layouts were separate branches, so
-    // ticking replaced the checkbox itself and a keyboard user lost their place.
+    // The checkbox must be the same element before and after a tick: were the
+    // two layouts separate branches, ticking would replace it and a keyboard
+    // user would lose their place.
     const user = await open({ year_start: 1878, year_end: 1878 })
     const box = rangeBox()
     await user.click(box)
@@ -1163,11 +1163,10 @@ describe('ItemEditForm keyboard accelerators', () => {
 describe('field labels in the grid', () => {
   it('keeps each label whole as one grid item, accelerator letter and all', async () => {
     // `.field` is `display: grid` with four columns, and every direct child
-    // is a grid item. A label built from loose text around a `<u>` put each
-    // piece of the word in a different column -- the owner saw
-    // "T      i      tle" and "Des   c   ription". Asserted here, on the real
-    // form, and not only on AccessLabel in isolation: the bug lived in the
-    // relationship between the two.
+    // is a grid item. A label built from loose text around a `<u>` would put
+    // each piece of the word in a different column ("T      i      tle").
+    // Asserted here, on the real form, and not only on AccessLabel in
+    // isolation: the constraint is in the relationship between the two.
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     const title = await screen.findByRole('textbox', { name: /Title/ })
     const field = title.closest('.field')
@@ -1207,8 +1206,8 @@ describe('changing an item status', () => {
   })
 
   it('sends the new status, so something received in error can be put back', async () => {
-    // Receiving only ever moves an item forward. Before this field there was
-    // no way to undo a receipt recorded against the wrong row.
+    // Receiving only ever moves an item forward. This field is the way to undo
+    // a receipt recorded against the wrong row.
     api.updateInventoryItem.mockResolvedValue({})
     const user = userEvent.setup()
     renderReceived()
@@ -1307,8 +1306,8 @@ describe('a banknote in the editor', () => {
 
   it('can save twice in a row: it reads the item back, new version and all', async () => {
     // A form that stays open after saving -- the last item of a review, or
-    // Receiving's one-item review -- sent its old version the second time
-    // and was refused as a conflict with itself (code review, 2026-09-23).
+    // Receiving's one-item review -- must send the version its save made,
+    // or its next save is refused as a conflict with itself.
     api.getInventoryItem
       .mockResolvedValueOnce({ ...note, version: 3 })
       .mockResolvedValue({ ...note, version: 4, seal_color: 'red' })
@@ -1494,16 +1493,14 @@ describe('Photographs panel', () => {
   it("mounts in the editor, loading the item's own photographs", async () => {
     // The wiring itself, asserted the same way the errors panel's is: the
     // call `PhotosPanel` makes on mount is what proves the editor still
-    // renders it. Deleting the <PhotosPanel .../> line left the whole suite
-    // green before this existed, while the feature's stated purpose -- an
-    // item gaining a photograph at any time -- was dead.
+    // renders it. Without it, deleting the <PhotosPanel .../> line would
+    // leave the whole suite green.
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
 
     // The panel's own effect is awaited before the call is asserted.
     // `findByDisplayValue` above only waits for the FORM to load; the panel
-    // is a child with its own effect, and under a loaded suite that effect
-    // had not always run by the time the assertion did.
+    // is a child with its own effect, which may not have run yet.
     expect(
       await screen.findByRole('heading', { name: 'Photographs' }),
     ).toBeInTheDocument()
@@ -1516,8 +1513,7 @@ describe('Errors panel', () => {
     render(<ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />)
     await screen.findByDisplayValue('Mercury Dime')
 
-    // Panel first, call second -- see the note in the Photographs test. This
-    // one really did fail intermittently in a full run.
+    // Panel first, call second -- see the note in the Photographs test.
     expect(await screen.findByRole('button', { name: 'Add error' })).toBeInTheDocument()
     expect(api.getItemErrors).toHaveBeenCalledWith(12)
   })
@@ -1550,10 +1546,9 @@ describe('Errors panel', () => {
     )
     await screen.findByDisplayValue('Mercury Dime')
 
-    // findBy, not getBy: the item having loaded says nothing about
-    // ErrorsPanel, which renders "Loading..." in place of its picker until
-    // its OWN `getItemErrors` promise resolves. Waiting on the item alone
-    // made this test flake (twice in about sixteen runs).
+    // findBy, not getBy: the item having loaded says nothing about the errors.
+    // The form reads them in a request of their own and shows "Loading..." in
+    // place of the panel until that one resolves.
     const options = within(
       await screen.findByRole('combobox', { name: 'error_type' }),
     ).getAllByRole('option')
@@ -1841,7 +1836,7 @@ describe('ItemEditForm: errors wait for Save', () => {
     })
     api.setItemErrors.mockResolvedValue({})
     await open()
-    // One notice: the panel no longer asks separately.
+    // One notice: the panel does not ask separately.
     expect(
       screen.queryByRole('checkbox', { name: 'Record it anyway' }),
     ).not.toBeInTheDocument()
@@ -1880,12 +1875,9 @@ describe('ItemEditForm: errors wait for Save', () => {
   })
 })
 
-// Task 8 gave ErrorsPanel its own `ForSaleNotice`, so a form for an item that
-// is for sale now shows two alerts with the same wording: this form's own,
-// above the fields, and the errors panel's, above its list. They read alike,
-// so tests here find the one that belongs to the form by the action on its
-// checkbox -- "Change it anyway" is this form's own wording, distinct from
-// the errors panel's "Record it anyway".
+// The form's for-sale notice, found by the action on its checkbox: "Change it
+// anyway" is this form's own wording. The errors panel shows no notice of its
+// own here -- the form hands it no sale state.
 function formForSaleNotice() {
   return screen
     .getAllByRole('alert')
@@ -1928,8 +1920,8 @@ describe('An item for sale', () => {
   })
 
   it('warns that a new status ends the offer before it is confirmed', async () => {
-    // The owner's ruling (2026-09-23): warn, and end the offer once the
-    // change is accepted -- the server does the ending.
+    // Warn, and end the offer once the change is accepted -- the server does
+    // the ending.
     const user = userEvent.setup()
     api.getInventoryItem.mockResolvedValue({ ...forSale, status: 'received' })
     render(<ItemEditForm itemId={12} />)
@@ -2236,7 +2228,7 @@ describe('ItemEditForm: a note is identified first', () => {
     expect(
       facts.map(at).every((i, n, all) => i >= 0 && (n === 0 || i > all[n - 1])),
     ).toBe(true)
-    // Well above the panels that used to push them off the bottom.
+    // Well above the panels, which would otherwise push them off the bottom.
     expect(at('back_plate_number')).toBeLessThan(at('grade'))
     expect(at('back_plate_number')).toBeLessThan(at('errors'))
   })

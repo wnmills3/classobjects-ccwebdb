@@ -115,8 +115,8 @@ def run(db: Session, root: Path, *, commit: bool) -> ImportReport:
     **Without `commit` nothing at all is written** -- no rows, and no bytes in
     media storage. `image_store.ingest` writes the original and both
     derivatives through `storage.put` before any rollback could undo them, so
-    a dry run that called it left three files per photograph behind with
-    nothing pointing at them, while printing "nothing written". The two halves
+    a dry run that called it would leave three files per photograph behind
+    with nothing pointing at them. The two halves
     are separable: `imaging.cleanse` is what validates, decodes and hashes --
     so a file the imaging layer would refuse is still reported -- and
     `storage.put` is what stores. A dry run runs the first and skips the

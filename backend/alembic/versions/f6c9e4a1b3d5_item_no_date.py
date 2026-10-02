@@ -2,7 +2,7 @@
 
 A gold bar or an undated round carries no year, and an empty year said only
 "not recorded" -- so every such piece sat in "No year recorded" beside coins
-whose date was simply never typed (owner, 2026-10-01). `no_date` records that
+whose date was simply never typed. `no_date` records that
 the piece has none; a check constraint keeps it from holding a year as well.
 
 Every existing item gets false, so the constraint holds on the rows already

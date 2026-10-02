@@ -1,4 +1,4 @@
-"""The purchase-source clean-up pass (selling design, phase 0)."""
+"""The purchase-source clean-up pass (`app.vendor_cleanup`)."""
 
 from __future__ import annotations
 
@@ -167,11 +167,11 @@ def test_an_unknown_vendor_id_is_an_error(db: Session) -> None:
 def test_refusal_writes_nothing(db: Session) -> None:
     """A later refusal in the same call rolls back an earlier write in it.
 
-    No merges are involved here (Controller ruling R1): a merge clash is
-    raised before any kind is set, so a test built on a merge clash proves
-    nothing about rollback. Two kind assignments do: the first (a real code)
-    succeeds and is flushed, the second (an unknown code) then raises, and
-    the assertion is that the first's write did not survive.
+    No merges are involved here: a merge clash is raised before any kind is
+    set, so a test built on a merge clash proves nothing about rollback. Two
+    kind assignments do: the first (a real code) succeeds and is flushed, the
+    second (an unknown code) then raises, and the assertion is that the
+    first's write did not survive.
     """
     other = _vendor(db, "e.example")
     other2 = _vendor(db, "f.example")
@@ -260,7 +260,7 @@ def test_a_rename_leaves_an_unrelated_host_and_url_alone(db: Session) -> None:
 
 
 def test_a_rename_to_an_existing_name_is_refused(db: Session) -> None:
-    """`uq_vendor_name` would fail at flush; the refusal names both."""
+    """`uq_vendor_name` is case-sensitive and would allow it; this names both."""
     vendor = _vendor(db, "one.example")
     _vendor(db, "Two.Example")
 

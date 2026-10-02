@@ -3,9 +3,9 @@
  *
  * The same rule as `backend/app/fr_format.py`, which is the one that holds:
  * the server cleans and refuses too. This copy says what is wrong before
- * Save is pressed -- a pasted `3007-` for `3007-L`, a stray space, a `Fr. `
+ * Save is pressed -- a pasted `9907-` for `9907-L`, a stray space, a `Fr. `
  * prefix. Only the form is known here, never which number belongs to which
- * note (CLAUDE.md, *Reference data*).
+ * note (`docs/reference-data.md`).
  */
 
 // `Fr.`, `Fr#`, `FR-`, `Fr. #` -- a label, not part of the number -- taken
@@ -13,8 +13,8 @@
 const PREFIX = /^fr[\s.#-]*(?=\d)/i
 const SPACED_HYPHEN = /\s*-\s*/g
 // 1 to 4 digits, an optional letter, a district -A to -L, m for a mule
-// (3007-Em), * for a star note.
-// Then, after a space, LGS or DGS for a light or dark green seal (2008-B LGS).
+// (9907-Em), * for a star note.
+// Then, after a space, LGS or DGS for a light or dark green seal (9908-B LGS).
 const FORM = /^(\d+)[A-Za-z]?(?:-[A-L]m?)?\*?(?: (?:LGS|DGS))?$/
 // A seal shade typed at the end, any case and spacing.
 const SHADE = /\s+(lgs|dgs)$/i

@@ -29,9 +29,9 @@ import { api } from '../api'
 import { adminAuth, renderWithProviders } from '../../test/helpers'
 import { InventoryCurrency } from './Inventory'
 
-// A full page of two-line rows. The bug this guards against only shows with
-// a real page: the edit form mounted after fifty rows and the pager, below
-// the fold, and the click on an item code looked like it did nothing.
+// A full page of two-line rows. What this guards only shows with a real
+// page: an edit form mounted after fifty rows and the pager is below the
+// fold, and a click on an item code looks like it did nothing.
 const rows = Array.from({ length: 50 }, (_, i) => ({
   id: i + 1,
   item_code: `CC-${String(i + 1).padStart(6, '0')}`,

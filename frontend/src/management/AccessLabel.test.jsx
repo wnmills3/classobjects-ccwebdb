@@ -17,8 +17,8 @@ describe('AccessLabel', () => {
 
   it('renders the label as ONE element, not loose text around the letter', () => {
     // The callers put this straight inside `.field`, which is a four-column
-    // CSS grid. As a bare fragment its three children each became a grid
-    // item and the word was torn apart across the columns -- "T      i
+    // CSS grid. As a bare fragment its three children would each become a
+    // grid item and the word be torn apart across the columns -- "T      i
     // tle". One element is the layout contract, not a detail.
     const { container } = render(<AccessLabel text="Title" accessKey="t" />)
     expect(container.childNodes).toHaveLength(1)
@@ -27,8 +27,8 @@ describe('AccessLabel', () => {
   })
 
   it('is one element even when the letter is not in the label at all', () => {
-    // This branch used to return a bare string, which is a single text node
-    // and so looked right -- exactly why the bug hit only some labels.
+    // A bare string here is a single text node and so looks right in the
+    // grid, but the contract is one element on every branch.
     const { container } = render(<AccessLabel text="Title" accessKey="z" />)
     expect(container.childNodes).toHaveLength(1)
     expect(container.firstChild.nodeType).toBe(Node.ELEMENT_NODE)

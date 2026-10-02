@@ -1,8 +1,7 @@
 """Editing an item that is not for sale.
 
-Which is all of them: the collection has thousands of items and no
-listings, so before this endpoint existed there was no way to correct any of
-them through the API.
+`PATCH /api/inventory/{id}` corrects any item, listed or not; most of the
+collection has no listing.
 """
 
 from __future__ import annotations
@@ -60,7 +59,7 @@ def test_a_classifier_is_set_by_code(
 def test_an_unknown_code_is_refused_naming_the_field(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """A silently null column is how 185 junk grades got in once already."""
+    """An unknown code must not become a silently null column."""
     item = build_bare_item(db)
 
     response = client.patch(
@@ -280,8 +279,8 @@ def test_the_detail_carries_the_numismatic_value(
 ) -> None:
     """The offer dialog's Value column reads it from here (the Offers panel).
 
-    A search row always had it; the detail did not, so offering from the
-    item editor showed no value to price against.
+    Without it, offering from the item editor would show no value to price
+    against.
     """
     item = build_bare_item(db, numismatic_value=Decimal("245.00"))
     body = client.get(f"/api/inventory/{item.id}", headers=admin_headers).json()
@@ -294,8 +293,8 @@ def test_a_banknote_cannot_be_given_a_metal(
 ) -> None:
     """Paper has no metal, and `metal` is a coin-view column in the search.
 
-    The console stopped offering the field for a note, but a stale tab or a
-    script could still send it, and the column would have taken it.
+    The console does not offer the field for a note, but a stale tab or a
+    script can still send it.
     """
     note = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
 
@@ -477,9 +476,8 @@ def test_nulling_a_required_classifier_is_refused_naming_the_field(
 ) -> None:
     """status_id is NOT NULL. Nulling it must be a 422, not a 500.
 
-    catalog.py already guards item_kind this way; this router drifted from
-    its neighbour by resolving every classifier through code_to_id, which
-    happily returns None for a null code.
+    A NOT NULL classifier is resolved with `require_code`, which refuses a
+    null code by name; `code_to_id` returns None for one.
     """
     item = build_bare_item(db)
 
@@ -494,7 +492,7 @@ def test_nulling_a_required_classifier_is_refused_naming_the_field(
 def test_an_item_keeps_a_retired_value_it_already_holds(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
-    """Ruling S5: retiring a value must not make its items unsaveable.
+    """Retiring a value must not make its items unsaveable.
 
     The editor renders a retired value (the reference API serves them with
     `include_inactive`) and sends it back on every save. Refusing it there
@@ -579,8 +577,9 @@ def test_an_unknown_field_is_refused_not_dropped(
     """A field the edit does not know is a 422, and nothing else is applied.
 
     Dropped silently, a misspelt field or one this route cannot change
-    (`purchase_order_id`) answered 200 with the rest applied, so the caller
-    believed a change was made that never was. `ItemCreate` already refuses.
+    (`purchase_order_id`) would answer 200 with the rest applied, and the
+    caller would believe a change was made that never was. `ItemCreate`
+    refuses the same way.
     """
     item = build_bare_item(db, source_title="before")
 

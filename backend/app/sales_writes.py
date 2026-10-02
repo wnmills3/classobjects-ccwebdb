@@ -14,10 +14,10 @@ fills in the `fee_amount` on rows `place_order` already made.
 **One implementation, two doors onto it.** `record_sale_lines` takes a
 buyer's whole purchase -- several listings on one order -- and `record_sale`
 is that function called with a list of one. The Listings page's Record sale
-(`app.routers.offers`) still calls `record_sale`; shop checkout writes its
+(`app.routers.offers`) calls `record_sale`; shop checkout writes its
 orders through `order_writes.place_order` directly, without fees, and never
 calls either. The second caller this single entry point serves
-(spec, *Where record-a-sale lives*) is auction settlement: an auction
+(spec, *Who writes what*) is auction settlement: an auction
 settling four lots to two buyers is **two**
 calls, one per buyer, not four and not a second implementation of fees and
 shares that can drift from this one.
@@ -139,7 +139,7 @@ class SaleLine:
 
 
 def money_problem(amount: Decimal, what: str) -> str | None:
-    """Why `amount` cannot be money on this branch, or None if it can.
+    """Why `amount` cannot be money, or None if it can.
 
     The predicate half of `_refuse_money`, public because
     `auctions.settle` has to collect **every** bad figure in a settlement
@@ -170,12 +170,13 @@ def _refuse_money(amount: Decimal, what: str) -> None:
 class ShareMissing(Exception):
     """A line is missing a share for one of the items its listing offered.
 
-    Deliberately **not** a `SaleRefused`. `SaleRefused` maps to 409 in
-    `routers/offers.py`, which tells a caller "something is in the way, try
-    again" -- false here: `order_writes._sync_shares` writes one share per
-    offered item in the same transaction, so a gap is an invariant violation
-    inside this codebase that no retry can fix. Unmapped in the router on
-    purpose, so it surfaces as a 500 with a message naming the item and the
+    Deliberately **not** a `SaleRefused`. `SaleRefused` maps to 409 through
+    the handler `app.main` registers, which tells a caller "something is in
+    the way, try again" -- false here: `order_writes._sync_shares` writes one
+    share per offered item in the same transaction, so a gap is an invariant
+    violation inside this codebase that no retry can fix. No handler is
+    registered for it, on purpose, so it surfaces as a 500 with a message
+    naming the item and the
     listing rather than as a bare `KeyError` naming an integer.
     """
 
@@ -221,7 +222,7 @@ def _weights(items: Sequence[InventoryItem], *, equal: bool) -> list[Decimal]:
 def _refuse_store_sale(listing: Listing) -> None:
     """Refuse Record sale on a web-store listing: it sells through checkout.
 
-    The spec's *Record-a-sale on a store listing*. The Listings page hides
+    The spec's rule for a web-store item sold in person. The Listings page hides
     the button on store rows, and the API refuses too: taking the request
     would make it a second way to sell a shop item -- past the cart and past
     checkout, minting an "Undisclosed buyer (store)" when the username was
@@ -238,7 +239,7 @@ def _refuse_store_sale(listing: Listing) -> None:
 
 
 def _refuse_manual_auction_sale(db: Session, listing: Listing) -> None:
-    """Refuse to record a manual sale against an auction-format listing.
+    """Refuse to record a manual sale against a listing that is an auction's lot.
 
     An auction lot sells through
     **settlement** (`app.auctions.settle`), never through Record sale --
@@ -296,8 +297,8 @@ def record_sale(
     The one-listing case of `record_sale_lines`, and **only** that: this
     function keeps the name and the signature its production caller
     (`POST /api/listings/{id}/sale`) already uses and adds no second
-    implementation of fees, shares or endings below it. Everything this used
-    to do, and every reason it did it in that order, now lives in
+    implementation of fees, shares or endings below it. The checks, and the
+    reason for their order, are in
     `record_sale_lines`; read that docstring for the behavior, including
     which refusals are `SaleInputInvalid` and which stay a plain
     `SaleRefused`.
@@ -305,10 +306,11 @@ def record_sale(
     Widened rather than duplicated because auction settlement needs several
     listings on one order -- an auction house bills per buyer, not per lot --
     and a second order creator beside this one is exactly the drift the
-    spec's "one entry point on purpose" was written to prevent.
+    spec's "one implementation with two doors" prevents.
 
-    Refuses first, before `record_sale_lines` ever runs, if `listing` is an
-    auction-format listing -- see `_refuse_manual_auction_sale`. That check
+    Refuses first, before `record_sale_lines` ever runs, if `listing` is in
+    the web store (`_refuse_store_sale`) or is a lot of an auction
+    (`_refuse_manual_auction_sale`). The auction check
     lives here rather than in `record_sale_lines` precisely so
     `app.auctions.settle`'s own calls into the wider function are untouched.
     """
@@ -378,10 +380,10 @@ def record_sale_lines(
     does, rather than reaching `place_order` after a write has already
     happened.
 
-    The order of the checks below is the order the single-listing version
-    always ran in -- locked status, then price, then fees, then the items,
+    The order of the checks below is locked status, then price, then fees,
+    then the items,
     the fee kinds, the order status and only then the buyer, which is the
-    first thing that writes. Each check now runs over every line before the
+    first thing that writes. Each check runs over every line before the
     next begins, so a two-line order refuses on the same grounds and in the
     same sequence a one-line order does.
     """
@@ -411,9 +413,8 @@ def record_sale_lines(
     # this follows it. Taken through `offering_writes.lock_for_sale`, which
     # is the single owner of the acquisition order -- the listings' lots,
     # then their items, then the listings -- rather than a
-    # `FOR UPDATE OF listing` of its own. This used to lock the listing alone
-    # and call the order unchanged, which was true of `place_order` as it
-    # then was and false of `offer`: that pair of orders was the deadlock
+    # `FOR UPDATE OF listing` of its own. Locking the listing alone here
+    # would disagree with `offer`'s order: that pair of orders is the deadlock
     # `docs/specs/lock-order-design.md` records. `place_order` and
     # `end_offer` below both take the same rows again, and find them held.
     #
@@ -422,10 +423,9 @@ def record_sale_lines(
     # taking their lots one at a time in different orders is the deadlock
     # this door exists to prevent.
     #
-    # `.get` and an explicit refusal rather than a subscript: this replaced a
-    # `.scalar_one()`, whose `NoResultFound` named the row that was missing,
-    # and a bare `KeyError` on an integer reads like a bug in this function
-    # instead. A listing cannot actually vanish here -- `listing.sales_lot_id`
+    # `.get` and an explicit refusal rather than a subscript: a bare
+    # `KeyError` on an integer reads like a bug in this function. A listing
+    # cannot actually vanish here -- `listing.sales_lot_id`
     # and `sales_order_item.listing_id` are both `RESTRICT` and nothing in
     # this codebase deletes a listing -- so this is the same 409-shaped
     # conflict as the status check below rather than a case a caller is
@@ -529,8 +529,7 @@ def record_sale_lines(
     #
     # `line.shares` is safe to read here: `place_order` passes `new_line=True`,
     # so `_sync_shares` never consults that collection and so never leaves it
-    # cached empty from before the row existed. This was a `select()` while it
-    # did.
+    # cached empty from before the row existed.
     covered = [(row.id, item) for row in listings for item in items_by_listing[row.id]]
     fee_amounts = allocate(
         total_fees, _weights([item for _, item in covered], equal=equal_shares)

@@ -14,7 +14,7 @@ URL. Pointing it at another engine is a change of URL, not of code.
 **What portability does and does not buy.** Every row moves, in foreign-key
 order, and `Base.metadata.create_all` builds the schema on any dialect
 SQLAlchemy supports. Three things do not survive a move off PostgreSQL
-unchanged, and the report says so rather than leaving it to be discovered:
+unchanged:
 
 - `JSONB` columns (`inventory_item.attributes`, the change log's values) become the
   target's JSON type, or text where it has none.
@@ -26,8 +26,8 @@ unchanged, and the report says so rather than leaving it to be discovered:
 None of that loses data. It changes how the target enforces it.
 
 **Every table, not only the modeled ones.** `alembic_version` is
-Alembic's own, with no model; a copy driven by the models alone left it
-out, and the copy could not be migrated. Such tables are read from the
+Alembic's own, with no model; a copy driven by the models alone would leave
+it out, and could not be migrated. Such tables are read from the
 source database itself (`unmodelled_tables`), created in the copy and
 copied after the rest.
 """

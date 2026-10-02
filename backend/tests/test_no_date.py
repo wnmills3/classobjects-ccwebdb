@@ -1,8 +1,8 @@
 """A piece with no date at all, as distinct from a year not recorded.
 
-A gold bar carries no year; an empty year said only "not recorded", so every
-bar sat in "No year recorded" beside coins whose date was never typed (owner,
-2026-10-01). `no_date` says the piece has none.
+A gold bar carries no year; an empty year says only "not recorded", which
+would put every bar in "No year recorded" beside coins whose date was never
+typed. `no_date` says the piece has none.
 """
 
 from __future__ import annotations

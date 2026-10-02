@@ -56,8 +56,8 @@ const NUMBER_FIELDS = [['Pieces', 'piece_count', 'p']]
  *
  * One year is stored as start == end, and a few older items as a start with
  * no end; both are one year. A range is for a multi-year set, or a coin dated
- * only to an era -- 13 items of 7,658 -- so the form asks for one year unless
- * the item already has a range. Opening a stored range as one would let a
+ * only to an era -- rare -- so the form asks for one year unless the item
+ * already has a range. Opening a stored range as one would let a
  * save collapse it without anyone seeing the end year.
  */
 function isRange(start, end) {
@@ -101,12 +101,11 @@ const CLASSIFIERS = [
   ['Set form', 'set_form', 'set_form', null],
   ['Country', 'country', 'country', 'u'],
   ['Metal', 'metal', 'metal', 'l'],
-  // Status is editable here because Receiving only moves an item forward.
-  // Nothing else could put one back: a parcel recorded as received in error,
-  // or against the wrong row, had no way home. `PATCH /api/inventory/{id}`
-  // has always accepted it and routes it through `set_status`, so the
-  // status-history row is written either way -- an item's history stays a
-  // true account of where it has been, including the correction.
+  // Status is editable here because Receiving only moves an item forward:
+  // this is the way back for a parcel recorded as received in error, or
+  // against the wrong row. `PATCH /api/inventory/{id}` routes it through
+  // `set_status`, so the status-history row is written -- an item's history
+  // stays a true account of where it has been, including the correction.
   ['Status', 'status', 'item_status', 's'],
 ]
 
@@ -220,9 +219,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   const yearId = useId()
   const yearEndId = useId()
 
-  // `save` is a function declaration below, hoisted for the whole component
-  // scope, so it is safe to reference here even though it is defined later --
-  // this hook must sit above every early return.
   const forSale = (item?.sale_state ?? []).length > 0
   // What the server ends an offer for: a status or disposition that differs
   // from the one the item holds.
@@ -245,6 +241,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     // A photograph filed without saying what it shows is one nobody finds.
     pendingPhotos.every((entry) => entry.role) &&
     conflicts.length === 0
+  // `save` is a function declaration below, hoisted for the whole component
+  // scope, so it is safe to reference here even though it is defined later --
+  // this hook must sit above every early return.
   useSaveShortcut(save, canSave)
 
   /**
@@ -310,8 +309,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // this form is open: checked every so often and whenever the window gets
   // focus back. A field not being edited here takes the new value at once; a
   // field being edited keeps its base, so a change to it shows as a conflict
-  // to resolve rather than being overwritten or adopted unseen (owner's
-  // request, 2026-09-23).
+  // to resolve rather than being overwritten or adopted unseen.
   useEffect(() => {
     let cancelled = false
     function check() {
@@ -358,9 +356,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         setItem(body)
         setReviewed(body.reviewed ?? [])
         // Edited fields keep their base: a change made elsewhere to one of
-        // them shows as a conflict, never silently adopted -- which is what
-        // taking the new version wholesale used to do (code review,
-        // 2026-09-23).
+        // them shows as a conflict, never silently adopted.
         setBaseItem((previous) => rebase(body, previous, draftRef.current))
       })
       .catch((err) => setError(err.message))
@@ -372,8 +368,8 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // `in`, not `??`: a year cleared in the draft is null, and must not fall
   // back to showing the stored year it is about to replace.
   const value = (key) => (key in draft ? draft[key] : item[key]) ?? ''
-  // A coin dated outside its design series' years is almost always a typo
-  // (owner, 2026-10-01: an 1800 Morgan dollar).
+  // A coin dated outside its design series' years is almost always a typo:
+  // an 1800 Morgan dollar.
   const yearWarning =
     item && !isCurrencyKind(value('item_kind'))
       ? seriesYearProblem(
@@ -548,7 +544,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
 
   // No date: the piece carries none at all (a gold bar), as distinct from a
   // year not recorded. Ticking it clears the years in the same save; the
-  // server refuses the two together (owner, 2026-10-01).
+  // server refuses the two together.
   const noDate = value('no_date') === true
   function toggleNoDate(e) {
     if (e.target.checked) {
@@ -581,8 +577,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   )
 
   // The suggestion reads the screen: every unsaved change, as Save would
-  // send it, and the errors the panel holds (owner, 2026-10-01). It used to
-  // read the saved record and so waited for Save.
+  // send it, and the errors the panel holds.
   async function suggestDescription() {
     // Not the description itself: the suggestion is what replaces it.
     const changes = { ...draft }
@@ -772,8 +767,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
 
     // Read the item back: the saved values, and the version the save made.
     // A form that stays open after a save -- the last item of a review, or
-    // Receiving's one-item review -- otherwise kept the old version and the
-    // spent draft, and its next save was refused as a conflict with itself.
+    // Receiving's one-item review -- would otherwise keep the old version and
+    // the spent draft, and its next save would be refused as a conflict with
+    // itself.
     try {
       adopt(await api.getInventoryItem(itemId))
     } catch (err) {
@@ -812,7 +808,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               data-help="item_purchase"
             >
               {/* Named for what it opens: the order number is the purchase's,
-                  changed there, not on the item (owner, 2026-09-25). */}
+                  changed there, not on the item. */}
               Purchase: {item.order_number ?? 'no order number'}
               {item.vendor ? ` · ${item.vendor}` : ''} -- edit
             </a>
@@ -931,8 +927,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           <span />
           <span />
         </label>
-        {/* Where it is kept: a move is kept in its location history, and
-            never needs the for-sale acknowledgement -- no buyer sees it. */}
+        {/* Where it is kept: a move is kept in its location history. The
+            server asks no for-sale acknowledgement for a move alone -- no
+            buyer sees it -- but this form's Save waits for the tick on any
+            change. */}
         <label className="field" data-help="storage_location_id">
           <span>Storage location</span>
           <LocationSelect
@@ -963,11 +961,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           own label, so each box is named through htmlFor instead.
 
           One row that stays mounted, with the end year added beneath it.
-          Two separate layouts replaced the checkbox itself on every tick, and
-          a keyboard user's focus went with it.
+          Two separate layouts would replace the checkbox itself on every
+          tick, and a keyboard user's focus would go with it.
 
-          Not on a note: its year is its series year, which the server
-          copies to the item's year (owner, 2026-09-24). */}
+          Not on a note: its year is its series year, and the server leaves
+          the item's own years empty. */}
         {!isCurrencyKind(value('item_kind')) && (
           <>
             <div className="field" data-help={ranged ? 'year_start' : 'year'}>
@@ -1214,9 +1212,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
 
         {/* A photograph added here, and a new role, primary, removal or move
           for one already filed, is held until this form's Save applies it, under
-          this form's one for-sale acknowledgement. This is the only moment
-          other than receiving that an item can gain a photograph -- see
-          PhotosPanel's docstring. */}
+          this form's one for-sale acknowledgement. */}
         <PhotosPanel
           itemId={itemId}
           pending={pendingPhotos}
@@ -1294,7 +1290,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         )}
 
         {/* What is being asked for the item, beside what it has sold for.
-          Self-loading like the errors panel, and it writes nothing itself:
+          Self-loading like the sale history below, and it writes nothing itself:
           starting and ending an offer both go through the offers API, which
           is the only thing allowed to set a listing's status. */}
         <OffersPanel item={item} onChanged={reloadItem} />

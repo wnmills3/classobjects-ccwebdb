@@ -1,7 +1,7 @@
 """Contention around revising an order: a stale read must not go unnoticed.
 
 Real, committing sessions rather than ``TestClient``: a client call serializes
-through one connection and would look correct even with the fix reverted --
+through one connection and would look correct even with the locks removed --
 see test_concurrency.py for the pattern this borrows.
 
 The first test here is
@@ -142,7 +142,7 @@ def test_a_stale_read_is_refused_not_a_lost_update(
         # keeps this instance around once `revise_order` reloads the order's
         # items below, and the identity map would happily hand back a freshly
         # queried (and so accidentally correct) object -- passing the test
-        # for the wrong reason, whether or not the fix is present.
+        # for the wrong reason, whether or not the lock re-reads the row.
         order = _present(_load(session_a, order_id))
         stale_listing = order.items[0].listing
         assert stale_listing.quantity_available == 2
@@ -258,17 +258,16 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     `OrderStatusUpdate` carries no version, so a cancel is not refused merely
     because an edit changed the order since a caller last read it: whichever
     writer's lock lands second simply acts on the row's *current* state.
-    Measured, not assumed -- both orderings are real and this test's setup
-    reliably produces both across runs: if the edit's lock lands first, both
+    Both orderings are real, and this test's setup produces both across
+    runs: if the edit's lock lands first, both
     writers succeed (the cancel returns whatever the edit just left on the
     order); if the cancel's lock lands first, the edit is refused with 409
     as no-longer-editable. What must hold either way, and what this test
     checks: no deadlock, and stock is exactly conserved -- `return_stock`
     always hands back precisely the units the order holds *at the moment it
-    runs*, never a unit short or a unit conjured from nowhere. See the task
-    report for the mutation-test evidence that this specific lock -- not the
-    listing lock, which has ample stock here -- is what that conservation
-    depends on.
+    runs*, never a unit short or a unit conjured from nowhere. That
+    conservation depends on the order-row lock, not the listing lock, which
+    has ample stock here.
     """
     listing_id, (buyer_id, admin_id) = _seed(committed, stock=5, buyers=2)
     with committed() as s:
@@ -349,7 +348,7 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     # (and applied cleanly first) -- so stock is exactly conserved either
     # way: 5 - 2 (the purchase) is restored in full, never a unit short or
     # a unit conjured from nowhere. That conservation is what a missing
-    # order-row lock would break -- see the mutation test in the report.
+    # order-row lock would break.
     assert final_status == "cancelled", (outcomes, final_status)
     assert listing.quantity_available == 5, (outcomes, listing.quantity_available)
     if edit_won:
@@ -365,22 +364,20 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_revision(
 ) -> None:
     """A concurrent edit to the coin behind a line must not refuse the revision.
 
-    **This test used to assert the opposite, and the change is the point.**
     Raising an order's quantity to take a listing's last unit writes to the
     item behind it -- `_after_stock_change` flips its disposition to `sold`.
-    That write was never locked, only `Listing` was, so an item another
-    session had edited and committed in the meantime failed the flush with
-    `StaleDataError` and the caller got a 409 telling them to reload -- a
-    *false* conflict: nothing about editing a coin's description says a
-    revision of the order holding it must be thrown away.
+    Were that write unlocked, an item another session had edited and
+    committed in the meantime would fail the flush with `StaleDataError`
+    and the caller would get a 409 telling them to reload -- a *false*
+    conflict: nothing about editing a coin's description says a revision of
+    the order holding it must be thrown away.
 
-    The lock-order fix closes it as a by-product. `_lock_listings` now takes
-    its rows through `offering_writes.lock_for_sale`, which locks every item
-    `_after_stock_change` will write -- `offered_items` for the lines'
-    listings -- and re-reads them with `populate_existing`, so the version
-    the disposition write uses is the one the lock granted rather than one
-    read before the wait. The two writers are serialized instead of one of
-    them losing.
+    `_lock_listings` takes its rows through `offering_writes.lock_for_sale`,
+    which locks every item `_after_stock_change` will write --
+    `offered_items` for the lines' listings -- and re-reads them with
+    `populate_existing`, so the version the disposition write uses is the
+    one the lock granted rather than one read before the wait. The two
+    writers are serialized instead of one of them losing.
 
     Fails for its stated reason if that re-read goes: remove
     `.execution_options(populate_existing=True)` from
@@ -445,27 +442,25 @@ def test_a_concurrently_edited_item_no_longer_refuses_a_revision(
 def test_a_concurrently_edited_item_no_longer_refuses_a_cancellation(
     committed: sessionmaker[Session],
 ) -> None:
-    """The same false conflict, reached through `return_stock`, is also gone.
+    """The same false conflict cannot be reached through `return_stock`.
 
     Two lines: the first listing's stock is fully sold, so cancelling flips
     its item's disposition from `sold` back to `listed`, via the write
-    `_after_stock_change` queues for it. That write used to go unlocked, so
-    an item another session had edited meanwhile raised `StaleDataError`
-    inside `update_order_status` -- caught there and turned into a 409, but
-    a 409 refusing a cancellation over an edit to a coin's description.
+    `_after_stock_change` queues for it. Were that write unlocked, an item
+    another session had edited meanwhile would raise `StaleDataError`
+    inside `update_order_status` -- a 409 refusing a cancellation over an
+    edit to a coin's description.
 
     `return_stock` takes its rows through `_lock_listings`, and so through
     `offering_writes.lock_for_sale`, which locks and re-reads every item
-    either listing offers before anything is written. The cancellation now
+    either listing offers before anything is written. The cancellation
     goes through and returns both lines' stock.
 
     The `except StaleDataError` clauses in `order_writes.revise_order` and
-    `routers.orders.update_order_status` are left in place deliberately, and
-    are now defense in depth rather than a live path: every version-tracked
+    `routers._tx.committing` (which `update_order_status` writes inside)
+    are defense in depth rather than a live path: every version-tracked
     row these two functions write -- `sales_order`, `listing`,
-    `inventory_item`, `sales_lot` -- is locked and re-read first. Removing an
-    error handler from a money path on the strength of that argument is the
-    owner's call, not a by-product of this fix.
+    `inventory_item`, `sales_lot` -- is locked and re-read first.
 
     Fails for its stated reason if the item lock's re-read goes, exactly as
     the test above does.
@@ -525,12 +520,12 @@ def _stale_on_first_real_flush(session: Session) -> Callable[..., None]:
     """A flush that fails the way a lost optimistic-lock race fails.
 
     Patched in place of `Session.flush` on one session, for the two tests
-    below. The real shape it stands in for -- `_after_stock_change`'s
-    unlocked write to `inventory_item.disposition` -- is no longer reachable:
+    below. The real shape it stands in for -- an unlocked write to
+    `inventory_item.disposition` by `_after_stock_change` -- is unreachable:
     `offering_writes.lock_for_sale` locks and re-reads every version-tracked
     row `revise_order` and `update_order_status` write, which is what the two
-    tests above assert. So the only way left to reach either handler is to
-    make a flush fail on purpose.
+    tests above assert. So the only way to reach either handler is to make
+    a flush fail on purpose.
 
     **It raises only when there is pending work to flush**, and that is
     load-bearing rather than tidiness. `Session._autoflush` calls `flush()`
@@ -538,8 +533,8 @@ def _stale_on_first_real_flush(session: Session) -> Callable[..., None]:
     session, so a stand-in that raised on every call would fire on the first
     autoflush of the run -- which in both functions below happens *before*
     the `try` block, so the error would escape without the handler ever being
-    asked and the test would pass for the wrong reason (measured: it failed
-    at the pre-`try` `SELECT ... FOR UPDATE` of the order row). Raising only
+    asked and the test would pass for the wrong reason (it fails at the
+    pre-`try` `SELECT ... FOR UPDATE` of the order row). Raising only
     once something is actually pending puts the failure where a real lost
     version race puts it: at the flush that carries the write.
 
@@ -549,9 +544,9 @@ def _stale_on_first_real_flush(session: Session) -> Callable[..., None]:
     removing the clause lets it escape. They do **not** prove the narrower
     point that the messages must use a captured `order_id` rather than
     `order.id` -- that needs a session genuinely awaiting rollback after a
-    *real* failed flush, and there is no longer a write in either function
-    that can produce one. That reasoning is recorded in the comments at both
-    clauses instead.
+    *real* failed flush, and there is no write in either function that can
+    produce one. That reasoning is recorded at `order_writes.revise_order`'s
+    clause and beside the `committing` block in `update_order_status`.
     """
     real = session.flush
 
@@ -570,11 +565,9 @@ def test_a_stale_data_error_inside_revise_order_is_a_409_not_a_500(
 ) -> None:
     """`revise_order`'s `except StaleDataError` must refuse, not escape.
 
-    Covers `order_writes.py`'s clause, which the two tests above used to
-    cover through a real stale item write before the lock order fix made
-    that shape unreachable (see `_stale_on_first_real_flush`). Without the
-    clause the
-    `StaleDataError` reaches the router as an unhandled 500.
+    Covers `order_writes.py`'s clause, which no real write can reach (see
+    `_stale_on_first_real_flush`). Without the clause the `StaleDataError`
+    reaches the router as an unhandled 500.
 
     Survives: replacing the body of `order_writes.revise_order`'s
     `except StaleDataError` clause with a bare `raise` makes this fail with
@@ -627,15 +620,16 @@ def test_a_stale_data_error_inside_revise_order_is_a_409_not_a_500(
 def test_a_stale_data_error_inside_a_cancellation_is_a_409_not_a_500(
     committed: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`update_order_status`' `except StaleDataError` must refuse, not escape.
+    """A `StaleDataError` inside `update_order_status` must refuse, not escape.
 
-    Covers `routers/orders.py`'s clause, the cancellation twin of the test
-    above, and reaches it by the path that clause's own comment names: the
-    status write is pending when `return_stock` issues its first SELECT, so
-    the autoflush is what fails -- well before `db.commit()`, which is why
-    wrapping only the commit was not enough when this was first fixed.
+    Covers the `except StaleDataError` clause of `routers._tx.committing`,
+    which `update_order_status` writes inside: the cancellation twin of the
+    test above. The status write is pending when `return_stock` issues its
+    first SELECT, so the autoflush is what fails -- well before
+    `db.commit()`, which is why the whole block and not only the commit sits
+    inside `committing`.
 
-    Survives: replacing the body of `routers.orders.update_order_status`'
+    Survives: replacing the body of `routers._tx.committing`'s
     `except StaleDataError` clause with a bare `raise` makes this fail with
     `StaleDataError` in place of the `HTTPException` it expects -- not
     deleting the clause, for the reason the test above gives.

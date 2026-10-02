@@ -4,11 +4,11 @@ A single year is stored as ``year_start == year_end``. That is nearly the
 whole collection's shape. A range is for a multi-year set, or a
 coin whose date is only known to an era; a handful of items have one.
 
-Callers set ``year_start`` alone -- the edit form's single Year box, bulk edit,
-the Manage page -- and every write path used to apply it with a bare
-``setattr``. On a single year that pulled the two ends apart, or, when the new
-year was later, reached ``ck_inventory_item_year_range`` as an unhandled
-IntegrityError. This module is the one place the rule lives.
+Callers set ``year_start`` alone -- the edit form's single Year box, bulk
+edit. Applied with a bare ``setattr``, that pulls a single year's two ends
+apart, or, when the new year is later, reaches
+``ck_inventory_item_year_range`` as an unhandled IntegrityError. This module
+is the one place the rule lives.
 """
 
 from __future__ import annotations

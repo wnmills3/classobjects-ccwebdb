@@ -1,4 +1,4 @@
-"""Offer claims and the offering writer (selling design, phase 2)."""
+"""Offer claims and the offering writer (`docs/specs/selling-design.md`)."""
 
 from __future__ import annotations
 
@@ -208,7 +208,7 @@ def _locked_tables(db: Session) -> Iterator[list[str]]:
 
     `_captured_locks` above measures the rows one table's locks ask for;
     this measures the *sequence of kinds*, which is the other half of the
-    rule and the half two modules used to disagree about. Same reasoning for
+    rule. Same reasoning for
     measuring the acquisition rather than the collision: a real deadlock
     needs two connections and this suite may not open a second one against
     the shared test database -- `tests/test_offer_races.py` is where that
@@ -260,9 +260,9 @@ def _order_holding(
 
     Built through `order_writes.place_order`, not by hand: that is the one
     place a line's share is created, and a fixture that built its own share
-    would state that invariant a second time -- silently out of step the
-    moment phase 3 changes it to one share per lot member, dividing the
-    line's amount rather than repeating it whole. Checkout's own guards
+    would state that invariant a second time, and a lot line's shares are
+    one per member, dividing the line's amount rather than repeating it
+    whole (`order_writes._sync_shares`). Checkout's own guards
     apply (`venue=None`): the `listing` fixture is the store's, active, and
     holds 5, so taking 1 passes `sellable_in_shop`/`is_active` and does not
     cross the stock to zero -- the item's disposition stays `listed`, which
@@ -650,7 +650,7 @@ def test_an_item_claimed_by_someone_elses_listing_counts_as_for_sale(
 ) -> None:
     """The claim is what the warning reads, not only the listing's own item.
 
-    A lot's listing (phase 3) names the lot, not the pieces in it. The item
+    A lot's listing names the lot, not the pieces in it. The item
     is then held by a claim and by nothing else, and the edit warning has to
     find it there.
     """
@@ -736,7 +736,7 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
     No `claim_invariant_waiver` here even though `listing.status` is set to
     `ended` directly below, bypassing `offering_writes`, mid-test: the claim
     it leaves behind reads `paused` against an `ended` listing for exactly
-    the middle of this test, but `end_offer` (below) now releases that stray
+    the middle of this test, but `end_offer` (below) releases that stray
     claim itself once it decides nothing holds the item any more -- see the
     comment beside `stray_claims` in `offering_writes.end_offer`. So by the
     time the autouse invariant checks run, at teardown, nothing disagrees;
@@ -765,8 +765,7 @@ def test_a_withdrawn_store_listing_is_not_resurrected(
         select(OfferClaim).where(OfferClaim.listing_id == listing.id)
     ).one()
     # The stray claim `listing.status = ended` (above) left disagreeing with
-    # its own listing is released, not left `paused` forever -- the fix this
-    # test's docstring names.
+    # its own listing is released, not left `paused` forever.
     assert stale_claim.state is ClaimState.released
 
 
@@ -915,9 +914,9 @@ def test_offers_holding_finds_a_listing_that_only_claims_the_item(
 ) -> None:
     """A piece of a lot is offered by the lot's listing, not by one of its own.
 
-    No write path creates this state yet -- `offer` takes a single item, and
-    lot offers are phase 3 -- so the claim is constructed directly. It is
-    still the state every other reader in this module is careful to handle
+    The claim is constructed directly rather than through a lot offer, to
+    keep the fixture to the one fact under test. It is the state every
+    other reader in this module is careful to handle
     (`_locked_offers`, `_still_offered`, `_affected_items`), and a reader
     that asks only `Listing.inventory_item_id` silently returns nothing for
     exactly the case the claim table exists for.
@@ -936,7 +935,7 @@ def test_offers_holding_finds_a_listing_that_only_claims_the_item(
 @pytest.mark.claim_invariant_waiver(
     reason=(
         "attaches piece's claim to listing.id for an item other than "
-        "listing's own -- the lot-member shape phase 3 introduced -- "
+        "listing's own -- the lot-member shape -- "
         "specifically to isolate offers_holding's HELD_BY filter from its "
         "ON_OFFER filter (test_offers_holding_ignores_an_ended_listing is "
         "the other half); listing.status is left at its real active value "
@@ -961,7 +960,7 @@ def test_offers_holding_ignores_a_released_claim(
 @pytest.mark.claim_invariant_waiver(
     reason=(
         "attaches piece's claim to ended.id for an item other than "
-        "ended's own -- the lot-member shape phase 3 introduced -- "
+        "ended's own -- the lot-member shape -- "
         "specifically to isolate offers_holding's ON_OFFER filter from its "
         "HELD_BY filter (test_offers_holding_ignores_a_released_claim is "
         "the other half); the claim is left active on purpose, so it "
@@ -1048,12 +1047,12 @@ def test_every_listing_a_lot_offer_locks_is_taken_in_one_pass(
 ) -> None:
     """N sorted statements are not a sorted acquisition, and that deadlocks.
 
-    `_locked_offers` runs once per member, so before `_lock_listing_rows`
-    the listing locks were ordered *within* each call and unordered across
-    the loop. A lot of two whose shop listings are #9 and #4 took #9 then #4,
-    while a two-line `place_order` (`order_writes._lock_listings`) takes #4
-    then #9: each transaction holds what the other waits for. The item lock
-    does not save the pair, because `place_order` takes no item lock at all.
+    `_locked_offers` runs once per member, so listing locks ordered only
+    *within* each call would be unordered across the loop: a lot of two
+    whose shop listings are #9 and #4 would take #9 then #4, while a
+    two-line `place_order` takes #4 then #9, each transaction holding what
+    the other waits for. `_lock_listing_rows` takes them all in one
+    ascending statement.
 
     The assertion is that the **first** listing lock covers every member, not
     just the first one -- which is exactly what one ascending statement means
@@ -1100,13 +1099,11 @@ def test_a_checkout_takes_the_three_kinds_of_row_in_the_canonical_order(
 ) -> None:
     """Lot row, then items, then listings -- from the checkout side.
 
-    The deterministic half of the lock-order fix. `order_writes.place_order`
-    used to take the listing first, because it is handed listing ids, while
-    `offer` took the items first, because its listing set is derived from
-    claims it alone writes. Both orders now come out of
-    `offering_writes._acquire`, so a checkout of a lot acquires exactly what
-    an offer of one of its coins does and the two can no longer each hold
-    what the other waits for.
+    The deterministic half of the lock-order rule. `order_writes.place_order`
+    is handed listing ids and `offer` derives its listing set from claims
+    it alone writes, but both acquire through `offering_writes._acquire`,
+    so a checkout of a lot acquires exactly what an offer of one of its
+    coins does and the two cannot each hold what the other waits for.
 
     Asserted on the *first* lock of each kind, because later passes re-lock
     rows this transaction already holds -- `_locked_offers` per member,
@@ -1477,14 +1474,14 @@ def test_ending_a_lot_listing_dissolves_the_lot(
 def test_ending_a_lot_listing_does_not_trip_over_its_null_item(
     db: Session, offered_lot_listing: Listing
 ) -> None:
-    """`_affected_items` used to put NULL in a set it then sorted.
+    """`_affected_items` must filter the NULL item of a lot listing.
 
-    A lot listing's `inventory_item_id` is NULL, so the first of
+    A lot listing's `inventory_item_id` is NULL, so unfiltered the first of
     `_affected_items`' two queries yields `None`, and `sorted({None, 12, 13})`
     raises `TypeError: '<' not supported between instances of 'int' and
     'NoneType'` -- a crash, not a silent skip. `_lock_items` has the same
-    shape. This test is the regression: it fails with that `TypeError`, not
-    with an assertion, if the NULL filter is removed.
+    shape. This test fails with that `TypeError`, not with an assertion, if
+    the NULL filter is removed.
     """
     lot = offered_lot_listing.sales_lot
     assert lot is not None
@@ -1565,9 +1562,9 @@ def test_a_listing_the_lock_found_ended_is_not_refused_for_its_released_members(
 ) -> None:
     """A set emptied by the offer's own ending is ordinary, not a violation.
 
-    The design note behind this work said an offered lot's membership is
-    frozen outright. It is not: `offering_writes._end` releases every open
-    membership the moment the lot is sold or dissolved, so the losing side of
+    An offered lot's membership is frozen only while the offer stands:
+    `offering_writes._end` releases every open membership the moment the
+    lot is sold or dissolved, so the losing side of
     two checkouts racing one lot reads two members, waits, and finds none.
     Refusing that would turn the clean 409 `place_order` gives ("is not
     currently for sale") into a 500 for the ordinary case of arriving second.
@@ -1600,16 +1597,15 @@ def test_ending_a_lot_listing_whose_lot_row_is_unheld_is_refused(
     the live offers its own `offers_holding` read saw. A lot offered in the
     window between that read and the item lock is reached by the derived half
     of `_lock_listing_rows` -- locked as a listing, with no lot row held --
-    and ending it would take that lot row late, after items and listings.
-    That is the original inversion one level down.
+    and ending it would take that lot row late, after items and listings:
+    the lock-order inversion, one level down.
 
     Asserted directly, because the window cannot be opened through the public
     API without a second connection inside a single call. Both branches, and
     the difference between them is the point: an *item* listing needs no lot
     row, and refusing on one would refuse every ordinary receipt.
 
-    Survives, and the two were recorded the wrong way round until they were
-    re-measured -- which is why they are quoted rather than described:
+    Survives:
 
     - Dropping the `sales_lot_id is not None` half reds the **second** call,
       the plain item listing:

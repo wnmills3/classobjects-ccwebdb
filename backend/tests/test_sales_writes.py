@@ -104,9 +104,9 @@ def test_fees_are_stored_as_given(
     Two fee lines, not one: the only way to catch `total_fees` accumulating
     wrong (for example the last fee winning instead of the sum) is a case
     where the sum differs from either individual amount. Read with a fresh
-    `select()`, not `order.fees` or a line's `.shares` -- both are
-    relationships this same session could have already cached empty before
-    the row existed, the same shape of bug `_sync_shares` has upstream.
+    `select()` rather than `order.fees` or a line's `.shares`, so the figures
+    asserted are the rows in the database and not a collection this session
+    may already hold.
     """
     order = record_sale(
         db,
@@ -231,10 +231,9 @@ def test_a_negative_price_is_refused(
 ) -> None:
     """The API's schema refuses this first, but `record_sale` guards it too.
 
-    The library-level guard exists for phase-4 auction settlement, a future
-    caller of `record_sale` that will not pass through the API's schema at
-    all -- so this check has to hold on its own, not merely agree with a
-    guard that happens to sit in front of it today.
+    The check lives in `record_sale_lines`, which `auctions.settle` reaches
+    without the API's schema in front of it -- so it has to hold on its own,
+    not merely agree with a guard that sits in front of one caller.
     """
     with pytest.raises(SaleRefused, match="negative"):
         record_sale(
@@ -274,15 +273,13 @@ def test_a_sub_cent_fee_is_refused(
 def test_a_sub_cent_price_is_refused(
     db: Session, ebay_listing: Listing, admin_user: User
 ) -> None:
-    """The same disagreement `price` will hit the day `allocate` divides it.
+    """The same disagreement, for `price`.
 
     `_sync_shares` assigns a single item's share `amount` by straight
-    assignment today, so a sub-cent `price` happens to round the same way
-    in PostgreSQL and in `allocate` right now -- but a lot listing's line
-    (phase 3) is divided among its members *through* `allocate`, which
-    reintroduces exactly the fee disagreement for `price` too. Refusing it
-    now costs a line; finding it later costs a debugging session on money
-    that will not reconcile. Same value shape as the fee test (120.005:
+    assignment, but a lot listing's line is divided among its members
+    *through* `allocate`, which rounds a half cent differently from
+    PostgreSQL -- so a sub-cent `price` is refused for the reason a
+    sub-cent fee is. Same value shape as the fee test (120.005:
     PostgreSQL rounds half away from zero to 120.01, `allocate` quantizes
     half to even to 120.00), and a message distinguishable from the fee
     one so a caller knows which field is wrong.
@@ -397,7 +394,7 @@ def test_an_already_ended_listing_cannot_be_sold(
 def test_recording_a_sale_on_a_store_listing_is_refused(
     db: Session, listing: Listing, admin_user: User
 ) -> None:
-    """Ruling S4: a shop item sells through checkout, not Record sale.
+    """A shop item sells through checkout, not Record sale.
 
     Refused before anything is written, naming the path that does exist --
     an order on the customer's behalf -- so an in-person sale still has one.
@@ -423,7 +420,7 @@ def test_recording_a_manual_sale_against_an_auction_lot_is_refused(
     make_item: Callable[..., InventoryItem],
     admin_user: User,
 ) -> None:
-    """Ruling R25: an auction lot sells through settlement.
+    """An auction lot sells through settlement.
 
     `record_sale` reaching `offering_writes.end_offer(sold=True)` on an
     auction-format listing would end it and write an order outside
@@ -469,9 +466,9 @@ def test_a_direct_auction_format_listing_records_its_sale(
     """An eBay auction offered directly, with no auction behind it, sells here.
 
     The Offer dialog offers a coin on eBay by auction without any `auction`
-    row; Record sale is the only way that sale is recorded. The guard keyed
-    on `format` alone and refused it; it now refuses only a listing that
-    is a lot of an auction.
+    row; Record sale is the only way that sale is recorded. The guard is
+    keyed on the `auction_lot` row, not on `format`: it refuses only a
+    listing that is a lot of an auction.
     """
     listing = offering_writes.offer(
         db,
@@ -596,7 +593,7 @@ def test_a_second_sale_of_the_same_listing_is_refused_as_not_on_offer(
             note="sold",
         )
     )
-    # The stale read the old code decided on: still `active` in Python.
+    # The stale read a decision must not rest on: still `active` in Python.
     assert ebay_listing.status is ListingStatus.active
 
     with pytest.raises(SaleRefused, match="not on offer"):
@@ -624,7 +621,7 @@ def test_a_second_sale_of_the_same_listing_is_refused_as_not_on_offer(
 def test_a_refusal_names_the_platform_as_well_as_the_listing(
     db: Session, ebay_listing: Listing, admin_user: User
 ) -> None:
-    """The spec's *Errors* section asks for the listing **and** its platform.
+    """The refusal names the listing **and** its platform.
 
     An owner with the same coin offered in two places cannot act on "Listing
     41 is not on offer" alone.
@@ -669,9 +666,8 @@ def test_an_outside_sale_writes_its_order_once(
     """`external_order_id` must not bump `version` with a second UPDATE.
 
     Set at construction inside `place_order`, the same way `total_amount`
-    is -- a later assignment on an already-inserted row is exactly the bug
-    that regressed the shares task in the other direction (a value assigned
-    after the flush that inserts the row, rather than before it).
+    is -- a value assigned after the flush that inserts the row is a second
+    UPDATE, and a second `version`.
     """
     order = record_sale(
         db,
@@ -691,11 +687,10 @@ def test_shares_of_an_indivisible_fee_still_sum_to_it(
 ) -> None:
     """$100.00 three ways is 33.33, 33.33, 33.34 -- never 99.99.
 
-    `record_sale` cannot yet exercise this itself: a listing names exactly
-    one item until lot listings (phase 3) exist, so today `_weights` always
-    hands `allocate` a single-item list and there is nothing to divide. This
-    proves the division `record_sale`'s fee split delegates to -- the one
-    that will matter the day a lot sells -- actually holds the invariant.
+    The division `record_sale_lines`' fee split delegates to, proved on its
+    own: `_weights` hands `allocate` one weight per coin, and the parts must
+    sum to the whole whatever the remainder. The lot tests below prove the
+    same through a real sale.
     """
     amounts = allocate(Decimal("100.00"), three_item_costs)
     assert sum(amounts) == Decimal("100.00")
@@ -771,12 +766,12 @@ def test_shares_are_weighted_by_cost_basis_by_default(
 def test_a_lot_s_members_all_become_sold(
     db: Session, offered_lot_listing: Listing, admin_user: User
 ) -> None:
-    """`_after_stock_change` returned early on a null item and skipped them.
+    """A lot listing has no item of its own; its members must still be sold.
 
-    Verified rather than assumed: `db.get(InventoryItem, None)` does *not*
-    raise in SQLAlchemy 2.0.52 -- it runs `SELECT ... WHERE id = NULL`,
-    returns `None`, and the function returned silently. So a lot's members
-    would stay `listed` forever with no error anywhere.
+    `db.get(InventoryItem, None)` does *not* raise in SQLAlchemy 2.0 -- it
+    runs `SELECT ... WHERE id = NULL` and returns `None` -- so a status
+    change keyed on `listing.inventory_item_id` alone would skip a lot's
+    members silently and leave them `listed` forever.
     """
     lot = offered_lot_listing.sales_lot
     assert lot is not None
@@ -802,7 +797,7 @@ def test_a_missing_share_is_an_internal_error_not_a_refusal(
     admin_user: User,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Carried finding (c): a bare `KeyError` was an unhandled 500 with no name.
+    """A missing share is `ShareMissing`, not a bare `KeyError`.
 
     A share missing for one of a listing's items is an invariant violation
     inside this codebase, not a conflict a caller can retry past -- so it is
@@ -895,12 +890,11 @@ def test_the_fee_is_divided_across_every_line_not_within_one(
     """The order's fee spans the lines; each line's own price does not.
 
     **This test asserts the distribution, not the conservation**, and the
-    distinction is the whole of it. Its first version checked only
-    `sum(fees) == 10.00` and `len(fees) == 4`, both of which `allocate`
-    guarantees unconditionally: restricting the allocation to the first
-    line's items leaves the other three shares at `0.00`, which still sums
-    and still counts the same. It could not fail under the one mutation it
-    existed to catch.
+    distinction is the whole of it. `sum(fees) == 10.00` and
+    `len(fees) == 4` are both guaranteed by `allocate` unconditionally:
+    restricting the allocation to the first line's items leaves the other
+    three shares at `0.00`, which still sums and still counts the same, so
+    neither can fail under the one mutation this exists to catch.
 
     A lot of three costing 500/300/200 and a single coin costing 1,000, with
     the prices deliberately the wrong way round -- the cheap lot hammered at

@@ -10,6 +10,11 @@ import react from '@vitejs/plugin-react'
  * rather than trusting it -- Vite's own manifest cannot show chunk
  * membership, only chunk imports.
  */
+
+/**
+ * The dev server's fallback for two entries: an extensionless path under
+ * /management is answered with management.html, any other with index.html.
+ */
 function twoAppDevFallback() {
   return {
     name: 'ccwebdb-two-app-dev-fallback',

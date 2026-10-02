@@ -58,9 +58,9 @@ storage_locations_router = APIRouter(prefix="/storage-locations", tags=["acquisi
 
 _ORDER_NOT_FOUND = "Purchase order not found"
 
-#: A generated order number: `Order-0001`, `Order-0002`, ... (owner,
-#: 2026-09-24). A purchase with no number of its own could not be found by
-#: one; this gives it one, above the highest already issued. The pattern
+#: A generated order number: `Order-0001`, `Order-0002`, ... A purchase
+#: with no number of its own cannot be found by one; this gives it one,
+#: above the highest already issued. The pattern
 #: itself (`GENERATED`) lives in `app.purchases`, alongside `WEB_ADDRESS`,
 #: so `dq_purchases` can read the same one rather than restating it.
 _GENERATED_PREFIX = "Order-"
@@ -245,8 +245,7 @@ def list_purchase_orders(db: DbSession, _admin: AdminUser) -> list[PurchaseOrder
     missing is paid for, not cancelled, and sometimes turns up later, so it
     is exactly as outstanding as one still `ordered`. Counting only `ordered`
     would make an order whose sole receivable line is `missing` report
-    `outstanding=0` and disappear from `OrderPicker` entirely, with no route
-    back to it.
+    `outstanding=0`, as if nothing on it were still to come.
 
     The counts are computed in SQL, one grouped query for every order, rather
     than by loading each order's items and counting in Python -- an order can
@@ -637,7 +636,7 @@ def create_storage_location(
 
 
 def _location_use(db: Session, location_id: int) -> int:
-    """Items kept there now, and moves recorded to or from it before."""
+    """Items kept there now, and moves recorded to it before."""
     items = db.scalar(
         select(func.count()).where(InventoryItem.storage_location_id == location_id)
     )

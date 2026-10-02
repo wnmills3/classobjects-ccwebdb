@@ -66,7 +66,7 @@ def test_a_duplicate_id_is_refused() -> None:
 
 
 def test_the_catalog_groups_come_in_the_stated_order() -> None:
-    """Ruling P2-12: the order is stated, not a side effect of import order."""
+    """The order is stated, not a side effect of import order."""
     assert GROUP_ORDER == (
         "Collection",
         "Data quality",

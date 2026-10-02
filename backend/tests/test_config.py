@@ -1,9 +1,8 @@
 """The settings object must never display its secrets.
 
-On 2026-09-10 a failing test printed `JWT_SECRET` in full: pytest's
-monkeypatch named the settings object in its error, and that meant calling
-its repr, which listed every field and value. Anything that prints the
-object -- a traceback, a log line, a debugger -- leaks the same way.
+Anything that prints the object -- pytest naming it in an error, a traceback,
+a log line, a debugger -- calls its repr, which would otherwise list every
+field and value, `JWT_SECRET` included.
 """
 
 from __future__ import annotations

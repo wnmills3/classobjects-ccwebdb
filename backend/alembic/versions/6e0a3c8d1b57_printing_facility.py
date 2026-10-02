@@ -1,6 +1,6 @@
 """Where a note was printed: Washington (dc) or Fort Worth (fw).
 
-The owner, 2026-09-25: the printing location, with the face and back plate
+The printing location, with the face and back plate
 numbers already on `currency_detail`, tells two Friedberg numbers apart -- a
 2017-A $1 is 3005-A from Washington, 3006-A from Fort Worth -- so it is on the
 note and on the catalogue row, and part of the catalogue's identity index as

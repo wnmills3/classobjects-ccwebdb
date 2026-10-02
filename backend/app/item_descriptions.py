@@ -1,11 +1,11 @@
 """A description for an item, composed from what its record says.
 
-The item editor's **Suggest** button (owner's request, 2026-09-23). Most
+The item editor's **Suggest** button. Most
 descriptions are the seller's words -- "Item As Seen On Our Ebay Live
 Stream", "#7" -- and rewriting several thousand by hand starts from a blank
 box. `suggested_description` writes one from the item's classified facts,
 in the owner's own style: the grade and what makes the piece special first,
-then what it is, with no field labels (owner, 2026-09-24):
+then what it is, with no field labels:
 
     Superb Gem Unc 67 EPQ Radar 1999 $1 S/N F06566560R. Federal Reserve
     Note Green Seal.
@@ -15,20 +15,22 @@ then what it is, with no field labels (owner, 2026-09-24):
 The district and signatures are left out -- they follow from the serial and
 series, and a buyer does not search by them -- and so is the grading
 service, which the holder shows. Errors are promoted beside the
-attributes, right after the grade: they are what an error note sells on
-(owner, 2026-09-24) -- "Error Note, Misaligned Print (Reverse) 1963A $1".
+attributes, right after the grade: they are what an error note sells on --
+"Error Note, Misaligned Print (Reverse) 1963A $1".
 
 It is a suggestion only: nothing here writes, and the editor puts it in the
 draft, where the owner's Save is what keeps it. The editor's reads the
-*saved* item, so it asks for other edits to be saved first. The New item
+item as the screen shows it, unsaved changes included: it sends what Save
+would send, and `routers.inventory._dry_run_save` applies that, defaults
+included, in a transaction that is rolled back. The New item
 form's reads an unsaved one (`routers.inventory._draft_item`): an item
 built in memory from the form's fields, never added to the session, with
 the attributes its serial earns (`app.serial_patterns`) and the errors the
 form holds.
 
 Facts, not a catalog's arrangement: every part is a label from this
-database's own vocabularies or the item's own values (CLAUDE.md,
-*Reference data*).
+database's own vocabularies or the item's own values
+(`docs/reference-data.md`).
 """
 
 from __future__ import annotations

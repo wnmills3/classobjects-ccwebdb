@@ -121,7 +121,7 @@ describe('RecordSaleDialog', () => {
     expect(screen.getByText('-22%')).toBeInTheDocument()
   })
 
-  it('says plainly that a blank buyer means the undisclosed buyer', async () => {
+  it('tells a marketplace only that the platform may not name a buyer', async () => {
     renderDialog({ isAuctionHouse: false })
     expect(
       screen.getByText(/Leave the buyer blank if the platform does not name/),
@@ -228,9 +228,9 @@ describe('RecordSaleDialog', () => {
 
   it('names a lot by the lot, not by a null item code', async () => {
     // The Listings page offers "Record sale..." on any active row that is
-    // not the shop's own, and a lot listing on eBay is one: this window --
-    // the one that enters the money -- announced itself as "Record sale of
-    // null on eBay" for every lot sold on a platform.
+    // not the shop's own, and a lot listing on eBay is one. It has no item
+    // code, so this window -- the one that enters the money -- must name the
+    // lot.
     renderDialog({
       listing: {
         ...LISTING,

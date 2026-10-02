@@ -121,8 +121,10 @@ def test_short_and_high_serials_only_warn() -> None:
     assert "worth confirming" in high[0].message
 
 
-def test_an_impossible_value_is_an_error() -> None:
-    """Above 96 million is advisory; no eight-digit serial exceeds 99,999,999.
+def test_the_advisory_ceiling_itself_raises_nothing() -> None:
+    """96,000,000 exactly is not above the ceiling; an ordinary value is clean.
+
+    Above 96 million is advisory; no eight-digit serial exceeds 99,999,999.
 
     The distinction matters: the print-run limit varies by series and this
     project has no sourced table of them, so the wording must not claim more

@@ -10,9 +10,9 @@ import { useReference } from '../../shared/reference-context'
  * sellers, vendors and storage locations -- listed, corrected and pruned
  * (`docs/specs/list-maintenance-design.md`).
  *
- * Each grows by inline entry while something else is being done, and a slip
- * made there had no way back: a Friedberg number pasted as `3007-` for
- * `3007-L` could not be corrected anywhere in the console. One table serves
+ * Each grows by inline entry while something else is being done, and this
+ * page is where a slip made there is corrected -- a Friedberg number pasted
+ * as `3007-` for `3007-L`. One table serves
  * all four, driven by a small description of each (`lists` below): its
  * columns, which of them can be edited, how it is read and written, and how
  * many records use a row -- only a row nothing uses offers Delete, and the

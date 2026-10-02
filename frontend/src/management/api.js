@@ -21,9 +21,8 @@ import { api as shared, send, withQuery } from '../shared/api'
 export const api = {
   ...shared,
 
-  // No catalog writes: the Manage page that used them is retired, and
-  // offering an item the business already owns is what replaces it
-  // (`docs/specs/selling-design.md`).
+  // No catalog writes: the shop's catalog is filled by offering an item the
+  // business already owns (`docs/specs/selling-design.md`).
 
   renameReferenceValue: (table, code, payload) =>
     send(`/api/reference/${table}/${code}`, { method: 'PATCH', body: payload }),
@@ -96,8 +95,8 @@ export const api = {
   // friedberg -- the owner's own banknote catalog: searched by what is
   // visible on a note in hand, recorded from a number read off one, and
   // attached to the currency item it identifies. Ships empty by design --
-  // CLAUDE.md forbids seeding, fetching or hardcoding a publisher's Friedberg
-  // mapping, so nothing here ever does.
+  // `docs/reference-data.md` forbids seeding, fetching or hardcoding a
+  // publisher's Friedberg mapping, so nothing here ever does.
   searchFriedberg: (params = {}) => send(withQuery('/api/friedberg', params)),
   createFriedbergNumber: (payload) =>
     send('/api/friedberg', { method: 'POST', body: payload }),
@@ -212,7 +211,7 @@ export const api = {
   // through a JavaScript number.
   //
   // A settlement refusal is a 409 or 422 whose body is
-  // `{detail, refused: [{reason, lot_number}]}` (ruling R21), the same shape
+  // `{detail, refused: [{reason, lot_number}]}`, the same envelope
   // `createOffers` above documents for `refused`. `send` throws an `ApiError`
   // carrying the whole parsed body, so `SettlementGrid.jsx` reads
   // `err.body?.refused` to mark every offending lot, not just the first.
@@ -326,9 +325,10 @@ export const api = {
   // Only the fields the caller actually named. The API tells an omitted
   // field from an explicit null (`model_fields_set` in
   // `routers/image_links.py`): omitted leaves the role alone, null clears
-  // it. Sending `image_role: imageRole ?? null` erased that distinction, so
-  // "make primary" -- which names no role -- arrived as an instruction to
-  // clear the role, and promoting a photograph wiped its obverse/reverse.
+  // it. Sending `image_role: imageRole ?? null` would erase that distinction:
+  // "make primary" -- which names no role -- would arrive as an instruction
+  // to clear the role, and promoting a photograph would wipe its
+  // obverse/reverse.
   //
   // `!== undefined`, not a truthiness check: `setRole(row, null)` is how the
   // console's blank option clears a role, and that null must still be sent.

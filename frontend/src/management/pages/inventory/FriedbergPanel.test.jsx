@@ -16,8 +16,7 @@ import { api } from '../../api'
 import FriedbergPanel from './FriedbergPanel'
 import { renderWithProviders } from '../../../test/helpers'
 
-// Synthetic numbers only, per CLAUDE.md's ban on shipping a publisher's
-// Friedberg arrangement.
+// Synthetic numbers only, per `docs/reference-data.md`.
 const PROPOSED = {
   id: 412,
   item_kind: 'currency',
@@ -127,8 +126,8 @@ describe('FriedbergPanel', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^look up$/i }))
 
-    // Would fail the old two-press flow: no second Look up is pressed here,
-    // and no search field is shown to fill in (2026-09-23).
+    // One press only: no second Look up is pressed here, and no search field
+    // is shown to fill in.
     await waitFor(() =>
       expect(api.searchFriedberg).toHaveBeenCalledWith({ district_letter: 'B' }),
     )

@@ -9,6 +9,8 @@ rem          scripts\ccweb_claude.cmd ccweb            resume, searching "ccweb"
 rem          scripts\ccweb_claude.cmd 01G7CtsF...      resume that session id
 rem          scripts\ccweb_claude.cmd ccweb --effort high   extra flags pass through
 rem          scripts\ccweb_claude.cmd /check           report state, do not start
+rem                                                    Claude Code (PostgreSQL is
+rem                                                    still started unless /nodb)
 rem          scripts\ccweb_claude.cmd /nodb ...        skip the database check
 rem
 rem  claude's -r/--resume takes a session id, or any other value as a search
@@ -30,6 +32,17 @@ set "SKIPDB="
 :parseargs
 if /I "%~1"=="/check" ( set "CHECKONLY=1" & shift & goto parseargs )
 if /I "%~1"=="/nodb"  ( set "SKIPDB=1"    & shift & goto parseargs )
+
+rem  What is left goes to claude. `shift` does not change %*, so the remaining
+rem  arguments are gathered here; passing %* would hand claude the switches too.
+set "FIRST=%~1"
+set "REST="
+:collect
+if "%~1"=="" goto collected
+set "REST=%REST% %1"
+shift
+goto collect
+:collected
 
 rem --- activate -------------------------------------------------------------
 rem  Uses ccwebdb if it is already active, and activates it if not. The helper
@@ -89,12 +102,12 @@ if defined CHECKONLY (
 
 rem --- start Claude Code ----------------------------------------------------
 echo.
-if "%~1"=="" (
+if not defined REST (
     echo starting a new session...
     claude
 ) else (
-    echo resuming with "%~1"...
-    claude --resume %*
+    echo resuming with "%FIRST%"...
+    claude --resume%REST%
 )
 exit /b %ERRORLEVEL%
 
@@ -106,7 +119,7 @@ rem  it must outlive this window and the Claude Code session run from it. The
 rem  postmaster spawns a process per connection and background task, each
 rem  inheriting its console; once that console is gone, every new one dies
 rem  with 0xC0000142 while the postmaster itself keeps running. See
-rem  ccweb_startup.cmd. pg_isready says "rejecting connections" during crash
+rem  ccweb_pgstart.cmd. pg_isready says "rejecting connections" during crash
 rem  recovery, which is progress, so this waits through it. ping, not timeout:
 rem  timeout does not pause when stdin is redirected.
 rem ---------------------------------------------------------------------------

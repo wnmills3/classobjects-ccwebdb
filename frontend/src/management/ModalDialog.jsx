@@ -22,10 +22,10 @@ import { HelpContext } from './help-context'
  * still thinks it is open, and clicking the same row again changes no state
  * and so reopens nothing.
  *
- * **It has a help band of its own** at its bottom (owner, 2026-09-24). A
- * modal covers the console's band, so the forms inside -- the item editor
- * above all -- explained their fields to a band nobody could see. The
- * dialog provides its own help context, the nearest one to every
+ * **It has a help band of its own** at its bottom. A modal covers the
+ * console's band, so the forms inside -- the item editor above all -- would
+ * otherwise explain their fields to a band nobody can see. The dialog
+ * provides its own help context, the nearest one to every
  * `HelpScope` inside it, and renders the same `HelpBar` below a body that
  * scrolls on its own, so the explanation never scrolls out of sight.
  */

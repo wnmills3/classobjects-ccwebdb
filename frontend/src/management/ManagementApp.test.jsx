@@ -47,8 +47,8 @@ describe('management console shell', () => {
   })
 
   it('returns to the page that asked for sign-in', async () => {
-    // The guard sent the owner to /login and forgot where from, so a
-    // bookmarked console page came back as the coins list after signing in.
+    // A guard that sends the owner to /login and forgets where from brings a
+    // bookmarked console page back as the coins list after signing in.
     const user = userEvent.setup()
     renderWithProviders(
       <SignsIn>
@@ -87,7 +87,7 @@ describe('management console shell', () => {
     // staying green.
     expect(screen.getByRole('link', { name: /photos/i })).toBeInTheDocument()
     // Purchases and Sales, not "New purchase" and "Orders": an order is
-    // both, and the owner read Orders as purchases (2026-09-24).
+    // both, and "Orders" reads as purchases.
     expect(screen.getByRole('link', { name: /^purchases$/i })).toHaveAttribute(
       'href',
       '/purchases',
@@ -147,9 +147,7 @@ describe('management console shell', () => {
   })
 
   it('links to the Auctions page, after Lots and nowhere else', () => {
-    // Ruling R4: a single flat NavLink after Lots, not a "Selling" nav
-    // group -- that restructuring was measured deliberately out of scope
-    // for this branch.
+    // Auctions follows Lots, inside the Selling group.
     renderWithProviders(<ManagementApp />, { auth: adminAuth(), route: '/nowhere' })
     const links = screen.getAllByRole('link').map((link) => link.textContent)
     const lotsIndex = links.indexOf('Lots')

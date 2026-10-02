@@ -26,7 +26,7 @@ from tests.conftest import item_of
 #: The price recorded here is a different number on purpose: a test that
 #: merely echoes the listing's asking price back cannot tell "the price the
 #: platform actually sold for" from "the price it was offered at" -- exactly
-#: the ambiguity this branch has been bitten by before. Gross, the one fee,
+#: an ambiguity an echoed figure hides. Gross, the one fee,
 #: and the resulting net are three different numbers too, so none of the
 #: three assertions below could pass by one value being swapped for another.
 _PRICE = "115.00"
@@ -143,15 +143,14 @@ def test_recording_a_sale_on_an_auction_lot_is_a_409(
     heritage_venue: SalesVenue,
     make_item: Callable[..., InventoryItem],
 ) -> None:
-    """Ruling R25: an auction lot sells through settlement.
+    """An auction lot sells through settlement, not Record sale.
 
-    Record sale sits beside End on the Listings page, and End's guard
-    (`routers.offers._refuse_auction_lot`) only closed the End half. This is
-    the other route to the same orphaned `auction_lot`:
-    `sales_writes.record_sale` now refuses before writing anything, naming
-    the auction. `test_sales_writes.py` proves the writer refuses and leaves
-    the listing and the `auction_lot` row untouched; this proves the same
-    refusal reaches the console as a 409.
+    Record sale sits beside End on the Listings page. End has its own guard
+    (`routers.offers._refuse_auction_lot`); this is the other route to the
+    same orphaned `auction_lot`: `sales_writes.record_sale` refuses before
+    writing anything, naming the auction. `test_sales_writes.py` proves the
+    writer refuses and leaves the listing and the `auction_lot` row
+    untouched; this proves the same refusal reaches the console as a 409.
     """
     auction = Auction(
         sales_venue_id=heritage_venue.id, title="September Signature Sale"
@@ -267,12 +266,11 @@ def test_a_sub_cent_fee_amount_is_a_422_naming_the_field(
 ) -> None:
     """`decimal_places=2` on the schema, not `record_sale`'s own check, fires.
 
-    `record_sale` still refuses a sub-cent fee itself -- as `SaleInputInvalid`
-    -- for phase-4 auction settlement, a future caller this schema will not
+    `record_sale_lines` still refuses a sub-cent fee itself -- as
+    `SaleInputInvalid` -- for `auctions.settle`, which this schema does not
     stand in front of. From this endpoint, though, a third decimal place
     never reaches it: the schema is stricter and rejects the request first,
-    as a 422 naming the field, not the 409 an earlier version of this test
-    wrongly expected.
+    as a 422 naming the field.
     """
     response = _post(
         client,
@@ -291,18 +289,17 @@ def test_sale_input_invalid_from_record_sale_is_a_422_not_a_409(
     admin_headers: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The router's `except` order, not the schema, is what this pins.
+    """The handler registered for the narrower class is what this pins.
 
     `SaleInputInvalid` **is** a `SaleRefused` -- that is the whole point of
-    the subclass -- so the router's `except SaleRefused` clause would also
-    match it if it came first, and a real request can no longer reach
-    `record_sale`'s own `SaleInputInvalid` checks at all (the schema tests
-    above already refuse a negative or sub-cent amount before this body
-    runs). Patching `record_sale` to raise it directly is what isolates the
-    router's ordering from the schema: with the two `except` clauses
-    swapped, this test fails with a 409, silently reporting the wrong status
-    the day phase-4 auction settlement calls `record_sale` directly, without
-    this schema in front of it.
+    the subclass -- and `routers.offers.record_listing_sale` catches
+    neither: both propagate to the handlers `app.main` registers by class,
+    and the narrower class's handler answers 422. From this endpoint the
+    schema refuses a negative or sub-cent amount before `record_sale`'s own
+    money checks run, so patching `record_sale` to raise `SaleInputInvalid`
+    directly is what isolates the dispatch from the schema: with the
+    `SaleInputInvalid` registration removed from `app.main`, the
+    `SaleRefused` handler answers instead and this test fails with a 409.
     """
 
     def _raise_invalid(*args: object, **kwargs: object) -> SalesOrder:
@@ -400,16 +397,14 @@ def test_an_auction_house_sale_can_be_cancelled_as_a_refund(
     heritage_listing: Listing,
     admin_headers: dict[str, str],
 ) -> None:
-    """The delivered twin of the refusal above, and the case that changed.
+    """The delivered twin of the refusal above.
 
     An auction house has already shipped for us by the time its sale is
     recorded, so `sales_writes._STATUS_BY_VENUE_KIND` starts that order at
-    **delivered** -- which is in `routers.orders.NO_STOCK_RETURN_STATUSES`. When the
-    cancel refusal was narrowed to unshipped orders, every auction-house sale
-    moved from "always refused" to "always allowed" in one step, and nothing
-    covered it: the branch tests a shipped *store* lot order and an unshipped
-    *outside* one, never the delivered outside one that only this venue kind
-    produces.
+    **delivered** -- which is in `routers.orders.NO_STOCK_RETURN_STATUSES`,
+    so the cancel refusal, which is asked only of an order whose stock would
+    be returned, never reaches it. Only this venue kind produces a delivered
+    outside order.
 
     Allowing it is right, and for exactly the reason the refusal exists.
     `return_stock` is not called for a shipped order, so nothing is added

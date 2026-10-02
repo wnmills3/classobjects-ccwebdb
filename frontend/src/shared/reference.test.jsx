@@ -218,8 +218,8 @@ describe('ReferenceSelect adding a value by its label alone', () => {
   })
 
   it('selects an existing value instead of posting, and says so', async () => {
-    // Selected silently, a value typed again looked like an add that did
-    // nothing (owner, 2026-09-30: "Flipper" typed beside "Flipper *").
+    // Selected silently, a value typed again looks like an add that did
+    // nothing.
     const user = userEvent.setup()
     const onChange = renderAttributePicker()
     await openAddForm(user)
@@ -252,7 +252,8 @@ describe('ReferenceSelect adding a value by its label alone', () => {
 
   it('refuses an existing value this picker does not offer, naming why', async () => {
     // AttributesField filters out what the item already carries and what
-    // belongs to the other kind of item; choosing it anyway did nothing visible.
+    // belongs to the other kind of item; choosing it anyway would do nothing
+    // visible.
     const user = userEvent.setup()
     const onChange = renderAttributePicker({
       filter: (entry) => entry.code !== 'star_note',
@@ -269,8 +270,8 @@ describe('ReferenceSelect adding a value by its label alone', () => {
   })
 
   it('shows a value added in the app by its label alone, with no marker', () => {
-    // Where a value came from is not the picker's business (owner,
-    // 2026-09-30): the " *" it once added read as part of the name.
+    // Where a value came from is not the picker's business: a marker after
+    // the label would read as part of the name.
     renderAttributePicker({}, [
       ...ATTRIBUTES,
       { ...value('flipper', 'Flipper'), source: 'manual' },
@@ -278,7 +279,7 @@ describe('ReferenceSelect adding a value by its label alone', () => {
     expect(screen.getByRole('option', { name: 'Flipper' })).toBeInTheDocument()
   })
 
-  it('asks for code and label as before when labelOnly is not set', async () => {
+  it('asks for code and label when labelOnly is not set', async () => {
     const user = userEvent.setup()
     renderPicker()
     await openAddForm(user, 'series')
@@ -288,8 +289,8 @@ describe('ReferenceSelect adding a value by its label alone', () => {
   })
 
   it('adds by the label alone when the code box is left empty', async () => {
-    // The owner typed "Mixed Set" into the label, left the code empty, and Add
-    // stayed disabled with no reason given (2026-09-25).
+    // A label with the code box left empty is enough: the code is derived
+    // from the label, so Add must not stay disabled.
     const user = userEvent.setup()
     api.addReferenceValue.mockResolvedValue({})
     renderPicker()
@@ -398,7 +399,7 @@ describe('ReferenceProvider', () => {
 
   it('fetches a vocabulary once for every picker that asks for it', async () => {
     // A form mounts five pickers over the same table in one commit. Each one
-    // asked before any answer had arrived, and each one fetched.
+    // asks before any answer has arrived; only the first may fetch.
     api.getReference.mockResolvedValue({ values: [value('a', 'A')] })
     render(
       <ReferenceProvider>
