@@ -220,6 +220,14 @@ def test_a_fetched_photograph_is_converted_named_and_filed(
         (f"{item.item_code}_01.jpg", "image/jpeg", 1, True),
         (f"{item.item_code}_02.jpg", "image/jpeg", 2, False),
     ]
+    # Each keeps the address it came from, and says so.
+    assert first.json()["source_url"] == "https://i.ebayimg.com/a.webp"
+    assert db.scalars(
+        select(Image.source_url)
+        .join(ItemImage, ItemImage.image_id == Image.id)
+        .where(ItemImage.inventory_item_id == item.id)
+        .order_by(ItemImage.sort_order)
+    ).all() == ["https://i.ebayimg.com/a.webp", "https://i.ebayimg.com/b.webp"]
 
 
 def test_a_refused_fetch_stores_nothing(

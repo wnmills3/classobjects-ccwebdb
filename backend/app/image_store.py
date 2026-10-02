@@ -63,8 +63,13 @@ def named_as_stored(source_ref: str | None, media_type: str) -> str | None:
     return f"{stem}.{file_extension(media_type)}"
 
 
-def ingest(db: Session, raw: bytes, source_ref: str | None) -> Image:
+def ingest(
+    db: Session, raw: bytes, source_ref: str | None, source_url: str | None = None
+) -> Image:
     """Cleanse, store and record one file. Idempotent by content.
+
+    `source_url` is the web address the bytes were fetched from, when they
+    were; it is kept on the image.
 
     Raises `imaging.ImageRejected` if the bytes are not something we are
     willing to store.
@@ -73,6 +78,11 @@ def ingest(db: Session, raw: bytes, source_ref: str | None) -> Image:
 
     existing = db.scalar(select(Image).where(Image.sha256 == cleansed.sha256))
     if existing is not None:
+        # The same picture fetched again: its address is learned if it was
+        # not known, and never replaced if it was.
+        if source_url and existing.source_url is None:
+            existing.source_url = source_url
+            db.flush()
         return existing
 
     storage = get_storage()
@@ -88,6 +98,7 @@ def ingest(db: Session, raw: bytes, source_ref: str | None) -> Image:
         height=cleansed.height,
         captured_at=cleansed.captured_at,
         source_ref=named_as_stored(source_ref, cleansed.media_type),
+        source_url=source_url,
     )
     db.add(image)
     db.flush()

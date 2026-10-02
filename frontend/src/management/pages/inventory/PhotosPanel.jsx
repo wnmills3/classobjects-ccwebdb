@@ -332,6 +332,7 @@ export default function PhotosPanel({
                 <EnlargeableImage
                   src={row.thumbnail_url}
                   largeSrc={row.image_url}
+                  sourceUrl={row.source_url}
                   alt={label}
                 />
                 {row.primary && !leaving(edit) && (

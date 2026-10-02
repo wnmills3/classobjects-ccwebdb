@@ -12,11 +12,14 @@ import ModalDialog from './ModalDialog'
  * dialog (the item editor), it sits on top of it and Escape closes only this
  * one.
  *
+ * `sourceUrl`, when the photograph was fetched from a web address, is linked
+ * from the dialog as "Where it came from" and opens in a new tab.
+ *
  * The picture is a real button, so it is reachable by keyboard; its name says
  * what clicking does, and the image keeps `alt` as its own. With no
  * `largeSrc` there is nothing to enlarge and it is a plain image.
  */
-export default function EnlargeableImage({ src, largeSrc, alt }) {
+export default function EnlargeableImage({ src, largeSrc, alt, sourceUrl }) {
   const [open, setOpen] = useState(false)
   if (!largeSrc) return <img src={src} alt={alt} />
   return (
@@ -38,6 +41,11 @@ export default function EnlargeableImage({ src, largeSrc, alt }) {
               <button type="button" onClick={() => setOpen(false)}>
                 Cancel
               </button>
+              {sourceUrl && (
+                <a href={sourceUrl} target="_blank" rel="noreferrer noopener">
+                  Where it came from
+                </a>
+              )}
             </div>
           </div>
         </ModalDialog>

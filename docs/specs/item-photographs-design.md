@@ -231,6 +231,22 @@ unknown item; 409 when the item already has that photograph; the for-sale
 acknowledgement as for an upload. Bytes already stored (the same hash) are
 filed under the existing image, which keeps its own name.
 
+**The address is kept.** `image.source_url` holds the web address a
+photograph was fetched from; an uploaded file has none. An image already
+stored learns its address the first time it is fetched from one, and keeps
+it: a second address serving the same bytes does not replace it. The item
+editor and the Photos page show it in the enlarged picture's window, as
+"Where it came from".
+
+`python -m app.image_sources MANIFEST.csv FOLDER [--commit]` recovers the
+address of photographs stored before it was kept, from what a download left
+behind: a manifest with a `url` column, and a folder holding each address's
+file under the SHA-1 of the address. Each file is cleansed as an upload is
+and matched to the stored image with the same content -- never by item or
+file name, so a photograph moved or replaced since cannot take an address
+that is not its own. Only an image with no address is written; a dry run
+unless `--commit`.
+
 ## Tests
 
 - `tests/test_photo_names.py`: the parser as a table -- valid names,
