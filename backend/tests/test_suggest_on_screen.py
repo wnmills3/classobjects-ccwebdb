@@ -107,6 +107,31 @@ def test_unsaved_changes_read_as_the_same_changes_saved(
     assert on_screen != before_save, "the change must show in the wording"
 
 
+def test_the_defaults_a_save_fills_are_in_the_suggestion(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """The owner's case: "Silver" alone, where the save gave "0.77344 ozt fine".
+
+    A coin entered with no denomination has no composition to fill from;
+    naming the denomination on screen is what a save fills the metal and
+    weights from, and the suggestion has to see that fill too.
+    """
+    start = {k: v for k, v in COIN.items() if k not in {"denomination", "series"}}
+    start["year_start"] = 1900
+    start["mint"] = "O"
+    item_id = _create(client, admin_headers, db, start)
+    changes = {"denomination": "usd_coin_1_00", "series": "morgan_dollar"}
+
+    on_screen = _on_screen(client, admin_headers, item_id, {"changes": changes})
+    saved = client.patch(
+        f"/api/inventory/{item_id}", json=changes, headers=admin_headers
+    )
+    assert saved.status_code == 200, saved.text
+
+    assert "ozt fine" in on_screen
+    assert on_screen == _saved(client, admin_headers, item_id)
+
+
 def test_unsaved_errors_and_attributes_read_as_saved(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
