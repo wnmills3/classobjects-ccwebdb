@@ -473,6 +473,14 @@ fieldset.identify {
 .console-app > .topbar {
   flex: none;
 }
+/* The menu wraps onto a second line in a window too narrow for it. Unwrapped,
+   its fourteen links set a floor of about 1000px under the whole page: below
+   that the window scrolled sideways and the menu's end was off screen. */
+.console-app .nav {
+  flex-wrap: wrap;
+  min-width: 0;
+  row-gap: 6px;
+}
 .console-app > .content {
   flex: 1 1 auto;
   min-height: 0;
