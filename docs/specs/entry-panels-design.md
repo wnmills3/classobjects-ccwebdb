@@ -236,8 +236,9 @@ recover the other, and at most vendors a purchase's web address is its lot's.
 | An eBay id rebuilds its address, `https://www.ebay.com/itm/<id>`. | The pass. |
 | At any vendor but eBay and Whatnot -- whose orders hold many listings -- the purchase's web address is its lot's page. | New item starts with it as the listing, suggested (with the id it carries); a purchase with no web address takes the first item's listing when the item is entered (`create_item`); the pass fills an item with no address from its purchase only when that address carries a lot id (a shop's location page is no listing), and a purchase with none from the one address its items share. |
 | A purchase whose items name several lots gives no address to its items and takes none from them. | The pass. |
+| An eBay purchase's web address is its order page, `https://order.ebay.com/ord/show?orderId=<order number>`: eBay removes a listing's page after a while and keeps the order's. | The pass gives the order page to an eBay purchase with an eBay order number (`NN-NNNNN-NNNNN`) when it has no address, when its address is eBay's list of purchases, and when its address is a listing's page that one of its items already carries. Any other address is kept, and the pass prints it. |
 
-Nothing already recorded is replaced. The pass, run from `backend`, reports
+Apart from that last rule, nothing already recorded is replaced. The pass, run from `backend`, reports
 by default; `python -m app.listing_links --commit --by EMAIL` fills the gaps
 and logs each item's change in its History under that person.
 
