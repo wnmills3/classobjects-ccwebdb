@@ -95,7 +95,8 @@ backend/
                          photo_names (the CC-000412_01.jpg convention)
     passes               classifier_defaults, series_match, series_classify,
                          serial_patterns, photo_import, vendor_cleanup,
-                         ebay_orders, listing_links: corrections over stored
+                         ebay_orders, listing_links, bullion_weights:
+                         corrections over stored
                          items, run as python -m app.<name>; dry run unless
                          --commit
     reports/             read-only reports: registry, API, CLI

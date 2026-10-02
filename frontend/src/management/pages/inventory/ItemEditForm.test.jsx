@@ -644,6 +644,95 @@ describe('Series and bullion form', () => {
   })
 })
 
+describe('Weight', () => {
+  const vocabularies = emptyReference({
+    tables: {
+      item_kind: [
+        { code: 'bullion', label: 'Bullion', source: 'seeded', extra: {} },
+        { code: 'currency', label: 'Currency', source: 'seeded', extra: {} },
+      ],
+    },
+  })
+
+  async function open(overrides) {
+    api.getInventoryItem.mockResolvedValue({ ...item, version: 3, ...overrides })
+    api.updateInventoryItem.mockResolvedValue({})
+    renderWithProviders(
+      <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+      { reference: vocabularies },
+    )
+    await screen.findByDisplayValue('Mercury Dime')
+  }
+
+  const round = { item_kind: 'bullion', gross_weight_ozt: null, fineness: null }
+
+  it('saves a weight typed in grams as troy ounces', async () => {
+    const user = userEvent.setup()
+    await open(round)
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Gross weight unit' }),
+      'g',
+    )
+    await user.type(screen.getByLabelText('Gross weight'), '31.1034768')
+    await user.type(screen.getByLabelText('Fineness'), '0.925')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ gross_weight_ozt: '1.000000', fineness: '0.925' }),
+      ),
+    )
+    // Fine weight was left alone, so the server works it out.
+    expect(api.updateInventoryItem.mock.calls[0][1]).not.toHaveProperty(
+      'fine_weight_ozt',
+    )
+  })
+
+  it('shows a stored weight in the unit chosen, and changes nothing by it', async () => {
+    const user = userEvent.setup()
+    await open({ ...round, gross_weight_ozt: '0.321507' })
+    const gross = screen.getByLabelText('Gross weight')
+    expect(gross).toHaveValue('0.321507')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Gross weight unit' }),
+      'g',
+    )
+    expect(gross).toHaveValue('10')
+    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled()
+  })
+
+  it('clears a weight when its box is emptied', async () => {
+    const user = userEvent.setup()
+    await open({ ...round, fine_weight_ozt: '1.000000' })
+    await user.clear(screen.getByLabelText('Fine weight'))
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({ fine_weight_ozt: null }),
+      ),
+    )
+  })
+
+  it('marks a guessed weight as suggested, saying where it came from', async () => {
+    await open({
+      ...round,
+      fine_weight_ozt: '1.000000',
+      derived: { fine_weight_ozt: 'weight_peers' },
+    })
+    expect(screen.getByText('suggested')).toHaveAttribute(
+      'title',
+      'A guess, from what most items of this form and metal weigh',
+    )
+  })
+
+  it('does not offer a note a weight', async () => {
+    await open({ item_kind: 'currency' })
+    expect(screen.queryByLabelText('Gross weight')).toBeNull()
+    expect(screen.queryByLabelText('Fineness')).toBeNull()
+  })
+})
+
 describe('Suggest description', () => {
   beforeEach(() => {
     api.suggestDescriptionFromScreen = vi.fn()

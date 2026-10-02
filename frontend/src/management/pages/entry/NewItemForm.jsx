@@ -20,6 +20,7 @@ import LocationSelect from '../../LocationSelect'
 import { withSuggestions, without } from './suggestions'
 import { listingIdFrom } from '../../listing'
 import { SaveButton } from '../../SaveButton'
+import WeightFields from '../../WeightFields'
 
 //: Kept across "Save and add another"; everything else in BLANK is cleared.
 //: This exact set is the spec's (the "Repeated entry" row in
@@ -76,6 +77,12 @@ const BLANK = {
   grading_service: '',
   cert_number: '',
   metal: '',
+  bullion_form: '',
+  // Per piece, in troy ounces whichever unit was typed (`WeightFields`).
+  gross_weight_ozt: '',
+  fineness: '',
+  fine_weight_ozt: '',
+  weight_note: '',
   series: '',
   mint: '',
   variety: '',
@@ -434,6 +441,15 @@ export default function NewItemForm({
       }
     } else {
       if (form.metal) payload.metal = form.metal
+      for (const key of [
+        'bullion_form',
+        'gross_weight_ozt',
+        'fineness',
+        'fine_weight_ozt',
+        'weight_note',
+      ]) {
+        if (form[key]) payload[key] = form[key]
+      }
       if (form.mint) payload.mint = form.mint
       if (form.variety) payload.variety = form.variety
     }
@@ -933,6 +949,30 @@ export default function NewItemForm({
               onChange={set('set_form')}
             />
           </label>
+        )}
+
+        {fieldFitsKind('bullion_form', form.item_kind) && (
+          <label data-help="bullion_form">
+            Bullion form
+            <ReferenceSelect
+              table="bullion_form"
+              value={form.bullion_form}
+              onChange={set('bullion_form')}
+            />
+          </label>
+        )}
+
+        {fieldFitsKind('fine_weight_ozt', form.item_kind) && (
+          <WeightFields
+            className="weight-field"
+            get={(key) => form[key]}
+            set={(key, next) =>
+              setEntry((current) => ({
+                ...current,
+                form: { ...current.form, [key]: next ?? '' },
+              }))
+            }
+          />
         )}
 
         {/* Gated on Mint, the field that decides the Mint/Variety pair (see

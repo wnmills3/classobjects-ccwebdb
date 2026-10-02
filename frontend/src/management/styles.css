@@ -404,6 +404,27 @@ fieldset.identify {
   font-size: 0.85rem;
   font-style: italic;
 }
+/* A weight box with its unit beside it, sharing the field's one column. */
+.weight-input {
+  display: flex;
+  gap: 0.3rem;
+}
+.weight-input input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.weight-input select {
+  flex: 0 0 auto;
+  width: auto;
+}
+/* On New item a weight field is a caption over its box, like the labels
+   around it. */
+.filter-grid .weight-field {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.82rem;
+  gap: 0.2rem;
+}
 /* A value the facts filled in: context too, until someone changes it. */
 .suggested {
   color: var(--info);

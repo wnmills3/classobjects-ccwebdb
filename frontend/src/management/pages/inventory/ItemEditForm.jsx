@@ -29,6 +29,7 @@ import PhotosPanel from './PhotosPanel'
 import SaleHistory from './SaleHistory'
 import SplitDialog from './SplitDialog'
 import { SaveButton } from '../../SaveButton'
+import WeightFields from '../../WeightFields'
 
 /**
  * One item, every field, with what the lot claimed beside each.
@@ -125,6 +126,9 @@ const DERIVED_FROM = {
   series_backfill: 'Filled from the description or from denomination and year',
   suggestion: 'Suggested when the item was entered',
   rating: 'Read from the rating',
+  weight: 'Worked out as gross weight times fineness',
+  weight_text: 'A guess, read from the title or description',
+  weight_peers: 'A guess, from what most items of this form and metal weigh',
 }
 
 /** The column a form field is stored in, as `derived` and reviews name it. */
@@ -1160,6 +1164,20 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
               {review(REVIEWABLE[key])}
             </label>
           ),
+        )}
+
+        {fieldFitsKind('fine_weight_ozt', value('item_kind')) && (
+          <WeightFields
+            className="field"
+            get={value}
+            set={(key, next) => setDraft({ ...draft, [key]: next })}
+            aside={(key) => (
+              <>
+                {side(key, key)}
+                <span />
+              </>
+            )}
+          />
         )}
 
         {fieldFitsKind('variety', value('item_kind')) && (

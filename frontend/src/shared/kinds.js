@@ -41,6 +41,10 @@ export const COIN_ONLY_FIELDS = new Set([
   'variety',
   'year_start',
   'year_end',
+  'fineness',
+  'gross_weight_ozt',
+  'fine_weight_ozt',
+  'weight_note',
 ])
 
 //: Fields only paper money has.

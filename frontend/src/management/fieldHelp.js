@@ -227,6 +227,33 @@ export const FIELD_HELP = {
       'Denomination blank for a set of several face values -- a denomination is one ' +
       'face value. A value that is missing can be added here by its name.',
   },
+  gross_weight_ozt: {
+    title: 'Gross weight',
+    text:
+      'What one piece weighs, all of it, in troy ounces or grams -- pick the unit ' +
+      'beside the box; it is kept in troy ounces. For several pieces, the weight ' +
+      'of one: Pieces multiplies it.',
+  },
+  fineness: {
+    title: 'Fineness',
+    text:
+      'How much of the piece is the metal, as a fraction of 1: 0.999 for fine ' +
+      'silver, 0.925 for sterling, 0.9 for 90% coin silver, 0.9167 for 22 karat.',
+  },
+  fine_weight_ozt: {
+    title: 'Fine weight',
+    text:
+      'The metal in one piece: what the melt value and the precious-metal report ' +
+      'count. Leave it empty and it is worked out as gross weight times fineness; ' +
+      'type it when it is what is known -- a one-ounce gold coin holds 1 troy ' +
+      'ounce of gold and weighs more.',
+  },
+  weight_note: {
+    title: 'Weight as written',
+    text:
+      'The weight in the words it came with, where a number does not say it all: ' +
+      '"1 oz each", "1/2 Kilo".',
+  },
   bullion_form: {
     title: 'Bullion form',
     text:
