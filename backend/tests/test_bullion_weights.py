@@ -184,6 +184,25 @@ def test_a_peer_weight_is_not_put_on_an_item_of_another_fineness(
     assert _guesses(db, sterling) == {"fineness": (Decimal("0.9250"), "weight_text")}
 
 
+def test_peers_with_no_fineness_recorded_are_taken_for_fine_metal(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A fine weight and no fineness: an ounce of .999, not of sterling."""
+    for _ in range(6):
+        _bullion(db, make_item, fine_weight_ozt=Decimal("1"))
+    sterling = _bullion(db, make_item, title="Franklin Mint Sterling Rounds")
+    marked_sterling = _bullion(db, make_item, fineness=Decimal("0.9250"))
+    fine = _bullion(db, make_item, fineness=Decimal("0.9990"))
+    unknown = _bullion(db, make_item)
+    db.commit()
+
+    one_ounce = {"fine_weight_ozt": (Decimal("1"), "weight_peers")}
+    assert _guesses(db, sterling) == {"fineness": (Decimal("0.9250"), "weight_text")}
+    assert _guesses(db, marked_sterling) == {}
+    assert _guesses(db, fine) == one_ounce
+    assert _guesses(db, unknown) == one_ounce
+
+
 def test_peers_that_do_not_mostly_agree_give_no_guess(
     db: Session, make_item: ItemFactory
 ) -> None:
