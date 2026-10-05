@@ -15,10 +15,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-THREE_CENTS = {
-    "label": "Three Cents",
-    "sort_order": 15,
-    "extra": {"currency": "USD", "face_value": "0.03", "kind": "coin"},
+SEVEN_CENTS = {
+    "label": "Seven Cents",
+    "sort_order": 22,
+    "extra": {"currency": "USD", "face_value": "0.07", "kind": "coin"},
 }
 
 
@@ -67,32 +67,32 @@ def test_a_denomination_is_added_by_what_it_is(
     client: TestClient, admin_headers: dict[str, str], db: Session
 ) -> None:
     made = client.post(
-        "/api/reference/denomination", json=THREE_CENTS, headers=admin_headers
+        "/api/reference/denomination", json=SEVEN_CENTS, headers=admin_headers
     )
     assert made.status_code == 201, made.text
     body = made.json()
-    assert body["code"] == "usd_coin_0_03"
-    assert body["label"] == "Three Cents"
-    assert body["sort_order"] == 15
+    assert body["code"] == "usd_coin_0_07"
+    assert body["label"] == "Seven Cents"
+    assert body["sort_order"] == 22
     assert body["source"] == "manual"
     assert body["extra"] == {
         "currency": "USD",
-        "face_value": "0.0300",
+        "face_value": "0.0700",
         "kind": "coin",
     }
 
-    row = db.scalar(select(Denomination).where(Denomination.code == "usd_coin_0_03"))
+    row = db.scalar(select(Denomination).where(Denomination.code == "usd_coin_0_07"))
     assert row is not None
     usd = db.scalar(select(Currency.id).where(Currency.code == "USD"))
     assert row.currency_id == usd
-    assert row.face_value == Decimal("0.03")
+    assert row.face_value == Decimal("0.07")
     assert row.kind is DenominationKind.coin
 
     codes = [
         v["code"] for v in client.get("/api/reference/denomination").json()["values"]
     ]
-    assert codes.index("usd_coin_0_01") < codes.index("usd_coin_0_03")
-    assert codes.index("usd_coin_0_03") < codes.index("usd_coin_0_05")
+    assert codes.index("usd_coin_0_05") < codes.index("usd_coin_0_07")
+    assert codes.index("usd_coin_0_07") < codes.index("usd_coin_0_10")
 
 
 def test_a_note_denomination_is_coded_as_it_is_read(
@@ -101,13 +101,29 @@ def test_a_note_denomination_is_coded_as_it_is_read(
     made = client.post(
         "/api/reference/denomination",
         json={
-            "label": "$5,000",
-            "extra": {"currency": "USD", "face_value": 5000, "kind": "note"},
+            "label": "$100,000",
+            "extra": {"currency": "USD", "face_value": 100000, "kind": "note"},
         },
         headers=admin_headers,
     )
     assert made.status_code == 201, made.text
-    assert made.json()["code"] == "usd_note_5000"
+    assert made.json()["code"] == "usd_note_100000"
+
+
+def test_a_face_value_finer_than_a_cent_is_not_rounded_into_its_code(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """A quarter cent must not take the code a cent has."""
+    made = client.post(
+        "/api/reference/denomination",
+        json={
+            "label": "Quarter Cent",
+            "extra": {"currency": "USD", "face_value": "0.0025", "kind": "coin"},
+        },
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
+    assert made.json()["code"] == "usd_coin_0_0025"
 
 
 def test_a_second_denomination_of_one_face_value_is_refused(
@@ -180,7 +196,7 @@ def test_what_a_column_cannot_hold_is_a_422_naming_it(
 ) -> None:
     res = client.post(
         "/api/reference/denomination",
-        json={"label": "Three Cents", "extra": extra},
+        json={"label": "Seven Cents", "extra": extra},
         headers=admin_headers,
     )
     assert res.status_code == 422, res.text

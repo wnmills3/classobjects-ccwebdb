@@ -238,6 +238,10 @@ def derived_code(
         face = Decimal(str(values["face_value"]))
         kind = str(getattr(values["kind"], "value", values["kind"]))
         # A coin's face value is written to the cent, a note's as it is read.
-        amount = f"{face:.2f}" if kind == "coin" else f"{face.normalize():f}"
+        # Neither is rounded: a half cent is not a cent.
+        whole_cents = face == face.quantize(Decimal("0.01"))
+        amount = (
+            f"{face:.2f}" if kind == "coin" and whole_cents else f"{face.normalize():f}"
+        )
         return _slug(f"{unit}_{kind}_{amount}")
     return _slug(label)
