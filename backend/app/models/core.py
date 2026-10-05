@@ -164,7 +164,7 @@ class Seller(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    #: Their store or profile page. Always a web address.
+    #: Their store or profile page, or a `mailto:` address.
     store_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     orders: Mapped[list[PurchaseOrder]] = relationship(back_populates="seller")

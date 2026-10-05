@@ -1598,6 +1598,26 @@ class ReferenceAliasIn(BaseModel):
 # Acquisitions: vendors, purchase orders and storage locations
 # --------------------------------------------------------------------------
 
+_STORE_ADDRESS = re.compile(r"^(https?://|mailto:[^\s@]+@[^\s@]+$)", re.IGNORECASE)
+
+
+def _store_address_or_none(value: str | None) -> str | None:
+    """Trimmed; blank is None; otherwise an http(s) or a `mailto:` address."""
+    address = _strip_or_none(value)
+    if address is not None and not _STORE_ADDRESS.match(address):
+        raise ValueError(
+            "must start with http:// or https://, or be mailto: and a mail address"
+        )
+    return address
+
+
+#: Where a seller is reached: their store or profile page, or -- for one who
+#: sells by mail -- a `mailto:` address. Nothing else, so it can be offered
+#: as a link; blank clears it.
+StoreUrl = Annotated[
+    str | None, Field(max_length=1000), AfterValidator(_store_address_or_none)
+]
+
 #: A web address is only ever `http://` or `https://` -- the same rule
 #: `PurchaseOrderDetailOut.source_url` is filtered by before it is offered as
 #: a link. Refused at entry rather than silently stored and withheld later,
@@ -1633,8 +1653,8 @@ class SellerCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=255)
-    #: Their store or profile page; blank is none.
-    store_url: ListingUrl = None
+    #: Their store or profile page, or a `mailto:` address; blank is none.
+    store_url: StoreUrl = None
 
     @field_validator("name")
     @classmethod
@@ -1653,7 +1673,7 @@ class SellerUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     #: Blank clears it.
-    store_url: ListingUrl = None
+    store_url: StoreUrl = None
 
     @field_validator("name")
     @classmethod

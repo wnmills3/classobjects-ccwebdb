@@ -6,8 +6,11 @@
 
 from __future__ import annotations
 
+import pytest
 from app.models import PurchaseOrder, Seller, Vendor
+from app.schemas import ListingUrl
 from fastapi.testclient import TestClient
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 STORE = "https://www.ebay.com/usr/coind0g"
@@ -77,6 +80,45 @@ def test_a_store_that_is_not_a_web_address_is_a_422(
         headers=admin_headers,
     )
     assert res.status_code == 422
+
+
+def test_a_seller_reached_by_mail_has_a_mailto_store(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    made = client.post(
+        "/api/sellers",
+        json={"name": "by_mail", "store_url": "  MAILTO:coins@example.com  "},
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
+    assert made.json()["store_url"] == "MAILTO:coins@example.com"
+
+    seller = _seller(db)
+    moved = client.patch(
+        f"/api/sellers/{seller.id}",
+        json={"store_url": "mailto:dog@example.com?subject=Order"},
+        headers=admin_headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["store_url"] == "mailto:dog@example.com?subject=Order"
+
+
+def test_a_mailto_store_must_name_a_mail_address(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    for store in ("mailto:", "mailto:nobody", "mailto:a b@example.com", "a@b.com"):
+        res = client.post(
+            "/api/sellers",
+            json={"name": "x", "store_url": store},
+            headers=admin_headers,
+        )
+        assert res.status_code == 422, store
+
+
+def test_a_listing_address_is_never_a_mailto() -> None:
+    """Only a seller's store may be a mail address; a listing is a page."""
+    with pytest.raises(ValidationError):
+        TypeAdapter(ListingUrl).validate_python("mailto:coins@example.com")
 
 
 def test_sellers_are_listed_by_name(
