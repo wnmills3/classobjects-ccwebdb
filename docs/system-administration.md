@@ -1156,8 +1156,9 @@ reorders them.
 - **Add a value...** asks for a label and whatever the vocabulary's values
   need: a denomination's currency, face value and whether it is a coin or a
   note; a mint's mark. Position, where the vocabulary is in a meaningful
-  order, is a number between the positions shown in the list (Cent is 10 and
-  Nickel 20, so Three Cents goes at 15). The code is worked out unless one is
+  order, is a number between the positions shown in the list (Dime is 30 and
+  Twenty Cents 35, so a fifteen-cent piece would go at 32). The code is worked
+  out unless one is
   typed. Nothing can be added to a vocabulary the application acts on value
   by value -- statuses, kinds, dispositions -- and the page says so.
 

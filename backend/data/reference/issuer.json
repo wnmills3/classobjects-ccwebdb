@@ -41,7 +41,7 @@
     {"code": "usd_coin_0_02", "label": "Two Cents", "currency": "USD", "face_value": "0.0200", "kind": "coin", "sort_order": 12},
     {"code": "usd_coin_0_03", "label": "Three Cents", "currency": "USD", "face_value": "0.0300", "kind": "coin", "sort_order": 15,
      "_note": "Struck in silver (1851-1873) and in copper-nickel (1865-1889): two series, one face value."},
-    {"code": "usd_coin_0_05", "label": "Nickel", "currency": "USD", "face_value": "0.0500", "kind": "coin", "sort_order": 20},
+    {"code": "usd_coin_0_05", "label": "Five Cents", "currency": "USD", "face_value": "0.0500", "kind": "coin", "sort_order": 20},
     {"code": "usd_coin_0_10", "label": "Dime", "currency": "USD", "face_value": "0.1000", "kind": "coin", "sort_order": 30},
     {"code": "usd_coin_0_20", "label": "Twenty Cents", "currency": "USD", "face_value": "0.2000", "kind": "coin", "sort_order": 35},
     {"code": "usd_coin_0_25", "label": "Quarter", "currency": "USD", "face_value": "0.2500", "kind": "coin", "sort_order": 40},

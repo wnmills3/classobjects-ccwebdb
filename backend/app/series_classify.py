@@ -351,7 +351,7 @@ def _items(
             InventoryItem.item_code,
             ItemKind.code,
             InventoryItem.denomination_id,
-            Denomination.label,
+            Denomination.code,
             InventoryItem.year_start,
             InventoryItem.year_end,
             CurrencyDetail.series_year,
