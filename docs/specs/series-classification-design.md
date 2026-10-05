@@ -116,16 +116,19 @@ facts (or the recorded note class) rule out. The pass changes none of those.
 Run `series_match`, then `classifier_defaults` (which decides a note's class,
 evidence for the Series 1929 designs), then `series_classify`.
 
-**Boundary years** make most of the review list: 1856-57 cents, 1873 and
-1878-85 dollars, 1883 and 1913 and 1938 nickels, 1909 cents, 1916 dimes and
+**Boundary years** make most of the review list: 1856-57 cents, 1865-73
+three-cent pieces (silver and nickel), 1866-73 five-cent pieces (Seated
+Liberty half dime and Shield nickel), 1795, 1873 and
+1878-85 dollars, 1883 and 1913 and 1938 nickels, 1909 cents, 1837 dimes and
+half dimes, 1838 quarters, 1807 and 1839 halves, 1916 dimes and
 quarters, 1921 dollars, 2016 dimes, quarters and halves (the gold
 centennials), $1 of 2007-2016 and 2020 (Presidential and Sacagawea), 2021
 dollars and quarters.
 
 **What the facts cannot catch:** an item recorded with the wrong country or
 face value is classified by what was recorded; unworded modern commemoratives
-(an Apollo 11 half) are taken for Kennedys; American Women quarters are filed
-as Washington quarters, whose obverse they carry.
+(an Apollo 11 half) are taken for Kennedys; an American Women quarter whose text does not name the
+program is filed as a Washington quarter, whose obverse it carries.
 
 ## The designs
 
@@ -136,10 +139,33 @@ numbering.
 ### Coins
 
 Every circulating coin design has its denomination, except those that span
-several faces or would swamp the pass: **Liberty Head Gold** and **Indian Head
-Gold** span several denominations, and the four **bullion designs** (Silver,
-Gold and Platinum Eagle, Gold Buffalo) stay matched by name -- a Silver
-Eagle's $1 face would make every dollar since 1986 a boundary case.
+several faces or would swamp the pass: **Capped Bust Gold**, **Classic Head
+Gold**, **Liberty Head Gold** and **Indian Head Gold** span several
+denominations, and the **bullion and program designs** (Silver, Gold,
+Platinum and Palladium Eagle, Gold Buffalo, First Spouse Gold) stay matched
+by name -- a Silver Eagle's $1 face would make every dollar since 1986 a
+boundary case.
+
+**One face value is one denomination, and the design tells its coins apart.**
+The half dimes (Flowing Hair, Draped Bust, Capped Bust, Seated Liberty) are
+five-cent designs beside the nickels; Three Cent Silver and Three Cent Nickel
+share three cents; the Gold Dollar shares the dollar.
+
+The designs before the Seated Liberty coinage, by denomination:
+
+| Denomination | Designs: years |
+|---|---|
+| Half cent | Liberty Cap 1793-1797, Draped Bust 1800-1808, Classic Head 1809-1836, Braided Hair 1840-1857 |
+| Two cents | Two Cent Piece 1864-1873 |
+| Three cents | Three Cent Silver 1851-1873, Three Cent Nickel 1865-1889 |
+| Five cents | Flowing Hair Half Dime 1794-1795, Draped Bust 1796-1805, Capped Bust 1829-1837, Seated Liberty 1837-1873 |
+| Dime | Draped Bust 1796-1807, Capped Bust 1809-1837 |
+| Twenty cents | Twenty Cent Piece 1875-1878 |
+| Quarter | Draped Bust 1796-1807, Capped Bust 1815-1838 |
+| Half dollar | Flowing Hair 1794-1795, Draped Bust 1796-1807, Capped Bust 1807-1839 |
+| Dollar | Flowing Hair 1794-1795, Draped Bust 1795-1804, Gobrecht 1836-1839 |
+| Three dollars | Three Dollar Gold Piece 1854-1889 |
+| Gold, several faces | Capped Bust Gold 1795-1834, Classic Head Gold 1834-1839 |
 
 Designs with more than one range:
 
@@ -164,6 +190,14 @@ and an item that says nothing is taken for the common design:
 | Commemorative Dollar | $1: 1900-1922, 1983- | the same |
 | Gold Dollar | $1: 1849-1889 | (its label) |
 | American Innovation Dollar | $1: 2018-2032 | American Innovation, Innovation Dollar |
+| American Women Quarters | 25c: 2022-2025 | American Women, American Women Quarter |
+| Flowing Hair Cent | 1c: 1793 | Chain Cent, Wreath Cent |
+| Liberty Cap, Draped Bust, Classic Head, Coronet Head and Braided Hair Cent | 1c: 1793-1796, 1796-1807, 1808-1814, 1816-1839, 1839-1857 | Matron Head (Coronet Head) |
+
+The six early cent designs are the Large Cent's own types. A cent of those
+years that names none of them is a Large Cent; one whose text says "Draped
+Bust Cent" is that design. Their labels leave out "Large" so that "Large
+Cent" in a description names the Large Cent alone.
 
 ### Notes
 
@@ -174,6 +208,26 @@ and an item that says nothing is taken for the common design:
 | North Africa | $1: 1935A; $5: 1934A; $10: 1934, 1934A | yes -- yellow seal | Yellow Seal |
 | Hawaii | $1: 1935A; $5, $10, $20: 1934, 1934A | yes -- brown seal | Hawaii Overprint |
 | Series 1929 National Bank Note | $5-$100: 1929, no letter | yes -- note class National Bank Note | Brown Seal, 1929 National, Small Size National, National, Natl |
+
+The large-size designs are the collector names in general use, each for one
+denomination and series of one note class. None needs evidence: a note of
+that denomination and series is assigned the design unless it is recorded as
+another class, which rules the design out.
+
+| Design | Denomination: series | Note class | Nicknames |
+|---|---|---|---|
+| Educational Series | $1, $2, $5: 1896 | Silver Certificate | Educational |
+| Black Eagle | $1: 1899 | Silver Certificate | |
+| Indian Chief Note | $5: 1899 | Silver Certificate | Chief Note, Running Antelope |
+| Bison Note | $10: 1901 | United States Note | Bison |
+| Technicolor | $20: 1905 | Gold Certificate | Technicolor Note |
+| Woodchopper | $5: 1907 | United States Note | |
+| Battleship | $2: 1918 | Federal Reserve Bank Note | Battleship Note |
+| Porthole | $5: 1923 | Silver Certificate | Lincoln Porthole |
+
+A note's class, denomination and series year are fields of their own, so a
+note needs no design to be found by them; the designs are the names
+collectors search by.
 
 - **Every $1 Series 1928 note is a Funnyback**, whatever its seal: the 1928
   red-seal United States Note shares the back, and the owner counts it.
@@ -219,3 +273,24 @@ their source.
   https://en.wikipedia.org/wiki/Early_United_States_commemorative_coins,
   https://en.wikipedia.org/wiki/Modern_United_States_commemorative_coins,
   https://en.wikipedia.org/wiki/American_Innovation_dollars
+- Early designs, by denomination:
+  https://en.wikipedia.org/wiki/Half_cent_(United_States_coin),
+  https://en.wikipedia.org/wiki/Large_cent,
+  https://en.wikipedia.org/wiki/Half_dime,
+  https://en.wikipedia.org/wiki/Dime_(United_States_coin),
+  https://en.wikipedia.org/wiki/Quarter_(United_States_coin),
+  https://en.wikipedia.org/wiki/Half_dollar_(United_States_coin),
+  https://en.wikipedia.org/wiki/Dollar_coin_(United_States)
+- Two, three and twenty cents, three dollars:
+  https://en.wikipedia.org/wiki/Obsolete_denominations_of_United_States_currency,
+  https://en.wikipedia.org/wiki/Three-dollar_piece
+- Early gold: https://en.wikipedia.org/wiki/Quarter_eagle,
+  https://en.wikipedia.org/wiki/Half_eagle
+- First Spouse and Palladium Eagle:
+  https://en.wikipedia.org/wiki/First_Spouse_Program,
+  https://en.wikipedia.org/wiki/American_Palladium_Eagle
+- Large-size note designs:
+  https://en.wikipedia.org/wiki/Silver_certificate_(United_States),
+  https://www.pmgnotes.com/news/article/6483/Iconic-and-Artistic-Large-Size-US-Banknotes/,
+  https://coinweek.com/a-closer-look-at-the-series-of-1918-2-battleship-note,
+  https://www.greysheet.com/glossary-of-numismatic-terms/T
