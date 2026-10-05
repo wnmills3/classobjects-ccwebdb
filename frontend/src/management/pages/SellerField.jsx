@@ -58,8 +58,7 @@ export default function SellerField({ value, onChange }) {
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
         />
         <input
-          type="url"
-          placeholder="Store web address or mailto:"
+          placeholder="Store web address or email"
           value={draft.store_url}
           onChange={(e) => setDraft({ ...draft, store_url: e.target.value })}
         />

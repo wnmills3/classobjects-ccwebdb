@@ -106,13 +106,41 @@ def test_a_seller_reached_by_mail_has_a_mailto_store(
 def test_a_mailto_store_must_name_a_mail_address(
     client: TestClient, admin_headers: dict[str, str]
 ) -> None:
-    for store in ("mailto:", "mailto:nobody", "mailto:a b@example.com", "a@b.com"):
+    for store in (
+        "mailto:",
+        "mailto:nobody",
+        "mailto:a b@example.com",
+        "nobody",
+        "a b@example.com",
+        "javascript:alert(1)@example.com",
+    ):
         res = client.post(
             "/api/sellers",
             json={"name": "x", "store_url": store},
             headers=admin_headers,
         )
         assert res.status_code == 422, store
+
+
+def test_a_mail_address_typed_alone_is_stored_as_mailto(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    made = client.post(
+        "/api/sellers",
+        json={"name": "by_mail", "store_url": " coins@example.com "},
+        headers=admin_headers,
+    )
+    assert made.status_code == 201, made.text
+    assert made.json()["store_url"] == "mailto:coins@example.com"
+
+    seller = _seller(db)
+    moved = client.patch(
+        f"/api/sellers/{seller.id}",
+        json={"store_url": "dog@example.com"},
+        headers=admin_headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["store_url"] == "mailto:dog@example.com"
 
 
 def test_a_listing_address_is_never_a_mailto() -> None:
