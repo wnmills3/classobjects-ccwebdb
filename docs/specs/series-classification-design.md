@@ -20,7 +20,15 @@ two batch passes that staff run and review:
   SILVER DOLLAR"). It matches **coins only, against coin designs**; ambiguous
   names (Barber, Seated Liberty, Indian Head, Liberty Head) need the
   denomination to decide, and an item whose denomination is unknown is left
-  alone.
+  alone. **A name is not believed against the item's own year**: for an item
+  of a single year, a design not struck that year (by its year ranges, else
+  its span) is dropped from what the text names. "National Parks Quarter" on
+  a piece dated 2005 is not an America the Beautiful quarter; a 1946 piece
+  called "Commemorative" can only be the half dollar. An item left with no
+  name is counted *contradicted* and stays unclassified, for
+  `series_classify` to list as a conflict. A range of years rules nothing
+  out. "Franklin" followed by "Mint" names the private mint, not the half
+  dollar.
 - `app.series_classify` assigns from the facts -- denomination, year and, for
   a note, series letter -- and is the only pass that classifies notes.
 

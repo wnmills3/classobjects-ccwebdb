@@ -410,6 +410,55 @@ def test_a_coin_saying_hawaii_is_not_a_hawaii_note(
     assert _series_code(db, quarter) == "state_quarters"
 
 
+def test_a_franklin_mint_piece_is_not_a_franklin_half(
+    db: Session, make_item: ItemFactory
+) -> None:
+    medal = make_item(title="Franklin Mint Sterling Medal", year_start=1950)
+    half = make_item(title="1950 Franklin Half", year_start=1950)
+
+    stats = match_run(db, commit=True)
+
+    assert _series_code(db, medal) is None
+    assert _series_code(db, half) == "franklin_half"
+    assert stats["contradicted"] == 0
+
+
+def test_a_name_the_items_year_rules_out_is_not_believed(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """America the Beautiful quarters began in 2010."""
+    early = _coin(db, make_item, QUARTER, 2005, title="National Parks Quarter")
+    real = _coin(db, make_item, QUARTER, 2012, title="National Park Quarter")
+    # Morgans were not struck between 1904 and 1921: a gap, not just two ends.
+    gap = _coin(db, make_item, DOLLAR, 1910, title="Morgan Silver Dollar")
+
+    stats = match_run(db, commit=True)
+
+    assert _series_code(db, early) is None
+    assert _series_code(db, gap) is None
+    assert _series_code(db, real) == "atb_quarters"
+    assert stats["contradicted"] == 2
+    assert stats["matched"] == 1
+
+
+def test_a_range_of_years_rules_no_name_out(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A lot of 1878-1935 dollars described as Morgans is not contradicted."""
+    lot = make_item(
+        title="Lot of Morgan Dollars",
+        denomination_id=code_id(db, Denomination, DOLLAR),
+        year_start=1878,
+        year_end=1935,
+    )
+    undated = make_item(title="Morgan Dollar, date worn off", year_start=None)
+
+    match_run(db, commit=True)
+
+    assert _series_code(db, lot) == "morgan_dollar"
+    assert _series_code(db, undated) == "morgan_dollar"
+
+
 def test_series_match_leaves_notes_to_the_facts(
     db: Session, make_item: ItemFactory
 ) -> None:
