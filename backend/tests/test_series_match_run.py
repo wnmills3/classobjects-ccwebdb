@@ -52,8 +52,11 @@ def test_a_nickname_covering_two_series_is_left_alone(
     db: Session, make_item: ItemFactory
 ) -> None:
     # "Cartwheel" is any large silver dollar, so it names both the Morgan and
-    # the Peace. Two candidates is a mixed lot, not a classification.
-    item = make_item(title="Cartwheel", description="A big silver dollar.")
+    # the Peace. Two candidates is a mixed lot, not a classification. Dated
+    # 1921, when both were struck: in any other year the date would decide.
+    item = make_item(
+        title="Cartwheel", description="A big silver dollar.", year_start=1921
+    )
 
     stats = run(db, commit=True)
 

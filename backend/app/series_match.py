@@ -19,6 +19,11 @@ it would be inherited by every price lookup made against it.
 Matches are recorded as `derived`, never `manual`, so a later hand correction
 outranks this and is never overwritten by a re-run.
 
+**A name is not believed against the item's own year.** "National Parks
+Quarter" on a piece dated 2005 is not an America the Beautiful quarter, which
+began in 2010; such an item is left unclassified and counted, for
+`app.series_classify` to show as a conflict.
+
 Only coins (and the other non-note kinds) are matched here, and only against
 coin designs. Notes are classified by `app.series_classify`, which checks the
 facts as well as the text.
@@ -32,7 +37,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -50,7 +55,9 @@ from .models import (
     ItemKind,
     ProvenanceSource,
     Series,
+    SeriesYearRange,
 )
+from .years import single_year
 
 #: Terms that identify a series only once the denomination is known. The value
 #: maps a denomination's code to the series code the term then means. The
@@ -85,7 +92,8 @@ EXTRA: dict[str, list[str]] = {
     "atb_quarters": [r"america\s+the\s+beautiful", r"national\s+park"],
     "morgan_dollar": [r"\bmorgan\b"],
     "peace_dollar": [r"peace\s+(silver\s+)?dollar"],
-    "franklin_half": [r"\bfranklin\b"],
+    # The Franklin Mint struck medals and ingots, not Franklin halves.
+    "franklin_half": [r"\bfranklin\b(?!\s+mint\b)"],
     "kennedy_half": [r"\bkennedy\b"],
     "roosevelt_dime": [r"\broosevelt\b"],
     "jefferson_nickel": [r"\bjefferson\b"],
@@ -188,16 +196,57 @@ def match(
     return found
 
 
+#: The years each design was struck, as `(first, last)` spans by series
+#: code; a `last` of None is still struck.
+Years = dict[str, list[tuple[int, int | None]]]
+
+
+def design_years(db: Session) -> Years:
+    """When each design was struck: its year ranges, else its own span.
+
+    A design with neither has no entry, and is struck in any year as far as
+    this module knows.
+    """
+    years: Years = defaultdict(list)
+    ranged = db.execute(
+        select(Series.code, SeriesYearRange.year_start, SeriesYearRange.year_end).join(
+            SeriesYearRange, SeriesYearRange.series_id == Series.id
+        )
+    )
+    for code, start, end in ranged:
+        years[code].append((start, end))
+    for code, start, end in db.execute(
+        select(Series.code, Series.year_start, Series.year_end)
+    ):
+        if code not in years and start is not None:
+            years[code].append((start, end))
+    return dict(years)
+
+
+def struck_in(years: Years, series_code: str, year: int) -> bool:
+    """Whether a design was struck in `year`, as far as its years are known."""
+    spans = years.get(series_code)
+    if not spans:
+        return True
+    return any(start <= year and (end is None or year <= end) for start, end in spans)
+
+
 def _classify(
-    items: Sequence[Any], rules: list[Rule], ids: dict[str, int]
+    items: Sequence[Any], rules: list[Rule], ids: dict[str, int], years: Years
 ) -> tuple[dict[int, int], Counter]:
     """Which series each item earns, and the tally of how it went."""
     stats: Counter = Counter()
     assignments: dict[int, int] = {}
-    for item_id, description, title, denomination, item_kind in items:
+    for item_id, description, title, denomination, item_kind, start, end in items:
         text = f"{title or ''} {description or ''}"
-        found = match(text, denomination, rules, inventory_of(item_kind))
-        if not found:
+        named = match(text, denomination, rules, inventory_of(item_kind))
+        # A piece of one year cannot be a design not struck that year. A
+        # range of years spans designs, so it rules nothing out.
+        year = single_year((start, end))
+        found = {code for code in named if year is None or struck_in(years, code, year)}
+        if named and not found:
+            stats["contradicted"] += 1
+        elif not found:
             stats["no_match"] += 1
         elif len(found) > 1:
             # Two series in one description is normal for a mixed lot and must
@@ -241,6 +290,8 @@ def run(db: Session, *, commit: bool) -> Counter:
             InventoryItem.source_title,
             Denomination.code,
             ItemKind.code,
+            InventoryItem.year_start,
+            InventoryItem.year_end,
         )
         .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
         .join(
@@ -263,7 +314,7 @@ def run(db: Session, *, commit: bool) -> Counter:
         )
     ).all()
 
-    assignments, stats = _classify(items, rules, ids)
+    assignments, stats = _classify(items, rules, ids, design_years(db))
     if commit and assignments:
         record_series(db, assignments)
         stats["written"] = len(assignments)
@@ -279,11 +330,11 @@ def main(argv: list[str] | None = None) -> int:
     with SessionLocal() as db:
         stats = run(db, commit=args.commit)
 
-    total = stats["matched"] + stats["ambiguous"] + stats["no_match"]
-    print(f"unclassified items examined: {total}")
-    for key in ("matched", "ambiguous", "no_match", "written"):
+    outcomes = ("matched", "ambiguous", "contradicted", "no_match")
+    print(f"unclassified items examined: {sum(stats[key] for key in outcomes)}")
+    for key in (*outcomes, "written"):
         if stats.get(key):
-            print(f"  {key:<10} {stats[key]}")
+            print(f"  {key:<12} {stats[key]}")
     if not args.commit:
         print("\n(dry run -- nothing written; pass --commit)")
     return 0
