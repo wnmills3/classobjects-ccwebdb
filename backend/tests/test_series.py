@@ -80,8 +80,27 @@ def test_ambiguous_terms_need_a_denomination(db: Session) -> None:
     """
     rules = build_rules(db)
     assert match("1899 Barber coin", None, rules) == set()
-    assert match("1899 Barber coin", "Quarter", rules) == {"barber_quarter"}
-    assert match("1899 Barber coin", "Dime", rules) == {"barber_dime"}
+    assert match("1899 Barber coin", "usd_coin_0_25", rules) == {"barber_quarter"}
+    assert match("1899 Barber coin", "usd_coin_0_10", rules) == {"barber_dime"}
+
+
+def test_an_ambiguous_term_is_decided_by_the_denomination_not_its_wording(
+    db: Session,
+) -> None:
+    """Five cents is not a cent, whatever the five-cent piece is called.
+
+    Read from the label, "Indian Head" on a coin whose denomination is worded
+    "Five Cents" would be an Indian Head cent, and on a half cent, two, three
+    or twenty cents too.
+    """
+    rules = build_rules(db)
+    assert match("1913 Indian Head", "usd_coin_0_05", rules) == {"indian_head_nickel"}
+    assert match("1899 Indian Head", "usd_coin_0_01", rules) == {"indian_head_cent"}
+    for other in ("usd_coin_0_005", "usd_coin_0_02", "usd_coin_0_03", "usd_coin_0_20"):
+        assert match("Indian Head", other, rules) == set(), other
+    # A half cent, half dime or half eagle is not a half dollar.
+    assert match("Seated Liberty", "usd_coin_0_005", rules) == set()
+    assert match("Seated Liberty", "usd_coin_5_00", rules) == set()
 
 
 def test_two_series_in_one_description_stays_ambiguous(db: Session) -> None:

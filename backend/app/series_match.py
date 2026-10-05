@@ -53,26 +53,27 @@ from .models import (
 )
 
 #: Terms that identify a series only once the denomination is known. The value
-#: maps a denomination code fragment to the series code the term then means.
+#: maps a denomination's code to the series code the term then means. The
+#: code, never the label: a label is reworded freely, and one read for the
+#: word in it would take "Five Cents" for a cent.
 AMBIGUOUS: dict[str, dict[str, str]] = {
     "barber": {
-        "dime": "barber_dime",
-        "quarter": "barber_quarter",
-        "half": "barber_half",
+        "usd_coin_0_10": "barber_dime",
+        "usd_coin_0_25": "barber_quarter",
+        "usd_coin_0_50": "barber_half",
     },
     "seated liberty": {
-        "dime": "seated_liberty_dime",
-        "quarter": "seated_liberty_quarter",
-        "half": "seated_liberty_half",
-        "dollar": "seated_liberty_dollar",
+        "usd_coin_0_10": "seated_liberty_dime",
+        "usd_coin_0_25": "seated_liberty_quarter",
+        "usd_coin_0_50": "seated_liberty_half",
+        "usd_coin_1_00": "seated_liberty_dollar",
     },
     "indian head": {
-        "cent": "indian_head_cent",
-        "penny": "indian_head_cent",
-        "nickel": "indian_head_nickel",
+        "usd_coin_0_01": "indian_head_cent",
+        "usd_coin_0_05": "indian_head_nickel",
     },
     "liberty head": {
-        "nickel": "liberty_head_nickel",
+        "usd_coin_0_05": "liberty_head_nickel",
     },
 }
 
@@ -165,7 +166,10 @@ def match(
     rules: list[Rule],
     inventory: str = "coin",
 ) -> set[str]:
-    """Every series code this description could mean, for that inventory."""
+    """Every series code this description could mean, for that inventory.
+
+    `denomination` is the item's denomination code, or None when it has none.
+    """
     found = {
         rule.series_code
         for rule in rules
@@ -178,12 +182,9 @@ def match(
     for pattern, by_denomination in _AMBIGUOUS_PATTERNS:
         if not pattern.search(text):
             continue
-        if not denomination:
-            continue
-        for fragment, series_code in by_denomination.items():
-            if fragment in denomination.lower():
-                found.add(series_code)
-                break
+        series_code = by_denomination.get(denomination or "")
+        if series_code is not None:
+            found.add(series_code)
     return found
 
 
@@ -238,7 +239,7 @@ def run(db: Session, *, commit: bool) -> Counter:
             InventoryItem.id,
             InventoryItem.description,
             InventoryItem.source_title,
-            Denomination.label,
+            Denomination.code,
             ItemKind.code,
         )
         .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
