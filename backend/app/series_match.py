@@ -19,10 +19,11 @@ it would be inherited by every price lookup made against it.
 Matches are recorded as `derived`, never `manual`, so a later hand correction
 outranks this and is never overwritten by a re-run.
 
-**A name is not believed against the item's own year.** "National Parks
-Quarter" on a piece dated 2005 is not an America the Beautiful quarter, which
-began in 2010; such an item is left unclassified and counted, for
-`app.series_classify` to show as a conflict.
+**A name is not believed against the item's own year or denomination.**
+"National Parks Quarter" on a piece dated 2005 is not an America the
+Beautiful quarter, which began in 2010, and "$5 Commemorative" on a half
+eagle is not a commemorative half dollar; such an item is left unclassified
+and counted, for a person to look at.
 
 Only coins (and the other non-note kinds) are matched here, and only against
 coin designs. Notes are classified by `app.series_classify`, which checks the
@@ -223,6 +224,28 @@ def design_years(db: Session) -> Years:
     return dict(years)
 
 
+def design_denominations(db: Session) -> dict[str, set[str]]:
+    """The denominations each design was struck in, by series code.
+
+    Its own, and any its year ranges name. A design struck in several faces
+    with none recorded -- the bullion and early gold designs -- has no entry,
+    and fits any denomination as far as this module knows.
+    """
+    faces: dict[str, set[str]] = defaultdict(set)
+    own = select(Series.code, Denomination.code).join(
+        Denomination, Denomination.id == Series.denomination_id
+    )
+    ranged = (
+        select(Series.code, Denomination.code)
+        .join(SeriesYearRange, SeriesYearRange.series_id == Series.id)
+        .join(Denomination, Denomination.id == SeriesYearRange.denomination_id)
+    )
+    for stmt in (own, ranged):
+        for code, denomination in db.execute(stmt):
+            faces[code].add(denomination)
+    return dict(faces)
+
+
 def struck_in(years: Years, series_code: str, year: int) -> bool:
     """Whether a design was struck in `year`, as far as its years are known."""
     spans = years.get(series_code)
@@ -232,7 +255,11 @@ def struck_in(years: Years, series_code: str, year: int) -> bool:
 
 
 def _classify(
-    items: Sequence[Any], rules: list[Rule], ids: dict[str, int], years: Years
+    items: Sequence[Any],
+    rules: list[Rule],
+    ids: dict[str, int],
+    years: Years,
+    faces: dict[str, set[str]],
 ) -> tuple[dict[int, int], Counter]:
     """Which series each item earns, and the tally of how it went."""
     stats: Counter = Counter()
@@ -240,10 +267,19 @@ def _classify(
     for item_id, description, title, denomination, item_kind, start, end in items:
         text = f"{title or ''} {description or ''}"
         named = match(text, denomination, rules, inventory_of(item_kind))
-        # A piece of one year cannot be a design not struck that year. A
-        # range of years spans designs, so it rules nothing out.
+        # A piece of one year cannot be a design not struck that year, nor a
+        # piece of one denomination a design struck in others. A range of
+        # years spans designs, so it rules nothing out; nor does a
+        # denomination left empty.
         year = single_year((start, end))
-        found = {code for code in named if year is None or struck_in(years, code, year)}
+        found = {
+            code
+            for code in named
+            if (year is None or struck_in(years, code, year))
+            and (
+                denomination is None or code not in faces or denomination in faces[code]
+            )
+        }
         if named and not found:
             stats["contradicted"] += 1
         elif not found:
@@ -314,7 +350,9 @@ def run(db: Session, *, commit: bool) -> Counter:
         )
     ).all()
 
-    assignments, stats = _classify(items, rules, ids, design_years(db))
+    assignments, stats = _classify(
+        items, rules, ids, design_years(db), design_denominations(db)
+    )
     if commit and assignments:
         record_series(db, assignments)
         stats["written"] = len(assignments)

@@ -20,9 +20,12 @@ two batch passes that staff run and review:
   SILVER DOLLAR"). It matches **coins only, against coin designs**; ambiguous
   names (Barber, Seated Liberty, Indian Head, Liberty Head) need the
   denomination to decide, and an item whose denomination is unknown is left
-  alone. **A name is not believed against the item's own year**: for an item
-  of a single year, a design not struck that year (by its year ranges, else
-  its span) is dropped from what the text names. "National Parks Quarter" on
+  alone. **A name is not believed against the item's own year or
+  denomination**: for an item of a single year, a design not struck that year
+  (by its year ranges, else its span) is dropped from what the text names,
+  and so is a design struck in other denominations than the item's ("$5
+  Commemorative" on a half eagle is not a commemorative half dollar; a design
+  with no denomination recorded fits any). "National Parks Quarter" on
   a piece dated 2005 is not an America the Beautiful quarter; a 1946 piece
   called "Commemorative" can only be the half dollar. An item left with no
   name is counted *contradicted* and stays unclassified, for

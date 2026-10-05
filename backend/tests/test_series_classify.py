@@ -441,6 +441,27 @@ def test_a_name_the_items_year_rules_out_is_not_believed(
     assert stats["matched"] == 1
 
 
+def test_a_name_the_items_denomination_rules_out_is_not_believed(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A commemorative half dollar is a half dollar."""
+    five = _coin(db, make_item, "usd_coin_5_00", 1986, title="$5 Commemorative")
+    half = _coin(db, make_item, "usd_coin_0_50", 1986, title="Commemorative")
+    # No denomination recorded: the name stands on the year alone, and no
+    # commemorative dollar was struck in 1946.
+    bare = make_item(title="Commemorative Half Dollar", year_start=1946)
+    # A design recorded with no denomination fits any.
+    eagle = _coin(db, make_item, DOLLAR, 1998, title="American Silver Eagle")
+
+    stats = match_run(db, commit=True)
+
+    assert _series_code(db, five) is None
+    assert _series_code(db, half) == "commemorative_half"
+    assert _series_code(db, bare) == "commemorative_half"
+    assert _series_code(db, eagle) == "american_silver_eagle"
+    assert stats["contradicted"] == 1
+
+
 def test_a_range_of_years_rules_no_name_out(
     db: Session, make_item: ItemFactory
 ) -> None:
