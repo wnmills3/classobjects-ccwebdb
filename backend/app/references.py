@@ -34,7 +34,14 @@ from sqlalchemy.orm import Session
 
 from .models import ReferenceMixin
 
-__all__ = ["code_of", "code_to_id", "id_to_code", "require_code", "retirable"]
+__all__ = [
+    "code_of",
+    "code_to_id",
+    "extendable",
+    "id_to_code",
+    "require_code",
+    "retirable",
+]
 
 #: Vocabularies the application branches on value by value -- a status, a
 #: kind, a strike -- and single values it looks up by code. Any of them may be
@@ -86,6 +93,16 @@ def retirable(table: str, code: str) -> bool:
     value, which breaks a lookup by its code just as retiring it would.
     """
     return table not in _CODE_KEYED_TABLES and (table, code) not in _CODE_KEYED_VALUES
+
+
+def extendable(table: str) -> bool:
+    """Whether a value may be added to a vocabulary; see _CODE_KEYED_TABLES.
+
+    The application acts on each value of those by its code, so one it has
+    never heard of would be a status no screen moves an item out of, or a
+    kind no form has fields for.
+    """
+    return table not in _CODE_KEYED_TABLES
 
 
 def code_to_id(

@@ -19,14 +19,21 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, UniqueConstraint, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from .. import aliases, reference_merge, sale_state
 from ..deps import AdminUser, DbSession
 from ..inventory_search import plain
 from ..models import REFERENCE_MODELS, InventoryItem, ProvenanceSource, ReferenceMixin
-from ..references import retirable
+from ..reference_fields import (
+    FieldError,
+    column_values,
+    derived_code,
+    fields_of,
+    table_of,
+)
+from ..references import extendable, retirable
 from ..schemas import (
     ReferenceAliasIn,
     ReferenceMergeIn,
@@ -180,6 +187,8 @@ def get_table(
             for row in rows
         ],
         sequenced=table in _SEQUENCED_TABLES,
+        fields=fields_of(model),
+        addable=extendable(table),
     )
 
 
@@ -209,6 +218,26 @@ def _limit_to_year(
 
 def _model_or_404(table: str) -> type[ReferenceMixin]:
     return found_or_404(TABLES.get(table), f"Unknown reference table: {table!r}")
+
+
+#: The width of every vocabulary's `code` column.
+_CODE_LENGTH = 64
+
+
+def _unique_columns(model: type[ReferenceMixin], exc: IntegrityError) -> list[str]:
+    """The columns of the uniqueness rule a refused row broke, or none.
+
+    Named as the API names them, so the message reads as the form does:
+    `currency, face_value, kind` for a second denomination of one face value.
+    """
+    name = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+    for constraint in table_of(model).constraints:
+        if isinstance(constraint, UniqueConstraint) and constraint.name == name:
+            return [
+                column.name.removesuffix("_id") if column.foreign_keys else column.name
+                for column in constraint.columns
+            ]
+    return []
 
 
 @router.post(
@@ -246,36 +275,52 @@ def create_value(
     vocabulary.
     """
     model = _model_or_404(table)
-
-    if db.scalar(select(model).where(model.code == payload.code)) is not None:
+    if not extendable(table):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"{table} already has a value with code {payload.code!r}",
+            detail=f"Nothing can be added to {table}: the application acts on "
+            "each of its values by code. A value can still be renamed.",
         )
 
-    known = {c.name for c in model.__table__.columns}
-    unknown = set(payload.extra) - known
-    if unknown:
+    label = " ".join(payload.label.split())
+    if not label:
+        raise HTTPException(status_code=422, detail="A label needs some text.")
+    try:
+        values = column_values(db, model, payload.extra)
+    except FieldError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    code = payload.code or derived_code(db, model, label, values)
+    if not code or len(code) > _CODE_LENGTH:
         raise HTTPException(
             status_code=422,
-            detail=f"{table} has no column(s) {sorted(unknown)}. "
-            f"Available: {sorted(known - {'id'})}",
+            detail=f"{label!r} gives no usable code; send one of at most "
+            f"{_CODE_LENGTH} characters.",
+        )
+    if db.scalar(select(model).where(model.code == code)) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{table} already has a value with code {code!r}",
         )
 
     row = model(
-        code=payload.code,
-        label=payload.label,
+        code=code,
+        label=label,
         sort_order=payload.sort_order,
         source=ProvenanceSource.manual,
-        **payload.extra,
+        **values,
     )
     db.add(row)
     try:
         db.flush()
     except IntegrityError as exc:
         db.rollback()
-        # Most often a NOT NULL column this table needs and the caller did not
-        # supply -- a denomination without a currency, say.
+        same = _unique_columns(model, exc)
+        if same:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{table} already has a value with the same {', '.join(same)}.",
+            ) from exc
         raise HTTPException(
             status_code=422,
             detail=f"{table} rejected the value: {exc.orig}",

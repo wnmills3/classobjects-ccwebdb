@@ -41,11 +41,13 @@ carry, which `GET /api/friedberg/signatures` answers from the issue facts.
 
 ## The Vocabularies page
 
-The console's Vocabularies page (`management/pages/Vocabularies.jsx`) maintains
-existing values. It does not create them; see *Adding a value while entering*.
+The console's Vocabularies page (`management/pages/Vocabularies.jsx`) adds
+values and maintains existing ones, for every vocabulary, so none of them
+needs the database edited by hand.
 
 | Action | Endpoint | Rule |
 |---|---|---|
+| **Add a value...** | `POST /api/reference/{table}` | See *Adding a value on the Vocabularies page*. |
 | **Rename** | `PATCH /api/reference/{table}/{code}` | The label only. The code is the contract (saved filters, bookmarks, integrations) and never changes. Nothing migrates: records refer by foreign key. |
 | **Move** (sequenced tables only) | same, with `sort_order` | Changes the value's position; the page shows a Position column for a sequenced vocabulary. |
 | **Retire / restore** | same, with `is_active` | Takes the value out of the pickers; every record using it stays as it is. Refused (409) for a value the application looks up by code: the tables in `_CODE_KEYED_TABLES` (statuses, dispositions, strike type, item kind, fee kind and other lifecycles) and the single values in `_CODE_KEYED_VALUES` (country `US`, note class `frn`, the photo roles a photograph's filename names, and a few more), both in `app/references.py`. Each value carries `retirable` so the page can say so up front. Such a value can still be renamed. |
@@ -110,10 +112,51 @@ contradicts the item's kind is a 422 naming the items, on create, edit and bulk
 edit, before anything is written. The screens will not offer it; the guard is
 for a stale tab or a script.
 
+## Adding a value on the Vocabularies page
+
+**Add a value...** opens a form (`VocabularyAddForm.jsx`) built from what the
+server says the vocabulary needs. `GET /api/reference/{table}` carries:
+
+- `fields` -- the vocabulary's own columns beyond code, label and position
+  (`app/reference_fields.py`, read from the model, so a vocabulary that gains
+  a column gains a box). Each has a `name`, a `label`, `required`, and a
+  `kind`: `text` (with `max_length`), `integer`, `decimal`, `boolean`,
+  `choice` (one of `choices`) or `reference` (a code from `table`). A
+  generated column is not listed. A denomination's are `currency`
+  (reference), `face_value` (decimal) and `kind` (`coin` or `note`), all
+  required; most vocabularies have none.
+- `addable` -- false for the tables in `_CODE_KEYED_TABLES`
+  (`references.extendable`). The application acts on each of their values by
+  code, so one added would be a status no screen moves an item out of. The
+  page says so in place of the button, and the POST answers 409.
+
+`POST /api/reference/{table}` takes `label`, optional `code`, optional
+`sort_order` (asked for only where the vocabulary is sequenced; 500 when
+absent) and `extra`, keyed by field `name`:
+
+- A column that refers to another vocabulary is sent as that value's code
+  under the column's name less `_id` (`currency: "USD"`), the form the value
+  comes back in.
+- Each value is read for its column: a whole number, a decimal that is a
+  finite number, true or false, one of the choices, text no longer than the
+  column. Anything else, a name the vocabulary has no column for, or a
+  required column left out, is a 422 naming the field. A blank is the same
+  as leaving the column out.
+- **The code is worked out when none is sent.** A denomination's says what it
+  is, as the shipped ones do -- `usd_coin_0_03`, `usd_note_5000` -- and any
+  other is named for its label (`Collector's Set` -> `collectors_set`). 409
+  when the code is taken, 422 when the label gives none.
+- A row that breaks a uniqueness rule is a 409 naming its columns: a second
+  denomination of one currency, face value and side is refused, since a face
+  value is one denomination however many designs carry it.
+
+The value is recorded `manual`. The page lists it where the server sorts it
+and tells the pickers their copy is stale.
+
 ## Adding a value while entering
 
-New values are created from a field's picker: "+ Add a new value..." at the
-foot of a `ReferenceSelect`, which posts to `POST /api/reference/{table}`
+A value can also be created from a field's picker: "+ Add a new value..." at
+the foot of a `ReferenceSelect`, which posts to the same endpoint
 (staff only, recorded `manual`, so additions stay distinguishable from the
 shipped vocabulary and are left out of an export by default). A picker whose
 values the code branches on, or that an add-by-label form cannot describe,
@@ -126,7 +169,7 @@ does not offer it (`allowAdd={false}`):
 - Receiving's Identify: denomination.
 
 A denomination is a face value with a currency and a side, which a label
-alone cannot give it.
+alone cannot give it: it is added on the Vocabularies page.
 
 For attributes and error types the add form asks for **a label only**
 (`labelOnly`):

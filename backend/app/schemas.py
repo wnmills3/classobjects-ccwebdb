@@ -680,11 +680,33 @@ class ReferenceValueOut(BaseModel):
     retired_aliases: list[str] = Field(default_factory=list)
 
 
+class ReferenceFieldOut(BaseModel):
+    """One of a vocabulary's own columns, as a form asks for it."""
+
+    #: The key it is sent under in `extra`. A column naming another
+    #: vocabulary goes by that column's name less `_id`, and takes a code.
+    name: str
+    label: str
+    #: `text`, `integer`, `decimal`, `boolean`, `choice` (one of `choices`)
+    #: or `reference` (a code from `table`).
+    kind: str
+    #: A value cannot be added without it.
+    required: bool = False
+    choices: list[str] = Field(default_factory=list)
+    table: str | None = None
+    max_length: int | None = None
+
+
 class ReferenceTableOut(BaseModel):
     """One vocabulary, ordered as a picker should show it."""
 
     table: str
     values: list[ReferenceValueOut]
+    #: The vocabulary's own columns, beyond code, label and position.
+    fields: list[ReferenceFieldOut] = Field(default_factory=list)
+    #: False for a vocabulary the application acts on value by value: one
+    #: added to it would be a value nothing knows what to do with.
+    addable: bool = True
     #: True when the values are in a meaningful order (`sort_order`) rather
     #: than alphabetical: grades, denominations, lifecycles. The Vocabularies
     #: page offers to change the order only for these.
@@ -1530,10 +1552,16 @@ class ReferenceValueCreate(BaseModel):
     shipped catalog and are excluded from an export by default.
     """
 
-    code: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_+./-]+$")
+    #: Left out, the value is given one: named for its label, or for what it
+    #: is where the vocabulary's codes say that (a denomination's).
+    code: str | None = Field(
+        default=None, min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_+./-]+$"
+    )
     label: str = Field(min_length=1, max_length=255)
-    sort_order: int = 500
-    #: Columns specific to the table, such as a denomination's face value.
+    #: Bounded to the column's own range, as a move's is.
+    sort_order: int = Field(default=500, ge=0, le=2**31 - 1)
+    #: Columns specific to the table, such as a denomination's face value. One
+    #: naming another vocabulary takes that value's code: `currency: "USD"`.
     extra: dict[str, object] = Field(default_factory=dict)
 
 

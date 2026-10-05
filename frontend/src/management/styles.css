@@ -214,6 +214,13 @@
   max-width: 30rem;
   padding-left: 0.6rem;
 }
+/* The form a value is added with, above the vocabulary's table. */
+.vocabulary-add {
+  border-left: 3px solid #b8860b;
+  margin-bottom: 0.75rem;
+  max-width: 60rem;
+  padding-left: 0.6rem;
+}
 /* Rename and Retire, under a value's label. */
 .value-actions {
   display: flex;
