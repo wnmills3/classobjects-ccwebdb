@@ -224,7 +224,7 @@ that actually sold the pieces. One seller sells many purchases.
 | `seller` | Notes |
 |---|---|
 | `name` | unique (`uq_seller_name`); the API also refuses a name that differs only in case |
-| `store_url` | their store or profile page (http(s)), or a `mailto:` address |
+| `store_url` | their store or profile page (http(s)), or a `mailto:` address (a mail address typed alone is stored as one) |
 
 | `purchase_order` | Notes |
 |---|---|

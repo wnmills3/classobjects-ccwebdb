@@ -1599,21 +1599,27 @@ class ReferenceAliasIn(BaseModel):
 # --------------------------------------------------------------------------
 
 _STORE_ADDRESS = re.compile(r"^(https?://|mailto:[^\s@]+@[^\s@]+$)", re.IGNORECASE)
+_MAIL_ADDRESS = re.compile(r"^[^\s@:/]+@[^\s@:/]+$")
 
 
 def _store_address_or_none(value: str | None) -> str | None:
-    """Trimmed; blank is None; otherwise an http(s) or a `mailto:` address."""
+    """Trimmed; blank is None; otherwise an http(s) or a `mailto:` address.
+
+    A mail address typed alone is stored as its `mailto:` form.
+    """
     address = _strip_or_none(value)
-    if address is not None and not _STORE_ADDRESS.match(address):
-        raise ValueError(
-            "must start with http:// or https://, or be mailto: and a mail address"
-        )
+    if address is None:
+        return None
+    if _MAIL_ADDRESS.match(address):
+        return f"mailto:{address}"
+    if not _STORE_ADDRESS.match(address):
+        raise ValueError("must be a mail address, or start with http:// or https://")
     return address
 
 
 #: Where a seller is reached: their store or profile page, or -- for one who
-#: sells by mail -- a `mailto:` address. Nothing else, so it can be offered
-#: as a link; blank clears it.
+#: sells by mail -- a `mailto:` address, which a mail address typed alone
+#: becomes. Nothing else, so it can be offered as a link; blank clears it.
 StoreUrl = Annotated[
     str | None, Field(max_length=1000), AfterValidator(_store_address_or_none)
 ]
