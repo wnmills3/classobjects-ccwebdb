@@ -1149,8 +1149,17 @@ Read-only, like everything here, so there is no `--commit`.
 
 Classifiers -- grades, mints, denominations, metals and the rest -- are rows
 in reference tables, not free text. Values are added from the dropdown where
-they are needed, and renamed, retired, merged or reordered on the
-**Vocabularies** page (`/management/vocabularies`), which does not create values.
+they are needed, or on the **Vocabularies** page
+(`/management/vocabularies`), which also renames, retires, merges and
+reorders them.
+
+- **Add a value...** asks for a label and whatever the vocabulary's values
+  need: a denomination's currency, face value and whether it is a coin or a
+  note; a mint's mark. Position, where the vocabulary is in a meaningful
+  order, is a number between the positions shown in the list (Cent is 10 and
+  Nickel 20, so Three Cents goes at 15). The code is worked out unless one is
+  typed. Nothing can be added to a vocabulary the application acts on value
+  by value -- statuses, kinds, dispositions -- and the page says so.
 
 - **Rename** changes the label, which is what people read. The code never
   changes: saved searches, the data and the API use it. A renamed value is

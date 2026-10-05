@@ -30,8 +30,8 @@ the Friedberg numbers in the system are ones the owner records.
 **Vocabularies grow with use.** A value missing from a picker is added from the
 picker ("+ Add a new value...") and marked `manual`, which keeps one
 installation's additions out of what is shipped. The **Vocabularies** page
-(`/management/vocabularies`) renames, retires, merges and adds aliases; it
-does not create values. The **Lists** page (`/management/lists`) corrects and
+(`/management/vocabularies`) adds a value to any vocabulary, with the columns
+that are its own, and renames, retires, merges and adds aliases. The **Lists** page (`/management/lists`) corrects and
 prunes the owner-kept lists that are not vocabularies: Friedberg numbers,
 sellers, vendors and storage locations.
 

@@ -3,9 +3,15 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { ReferenceContext } from '../../shared/reference-context'
 import { findEntries } from '../../shared/reference-match'
+import VocabularyAddForm from './VocabularyAddForm'
 
 /**
  * The classifier vocabularies: their values' names, and other names for them.
+ *
+ * A value can be added, with whatever is the vocabulary's own -- a
+ * denomination's currency, face value and side -- except to a vocabulary the
+ * application acts on value by value (a status, a kind), where one it has
+ * never heard of would do nothing.
  *
  * A value can be renamed -- the label is what people read; the code, which
  * saved searches and the data use, never changes -- and retired, which takes
@@ -382,8 +388,10 @@ export default function Vocabularies() {
   const [tablesError, setTablesError] = useState('')
   const [reloads, setReloads] = useState(0)
   const [notice, setNotice] = useState('')
+  const [adding, setAdding] = useState(false)
   const values = loaded.table === table ? loaded.values : null
   const sequenced = loaded.table === table && loaded.sequenced
+  const addable = loaded.table === table && loaded.addable
   const error = tablesError || (loaded.table === table ? loaded.error : '')
 
   useEffect(() => {
@@ -403,6 +411,8 @@ export default function Vocabularies() {
             table,
             values: body.values,
             sequenced: Boolean(body.sequenced),
+            fields: body.fields ?? [],
+            addable: body.addable !== false,
             error: '',
           })
       })
@@ -439,6 +449,14 @@ export default function Vocabularies() {
     context?.invalidate(table)
   }
 
+  function added(value) {
+    setAdding(false)
+    setNotice(`Added ${value.label} (${value.code}).`)
+    // Fetched again rather than slotted in: the server knows where it sorts.
+    setReloads((n) => n + 1)
+    context?.invalidate(table)
+  }
+
   const shown = useMemo(
     () => (values ? findEntries(values, find).map(({ entry }) => entry) : []),
     [values, find],
@@ -449,10 +467,11 @@ export default function Vocabularies() {
     <section>
       <h1>Vocabularies</h1>
       <p className="muted">
-        Rename a value, retire one that should no longer be offered, and give values
-        other names. Search and the pickers both recognize an alias, and a shared alias
-        finds every value that has it. Retiring leaves every record that uses the value
-        as it is.
+        Add a value, rename one, retire one that should no longer be offered, and give
+        values other names. Renaming changes only the label: the code, which records and
+        saved searches hold, stays as it is. Search and the pickers both recognize an
+        alias, and a shared alias finds every value that has it. Retiring leaves every
+        record that uses the value as it is.
       </p>
       {error && <p className="error">{error}</p>}
       {notice && <p className="notice">{notice}</p>}
@@ -464,6 +483,7 @@ export default function Vocabularies() {
             onChange={(e) => {
               setTable(e.target.value)
               setNotice('')
+              setAdding(false)
             }}
           >
             {(tables.length ? tables : [table]).map((name) => (
@@ -483,6 +503,27 @@ export default function Vocabularies() {
           />
         </label>
       </div>
+      {values !== null &&
+        (adding ? (
+          <VocabularyAddForm
+            table={table}
+            fields={loaded.fields}
+            sequenced={sequenced}
+            onAdded={added}
+            onCancel={() => setAdding(false)}
+          />
+        ) : addable ? (
+          <p>
+            <button type="button" onClick={() => setAdding(true)}>
+              Add a value...
+            </button>
+          </p>
+        ) : (
+          <p className="muted">
+            Nothing can be added to {table}: the application acts on each of its values
+            by code. A value can still be renamed.
+          </p>
+        ))}
       {values === null ? (
         !error && <p className="muted">Loading...</p>
       ) : (
