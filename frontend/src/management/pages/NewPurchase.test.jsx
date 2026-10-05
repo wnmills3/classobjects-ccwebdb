@@ -912,7 +912,7 @@ describe('NewPurchase: the seller', () => {
       '__add__',
     )
     await user.type(screen.getByPlaceholderText('Seller name'), ' newseller ')
-    await user.type(screen.getByPlaceholderText('Store web address'), STORE)
+    await user.type(screen.getByPlaceholderText('Store web address or mailto:'), STORE)
     await user.click(screen.getByRole('button', { name: 'Add seller' }))
 
     await waitFor(() =>
