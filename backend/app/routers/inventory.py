@@ -1213,6 +1213,7 @@ def item_detail(
                 "version",
                 "source_title",
                 "description",
+                "rating",
                 "year_start",
                 "year_end",
                 "no_date",
@@ -1783,6 +1784,7 @@ REQUIRED_CLASSIFIERS: frozenset[str] = frozenset(
 EDITABLE_SCALARS: tuple[str, ...] = (
     "source_title",
     "description",
+    "rating",
     "year_start",
     "year_end",
     "fineness",

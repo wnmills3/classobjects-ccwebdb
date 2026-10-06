@@ -141,7 +141,7 @@ One row per acquired item or lot.
 | `description` | text | what a person recognizes the item by |
 | `listing_url` | varchar(1000) null | the web address of the listing it was bought from; http(s) only when entered or edited |
 | `sellers_item_id` | varchar(64) null, indexed | the seller's own id for that listing -- eBay's item number; every piece of one listing carries it, and one listing can be bought in several orders, so **not unique** |
-| `rating` | text null | the owner's rating in their own words ("66EPQ Double Quad"); searched and read as evidence, never shown to a buyer |
+| `rating` | text null | the owner's rating in their own words ("66EPQ Double Quad"); searched and read as evidence, never shown to a buyer; shown and corrected in the item editor |
 | `weight_note` | text null | a weight as written where it is not a single number ("1 oz each") |
 | `item_cost`, `shipping_cost` | numeric(12,2) | cost basis inputs (§6) |
 | `tax_rate` | numeric(6,4) | stamped on insert (§6) |

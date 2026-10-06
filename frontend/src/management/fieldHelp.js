@@ -303,6 +303,14 @@ export const FIELD_HELP = {
       'and what makes the piece special first (fancy serial, errors), then what it ' +
       'is. It replaces the Description box; edit it before saving.',
   },
+  rating: {
+    title: 'Rating',
+    text:
+      'Your own words about the piece: its condition, grade and what makes it ' +
+      'special. Search reads it, and so do the rules that work out a design ' +
+      "series or a note's class, so a word that is wrong here should be " +
+      'corrected here. A buyer never sees it.',
+  },
   description: {
     title: 'Description',
     text:

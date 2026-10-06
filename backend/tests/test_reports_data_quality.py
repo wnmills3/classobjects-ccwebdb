@@ -1187,6 +1187,7 @@ def test_dq_series_review_lists_each_kind_of_case_the_pass_leaves(
     assert by_item[conflict.item_code]["denomination"] == "Dime"
     assert by_item[conflict.item_code]["year"] == "1942"
     assert by_item[conflict.item_code]["described"] == "1942 Morgan Dollar"
+    assert by_item[conflict.item_code]["rating"] == ""
     assert by_item[ruled_out.item_code]["series"] == "Morgan Dollar"
     assert by_item[boundary.item_code]["designs"] == "Morgan Dollar / Peace Dollar"
     assert result.drills == [
@@ -1255,3 +1256,24 @@ def test_dq_series_review_reads_a_note_by_its_series_year(db: Session) -> None:
         (note.item_code, "1923", "Funnyback")
     ]
     assert result.drills == [f"/inventory/currency?item_code={note.item_code}"]
+
+
+def test_dq_series_review_shows_the_rating_that_names_the_design(
+    db: Session,
+) -> None:
+    """The pass reads the rating; a design named only there must be visible."""
+    note = build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        denomination_id=code_id(db, Denomination, "usd_note_1"),
+        description="No Motto 1935 $1. Silver Certificate Blue Seal.",
+        rating="Funny Back",
+    )
+    db.add(CurrencyDetail(inventory_item_id=note.id, series_year=1935))
+    db.commit()
+
+    result = _review(db)
+
+    assert [(r["item"], r["designs"], r["rating"]) for r in result.rows] == [
+        (note.item_code, "Funnyback", "Funny Back")
+    ]

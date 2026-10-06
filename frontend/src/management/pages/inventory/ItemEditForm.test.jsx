@@ -541,6 +541,27 @@ describe('Mint and variety', () => {
     )
   })
 
+  it('shows the rating and saves a correction to it', async () => {
+    const user = userEvent.setup()
+    await open({ item_kind: 'currency', rating: 'Funny Back' })
+    const rating = screen.getByRole('textbox', { name: 'Rating' })
+    expect(rating).toHaveValue('Funny Back')
+
+    await user.clear(rating)
+    await user.type(rating, 'No Motto')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() =>
+      expect(api.updateInventoryItem).toHaveBeenCalledWith(
+        12,
+        expect.objectContaining({
+          rating: 'No Motto',
+          base: expect.objectContaining({ rating: 'Funny Back' }),
+        }),
+      ),
+    )
+  })
+
   it('does not offer a note a mint or variety', async () => {
     await open({ item_kind: 'currency' })
     expect(screen.queryByRole('combobox', { name: 'mint' })).toBeNull()
