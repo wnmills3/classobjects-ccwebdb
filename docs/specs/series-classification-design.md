@@ -129,8 +129,7 @@ evidence for the Series 1929 designs), then `series_classify`.
 
 **Boundary years** make most of the review list: 1856-57 cents, 1865-73
 three-cent pieces (silver and nickel), 1866-73 five-cent pieces (Seated
-Liberty half dime and Shield nickel), 1795, 1873 and
-1878-85 dollars, 1883 and 1913 and 1938 nickels, 1909 cents, 1837 dimes and
+Liberty half dime and Shield nickel), 1795 dollars, 1883 and 1913 and 1938 nickels, 1909 cents, 1837 dimes and
 half dimes, 1838 quarters, 1807 and 1839 halves, 1916 dimes and
 quarters, 1921 dollars, 2016 dimes, quarters and halves (the gold
 centennials), $1 of 2007-2016 and 2020 (Presidential and Sacagawea), 2021
@@ -200,10 +199,17 @@ and an item that says nothing is taken for the common design:
 | Commemorative Half Dollar | 50c: 1892-1954, 1982- | Commemorative(s), Commem, Comem |
 | Commemorative Dollar | $1: 1900-1922, 1983- | the same |
 | Gold Dollar | $1: 1849-1889 | (its label) |
+| Trade Dollar | $1: 1873-1885 | (its label) |
 | American Innovation Dollar | $1: 2018-2032 | American Innovation, Innovation Dollar |
 | American Women Quarters | 25c: 2022-2025 | American Women, American Women Quarter |
 | Flowing Hair Cent | 1c: 1793 | Chain Cent, Wreath Cent |
 | Liberty Cap, Draped Bust, Classic Head, Coronet Head and Braided Hair Cent | 1c: 1793-1796, 1796-1807, 1808-1814, 1816-1839, 1839-1857 | Matron Head (Coronet Head) |
+
+**A dollar of 1878-1904 that says nothing is a Morgan.** The Trade Dollar
+shares 1878-1885 with it (and 1873 with the Seated Liberty dollar) but was
+struck for commerce abroad, and from 1879 only as proofs; it is assigned
+when the piece's text says "Trade Dollar". A dollar of 1874-1877 that does
+not say so is left unassigned.
 
 The six early cent designs are the Large Cent's own types. A cent of those
 years that names none of them is a Large Cent; one whose text says "Draped

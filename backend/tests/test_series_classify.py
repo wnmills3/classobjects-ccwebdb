@@ -245,6 +245,24 @@ def test_lot_text_is_not_evidence_about_a_piece(
     assert _case(db, alone) == ("conflict", ("large_cent", "morgan_dollar"))
 
 
+def test_a_trade_dollar_needs_its_word(db: Session, make_item: ItemFactory) -> None:
+    """A dollar of 1878-1885 that says nothing is a Morgan, not a boundary case."""
+    plain = _coin(db, make_item, DOLLAR, 1880)
+    worded = _coin(db, make_item, DOLLAR, 1878, title="1878-S Trade Dollar")
+    seated = _coin(db, make_item, DOLLAR, 1873)
+    # Only Trade dollars were struck in 1875, but it still has to say so.
+    lone = _coin(db, make_item, DOLLAR, 1875)
+
+    report = run(db, commit=True)
+
+    assert _series_code(db, plain) == "morgan_dollar"
+    assert _series_code(db, worded) == "trade_dollar"
+    assert _series_code(db, seated) == "seated_liberty_dollar"
+    assert _series_code(db, lone) is None
+    assert report.counts["boundary"] == 0
+    assert report.counts["ordinary"] == 1
+
+
 def test_a_commemorative_needs_its_word(db: Session, make_item: ItemFactory) -> None:
     # Measured: dozens of commemorative halves would otherwise be Kennedys.
     worded = _coin(
