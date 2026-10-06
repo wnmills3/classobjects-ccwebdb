@@ -975,12 +975,11 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
                 "denomination": row["denomination"] or "",
                 "year": year,
                 "series": row["series"] or "",
-                # The description is what names a design; a title is often
-                # only the face value.
-                "described": row["description"] or row["source_title"],
-                # The pass reads the rating too, and for a piece of a lot it
-                # is the only text read: a design named nowhere in the
-                # description is named here.
+                # Every text the pass reads, each in its own column: a
+                # design is named in one of them, and a word that is in
+                # none of the columns shown cannot be found by a reader.
+                "title": row["source_title"] or "",
+                "described": row["description"] or "",
                 "rating": row["rating"] or "",
             }
         )
@@ -995,9 +994,9 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
     ]
     if rows:
         notes.append(
-            "Designs is what the description or rating names (a conflict), the "
+            "Designs is what the title, description or rating names (a conflict), the "
             "series now set (ruled out), or the designs the facts allow "
-            "(several). Fix the denomination, year, series or rating on the "
+            "(several). Fix the denomination, year, series or the text on the "
             "item; nothing here is changed by running the report."
         )
     return ReportResult(
@@ -1008,6 +1007,7 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
             Column("denomination", "Denomination", "text"),
             Column("year", "Year", "text"),
             Column("series", "Series", "text"),
+            Column("title", "Title", "text"),
             Column("described", "Description", "text"),
             Column("rating", "Rating", "text"),
         ],
