@@ -142,9 +142,12 @@ page:
    its order-number button picks the purchase -- or a new one: vendor (with
    "+ Add a vendor..." opening an inline web address / name / kind form that
    never submits the outer form; the address is asked first and proposes the
-   name -- its site without `www.`, as vendors are named: `ebay.com`,
-   `exampleauctions.hibid.com` -- which follows the address until a
-   name is typed by hand), order number, order date, web
+   name from the part of it that is the vendor's own -- the first part of a
+   site of their own under a marketplace's, `exampleauctions` of
+   `https://exampleauctions.hibid.com/lots`; else the last part of a
+   page, `coinbuyer42` of `https://www.ebay.com/usr/coinbuyer42`; else the site
+   without `www.`, `usmint.gov` -- which follows the address until a name is
+   typed by hand), order number, order date, web
    address, seller (with "+ Add a seller..." opening an inline name / store
    form, as the vendor picker does), notes, **Create purchase**. **Edit
    details** changes the same fields. The heading links the purchase's web
