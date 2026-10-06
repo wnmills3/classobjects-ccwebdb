@@ -642,4 +642,194 @@ export const FIELD_HELP = {
       'purchase to receive. A linked item code opens that item to edit, over the ' +
       'report. A linked percentage opens the items missing that field.',
   },
+
+  // -- the Vocabularies page -------------------------------------------------
+  vocabulary_table: {
+    title: 'Vocabulary',
+    text: 'Which list to work on: the values a picker offers for one field -- grades, mints, denominations, series and the rest.',
+  },
+  vocabulary_find: {
+    title: 'Find',
+    text: 'Narrows the list to values whose label, code or other name contains what is typed.',
+  },
+  vocabulary_add: {
+    title: 'Add a value',
+    text: 'Adds a value to this list, so the pickers offer it. Not offered for a list the application acts on value by value, such as statuses.',
+  },
+  vocabulary_label: {
+    title: 'Label',
+    text: 'What people read in a picker and on an item. It can be reworded later without changing anything recorded.',
+  },
+  vocabulary_code: {
+    title: 'Code',
+    text: 'What records and saved searches store for the value. It never changes once set. Leave it empty and one is worked out from the label, or for a denomination from its currency, kind and face value.',
+  },
+  vocabulary_position: {
+    title: 'Position',
+    text: "Where the value sits in a list kept in a meaningful order: a number between its neighbors' positions, shown in the Position column. Lower comes first.",
+  },
+  vocabulary_rename: {
+    title: 'Rename',
+    text: 'Changes the label only. The code stays, so every item that holds the value shows the new wording at once.',
+  },
+  vocabulary_retire: {
+    title: 'Retire',
+    text: 'Stops the pickers offering the value. Every item that already holds it keeps it. A value the application looks up by its code cannot be retired.',
+  },
+  vocabulary_restore: {
+    title: 'Restore',
+    text: 'Offers a retired value in the pickers again.',
+  },
+  vocabulary_merge: {
+    title: 'Merge into',
+    text: 'Moves every item holding this value to another one, makes its names other names for that one, and removes it. What would move is shown first; it cannot be undone.',
+  },
+  vocabulary_alias: {
+    title: 'Other names',
+    text: 'Other names people use for the value, which search and the pickers also recognize: Mercury for the Winged Liberty Head dime. Click a struck-through name to bring it back.',
+  },
+  vocabulary_field: {
+    title: "A value's own detail",
+    text: 'Something this list records about each of its values, beyond the label. A box marked optional may be left empty.',
+  },
+  vocabulary_field_currency: {
+    title: 'Currency',
+    text: 'The currency the face value is in.',
+  },
+  vocabulary_field_face_value: {
+    title: 'Face value',
+    text: "The amount the piece is worth as money, in the currency's main unit: 0.03 for three cents, 5 for five dollars. One face value is one denomination, however many designs carry it.",
+  },
+  vocabulary_field_kind: {
+    title: 'Kind',
+    text: 'Whether this face value is a coin or a note. The same value can be both -- a dollar coin and a dollar bill -- and each is its own denomination.',
+  },
+  vocabulary_field_applies_to: {
+    title: 'Applies to',
+    text: 'Which items the value is offered for: coin, which covers everything that is not a note, currency for notes, or any for both.',
+  },
+  vocabulary_field_denomination: {
+    title: 'Denomination',
+    text: 'The face value every piece of this design has. Leave it empty for a design struck in several, such as a bullion program.',
+  },
+  vocabulary_field_year_start: {
+    title: 'First year',
+    text: 'The first year the design was struck, or the first series year of a note design.',
+  },
+  vocabulary_field_year_end: {
+    title: 'Last year',
+    text: 'The last year the design was struck. Leave it empty for one still being struck.',
+  },
+  vocabulary_field_needs_evidence: {
+    title: 'Needs evidence',
+    text: "Tick for a design that shares its denomination and years with a far commoner one. It is then assigned only when an item's description names it, or a note's seal or class shows it.",
+  },
+  vocabulary_field_seal_color: {
+    title: 'Seal color',
+    text: 'The seal color that marks a note as this design: brown for Hawaii, yellow for North Africa.',
+  },
+  vocabulary_field_note_type: {
+    title: 'Note class',
+    text: 'The class every note of this design is, such as Silver Certificate. A note recorded as another class is never taken for it.',
+  },
+  vocabulary_field_metal: {
+    title: 'Metal',
+    text: 'The metal a piece of this form is made of.',
+  },
+  vocabulary_field_typical_fine_weight_ozt: {
+    title: 'Typical fine weight',
+    text: 'The fine weight in troy ounces a piece of this form always has, when it has one: 1 for a Silver Eagle. Leave it empty where pieces vary, as bars do.',
+  },
+  vocabulary_field_typical_fineness: {
+    title: 'Typical fineness',
+    text: 'The purity a piece of this form always has, as a fraction: 0.999. Leave it empty where it varies.',
+  },
+  vocabulary_field_mark: {
+    title: 'Mint mark',
+    text: 'The letter or letters the mint puts on its coins: S, CC. Leave it empty for a mint that uses none.',
+  },
+  vocabulary_field_country: {
+    title: 'Country',
+    text: 'The country the mint belongs to.',
+  },
+  vocabulary_field_symbol: {
+    title: 'Symbol',
+    text: 'The short symbol for the value: $ for a currency, Ag for a metal.',
+  },
+  vocabulary_field_minor_units: {
+    title: 'Minor units',
+    text: "How many decimal places the currency's amounts have: 2 for dollars and cents.",
+  },
+  vocabulary_field_iso_alpha2: {
+    title: 'Two-letter code',
+    text: "The country's two-letter ISO code: US, CA, MX.",
+  },
+  vocabulary_field_is_precious: {
+    title: 'Precious',
+    text: 'Tick for a metal whose weight gives a piece its value -- gold, silver, platinum, palladium.',
+  },
+  vocabulary_field_default_quantity: {
+    title: 'Usual count',
+    text: 'How many pieces a holder of this kind usually contains: 20 for a tube of silver rounds.',
+  },
+  vocabulary_field_grade_scale: {
+    title: 'Grade scale',
+    text: 'The scale the grade belongs to, which decides whether it is offered for a coin or for a note.',
+  },
+  vocabulary_field_numeric_value: {
+    title: 'Number',
+    text: "The grade's number on its scale: 65 for MS65. It is what grades are ordered by.",
+  },
+  vocabulary_field_is_plus: {
+    title: 'Plus',
+    text: 'Tick for a plus grade, such as 64+, which ranks just above the plain number.',
+  },
+  vocabulary_field_prefix: {
+    title: 'Prefix',
+    text: 'The letters shown before the number for this strike: PR, SP. Leave it empty for a business strike, which takes MS, AU and so on from the number.',
+  },
+  vocabulary_field_suffix: {
+    title: 'Suffix',
+    text: 'Words shown after the grade for this strike, where it has them: Reverse Proof.',
+  },
+  vocabulary_field_attribute_group: {
+    title: 'Group',
+    text: 'Which group of attributes the value is listed under in the editor: serial, variety, release, verification or qualifier.',
+  },
+  vocabulary_field_letter: {
+    title: 'Letter',
+    text: "The Federal Reserve district's letter, A to L, as printed in the seal and the serial number.",
+  },
+  vocabulary_field_number: {
+    title: 'Number',
+    text: "The Federal Reserve district's number, 1 to 12.",
+  },
+  vocabulary_field_city: {
+    title: 'City',
+    text: "The city of the district's Federal Reserve Bank.",
+  },
+  vocabulary_field_treasurer: {
+    title: 'Treasurer',
+    text: 'The Treasurer of the United States whose signature the pair carries.',
+  },
+  vocabulary_field_secretary: {
+    title: 'Secretary',
+    text: 'The Secretary of the Treasury whose signature the pair carries.',
+  },
+  vocabulary_field_term_from: {
+    title: 'From year',
+    text: 'The first year both officials were in office together.',
+  },
+  vocabulary_field_term_to: {
+    title: 'To year',
+    text: 'The last year both officials were in office together. Leave it empty for the pair in office now.',
+  },
+  vocabulary_field_tracking_url_template: {
+    title: 'Tracking address',
+    text: "The carrier's tracking page address, with {tracking} where the tracking number goes.",
+  },
+  report_show: {
+    title: 'Show',
+    text: 'Which rows to list: all of them, or one kind of case only.',
+  },
 }
