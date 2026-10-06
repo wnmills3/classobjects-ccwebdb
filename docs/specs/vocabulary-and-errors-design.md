@@ -59,6 +59,15 @@ A renamed, moved or otherwise changed value becomes `manual`, so the next
 seed load keeps the person's wording, position and details rather than
 restoring the shipped ones.
 
+**A page's copy of a vocabulary does not outlive a change made elsewhere.**
+The console loads a vocabulary once per page and shares it between pickers
+(`ReferenceProvider`). A value merged, retired or added in another tab would
+otherwise stay as it was for the life of the page, and a save that picked a
+value since merged away is a 422. A copy more than a minute old is fetched
+again when a picker over it next appears and when the window gets focus
+back; what is held stays shown until the answer arrives, and stays if the
+fetch fails.
+
 **A series added from an item is marked for that item's kind.** The series
 pickers in the item editor and the New item form send
 `applies_to: sideFor(item kind)` with a value they add. Left out, the column's

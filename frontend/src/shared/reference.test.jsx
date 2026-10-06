@@ -1,6 +1,6 @@
 import userEvent from '@testing-library/user-event'
 import { render, screen, waitFor, within } from '@testing-library/react'
-import { StrictMode, useContext } from 'react'
+import { StrictMode, useContext, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./api', () => ({
@@ -443,6 +443,119 @@ describe('ReferenceProvider', () => {
 
     expect(await screen.findByText('a,b')).toBeInTheDocument()
     expect(api.getReference).toHaveBeenCalledTimes(2)
+  })
+
+  it('fetches an old copy again when a picker next appears, keeping it meanwhile', async () => {
+    // A value merged away elsewhere must not stay on offer for the life of
+    // the page: picking it would be refused by the server.
+    const user = userEvent.setup()
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    let answer
+    api.getReference
+      .mockResolvedValueOnce({ values: [value('a', 'A'), value('gone', 'Gone')] })
+      .mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+
+    function Later() {
+      const [shown, setShown] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setShown(true)}>
+            open
+          </button>
+          {shown && <Codes />}
+        </>
+      )
+    }
+    render(
+      <ReferenceProvider>
+        <Codes />
+        <Later />
+      </ReferenceProvider>,
+    )
+    expect(await screen.findByText('a,gone')).toBeInTheDocument()
+
+    // Two minutes on, a form opens over the same vocabulary.
+    now.mockReturnValue(1_000_000 + 120_000)
+    await user.click(screen.getByRole('button', { name: 'open' }))
+    await waitFor(() => expect(api.getReference).toHaveBeenCalledTimes(2))
+    // The copy held is still shown while the answer is out.
+    expect(screen.getAllByText('a,gone')).toHaveLength(2)
+
+    answer({ values: [value('a', 'A')] })
+    await waitFor(() => expect(screen.getAllByText('a')).toHaveLength(2))
+    now.mockRestore()
+  })
+
+  it('does not fetch a fresh copy again', async () => {
+    const user = userEvent.setup()
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    api.getReference.mockResolvedValue({ values: [value('a', 'A')] })
+
+    function Later() {
+      const [shown, setShown] = useState(false)
+      return shown ? (
+        <Codes />
+      ) : (
+        <button type="button" onClick={() => setShown(true)}>
+          open
+        </button>
+      )
+    }
+    render(
+      <ReferenceProvider>
+        <Codes />
+        <Later />
+      </ReferenceProvider>,
+    )
+    expect(await screen.findByText('a')).toBeInTheDocument()
+
+    now.mockReturnValue(1_000_000 + 30_000)
+    await user.click(screen.getByRole('button', { name: 'open' }))
+    expect(await screen.findAllByText('a')).toHaveLength(2)
+    expect(api.getReference).toHaveBeenCalledTimes(1)
+    now.mockRestore()
+  })
+
+  it('fetches an old copy again when the window gets focus back', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    api.getReference
+      .mockResolvedValueOnce({ values: [value('a', 'A'), value('gone', 'Gone')] })
+      .mockResolvedValueOnce({ values: [value('a', 'A')] })
+    render(
+      <ReferenceProvider>
+        <Codes />
+      </ReferenceProvider>,
+    )
+    expect(await screen.findByText('a,gone')).toBeInTheDocument()
+
+    // Straight back: nothing to do.
+    window.dispatchEvent(new Event('focus'))
+    expect(api.getReference).toHaveBeenCalledTimes(1)
+
+    now.mockReturnValue(1_000_000 + 120_000)
+    window.dispatchEvent(new Event('focus'))
+    expect(await screen.findByText('a')).toBeInTheDocument()
+    expect(api.getReference).toHaveBeenCalledTimes(2)
+    now.mockRestore()
+  })
+
+  it('keeps the copy it has when a refresh cannot be fetched', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    api.getReference
+      .mockResolvedValueOnce({ values: [value('a', 'A')] })
+      .mockRejectedValueOnce(new Error('offline'))
+    render(
+      <ReferenceProvider>
+        <Codes />
+      </ReferenceProvider>,
+    )
+    expect(await screen.findByText('a')).toBeInTheDocument()
+
+    now.mockReturnValue(1_000_000 + 120_000)
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() => expect(api.getReference).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('a')).toBeInTheDocument()
+    now.mockRestore()
   })
 
   it('still delivers a vocabulary invalidated while its first load is in flight', async () => {

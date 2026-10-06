@@ -20,7 +20,7 @@ export const ReferenceContext = createContext(null)
  */
 export function useReference(table, { includeRetired = false } = {}) {
   const context = useContext(ReferenceContext)
-  const { tables, load } = context ?? { tables: {}, load: () => {} }
+  const { tables, load, refresh } = context ?? { tables: {}, load: () => {} }
   const values = tables[table]
   // Asked for whenever it is missing: on first use, and again after the
   // provider has invalidated it. `load` itself ignores a table already
@@ -30,6 +30,12 @@ export function useReference(table, { includeRetired = false } = {}) {
   useEffect(() => {
     if (table && missing) load(table)
   }, [table, missing, load])
+
+  // A picker appearing is a use of the vocabulary: a copy that has grown
+  // old is fetched again behind it. The provider ignores a fresh one.
+  useEffect(() => {
+    if (table && !missing) refresh?.(table)
+  }, [table, missing, refresh])
 
   return useMemo(
     () =>
