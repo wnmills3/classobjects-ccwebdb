@@ -62,8 +62,8 @@ from .models import (
     Series,
     SeriesYearRange,
 )
-from .seller_titles import SHORT_TITLE
 from .series_match import build_rules, inventory_of, match, record_series
+from .short_titles import SHORT_TITLE
 from .years import single_year
 
 #: A range as the pass uses it: denomination, first year, last year (None is
@@ -335,7 +335,7 @@ def _items(
 
     The listing is shared in one of two shapes. Title and description both
     the same: the pieces as they came in. Or the title alone, when it is a
-    listing and not a face value (longer than `SHORT_TITLE`):
+    listing and not a face value (longer than `short_titles.SHORT_TITLE`):
     `app.seller_titles` moves the seller's text into the title and writes
     each piece its own description, and the lot's listing is no less the
     lot's for that.
