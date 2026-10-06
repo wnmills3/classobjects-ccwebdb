@@ -1,6 +1,6 @@
 """Data quality: what is missing or wrong in the record.
 
-Seven reports. `dq_issues` counts every named check from `app.issues` across
+Eight reports. `dq_issues` counts every named check from `app.issues` across
 both inventory views, reusing `inventory_search.count_issues` so a row's
 count can never disagree with its own drill-down's search. `dq_completeness`
 reports, per item kind, the percent of live items with each of ten fields
@@ -15,16 +15,18 @@ number, a missing or implausible order date, no web address, a zero-cost
 item, or no items at all. `dq_locations` totals live items by where they
 physically are. `dq_series_years` lists coins dated outside their design
 series' years, with the same predicate as `issue=year_outside_series`.
+`dq_series_review` lists the items `app.series_classify` leaves for a
+person, by running that pass's own decision.
 """
 
 from __future__ import annotations
 
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import cast
+from typing import Literal, cast
 from urllib.parse import urlencode
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import RowMapping, and_, case, func, select, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -50,6 +52,7 @@ from ..issues import COIN_ISSUES
 from ..item_history import location_label
 from ..models import (
     CurrencyDetail,
+    Denomination,
     Image,
     ItemFieldReview,
     ItemFieldSource,
@@ -61,6 +64,7 @@ from ..models import (
     Vendor,
 )
 from ..purchases import GENERATED, WEB_ADDRESS
+from ..series_classify import classify
 from .base import Column, Report, ReportResult, local_date
 from .registry import register
 from .tables import ITEM as _I
@@ -74,6 +78,7 @@ __all__ = [
     "DQ_LOCATIONS",
     "DQ_PHOTOS",
     "DQ_PURCHASES",
+    "DQ_SERIES_REVIEW",
     "DQ_SERIES_YEARS",
 ]
 
@@ -872,5 +877,150 @@ DQ_SERIES_YEARS = register(
         "a typo, a tribute piece, or the wrong series.",
         params=DqSeriesYearsParams,
         run=_dq_series_years,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# dq_series_review
+# ---------------------------------------------------------------------------
+
+#: Why an item is listed, as `app.series_classify` names it, and as a reader
+#: is told it. In the order the report lists them: what is recorded wrong
+#: first, then what only the piece in hand can settle.
+_REVIEW_REASONS: dict[str, str] = {
+    "conflict": "Description names a design the facts rule out",
+    "disagrees": "Series set, but the facts rule it out",
+    "boundary": "Facts allow several designs",
+}
+
+
+class DqSeriesReviewParams(BaseModel):
+    """Which of the pass's three kinds of case to list."""
+
+    show: Literal["all", "conflict", "disagrees", "boundary"] = Field(
+        default="all", title="Show"
+    )
+
+
+def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult:
+    """One row per live item the facts pass leaves for a person.
+
+    The cases are `series_classify.classify`'s own, decided as the pass
+    decides them, so this list and the pass's printed report cannot
+    disagree. Nothing is written. Each row drills to the search narrowed to
+    that one item, where it can be opened and corrected.
+    """
+    cases = [
+        found_case
+        for found_case in classify(db).review
+        if params.show in ("all", found_case.reason)
+    ]
+    labels = dict(db.execute(select(Series.code, Series.label)).tuples().all())
+    stmt = (
+        select(
+            _I.c.item_code,
+            _K.c.code.label("kind"),
+            _I.c.source_title,
+            _I.c.description,
+            _I.c.year_start,
+            _I.c.year_end,
+            CurrencyDetail.series_year,
+            CurrencyDetail.series_letter,
+            Denomination.label.label("denomination"),
+            Series.label.label("series"),
+        )
+        .select_from(_I)
+        .join(_K, _K.c.id == _I.c.item_kind_id)
+        .join(Denomination, Denomination.id == _I.c.denomination_id, isouter=True)
+        .join(Series, Series.id == _I.c.series_id, isouter=True)
+        .join(CurrencyDetail, CurrencyDetail.inventory_item_id == _I.c.id, isouter=True)
+        .where(
+            _LIVE, _I.c.item_code.in_([found_case.item_code for found_case in cases])
+        )
+    )
+    found = {row["item_code"]: row for row in db.execute(stmt).mappings().all()}
+
+    order = list(_REVIEW_REASONS)
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    counts: dict[str, int] = dict.fromkeys(order, 0)
+    for found_case in sorted(
+        cases, key=lambda c: (order.index(c.reason), c.designs, c.item_code)
+    ):
+        row = found.get(found_case.item_code)
+        if row is None:
+            continue  # the pass reads deleted items too; the report is live ones
+        counts[found_case.reason] += 1
+        if row["kind"] == "currency":
+            year = (
+                f"{row['series_year']}{row['series_letter'] or ''}"
+                if row["series_year"] is not None
+                else ""
+            )
+        else:
+            year = (
+                _years_text(row["year_start"], row["year_end"])
+                if row["year_start"] is not None
+                else ""
+            )
+        rows.append(
+            {
+                "item": found_case.item_code,
+                "why": _REVIEW_REASONS[found_case.reason],
+                "designs": " / ".join(
+                    labels.get(code, code) for code in found_case.designs
+                ),
+                "denomination": row["denomination"] or "",
+                "year": year,
+                "series": row["series"] or "",
+                # The description is what names a design; a title is often
+                # only the face value.
+                "described": row["description"] or row["source_title"],
+            }
+        )
+        drills.append(
+            f"{view_path(row['kind'])}?{urlencode({'item_code': found_case.item_code})}"
+        )
+
+    notes = [
+        f"{label}: {counts[reason]}"
+        for reason, label in _REVIEW_REASONS.items()
+        if counts[reason]
+    ]
+    if rows:
+        notes.append(
+            "Designs is what the description names (a conflict), the series now "
+            "set (ruled out), or the designs the facts allow (several). Fix the "
+            "denomination, year or series on the item; nothing here is changed "
+            "by running the report."
+        )
+    return ReportResult(
+        columns=[
+            Column("item", "Item", "text"),
+            Column("why", "Why", "text"),
+            Column("designs", "Designs", "text"),
+            Column("denomination", "Denomination", "text"),
+            Column("year", "Year", "text"),
+            Column("series", "Series", "text"),
+            Column("described", "Description", "text"),
+        ],
+        rows=rows,
+        drills=drills,
+        notes=notes,
+    )
+
+
+DQ_SERIES_REVIEW = register(
+    Report(
+        id="dq_series_review",
+        group="Data quality",
+        title="Series to review",
+        purpose="Items whose design series a person must settle: the "
+        "description names a design the recorded denomination and year rule "
+        "out, the series already set is ruled out by them, or they allow "
+        "several designs.",
+        params=DqSeriesReviewParams,
+        run=_dq_series_review,
     )
 )

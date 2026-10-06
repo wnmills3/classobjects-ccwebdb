@@ -42,6 +42,7 @@ from app.reports.data_quality import (
     DQ_LOCATIONS,
     DQ_PHOTOS,
     DQ_PURCHASES,
+    DQ_SERIES_REVIEW,
     DQ_SERIES_YEARS,
     DqCompletenessParams,
     DqDerivedParams,
@@ -49,6 +50,7 @@ from app.reports.data_quality import (
     DqLocationsParams,
     DqPhotosParams,
     DqPurchasesParams,
+    DqSeriesReviewParams,
     DqSeriesYearsParams,
     _a_year_before,
 )
@@ -1136,3 +1138,120 @@ def test_dq_series_years_lists_what_its_issue_filter_finds(db: Session) -> None:
     found, _ = inventory_search(db, COIN_VIEW, params={"issue": "year_outside_series"})
     assert reported == {row["item_code"] for row in found}
     assert len(reported) == 2
+
+
+# ---------------------------------------------------------------------------
+# dq_series_review
+# ---------------------------------------------------------------------------
+
+
+def _coin_of(
+    db: Session, denomination: str, year: int, **extra: object
+) -> InventoryItem:
+    return build_bare_item(
+        db,
+        denomination_id=code_id(db, Denomination, denomination),
+        year_start=year,
+        year_end=year,
+        **extra,
+    )
+
+
+def _review(db: Session, show: str = "all") -> ReportResult:
+    return DQ_SERIES_REVIEW.run(db, DqSeriesReviewParams.model_validate({"show": show}))
+
+
+def test_dq_series_review_lists_each_kind_of_case_the_pass_leaves(
+    db: Session,
+) -> None:
+    """A conflict, a series the facts rule out, and a boundary year."""
+    morgan = code_id(db, Series, "morgan_dollar")
+    # A dime whose description names the Morgan dollar: one of them is wrong.
+    conflict = _coin_of(db, "usd_coin_0_10", 1942, description="1942 Morgan Dollar")
+    # A Morgan recorded in a year no Morgan was struck.
+    ruled_out = _coin_of(db, "usd_coin_1_00", 1950, series_id=morgan)
+    # 1921: the last Morgans and the first Peace dollars.
+    boundary = _coin_of(db, "usd_coin_1_00", 1921, description="Silver dollar")
+    # Decided by the facts, and so no case at all.
+    _coin_of(db, "usd_coin_0_10", 1942, description="A dime")
+
+    result = _review(db)
+
+    assert [(row["item"], row["why"]) for row in result.rows] == [
+        (conflict.item_code, "Description names a design the facts rule out"),
+        (ruled_out.item_code, "Series set, but the facts rule it out"),
+        (boundary.item_code, "Facts allow several designs"),
+    ]
+    by_item = {row["item"]: row for row in result.rows}
+    assert by_item[conflict.item_code]["designs"] == "Morgan Dollar"
+    assert by_item[conflict.item_code]["denomination"] == "Dime"
+    assert by_item[conflict.item_code]["year"] == "1942"
+    assert by_item[conflict.item_code]["described"] == "1942 Morgan Dollar"
+    assert by_item[ruled_out.item_code]["series"] == "Morgan Dollar"
+    assert by_item[boundary.item_code]["designs"] == "Morgan Dollar / Peace Dollar"
+    assert result.drills == [
+        f"/inventory/coins?item_code={item.item_code}"
+        for item in (conflict, ruled_out, boundary)
+    ]
+    assert result.notes[:3] == [
+        "Description names a design the facts rule out: 1",
+        "Series set, but the facts rule it out: 1",
+        "Facts allow several designs: 1",
+    ]
+
+
+def test_dq_series_review_shows_one_kind_when_asked(db: Session) -> None:
+    morgan = code_id(db, Series, "morgan_dollar")
+    _coin_of(db, "usd_coin_0_10", 1942, description="1942 Morgan Dollar")
+    ruled_out = _coin_of(db, "usd_coin_1_00", 1950, series_id=morgan)
+    _coin_of(db, "usd_coin_1_00", 1921, description="Silver dollar")
+
+    result = _review(db, "disagrees")
+
+    assert [row["item"] for row in result.rows] == [ruled_out.item_code]
+    assert result.notes[0] == "Series set, but the facts rule it out: 1"
+
+
+def test_dq_series_review_lists_what_the_pass_reports(db: Session) -> None:
+    """The report's cases are the pass's own, for live items."""
+    morgan = code_id(db, Series, "morgan_dollar")
+    _coin_of(db, "usd_coin_0_10", 1942, description="1942 Morgan Dollar")
+    _coin_of(db, "usd_coin_1_00", 1950, series_id=morgan)
+    _coin_of(db, "usd_coin_1_00", 1921, description="Silver dollar")
+    gone = _coin_of(db, "usd_coin_1_00", 1921, description="Silver dollar")
+    gone.deleted_at = datetime.now(UTC)
+    db.commit()
+
+    from app.series_classify import classify
+
+    passed = {case.item_code for case in classify(db).review}
+    reported = {row["item"] for row in _review(db).rows}
+
+    assert reported == passed - {gone.item_code}
+    assert gone.item_code in passed
+
+
+def test_dq_series_review_is_empty_with_nothing_to_settle(db: Session) -> None:
+    _coin_of(db, "usd_coin_0_10", 1942, description="A dime")
+    result = _review(db)
+    assert result.rows == []
+    assert result.notes == []
+
+
+def test_dq_series_review_reads_a_note_by_its_series_year(db: Session) -> None:
+    """A $1 note said to be a Funnyback but recorded as Series 1923."""
+    note = build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        denomination_id=code_id(db, Denomination, "usd_note_1"),
+        description="Funnyback",
+    )
+    db.add(CurrencyDetail(inventory_item_id=note.id, series_year=1923))
+    db.commit()
+
+    result = _review(db)
+
+    assert [(r["item"], r["year"], r["designs"]) for r in result.rows] == [
+        (note.item_code, "1923", "Funnyback")
+    ]
+    assert result.drills == [f"/inventory/currency?item_code={note.item_code}"]
