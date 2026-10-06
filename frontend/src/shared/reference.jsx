@@ -1,4 +1,4 @@
-import { useCallback, useContext, useMemo, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from './api'
 import { codeFromLabel } from './reference-codes'
@@ -25,10 +25,17 @@ export const FIND_FROM = 10
  * caller's request before any state has updated. `load` is therefore stable,
  * and `useReference` asks again only when its table is missing.
  */
+//: How old a loaded vocabulary may be before it is fetched again on its
+//: next use. Long enough that a form's dozen pickers ask once, short
+//: enough that a value changed elsewhere is not offered for long.
+const STALE_MS = 60_000
+
 export function ReferenceProvider({ children }) {
   const [tables, setTables] = useState({})
   //: table -> a token for its latest request, loaded or still in flight.
   const requested = useRef(new Map())
+  //: table -> when its values were last asked for, once they have arrived.
+  const asked = useRef(new Map())
 
   const load = useCallback(async (table) => {
     if (requested.current.has(table)) return
@@ -44,9 +51,44 @@ export function ReferenceProvider({ children }) {
     }
     // An answer to a request since invalidated is stale; the newer one wins.
     if (requested.current.get(table) === token) {
+      asked.current.set(table, Date.now())
       setTables((t) => ({ ...t, [table]: values }))
     }
   }, [])
+
+  // A vocabulary is changed in other places than this page: another tab,
+  // the Vocabularies page in another window, a merge. A copy kept for the
+  // life of the page then offers a value that no longer exists, and a
+  // save that picks it is refused. So a copy older than `STALE_MS` is
+  // fetched again when something asks for the vocabulary, and when the
+  // window gets focus back. The values held stay in place until the
+  // answer arrives -- a picker never falls back to a text box for this --
+  // and stay if it fails.
+  const refresh = useCallback(async (table) => {
+    const at = asked.current.get(table)
+    // Never loaded, still loading, or fresh enough.
+    if (at === undefined || Date.now() - at < STALE_MS) return
+    asked.current.set(table, Date.now())
+    const token = {}
+    requested.current.set(table, token)
+    let values
+    try {
+      values = (await api.getReference(table)).values
+    } catch {
+      return
+    }
+    if (requested.current.get(table) === token) {
+      setTables((t) => ({ ...t, [table]: values }))
+    }
+  }, [])
+
+  useEffect(() => {
+    const onFocus = () => {
+      for (const table of asked.current.keys()) refresh(table)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refresh])
 
   // After adding a value the cached vocabulary is stale, so it is dropped and
   // refetched rather than patched locally -- the server decides sort order and
@@ -60,6 +102,7 @@ export function ReferenceProvider({ children }) {
   const invalidate = useCallback(
     (table) => {
       const wasRequested = requested.current.delete(table)
+      asked.current.delete(table)
       setTables((t) => {
         const next = { ...t }
         delete next[table]
@@ -71,8 +114,8 @@ export function ReferenceProvider({ children }) {
   )
 
   const value = useMemo(
-    () => ({ tables, load, invalidate }),
-    [tables, load, invalidate],
+    () => ({ tables, load, invalidate, refresh }),
+    [tables, load, invalidate, refresh],
   )
 
   return <ReferenceContext.Provider value={value}>{children}</ReferenceContext.Provider>
