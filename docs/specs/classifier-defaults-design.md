@@ -13,8 +13,8 @@ facts recorded about the object:
 So staff enter the facts and the software fills in the rest from published
 facts, which saves typing and removes a class of entry error. It works in
 three places: live in Receiving's Identify section
-(`identify-first-entry-design.md`), on every save of an item -- which is how
-an item entered on a purchase gets them --
+(`identify-first-entry-design.md`), on every save of an item -- and so in
+the item editor's preview of a save, as the facts are typed --
 and as a batch pass over the whole collection. A person can always override.
 Design-series assignment (`series-classification-design.md`) works the same
 way and records its results in the same table. The rules live in

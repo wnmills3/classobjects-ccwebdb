@@ -1295,8 +1295,9 @@ describe('ItemEditForm years', () => {
   it('confirms one year as both ends with one box', async () => {
     const user = await open({ year_start: 1878, year_end: 1878 })
     api.setItemReview.mockResolvedValue({})
-    const boxes = screen.getAllByRole('checkbox', { name: /confirmed/ })
-    await user.click(boxes[0])
+    // The Year row's own box, wherever the row sits in the form.
+    const yearRow = screen.getByRole('spinbutton', { name: /^Year/ }).closest('.field')
+    await user.click(within(yearRow).getByRole('checkbox', { name: /confirmed/ }))
     await waitFor(() =>
       expect(api.setItemReview).toHaveBeenCalledWith(
         12,

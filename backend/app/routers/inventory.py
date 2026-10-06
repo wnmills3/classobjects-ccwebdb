@@ -1608,6 +1608,46 @@ def suggest_description_for(
     return SuggestedDescriptionOut(description=description)
 
 
+@router.post("/{item_id}/preview")
+def preview_item(
+    item_id: int, payload: ItemSuggestIn, db: DbSession, _admin: AdminUser
+) -> ItemDetailOut:
+    """The item as Save would leave it, for the editor to show before saving.
+
+    Entering the facts fills what follows from them -- a note's class, seal
+    and signatures from its series, its Bank from its serial, a coin's metal
+    and weights from its composition, the design series -- but only a save
+    runs those rules. This runs the save (`_dry_run_save`) inside the
+    request's transaction, reads the item back, and rolls everything back,
+    so the editor shows what the facts decide as they are typed, by the very
+    rules Save will apply. `derived` names what a rule filled.
+
+    Nothing is written, and the rows touched are locked only for those
+    milliseconds. A change Save would refuse is refused here the same way.
+    """
+    item = _get_item(db, item_id)
+    data = payload.changes.model_dump(exclude_unset=True)
+    # Attributes have a route and a history of their own; the editor shows
+    # its own held set.
+    data.pop("attributes", None)
+    try:
+        _dry_run_save(db, item, data)
+        db.flush()
+        # Defaults were written by SQL as well as through the ORM: read the
+        # item back as the dry run left it.
+        db.expire_all()
+        return item_detail(db, _get_item(db, item_id))
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"These changes could not be saved as they stand: {exc.orig}",
+        ) from exc
+    finally:
+        # Nothing the dry run wrote survives: not the edit, not the defaults,
+        # not the version it moved.
+        db.rollback()
+
+
 @router.get("/{item_id}/history")
 def get_item_history(
     item_id: int, db: DbSession, _admin: AdminUser

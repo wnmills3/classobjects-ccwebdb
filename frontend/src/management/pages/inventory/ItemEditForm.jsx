@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { money } from '../../../shared/format'
 import { api } from '../../api'
+import { listingIdFrom } from '../../listing'
 import {
   fieldFitsKind,
   fitsKind,
@@ -45,6 +46,23 @@ import WeightFields from '../../WeightFields'
 //: How often an open form checks for changes made elsewhere. It also checks
 //: whenever the window gets focus back, which is when it matters most.
 const CHECK_EVERY_MS = 15000
+
+//: What the Friedberg lookup starts from (`FriedbergLookup`'s `fromItem`).
+const FRIEDBERG_FACTS = [
+  'denomination',
+  'note_type',
+  'seal_color',
+  'series_year',
+  'series_letter',
+  'signature_combination',
+  'fed_district',
+  'printing_facility',
+  'face_plate_number',
+  'back_plate_number',
+]
+
+//: How long typing must pause before the form asks what the facts decide.
+const PREVIEW_DELAY_MS = 400
 
 const TEXT_FIELDS = [
   ['Title', 'source_title', 't'],
@@ -214,6 +232,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // What the last change of kind emptied, so it can be named on screen and
   // put back if the kind is changed back: key -> {had, prev, was}.
   const [kindCleared, setKindCleared] = useState({})
+  // The item as Save would leave it with what is typed so far: the facts
+  // fill a note's class, seal and signatures, a coin's metal, the design
+  // series. Shown for every field not edited here, so what follows from
+  // a fact appears as the fact is entered and can still be typed over.
+  const [preview, setPreview] = useState(null)
   // What the Suggest button last said: a note under the description.
   const [suggestNote, setSuggestNote] = useState('')
   // The Split dialog, while open; and what the last split made, to say so.
@@ -268,6 +291,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     setReviewed(body.reviewed ?? [])
     setRanged(isRange(body.year_start, body.year_end))
     setDraft({})
+    setPreview(null)
     setKindCleared({})
     setAcknowledged(false)
   }, [])
@@ -373,12 +397,40 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       .catch((err) => setError(err.message))
   }
 
+  // Asked for a moment after the last change, by the rules Save applies
+  // (`POST /inventory/{id}/preview`, which writes nothing). A change Save
+  // would refuse has no preview: what was last shown stays until it does.
+  const draftKey = JSON.stringify(draft)
+  useEffect(() => {
+    if (draftKey === '{}') return undefined
+    let cancelled = false
+    const timer = setTimeout(() => {
+      const changes = JSON.parse(draftKey)
+      if (Array.isArray(changes.cert_numbers)) {
+        changes.cert_numbers = changes.cert_numbers.filter(Boolean)
+      }
+      Promise.resolve()
+        .then(() => api.previewItem(itemId, { changes }))
+        .then((body) => {
+          if (!cancelled && body) setPreview(body)
+        })
+        .catch(() => {})
+    }, PREVIEW_DELAY_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [itemId, draftKey])
+
   if (error && !item) return <p className="error">{error}</p>
   if (!item) return <p className="muted">Loading...</p>
 
   // `in`, not `??`: a year cleared in the draft is null, and must not fall
   // back to showing the stored year it is about to replace.
-  const value = (key) => (key in draft ? draft[key] : item[key]) ?? ''
+  // The item as it will be saved, where that is known: nothing is shown
+  // from a preview once the draft it answered is gone.
+  const shownItem = hasFields && preview ? preview : item
+  const value = (key) => (key in draft ? draft[key] : shownItem[key]) ?? ''
   // A coin dated outside its design series' years is almost always a typo:
   // an 1800 Morgan dollar.
   const yearWarning =
@@ -390,6 +442,20 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
         )
       : ''
   const set = (key) => (e) => setDraft({ ...draft, [key]: e.target.value })
+
+  // A listing's address carries the seller's id for it -- eBay's item
+  // number, a HiBid lot -- so typing or pasting the address fills the id.
+  // Only an id the address gave is replaced or taken back: one typed by
+  // hand that the address does not carry is left alone.
+  function setListing(e) {
+    const url = e.target.value
+    const next = { ...draft, listing_url: url }
+    const held = value('sellers_item_id') || ''
+    const before = listingIdFrom(value('listing_url')) ?? ''
+    const found = listingIdFrom(url) ?? ''
+    if (held === before && found !== held) next.sellers_item_id = found
+    setDraft(next)
+  }
 
   // A new kind empties what the item can no longer have (`kindChange.js`).
   // The previous change's clearing is undone first, so going Coin -> Currency
@@ -505,7 +571,7 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
   // A value the facts filled in, until someone changes it: saving a field by
   // hand makes it theirs, and the server drops the mark.
   function suggested(key, column) {
-    const rule = item.derived?.[column]
+    const rule = shownItem.derived?.[column]
     if (!rule || key in draft) return null
     return (
       <span className="suggested" title={DERIVED_FROM[rule] ?? rule}>
@@ -799,6 +865,52 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     onSaved?.()
   }
 
+  const textRow = ([label, key, letter]) => (
+    <label key={key} className="field" data-help={key}>
+      <AccessLabel text={label} accessKey={letter} />
+      <input type="text" value={value(key)} onChange={set(key)} {...accel(letter)} />
+      {claim(key)}
+      {review(REVIEWABLE[key])}
+    </label>
+  )
+
+  // A classifier's row, for those `wanted` that fit the item's kind.
+  const classifierRows = (wanted) =>
+    CLASSIFIERS.filter(
+      ([, key]) => wanted(key) && fieldFitsKind(key, value('item_kind')),
+    ).map(([label, key, table, letter]) => (
+      <label key={key} className="field" data-help={key}>
+        <AccessLabel text={label} accessKey={letter} />
+        <ReferenceSelect
+          table={table}
+          value={value(key)}
+          onChange={set(key)}
+          allowAdd={!FIXED_VOCABULARIES.has(table)}
+          // A series is offered by the kind of item it is for, so one
+          // added here is marked for this item's kind. Unmarked, it
+          // is a coin's, and vanishes from a note's picker.
+          addFields={
+            key === 'series' ? { applies_to: sideFor(value('item_kind')) } : undefined
+          }
+          // Status is NOT NULL on the item, so there is no blank to pick:
+          // clearing it would be a 422 the operator cannot act on.
+          allowBlank={key !== 'status'}
+          filter={
+            key === 'grade'
+              ? (grade) => gradeFitsKind(grade, value('item_kind'))
+              : key === 'denomination' ||
+                  key === 'grade_designation' ||
+                  key === 'series'
+                ? (entry) => fitsKind(entry, value('item_kind'))
+                : undefined
+          }
+          {...accel(letter)}
+        />
+        {side(key, columnOf(key, true))}
+        {review(REVIEWABLE[key])}
+      </label>
+    ))
+
   return (
     <div className="edit-form">
       <HelpScope>
@@ -906,36 +1018,24 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           </p>
         )}
 
-        {TEXT_FIELDS.map(([label, key, letter]) => (
-          <label key={key} className="field" data-help={key}>
-            <AccessLabel text={label} accessKey={letter} />
-            <input
-              type="text"
-              value={value(key)}
-              onChange={set(key)}
-              {...accel(letter)}
-            />
-            {claim(key)}
-            {review(REVIEWABLE[key])}
-          </label>
-        ))}
-        {/* Outside the label: a button inside a label with no `for`
-            takes the label from its input. */}
-        <div className="row">
-          <button type="button" className="link" onClick={suggestDescription}>
-            Suggest description
-          </button>
-          <span className="muted">{suggestNote}</span>
-        </div>
-
-        {/* The owner's own words about the piece. Search and the passes
-            read it as evidence -- "Funny Back" here makes a note a
-            Funnyback -- so a wrong word has to be correctable here. */}
-        <label className="field" data-help="rating">
-          <span>Rating</span>
-          <input type="text" value={value('rating') || ''} onChange={set('rating')} />
+        {/* What is known before the piece is in hand comes first: what the
+            seller called it, the listing -- whose address carries the
+            seller's item id -- and what it cost. Then what identifies it:
+            kind, denomination, and a note's series and serial or a coin's
+            year. Those facts decide most of the rest, which is shown as
+            they are entered (`preview`) and can be typed over. */}
+        {textRow(TEXT_FIELDS[0])}
+        <label className="field" data-help="listing_url">
+          <span>Listing web address</span>
+          <input
+            type="url"
+            placeholder="https://"
+            value={value('listing_url') || ''}
+            onChange={setListing}
+          />
+          <span />
+          <span />
         </label>
-
         {/* The seller's listing id -- eBay's item number. Filled from the
             listing link by app.ebay_orders where there was one; typed here
             for the rest. The link above opens the listing. */}
@@ -949,116 +1049,6 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           <span />
           <span />
         </label>
-        {/* Where it is kept: a move is kept in its location history. The
-            server asks no for-sale acknowledgement for a move alone -- no
-            buyer sees it -- but this form's Save waits for the tick on any
-            change. */}
-        <label className="field" data-help="storage_location_id">
-          <span>Storage location</span>
-          <LocationSelect
-            value={
-              value('storage_location_id') == null
-                ? ''
-                : String(value('storage_location_id'))
-            }
-            onChange={(id) =>
-              setDraft({ ...draft, storage_location_id: id ? Number(id) : null })
-            }
-          />
-          <span />
-          <span />
-        </label>
-        <label className="field" data-help="listing_url">
-          <span>Listing web address</span>
-          <input
-            type="url"
-            placeholder="https://"
-            value={value('listing_url') || ''}
-            onChange={set('listing_url')}
-          />
-          <span />
-          <span />
-        </label>
-        {/* Divs, not labels: a <label> may not contain the range checkbox's
-          own label, so each box is named through htmlFor instead.
-
-          One row that stays mounted, with the end year added beneath it.
-          Two separate layouts would replace the checkbox itself on every
-          tick, and a keyboard user's focus would go with it.
-
-          Not on a note: its year is its series year, and the server leaves
-          the item's own years empty. */}
-        {!isCurrencyKind(value('item_kind')) && (
-          <>
-            <div className="field" data-help={ranged ? 'year_start' : 'year'}>
-              <label htmlFor={yearId}>
-                <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
-              </label>
-              <span className="year-input">
-                <input
-                  id={yearId}
-                  type="number"
-                  disabled={noDate}
-                  value={value('year_start')}
-                  onChange={
-                    ranged
-                      ? (e) =>
-                          setDraft({ ...draft, year_start: yearValue(e.target.value) })
-                      : setYear
-                  }
-                  {...accel('y')}
-                />
-                {rangeToggle}
-              </span>
-              {ranged ? claim('year_start') : yearClaim()}
-              {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
-            </div>
-            {yearWarning && (
-              <p className="notice" role="status">
-                {yearWarning}
-              </p>
-            )}
-            {ranged && (
-              <div className="field" data-help="year_end">
-                <label htmlFor={yearEndId}>
-                  <AccessLabel text="Year to" accessKey="o" />
-                </label>
-                <input
-                  id={yearEndId}
-                  type="number"
-                  // An item stored with a start and no end opens its range at the
-                  // start year -- but only until someone types here.
-                  value={
-                    'year_end' in draft
-                      ? (draft.year_end ?? '')
-                      : (item.year_end ?? item.year_start ?? '')
-                  }
-                  onChange={(e) =>
-                    setDraft({ ...draft, year_end: yearValue(e.target.value) })
-                  }
-                  {...accel('o')}
-                />
-                {claim('year_end')}
-                {review('year_end')}
-              </div>
-            )}
-          </>
-        )}
-
-        {NUMBER_FIELDS.map(([label, key, letter]) => (
-          <label key={key} className="field" data-help={key}>
-            <AccessLabel text={label} accessKey={letter} />
-            <input
-              type="number"
-              value={value(key)}
-              onChange={set(key)}
-              {...accel(letter)}
-            />
-            {claim(key)}
-            {review(REVIEWABLE[key])}
-          </label>
-        ))}
-
         {MONEY_FIELDS.map(([label, key, letter]) => (
           <label key={key} className="field" data-help={key}>
             <AccessLabel text={label} accessKey={letter} />
@@ -1132,8 +1122,10 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           </p>
         )}
 
-        {/* A note's own facts come right after its kind, as on New item: its
-            series, serial and plates identify it. The draft's kind, not the
+        {classifierRows((key) => key === 'denomination')}
+
+        {/* A note's own facts come right after its kind and denomination:
+            its series, serial and plates identify it. The draft's kind, not the
             saved one: a coin being made a note
             shows its note fields now, and the save creates the note's row
             before writing them. */}
@@ -1149,42 +1141,73 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           />
         )}
 
-        {CLASSIFIERS.filter(([, key]) => fieldFitsKind(key, value('item_kind'))).map(
-          ([label, key, table, letter]) => (
-            <label key={key} className="field" data-help={key}>
-              <AccessLabel text={label} accessKey={letter} />
-              <ReferenceSelect
-                table={table}
-                value={value(key)}
-                onChange={set(key)}
-                allowAdd={!FIXED_VOCABULARIES.has(table)}
-                // A series is offered by the kind of item it is for, so one
-                // added here is marked for this item's kind. Unmarked, it
-                // is a coin's, and vanishes from a note's picker.
-                addFields={
-                  key === 'series'
-                    ? { applies_to: sideFor(value('item_kind')) }
-                    : undefined
-                }
-                // Status is NOT NULL on the item, so there is no blank to pick:
-                // clearing it would be a 422 the operator cannot act on.
-                allowBlank={key !== 'status'}
-                filter={
-                  key === 'grade'
-                    ? (grade) => gradeFitsKind(grade, value('item_kind'))
-                    : key === 'denomination' ||
-                        key === 'grade_designation' ||
-                        key === 'series'
-                      ? (entry) => fitsKind(entry, value('item_kind'))
-                      : undefined
-                }
-                {...accel(letter)}
-              />
-              {side(key, columnOf(key, true))}
-              {review(REVIEWABLE[key])}
-            </label>
-          ),
+        {/* Divs, not labels: a <label> may not contain the range checkbox's
+          own label, so each box is named through htmlFor instead.
+
+          One row that stays mounted, with the end year added beneath it.
+          Two separate layouts would replace the checkbox itself on every
+          tick, and a keyboard user's focus would go with it.
+
+          Not on a note: its year is its series year, and the server leaves
+          the item's own years empty. */}
+        {!isCurrencyKind(value('item_kind')) && (
+          <>
+            <div className="field" data-help={ranged ? 'year_start' : 'year'}>
+              <label htmlFor={yearId}>
+                <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
+              </label>
+              <span className="year-input">
+                <input
+                  id={yearId}
+                  type="number"
+                  disabled={noDate}
+                  value={value('year_start')}
+                  onChange={
+                    ranged
+                      ? (e) =>
+                          setDraft({ ...draft, year_start: yearValue(e.target.value) })
+                      : setYear
+                  }
+                  {...accel('y')}
+                />
+                {rangeToggle}
+              </span>
+              {ranged ? claim('year_start') : yearClaim()}
+              {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
+            </div>
+            {yearWarning && (
+              <p className="notice" role="status">
+                {yearWarning}
+              </p>
+            )}
+            {ranged && (
+              <div className="field" data-help="year_end">
+                <label htmlFor={yearEndId}>
+                  <AccessLabel text="Year to" accessKey="o" />
+                </label>
+                <input
+                  id={yearEndId}
+                  type="number"
+                  // An item stored with a start and no end opens its range at the
+                  // start year -- but only until someone types here.
+                  value={
+                    'year_end' in draft
+                      ? (draft.year_end ?? '')
+                      : (item.year_end ?? item.year_start ?? '')
+                  }
+                  onChange={(e) =>
+                    setDraft({ ...draft, year_end: yearValue(e.target.value) })
+                  }
+                  {...accel('o')}
+                />
+                {claim('year_end')}
+                {review('year_end')}
+              </div>
+            )}
+          </>
         )}
+
+        {classifierRows((key) => key !== 'denomination')}
 
         {fieldFitsKind('fine_weight_ozt', value('item_kind')) && (
           <WeightFields
@@ -1221,6 +1244,20 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           <span />
         </label>
 
+        {NUMBER_FIELDS.map(([label, key, letter]) => (
+          <label key={key} className="field" data-help={key}>
+            <AccessLabel text={label} accessKey={letter} />
+            <input
+              type="number"
+              value={value(key)}
+              onChange={set(key)}
+              {...accel(letter)}
+            />
+            {claim(key)}
+            {review(REVIEWABLE[key])}
+          </label>
+        ))}
+
         <AttributesField
           item={item}
           kind={value('item_kind')}
@@ -1256,6 +1293,45 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           />
         )}
 
+        {/* The description last of the facts: Suggest writes it from them,
+            errors and attributes included. */}
+        {textRow(TEXT_FIELDS[1])}
+        {/* Outside the label: a button inside a label with no `for`
+            takes the label from its input. */}
+        <div className="row">
+          <button type="button" className="link" onClick={suggestDescription}>
+            Suggest description
+          </button>
+          <span className="muted">{suggestNote}</span>
+        </div>
+
+        {/* The owner's own words about the piece. Search and the passes
+            read it as evidence -- "Funny Back" here makes a note a
+            Funnyback -- so a wrong word has to be correctable here. */}
+        <label className="field" data-help="rating">
+          <span>Rating</span>
+          <input type="text" value={value('rating') || ''} onChange={set('rating')} />
+        </label>
+
+        {/* Where it is kept: a move is kept in its location history. The
+            server asks no for-sale acknowledgement for a move alone -- no
+            buyer sees it -- but this form's Save waits for the tick on any
+            change. */}
+        <label className="field" data-help="storage_location_id">
+          <span>Storage location</span>
+          <LocationSelect
+            value={
+              value('storage_location_id') == null
+                ? ''
+                : String(value('storage_location_id'))
+            }
+            onChange={(id) =>
+              setDraft({ ...draft, storage_location_id: id ? Number(id) : null })
+            }
+          />
+          <span />
+          <span />
+        </label>
         {/* A photograph added here, and a new role, primary, removal or move
           for one already filed, is held until this form's Save applies it, under
           this form's one for-sale acknowledgement. */}
@@ -1288,7 +1364,13 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
             before the note stops being one. */}
         {item.item_kind === 'currency' && (
           <FriedbergPanel
-            item={item}
+            // The note as the form shows it: the lookup narrows by its
+            // series, seal, plates and the rest, and those are typed here
+            // before they are saved.
+            item={{
+              ...item,
+              ...Object.fromEntries(FRIEDBERG_FACTS.map((key) => [key, value(key)])),
+            }}
             pending={pendingFriedberg}
             onHold={setPendingFriedberg}
             onUndo={() => setPendingFriedberg(null)}
