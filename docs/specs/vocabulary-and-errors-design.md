@@ -8,8 +8,8 @@ missing value can be added at the moment it is needed, without leaving the
 form; existing values are maintained on one page; and an error on a coin or
 note can be recorded with a note of its own.
 
-Staff meet this in the management console: the pickers of the New item form
-(`/management/purchases`), the item editor (from the inventory pages),
+Staff meet this in the management console: the pickers of the item editor (from the inventory pages, and for a new
+item on `/management/purchases`),
 Receiving (`/management/receiving`), and the Vocabularies page
 (`/management/vocabularies`). The shop's filters read the same ordered
 vocabularies.
@@ -69,8 +69,8 @@ back; what is held stays shown until the answer arrives, and stays if the
 fetch fails.
 
 **A series added from an item is marked for that item's kind.** The series
-pickers in the item editor and the New item form send
-`applies_to: sideFor(item kind)` with a value they add. Left out, the column's
+picker in the item editor sends
+`applies_to: sideFor(item kind)` with a value it adds. Left out, the column's
 default makes it a coin's series, and `fitsKind` then hides it from the note
 picker that added it.
 
@@ -116,11 +116,10 @@ convention is not a recorded fact.
 The item editor filters its classifier table and its variety box through
 `fieldFitsKind`, and a kind change empties what no longer fits, where the
 editor can say what went and restore it if the kind changes back
-(`kindChange.js`). The New item form gates set form, strike type, metal and
-variety on it; Identify (`management/identify.js`) asks it whether a kind has
-a mint. **Known gap:** a note's own fields are not shown through the helper.
+(`kindChange.js`). Identify (`management/identify.js`) asks it whether a kind
+has a mint. **Known gap:** a note's own fields are not shown through the helper.
 They are listed by hand -- `NOTE_CLASSIFIERS` and `NOTE_TEXT_FIELDS` in
-`NoteFields.jsx`, the New item form's note block and suggestion lists -- and
+`NoteFields.jsx` -- and
 shown on `isCurrencyKind` directly, so their agreement with
 `CURRENCY_ONLY_FIELDS` is kept by hand.
 
@@ -182,7 +181,6 @@ does not offer it (`allowAdd={false}`):
 - the item editor: kind, status, strike type, grade designation, grading
   service, mint and denomination (`FIXED_VOCABULARIES` in `ItemEditForm.jsx`),
   and the note's class, seal, signatures and Reserve Bank;
-- the New item form: denomination and strike type;
 - Receiving's Identify: denomination.
 
 A denomination is a face value with a currency and a side, which a label
@@ -208,8 +206,8 @@ For attributes and error types the add form asks for **a label only**
   no default, so the form has a group picker (Serial, Variety, Release,
   Qualifier, Verification) and Add stays disabled until one is chosen.
 
-Attributes can be added wherever `AttributesField` appears: the New item form
-and the item editor, and so Receiving's "Confirm or correct fields", which
+Attributes can be added wherever `AttributesField` appears: the item editor,
+and so a new item on a purchase and Receiving's "Confirm or correct fields", which
 opens the editor. Error types can be added wherever errors are recorded.
 
 ## Recording errors

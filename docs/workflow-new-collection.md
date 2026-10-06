@@ -54,8 +54,9 @@ or starts a new one: vendor, order number (left blank, the next
 notes. A vendor is where the purchase was made (ebay.com, a dealer); a seller
 is the account on it. Both can be added inline from their pickers.
 
-Then add the purchase's items with the **New item** form beneath it, one
-after another ("Save and add another" keeps what items on one order share).
+Then add the purchase's items with the **New item** row beneath it: a kind
+and a title open each one in the item editor, and "Add another like it"
+starts the next from what items on one order share.
 No item is entered outside a purchase: a single buy is a purchase holding one
 item. Each item carries its own item cost and shipping.
 

@@ -790,6 +790,9 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
     }
     if (problems.length > 0) {
       setError(`Not all was saved -- ${problems.join('; ')}`)
+      // Something may have been written all the same: whoever opened the
+      // form must not take a close after this for nothing having happened.
+      onChanged?.()
       return
     }
     setError('')

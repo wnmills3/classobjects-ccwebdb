@@ -254,8 +254,8 @@ its listing (`ebay.com/itm/<id>`) -- not by words or price, and it:
   listing's id, and linking the order's page on eBay.
 
 For an item the pass could not fill, type the id into **Seller's item id** in
-the item editor or the New item form (which keeps it for the next piece of
-the same listing); the editor links it to the listing on eBay. An order
+the item editor ("Add another like it" on a purchase keeps it for the next
+piece of the same listing); the editor links it to the listing on eBay. An order
 number belongs to the purchase: the editor's **Purchase:** link opens it, and
 **Edit details** changes it.
 
@@ -763,15 +763,18 @@ holding one item (`docs/specs/entry-panels-design.md`).
   walk-in or show purchase needs nothing else. Left blank, the order number
   is generated (`Order-0001` and up). Vendor and order number together must
   be unique; the date, if given, must be no later than tomorrow.
-- **Items** are entered on the purchase (`POST /api/inventory`) as `ordered`,
-  or `received` for something already in hand. A **lot** is an item with a
+- **Items** are entered on the purchase: a kind and a title make the item
+  (`POST /api/inventory`, as `ordered`) and open it in the item editor, where
+  the rest -- photographs and the description included -- is entered, and
+  where it is marked `received` when already in hand. Closing the editor
+  without saving removes the item again. A **lot** is an item with a
   piece count above 1.
 - **Tax fields** are per item, pre-filled from the purchase's controls: a rate
   that starts empty (the configured default), "No sales tax charged" (rate 0),
   and "Tax on shipping" (As configured / Taxed / Not taxed). An explicit rate
   must be 0-1 with up to four decimal places; `.0635` is accepted.
-- **Save and add another** keeps what the next piece of the same purchase
-  usually shares, and the purchase-wide tax defaults, and clears the rest;
+- **Add another like it** starts the next piece from what it usually shares
+  with the last one saved, and the purchase-wide tax defaults;
   the exact list is in
   [specs/entry-panels-design.md](specs/entry-panels-design.md) (*New item*).
 - **Receive these** opens Receiving for that purchase; **Start another

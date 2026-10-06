@@ -62,6 +62,8 @@ export const api = {
   splitItem: (itemId, payload) =>
     send(`/api/inventory/${itemId}/split`, { method: 'POST', body: payload }),
   getInventoryItem: (id) => send(`/api/inventory/${id}`),
+  // This row should never have existed: an item entered and not kept.
+  deleteInventoryItem: (id) => send(`/api/inventory/${id}`, { method: 'DELETE' }),
   // Every sale of an item, each with the item as it was sold.
   getItemSales: (id) => send(`/api/inventory/${id}/sales`),
   // Everything logged about an item, newest first: edits, status, location.
@@ -71,9 +73,6 @@ export const api = {
   // Writes nothing.
   suggestDescriptionFromScreen: (id, body) =>
     send(`/api/inventory/${id}/suggested-description`, { method: 'POST', body }),
-  // The same wording for an item not saved yet, from the New item form.
-  suggestDraftDescription: (draft) =>
-    send('/api/inventory/suggested-description', { method: 'POST', body: draft }),
   updateInventoryItem: (id, payload) =>
     send(`/api/inventory/${id}`, { method: 'PATCH', body: payload }),
   bulkEditInventory: (ids, changes) =>

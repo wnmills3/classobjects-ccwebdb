@@ -13,8 +13,8 @@ vi.mock('../api', () => ({
     createPurchaseOrder: vi.fn(),
     updatePurchaseOrder: vi.fn(),
     createInventoryItem: vi.fn(),
-    suggestNote: vi.fn(() => Promise.resolve({})),
-    suggestCoin: vi.fn(() => Promise.resolve({})),
+    getInventoryItem: vi.fn(),
+    deleteInventoryItem: vi.fn(),
   },
 }))
 
@@ -169,7 +169,7 @@ describe('NewPurchase: creating a purchase', () => {
     await user.click(screen.getByRole('button', { name: /create purchase/i }))
     await screen.findByText(/no items entered yet/i)
 
-    // The New item form inside the page shares the page's help area.
+    // The New item row inside the page shares the page's help area.
     await user.click(screen.getByRole('textbox', { name: /title/i }))
     expect(screen.getByText(/kept as the seller's words/)).toBeInTheDocument()
     await user.click(screen.getByLabelText(/tax rate/i))
@@ -488,13 +488,13 @@ describe('NewPurchase: items on the purchase', () => {
     expect(link).toHaveAttribute('href', '/management/receiving?order=22')
   })
 
-  it('passes the resolved tax defaults down to the New item form', async () => {
+  it('sends the resolved tax defaults with a new item', async () => {
     api.createInventoryItem.mockResolvedValue({ id: 100 })
     const user = await openPurchase()
 
     await user.type(screen.getByLabelText(/^tax rate/i), '0.05')
     await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
 
     await waitFor(() =>
       expect(api.createInventoryItem).toHaveBeenCalledWith(
@@ -509,7 +509,7 @@ describe('NewPurchase: items on the purchase', () => {
 
     await user.click(screen.getByRole('checkbox', { name: /no sales tax charged/i }))
     await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
 
     await waitFor(() =>
       expect(api.createInventoryItem).toHaveBeenCalledWith(
@@ -523,7 +523,7 @@ describe('NewPurchase: items on the purchase', () => {
     const user = await openPurchase()
 
     await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
 
     await waitFor(() =>
       expect(api.createInventoryItem).toHaveBeenCalledWith(
@@ -539,7 +539,7 @@ describe('NewPurchase: items on the purchase', () => {
     await user.type(screen.getByLabelText(/^tax rate/i), '.0635')
     expect(screen.queryByText(/enter a rate between/i)).not.toBeInTheDocument()
     await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
 
     await waitFor(() =>
       expect(api.createInventoryItem).toHaveBeenCalledWith(
@@ -553,7 +553,7 @@ describe('NewPurchase: items on the purchase', () => {
 
     await user.type(screen.getByLabelText(/^tax rate/i), 'abc')
 
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add item' })).toBeDisabled()
     expect(
       screen.getByText(/fix the tax rate above before saving items/i),
     ).toBeInTheDocument()
@@ -576,7 +576,7 @@ describe('NewPurchase: items on the purchase', () => {
     expect(screen.queryByText(/enter a rate between/i)).not.toBeInTheDocument()
 
     await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
 
     await waitFor(() =>
       expect(api.createInventoryItem).toHaveBeenCalledWith(
@@ -591,7 +591,7 @@ describe('NewPurchase: items on the purchase', () => {
       const user = await openPurchase()
 
       await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await user.click(screen.getByRole('button', { name: 'Add item' }))
 
       await waitFor(() =>
         expect(api.createInventoryItem).toHaveBeenCalledWith(
@@ -609,7 +609,7 @@ describe('NewPurchase: items on the purchase', () => {
         'Not taxed',
       )
       await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await user.click(screen.getByRole('button', { name: 'Add item' }))
 
       await waitFor(() =>
         expect(api.createInventoryItem).toHaveBeenCalledWith(
@@ -627,7 +627,7 @@ describe('NewPurchase: items on the purchase', () => {
         'Taxed',
       )
       await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await user.click(screen.getByRole('button', { name: 'Add item' }))
 
       await waitFor(() =>
         expect(api.createInventoryItem).toHaveBeenCalledWith(
@@ -643,7 +643,7 @@ describe('NewPurchase: items on the purchase', () => {
     api.getPurchaseOrder.mockRejectedValueOnce(new Error('lost connection'))
 
     await user.type(screen.getByRole('textbox', { name: /title/i }), 'A note')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
 
     expect(await screen.findByText(/lost connection/i)).toBeInTheDocument()
   })
@@ -850,16 +850,14 @@ describe('NewPurchase: Ctrl+S', () => {
     expect(api.createInventoryItem).not.toHaveBeenCalled()
   })
 
-  it('saves the new item once the details editor is closed again', async () => {
+  it('adds the new item on Enter once the details editor is closed again', async () => {
     const user = userEvent.setup()
     api.getPurchaseOrder.mockResolvedValue(PURCHASE_22)
     api.createInventoryItem.mockResolvedValue({ id: 30, item_code: 'CC-000030' })
     renderWithProviders(<NewPurchase />, { route: '/?order=22' })
     await user.click(await screen.findByRole('button', { name: 'Edit details' }))
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
-    await user.type(screen.getByRole('textbox', { name: /title/i }), 'A dime')
-
-    fireEvent.keyDown(document, { key: 's', ctrlKey: true })
+    await user.type(screen.getByRole('textbox', { name: /title/i }), 'A dime{Enter}')
 
     await waitFor(() => expect(api.createInventoryItem).toHaveBeenCalledTimes(1))
     expect(api.updatePurchaseOrder).not.toHaveBeenCalled()
@@ -996,10 +994,17 @@ describe("NewPurchase: a lot's page as the item's listing", () => {
       vendor: 'hibid.com',
       source_url: LOT,
     })
+    api.createInventoryItem.mockResolvedValue({ id: 60, item_code: 'CC-000060' })
+    const user = userEvent.setup()
     renderWithProviders(<NewPurchase />, { route: '/?order=40' })
-    expect(
-      await screen.findByRole('textbox', { name: /listing web address/i }),
-    ).toHaveValue(LOT)
+    await user.type(await screen.findByRole('textbox', { name: /title/i }), 'Lot 12')
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
+
+    await waitFor(() =>
+      expect(api.createInventoryItem).toHaveBeenCalledWith(
+        expect.objectContaining({ purchase_order_id: 40, listing_url: LOT }),
+      ),
+    )
   })
 
   it("does not offer an eBay order's page, which is no listing", async () => {
@@ -1009,10 +1014,14 @@ describe("NewPurchase: a lot's page as the item's listing", () => {
       vendor: 'ebay.com',
       source_url: 'https://order.ebay.com/ord/show?orderId=1',
     })
+    api.createInventoryItem.mockResolvedValue({ id: 61, item_code: 'CC-000061' })
+    const user = userEvent.setup()
     renderWithProviders(<NewPurchase />, { route: '/?order=41' })
-    expect(
-      await screen.findByRole('textbox', { name: /listing web address/i }),
-    ).toHaveValue('')
+    await user.type(await screen.findByRole('textbox', { name: /title/i }), 'A dime')
+    await user.click(screen.getByRole('button', { name: 'Add item' }))
+
+    await waitFor(() => expect(api.createInventoryItem).toHaveBeenCalledTimes(1))
+    expect(api.createInventoryItem.mock.calls[0][0]).not.toHaveProperty('listing_url')
   })
 })
 

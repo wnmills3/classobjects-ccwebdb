@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { api } from '../api'
-import NewItemForm from './entry/NewItemForm'
+import AddItem from './entry/AddItem'
 import SellerField from './SellerField'
 import ItemEditDialog from './inventory/ItemEditDialog'
 import HelpScope from '../HelpScope'
@@ -752,11 +752,13 @@ export default function NewPurchase() {
               />
             )}
 
-            <NewItemForm
+            <AddItem
+              // A purchase's own: the last item added is not the next one's.
+              key={purchase.id}
               purchaseOrderId={purchase.id}
               orderUrl={lotPage(purchase)}
               defaults={itemDefaults}
-              onSaved={reloadPurchase}
+              onChanged={reloadPurchase}
               disabledReason={itemDisabledReason}
             />
 
