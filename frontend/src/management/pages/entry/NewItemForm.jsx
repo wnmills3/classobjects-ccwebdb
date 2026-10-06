@@ -7,6 +7,7 @@ import {
   fitsKind,
   gradeFitsKind,
   isCurrencyKind,
+  sideFor,
 } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
@@ -811,6 +812,9 @@ export default function NewItemForm({
             value={form.series}
             onChange={set('series')}
             filter={(entry) => fitsKind(entry, form.item_kind)}
+            // Marked for the kind being entered, or it would be a coin's
+            // series and vanish from a note's picker.
+            addFields={{ applies_to: sideFor(form.item_kind) }}
             {...accel('s')}
           />
           {mark('series')}

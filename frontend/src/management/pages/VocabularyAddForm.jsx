@@ -1,81 +1,8 @@
 import { useState } from 'react'
 
 import { api } from '../api'
-import { FIELD_HELP } from '../fieldHelp'
-import { ReferenceSelect } from '../../shared/reference'
-
-/** What each field starts as: a switch off, everything else empty. */
-function blank(fields) {
-  return Object.fromEntries(
-    fields.map((field) => [field.name, field.kind === 'boolean' ? false : '']),
-  )
-}
-
-/** The help topic for one of a vocabulary's own columns: its own, or the general one. */
-function fieldHelp(name) {
-  const own = `vocabulary_field_${name}`
-  return FIELD_HELP[own] ? own : 'vocabulary_field'
-}
-
-const filled = (field, value) => field.kind === 'boolean' || String(value).trim() !== ''
-
-function FieldInput({ field, value, onChange }) {
-  const label = field.label
-  if (field.kind === 'reference') {
-    return (
-      <ReferenceSelect
-        table={field.table}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        // One thing is being added here; what it points at is picked.
-        allowAdd={false}
-      />
-    )
-  }
-  if (field.kind === 'choice') {
-    return (
-      <select
-        value={value}
-        aria-label={label}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">--</option>
-        {field.choices.map((choice) => (
-          <option key={choice} value={choice}>
-            {choice}
-          </option>
-        ))}
-      </select>
-    )
-  }
-  if (field.kind === 'boolean') {
-    return (
-      <input
-        type="checkbox"
-        checked={value}
-        aria-label={label}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-    )
-  }
-  // Text with a pattern, not type=number: a number input steps on the mouse
-  // wheel, and scrolling the page would change what is about to be added.
-  const numeric =
-    field.kind === 'integer'
-      ? { inputMode: 'numeric', pattern: '-?[0-9]+' }
-      : field.kind === 'decimal'
-        ? { inputMode: 'decimal', pattern: '-?[0-9]*[.]?[0-9]+' }
-        : {}
-  return (
-    <input
-      value={value}
-      aria-label={label}
-      maxLength={field.max_length ?? undefined}
-      onChange={(e) => onChange(e.target.value)}
-      {...numeric}
-    />
-  )
-}
+import VocabularyFieldInput from './VocabularyFieldInput'
+import { blank, fieldHelp, filled, sent } from './vocabulary-fields'
 
 /**
  * Add a value to a vocabulary: its label, where it sits when the vocabulary
@@ -110,20 +37,17 @@ export default function VocabularyAddForm({
     if (!ready) return
     setSaving(true)
     try {
-      const sent = Object.fromEntries(
+      const given = Object.fromEntries(
         fields
           .filter((field) => filled(field, extra[field.name]))
-          .map((field) => [
-            field.name,
-            field.kind === 'boolean' ? extra[field.name] : extra[field.name].trim(),
-          ]),
+          .map((field) => [field.name, sent(field, extra[field.name])]),
       )
       onAdded(
         await api.addReferenceValue(table, {
           label: label.trim(),
           ...(code.trim() ? { code: code.trim() } : {}),
           ...(order ? { sort_order: Number(order) } : {}),
-          extra: sent,
+          extra: given,
         }),
       )
     } catch (err) {
@@ -148,7 +72,7 @@ export default function VocabularyAddForm({
           <label key={field.name} data-help={fieldHelp(field.name)}>
             {field.label}
             {field.required ? '' : ' (optional)'}
-            <FieldInput
+            <VocabularyFieldInput
               field={field}
               value={extra[field.name]}
               onChange={(next) => setExtra((was) => ({ ...was, [field.name]: next }))}

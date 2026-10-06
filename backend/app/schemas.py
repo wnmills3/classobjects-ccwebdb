@@ -1591,6 +1591,9 @@ class ReferenceValueRename(BaseModel):
     #: INTEGER and surface as a 500 instead of a 422.
     sort_order: int | None = Field(default=None, ge=0, le=2**31 - 1)
     is_active: bool | None = None
+    #: Changes to the vocabulary's own columns, keyed as `extra` is when a
+    #: value is added. Only the columns named change; a blank empties one.
+    extra: dict[str, object] | None = None
 
 
 class ReferenceMergeIn(BaseModel):

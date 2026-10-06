@@ -33,7 +33,14 @@ from sqlalchemy.orm import Session
 from .models import REFERENCE_MODELS, ReferenceMixin
 from .schemas import ReferenceFieldOut
 
-__all__ = ["FieldError", "column_values", "derived_code", "fields_of", "table_of"]
+__all__ = [
+    "FieldError",
+    "column_values",
+    "derived_code",
+    "fields_of",
+    "table_of",
+    "target_of",
+]
 
 #: Columns every vocabulary shares; they are not a table's own.
 _COMMON = frozenset({"id", "code", "label", "sort_order", "is_active", "source"})
@@ -71,7 +78,7 @@ def _own_columns(model: type[ReferenceMixin]) -> list[Column[Any]]:
     ]
 
 
-def _target(column: Column[Any]) -> type[ReferenceMixin] | None:
+def target_of(column: Column[Any]) -> type[ReferenceMixin] | None:
     """The vocabulary a column refers to, or None when it refers to none."""
     for key in column.foreign_keys:
         return _BY_TABLE.get(key.column.table.name)
@@ -80,7 +87,7 @@ def _target(column: Column[Any]) -> type[ReferenceMixin] | None:
 
 def _name(column: Column[Any]) -> str:
     """The name a column crosses the API under."""
-    if _target(column) is not None and column.name.endswith("_id"):
+    if target_of(column) is not None and column.name.endswith("_id"):
         return column.name[: -len("_id")]
     return column.name
 
@@ -98,7 +105,7 @@ def _choices(table: str, column: Column[Any]) -> list[str]:
 
 
 def _kind(table: str, column: Column[Any]) -> str:
-    if _target(column) is not None:
+    if target_of(column) is not None:
         return "reference"
     if _choices(table, column):
         return "choice"
@@ -116,7 +123,7 @@ def fields_of(model: type[ReferenceMixin]) -> list[ReferenceFieldOut]:
     table = model.__tablename__
     fields = []
     for column in _own_columns(model):
-        target = _target(column)
+        target = target_of(column)
         fields.append(
             ReferenceFieldOut(
                 name=_name(column),
@@ -137,7 +144,7 @@ def _read(
     db: Session, table: str, column: Column[Any], name: str, value: object
 ) -> object:
     """One column's value from what was sent for it, or a FieldError."""
-    target = _target(column)
+    target = target_of(column)
     if target is not None and name != column.name:
         found = db.scalar(select(target.id).where(target.code == value))
         if found is None:
@@ -177,13 +184,21 @@ def _read(
 
 
 def column_values(
-    db: Session, model: type[ReferenceMixin], extra: dict[str, object]
+    db: Session,
+    model: type[ReferenceMixin],
+    extra: dict[str, object],
+    *,
+    changing: bool = False,
 ) -> dict[str, object]:
     """The column values `extra` names, keyed by column.
 
     Raises `FieldError` for a name the vocabulary has no column for, a value
     its column cannot hold, or a required column left out. A blank is the
     same as leaving the column out.
+
+    `changing` reads a change to a value that exists: only the columns named
+    are returned, none is required, and a blank empties its column -- or is
+    refused where the column cannot be empty.
     """
     table = model.__tablename__
     by_name: dict[str, Column[Any]] = {}
@@ -200,10 +215,17 @@ def column_values(
 
     values: dict[str, object] = {}
     for name, value in extra.items():
-        if value is None or (isinstance(value, str) and not value.strip()):
-            continue
         column = by_name[name]
+        if value is None or (isinstance(value, str) and not value.strip()):
+            if not changing:
+                continue
+            if not column.nullable:
+                raise FieldError(f"{name} cannot be empty")
+            values[column.name] = None
+            continue
         values[column.name] = _read(db, table, column, name, value)
+    if changing:
+        return values
 
     missing = sorted(
         _name(column)

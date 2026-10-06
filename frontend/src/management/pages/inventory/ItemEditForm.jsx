@@ -7,6 +7,7 @@ import {
   fitsKind,
   gradeFitsKind,
   isCurrencyKind,
+  sideFor,
 } from '../../../shared/kinds'
 import { ReferenceSelect } from '../../../shared/reference'
 import { useReference } from '../../../shared/reference-context'
@@ -1154,6 +1155,14 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
                 value={value(key)}
                 onChange={set(key)}
                 allowAdd={!FIXED_VOCABULARIES.has(table)}
+                // A series is offered by the kind of item it is for, so one
+                // added here is marked for this item's kind. Unmarked, it
+                // is a coin's, and vanishes from a note's picker.
+                addFields={
+                  key === 'series'
+                    ? { applies_to: sideFor(value('item_kind')) }
+                    : undefined
+                }
                 // Status is NOT NULL on the item, so there is no blank to pick:
                 // clearing it would be a 422 the operator cannot act on.
                 allowBlank={key !== 'status'}

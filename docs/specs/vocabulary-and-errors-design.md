@@ -49,13 +49,21 @@ needs the database edited by hand.
 |---|---|---|
 | **Add a value...** | `POST /api/reference/{table}` | See *Adding a value on the Vocabularies page*. |
 | **Rename** | `PATCH /api/reference/{table}/{code}` | The label only. The code is the contract (saved filters, bookmarks, integrations) and never changes. Nothing migrates: records refer by foreign key. |
+| **Edit details...** (a vocabulary with columns of its own) | same, with `extra` | Changes the vocabulary's own columns -- which items a series is offered for, its years, a mint's mark -- keyed and read as when a value is added. Only the columns sent change; a blank empties one, and is a 422 where the column cannot be empty. A change that breaks a uniqueness rule is a 409 naming its columns. The form (`VocabularyDetailsForm.jsx`) sends only what was changed. |
 | **Move** (sequenced tables only) | same, with `sort_order` | Changes the value's position; the page shows a Position column for a sequenced vocabulary. |
 | **Retire / restore** | same, with `is_active` | Takes the value out of the pickers; every record using it stays as it is. Refused (409) for a value the application looks up by code: the tables in `_CODE_KEYED_TABLES` (statuses, dispositions, strike type, item kind, fee kind and other lifecycles) and the single values in `_CODE_KEYED_VALUES` (country `US`, note class `frn`, the photo roles a photograph's filename names, and a few more), both in `app/references.py`. Each value carries `retirable` so the page can say so up front. Such a value can still be renamed. |
 | **Merge into...** | `POST /api/reference/{table}/{code}/merge` | Moves every item holding the value to another, makes its names that value's aliases, and deletes it. A `dry_run` preview is shown first. Refused for a value another vocabulary or facts table uses, a code-keyed value, or a retired target; items on sale need `acknowledge_for_sale`. |
 | **Aliases** | `POST` / `DELETE .../{code}/aliases` | See `item-attributes-design.md`. |
 
-A renamed or moved value becomes `manual`, so the next seed load keeps the
-person's wording and position rather than restoring the shipped one.
+A renamed, moved or otherwise changed value becomes `manual`, so the next
+seed load keeps the person's wording, position and details rather than
+restoring the shipped ones.
+
+**A series added from an item is marked for that item's kind.** The series
+pickers in the item editor and the New item form send
+`applies_to: sideFor(item kind)` with a value they add. Left out, the column's
+default makes it a coin's series, and `fitsKind` then hides it from the note
+picker that added it.
 
 **A retired value stays saveable on an item that already holds it.**
 `GET /api/reference/{table}?include_inactive=true` serves retired values so a

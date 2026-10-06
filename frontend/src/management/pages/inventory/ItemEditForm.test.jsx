@@ -622,6 +622,27 @@ describe('Series and bullion form', () => {
     await screen.findByDisplayValue('Mercury Dime')
   }
 
+  it("marks a series added from a note as a note's, so its picker keeps it", async () => {
+    const user = userEvent.setup()
+    sharedApi.addReferenceValue.mockResolvedValue({})
+    await open({ item_kind: 'currency', series: null })
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'series' }),
+      '__add__',
+    )
+    await user.type(screen.getByPlaceholderText('label'), 'Horseblanket')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    // Unmarked, the server makes it a coin's series and `fitsKind` then
+    // hides it from the very picker that added it.
+    expect(sharedApi.addReferenceValue).toHaveBeenCalledWith('series', {
+      code: 'horseblanket',
+      label: 'Horseblanket',
+      extra: { applies_to: 'currency' },
+    })
+  })
+
   it('lets a wrong series be corrected', async () => {
     const user = userEvent.setup()
     await open({ item_kind: 'coin', series: 'atb_quarters' })
