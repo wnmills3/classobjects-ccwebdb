@@ -923,6 +923,7 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
             _K.c.code.label("kind"),
             _I.c.source_title,
             _I.c.description,
+            _I.c.rating,
             _I.c.year_start,
             _I.c.year_end,
             CurrencyDetail.series_year,
@@ -977,6 +978,10 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
                 # The description is what names a design; a title is often
                 # only the face value.
                 "described": row["description"] or row["source_title"],
+                # The pass reads the rating too, and for a piece of a lot it
+                # is the only text read: a design named nowhere in the
+                # description is named here.
+                "rating": row["rating"] or "",
             }
         )
         drills.append(
@@ -990,10 +995,10 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
     ]
     if rows:
         notes.append(
-            "Designs is what the description names (a conflict), the series now "
-            "set (ruled out), or the designs the facts allow (several). Fix the "
-            "denomination, year or series on the item; nothing here is changed "
-            "by running the report."
+            "Designs is what the description or rating names (a conflict), the "
+            "series now set (ruled out), or the designs the facts allow "
+            "(several). Fix the denomination, year, series or rating on the "
+            "item; nothing here is changed by running the report."
         )
     return ReportResult(
         columns=[
@@ -1004,6 +1009,7 @@ def _dq_series_review(db: Session, params: DqSeriesReviewParams) -> ReportResult
             Column("year", "Year", "text"),
             Column("series", "Series", "text"),
             Column("described", "Description", "text"),
+            Column("rating", "Rating", "text"),
         ],
         rows=rows,
         drills=drills,

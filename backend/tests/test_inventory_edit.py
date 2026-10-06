@@ -610,3 +610,22 @@ def test_a_bulk_edit_refuses_an_unknown_field(
 
     db.refresh(item)
     assert item.source_title == "before"
+
+
+def test_the_rating_is_shown_and_corrected_like_any_text(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """A rating the passes read as evidence can be put right by a person."""
+    item = build_bare_item(db, rating="Funny Back")
+    path = f"/api/inventory/{item.id}"
+    assert client.get(path, headers=admin_headers).json()["rating"] == "Funny Back"
+
+    changed = client.patch(path, json={"rating": "  No Motto  "}, headers=admin_headers)
+    assert changed.status_code == 200, changed.text
+    assert client.get(path, headers=admin_headers).json()["rating"] == "No Motto"
+
+    cleared = client.patch(path, json={"rating": " "}, headers=admin_headers)
+    assert cleared.status_code == 200, cleared.text
+    assert client.get(path, headers=admin_headers).json()["rating"] is None
+    db.refresh(item)
+    assert item.rating is None

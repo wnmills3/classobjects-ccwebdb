@@ -58,6 +58,10 @@ SellersItemId = Annotated[
 ]
 
 
+#: The owner's rating of the piece, in their own words; blank clears it.
+Rating = Annotated[str | None, Field(max_length=2000), AfterValidator(_strip_or_none)]
+
+
 def _web_address_or_none(value: str | None) -> str | None:
     """Trimmed; blank is None; otherwise it must be an http(s) address."""
     address = _strip_or_none(value)
@@ -923,6 +927,8 @@ class ItemDetailOut(InventoryItemOut):
     # -- the rest of EDITABLE_SCALARS: not on InventoryItemOut, which is the
     # shape a split's pieces come back as and has no reason to carry these.
     description: str = ""
+    #: The owner's rating, in their own words; never shown to a buyer.
+    rating: str | None = None
     year_end: int | None = None
     #: The piece has no date at all, as distinct from a year not recorded.
     no_date: bool = False
@@ -1045,6 +1051,9 @@ class InventoryItemUpdate(BaseModel):
 
     source_title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
+    #: The owner's own words about the piece. The search and the passes
+    #: read it as evidence, so a wrong word here is corrected here.
+    rating: Rating = None
     #: The seller's id for the listing it was bought from -- eBay's item
     #: number. Text, as the seller prints it; blank clears it.
     sellers_item_id: SellersItemId = None

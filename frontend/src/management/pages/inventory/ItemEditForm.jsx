@@ -924,6 +924,14 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           <span className="muted">{suggestNote}</span>
         </div>
 
+        {/* The owner's own words about the piece. Search and the passes
+            read it as evidence -- "Funny Back" here makes a note a
+            Funnyback -- so a wrong word has to be correctable here. */}
+        <label className="field" data-help="rating">
+          <span>Rating</span>
+          <input type="text" value={value('rating') || ''} onChange={set('rating')} />
+        </label>
+
         {/* The seller's listing id -- eBay's item number. Filled from the
             listing link by app.ebay_orders where there was one; typed here
             for the rest. The link above opens the listing. */}
