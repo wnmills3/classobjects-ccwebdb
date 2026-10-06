@@ -1,7 +1,7 @@
 """Suggested classifiers for an item being entered, from the facts so far.
 
-The New item form asks here as its facts are chosen: pick a $1 note of
-Series 1957 and the form is told Silver Certificate, blue seal,
+Receiving's Identify section asks here as its facts are chosen: pick a $1
+note of Series 1957 and the form is told Silver Certificate, blue seal,
 Priest / Anderson. The same rules as `app.classifier_defaults`, which fills
 the same fields on items already recorded
 (docs/specs/classifier-defaults-design.md).

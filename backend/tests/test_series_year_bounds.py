@@ -1,6 +1,6 @@
 """A note's series year is bounded the same way wherever it is sent.
 
-Creating an item, correcting one, drafting one and cataloguing a Friedberg
+Creating an item, correcting one and cataloguing a Friedberg
 number all take `schemas.SeriesYear`: 1690 (the first paper money issued in
 America) to 2200, so a pre-1861 year the collection holds is accepted on
 every path.
@@ -15,14 +15,12 @@ from app.schemas import (
     FriedbergNumberCreate,
     InventoryItemUpdate,
     ItemCreate,
-    ItemDraftIn,
 )
 from pydantic import BaseModel, ValidationError
 
 REQUIRED: dict[type[BaseModel], dict[str, Any]] = {
     ItemCreate: {"purchase_order_id": 1, "item_kind": "currency", "source_title": "x"},
     InventoryItemUpdate: {},
-    ItemDraftIn: {"item_kind": "currency"},
     FriedbergNumberCreate: {"fr_number": "1617"},
 }
 

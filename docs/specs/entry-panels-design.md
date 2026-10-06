@@ -201,9 +201,9 @@ recover the other, and at most vendors a purchase's web address is its lot's.
 
 | Rule | Where it applies |
 |---|---|
-| The id is read from the address where the site puts it: eBay `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot. An order page (Whatnot's `/order/`, order.ebay.com) carries none. | New item suggests it as the address is typed (`management/listing.js`); the pass fills it (`app/listing_links.py`). |
+| The id is read from the address where the site puts it: eBay `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot. An order page (Whatnot's `/order/`, order.ebay.com) carries none. | The pass fills it (`app/listing_links.py`). |
 | An eBay id rebuilds its address, `https://www.ebay.com/itm/<id>`. | The pass. |
-| At any vendor but eBay and Whatnot -- whose orders hold many listings -- the purchase's web address is its lot's page. | New item starts with it as the listing, suggested (with the id it carries); a purchase with no web address takes the first item's listing when the item is entered (`create_item`); the pass fills an item with no address from its purchase only when that address carries a lot id (a shop's location page is no listing), and a purchase with none from the one address its items share. |
+| At any vendor but eBay and Whatnot -- whose orders hold many listings -- the purchase's web address is its lot's page. | A new item is made with it as its listing (`AddItem.jsx`); a purchase with no web address takes the first item's listing when the item is entered (`create_item`); the pass fills an item with no address from its purchase only when that address carries a lot id (a shop's location page is no listing), and a purchase with none from the one address its items share. |
 | A purchase whose items name several lots gives no address to its items and takes none from them. | The pass. |
 | An eBay purchase's web address is its order page, `https://order.ebay.com/ord/show?orderId=<order number>`: eBay removes a listing's page after a while and keeps the order's. | The pass gives the order page to an eBay purchase with an eBay order number (`NN-NNNNN-NNNNN`) when it has no address, when its address is eBay's list of purchases, and when its address is a listing's page that one of its items already carries. Any other address is kept, and the pass prints it. |
 
