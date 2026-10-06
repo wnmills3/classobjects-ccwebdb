@@ -98,6 +98,82 @@ describe('NewPurchase: creating a vendor inline', () => {
     expect(await screen.findByRole('combobox', { name: 'Vendor' })).toHaveValue('9')
   })
 
+  it('asks for the web address first and proposes the name from its site', async () => {
+    const user = userEvent.setup()
+    api.createVendor.mockResolvedValue({
+      id: 9,
+      name: 'goldstandardauctions.hibid.com',
+      url: 'https://goldstandardauctions.hibid.com/lots',
+      vendor_kind: null,
+    })
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+    const address = screen.getByRole('textbox', { name: 'Vendor web address' })
+    const name = screen.getByPlaceholderText('Vendor name')
+    // The address comes before the name, and has the cursor.
+    expect(address.compareDocumentPosition(name)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(address).toHaveFocus()
+
+    // Not an address yet: nothing to propose.
+    await user.type(address, 'https://www')
+    expect(name).toHaveValue('')
+    await user.type(address, '.ebay.com/usr/coind0g')
+    // The site, without www and without the page on it.
+    expect(name).toHaveValue('ebay.com')
+
+    // Another address: the name it gave follows it.
+    await user.clear(address)
+    expect(name).toHaveValue('')
+    await user.type(address, 'https://goldstandardauctions.hibid.com/lots')
+    expect(name).toHaveValue('goldstandardauctions.hibid.com')
+
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() =>
+      expect(api.createVendor).toHaveBeenCalledWith({
+        name: 'goldstandardauctions.hibid.com',
+        vendor_kind: null,
+        url: 'https://goldstandardauctions.hibid.com/lots',
+      }),
+    )
+  })
+
+  it('proposes a name from an address typed without https://', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Vendor web address' }),
+      'WWW.APMEX.com',
+    )
+
+    expect(screen.getByPlaceholderText('Vendor name')).toHaveValue('apmex.com')
+  })
+
+  it('keeps a name typed by hand when the address changes', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+    const name = screen.getByPlaceholderText('Vendor name')
+
+    await user.type(name, 'Local coin shop')
+    await user.type(
+      screen.getByRole('textbox', { name: 'Vendor web address' }),
+      'https://example.com',
+    )
+
+    expect(name).toHaveValue('Local coin shop')
+  })
+
   it('does not submit the outer purchase form when Enter is pressed in the vendor name field', async () => {
     const user = userEvent.setup()
     api.createVendor.mockResolvedValue({

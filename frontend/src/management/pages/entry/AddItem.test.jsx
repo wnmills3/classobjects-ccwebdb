@@ -80,6 +80,8 @@ describe('AddItem', () => {
       listing_url: 'https://hibid.com/lot/12',
       item_kind: 'currency',
       source_title: '$20 Bill',
+      // Where nearly everything bought comes from; changed in the editor.
+      country: 'US',
       tax_rate: '0.0635',
       tax_includes_shipping: true,
     })

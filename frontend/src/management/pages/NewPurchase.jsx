@@ -35,8 +35,25 @@ function isValidRate(text) {
 const BLANK_VENDOR_DRAFT = { name: '', vendor_kind: '', url: '' }
 
 /**
+ * The name a vendor's web address proposes: its site, without `www.` --
+ * `ebay.com`, `goldstandardauctions.hibid.com`. A vendor is the site, not a
+ * page on it, so the path is left out. Empty until the text is an address.
+ */
+function siteName(text) {
+  const typed = (text ?? '').trim()
+  // A site has a dot and no spaces; anything less is still being typed.
+  if (!/^[^\s]+\.[^\s.]/.test(typed.replace(/^[a-z]+:\/\//i, ''))) return ''
+  try {
+    const url = new URL(/^[a-z]+:\/\//i.test(typed) ? typed : `https://${typed}`)
+    return url.hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
+/**
  * The vendor picker: a plain select over `listVendors()`, with a trailing
- * "+ Add a vendor..." option that opens an inline name / kind / web address
+ * "+ Add a vendor..." option that opens an inline web address / name / kind
  * form -- the same idea as `ReferenceSelect`'s inline add, but vendors are
  * rows with their own id, not a reference table's codes, so this is its own
  * small component rather than a reuse of that one.
@@ -79,6 +96,20 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
   if (adding) {
     return (
       <div className="add-reference" onKeyDown={onKeyDown}>
+        {/* The address first: a vendor is named for its site, so the address
+            proposes the name. Only a name the address gave follows it; one
+            typed by hand is left alone. */}
+        <input
+          placeholder="https://"
+          aria-label="Vendor web address"
+          value={draft.url}
+          autoFocus
+          onChange={(e) => {
+            const url = e.target.value
+            const proposed = draft.name === siteName(draft.url)
+            setDraft({ ...draft, url, name: proposed ? siteName(url) : draft.name })
+          }}
+        />
         <input
           placeholder="Vendor name"
           value={draft.name}
@@ -89,11 +120,6 @@ function VendorField({ vendors, value, onChange, onVendorAdded }) {
           value={draft.vendor_kind}
           onChange={(e) => setDraft({ ...draft, vendor_kind: e.target.value })}
           placeholder="vendor kind"
-        />
-        <input
-          placeholder="https://"
-          value={draft.url}
-          onChange={(e) => setDraft({ ...draft, url: e.target.value })}
         />
         <button type="button" onClick={addVendor} disabled={!draft.name.trim()}>
           Add

@@ -22,7 +22,7 @@ piece is in hand, from Receiving or the item editor
 | Where do shipping and tax live? | **On each item** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The page's purchase-wide tax values are sent with every item entered on it. |
 | A lot? | An item with `piece_count > 1`. Splitting is a later step. |
 | Status on entry | `ordered` (default) or `received` for things already in hand. The opening status-history row is written either way. |
-| Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. |
+| Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. A new item is made with country United States (`US`), which the person may change or empty in the editor. |
 | Vendors | Picked from a list; a missing one is added inline. Names are unique, case-insensitively. |
 | Web addresses | A purchase's `source_url` must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing it. A seller's `store_url` may also be `mailto:` and a mail address, for a seller reached by mail; a mail address sent alone is stored with `mailto:` in front. |
 | Who sold it? | The vendor is often the marketplace (ebay.com, whatnot.com); the seller on it is a row of its own (`seller`: a unique name and an optional store link) that the purchase names by `seller_id` -- one seller per purchase, since a marketplace order comes from one, and many purchases per seller. |
@@ -140,8 +140,11 @@ page:
    any column from a button in its header (date, newest first, until another
    is chosen; an undated purchase always last; ties newest first). A row or
    its order-number button picks the purchase -- or a new one: vendor (with
-   "+ Add a vendor..." opening an inline name / kind / web address form that
-   never submits the outer form), order number, order date, web
+   "+ Add a vendor..." opening an inline web address / name / kind form that
+   never submits the outer form; the address is asked first and proposes the
+   name -- its site without `www.`, as vendors are named: `ebay.com`,
+   `goldstandardauctions.hibid.com` -- which follows the address until a
+   name is typed by hand), order number, order date, web
    address, seller (with "+ Add a seller..." opening an inline name / store
    form, as the vendor picker does), notes, **Create purchase**. **Edit
    details** changes the same fields. The heading links the purchase's web
