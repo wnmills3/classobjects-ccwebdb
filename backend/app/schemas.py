@@ -1412,36 +1412,6 @@ class ItemErrorIn(BaseModel):
     details: str | None = None
 
 
-class ItemDraftIn(BaseModel):
-    """The New item form's fields, for a description before the item exists.
-
-    `ItemCreate`'s facts, every one optional: nothing is saved, and a form
-    half filled in is described as far as it goes. Codes as `ItemCreate`
-    takes them; an unknown one is a 422 naming it.
-    """
-
-    item_kind: str = Field(default="coin", max_length=64)
-    year_start: int | None = None
-    year_end: int | None = None
-    piece_count: int = Field(default=1, ge=1)
-    country: str | None = Field(default=None, max_length=64)
-    denomination: str | None = Field(default=None, max_length=64)
-    strike_type: str | None = Field(default=None, max_length=64)
-    grade: str | None = Field(default=None, max_length=64)
-    grade_designation: str | None = Field(default=None, max_length=64)
-    grading_service: str | None = Field(default=None, max_length=64)
-    metal: str | None = Field(default=None, max_length=64)
-    series: str | None = Field(default=None, max_length=64)
-    mint: str | None = Field(default=None, max_length=64)
-    variety: str | None = Field(default=None, max_length=255)
-    serial_number: str | None = Field(default=None, max_length=64)
-    series_year: SeriesYear | None = None
-    series_letter: str | None = Field(default=None, max_length=4)
-    note_type: str | None = Field(default=None, max_length=64)
-    seal_color: str | None = Field(default=None, max_length=64)
-    errors: list[ItemErrorIn] = Field(default_factory=list)
-
-
 class ItemSuggestIn(BaseModel):
     """What the item editor shows that is not saved yet, for a description.
 

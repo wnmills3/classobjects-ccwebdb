@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
@@ -31,7 +31,6 @@ from .. import (
     offering_writes,
     plates,
     sale_state,
-    serial_patterns,
 )
 from ..auction_holding import auction_ids_by_listing
 from ..classifier_defaults import refresh_items
@@ -68,7 +67,6 @@ from ..models import (
     Authenticity,
     BullionForm,
     CoinDetail,
-    Composition,
     Country,
     CurrencyDetail,
     Customer,
@@ -121,7 +119,6 @@ from ..schemas import (
     ItemAttributeOut,
     ItemCreate,
     ItemDetailOut,
-    ItemDraftIn,
     ItemErrorIn,
     ItemErrorOut,
     ItemErrorsOut,
@@ -1456,102 +1453,6 @@ def _refuse_note_year(items: Sequence[InventoryItem], data: dict[str, object]) -
         )
 
 
-def _row[T: ReferenceMixin](
-    db: Session, model: type[T], code: str | None, field: str
-) -> T | None:
-    """The vocabulary row for `code`, or None; an unknown code is a 422."""
-    row_id = code_to_id(db, model, code, field)
-    return db.get(model, row_id) if row_id is not None else None
-
-
-def _draft_item(db: Session, draft: ItemDraftIn) -> tuple[InventoryItem, Features]:
-    """An item built in memory from the New item form, and what no table holds.
-
-    Never added to the session: it has no id, no item code and no rows, so
-    nothing about it can be written. Its relationships point at the real
-    vocabulary rows, which is all `suggested_description` reads. A coin's
-    composition fills its metal and weights as the save would (only where
-    empty, and only when one composition covers every year); a note's serial
-    earns the attributes `app.serial_patterns` would record.
-    """
-    kind = db.get(ItemKind, require_code(db, ItemKind, draft.item_kind, "item_kind"))
-    grade_code, strike_code = grades.split_fields(draft.grade, draft.strike_type)
-    item = InventoryItem(
-        item_kind=kind,
-        year_start=draft.year_start,
-        year_end=draft.year_end if draft.year_end is not None else draft.year_start,
-        piece_count=draft.piece_count,
-        denomination=_row(db, Denomination, draft.denomination, "denomination"),
-        country=_row(db, Country, draft.country, "country"),
-        grade=_row(db, Grade, grade_code, "grade"),
-        strike_type=_row(db, StrikeType, strike_code, "strike_type"),
-        grade_designation=_row(
-            db, GradeDesignation, draft.grade_designation, "grade_designation"
-        ),
-        grading_service=_row(
-            db, GradingService, draft.grading_service, "grading_service"
-        ),
-        metal=_row(db, Metal, draft.metal, "metal"),
-        series_id=code_to_id(db, Series, draft.series, "series"),
-    )
-    attributes: list[str] = []
-    if draft.item_kind == "currency":
-        item.currency_detail = CurrencyDetail(
-            series_year=draft.series_year,
-            series_letter=draft.series_letter,
-            note_type_id=code_to_id(db, NoteType, draft.note_type, "note_type"),
-            seal_color_id=code_to_id(db, SealColor, draft.seal_color, "seal_color"),
-            serial_number=draft.serial_number,
-        )
-        earned = serial_patterns.analyse(draft.serial_number or "")
-        if len(earned) > 1:
-            earned -= {FANCY_SERIAL}  # the pattern itself says more
-        if earned:
-            attributes = list(
-                db.scalars(
-                    select(ItemAttribute.label)
-                    .where(ItemAttribute.code.in_(earned))
-                    .order_by(ItemAttribute.sort_order, ItemAttribute.code)
-                )
-            )
-    else:
-        item.coin_detail = CoinDetail(
-            mint_id=code_to_id(db, Mint, draft.mint, "mint"), variety=draft.variety
-        )
-        _fill_composition(db, item)
-    return item, Features(attributes=attributes, errors=_draft_errors(db, draft))
-
-
-def _fill_composition(db: Session, item: InventoryItem) -> None:
-    """Metal, fineness and weights from the one composition covering the years."""
-    if item.denomination is None or item.country is None or item.year_start is None:
-        return
-    last = item.year_end if item.year_end is not None else item.year_start
-    found = db.scalars(
-        select(Composition)
-        .where(
-            Composition.denomination_id == item.denomination.id,
-            Composition.country_id == item.country.id,
-            Composition.year_from <= item.year_start,
-            or_(Composition.year_to.is_(None), Composition.year_to >= last),
-        )
-        .order_by(Composition.year_from.desc())
-        .limit(1)
-    ).first()
-    if found is None:
-        return
-    if item.metal is None and found.metal_id is not None:
-        item.metal = db.get(Metal, found.metal_id)
-    for column in ("fineness", "gross_weight_ozt", "fine_weight_ozt"):
-        if getattr(item, column) is None:
-            setattr(item, column, getattr(found, column))
-
-
-def _draft_errors(db: Session, draft: ItemDraftIn) -> list[tuple[str, str | None]]:
-    """The form's errors as (label, details), in vocabulary order."""
-    return _error_labels(db, draft.errors)
-
-
 def _error_labels(
     db: Session, errors: Sequence[ItemErrorIn]
 ) -> list[tuple[str, str | None]]:
@@ -1643,22 +1544,6 @@ def _dry_run_save(db: Session, item: InventoryItem, data: dict[str, Any]) -> Non
     forget(db, [item.id], [_column(field) for field in data])
     hold(db, [item.id], _emptied(data))
     refresh_items(db, [item.id])
-
-
-@router.post("/suggested-description")
-def suggest_draft_description(
-    draft: ItemDraftIn, db: DbSession, _admin: AdminUser
-) -> SuggestedDescriptionOut:
-    """A description written from the New item form's fields, before saving.
-
-    The same wording the editor's Suggest writes for a saved item
-    (`app.item_descriptions`), from an item that exists only in memory.
-    Writes nothing.
-    """
-    item, features = _draft_item(db, draft)
-    return SuggestedDescriptionOut(
-        description=suggested_description(db, item, features)
-    )
 
 
 @router.get("/{item_id}/suggested-description")
@@ -1848,7 +1733,7 @@ DEFAULTED_COLUMNS: frozenset[str] = frozenset(
     }
 )
 
-#: Fields the New item form may fill from `/api/defaults` and
+#: Fields an entry form may fill from `/api/defaults` and
 #: report back as suggestions the person left alone.
 SUGGESTABLE_FIELDS: frozenset[str] = frozenset(
     {

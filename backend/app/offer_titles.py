@@ -88,8 +88,8 @@ def _coin_title(db: Session, item: InventoryItem) -> tuple[list[str], bool]:
     A year and a mint mark ("1921-S") date a coin but do not say what it is;
     only a set form, series, denomination or variety does.
     """
-    # Through the relationship, not a query by id: the New item form's
-    # suggestion describes an item that is not saved and has no id.
+    # Through the relationship, not a query by id: a caller describing an
+    # edit not yet committed holds the detail the item now points at.
     detail = item.coin_detail
     mint = (
         db.get(Mint, detail.mint_id)

@@ -22,11 +22,8 @@ It is a suggestion only: nothing here writes, and the editor puts it in the
 draft, where the owner's Save is what keeps it. The editor's reads the
 item as the screen shows it, unsaved changes included: it sends what Save
 would send, and `routers.inventory._dry_run_save` applies that, defaults
-included, in a transaction that is rolled back. The New item
-form's reads an unsaved one (`routers.inventory._draft_item`): an item
-built in memory from the form's fields, never added to the session, with
-the attributes its serial earns (`app.serial_patterns`) and the errors the
-form holds.
+included, in a transaction that is rolled back. A new item is entered in
+the same editor, so there is one way a description is suggested.
 
 Facts, not a catalog's arrangement: every part is a label from this
 database's own vocabularies or the item's own values
@@ -59,7 +56,7 @@ FANCY_SERIAL = "fancy_serial"
 
 @dataclass(frozen=True)
 class Features:
-    """An unsaved item's attributes and errors, which no table holds yet.
+    """Attributes and errors as a form shows them, in place of the saved ones.
 
     `attributes` are labels in vocabulary order; `errors` are (label,
     details) pairs in vocabulary order.
@@ -90,7 +87,7 @@ def _grade(item: InventoryItem) -> str | None:
 
 
 def saved_features(db: Session, item: InventoryItem) -> Features:
-    """A saved item's attributes and errors, as `Features` gives an unsaved one's."""
+    """A saved item's attributes and errors, as `Features` holds a form's."""
     return Features(
         attributes=saved_attributes(db, item),
         errors=list(
@@ -192,7 +189,7 @@ def suggested_description(
 ) -> str:
     """A description of the item from its record, in sentences.
 
-    `features` gives an unsaved item's attributes and errors; a saved item's
+    `features` gives the attributes and errors a form shows; a saved item's
     are read from their tables. Empty when the record holds nothing to say --
     the form then says so rather than replacing the description with nothing.
     """
