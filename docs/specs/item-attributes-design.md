@@ -16,7 +16,7 @@ catalog's codes:
 
 Staff meet these in the management console: aliases on the Vocabularies page
 (`/management/vocabularies`) and in every picker's Find box, attributes and
-grades in the New item form and the item editor, and all three in the
+grades in the item editor, and all three in the
 inventory search.
 
 **Standard terms are the labels; the owner's words are aliases.** UCAM, not
@@ -92,8 +92,7 @@ Two rules add links, each recorded `derived` with its rule in `derived_by`:
   the serial, so a batch pass derives them (`python -m app.serial_patterns`,
   `--commit` to write). Patterns need a full eight-digit serial; a shorter one
   is reported as incomplete. Consecutive is never derived: it describes a run
-  of notes, which no single serial shows. The New item form's suggested
-  description reads the same patterns from the serial typed.
+  of notes, which no single serial shows.
 - **Attributes from facts** (`attribute_rule`), below.
 
 **Removal is recorded for every link** (`app.item_attributes`), not only
@@ -111,11 +110,11 @@ naming it. A change moves the item's version, so a stale form is a 409. Bulk
 edit refuses `attributes`. Search matches attribute names and aliases and
 filters on `attribute=<code>`.
 
-Console: `AttributesField`, in the New item form and the item editor, shows
+Console: `AttributesField`, in the item editor, shows
 chips (marked *read*, with the rule in the tooltip, when a rule made them)
 and a picker of the attributes that fit the item's kind. Changing an item
-across note and coin drops the attributes that no longer fit in the editor
-(`kindChange.js`), and all of them in the New item form.
+across note and coin drops the attributes that no longer fit
+(`kindChange.js`).
 
 ### Attributes from facts: No Motto
 
@@ -167,7 +166,7 @@ any API client sending `MS65`), `display` composes it, mirrored
 by the database's `grade_display()` used by the views and search. The API
 returns `grade` (the code, `65`), `strike_type` and `grade_display` (`MS65`); a
 strike type the client names wins over one a compound grade implies. The item
-editor and New item form offer a strike type for anything but a note.
+editor offers a strike type for anything but a note.
 
 **Equivalences are aliases, not rows**: Ultra Cameo and UC are UCAM; DPL is
 DMPL. UCAM and DCAM are separate rows, not aliases of one another: each is

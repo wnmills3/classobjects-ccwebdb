@@ -311,6 +311,22 @@ export const FIELD_HELP = {
       "series or a note's class, so a word that is wrong here should be " +
       'corrected here. A buyer never sees it.',
   },
+  add_item: {
+    title: 'Add item',
+    text:
+      'Makes the item on this purchase and opens it in the editor, where its ' +
+      'details, photographs and description are entered. Close the editor ' +
+      'without saving and the item is not kept.',
+  },
+  add_another: {
+    title: 'Add another like it',
+    text:
+      'Starts the next piece from what it shares with the last one saved here: ' +
+      'kind, title, listing, status, where it is kept, country, denomination, ' +
+      "series, grading service, and a note's series, seal, class and " +
+      "signatures or a coin's metal and mint. Grade, serial, certificate, " +
+      'years and cost are entered for each piece.',
+  },
   description: {
     title: 'Description',
     text:

@@ -7,9 +7,10 @@ them -- "1921-D $1", "Series 1934-A $5" -- and most of its other classifiers
 follow from those facts (`classifier-defaults-design.md`,
 `series-classification-design.md`). So entry starts with those facts: the
 **Identify** fields come first when staff receive an item in the management
-console's Receiving page (`/management/receiving`) and when they enter one in
-the New item form on the Purchases page (`/management/purchases`), and what
-the facts decide is filled in from them. Typing less, and typing the facts
+console's Receiving page (`/management/receiving`), and what the facts decide
+is filled in from them. An item entered on the Purchases page is entered in
+the item editor (`entry-panels-design.md`), where the same facts are filled
+when it is saved. Typing less, and typing the facts
 before the conclusions, is faster and removes a class of mismatch (a note
 whose class contradicts its series).
 
@@ -81,34 +82,8 @@ single item:
 - Nothing typed in Identify is carried to the next line: the facts are the
   piece's, unlike the arrival date and location.
 
-## New item
-
-`management/pages/entry/NewItemForm.jsx` puts the facts before what describes
-the piece. The listing and its price come first, since they are known before
-the piece is in hand (`entry-panels-design.md`):
-
-1. Listing web address, seller's item id, item cost, shipping.
-2. Kind.
-3. The Identify fields for the kind (a coin's Year has a "Range of years"
-   checkbox). For a note, **Printed at** follows the back plate, then the
-   no-such-issue warning where there is one.
-4. What the facts fill, marked *suggested*: series, then the note's class,
-   seal, signatures and Reserve Bank, or the coin's metal.
-5. Country, then grading: strike type, grade, grade designation, grading
-   service, certificate number; set form and variety where the kind has them;
-   attributes.
-6. The rest of the purchase line: title, pieces.
-7. Errors, then the description with **Suggest description**, then the
-   storage location and status.
-
-Suggestions the person left alone, series included, are sent in `suggested`
-and recorded as derived. **Save and add another** focuses the first Identify
-field it cleared: the Year for a coin, the Serial number for a note (whose
-series year, letter and denomination are kept). The title stays required: it
-is what the seller called the piece, and is not made up from the facts.
-
 ## Tests
 
 Backend: `tests/test_entry_suggestions.py`, `tests/test_series_refresh.py`,
 `tests/test_series_classify.py`. Frontend: `management/identify.test.js`,
-`pages/receiving/ReceiptPanel.test.jsx`, `pages/entry/NewItemForm.test.jsx`.
+`pages/receiving/ReceiptPanel.test.jsx`.

@@ -22,11 +22,12 @@ piece is in hand, from Receiving or the item editor
 | Where do shipping and tax live? | **On each item** (`shipping_cost`, `tax_rate`, `tax_includes_shipping`). The page's purchase-wide tax values are sent with every item entered on it. |
 | A lot? | An item with `piece_count > 1`. Splitting is a later step. |
 | Status on entry | `ordered` (default) or `received` for things already in hand. The opening status-history row is written either way. |
-| Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. The New item form starts with country United States (`US`), which the person may change or empty. |
+| Other defaults | disposition `held`, authenticity `unverified` unless given, valuation basis `numismatic`, source `manual`. |
 | Vendors | Picked from a list; a missing one is added inline. Names are unique, case-insensitively. |
 | Web addresses | A purchase's `source_url` must start with `http://` or `https://` (422 otherwise), the rule Receiving applies when showing it. A seller's `store_url` may also be `mailto:` and a mail address, for a seller reached by mail; a mail address sent alone is stored with `mailto:` in front. |
 | Who sold it? | The vendor is often the marketplace (ebay.com, whatnot.com); the seller on it is a row of its own (`seller`: a unique name and an optional store link) that the purchase names by `seller_id` -- one seller per purchase, since a marketplace order comes from one, and many purchases per seller. |
-| Repeated entry | **Save and add another** keeps exactly what the next piece of one purchase shares (`SHARED_ON_REPEAT` in `NewItemForm.jsx`, listed under *New item* below) and clears the rest. Grade, grade designation, serial number, certificate, variety, cost, shipping and piece count are per piece and always clear, even when they often repeat. |
+| One form for an item | An item is entered in the item editor, the form it is later corrected in: entering and correcting must not differ in what they offer or in what Suggest description writes. The purchase page makes the row and opens the editor on it. |
+| Repeated entry | **Add another like it** starts the next piece from exactly what it shares with the last one saved (`SHARED_ON_REPEAT` in `AddItem.jsx`, listed under *New item* below). Grade, grade designation, serial number, certificate, variety, years, cost, shipping and piece count are per piece and are entered each time, even when they often repeat. |
 
 **Tax fields are three-state.** They sit on the purchase, above the item
 form. The tax-rate box starts empty, meaning the configured rate (sent as
@@ -150,80 +151,47 @@ page:
    values, a table of items entered so far (code, title, kind, cost, status)
    whose item code opens the item editor over the page, to fix an entry where
    it was made (the purchase is read again when the editor closes), the New
-   item form, a **Receive these** link to `/management/receiving?order=<id>`,
+   item row, a **Receive these** link to `/management/receiving?order=<id>`,
    and **Start another purchase**.
 
-**New item** (`management/pages/entry/NewItemForm.jsx`):
+**New item** (`management/pages/entry/AddItem.jsx`):
 
-- **The listing and its price first**, known before the piece is in hand:
-  listing web address, seller's item id, item cost, shipping. The listing's
-  address suggests the seller's item id when it carries one -- eBay's
-  `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot (`management/listing.js`);
-  an order page carries none. The id is marked *suggested* until the person
-  changes it, taken back if the address stops carrying one, and never
-  replaces an id the person typed.
-- **Then the facts** (`identify-first-entry-design.md`). Kind, then what
-  identifies the piece: a note's series year, series letter, denomination,
-  serial number, face plate, back plate and printing location ("Printed
-  at"); anything else's year (with "Range of years"), mint and denomination.
-- Then what those facts decide, marked *suggested* while it is the form's:
-  series, and a note's class, seal, signatures and Reserve Bank or anything
-  else's metal. Then country; strike type (not for a note), grade, grade
-  designation, grading service, certificate number, set form and variety
-  (not for a note), attributes (the editor's `AttributesField`, offering
-  the kind's own).
-- Then the rest of the purchase line: title, piece count.
-- Last, in this order: errors, then the description with **Suggest
-  description** -- which writes it from what is entered, errors included, so
-  they come first -- then the storage location (optional) and status
-  (ordered / received). The item editor offers the storage location too.
-- **Suggest description** posts the unsaved form to
-  `POST /api/inventory/suggested-description` (`app.item_descriptions`),
-  which builds the item in memory, adds the attributes its serial earns, and
-  writes a description in the owner's style: grade, errors and attributes
-  first, then what the piece is. It fills the box for editing and writes
-  nothing. The item editor's button posts what it shows to `POST
-  /api/inventory/{id}/suggested-description`: its unsaved changes as Save
-  would send them, and the errors panel's set when that has changed. The
-  server runs Save's own steps on them inside the request's transaction --
-  defaults included, so the metal and fine weight a save fills from the
-  composition are there -- describes the item as that left it, and rolls
-  everything back. The button never waits for Save. `GET` on the same path
-  still describes the saved record.
-- **A coin dated outside its series** is said beside the year, in the New
-  item form and the item editor: "Morgan Dollar runs 1878-1921; 1800 is
-  outside it. Check the year." (`management/series-years.js`, from the
-  series' own `year_start`/`year_end`). A notice, never a refusal: a
-  tribute piece or restrike can fall outside the design's years.
-- Pickers are `ReferenceSelect`, filtered to the item's kind
-  (`vocabulary-and-errors-design.md`). The grade picker offers the note scale
-  for currency and the coin scales otherwise; changing kind across that
-  boundary clears a picked grade, grade designation and attributes (and a
-  note has no strike type), while a change within one side keeps them.
-- **Suggestions.** As facts are entered the form asks `GET /api/defaults/note`
-  or `/coin` and fills what the facts decide -- the design series included --
-  marked *suggested* (`classifier-defaults-design.md`). The series is never
-  sent as a fact. A new item has no photographs and no Friedberg number yet:
-  both are added once it is in hand.
-- **Errors** are recorded with `ErrorsPanel`, saved after the item is created,
-  with a Retry if that second step fails.
-- Money is validated with `isMoney` before sending.
-- **Save** clears the whole form back to its start (the purchase's lot page
-  as the listing, where it has one). **Save and add another** keeps
-  `SHARED_ON_REPEAT` -- kind, seller's item id, listing web address, status,
-  storage location (a parcel is put away in one place), country,
-  denomination, series, series year and letter, seal, district, note class,
-  signatures, grading service, metal, mint -- with a kept suggestion still
-  marked *suggested*, except a suggested Reserve Bank, which came from the
-  serial and is cleared with it. It clears everything that varies piece to
-  piece (attributes, errors, title, description, years, grade, designation,
-  serial, plates, printing location, certificate, variety, cost, shipping,
-  piece count back to 1) and focuses the first identifying field it cleared:
-  a note's serial number, anything else's year.
-- Keyboard accelerators via `accel` / `AccessLabel` (Alt+letter, avoiding D,
-  E and F, which the browser claims) and `useSaveShortcut` (Ctrl+S /
-  Ctrl+Enter saves; the Save button, a `SaveButton`, shows Ctrl+S and has no
-  Alt letter).
+- **Kind, title, Add item.** The row asks only for what the server needs to
+  make an item -- its kind and a title, what the seller called it -- and
+  posts them to `POST /api/inventory` with the purchase's tax values and, for
+  a purchase whose web address is a lot's page, that address as the listing.
+  Enter in the title adds.
+- **The item opens in the item editor** (`ItemEditDialog`), where everything
+  else is entered: the facts, grade, cost, storage location, errors,
+  photographs (by file, web address, drag and drop or paste), the Friedberg
+  number, and the description with **Suggest description**. There is no
+  second form to keep in step with it.
+- **Closing the editor without saving removes the item** (`DELETE
+  /api/inventory/{id}`): a row nobody saved was never entered. An item a save
+  wrote part of -- the editor says "Not all was saved" and tells its opener
+  through `onChanged` -- is kept.
+- **Add another like CC-######** reads the last item saved here and makes the
+  next from `SHARED_ON_REPEAT` -- kind, title, seller's item id, listing web
+  address, status, storage location (a parcel is put away in one place),
+  country, denomination, series, grading service, and a note's series year
+  and letter, seal, district, class and signatures or anything else's metal
+  and mint -- then opens it in the editor.
+- **Suggest description** is the editor's: it posts what the form shows to
+  `POST /api/inventory/{id}/suggested-description` -- its unsaved changes as
+  Save would send them, and the errors panel's set when that has changed.
+  The server runs Save's own steps on them inside the request's transaction
+  -- defaults included, so a note's class and seal from its series, and the
+  metal and fine weight a save fills from the composition, are there --
+  describes the item as that left it, and rolls everything back. The button
+  never waits for Save. `GET` on the same path describes the saved record.
+- **A coin dated outside its series** is said beside the year in the editor:
+  "Morgan Dollar runs 1878-1921; 1800 is outside it. Check the year."
+  (`management/series-years.js`, from the series' own
+  `year_start`/`year_end`). A notice, never a refusal: a tribute piece or
+  restrike can fall outside the design's years.
+- What the facts decide -- a note's class, seal and signatures, a coin's
+  metal, the design series -- is filled when the item is saved
+  (`classifier-defaults-design.md`) and marked *suggested* in the editor.
 
 ## Listing links
 

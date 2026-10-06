@@ -12,8 +12,9 @@ facts recorded about the object:
 
 So staff enter the facts and the software fills in the rest from published
 facts, which saves typing and removes a class of entry error. It works in
-three places: live in the management console's New item form and Receiving's
-Identify section (`identify-first-entry-design.md`), on every save of an item,
+three places: live in Receiving's Identify section
+(`identify-first-entry-design.md`), on every save of an item -- which is how
+an item entered on a purchase gets them --
 and as a batch pass over the whole collection. A person can always override.
 Design-series assignment (`series-classification-design.md`) works the same
 way and records its results in the same table. The rules live in
@@ -48,7 +49,7 @@ on the item or its currency detail.
 | `composition` | a coin's composition, metal, fineness and weights |
 | `series_match` | design series read from the description |
 | `series_classify` | design series decided from the facts |
-| `suggestion` | a value the New item form suggested and the person left alone |
+| `suggestion` | a value an entry form suggested and the person left alone |
 | `weight` | fine weight worked out as gross weight times fineness |
 | `weight_text` | a weight or fineness `app.bullion_weights` read from the item's own title, description or weight as written |
 | `weight_peers` | a weight or fineness `app.bullion_weights` took from what most items of the same bullion form and metal hold |
@@ -201,17 +202,17 @@ Reported and never written:
   `refresh_items` in the same transaction, so a corrected series year corrects
   the class derived from it. It refreshes the design series too
   (`series_classify.refresh_series`).
-- **At entry.** The New item form and Receiving's Identify section ask
+- **At entry.** Receiving's Identify section asks
   `GET /api/defaults/note` (denomination, series year and letter, serial,
   rating, plus any class, seal, signatures or Bank the person chose) or
   `GET /api/defaults/coin` (denomination, country, year; answers the metal).
   Both also answer the design series the facts decide
   (`series_classify.suggest_series`), and the note lookup returns a `warning`
   when no issue of that denomination has that series, naming the ones on
-  record. The lookup runs after a 250 ms pause. The New item form sends only
+  record. The lookup runs after a 250 ms pause. A form sends only
   the person's own picks -- a value sent narrows the answer and is never
-  suggested back -- and marks what it filled as *suggested*
-  (`management/pages/entry/suggestions.js`). Picking a value, even the
+  suggested back -- and marks what it filled as *suggested*. Picking a value,
+  even the
   suggested one, makes it the person's; clearing the denomination withdraws
   the suggestions. Suggestions the person kept are sent as `suggested` and
   recorded as `suggestion`.
