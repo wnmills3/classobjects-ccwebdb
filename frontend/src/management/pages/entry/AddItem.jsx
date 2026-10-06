@@ -29,6 +29,9 @@ const SHARED_ON_REPEAT = [
   'mint',
 ]
 
+//: The country a new item starts with.
+const DEFAULT_COUNTRY = 'US'
+
 //: Sent only for the kind that has them: a note's fields on anything else,
 //: or a coin's on a note, is refused.
 const NOTE_ONLY = new Set([
@@ -114,7 +117,11 @@ export default function AddItem({
   function add(e) {
     e.preventDefault()
     if (!title.trim() || disabledReason) return
-    create({ item_kind: kind, source_title: title.trim() })
+    // Nearly everything bought is American: the country starts as the
+    // United States, to be changed or emptied in the editor. A default, not
+    // a fact about the piece -- which is why it is set here, where the item
+    // is made, and not filled in by a rule.
+    create({ item_kind: kind, source_title: title.trim(), country: DEFAULT_COUNTRY })
   }
 
   async function addAnother() {
