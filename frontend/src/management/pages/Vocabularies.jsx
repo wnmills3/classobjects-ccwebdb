@@ -5,9 +5,13 @@ import { ReferenceContext } from '../../shared/reference-context'
 import { findEntries } from '../../shared/reference-match'
 import HelpScope from '../HelpScope'
 import VocabularyAddForm from './VocabularyAddForm'
+import VocabularyDetailsForm from './VocabularyDetailsForm'
 
 /**
  * The classifier vocabularies: their values' names, and other names for them.
+ *
+ * What a vocabulary records about a value beyond its label -- which items a
+ * series is offered for, a mint's mark -- is changed with Edit details...
  *
  * A value can be added, with whatever is the vocabulary's own -- a
  * denomination's currency, face value and side -- except to a vocabulary the
@@ -147,7 +151,17 @@ function MergePanel({ table, value, active, onMerged, onCancel }) {
   )
 }
 
-function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged }) {
+function ValueRow({
+  table,
+  value,
+  fields,
+  active,
+  shared,
+  sequenced,
+  onChanged,
+  onMerged,
+}) {
+  const [detailing, setDetailing] = useState(false)
   const [draft, setDraft] = useState('')
   // The position being typed, as text; the value's own until it is edited.
   const [order, setOrder] = useState(String(value.sort_order))
@@ -245,7 +259,31 @@ function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged
               >
                 Merge into...
               </button>
+              {fields.length > 0 && (
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Edit details of ${value.label}`}
+                  data-help="vocabulary_details"
+                  disabled={saving}
+                  onClick={() => setDetailing(true)}
+                >
+                  Edit details...
+                </button>
+              )}
             </div>
+            {detailing && (
+              <VocabularyDetailsForm
+                table={table}
+                value={value}
+                fields={fields}
+                onSaved={(updated) => {
+                  setDetailing(false)
+                  onChanged(updated)
+                }}
+                onCancel={() => setDetailing(false)}
+              />
+            )}
             {merging && (
               <MergePanel
                 table={table}
@@ -557,6 +595,7 @@ export default function Vocabularies() {
                   key={`${value.code}:${value.sort_order}`}
                   table={table}
                   value={value}
+                  fields={loaded.fields ?? []}
                   active={active}
                   shared={(alias) => (counts.get(alias.toLowerCase()) ?? 0) > 1}
                   sequenced={sequenced}

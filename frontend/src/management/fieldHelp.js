@@ -696,6 +696,10 @@ export const FIELD_HELP = {
     title: 'Other names',
     text: 'Other names people use for the value, which search and the pickers also recognize: Mercury for the Winged Liberty Head dime. Click a struck-through name to bring it back.',
   },
+  vocabulary_details: {
+    title: 'Edit details',
+    text: "Changes what this list records about the value beyond its label: which items a series is offered for, its years, a mint's mark. Every item that holds the value is affected at once, and the code stays as it is.",
+  },
   vocabulary_field: {
     title: "A value's own detail",
     text: 'Something this list records about each of its values, beyond the label. A box marked optional may be left empty.',

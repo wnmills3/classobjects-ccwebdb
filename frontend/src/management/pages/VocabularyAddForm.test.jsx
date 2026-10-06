@@ -7,6 +7,7 @@ vi.mock('../api', () => ({
     listReferenceTables: vi.fn(),
     getReference: vi.fn(),
     addReferenceValue: vi.fn(),
+    renameReferenceValue: vi.fn(),
   },
 }))
 
@@ -272,6 +273,82 @@ describe('Adding a value to a vocabulary', () => {
     ).toBeInTheDocument()
     await user.click(screen.getByLabelText('Numeric value (optional)'))
     expect(screen.getByText(/The grade's number on its scale/)).toBeInTheDocument()
+  })
+
+  it('changes what a vocabulary records about a value, sending only what changed', async () => {
+    const user = userEvent.setup()
+    denominations = [
+      {
+        ...value('usd_coin_0_05', 'Nickel', 20),
+        extra: { currency: 'USD', face_value: '0.0500', kind: 'coin' },
+      },
+    ]
+    api.renameReferenceValue.mockImplementation(async (table, code, payload) => ({
+      ...denominations[0],
+      extra: { ...denominations[0].extra, ...payload.extra },
+    }))
+    await open(user, 'denomination')
+    await screen.findByText('Nickel')
+
+    await user.click(screen.getByRole('button', { name: 'Edit details of Nickel' }))
+    // Shown as it is held.
+    expect(screen.getByLabelText('Face value')).toHaveValue('0.0500')
+    expect(screen.getByLabelText('Kind')).toHaveValue('coin')
+    const save = screen.getByRole('button', { name: 'Save details' })
+    // Nothing changed yet: nothing to save.
+    expect(save).toBeDisabled()
+
+    await user.selectOptions(screen.getByLabelText('Kind'), 'note')
+    await user.click(save)
+
+    await waitFor(() =>
+      expect(api.renameReferenceValue).toHaveBeenCalledWith(
+        'denomination',
+        'usd_coin_0_05',
+        {
+          label: 'Nickel',
+          extra: { kind: 'note' },
+        },
+      ),
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Save details' })).toBeNull(),
+    )
+    expect(reference.invalidate).toHaveBeenCalledWith('denomination')
+  })
+
+  it('holds a required detail and says what the server refused', async () => {
+    const user = userEvent.setup()
+    denominations = [
+      {
+        ...value('usd_coin_0_05', 'Nickel', 20),
+        extra: { currency: 'USD', face_value: '0.0500', kind: 'coin' },
+      },
+    ]
+    api.renameReferenceValue.mockRejectedValue(
+      new Error(
+        'denomination already has a value with the same currency, face_value, kind.',
+      ),
+    )
+    await open(user, 'denomination')
+    await screen.findByText('Nickel')
+    await user.click(screen.getByRole('button', { name: 'Edit details of Nickel' }))
+
+    await user.clear(screen.getByLabelText('Face value'))
+    expect(screen.getByRole('button', { name: 'Save details' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Face value'), '0.10')
+    await user.click(screen.getByRole('button', { name: 'Save details' }))
+
+    expect(
+      await screen.findByText(/already has a value with the same/),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Face value')).toHaveValue('0.10')
+  })
+
+  it('offers no details where a vocabulary records none', async () => {
+    const user = userEvent.setup()
+    await open(user, 'series')
+    expect(screen.queryByRole('button', { name: /Edit details of/ })).toBeNull()
   })
 
   it('offers no form for a vocabulary the application acts on', async () => {

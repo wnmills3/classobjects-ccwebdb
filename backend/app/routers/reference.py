@@ -21,6 +21,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import Select, UniqueConstraint, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import object_session
 
 from .. import aliases, reference_merge, sale_state
 from ..deps import AdminUser, DbSession
@@ -32,6 +33,7 @@ from ..reference_fields import (
     derived_code,
     fields_of,
     table_of,
+    target_of,
 )
 from ..references import extendable, retirable
 from ..schemas import (
@@ -93,16 +95,29 @@ def _to_value(
     retired: list[str] | None = None,
 ) -> ReferenceValueOut:
     extra: dict[str, Any] = {}
-    for column in model.__table__.columns:
+    for column in table_of(model).columns:
         if column.name in _COMMON:
             continue
         # Foreign keys are resolved to the referenced row's code, so a client
         # never has to know an id -- the same rule the rest of the API follows.
         if column.foreign_keys and column.name.endswith("_id"):
-            related = getattr(row, column.name[: -len("_id")], None)
+            name = column.name[: -len("_id")]
+            related = getattr(row, name, None)
+            # A model need not declare a relationship for every reference it
+            # holds (a series' denomination): read the row it points at.
+            target = target_of(column)
+            value_id = getattr(row, column.name)
+            session = object_session(row)
+            if (
+                related is None
+                and target is not None
+                and value_id is not None
+                and session is not None
+            ):
+                related = session.get(target, value_id)
             code = getattr(related, "code", None)
             if code is not None:
-                extra[column.name[: -len("_id")]] = code
+                extra[name] = code
             continue
         extra[column.name] = plain(getattr(row, column.name))
 
@@ -346,10 +361,14 @@ def rename_value(
     renaming the label is precisely what lets a poorly worded one be fixed
     without breaking those.
 
-    A renamed or reordered value becomes `manual`, so the next seed load
-    leaves it as the person set it rather than putting the shipped wording
-    back. Retiring is refused for a value the application looks up by code
-    (409); it may still be renamed.
+    `extra` changes the vocabulary's own columns -- which side a series is
+    offered for, a denomination's face value -- read as they are when a
+    value is added; only the columns named change, and a blank empties one.
+
+    A renamed, reordered or otherwise changed value becomes `manual`, so the
+    next seed load leaves it as the person set it rather than putting the
+    shipped wording back. Retiring is refused for a value the application
+    looks up by code (409); it may still be renamed.
 
     **Nothing needs migrating.** Every record refers to the value by foreign
     key, so the new wording is live everywhere the moment this commits. That is
@@ -367,11 +386,25 @@ def rename_value(
             "by its code. It can still be renamed.",
         )
 
-    if label != row.label or (
-        payload.sort_order is not None and payload.sort_order != row.sort_order
+    try:
+        changes = column_values(db, model, payload.extra or {}, changing=True)
+    except FieldError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    changed = {
+        column: value
+        for column, value in changes.items()
+        if getattr(row, column) != value
+    }
+
+    if (
+        label != row.label
+        or (payload.sort_order is not None and payload.sort_order != row.sort_order)
+        or changed
     ):
         row.source = ProvenanceSource.manual
     row.label = label
+    for column, value in changed.items():
+        setattr(row, column, value)
     if payload.sort_order is not None:
         row.sort_order = payload.sort_order
     if payload.is_active is not None:
@@ -380,6 +413,19 @@ def rename_value(
         # by the foreign keys anyway.
         row.is_active = payload.is_active
 
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        same = _unique_columns(model, exc)
+        if same:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{table} already has a value with the same {', '.join(same)}.",
+            ) from exc
+        raise HTTPException(
+            status_code=422, detail=f"{table} rejected the change: {exc.orig}"
+        ) from exc
     db.commit()
     db.refresh(row)
     return _value_with_aliases(db, row, model)
