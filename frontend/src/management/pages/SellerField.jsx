@@ -3,13 +3,15 @@ import { useState } from 'react'
 import { api } from '../api'
 import { useRequest } from '../../shared/useRequest'
 import { orNull } from '../../shared/text'
+import { siteName } from '../site-name'
 
 const BLANK_DRAFT = { name: '', store_url: '' }
 
 /**
  * The seller picker: who sold a purchase on the marketplace its vendor
  * names. A select over `listSellers()`, ending in "+ Add a seller..." for an
- * inline name and store form -- the vendor picker's shape.
+ * inline store and name form -- the vendor picker's shape: the store's
+ * address is asked first and proposes the name (`siteName`).
  *
  * `value` is the seller's id as text ('' for none), and `onChange` receives
  * the same, so it sits in a form of text fields; the form turns it into a
@@ -52,15 +54,28 @@ export default function SellerField({ value, onChange }) {
   if (adding) {
     return (
       <div className="add-reference" onKeyDown={onKeyDown}>
+        {/* The store first: a seller is named for their place on the
+            marketplace, so its address proposes the name. Only a name the
+            address gave follows it; one typed by hand is left alone. */}
+        <input
+          placeholder="Store web address or email"
+          aria-label="Store web address or email"
+          value={draft.store_url}
+          autoFocus
+          onChange={(e) => {
+            const store = e.target.value
+            const proposed = draft.name === siteName(draft.store_url)
+            setDraft({
+              ...draft,
+              store_url: store,
+              name: proposed ? siteName(store) : draft.name,
+            })
+          }}
+        />
         <input
           placeholder="Seller name"
           value={draft.name}
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-        />
-        <input
-          placeholder="Store web address or email"
-          value={draft.store_url}
-          onChange={(e) => setDraft({ ...draft, store_url: e.target.value })}
         />
         <button type="button" onClick={addSeller} disabled={!draft.name.trim()}>
           Add seller

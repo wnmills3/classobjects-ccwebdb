@@ -1032,6 +1032,57 @@ describe('NewPurchase: the seller', () => {
     )
   })
 
+  it('asks for the store first and proposes the name from its address', async () => {
+    const user = userEvent.setup()
+    api.createSeller.mockResolvedValue({
+      id: 9,
+      name: 'coinbuyer42',
+      store_url: 'https://www.ebay.com/usr/coinbuyer42',
+    })
+    api.createPurchaseOrder.mockResolvedValue(FRESH_PURCHASE)
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '__add__',
+    )
+    const store = screen.getByRole('textbox', { name: 'Store web address or email' })
+    const name = screen.getByPlaceholderText('Seller name')
+    // The store comes before the name, and has the cursor.
+    expect(store.compareDocumentPosition(name)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(store).toHaveFocus()
+
+    await user.type(store, 'https://www.ebay.com/usr/coinbuyer42')
+    expect(name).toHaveValue('coinbuyer42')
+
+    await user.click(screen.getByRole('button', { name: 'Add seller' }))
+    await waitFor(() =>
+      expect(api.createSeller).toHaveBeenCalledWith({
+        name: 'coinbuyer42',
+        store_url: 'https://www.ebay.com/usr/coinbuyer42',
+      }),
+    )
+  })
+
+  it('proposes no name from a mail address, and keeps one typed by hand', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Seller' }),
+      '__add__',
+    )
+    const store = screen.getByRole('textbox', { name: 'Store web address or email' })
+    const name = screen.getByPlaceholderText('Seller name')
+
+    await user.type(store, 'coins@example.com')
+    expect(name).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Add seller' })).toBeDisabled()
+
+    await user.type(name, 'By Mail Coins')
+    await user.clear(store)
+    await user.type(store, 'https://www.ebay.com/usr/someone')
+    expect(name).toHaveValue('By Mail Coins')
+  })
+
   it('shows a seller with no store as a name, not a link', async () => {
     api.getPurchaseOrder.mockResolvedValue({
       ...FRESH_PURCHASE,
