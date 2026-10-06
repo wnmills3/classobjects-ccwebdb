@@ -148,8 +148,10 @@ page:
    page, `drh9989` of `https://www.ebay.com/usr/drh9989`; else the site
    without `www.`, `usmint.gov` -- which follows the address until a name is
    typed by hand), order number, order date, web
-   address, seller (with "+ Add a seller..." opening an inline name / store
-   form, as the vendor picker does), notes, **Create purchase**. **Edit
+   address, seller (with "+ Add a seller..." opening an inline store / name
+   form, as the vendor picker does: the store's address is asked first and
+   proposes the name by the same rule, `management/site-name.js`; a mail
+   address proposes none), notes, **Create purchase**. **Edit
    details** changes the same fields. The heading links the purchase's web
    address as "Vendor page" and names the seller, linked to their store, as
    Receiving's does. A refusal is shown in place with the input kept.
