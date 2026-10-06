@@ -245,6 +245,29 @@ def test_lot_text_is_not_evidence_about_a_piece(
     assert _case(db, alone) == ("conflict", ("large_cent", "morgan_dollar"))
 
 
+def test_presidential_settles_a_dollar_of_the_presidential_years(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """2007-2016 dollars are Presidential or Sacagawea until the piece says."""
+    said = _coin(
+        db, make_item, DOLLAR, 2008, title="2008 P James Monroe $1 Presidential Coin"
+    )
+    silent = _coin(db, make_item, DOLLAR, 2008)
+    # 2005: Sacagawea alone, and "Presidential" names a design not yet struck.
+    early = _coin(db, make_item, DOLLAR, 2005, title="Presidential Collection")
+
+    run(db, commit=True)
+
+    assert _series_code(db, said) == "presidential_dollar"
+    assert _series_code(db, silent) is None
+    assert _case(db, silent) == (
+        "boundary",
+        ("presidential_dollar", "sacagawea_dollar"),
+    )
+    assert _series_code(db, early) is None
+    assert _case(db, early) == ("conflict", ("presidential_dollar",))
+
+
 def test_a_trade_dollar_needs_its_word(db: Session, make_item: ItemFactory) -> None:
     """A dollar of 1878-1885 that says nothing is a Morgan, not a boundary case."""
     plain = _coin(db, make_item, DOLLAR, 1880)

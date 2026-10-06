@@ -11,6 +11,7 @@ denominations and mean nothing on their own:
     Seated Liberty  dime, quarter, half and dollar
     Indian Head     cent, nickel and gold
     Liberty Head    nickel and gold
+    Presidential    a dollar, but also medals and sets
 
 For those the denomination decides, and an item whose denomination is unknown
 is left unclassified rather than guessed at. A wrong series is worse than none:
@@ -82,6 +83,12 @@ AMBIGUOUS: dict[str, dict[str, str]] = {
     },
     "liberty head": {
         "usd_coin_0_05": "liberty_head_nickel",
+    },
+    # Sellers write "$1 Presidential Coin" and "Presidential $1 Set" as often
+    # as "Presidential Dollar". On a dollar the word is the design; on
+    # anything else it is an inaugural medal or a set's name.
+    "presidential": {
+        "usd_coin_1_00": "presidential_dollar",
     },
 }
 
