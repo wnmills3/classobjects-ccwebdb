@@ -105,7 +105,10 @@ Rules that keep it honest:
 - **Lot text is not evidence about a piece.** A lot's pieces carry the
   lot's listing, so for a piece whose title and description are
   shared with another item of the same order, only its rating counts as
-  text. Lot text can still send a piece to review -- "Lot of 3
+  text. The listing is as much the lot's once `app.seller_titles` has
+  moved it into the title and written each piece its own description: a
+  title longer than a face value, shared within the order, is lot text
+  whatever the descriptions say. Lot text can still send a piece to review -- "Lot of 3
   Washington/Carver Commemorative Half Dollars" sends a 1952 half to review
   rather than to Franklin -- but never assigns it.
 - **A conflict needs the text to name only impossible designs.** It is judged
@@ -251,6 +254,14 @@ collectors search by.
   red-seal United States Note shares the back, and the owner counts it.
 - **Hawaii $10 includes plain Series 1934.** Sources disagree; since Hawaii
   needs evidence, a wider range cannot assign it wrongly.
+- **A seal's name is found by search, and is not evidence of a design.**
+  "Brown Seal" and "Yellow Seal" are nicknames, so a search for either
+  finds the designs; but a seal color is a field, and a description
+  written from the record states it. Read as evidence, "Brown Seal" would
+  make every brown-seal Federal Reserve Bank Note name the National's
+  design and be listed as a conflict. A nickname that is a seal color's
+  label is therefore left out of the matcher's rules (`build_rules`); the
+  seal the note records is the evidence, where a design names one.
 - **"National" alone is not a name for the Series 1929 design.** A
   National bank's name carries the word on notes of every series -- a
   Series 1902 $20 of the National City Bank of New York -- so as a nickname

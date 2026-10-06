@@ -56,6 +56,7 @@ from .models import (
     ItemFieldSource,
     ItemKind,
     ProvenanceSource,
+    SealColor,
     Series,
     SeriesYearRange,
 )
@@ -159,6 +160,11 @@ def build_rules(db: Session) -> list[Rule]:
     """
     rules: list[Rule] = []
     ambiguous_terms = set(AMBIGUOUS)
+    # A seal color is a field of the note, and a description written from
+    # the record states it: "Brown Seal" in the text is the note's seal, not
+    # a name for the one design nicknamed so. The seal recorded is the
+    # evidence (`series.seal_color_id`); search still finds the nickname.
+    seals = {label.lower() for label in db.scalars(select(SealColor.label))}
 
     rows = db.execute(
         select(Series.id, Series.code, Series.label, Series.applies_to)
@@ -170,6 +176,8 @@ def build_rules(db: Session) -> list[Rule]:
         for term in terms:
             if term.lower() in ambiguous_terms:
                 continue  # handled by denomination, below
+            if term.lower() in seals:
+                continue
             rules.append(Rule(code, aliases.word_pattern(term), applies_to))
         for extra in EXTRA.get(code, []):
             rules.append(Rule(code, re.compile(extra, re.IGNORECASE), applies_to))

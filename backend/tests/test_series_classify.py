@@ -642,14 +642,28 @@ def test_a_national_banks_name_does_not_make_an_earlier_note_a_conflict(
 def test_a_federal_reserve_bank_note_is_never_a_national(
     db: Session, make_item: ItemFactory
 ) -> None:
-    # Even when its text says "Brown Seal", the owner's own nickname.
-    note = _note(db, make_item, "usd_note_10", 1929, seal="brown", rating="Brown Seal")
+    # Its text says "Brown Seal" -- a description written from the record
+    # does -- and that is its seal, not evidence of the National's design,
+    # though the nickname still finds the Nationals in a search.
+    note = _note(
+        db,
+        make_item,
+        "usd_note_10",
+        1929,
+        seal="brown",
+        description="1929 $10 S/N B02074738A. Federal Reserve Bank Note Brown Seal.",
+    )
     _class(db, note, "frbn")
+    said = _note(db, make_item, "usd_note_20", 1929, rating="Small Size National")
+    _class(db, said, "frbn")
 
     run(db, commit=True)
 
     assert _series_code(db, note) is None
-    assert _case(db, note) == ("conflict", ("national_bank_note_1929",))
+    assert _case(db, note) is None
+    # Text that does name the design is still a finding on another class.
+    assert _series_code(db, said) is None
+    assert _case(db, said) == ("conflict", ("national_bank_note_1929",))
 
 
 def test_a_national_recorded_as_another_class_is_reported(
