@@ -10,9 +10,12 @@ from datetime import date
 
 import pytest
 from app.models import (
+    CurrencyDetail,
     Denomination,
     InventoryItem,
     ItemFieldChange,
+    ItemKind,
+    NoteType,
     PurchaseOrder,
     Series,
     User,
@@ -20,7 +23,7 @@ from app.models import (
 )
 from app.seller_titles import LONG_DESCRIPTION, SHORT_TITLE, apply, main, plan
 from app.series_classify import classify, run
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, code_id
@@ -77,6 +80,56 @@ def test_a_face_value_title_gives_way_to_the_sellers_words(
             ("description", SELLER, written, admin_user.id),
         ]
     )
+
+
+def test_the_description_is_the_editors_with_what_a_save_fills(
+    db: Session, admin_user: User
+) -> None:
+    """A $1 Series 1957B note with no class recorded yet.
+
+    The editor's Suggest applies Save's defaults first, so it says Silver
+    Certificate and Blue Seal; describing the bare record would not.
+    """
+    note = build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        denomination_id=code_id(db, Denomination, "usd_note_1"),
+        year_start=None,
+        source_title="$1 Bill",
+        description="Item in hand, no cancellations! Lot #25 of the evening",
+    )
+    db.add(
+        CurrencyDetail(inventory_item_id=note.id, series_year=1957, series_letter="B")
+    )
+    db.commit()
+
+    todo = plan(db)
+
+    assert [c.item_code for c in todo.changes] == [note.item_code]
+    written = todo.changes[0].new_description
+    assert "Silver Certificate" in written
+    assert "Blue Seal" in written
+    # The report tried Save's steps and undid them: nothing is kept.
+    db.expire_all()
+    detail = db.scalar(
+        select(CurrencyDetail).where(CurrencyDetail.inventory_item_id == note.id)
+    )
+    assert detail is not None
+    assert detail.note_type_id is None
+    assert db.scalar(select(func.count()).select_from(ItemFieldChange)) == 0
+
+    apply(db, todo, admin_user.id)
+    db.commit()
+    db.expire_all()
+
+    # Committed, the record holds what its description says, as after a Save.
+    detail = db.scalar(
+        select(CurrencyDetail).where(CurrencyDetail.inventory_item_id == note.id)
+    )
+    assert detail is not None
+    assert detail.note_type_id == code_id(db, NoteType, "silver_certificate")
+    assert db.get_one(InventoryItem, note.id).description == written
+    assert plan(db).changes == []
 
 
 def test_a_second_run_changes_nothing(db: Session, admin_user: User) -> None:

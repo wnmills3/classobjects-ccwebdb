@@ -13,8 +13,15 @@ An item is changed when all of these hold:
 - its title is very short (`SHORT_TITLE` characters or fewer);
 - its description is long (`LONG_DESCRIPTION` characters or more), and fits
   a title;
-- the record has something to say (`item_descriptions.suggested_description`
-  is not empty), and the description is not already that.
+- the record has something to say, and the description is not already that.
+
+**The description is the one the item editor's Suggest writes, by the same
+steps.** The editor first applies what a save fills from the facts -- a
+note's class, seal and signatures, a coin's metal and weights, the design
+series (`classifier_defaults.refresh_items`) -- and describes the item as
+that leaves it. So does this: the report tries those steps and undoes them,
+and a commit keeps them with the title and description, as the editor's
+Save does. A description therefore never says more than its record holds.
 
 Both fields change together or not at all: the seller's text is never
 dropped, and a description is never emptied. An item whose title is already
@@ -39,16 +46,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import field_changes
+from .classifier_defaults import refresh_items
 from .database import SessionLocal
 from .item_descriptions import suggested_description
 from .live import live_item
 from .models import InventoryItem, ItemKind, User
+from .short_titles import SHORT_TITLE
 
 __all__ = ["LONG_DESCRIPTION", "SHORT_TITLE", "Plan", "apply", "plan"]
 
-#: A title this short is a face value or a denomination -- "1", "0.005",
-#: "$1 Bill", "$1000 Bill" -- not a name for the piece.
-SHORT_TITLE = 10
 #: A description this long says something a title could: "Item as shown #39"
 #: does not, "1881-S Morgan Silver Dollar BU #412" does.
 LONG_DESCRIPTION = 30
@@ -77,8 +83,26 @@ class Plan:
     left: Counter[str] = field(default_factory=Counter)
 
 
+def _described(db: Session, item_id: int) -> str:
+    """What the editor's Suggest would write for the item as it is saved.
+
+    Save's defaults are applied inside a savepoint, the item is described
+    as that leaves it, and the savepoint is undone: nothing is kept.
+    """
+    point = db.begin_nested()
+    try:
+        refresh_items(db, [item_id])
+        db.flush()
+        # Defaults are written by SQL as well as through the ORM.
+        db.expire_all()
+        return suggested_description(db, db.get_one(InventoryItem, item_id))
+    finally:
+        point.rollback()
+        db.expire_all()
+
+
 def plan(db: Session) -> Plan:
-    """Every live item the rule changes. Writes nothing."""
+    """Every live item the rule changes. Keeps nothing it writes."""
     todo = Plan()
     rows = db.execute(
         select(InventoryItem, ItemKind.code)
@@ -90,6 +114,7 @@ def plan(db: Session) -> Plan:
         .order_by(InventoryItem.id)
     ).all()
     for item, kind in rows:
+        item_id, item_code = item.id, item.item_code
         title = (item.source_title or "").strip()
         description = (item.description or "").strip()
         if len(description) < LONG_DESCRIPTION:
@@ -98,7 +123,7 @@ def plan(db: Session) -> Plan:
         if len(description) > _TITLE_WIDTH:
             todo.left["description too long to be a title"] += 1
             continue
-        written = suggested_description(db, item)
+        written = _described(db, item_id)
         if not written:
             todo.left["nothing in the record to describe it by"] += 1
             continue
@@ -106,7 +131,7 @@ def plan(db: Session) -> Plan:
             todo.left["description already written from the record"] += 1
             continue
         todo.changes.append(
-            Change(item.id, item.item_code, kind, title, description, written)
+            Change(item_id, item_code, kind, title, description, written)
         )
     return todo
 
@@ -119,6 +144,10 @@ def apply(db: Session, todo: Plan, user_id: int) -> int:
         before = {"source_title": item.source_title, "description": item.description}
         item.source_title = change.description
         item.description = change.new_description
+        # As the editor's Save does: what the facts decide is filled, so the
+        # record holds everything its new description says.
+        db.flush()
+        refresh_items(db, [item.id])
         after = {"source_title": item.source_title, "description": item.description}
         field_changes.record(
             db,
