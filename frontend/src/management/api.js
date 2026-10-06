@@ -73,6 +73,10 @@ export const api = {
   // Writes nothing.
   suggestDescriptionFromScreen: (id, body) =>
     send(`/api/inventory/${id}/suggested-description`, { method: 'POST', body }),
+  // The item as Save would leave it with `changes`: what the facts typed so
+  // far decide, by the rules Save applies. Writes nothing.
+  previewItem: (id, body) =>
+    send(`/api/inventory/${id}/preview`, { method: 'POST', body }),
   updateInventoryItem: (id, payload) =>
     send(`/api/inventory/${id}`, { method: 'PATCH', body: payload }),
   bulkEditInventory: (ids, changes) =>

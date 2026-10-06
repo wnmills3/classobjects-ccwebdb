@@ -189,9 +189,33 @@ page:
   (`management/series-years.js`, from the series' own
   `year_start`/`year_end`). A notice, never a refusal: a tribute piece or
   restrike can fall outside the design's years.
-- What the facts decide -- a note's class, seal and signatures, a coin's
-  metal, the design series -- is filled when the item is saved
-  (`classifier-defaults-design.md`) and marked *suggested* in the editor.
+- **The editor asks for things in the order they are known.** Title; the
+  listing's web address, then the seller's item id; item cost, shipping and
+  tax; kind; denomination; then what identifies the piece -- a note's
+  series year and letter, serial number, plates and printing location, or
+  anything else's year; then what those facts decide and the rest of the
+  classifiers; weights, variety, certificate, pieces, attributes and
+  errors; and last the description (with **Suggest description**, which
+  reads all of the above), the rating and the storage location.
+- **The listing's address fills the seller's item id** as it is typed or
+  pasted: eBay's `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot
+  (`management/listing.js`); an order page carries none. Only an id the
+  address gave is replaced or taken back when the address changes; one
+  typed by hand that the address does not carry is left alone.
+- **What the facts decide is shown as they are entered.** A moment after
+  the last change the editor posts what it holds to `POST
+  /api/inventory/{id}/preview`, which runs Save's own steps on it inside
+  the request's transaction, returns the item as that left it, and rolls
+  everything back. Every field not edited here shows the answer -- a note's
+  class, seal, signatures and Reserve Bank, a coin's metal and weights, the
+  design series (`classifier-defaults-design.md`) -- marked *suggested*,
+  and can be typed over. It is not sent: Save fills it by the same rules,
+  so what was shown is what is saved. A change Save would refuse has no
+  answer, and what was last shown stays.
+- **The Friedberg lookup starts from the note as the form shows it**: its
+  denomination, series, seal, class, signatures, Bank, printing location
+  and plates, typed and not yet saved, narrow the search and go into the
+  web search's question.
 
 ## Listing links
 
@@ -201,7 +225,7 @@ recover the other, and at most vendors a purchase's web address is its lot's.
 
 | Rule | Where it applies |
 |---|---|
-| The id is read from the address where the site puts it: eBay `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot. An order page (Whatnot's `/order/`, order.ebay.com) carries none. | The pass fills it (`app/listing_links.py`). |
+| The id is read from the address where the site puts it: eBay `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot. An order page (Whatnot's `/order/`, order.ebay.com) carries none. | The item editor fills it as the address is typed (`management/listing.js`); the pass fills it (`app/listing_links.py`). |
 | An eBay id rebuilds its address, `https://www.ebay.com/itm/<id>`. | The pass. |
 | At any vendor but eBay and Whatnot -- whose orders hold many listings -- the purchase's web address is its lot's page. | A new item is made with it as its listing (`AddItem.jsx`); a purchase with no web address takes the first item's listing when the item is entered (`create_item`); the pass fills an item with no address from its purchase only when that address carries a lot id (a shop's location page is no listing), and a purchase with none from the one address its items share. |
 | A purchase whose items name several lots gives no address to its items and takes none from them. | The pass. |
