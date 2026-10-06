@@ -46,7 +46,11 @@
     "the nickels; early gold spans several faces and is matched by name, as",
     "Liberty Head Gold is. The large-size note designs are the collector",
     "names in general use for one denomination and series of one note class.",
-    "Sources for every design are in the specification named above."
+    "Sources for every design are in the specification named above.",
+    "",
+    "The Trade Dollar needs evidence: it shares 1878-1885 with the Morgan and",
+    "1873 with the Seated Liberty dollar, and was struck for commerce abroad,",
+    "so a dollar of those years that says nothing is the common design."
   ],
 
   "series": [
@@ -79,7 +83,7 @@
     { "code": "kennedy_half", "label": "Kennedy Half Dollar", "year_start": 1964, "year_end": null, "sort_order": 230, "denomination": "usd_coin_0_50" },
 
     { "code": "seated_liberty_dollar", "label": "Seated Liberty Dollar", "year_start": 1840, "year_end": 1873, "sort_order": 240, "denomination": "usd_coin_1_00" },
-    { "code": "trade_dollar", "label": "Trade Dollar", "year_start": 1873, "year_end": 1885, "sort_order": 250, "denomination": "usd_coin_1_00" },
+    { "code": "trade_dollar", "label": "Trade Dollar", "year_start": 1873, "year_end": 1885, "needs_evidence": true, "sort_order": 250, "denomination": "usd_coin_1_00" },
     { "code": "morgan_dollar", "label": "Morgan Dollar", "year_start": 1878, "year_end": null, "sort_order": 260, "denomination": "usd_coin_1_00" },
     { "code": "peace_dollar", "label": "Peace Dollar", "year_start": 1921, "year_end": null, "sort_order": 270, "denomination": "usd_coin_1_00" },
     { "code": "eisenhower_dollar", "label": "Eisenhower Dollar", "year_start": 1971, "year_end": 1978, "sort_order": 280, "denomination": "usd_coin_1_00" },
