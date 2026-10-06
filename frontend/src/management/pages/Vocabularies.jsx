@@ -3,6 +3,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { ReferenceContext } from '../../shared/reference-context'
 import { findEntries } from '../../shared/reference-match'
+import HelpScope from '../HelpScope'
 import VocabularyAddForm from './VocabularyAddForm'
 
 /**
@@ -106,7 +107,7 @@ function MergePanel({ table, value, active, onMerged, onCancel }) {
 
   return (
     <div className="merge-panel">
-      <label>
+      <label data-help="vocabulary_merge">
         Merge into{/* */}
         <select
           value={into}
@@ -196,6 +197,7 @@ function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged
                 type="button"
                 className="link"
                 aria-label={`Rename ${value.label}`}
+                data-help="vocabulary_rename"
                 onClick={() => setLabel(value.label)}
               >
                 Rename
@@ -205,6 +207,7 @@ function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged
                   type="button"
                   className="link"
                   aria-label={`Retire ${value.label}`}
+                  data-help="vocabulary_retire"
                   disabled={saving || value.retirable === false}
                   title={
                     value.retirable === false
@@ -220,6 +223,7 @@ function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged
                   type="button"
                   className="link"
                   aria-label={`Restore ${value.label}`}
+                  data-help="vocabulary_restore"
                   disabled={saving}
                   onClick={() => update({ is_active: true })}
                 >
@@ -230,6 +234,7 @@ function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged
                 type="button"
                 className="link"
                 aria-label={`Merge ${value.label} into another value`}
+                data-help="vocabulary_merge"
                 disabled={saving || value.retirable === false}
                 title={
                   value.retirable === false
@@ -254,6 +259,7 @@ function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged
         ) : (
           <form
             className="alias-add"
+            data-help="vocabulary_rename"
             onSubmit={(e) => {
               e.preventDefault()
               if (label.trim()) rename()
@@ -282,6 +288,7 @@ function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged
         <td>
           <form
             className="alias-add"
+            data-help="vocabulary_position"
             onSubmit={(e) => {
               e.preventDefault()
               update({ sort_order: Number(order) })
@@ -313,7 +320,7 @@ function ValueRow({ table, value, active, shared, sequenced, onChanged, onMerged
         <code>{value.code}</code>
       </td>
       <td>
-        <div className="alias-list">
+        <div className="alias-list" data-help="vocabulary_alias">
           {value.aliases.map((alias) => {
             const isShared = shared(alias)
             return (
@@ -464,102 +471,108 @@ export default function Vocabularies() {
   const active = useMemo(() => (values ?? []).filter((v) => v.is_active), [values])
 
   return (
-    <section>
-      <h1>Vocabularies</h1>
-      <p className="muted">
-        Add a value, rename one, retire one that should no longer be offered, and give
-        values other names. Renaming changes only the label: the code, which records and
-        saved searches hold, stays as it is. Search and the pickers both recognize an
-        alias, and a shared alias finds every value that has it. Retiring leaves every
-        record that uses the value as it is.
-      </p>
-      {error && <p className="error">{error}</p>}
-      {notice && <p className="notice">{notice}</p>}
-      <div className="filter-grid">
-        <label>
-          Vocabulary{/* */}
-          <select
-            value={table}
-            onChange={(e) => {
-              setTable(e.target.value)
-              setNotice('')
-              setAdding(false)
-            }}
-          >
-            {(tables.length ? tables : [table]).map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Find{/* */}
-          <input
-            type="search"
-            value={find}
-            placeholder="label, code or alias"
-            onChange={(e) => setFind(e.target.value)}
-          />
-        </label>
-      </div>
-      {values !== null &&
-        (adding ? (
-          <VocabularyAddForm
-            table={table}
-            fields={loaded.fields}
-            sequenced={sequenced}
-            onAdded={added}
-            onCancel={() => setAdding(false)}
-          />
-        ) : addable ? (
-          <p>
-            <button type="button" onClick={() => setAdding(true)}>
-              Add a value...
-            </button>
-          </p>
-        ) : (
-          <p className="muted">
-            Nothing can be added to {table}: the application acts on each of its values
-            by code. A value can still be renamed.
-          </p>
-        ))}
-      {values === null ? (
-        !error && <p className="muted">Loading...</p>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Label</th>
-              {sequenced && <th>Position</th>}
-              <th>Code</th>
-              <th>Aliases</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((value) => (
-              <ValueRow
-                // The position is part of the key so the Position field starts
-                // again from the stored value whenever that changes -- a move,
-                // a reload -- rather than keeping what was last typed.
-                key={`${value.code}:${value.sort_order}`}
-                table={table}
-                value={value}
-                active={active}
-                shared={(alias) => (counts.get(alias.toLowerCase()) ?? 0) > 1}
-                sequenced={sequenced}
-                onChanged={changed}
-                onMerged={merged}
-              />
-            ))}
-          </tbody>
-        </table>
-      )}
-      {values !== null && find && shown.length === 0 && (
+    <HelpScope>
+      <section>
+        <h1>Vocabularies</h1>
         <p className="muted">
-          Nothing in {table} matches {find}.
+          Add a value, rename one, retire one that should no longer be offered, and give
+          values other names. Renaming changes only the label: the code, which records
+          and saved searches hold, stays as it is. Search and the pickers both recognize
+          an alias, and a shared alias finds every value that has it. Retiring leaves
+          every record that uses the value as it is.
         </p>
-      )}
-    </section>
+        {error && <p className="error">{error}</p>}
+        {notice && <p className="notice">{notice}</p>}
+        <div className="filter-grid">
+          <label data-help="vocabulary_table">
+            Vocabulary{/* */}
+            <select
+              value={table}
+              onChange={(e) => {
+                setTable(e.target.value)
+                setNotice('')
+                setAdding(false)
+              }}
+            >
+              {(tables.length ? tables : [table]).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label data-help="vocabulary_find">
+            Find{/* */}
+            <input
+              type="search"
+              value={find}
+              placeholder="label, code or alias"
+              onChange={(e) => setFind(e.target.value)}
+            />
+          </label>
+        </div>
+        {values !== null &&
+          (adding ? (
+            <VocabularyAddForm
+              table={table}
+              fields={loaded.fields}
+              sequenced={sequenced}
+              onAdded={added}
+              onCancel={() => setAdding(false)}
+            />
+          ) : addable ? (
+            <p>
+              <button
+                type="button"
+                data-help="vocabulary_add"
+                onClick={() => setAdding(true)}
+              >
+                Add a value...
+              </button>
+            </p>
+          ) : (
+            <p className="muted">
+              Nothing can be added to {table}: the application acts on each of its
+              values by code. A value can still be renamed.
+            </p>
+          ))}
+        {values === null ? (
+          !error && <p className="muted">Loading...</p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Label</th>
+                {sequenced && <th>Position</th>}
+                <th>Code</th>
+                <th>Aliases</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((value) => (
+                <ValueRow
+                  // The position is part of the key so the Position field starts
+                  // again from the stored value whenever that changes -- a move,
+                  // a reload -- rather than keeping what was last typed.
+                  key={`${value.code}:${value.sort_order}`}
+                  table={table}
+                  value={value}
+                  active={active}
+                  shared={(alias) => (counts.get(alias.toLowerCase()) ?? 0) > 1}
+                  sequenced={sequenced}
+                  onChanged={changed}
+                  onMerged={merged}
+                />
+              ))}
+            </tbody>
+          </table>
+        )}
+        {values !== null && find && shown.length === 0 && (
+          <p className="muted">
+            Nothing in {table} matches {find}.
+          </p>
+        )}
+      </section>
+    </HelpScope>
   )
 }

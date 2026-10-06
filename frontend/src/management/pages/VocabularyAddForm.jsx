@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { api } from '../api'
+import { FIELD_HELP } from '../fieldHelp'
 import { ReferenceSelect } from '../../shared/reference'
 
 /** What each field starts as: a switch off, everything else empty. */
@@ -8,6 +9,12 @@ function blank(fields) {
   return Object.fromEntries(
     fields.map((field) => [field.name, field.kind === 'boolean' ? false : '']),
   )
+}
+
+/** The help topic for one of a vocabulary's own columns: its own, or the general one. */
+function fieldHelp(name) {
+  const own = `vocabulary_field_${name}`
+  return FIELD_HELP[own] ? own : 'vocabulary_field'
 }
 
 const filled = (field, value) => field.kind === 'boolean' || String(value).trim() !== ''
@@ -128,7 +135,7 @@ export default function VocabularyAddForm({
   return (
     <form className="vocabulary-add" onSubmit={add} aria-label={`Add to ${table}`}>
       <div className="filter-grid">
-        <label>
+        <label data-help="vocabulary_label">
           Label{/* */}
           <input
             value={label}
@@ -138,7 +145,7 @@ export default function VocabularyAddForm({
           />
         </label>
         {fields.map((field) => (
-          <label key={field.name}>
+          <label key={field.name} data-help={fieldHelp(field.name)}>
             {field.label}
             {field.required ? '' : ' (optional)'}
             <FieldInput
@@ -149,7 +156,7 @@ export default function VocabularyAddForm({
           </label>
         ))}
         {sequenced && (
-          <label>
+          <label data-help="vocabulary_position">
             Position (optional){/* */}
             <input
               inputMode="numeric"
@@ -161,7 +168,7 @@ export default function VocabularyAddForm({
             />
           </label>
         )}
-        <label>
+        <label data-help="vocabulary_code">
           Code (optional){/* */}
           <input
             value={code}
@@ -174,7 +181,7 @@ export default function VocabularyAddForm({
       </div>
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <button type="submit" disabled={!ready || saving}>
+        <button type="submit" data-help="vocabulary_add" disabled={!ready || saving}>
           {saving ? 'Adding...' : 'Add value'}
         </button>
         <button type="button" className="link" onClick={onCancel}>

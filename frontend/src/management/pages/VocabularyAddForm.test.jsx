@@ -230,6 +230,50 @@ describe('Adding a value to a vocabulary', () => {
     expect(addButton()).toBeEnabled()
   })
 
+  it('explains the page and each box of the form', async () => {
+    const user = userEvent.setup()
+    await open(user, 'denomination')
+    await screen.findByText('Nickel')
+    // Choosing the vocabulary put focus in its picker.
+    expect(screen.getByText(/Which list to work on/)).toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('Find'))
+    expect(
+      screen.getByText(/Narrows the list to values whose label/),
+    ).toBeInTheDocument()
+
+    // A button is explained under the pointer: clicking it would press it.
+    await user.hover(screen.getByRole('button', { name: 'Rename Nickel' }))
+    expect(screen.getByText(/Changes the label only/)).toBeInTheDocument()
+    await user.hover(screen.getByRole('button', { name: 'Add a value...' }))
+    expect(screen.getByText(/Adds a value to this list/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Add a value...' }))
+    await user.click(screen.getByLabelText('Face value'))
+    expect(screen.getByText(/One face value is one denomination/)).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Kind'))
+    expect(
+      screen.getByText(/Whether this face value is a coin or a note/),
+    ).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Code (optional)'))
+    expect(screen.getByText(/It never changes once set/)).toBeInTheDocument()
+  })
+
+  it('explains a column with no help of its own in general terms', async () => {
+    const user = userEvent.setup()
+    await open(user, 'grade')
+    await screen.findByText('MS-65')
+
+    await user.click(screen.getByRole('button', { name: 'Add a value...' }))
+    // `note` is a column no vocabulary really has: nothing is written for it.
+    await user.click(screen.getByLabelText('Note (optional)'))
+    expect(
+      screen.getByText(/Something this list records about each/),
+    ).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Numeric value (optional)'))
+    expect(screen.getByText(/The grade's number on its scale/)).toBeInTheDocument()
+  })
+
   it('offers no form for a vocabulary the application acts on', async () => {
     const user = userEvent.setup()
     await open(user, 'item_status')
