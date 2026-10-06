@@ -564,11 +564,12 @@ def _class(db: Session, item: InventoryItem, code: str) -> None:
     db.commit()
 
 
-def test_a_1929_national_needs_its_bank_named_or_its_class(
-    db: Session, make_item: ItemFactory
-) -> None:
+def test_a_1929_national_needs_its_class(db: Session, make_item: ItemFactory) -> None:
     # Measured on live: the 1929 notes name their bank in the rating, and the
-    # brown seal is on both classes.
+    # brown seal is on both classes. The bank's name is not the design's: the
+    # word "National" is on a National bank's notes of every series, so it
+    # decides the note's class (`classifier_defaults`), and the class is the
+    # evidence.
     named = _note(
         db,
         make_item,
@@ -585,10 +586,34 @@ def test_a_1929_national_needs_its_bank_named_or_its_class(
 
     run(db, commit=True)
 
-    assert _series_code(db, named) == "national_bank_note_1929"
+    assert _series_code(db, named) is None
     assert _series_code(db, classed) == "national_bank_note_1929"
     # A brown seal alone says nothing: Federal Reserve Bank Notes have one too.
     assert _series_code(db, reserve) is None
+
+    # Once its class is recorded, the note that named its bank is one too.
+    _class(db, named, "national_bank_note")
+    run(db, commit=True)
+    assert _series_code(db, named) == "national_bank_note_1929"
+
+
+def test_a_national_banks_name_does_not_make_an_earlier_note_a_conflict(
+    db: Session, make_item: ItemFactory
+) -> None:
+    """A Series 1902 $20 of a National bank is not a mis-recorded 1929 note."""
+    note = _note(
+        db,
+        make_item,
+        "usd_note_20",
+        1902,
+        title="$20 Bill National City Bank of NY E 1461",
+        rating="Natl Bank",
+    )
+
+    run(db, commit=True)
+
+    assert _series_code(db, note) is None
+    assert _case(db, note) is None
 
 
 def test_a_federal_reserve_bank_note_is_never_a_national(

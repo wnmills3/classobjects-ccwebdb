@@ -224,7 +224,7 @@ Cent" in a description names the Large Cent alone.
 | Barr Note | $1: 1963B | no | Barr |
 | North Africa | $1: 1935A; $5: 1934A; $10: 1934, 1934A | yes -- yellow seal | Yellow Seal |
 | Hawaii | $1: 1935A; $5, $10, $20: 1934, 1934A | yes -- brown seal | Hawaii Overprint |
-| Series 1929 National Bank Note | $5-$100: 1929, no letter | yes -- note class National Bank Note | Brown Seal, 1929 National, Small Size National, National, Natl |
+| Series 1929 National Bank Note | $5-$100: 1929, no letter | yes -- note class National Bank Note | Brown Seal, 1929 National, Small Size National |
 
 The large-size designs are the collector names in general use, each for one
 denomination and series of one note class. None needs evidence: a note of
@@ -250,6 +250,11 @@ collectors search by.
   red-seal United States Note shares the back, and the owner counts it.
 - **Hawaii $10 includes plain Series 1934.** Sources disagree; since Hawaii
   needs evidence, a wider range cannot assign it wrongly.
+- **"National" alone is not a name for the Series 1929 design.** A
+  National bank's name carries the word on notes of every series -- a
+  Series 1902 $20 of the National City Bank of New York -- so as a nickname
+  it made each of them a conflict. The word still decides a 1929 note's
+  class, below, and the class is the design's evidence.
 - **The Series 1929 National's evidence is its class, not its seal.** The
   Series 1929 Federal Reserve Bank Notes carry the same brown seal. The class
   comes from `classifier_defaults`, which reads the rating ("Fed Res",
