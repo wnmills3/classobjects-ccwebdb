@@ -35,9 +35,21 @@ function isValidRate(text) {
 const BLANK_VENDOR_DRAFT = { name: '', vendor_kind: '', url: '' }
 
 /**
- * The name a vendor's web address proposes: its site, without `www.` --
- * `ebay.com`, `goldstandardauctions.hibid.com`. A vendor is the site, not a
- * page on it, so the path is left out. Empty until the text is an address.
+ * The name a vendor's web address proposes: the part of it that is theirs.
+ *
+ * A seller has a place of their own on a marketplace, and the address says
+ * where, in one of two ways:
+ *
+ * - a site of their own under the marketplace's -- `goldstandardauctions` of
+ *   `https://goldstandardauctions.hibid.com/lots`: the first part of the
+ *   site, whatever page follows;
+ * - a page on the marketplace's site -- `drh9989` of
+ *   `https://www.ebay.com/usr/drh9989`: the last part of the page, written
+ *   as the address writes it.
+ *
+ * An address that is only a site is named for it, without `www.`:
+ * `usmint.gov`. What follows `?` or `#` is never part of a name. Empty until
+ * the text is an address.
  */
 function siteName(text) {
   const typed = (text ?? '').trim()
@@ -45,7 +57,12 @@ function siteName(text) {
   if (!/^[^\s]+\.[^\s.]/.test(typed.replace(/^[a-z]+:\/\//i, ''))) return ''
   try {
     const url = new URL(/^[a-z]+:\/\//i.test(typed) ? typed : `https://${typed}`)
-    return url.hostname.toLowerCase().replace(/^www\./, '')
+    const site = url.hostname.toLowerCase().replace(/^www\./, '')
+    const parts = site.split('.')
+    // More than a name and its ending: a site of the vendor's own.
+    if (parts.length > 2) return parts[0]
+    const last = url.pathname.split('/').filter(Boolean).pop()
+    return last ? decodeURIComponent(last) : site
   } catch {
     return ''
   }

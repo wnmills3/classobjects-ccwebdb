@@ -98,12 +98,12 @@ describe('NewPurchase: creating a vendor inline', () => {
     expect(await screen.findByRole('combobox', { name: 'Vendor' })).toHaveValue('9')
   })
 
-  it('asks for the web address first and proposes the name from its site', async () => {
+  it('asks for the web address first and proposes the name from its last part', async () => {
     const user = userEvent.setup()
     api.createVendor.mockResolvedValue({
       id: 9,
       name: 'goldstandardauctions.hibid.com',
-      url: 'https://goldstandardauctions.hibid.com/lots',
+      url: 'https://goldstandardauctions.hibid.com/',
       vendor_kind: null,
     })
     renderWithProviders(<NewPurchase />)
@@ -120,24 +120,52 @@ describe('NewPurchase: creating a vendor inline', () => {
     // Not an address yet: nothing to propose.
     await user.type(address, 'https://www')
     expect(name).toHaveValue('')
-    await user.type(address, '.ebay.com/usr/coind0g')
-    // The site, without www and without the page on it.
+    await user.type(address, '.ebay.com')
+    // Only a site so far: the site, without www.
     expect(name).toHaveValue('ebay.com')
+    await user.type(address, '/usr/drh9989')
+    // A page on it: the page's last part, the account on the marketplace.
+    expect(name).toHaveValue('drh9989')
 
-    // Another address: the name it gave follows it.
+    // What follows ? is no part of a name, and the case is the address's.
     await user.clear(address)
     expect(name).toHaveValue('')
+    await user.type(
+      address,
+      'https://www.etsy.com/shop/TheCoinTraderOnline?ref=view_receipt',
+    )
+    expect(name).toHaveValue('TheCoinTraderOnline')
+
+    // A site of the vendor's own under the marketplace's: its first part,
+    // whatever page follows.
+    await user.clear(address)
     await user.type(address, 'https://goldstandardauctions.hibid.com/lots')
-    expect(name).toHaveValue('goldstandardauctions.hibid.com')
+    expect(name).toHaveValue('goldstandardauctions')
 
     await user.click(screen.getByRole('button', { name: 'Add' }))
     await waitFor(() =>
       expect(api.createVendor).toHaveBeenCalledWith({
-        name: 'goldstandardauctions.hibid.com',
+        name: 'goldstandardauctions',
         vendor_kind: null,
         url: 'https://goldstandardauctions.hibid.com/lots',
       }),
     )
+  })
+
+  it('names a plain site for the site', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<NewPurchase />)
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Vendor' }),
+      '__add__',
+    )
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Vendor web address' }),
+      'https://usmint.gov/',
+    )
+
+    expect(screen.getByPlaceholderText('Vendor name')).toHaveValue('usmint.gov')
   })
 
   it('proposes a name from an address typed without https://', async () => {
