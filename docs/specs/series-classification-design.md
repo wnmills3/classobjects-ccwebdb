@@ -18,7 +18,8 @@ two batch passes that staff run and review:
 
 - `app.series_match` reads what a description says ("1883-O AU/UNC MORGAN
   SILVER DOLLAR"). It matches **coins only, against coin designs**; ambiguous
-  names (Barber, Seated Liberty, Indian Head, Liberty Head) need the
+  names (Barber, Seated Liberty, Indian Head, Liberty Head, and
+  "Presidential", which is the Presidential Dollar only on a dollar) need the
   denomination to decide, and an item whose denomination is unknown is left
   alone. **A name is not believed against the item's own year or
   denomination**: for an item of a single year, a design not struck that year

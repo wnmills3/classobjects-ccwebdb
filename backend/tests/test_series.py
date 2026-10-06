@@ -103,6 +103,22 @@ def test_an_ambiguous_term_is_decided_by_the_denomination_not_its_wording(
     assert match("Seated Liberty", "usd_coin_5_00", rules) == set()
 
 
+def test_presidential_on_a_dollar_names_the_presidential_dollar(db: Session) -> None:
+    """Sellers say "$1 Presidential Coin" as often as "Presidential Dollar"."""
+    rules = build_rules(db)
+    for text in (
+        "2008 P James Monroe $1 Presidential Coin - 5th President",
+        "2011 P&D PRESIDENTIAL $1 SET - 8 DIFFERENT - UNC",
+        "Presidential PR70 DCAM FDOI Garfield, Grant, Hayes",
+    ):
+        assert match(text, "usd_coin_1_00", rules) == {"presidential_dollar"}, text
+    # Not a dollar, or not known to be one: the word is a medal's or a set's.
+    assert match("1977 Presidential Inaugural Medal", None, rules) == set()
+    assert match("Presidential Inaugural Medal", "usd_coin_0_50", rules) == set()
+    # A whole word only.
+    assert match("Vice-presidentially signed", "usd_coin_1_00", rules) == set()
+
+
 def test_two_series_in_one_description_stays_ambiguous(db: Session) -> None:
     """A Franklin Pierce Presidential Dollar is not a Franklin Half.
 
