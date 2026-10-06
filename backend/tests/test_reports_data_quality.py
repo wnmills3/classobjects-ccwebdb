@@ -1277,3 +1277,27 @@ def test_dq_series_review_shows_the_rating_that_names_the_design(
     assert [(r["item"], r["designs"], r["rating"]) for r in result.rows] == [
         (note.item_code, "Funnyback", "Funny Back")
     ]
+
+
+def test_dq_series_review_shows_the_title_that_names_the_design(db: Session) -> None:
+    """A design named only in the title must be visible beside a description."""
+    note = build_bare_item(
+        db,
+        item_kind_id=code_id(db, ItemKind, "currency"),
+        denomination_id=code_id(db, Denomination, "usd_note_1"),
+        source_title="$1 Bill Funnyback",
+        description="1923 $1 S/N A1B.",
+    )
+    db.add(CurrencyDetail(inventory_item_id=note.id, series_year=1923))
+    db.commit()
+
+    result = _review(db)
+
+    assert [(r["item"], r["title"], r["described"]) for r in result.rows] == [
+        (note.item_code, "$1 Bill Funnyback", "1923 $1 S/N A1B.")
+    ]
+    assert [column.key for column in result.columns][-3:] == [
+        "title",
+        "described",
+        "rating",
+    ]
