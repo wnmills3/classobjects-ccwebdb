@@ -42,7 +42,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, exists, select, update
+from sqlalchemy import ColumnElement, Select, exists, func, or_, select, update
 from sqlalchemy.orm import QueryableAttribute, Session, aliased
 
 from .database import SessionLocal
@@ -62,6 +62,7 @@ from .models import (
     Series,
     SeriesYearRange,
 )
+from .seller_titles import SHORT_TITLE
 from .series_match import build_rules, inventory_of, match, record_series
 from .years import single_year
 
@@ -331,6 +332,13 @@ def _items(
     Morgans, Mercury dimes" on a 1943 cent describes the lot, not the cent,
     and is evidence neither for nor against it. The rating is always the
     piece's own.
+
+    The listing is shared in one of two shapes. Title and description both
+    the same: the pieces as they came in. Or the title alone, when it is a
+    listing and not a face value (longer than `SHORT_TITLE`):
+    `app.seller_titles` moves the seller's text into the title and writes
+    each piece its own description, and the lot's listing is no less the
+    lot's for that.
     """
     sibling = aliased(InventoryItem)
     lot_text = exists().where(
@@ -338,7 +346,10 @@ def _items(
         sibling.id != InventoryItem.id,
         sibling.split_at.is_(None),
         sibling.source_title.is_not_distinct_from(InventoryItem.source_title),
-        sibling.description.is_not_distinct_from(InventoryItem.description),
+        or_(
+            sibling.description.is_not_distinct_from(InventoryItem.description),
+            func.length(func.btrim(InventoryItem.source_title)) > SHORT_TITLE,
+        ),
     )
     held = exists().where(
         ItemFieldSource.inventory_item_id == InventoryItem.id,
