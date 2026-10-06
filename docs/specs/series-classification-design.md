@@ -263,8 +263,10 @@ their source.
 
 ## Out of scope
 
-- There is no console page for the review list: the pass's report is the
-  review.
+- The review list is read, not worked, in the console: the *Series to
+  review* report (`dq_series_review`, `reporting-design.md`) lists the
+  pass's conflict, boundary and disagrees cases and opens each item; there
+  is no page that settles a case in place.
 - Friedberg numbering, which would decide note designs exactly, is a
   publisher's arrangement and is not seeded.
 
