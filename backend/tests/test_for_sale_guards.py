@@ -108,6 +108,7 @@ def test_errors_on_a_listed_item_are_refused_until_acknowledged(
 
 
 def _two_pieces() -> list[dict[str, object]]:
+    """A split request's pieces: two, of one piece each."""
     return [
         {"source_title": "Piece one", "piece_count": 1},
         {"source_title": "Piece two", "piece_count": 1},
@@ -321,7 +322,31 @@ def test_editing_the_status_of_an_offered_item_is_refused_until_acknowledged(
     assert _listing_status(db, made.id) is ListingStatus.active
 
 
+def test_editing_only_a_coin_s_own_field_is_refused_until_acknowledged(
+    client: TestClient, db: Session, admin_headers: dict[str, str]
+) -> None:
+    """A variety lives on the coin's detail row, and a buyer reads it all the same."""
+    item, _ = _offered_item(db)
+    url = f"/api/inventory/{item.id}"
+
+    refused = client.patch(url, json={"variety": "VAM-3"}, headers=admin_headers)
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"].startswith("For sale"), refused.text
+    shown = client.get(url, headers=admin_headers).json()
+    assert shown["variety"] is None
+
+    allowed = client.patch(
+        url,
+        json={"variety": "VAM-3", "acknowledge_for_sale": True},
+        headers=admin_headers,
+    )
+    assert allowed.status_code == 200, allowed.text
+    shown = client.get(url, headers=admin_headers).json()
+    assert shown["variety"] == "VAM-3"
+
+
 def _listing_status(db: Session, listing_id: int) -> ListingStatus:
+    """The listing's status as the database now holds it."""
     db.expire_all()
     listing = db.get(Listing, listing_id)
     assert listing is not None
@@ -428,6 +453,7 @@ def test_a_bulk_edit_notes_each_offer_with_its_own_item_s_change(
     assert response.status_code == 200, response.text
 
     def ending(listing: Listing) -> str | None:
+        """The note on the one history row that ended the listing."""
         return db.scalars(
             select(ListingStatusHistory.note).where(
                 ListingStatusHistory.listing_id == listing.id,

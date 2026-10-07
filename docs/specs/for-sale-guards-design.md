@@ -57,7 +57,7 @@ operator would tick a box and then be refused anyway.
 
 | Endpoint | When it guards | Acknowledgement travels as |
 |---|---|---|
-| `PATCH /api/inventory/{id}` | any field or attribute change; a new status or disposition, acknowledged, ends the item's offers | `acknowledge_for_sale` in the body |
+| `PATCH /api/inventory/{id}` | any field, attribute or certificate-number change, except where the item is kept (`storage_location_id`: a move does not show to a buyer); a new status or disposition, acknowledged, ends the item's offers | `acknowledge_for_sale` in the body |
 | `POST /api/inventory/bulk` | any change; a new status or disposition ends each changed item's offers | body |
 | `POST /api/inventory/receive` | outcomes `missing`, `returned`, `canceled` only | body (`ReceiveRequest`) |
 | `POST /api/inventory/{id}/split` | listings only (`kinds={"listing"}`) | body (`SplitRequest`) |

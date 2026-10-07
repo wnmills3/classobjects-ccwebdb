@@ -151,10 +151,16 @@ PIECE_CLASSIFIERS: dict[str, type] = {
 
 
 def _get_item(db: Session, item_id: int) -> InventoryItem:
+    """The inventory item with this id, or a 404."""
     return get_or_404(db, InventoryItem, item_id, "Inventory item not found")
 
 
 def _to_piece(db: Session, spec: SplitPieceIn) -> SplitPiece:
+    """One piece of a split as the splitter takes it, its codes resolved to ids.
+
+    Only what the request states overrides the lot; a piece is stored as a
+    single item whatever the lot was packaged as.
+    """
     overrides: dict[str, object] = {}
     codes = {field: getattr(spec, field) for field in PIECE_CLASSIFIERS}
     codes["grade"], codes["strike_type"] = grades.split_fields(
@@ -698,6 +704,7 @@ def receive_items(
         arrivals: dict[int, date | None] = {row[0]: row[1] for row in arrival_rows}
 
         def _arrival_label(item_id: int) -> str:
+            """The day the item arrived, as ISO text, or "unknown date"."""
             arrived = arrivals.get(item_id)
             return arrived.isoformat() if arrived is not None else "unknown date"
 
@@ -2441,8 +2448,10 @@ def update_item(
         )
 
     # A change to an item on offer, or in an order that has not shipped,
-    # shows to a buyer at once: the caller must say it knows.
-    if (data or attributes is not None or certs is not None) and not acknowledged:
+    # shows to a buyer at once: the caller must say it knows. A coin's own
+    # fields were taken out of `data` above and count as much as any other.
+    changes = data or coin_changes or attributes is not None or certs is not None
+    if changes and not acknowledged:
         sale_state.guard(db, [item], acknowledged=False)
 
     # Before anything is set: a refused year leaves the item untouched. A
@@ -2683,6 +2692,7 @@ REVIEWABLE_FIELDS: frozenset[str] = frozenset(
 
 
 def _reviewed_fields(db: Session, item_id: int) -> list[str]:
+    """The names of the item's fields a person has marked reviewed, sorted."""
     return sorted(
         db.scalars(
             select(ItemFieldReview.field_name).where(
