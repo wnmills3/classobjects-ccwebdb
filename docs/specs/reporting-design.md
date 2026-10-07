@@ -5,7 +5,7 @@ as a whole: what is missing or wrong in the record, what the collection is
 made of, what has been bought and not yet arrived, what is on offer and what
 has sold, and what it all cost. They are for the owner and managers only,
 on the management console's **Reports** page (`/management/reports`), and
-the same 26 reports run from the command line and export to a workbook or
+the same 27 reports run from the command line and export to a workbook or
 print on paper.
 
 Reports read; they never write. Fixing what a report finds is done where it
@@ -85,6 +85,7 @@ or ever sold.
 | `sl_fulfilment` | To ship | One row per order still open and unshipped -- `pending`, `paid` or `packed`, the open-order statuses the sales side itself uses (`sale_state`), stated as an included list so a future status is never swept in by default -- oldest first: customer, items, amount, days waiting. A row drills to `/sales`; an overall total. A deleted or split item is left out of its order's own item count; a note counts them when there are any. |
 | `sl_aging` | Held and not offered | Live items received and held, not on any active or paused listing and not an open member of a sales lot, by months since receipt (0-5, 6-11, 12-23, 24+, or "Unknown" when no receipt transition is found -- an item whose history holds only its opening row, which is not an arrival) x kind: items, total cost. A split child with no receipt of its own falls back to its split parent's. No drills; an overall total. A note counts the "Unknown" items when there are any. |
 | `sl_auctions` | Auctions | One row per auction, ordered by status (draft through settled, then cancelled): lots, sold, unsold (withdrawn counts as unsold), hammer total and fees -- shown only for a settled auction, since a closed one may carry a result mid-settlement. A row drills to `/auctions`. No totals row: the figures are not meaningful summed across different auctions and statuses. |
+| `sl_ready` | Ready to sell | One row per kind, over live items received and held (not listed, sold or shipped): the items, then how many have each of the four things a listing needs -- an own photograph (one filed against the item with no web address on record: a seller's listing picture does not count), a grade or weight (a grade on a coin or a note; a fine weight on bullion, a medal or a token; a set and any other kind needs neither), a storage location, and a total cost above zero -- and how many have all four. One grouped query, so `ready` never exceeds another column. A row drills to that kind's received items; the totals row adds the kinds. |
 
 ### Money -- what it cost and what it is worth
 

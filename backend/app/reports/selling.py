@@ -53,6 +53,7 @@ from sqlalchemy import (
     case,
     exists,
     func,
+    or_,
     select,
     union,
 )
@@ -68,7 +69,9 @@ from ..models import (
     Currency,
     Customer,
     Disposition,
+    Image,
     InventoryItem,
+    ItemImage,
     ItemKind,
     ItemStatus,
     ItemStatusHistory,
@@ -94,11 +97,13 @@ __all__ = [
     "SL_AUCTIONS",
     "SL_FULFILMENT",
     "SL_OFFERED",
+    "SL_READY",
     "SL_SALES",
     "AgingParams",
     "AuctionsParams",
     "FulfilmentParams",
     "OfferedParams",
+    "ReadyParams",
     "SalesParams",
 ]
 
@@ -1146,5 +1151,135 @@ SL_AUCTIONS = register(
         "sold, unsold, hammer total and fees.",
         params=AuctionsParams,
         run=_sl_auctions,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# sl_ready
+# ---------------------------------------------------------------------------
+
+
+class ReadyParams(BaseModel):
+    """`sl_ready` takes no parameters: every item in hand and not yet offered."""
+
+
+#: The kinds a grade describes, and the kinds a weight describes instead.
+_GRADED_KINDS = ("coin", "currency")
+_WEIGHED_KINDS = ("bullion", "medal", "token")
+
+_READY_COLUMNS = [
+    Column("kind", "Kind", "text"),
+    Column("items", "In hand, not offered", "count"),
+    Column("photographed", "Own photograph", "count"),
+    Column("described", "Graded or weighed", "count"),
+    Column("located", "Location", "count"),
+    Column("costed", "Cost", "count"),
+    Column("ready", "Ready to sell", "count"),
+]
+
+
+def _sl_ready(db: Session, _params: ReadyParams) -> ReportResult:
+    """By kind: items in hand and not offered, and how many could be listed now.
+
+    An item is counted when it is live, received and held -- in hand, and
+    not listed, sold or on its way to a buyer. Four things then stand
+    between it and a listing a buyer can trust, each counted on its own:
+
+    - **an own photograph**: one filed against it that was not fetched from
+      a web address. A seller's listing picture shows what was bought, not
+      the piece as it is now, and is not the owner's to publish;
+    - **graded or weighed**: a grade on a coin or a note; a fine weight on
+      bullion, a medal or a token, which are sold by their metal. A set, and
+      a kind with neither, needs nothing here;
+    - **a storage location**, so a sold piece can be found;
+    - **a cost**: a total cost above zero, the basis a sale's gain is
+      measured from.
+
+    `ready` is the items with all four. The counts are one grouped query,
+    so a kind's `ready` can never exceed any of its other columns.
+    """
+    own_photograph = exists(
+        select(ItemImage.id)
+        .join(Image, Image.id == ItemImage.image_id)
+        .where(
+            ItemImage.inventory_item_id == InventoryItem.id,
+            Image.source_url.is_(None),
+        )
+    )
+    described = or_(
+        and_(ItemKind.code.in_(_GRADED_KINDS), InventoryItem.grade_id.is_not(None)),
+        and_(
+            ItemKind.code.in_(_WEIGHED_KINDS),
+            InventoryItem.fine_weight_ozt.is_not(None),
+        ),
+        ItemKind.code.not_in(_GRADED_KINDS + _WEIGHED_KINDS),
+    )
+    located = InventoryItem.storage_location_id.is_not(None)
+    costed = InventoryItem.total_cost > 0
+
+    def how_many(test: ColumnElement[bool]) -> ColumnElement[int]:
+        """A count of the group's items that pass `test`."""
+        return func.count(case((test, InventoryItem.id)))
+
+    stmt = (
+        select(
+            ItemKind.code.label("kind_code"),
+            ItemKind.label.label("kind_label"),
+            func.count(InventoryItem.id).label("items"),
+            how_many(own_photograph).label("photographed"),
+            how_many(described).label("described"),
+            how_many(located).label("located"),
+            how_many(costed).label("costed"),
+            how_many(and_(own_photograph, described, located, costed)).label("ready"),
+        )
+        .select_from(InventoryItem)
+        .join(ItemKind, ItemKind.id == InventoryItem.item_kind_id)
+        .join(ItemStatus, ItemStatus.id == InventoryItem.status_id)
+        .join(Disposition, Disposition.id == InventoryItem.disposition_id)
+        .where(live_item(), ItemStatus.code == "received", Disposition.code == "held")
+        .group_by(ItemKind.id, ItemKind.code, ItemKind.label, ItemKind.sort_order)
+        .order_by(ItemKind.sort_order, ItemKind.id)
+    )
+    measures = [column.key for column in _READY_COLUMNS[1:]]
+    rows: list[dict[str, object]] = []
+    drills: list[str | None] = []
+    totals: dict[str, object] = {"kind": "All kinds", **dict.fromkeys(measures, 0)}
+    for row in db.execute(stmt).mappings().all():
+        rows.append({"kind": row["kind_label"], **{key: row[key] for key in measures}})
+        query = {"status": "received"}
+        if row["kind_code"] != "currency":
+            query["kind"] = row["kind_code"]
+        drills.append(f"{view_path(row['kind_code'])}?{urlencode(query)}")
+        for key in measures:
+            totals[key] = cast("int", totals[key]) + row[key]
+
+    return ReportResult(
+        columns=_READY_COLUMNS,
+        rows=rows,
+        totals=totals if rows else None,
+        drills=drills,
+        notes=[
+            "Counts items in hand (received) and held: not listed, sold or shipped.",
+            "Own photograph: one that was not fetched from a web address. A "
+            "seller's listing picture does not count.",
+            "Graded or weighed: a grade on a coin or a note; a fine weight on "
+            "bullion, a medal or a token. Other kinds need neither.",
+            "Ready to sell: all four of own photograph, graded or weighed, "
+            "location and cost.",
+        ],
+    )
+
+
+SL_READY = register(
+    Report(
+        id="sl_ready",
+        group="Selling",
+        title="Ready to sell",
+        purpose="By kind: items in hand and not offered, and how many have an "
+        "own photograph, a grade or weight, a location and a cost -- "
+        "and all four.",
+        params=ReadyParams,
+        run=_sl_ready,
     )
 )
