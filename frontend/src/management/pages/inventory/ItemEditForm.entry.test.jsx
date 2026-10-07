@@ -225,3 +225,209 @@ describe('ItemEditForm: entering an item', () => {
     )
   })
 })
+
+//: A piece that is not a note, with nothing recorded but its kind and title.
+const PIECE = {
+  id: 12,
+  item_code: 'CC-000012',
+  item_kind: 'coin',
+  source_title: 'A piece',
+  description: '',
+  version: 1,
+  reviewed: [],
+  derived: {},
+  attributes: [],
+  denomination: null,
+  year_start: null,
+  year_end: null,
+  mint: null,
+  variety: null,
+  series: null,
+  metal: null,
+  bullion_form: null,
+  set_form: null,
+  fineness: null,
+  gross_weight_ozt: null,
+  fine_weight_ozt: null,
+  weight_note: null,
+  listing_url: null,
+  sellers_item_id: null,
+}
+
+const pieceReference = () =>
+  emptyReference({
+    tables: {
+      item_kind: [
+        entry('coin', 'Coin'),
+        entry('bullion', 'Bullion'),
+        entry('set', 'Set'),
+        entry('medal', 'Medal'),
+        entry('currency', 'Currency'),
+      ],
+      denomination: [entry('usd_coin_1_00', 'Dollar', { kind: 'coin' })],
+      series: [entry('morgan_dollar', 'Morgan Dollar', { applies_to: 'coin' })],
+      metal: [entry('silver', 'Silver'), entry('copper', 'Copper')],
+      mint: [entry('S', 'San Francisco')],
+    },
+  })
+
+async function openPiece(overrides = {}) {
+  api.getInventoryItem.mockResolvedValue({ ...PIECE, ...overrides })
+  renderWithProviders(
+    <ItemEditForm itemId={12} onSaved={vi.fn()} onClose={vi.fn()} />,
+    { reference: pieceReference() },
+  )
+  await screen.findByDisplayValue('A piece')
+  return userEvent.setup()
+}
+
+/** The form's fields in the order shown, each by its help topic. */
+function fieldOrder() {
+  return [...document.querySelectorAll('.field[data-help]')].map(
+    (row) => row.dataset.help,
+  )
+}
+
+/** Whether the fields named appear in this order, one after another. */
+function runOf(order, ...keys) {
+  const first = order.indexOf(keys[0])
+  return first >= 0 && keys.every((key, n) => order[first + n] === key)
+}
+
+//: The four weight fields, in the order `WeightFields` shows them.
+const WEIGHTS = ['gross_weight_ozt', 'fineness', 'fine_weight_ozt', 'weight_note']
+
+describe('ItemEditForm: the facts asked for, by kind', () => {
+  it('asks a coin for its denomination, year and mint, then shows what they decide', async () => {
+    await openPiece()
+    const order = fieldOrder()
+
+    // Mint follows the year directly: the two together are the coin.
+    expect(runOf(order, 'item_kind', 'denomination', 'year', 'mint')).toBe(true)
+    // What those decide comes next, before anything about its condition.
+    expect(runOf(order, 'mint', 'series', 'metal', ...WEIGHTS)).toBe(true)
+    expect(order.indexOf('strike_type')).toBeGreaterThan(order.indexOf('weight_note'))
+    expect(order.indexOf('grade')).toBeGreaterThan(order.indexOf('strike_type'))
+    // The description is written from the facts, so it follows them all.
+    expect(order.indexOf('description')).toBeGreaterThan(order.indexOf('status'))
+  })
+
+  it.each(['bullion', 'medal', 'token'])(
+    'asks %s for its form, metal and weight before a year or a face value',
+    async (kind) => {
+      await openPiece({ item_kind: kind })
+      const order = fieldOrder()
+
+      expect(
+        runOf(
+          order,
+          'item_kind',
+          'bullion_form',
+          'metal',
+          ...WEIGHTS,
+          'year',
+          'mint',
+          'denomination',
+          'series',
+        ),
+      ).toBe(true)
+      // Asked for once: metal and the weights are not shown again as decided.
+      expect(order.filter((key) => key === 'metal')).toHaveLength(1)
+      expect(order.filter((key) => key === 'fineness')).toHaveLength(1)
+      expect(order.indexOf('grade')).toBeGreaterThan(order.indexOf('series'))
+    },
+  )
+
+  it('asks a set what kind of set it is, of which year, from which mint', async () => {
+    await openPiece({ item_kind: 'set' })
+    const order = fieldOrder()
+
+    expect(runOf(order, 'item_kind', 'set_form', 'year', 'mint', 'denomination')).toBe(
+      true,
+    )
+    expect(runOf(order, 'denomination', 'series', 'metal', ...WEIGHTS)).toBe(true)
+  })
+
+  it('asks a kind it has no order for as it asks a coin', async () => {
+    await openPiece({ item_kind: 'other' })
+    expect(runOf(fieldOrder(), 'item_kind', 'denomination', 'year', 'mint')).toBe(true)
+  })
+
+  it('shows every field once, whatever the kind', async () => {
+    await openPiece({ item_kind: 'bullion' })
+    const order = fieldOrder()
+    expect(new Set(order).size).toBe(order.length)
+    // Nothing a coin's form holds went missing in the reordering.
+    for (const key of [
+      'denomination',
+      'series',
+      'set_form',
+      'country',
+      'status',
+      'strike_type',
+      'grading_service',
+      'grade_designation',
+      'variety',
+    ]) {
+      expect(order).toContain(key)
+    }
+  })
+
+  it('follows the kind as it is changed, before any save', async () => {
+    const user = await openPiece()
+    expect(runOf(fieldOrder(), 'item_kind', 'denomination')).toBe(true)
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'item_kind' }),
+      'bullion',
+    )
+
+    expect(runOf(fieldOrder(), 'item_kind', 'bullion_form', 'metal')).toBe(true)
+  })
+
+  it('leaves a note asked for as it was: denomination, then its own fields', async () => {
+    await open()
+    const order = fieldOrder()
+    expect(runOf(order, 'item_kind', 'denomination')).toBe(true)
+    expect(order).not.toContain('year')
+    expect(order).not.toContain('mint')
+    expect(order).not.toContain('fineness')
+    // A note's own fields say what its facts decide; its design is not
+    // pulled up ahead of its grade as a coin's is.
+    expect(order.indexOf('series')).toBeGreaterThan(order.indexOf('grade'))
+  })
+
+  it("shows what a coin's facts decide as they are entered", async () => {
+    const user = await openPiece({ denomination: 'usd_coin_1_00' })
+    api.previewItem.mockImplementation(async (id, { changes }) => ({
+      ...PIECE,
+      denomination: 'usd_coin_1_00',
+      ...changes,
+      series: 'morgan_dollar',
+      metal: 'silver',
+      fineness: '0.9000',
+      derived: {
+        series_id: 'series_facts',
+        metal_id: 'composition',
+        fineness: 'composition',
+      },
+    }))
+    const series = screen.getByRole('combobox', { name: 'series' })
+    expect(series).toHaveValue('')
+
+    await user.type(screen.getByRole('spinbutton', { name: 'Year' }), '1881')
+
+    await waitFor(() => expect(series).toHaveValue('morgan_dollar'))
+    expect(screen.getByRole('combobox', { name: 'metal' })).toHaveValue('silver')
+    expect(screen.getByDisplayValue('0.9000')).toBeInTheDocument()
+    expect(screen.getAllByText('suggested').length).toBeGreaterThanOrEqual(3)
+
+    // What the facts filled is not sent: Save fills it by the same rules.
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => expect(api.updateInventoryItem).toHaveBeenCalled())
+    const sent = api.updateInventoryItem.mock.calls[0][1]
+    expect(sent).not.toHaveProperty('series')
+    expect(sent).not.toHaveProperty('metal')
+    expect(sent).not.toHaveProperty('fineness')
+  })
+})

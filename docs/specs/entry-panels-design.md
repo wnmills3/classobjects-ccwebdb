@@ -203,12 +203,23 @@ page:
   restrike can fall outside the design's years.
 - **The editor asks for things in the order they are known.** Title; the
   listing's web address, then the seller's item id; item cost, shipping and
-  tax; kind; denomination; then what identifies the piece -- a note's
-  series year and letter, serial number, plates and printing location, or
-  anything else's year; then what those facts decide and the rest of the
-  classifiers; weights, variety, certificate, pieces, attributes and
-  errors; and last the description (with **Suggest description**, which
-  reads all of the above), the rating and the storage location.
+  tax; kind; then what identifies the piece, which depends on its kind
+  (`FACTS_ASKED` in `ItemEditForm.jsx`):
+
+  | Kind | Asked for, in order |
+  |---|---|
+  | currency | denomination; then the note's series year and letter, serial number, plates and printing location |
+  | coin, and any kind not listed here | denomination, year, mint |
+  | bullion, medal, token | bullion form, metal, the weights, year, mint, denomination -- a bar or a round has no face value, so its form, metal and weight are what identify it |
+  | set | set form, year, mint, denomination |
+
+  Then what those facts decide (`FACTS_DECIDED`: the series, the metal, and
+  from the composition the fineness and weights -- whichever of them the
+  kind was not already asked for; a note's are among its own fields); then
+  the rest of the classifiers, each shown once; variety, certificate,
+  pieces, attributes and errors; and last the description (with **Suggest
+  description**, which reads all of the above), the rating and the storage
+  location. Changing the kind reorders the form at once, before any save.
 - **The listing's address fills the seller's item id** as it is typed or
   pasted: eBay's `/itm/<id>`, a HiBid, LiveAuctioneers or Proxibid lot
   (`management/listing.js`); an order page carries none. Only an id the

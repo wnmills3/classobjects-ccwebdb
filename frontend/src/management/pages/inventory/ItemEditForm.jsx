@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { money } from '../../../shared/format'
 import { api } from '../../api'
@@ -48,6 +48,35 @@ import WeightFields from '../../WeightFields'
 const CHECK_EVERY_MS = 15000
 
 //: What the Friedberg lookup starts from (`FriedbergLookup`'s `fromItem`).
+//: What identifies a piece, in the order the editor asks for it, by kind.
+//: A coin is its denomination, year and mint. A bar or a round has no face
+//: value: it is its form, its metal and what it weighs, and a year or a
+//: mint where it has one. A set is the kind of set it is, of a year, from a
+//: mint. A note is its denomination and then its own fields (`note`).
+//: `year` and `weights` are the year rows and the weight fields; every
+//: other name is a classifier's. A kind not listed is asked as a coin is.
+const BULLION_FACTS = [
+  'bullion_form',
+  'metal',
+  'weights',
+  'year',
+  'mint',
+  'denomination',
+]
+const FACTS_ASKED = {
+  currency: ['denomination', 'note'],
+  coin: ['denomination', 'year', 'mint'],
+  bullion: BULLION_FACTS,
+  medal: BULLION_FACTS,
+  token: BULLION_FACTS,
+  set: ['set_form', 'year', 'mint', 'denomination'],
+}
+
+//: What a coin's facts decide, shown right after them and marked suggested
+//: until typed over: the design, the metal, and from the composition the
+//: fineness and weights. A fact the kind is asked for is not repeated here.
+const FACTS_DECIDED = ['series', 'metal', 'weights']
+
 const FRIEDBERG_FACTS = [
   'denomination',
   'note_type',
@@ -922,6 +951,123 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
       </label>
     ))
 
+  // Each fact's rows, by the name the order above gives it: a classifier's
+  // own row, or one of the three blocks that are more than a picker.
+  const noteRows = (
+    <Fragment key="note">
+      {/* A note's own facts come right after its kind and denomination:
+            its series, serial and plates identify it. The draft's kind, not the
+            saved one: a coin being made a note
+            shows its note fields now, and the save creates the note's row
+            before writing them. */}
+      {value('item_kind') === 'currency' && (
+        <NoteFields
+          value={value}
+          set={set}
+          setNumber={(key) => (e) =>
+            setDraft({ ...draft, [key]: yearValue(e.target.value) })
+          }
+          setField={(key, next) => setDraft({ ...draft, [key]: next })}
+          side={side}
+        />
+      )}
+    </Fragment>
+  )
+  const yearRows = (
+    <Fragment key="year">
+      {/* Divs, not labels: a <label> may not contain the range checkbox's
+          own label, so each box is named through htmlFor instead.
+
+          One row that stays mounted, with the end year added beneath it.
+          Two separate layouts would replace the checkbox itself on every
+          tick, and a keyboard user's focus would go with it.
+
+          Not on a note: its year is its series year, and the server leaves
+          the item's own years empty. */}
+      {!isCurrencyKind(value('item_kind')) && (
+        <>
+          <div className="field" data-help={ranged ? 'year_start' : 'year'}>
+            <label htmlFor={yearId}>
+              <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
+            </label>
+            <span className="year-input">
+              <input
+                id={yearId}
+                type="number"
+                disabled={noDate}
+                value={value('year_start')}
+                onChange={
+                  ranged
+                    ? (e) =>
+                        setDraft({ ...draft, year_start: yearValue(e.target.value) })
+                    : setYear
+                }
+                {...accel('y')}
+              />
+              {rangeToggle}
+            </span>
+            {ranged ? claim('year_start') : yearClaim()}
+            {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
+          </div>
+          {yearWarning && (
+            <p className="notice" role="status">
+              {yearWarning}
+            </p>
+          )}
+          {ranged && (
+            <div className="field" data-help="year_end">
+              <label htmlFor={yearEndId}>
+                <AccessLabel text="Year to" accessKey="o" />
+              </label>
+              <input
+                id={yearEndId}
+                type="number"
+                // An item stored with a start and no end opens its range at the
+                // start year -- but only until someone types here.
+                value={
+                  'year_end' in draft
+                    ? (draft.year_end ?? '')
+                    : (item.year_end ?? item.year_start ?? '')
+                }
+                onChange={(e) =>
+                  setDraft({ ...draft, year_end: yearValue(e.target.value) })
+                }
+                {...accel('o')}
+              />
+              {claim('year_end')}
+              {review('year_end')}
+            </div>
+          )}
+        </>
+      )}
+    </Fragment>
+  )
+  const weightRows = (
+    <Fragment key="weights">
+      {fieldFitsKind('fine_weight_ozt', value('item_kind')) && (
+        <WeightFields
+          className="field"
+          get={value}
+          set={(key, next) => setDraft({ ...draft, [key]: next })}
+          aside={(key) => (
+            <>
+              {side(key, key)}
+              <span />
+            </>
+          )}
+        />
+      )}
+    </Fragment>
+  )
+  const factRows = (fact) =>
+    ({ note: noteRows, year: yearRows, weights: weightRows })[fact] ??
+    classifierRows((key) => key === fact)
+  const askedFacts = FACTS_ASKED[value('item_kind')] ?? FACTS_ASKED.coin
+  const decidedFacts = isCurrencyKind(value('item_kind'))
+    ? []
+    : FACTS_DECIDED.filter((fact) => !askedFacts.includes(fact))
+  const placedFacts = new Set([...askedFacts, ...decidedFacts])
+
   return (
     <div className="edit-form">
       <HelpScope>
@@ -1133,106 +1279,11 @@ export default function ItemEditForm({ itemId, onSaved, onChanged, onClose }) {
           </p>
         )}
 
-        {classifierRows((key) => key === 'denomination')}
-
-        {/* A note's own facts come right after its kind and denomination:
-            its series, serial and plates identify it. The draft's kind, not the
-            saved one: a coin being made a note
-            shows its note fields now, and the save creates the note's row
-            before writing them. */}
-        {value('item_kind') === 'currency' && (
-          <NoteFields
-            value={value}
-            set={set}
-            setNumber={(key) => (e) =>
-              setDraft({ ...draft, [key]: yearValue(e.target.value) })
-            }
-            setField={(key, next) => setDraft({ ...draft, [key]: next })}
-            side={side}
-          />
-        )}
-
-        {/* Divs, not labels: a <label> may not contain the range checkbox's
-          own label, so each box is named through htmlFor instead.
-
-          One row that stays mounted, with the end year added beneath it.
-          Two separate layouts would replace the checkbox itself on every
-          tick, and a keyboard user's focus would go with it.
-
-          Not on a note: its year is its series year, and the server leaves
-          the item's own years empty. */}
-        {!isCurrencyKind(value('item_kind')) && (
-          <>
-            <div className="field" data-help={ranged ? 'year_start' : 'year'}>
-              <label htmlFor={yearId}>
-                <AccessLabel text={ranged ? 'Year from' : 'Year'} accessKey="y" />
-              </label>
-              <span className="year-input">
-                <input
-                  id={yearId}
-                  type="number"
-                  disabled={noDate}
-                  value={value('year_start')}
-                  onChange={
-                    ranged
-                      ? (e) =>
-                          setDraft({ ...draft, year_start: yearValue(e.target.value) })
-                      : setYear
-                  }
-                  {...accel('y')}
-                />
-                {rangeToggle}
-              </span>
-              {ranged ? claim('year_start') : yearClaim()}
-              {review(ranged ? 'year_start' : ['year_start', 'year_end'])}
-            </div>
-            {yearWarning && (
-              <p className="notice" role="status">
-                {yearWarning}
-              </p>
-            )}
-            {ranged && (
-              <div className="field" data-help="year_end">
-                <label htmlFor={yearEndId}>
-                  <AccessLabel text="Year to" accessKey="o" />
-                </label>
-                <input
-                  id={yearEndId}
-                  type="number"
-                  // An item stored with a start and no end opens its range at the
-                  // start year -- but only until someone types here.
-                  value={
-                    'year_end' in draft
-                      ? (draft.year_end ?? '')
-                      : (item.year_end ?? item.year_start ?? '')
-                  }
-                  onChange={(e) =>
-                    setDraft({ ...draft, year_end: yearValue(e.target.value) })
-                  }
-                  {...accel('o')}
-                />
-                {claim('year_end')}
-                {review('year_end')}
-              </div>
-            )}
-          </>
-        )}
-
-        {classifierRows((key) => key !== 'denomination')}
-
-        {fieldFitsKind('fine_weight_ozt', value('item_kind')) && (
-          <WeightFields
-            className="field"
-            get={value}
-            set={(key, next) => setDraft({ ...draft, [key]: next })}
-            aside={(key) => (
-              <>
-                {side(key, key)}
-                <span />
-              </>
-            )}
-          />
-        )}
+        {/* What identifies the piece, in the order its kind is asked for it
+            (`FACTS_ASKED`); then what those facts decide; then the rest. */}
+        {askedFacts.map(factRows)}
+        {decidedFacts.map(factRows)}
+        {classifierRows((key) => !placedFacts.has(key))}
 
         {fieldFitsKind('variety', value('item_kind')) && (
           <label className="field" data-help="variety">
