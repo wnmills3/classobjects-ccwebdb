@@ -211,6 +211,7 @@ would change and writes no database rows.
 | `python -m app.ebay_orders` | fills eBay purchases' missing order numbers and items' listing ids from eBay's purchase history | `FILE... [--review FILE.xlsx] [--commit --by EMAIL]` |
 | `python -m app.photo_import` | links photographs to items by filename | `[--root DIR] [--commit]` |
 | `python -m app.image_sources` | records the web address stored photographs were fetched from, matching each downloaded file to its image by content (`docs/specs/item-photographs-design.md`, *From a web address*) | `MANIFEST.csv FOLDER [--commit]` |
+| `python -m app.image_enlarge` | replaces a stored photograph that is a scaled copy (an eBay or NGC thumbnail added by its address) with the full-size picture, in place, so each item keeps it where it was; leaves one that is on an item for sale (`docs/specs/item-photographs-design.md`, *From a web address*) | `[--commit] [--limit N] [--list]` |
 | `python -m app.vendor_cleanup` | merges, renames, re-kinds or deletes purchase sources, by explicit instruction | see *Cleaning up purchase sources* |
 
 `--by` names the account each change is logged under in the item's

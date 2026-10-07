@@ -161,10 +161,12 @@ def add_image_from_url(
 ) -> ImageOut:
     """Fetch a photograph from a web address and file it against an item.
 
-    Fetched by `app.image_fetch` (public http(s) hosts only), then stored as
-    any upload is -- converted and stripped -- named for its place on the
-    item, `CC-000412_02.jpg`, and filed there after the item's other
-    photographs. A refused fetch stores nothing.
+    Fetched by `app.image_fetch` (public http(s) hosts only) at the largest
+    size its host serves, whichever size the address names; the address
+    kept as its source is the one the bytes came from. Then stored as any
+    upload is -- converted and stripped -- named for its place on the item,
+    `CC-000412_02.jpg`, and filed there after the item's other photographs.
+    A refused fetch stores nothing.
     """
     item = get_or_404(
         db,
@@ -174,7 +176,7 @@ def add_image_from_url(
     )
     sale_state.guard(db, [item], acknowledged=payload.acknowledge_for_sale)
     try:
-        raw = image_fetch.fetch_image(payload.url)
+        raw, fetched_from = image_fetch.fetch_full_size(payload.url)
     except image_fetch.ImageFetchRefused as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -186,7 +188,7 @@ def add_image_from_url(
             db,
             raw,
             source_ref=f"{item.item_code}_{position:02d}.jpg",
-            source_url=payload.url,
+            source_url=fetched_from,
         )
     except ImageRejected as exc:
         raise HTTPException(

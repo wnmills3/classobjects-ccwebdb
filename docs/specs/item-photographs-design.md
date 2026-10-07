@@ -231,6 +231,31 @@ unknown item; 409 when the item already has that photograph; the for-sale
 acknowledgement as for an upload. Bytes already stored (the same hash) are
 filed under the existing image, which keeps its own name.
 
+**The full-size picture is the one fetched.** A marketplace serves one
+photograph at many sizes and the size is part of the address: eBay's
+`.../s-l140.webp` is the picture at `.../s-l1600.webp`, forty times smaller,
+and the address a person copies is whichever the page showed.
+`image_urls.full_size` rewrites an address to the largest form its host
+serves -- eBay's `s-l<edge>` to `s-l1600` (asking for more returns the same
+file), an NGC certificate picture without its `TN_` prefix or `@<w>X<h>`
+suffix -- and leaves any other address alone. `image_fetch.fetch_full_size`
+fetches that form, and the address as given when it is refused. The address
+kept is the one the bytes came from.
+
+`python -m app.image_enlarge [--commit] [--limit N] [--list]` does the same
+for photographs already stored. One is looked at when its address has a
+larger form and the picture held is no bigger than that address names (an
+eBay picture held larger than its `s-l500` address was fetched at full size
+already). The full-size picture is fetched and, when it really is larger,
+put behind the same image row (`image_store.replace_content`): the row keeps
+its id, so every item keeps the photograph in its place, role and primary;
+its bytes, hash, dimensions, renditions and address change, and the files it
+no longer uses are deleted once the change is committed. Left as they are,
+and counted: a picture no larger than the one held, one the collection
+already stores as another image, one that could not be fetched, and one on
+an item that is for sale. A dry run fetches nothing; a commit writes every
+25, so a run cut short keeps what it had done.
+
 **The address is kept.** `image.source_url` holds the web address a
 photograph was fetched from; an uploaded file has none. An image already
 stored learns its address the first time it is fetched from one, and keeps
@@ -262,7 +287,10 @@ unless `--commit`.
 - `tests/test_image_move.py` (moving and `name_for_place`),
   `tests/test_image_order_and_names.py` (placement after the last photograph,
   names kept as stored), `tests/test_image_from_url.py` (the fetch guards,
-  with a stubbed resolver and client), `tests/test_image_sources.py` (the
+  with a stubbed resolver and client), `tests/test_image_urls.py` (the
+  full-size form of an address), `tests/test_image_enlarge.py` (the
+  replacement in place, what is left alone, and the full-size fetch on
+  adding by address), `tests/test_image_sources.py` (the
   address recovery pass), `tests/test_images.py` (metadata
   stripping against a GPS-tagged fixture, hashing, derivatives, the upload,
   list and serving routes).

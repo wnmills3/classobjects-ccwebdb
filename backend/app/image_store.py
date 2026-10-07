@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .imaging import (
+    CleansedImage,
     cleanse,
     derivative_key,
     file_extension,
@@ -26,9 +27,9 @@ from .imaging import (
     original_key,
 )
 from .models import DerivativeKind, Image, ImageDerivative
-from .storage import get_storage
+from .storage import StorageBackend, get_storage
 
-__all__ = ["DERIVATIVE_SIZES", "ingest", "is_web_address"]
+__all__ = ["DERIVATIVE_SIZES", "ingest", "is_web_address", "replace_content"]
 
 _WEB_ADDRESS = re.compile(r"^https?://", re.IGNORECASE)
 
@@ -115,7 +116,15 @@ def ingest(
     )
     db.add(image)
     db.flush()
+    _add_renditions(db, storage, image, cleansed)
+    db.flush()
+    return image
 
+
+def _add_renditions(
+    db: Session, storage: StorageBackend, image: Image, cleansed: CleansedImage
+) -> None:
+    """Make, store and record each rendition of `cleansed` for `image`."""
     for kind, longest_edge in DERIVATIVE_SIZES.items():
         data, width, height, media_type = make_derivative(cleansed.data, longest_edge)
         derived_key = derivative_key(cleansed.sha256, kind.value, media_type)
@@ -130,5 +139,47 @@ def ingest(
             )
         )
 
+
+def replace_content(
+    db: Session, image: Image, cleansed: CleansedImage, source_url: str
+) -> list[str]:
+    """Put a better copy of the same photograph behind `image`, in place.
+
+    The row keeps its id, so every item it is filed against keeps it: its
+    order, its role, which one is primary. What changes is what the row
+    holds -- the bytes, their hash, size and dimensions, the renditions made
+    from them, and the address they came from.
+
+    Returns the storage keys the row no longer uses. The caller deletes them
+    **after** its commit: deleted before, a commit that failed would leave
+    the row naming files that are gone.
+
+    The caller has established that no other row already holds these bytes
+    (`uq_image_sha256`); this does not look.
+    """
+    unused = [derivative.storage_key for derivative in image.derivatives]
+    unused.append(image.storage_key)
+
+    storage = get_storage()
+    key = original_key(cleansed.sha256, cleansed.media_type)
+    storage.put(key, cleansed.data)
+
+    # The old renditions go before the new ones arrive: one per kind is all
+    # `uq_image_derivative_kind` allows.
+    image.derivatives.clear()
     db.flush()
-    return image
+
+    image.sha256 = cleansed.sha256
+    image.storage_key = key
+    image.media_type = cleansed.media_type
+    image.byte_size = len(cleansed.data)
+    image.width = cleansed.width
+    image.height = cleansed.height
+    image.captured_at = image.captured_at or cleansed.captured_at
+    image.source_ref = named_as_stored(image.source_ref, cleansed.media_type)
+    image.source_url = source_url
+    db.flush()
+    _add_renditions(db, storage, image, cleansed)
+    db.flush()
+    db.refresh(image, attribute_names=["derivatives"])
+    return [old for old in unused if old != key]

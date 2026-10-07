@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterator, Sequence
 from decimal import Decimal
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -131,6 +132,19 @@ def drop_database(conn: Connection, name: str) -> None:
         {"name": name},
     )
     conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))
+
+
+@pytest.fixture(autouse=True)
+def _stored_files_in_a_temporary_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whatever a test stores goes to a temporary folder, never the real media.
+
+    The collection's photographs are files under `settings.media_root`, and
+    storage is addressed by content: a test that stored a picture there would
+    leave a file no row names beside the owner's own.
+    """
+    monkeypatch.setattr(settings, "media_root", tmp_path / "media")
 
 
 @pytest.fixture(scope="session")

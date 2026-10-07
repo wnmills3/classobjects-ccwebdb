@@ -3,7 +3,8 @@
 The console pastes an address -- an eBay listing's picture, a HiBid lot's --
 and the server fetches it, so the owner need not download and re-upload it.
 The bytes then go through `image_store.ingest` like any upload: converted,
-stripped of metadata, stored.
+stripped of metadata, stored. A marketplace serves one picture at many
+sizes, and `fetch_full_size` asks for the largest whichever was pasted.
 
 A server that fetches addresses it is handed can be pointed at the machine
 it runs on or the network behind it. So only `http(s)` is fetched, and only
@@ -31,8 +32,9 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import httpx
 
 from .config import settings
+from .image_urls import full_size
 
-__all__ = ["ImageFetchRefused", "fetch_image"]
+__all__ = ["ImageFetchRefused", "fetch_full_size", "fetch_image"]
 
 _MAX_REDIRECTS = 3
 _TIMEOUT = httpx.Timeout(15.0)
@@ -131,3 +133,25 @@ def fetch_image(
     finally:
         if own:
             session.close()
+
+
+def fetch_full_size(
+    url: str, *, fetch: Callable[[str], bytes] | None = None
+) -> tuple[bytes, str]:
+    """The best picture there is at `url`, and the address it came from.
+
+    The address is first rewritten to its full-size form
+    (`image_urls.full_size`): a pasted thumbnail's address brings back the
+    whole photograph. Where that form is refused -- the host no longer
+    serves it -- the address as given is fetched instead, and its own
+    refusal is the one raised. `fetch` is for tests; left out, it is
+    `fetch_image`.
+    """
+    given = url.strip()
+    largest = full_size(given)
+    if largest != given:
+        try:
+            return (fetch or fetch_image)(largest), largest
+        except ImageFetchRefused:
+            pass
+    return (fetch or fetch_image)(given), given
