@@ -296,10 +296,13 @@ reference-data rule forbids.
 ## Valuation (not built): the rules that bind it
 
 The `metal_price` and `valuation_snapshot` tables exist
-(`docs/database-design.md`). The `cb_metal` report computes melt value from
-the latest `metal_price`; nothing in the application records a spot price or
-a valuation snapshot, and no asking price is derived. These constraints bind
-valuation when it is built.
+(`docs/database-design.md`). A spot price is recorded by hand on the
+console's **Spot prices** page (`docs/system-administration.md`), and the
+`cb_metal` report and that page compute melt value from the latest
+`metal_price`. Nothing records a valuation snapshot, and the only asking
+price derived is the offer dialog's fill to a margin over cost
+(`docs/specs/selling-design.md`). These constraints bind valuation as the
+rest is built.
 
 **Cost-plus.** The asking price derives from what was paid and a markup the
 owner chooses, informed by a wholesale reference. The derived number is the

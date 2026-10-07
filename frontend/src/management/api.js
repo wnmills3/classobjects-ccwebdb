@@ -149,6 +149,11 @@ export const api = {
     send(`/api/sellers/${id}`, { method: 'PATCH', body: payload }),
   deleteSeller: (id) => send(`/api/sellers/${id}`, { method: 'DELETE' }),
 
+  // spot prices
+  listMetalPrices: () => send('/api/metal-prices'),
+  recordMetalPrice: (payload) =>
+    send('/api/metal-prices', { method: 'POST', body: payload }),
+
   // sales platforms
   listSalesVenues: () => send('/api/sales-venues'),
   createSalesVenue: (payload) =>

@@ -2753,3 +2753,40 @@ class FriedbergAttachOut(BaseModel):
     fr_number: str
     verified: bool
     verified_at: datetime | None
+
+
+# --------------------------------------------------------------------------
+# Spot prices
+# --------------------------------------------------------------------------
+
+#: A spot price per troy ounce, as `metal_price.price_per_ozt` holds it:
+#: `NUMERIC(12,4)`, never negative. Four places, because copper is quoted in
+#: cents an ounce.
+SpotPrice = Annotated[Decimal, Field(ge=Decimal("0"), max_digits=12, decimal_places=4)]
+
+
+class MetalPriceIn(BaseModel):
+    """A spot price to record for a metal, as of now."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: A `metal` code.
+    metal: str = Field(min_length=1, max_length=64)
+    price_per_ozt: SpotPrice
+
+
+class MetalPriceOut(BaseModel):
+    """One metal on the Spot prices page: its newest quote and what is held."""
+
+    #: The `metal` code and its label.
+    metal: str
+    label: str
+    #: The newest quote; null for a metal never quoted.
+    price_per_ozt: Decimal | None
+    quoted_at: datetime | None
+    #: Where the quote came from: `manual` for one typed in.
+    source: str | None
+    #: Fine troy ounces held across live items; null when none has a weight.
+    fine_ozt_held: Decimal | None
+    #: The ounces at the newest quote; null without both.
+    melt_value: Decimal | None

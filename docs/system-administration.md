@@ -897,6 +897,34 @@ were read (**Fees as of**), shown beside every estimate. Rates are typed as a
 percentage (`13.25`) and stored as a fraction (`0.1325`). A fee of zero shows
 as `0%` or `$0.00`; a blank means nobody has looked the terms up.
 
+### Spot prices
+
+**Spot prices** (`/management/spot-prices`) lists every metal in use with the
+price a troy ounce of it is quoted at, when that was recorded, the fine
+ounces held across the live items, and what they melt for at that price. Type
+a price in a metal's **New price** box and press **Record** (or Enter):
+
+- A price is dollars per troy ounce with up to four decimal places -- `31.50`
+  for silver, `0.2875` for copper.
+- A price is never edited. Recording one adds a quote and makes it the
+  metal's price; the one before is kept, so what the holdings were worth at
+  an earlier date can still be worked out. A price typed wrong is put right
+  by recording the right one.
+- A metal never quoted shows `--` and `never`, and no melt value: not quoted
+  is not worth nothing. A price of `0` is a price, and values the holding at
+  nothing.
+- Melt value is never stored. It is the newest price times each item's fine
+  weight and piece count, worked out where it is shown -- this page and the
+  **Precious metal** report (`cb_metal`) -- so one new price revalues
+  everything at once. Only an item with a fine weight counts.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/metal-prices` | each metal in use: newest price, when, source, fine ounces held, melt value |
+| `POST /api/metal-prices` | record a price now -- `metal` (its code), `price_per_ozt`; answers the whole table. 422 for an unknown metal or a price that is not one |
+
+Both are manager-only.
+
 ### Cleaning up purchase sources
 
 A platform links to a `vendor` row as its purchase source, and the vendor

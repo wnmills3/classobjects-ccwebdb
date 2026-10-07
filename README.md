@@ -152,7 +152,7 @@ by `deps.require_admin`). By area:
 | Purchases | `/vendors`, `/sellers`, `/purchase-orders`, `/storage-locations` | manager |
 | Vocabularies | `/reference` (read public; add, rename, alias, merge manager), `/defaults` (suggested classifiers while entering an item) | mixed |
 | Photographs | `/images` (upload, from a web address, file against an item, list, delete, renditions), `/image-links` (role, primary, move, detach) | renditions public, by content hash; the rest manager |
-| Selling | `/sales-venues`, `/offers`, `/listings` (edit, end, record a sale), `/sales-lots`, `/auctions` | manager |
+| Selling | `/sales-venues`, `/metal-prices` (spot prices), `/offers`, `/listings` (edit, end, record a sale), `/sales-lots`, `/auctions` | manager |
 | Friedberg numbers | `/friedberg`, `/inventory/{id}/friedberg` | manager; the owner's own numbers only |
 | Reports | `/reports` (catalog, run, `/workbook`) | manager |
 
