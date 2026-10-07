@@ -1374,6 +1374,8 @@ restore. **Photograph bytes are in no database backup** -- they live under
 ```cmd
 python -m app.media_backup copy [<folder>]     media storage -> <folder>
 python -m app.media_backup check [<folder>]    <folder> against the image rows
+python -m app.media_backup prune [<folder>]    files in <folder> no image row names
+    [--delete]                                 ... removed, not only listed
 ```
 
 The folder defaults to `ccwebdb-backups\media`. `copy` writes every file the
@@ -1387,6 +1389,16 @@ the command exits 1.
 `check` is the proof: it re-reads the folder, hashes every original against
 its row and confirms every rendition is there, and exits 1 naming anything
 missing or damaged. Run it after a copy that matters.
+
+A copy only grows: a photograph replaced by a better picture
+(`app.image_enlarge`), or removed, leaves its old files in the folder with
+nothing naming them. `prune` lists the files in a folder that no image row
+names, with their size, and deletes nothing; `prune --delete` removes them.
+It judges nothing obsolete -- and exits 1 saying why -- in a folder that is
+missing a file the rows name, or when the database records no photographs:
+such a folder is not a complete copy for this database, and may be another
+collection's. Run `copy` first on a copy that has fallen behind. The folder
+may be `MEDIA_ROOT` itself, which gathers such files the same way.
 
 **To restore**, copy the folder's contents into `MEDIA_ROOT`, keeping the
 layout:
