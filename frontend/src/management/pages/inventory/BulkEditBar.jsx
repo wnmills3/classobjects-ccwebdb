@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { api } from '../../api'
 import ForSaleNotice from '../ForSaleNotice'
+import LocationSelect from '../../LocationSelect'
 import ModalDialog from '../../ModalDialog'
 import OfferDialog from './OfferDialog'
 import { useMounted } from '../../useMounted'
@@ -47,6 +48,9 @@ const BULK_FIELDS = [
   //: Coins only. Paper has no metal, and `metal` is a coin-view column and
   //: filter in `inventory_search` -- it does not exist on the currency view.
   ['Metal', 'metal', 'text', 'coins'],
+  //: Where the selection is kept: a storage location picked, or added, from
+  //: the same picker the item editor uses. Each item's move is recorded.
+  ['Location', 'storage_location_id', 'location'],
 ]
 
 /**
@@ -215,7 +219,8 @@ export default function BulkEditBar({
   async function apply() {
     setBusy(true)
     try {
-      const changes = { [field]: type === 'number' ? Number(value) : value }
+      // A year and a location's id go as numbers; a code goes as typed.
+      const changes = { [field]: type === 'text' ? value : Number(value) }
       if (acknowledged) changes.acknowledge_for_sale = true
       await api.bulkEditInventory(ids, changes)
       setError('')
@@ -235,7 +240,15 @@ export default function BulkEditBar({
     <div className="bulk-bar">
       <strong>{ids.length} selected</strong>
 
-      <select value={field} onChange={(e) => setField(e.target.value)}>
+      <select
+        aria-label="Field to change"
+        value={field}
+        onChange={(e) => {
+          // A year typed for one field is not a location's id for another.
+          setField(e.target.value)
+          setValue('')
+        }}
+      >
         {fields.map(([label, key]) => (
           <option key={key} value={key}>
             {label}
@@ -243,12 +256,16 @@ export default function BulkEditBar({
         ))}
       </select>
 
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="New value"
-      />
+      {type === 'location' ? (
+        <LocationSelect value={value} onChange={setValue} />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="New value"
+        />
+      )}
 
       <button disabled={busy || value === ''} onClick={apply}>
         {busy ? 'Applying...' : `Apply to ${ids.length}`}

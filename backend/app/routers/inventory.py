@@ -2228,6 +2228,13 @@ def bulk_edit(
             status_code=422,
             detail="no_date is set one item at a time. Nothing was changed.",
         )
+    # Where the items are kept moves through `set_location`, one move in
+    # each item's location history; it is not a field the writes below
+    # set, and like the single edit it is not what the sale warning is for.
+    moves = "storage_location_id" in data
+    to_location = data.pop("storage_location_id", None)
+    if moves and to_location is not None:
+        _require_location(db, to_location)
     _refuse_null_scalars(data)
     # The fields as sent, before `_split_grade` reshapes them: the change log
     # records these, in the editor's own terms.
@@ -2332,6 +2339,11 @@ def bulk_edit(
                 item.no_date = False
         if status_id is not None:
             set_status(db, item, status_id, user_id=admin.id)
+        if moves and item.storage_location_id != to_location:
+            set_location(
+                db, item, to_location, user_id=admin.id, note="edited in the console"
+            )
+            item.updated_at = datetime.now(UTC)
 
     if locked is not None:
         _end_offers_holding(
