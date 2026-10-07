@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../api', () => ({
   api: {
     bulkEditInventory: vi.fn(),
+    // The location picker's own call.
+    listStorageLocations: vi.fn(),
     // OfferDialog's own calls, reachable once "Offer for sale..." is pressed.
     listSalesVenues: vi.fn(),
     getOfferTitles: vi.fn(),
@@ -57,6 +59,10 @@ beforeEach(() => {
   api.getOfferTitles.mockResolvedValue({ titles: {} })
   api.listSalesVenues.mockResolvedValue(VENUES)
   api.listLots.mockResolvedValue({ lots: [] })
+  api.listStorageLocations.mockResolvedValue([
+    { id: 7, label: 'First National, box 804' },
+    { id: 9, label: 'Home safe' },
+  ])
 })
 
 describe('BulkEditBar', () => {
@@ -394,6 +400,58 @@ describe('BulkEditBar', () => {
         'Two was started but is empty: CC-000002 is already in a lot',
       ),
     ).toBeVisible()
+  })
+
+  it('moves the selection to a storage location picked from the list', async () => {
+    const user = userEvent.setup()
+    const onApplied = vi.fn()
+    api.bulkEditInventory.mockResolvedValueOnce({ updated: 2 })
+    render(
+      <BulkEditBar
+        view="currency"
+        ids={[1, 2]}
+        onApplied={onApplied}
+        onClear={vi.fn()}
+      />,
+    )
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Field to change' }),
+      'Location',
+    )
+    // A picker of the places there are, not a box to type an id into.
+    expect(screen.queryByPlaceholderText('New value')).toBeNull()
+    const apply = screen.getByRole('button', { name: 'Apply to 2' })
+    expect(apply).toBeDisabled()
+
+    await user.selectOptions(
+      await screen
+        .findByRole('option', { name: 'Home safe' })
+        .then((o) => o.closest('select')),
+      'Home safe',
+    )
+    await user.click(apply)
+
+    // The location's id, as a number: the schema takes no "9".
+    expect(api.bulkEditInventory).toHaveBeenLastCalledWith([1, 2], {
+      storage_location_id: 9,
+    })
+    await waitFor(() => expect(onApplied).toHaveBeenCalled())
+  })
+
+  it('forgets a value typed for one field when another is chosen', async () => {
+    const user = userEvent.setup()
+    render(<BulkEditBar view="coins" ids={[1]} onApplied={vi.fn()} onClear={vi.fn()} />)
+
+    await user.type(screen.getByPlaceholderText('New value'), '1964')
+    const field = screen.getByRole('combobox', { name: 'Field to change' })
+    await user.selectOptions(field, 'Location')
+    // 1964 is a year, not location number 1964: nothing is chosen yet.
+    expect(screen.getByRole('button', { name: 'Apply to 1' })).toBeDisabled()
+
+    await user.selectOptions(field, 'Grade')
+    expect(screen.getByPlaceholderText('New value')).toHaveValue('')
+    expect(api.bulkEditInventory).not.toHaveBeenCalled()
   })
 
   it('does not offer it for another refusal', async () => {

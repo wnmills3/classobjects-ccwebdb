@@ -7,14 +7,30 @@ the UI should ever have to answer.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from app import offering_writes
-from app.models import Denomination, ItemKind, Listing, Metal
+from app.models import (
+    Denomination,
+    ItemFieldChange,
+    ItemKind,
+    Listing,
+    ListingFormat,
+    LocationHistory,
+    Metal,
+    SalesVenue,
+    StorageLocation,
+    StorageLocationKind,
+    User,
+)
 from app.routers import inventory
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from tests.builders import build_bare_item, code_id
+from tests.conftest import build_item
 
 
 def test_a_field_is_set_across_every_selected_item(
@@ -242,3 +258,186 @@ def test_an_offer_holding_none_of_the_edited_items_names_every_change(
         db, Listing(id=7), {1: "sold", 2: "held", 3: "sold"}
     )
     assert code == "held, sold"
+
+
+# --------------------------------------------------------------------------
+# Where the items are kept
+# --------------------------------------------------------------------------
+
+
+def _box(db: Session, identifier: str) -> StorageLocation:
+    """A safe-deposit box of this number, committed."""
+    box = StorageLocation(
+        storage_location_kind_id=code_id(db, StorageLocationKind, "safe_deposit_box"),
+        institution="First National",
+        identifier=identifier,
+    )
+    db.add(box)
+    db.commit()
+    return box
+
+
+def _moves(
+    db: Session, item_id: int
+) -> list[tuple[int | None, int | None, str | None]]:
+    """An item's location history: where to, who moved it, the note; oldest first."""
+    rows = db.execute(
+        select(
+            LocationHistory.storage_location_id,
+            LocationHistory.moved_by_id,
+            LocationHistory.note,
+        )
+        .where(LocationHistory.inventory_item_id == item_id)
+        .order_by(LocationHistory.id)
+    ).all()
+    return [tuple(row) for row in rows]
+
+
+def test_a_location_is_set_across_every_selected_item_and_each_move_recorded(
+    client: TestClient, admin_headers: dict[str, str], db: Session, admin_user: User
+) -> None:
+    box = _box(db, "804")
+    chosen = [build_bare_item(db) for _ in range(3)]
+    other = build_bare_item(db)
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={
+            "ids": [item.id for item in chosen],
+            "changes": {"storage_location_id": box.id},
+        },
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"updated": 3}
+    db.expire_all()
+    assert [item.storage_location_id for item in chosen] == [box.id] * 3
+    assert other.storage_location_id is None
+    # One move each, under the person who made it; none for the unselected.
+    for item in chosen:
+        assert _moves(db, item.id) == [(box.id, admin_user.id, "edited in the console")]
+    assert _moves(db, other.id) == []
+
+
+def test_an_item_already_there_is_not_moved_again(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    box = _box(db, "804")
+    there = build_bare_item(db, storage_location_id=box.id)
+    elsewhere = build_bare_item(db)
+
+    client.post(
+        "/api/inventory/bulk",
+        json={
+            "ids": [there.id, elsewhere.id],
+            "changes": {"storage_location_id": box.id},
+        },
+        headers=admin_headers,
+    )
+
+    assert _moves(db, there.id) == []
+    assert len(_moves(db, elsewhere.id)) == 1
+
+
+def test_a_null_location_clears_where_each_item_is_kept(
+    client: TestClient, admin_headers: dict[str, str], db: Session, admin_user: User
+) -> None:
+    box = _box(db, "804")
+    items = [build_bare_item(db, storage_location_id=box.id) for _ in range(2)]
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [i.id for i in items], "changes": {"storage_location_id": None}},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    assert [item.storage_location_id for item in items] == [None, None]
+    assert _moves(db, items[0].id) == [(None, admin_user.id, "edited in the console")]
+
+
+def test_a_location_that_does_not_exist_moves_nothing(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    box = _box(db, "804")
+    items = [build_bare_item(db, storage_location_id=box.id, year_start=1878)]
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={
+            "ids": [items[0].id],
+            "changes": {"storage_location_id": box.id + 999, "year_start": 1964},
+        },
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == f"Unknown storage_location_id: {box.id + 999}"
+    db.expire_all()
+    # All or nothing: the year sent with it is not set either.
+    assert (items[0].storage_location_id, items[0].year_start) == (box.id, 1878)
+    assert _moves(db, items[0].id) == []
+
+
+def test_a_move_is_kept_in_the_location_history_and_not_in_the_field_log(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    box = _box(db, "804")
+    item = build_bare_item(db, year_start=1878)
+
+    client.post(
+        "/api/inventory/bulk",
+        json={
+            "ids": [item.id],
+            "changes": {"storage_location_id": box.id, "year_start": 1964},
+        },
+        headers=admin_headers,
+    )
+
+    logged = db.scalars(
+        select(ItemFieldChange.field_name).where(
+            ItemFieldChange.inventory_item_id == item.id
+        )
+    ).all()
+    assert "storage_location_id" not in logged
+    assert "year_start" in logged
+    assert len(_moves(db, item.id)) == 1
+
+
+def test_moving_an_item_that_is_for_sale_asks_for_no_acknowledgement(
+    client: TestClient, admin_headers: dict[str, str], db: Session
+) -> None:
+    """Where a coin is kept is not shown to a buyer: the sale warning is not for it."""
+    box = _box(db, "804")
+    item = build_item(db)
+    venue = db.scalars(select(SalesVenue).where(SalesVenue.is_own_store)).one()
+    offering_writes.offer(
+        db,
+        item=item,
+        venue=venue,
+        listing_format=ListingFormat.fixed_price,
+        price=Decimal("50.00"),
+        title="",
+        description="",
+        external_id=None,
+        quantity=1,
+    )
+    db.commit()
+    # It is for sale: any other change is refused until acknowledged.
+    refused = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [item.id], "changes": {"year_start": 1964}},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409, refused.text
+
+    response = client.post(
+        "/api/inventory/bulk",
+        json={"ids": [item.id], "changes": {"storage_location_id": box.id}},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(_moves(db, item.id)) == 1
