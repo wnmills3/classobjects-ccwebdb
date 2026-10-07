@@ -49,6 +49,13 @@ export const FIELD_HELP = {
       'Type part of an order number or a vendor name to shorten the list, ' +
       'or a purchase number (3974 or #3974) to find that one purchase.',
   },
+  purchase_open_only: {
+    title: 'Only purchases with items not yet received',
+    text:
+      'Tick to list only the purchases still waiting on something: an item ' +
+      'marked Ordered, or one marked Missing, which may yet turn up. Untick ' +
+      'to list every purchase again.',
+  },
   tax_rate: {
     title: 'Tax rate',
     text:
