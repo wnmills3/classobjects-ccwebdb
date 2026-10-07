@@ -8,6 +8,8 @@ media storage is, so restoring is copying the folder back to `MEDIA_ROOT`.
 
     python -m app.media_backup copy [FOLDER]     media storage -> FOLDER
     python -m app.media_backup check [FOLDER]    FOLDER against the image rows
+    python -m app.media_backup prune [FOLDER]    files in FOLDER no row names
+        [--delete]                               ... removed, not only listed
 
 `FOLDER` defaults to `ccwebdb-backups/media`, beside the workbooks.
 `python -m app.workbook_backup export` runs the copy itself.
@@ -27,6 +29,15 @@ bytes its row describes, so damage in media storage is reported rather than
 carried into the backup. `check` re-reads the folder itself: every original
 hashed against its row, every rendition present. Either command exits 1 and
 names each file when anything is missing, damaged or refused.
+
+**A copy only grows.** A photograph replaced by a better picture, or removed,
+leaves its old files in the folder: nothing names them any more and nothing
+removes them. `prune` lists the files in a folder that no image row names,
+and with `--delete` removes them. It judges nothing obsolete in a folder
+that is not a complete copy for this database -- one missing a file the rows
+name, or a database that records no photographs at all -- so pointing it at
+the wrong folder, or at the wrong database, deletes nothing. It works on
+`MEDIA_ROOT` itself as on a copy of it.
 """
 
 from __future__ import annotations
@@ -46,7 +57,14 @@ from .database import SessionLocal
 from .models import Image, ImageDerivative
 from .storage import StorageBackend, get_storage
 
-__all__ = ["MediaCopy", "check_media", "copy_media", "default_folder"]
+__all__ = [
+    "MediaCopy",
+    "MediaPrune",
+    "check_media",
+    "copy_media",
+    "default_folder",
+    "prune_media",
+]
 
 
 @dataclass
@@ -56,6 +74,20 @@ class MediaCopy:
     copied: int = 0
     present: int = 0
     problems: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MediaPrune:
+    """What a prune found: the files no row names, and what became of them."""
+
+    #: Each file no image row names, by its path under the folder, in order.
+    obsolete: list[str] = field(default_factory=list)
+    #: Their size together, in bytes.
+    size: int = 0
+    #: How many were removed: none unless deletion was asked for.
+    deleted: int = 0
+    #: Why nothing was judged obsolete, when the folder was not pruned.
+    refused: str | None = None
 
 
 def default_folder() -> Path:
@@ -150,6 +182,47 @@ def check_media(db: Session, folder: Path) -> list[str]:
     return problems
 
 
+def prune_media(db: Session, folder: Path, *, delete: bool) -> MediaPrune:
+    """Find the files under `folder` that no image row names; remove them if asked.
+
+    A file is obsolete only by comparison with what the rows name, so the
+    comparison has to be sound before anything is judged. It is refused, and
+    nothing listed or removed, when `folder` is not a folder, when the
+    database records no photographs, or when a file the rows name is not in
+    the folder: a folder that is not a complete copy for this database may
+    be another collection's, and its files are not this one's to call
+    obsolete. Run `copy` first to complete a copy that has fallen behind.
+    """
+    done = MediaPrune()
+    if not folder.is_dir():
+        done.refused = f"{folder} is not a folder"
+        return done
+    named = {key for key, _sha, _size in _files(db)}
+    if not named:
+        done.refused = "no photographs are recorded: nothing is judged obsolete"
+        return done
+    held = {
+        path.relative_to(folder).as_posix(): path
+        for path in folder.rglob("*")
+        if path.is_file()
+    }
+    absent = named - set(held)
+    if absent:
+        done.refused = (
+            f"{len(absent)} photograph file(s) the rows name are not in {folder}: "
+            "it is not a complete copy for this database, so nothing in it is "
+            "judged obsolete (run copy first)"
+        )
+        return done
+    done.obsolete = sorted(set(held) - named)
+    done.size = sum(held[key].stat().st_size for key in done.obsolete)
+    if delete:
+        for key in done.obsolete:
+            held[key].unlink()
+            done.deleted += 1
+    return done
+
+
 def _sha256(path: Path) -> str:
     """The SHA-256 of a file's bytes in hex, read a megabyte at a time."""
     digest = hashlib.sha256()
@@ -171,35 +244,74 @@ def report(done: MediaCopy, folder: Path) -> None:
         print(f"  {len(done.problems)} file(s) NOT backed up", file=sys.stderr)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Copy the photographs to a folder, or check a folder against the rows."""
+def _report_prune(done: MediaPrune, folder: Path, *, delete: bool) -> int:
+    """Print what a prune found and did; the exit status, 1 for a refusal."""
+    if done.refused is not None:
+        print(f"refused: {done.refused}", file=sys.stderr)
+        return 1
+    print(
+        f"{len(done.obsolete):,} file(s) no image row names ({done.size:,} bytes) "
+        f"in {folder}"
+    )
+    for key in done.obsolete:
+        print(f"  {key}")
+    if delete:
+        print(f"deleted {done.deleted:,} file(s)")
+    elif done.obsolete:
+        print("nothing deleted (--delete to remove them)")
+    return 0
+
+
+def main(argv: Sequence[str] | None = None, *, db: Session | None = None) -> int:
+    """Copy the photographs to a folder, check a folder, or prune one.
+
+    `db` is the session to read the image rows from; run as a module, the
+    application's own `SessionLocal` is opened. A caller that already has a
+    session -- the tests, which must never let this open the live database
+    -- passes it.
+    """
     parser = argparse.ArgumentParser(prog="media_backup", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     for name, text in (
         ("copy", "copy the photographs from media storage"),
         ("check", "re-read a copy against the image rows"),
+        ("prune", "list the files in a folder that no image row names"),
     ):
         command = sub.add_parser(name, help=text)
         command.add_argument(
             "folder", type=Path, nargs="?", help="default ccwebdb-backups/media"
         )
+        if name == "prune":
+            command.add_argument(
+                "--delete", action="store_true", help="remove them, not only list"
+            )
     args = parser.parse_args(argv)
     folder = args.folder or default_folder()
 
-    with SessionLocal() as db:
-        if args.command == "copy":
-            done = copy_media(db, get_storage(), folder)
-            report(done, folder)
-            return 1 if done.problems else 0
-        problems = check_media(db, folder)
-        for problem in problems:
-            print(f"  {problem}", file=sys.stderr)
-        print(
-            f"{len(problems)} file(s) wrong in {folder}"
-            if problems
-            else f"every photograph is in {folder} and matches its row"
-        )
-        return 1 if problems else 0
+    if db is None:
+        with SessionLocal() as own:
+            return _run(own, args, folder)
+    return _run(db, args, folder)
+
+
+def _run(db: Session, args: argparse.Namespace, folder: Path) -> int:
+    """Carry out the command the arguments name, in one session."""
+    if args.command == "copy":
+        done = copy_media(db, get_storage(), folder)
+        report(done, folder)
+        return 1 if done.problems else 0
+    if args.command == "prune":
+        pruned = prune_media(db, folder, delete=args.delete)
+        return _report_prune(pruned, folder, delete=args.delete)
+    problems = check_media(db, folder)
+    for problem in problems:
+        print(f"  {problem}", file=sys.stderr)
+    print(
+        f"{len(problems)} file(s) wrong in {folder}"
+        if problems
+        else f"every photograph is in {folder} and matches its row"
+    )
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":
