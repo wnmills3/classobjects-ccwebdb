@@ -109,6 +109,10 @@ SAMPLE_CATALOG: list[dict] = [
 
 
 def _code_id(db: Session, model: type[ReferenceMixin], code: str | None) -> int | None:
+    """The id of the vocabulary value with this code; None for no code.
+
+    Exits, naming the loader to run, when the reference data is not there.
+    """
     if not code:
         return None
     found = db.execute(select(model.id).where(model.code == code)).scalar_one_or_none()
@@ -131,6 +135,7 @@ def _store_venue(db: Session) -> SalesVenue:
 
 
 def _build(db: Session, row: dict) -> None:
+    """Create one demo item, received and held, and offer it in the store."""
     # Demo rows name grades as collectors write them: MS64 is 64, business.
     grade, strike = grades.split_fields(row.get("grade"), None)
     item = InventoryItem(

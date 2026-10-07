@@ -21,6 +21,7 @@ from tests.builders import build_bare_item, code_id
 def _patch(
     client: TestClient, headers: dict[str, str], item_id: int, body: dict[str, Any]
 ) -> Response:
+    """The response to saving these fields on an item."""
     return client.patch(f"/api/inventory/{item_id}", json=body, headers=headers)
 
 

@@ -32,6 +32,7 @@ SELLER = "1881-S Morgan Silver Dollar BU from an old collection #412"
 
 
 def _dollar(db: Session, **extra: object) -> InventoryItem:
+    """An 1881 Morgan dollar with the seller's words still in its description."""
     extra.setdefault("source_title", "1")
     extra.setdefault("description", SELLER)
     return build_bare_item(
@@ -45,6 +46,7 @@ def _dollar(db: Session, **extra: object) -> InventoryItem:
 
 
 def _planned(db: Session) -> dict[str, tuple[str, str]]:
+    """What the pass would change: old and new description, by item code."""
     return {c.item_code: (c.description, c.new_description) for c in plan(db).changes}
 
 

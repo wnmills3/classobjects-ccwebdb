@@ -30,6 +30,11 @@ export const FIND_FROM = 10
 //: enough that a value changed elsewhere is not offered for long.
 const STALE_MS = 60_000
 
+/**
+ * Holds the loaded vocabularies and gives its children `tables`, by name,
+ * with `load`, `refresh` and `invalidate` to fetch one, renew an old copy,
+ * and drop one that has been changed.
+ */
 export function ReferenceProvider({ children }) {
   const [tables, setTables] = useState({})
   //: table -> a token for its latest request, loaded or still in flight.

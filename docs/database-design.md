@@ -448,8 +448,8 @@ thing). Profit is not a column.
 
 Weight is on the item because it is an input to a calculation. It is
 `NUMERIC(12,6)` troy ounces, never a float: six places represent every real
-figure exactly, down to a silver dime at `0.072338`. **Gross and fine differ**
-— a Morgan dollar weighs `0.859370` ozt and contains `0.773440` ozt of silver
+figure exactly, down to a silver dime at `0.072340`. **Gross and fine differ**
+— a Morgan dollar weighs `0.859380` ozt and contains `0.773440` ozt of silver
 — and melt uses fine weight. `weight_note` keeps a weight written as something
 other than a single number. Check constraints keep fineness in `(0, 1]`,
 weights non-negative, and fine within gross.
@@ -562,14 +562,15 @@ constraint, since which fields matter will change. The passes are listed in
 items*.
 
 `item_field_change` is written by `PATCH /api/inventory/{id}`, the bulk
-edit, and the two passes run under a named person (`app.ebay_orders`,
-`app.listing_links`), all through `app.field_changes`, in the same
-transaction as the change, only for a field whose value actually moved.
+edit, and the four passes run under a named person (`app.ebay_orders`,
+`app.listing_links`, `app.bullion_weights`, `app.seller_titles`), all through
+`app.field_changes`, in the same transaction as the change, only for a field
+whose value actually moved.
 Values are stored as the item editor sees them (codes for classifiers,
 strings for money). It is what the editor reads to say *who* changed a field
-it warns about; the passes that fill derived defaults (they mark
-`item_field_source`), receiving and offering do not write it, so a field
-changed that way has no entry.
+it warns about; the passes that fill derived defaults with no person named
+(they mark `item_field_source`), receiving and offering do not write it, so
+a field changed that way has no entry.
 `PUT /api/inventory/{id}/errors` logs the item's error set too, as one
 `errors` row holding the whole set before and after (`[{error_type,
 details}]`), since that endpoint replaces the set; saving an unchanged set
@@ -927,7 +928,9 @@ holding the tables, views, types, `grade_display()` and the rows a fresh
 install needs. Every later schema change is a revision on top of it in
 `backend/alembic/versions/`. `tests/test_migrations.py` builds a database by
 running the migrations alone and asserts that autogenerate finds no
-difference from the models, that every check constraint is carried, and that
+difference from the models, that the baseline's fee kinds load, that the
+selling check constraints and the `uq_sales_lot_item_open` predicate are
+carried with their exact expressions (autogenerate compares neither), and that
 its views and `grade_display()` equal the definitions in `app.models.views`
 and `app.grades`, from which the `create_all` test database is built. A
 migration that changes a view runs `DROP_VIEWS` and then `CREATE_VIEWS`. The
@@ -943,7 +946,7 @@ live in versioned JSON under `backend/data/reference/` and load into any
 installation. From `backend`, with the `ccwebdb` environment active:
 
 ```cmd
-python -m app.seeding load [--only <table> ...]              idempotent
+python -m app.seeding load [--data-dir <dir>] [--only <table> ...]   idempotent
 python -m app.seeding export --out <dir> [--source seeded derived] [--include-inactive]
 ```
 
@@ -966,7 +969,10 @@ Closed vocabularies the product defines rather than the world —
 `sales_venue_kind` and `sales_fee_kind` — are seeded by the baseline
 migration, as are the own-store `sales_venue` row and the six `strike_type`
 rows (business, proof, specimen, reverse proof, enhanced reverse proof,
-special mint set). A classifier with no seed file is skipped by the loader.
+special mint set). `sales_venue_kind` and `strike_type` are in the seed files
+too (`operations.json`, `condition.json`), so a load keeps them current;
+`sales_fee_kind` has no seed rows, and a classifier with none is skipped by
+the loader.
 
 Seed files hold facts only, never a catalog publisher's numbering or prices
 (`docs/reference-data.md`).

@@ -253,6 +253,7 @@ def _venue(factory: sessionmaker[Session], code: str) -> int:
 
 
 def _active_claims(factory: sessionmaker[Session], item_id: int) -> list[OfferClaim]:
+    """The item's active offer claims, read in a session of its own."""
     with factory() as session:
         return list(
             session.scalars(
@@ -495,6 +496,7 @@ def test_two_platforms_racing_the_same_item_leave_exactly_one_winner(
     barrier = threading.Barrier(2)
 
     def attempt(venue_id: int, price: Decimal) -> Outcome:
+        """Offer the item on one venue, in a session of its own; how it ended."""
         session = committed()
         try:
             item = session.get_one(InventoryItem, item_id)
@@ -570,6 +572,7 @@ def test_offering_elsewhere_and_ending_the_store_listing_leave_no_orphan(
     barrier = threading.Barrier(2)
 
     def offer_elsewhere() -> Outcome:
+        """Offer the item on the other venue, in a session of its own."""
         session = committed()
         try:
             item = session.get_one(InventoryItem, item_id)
@@ -601,6 +604,7 @@ def test_offering_elsewhere_and_ending_the_store_listing_leave_no_orphan(
             session.close()
 
     def end_store() -> Outcome:
+        """End the item's store listing, unsold, in a session of its own."""
         session = committed()
         try:
             # Loaded before the barrier, exactly as a router handler would
@@ -781,6 +785,7 @@ def test_offering_a_lot_races_offering_one_of_its_members(
     barrier = threading.Barrier(2)
 
     def offer_the_lot() -> Outcome:
+        """Make a lot of the shared item and its partner, and offer the lot."""
         with committed() as session:
             try:
                 lot = lot_writes.create_lot(session, title="RACE lot C", description="")
@@ -815,6 +820,7 @@ def test_offering_a_lot_races_offering_one_of_its_members(
                 return "stale"
 
     def offer_the_member() -> Outcome:
+        """Offer the shared item by itself, on its own venue."""
         with committed() as session:
             try:
                 item = session.get_one(InventoryItem, shared)
@@ -908,6 +914,7 @@ def test_two_checkouts_race_for_one_lot(
     barrier = threading.Barrier(2)
 
     def buy_it() -> Outcome:
+        """Place an order for the lot's one unit, in a session of its own."""
         with committed() as session:
             try:
                 # Buyer and operator loaded before the barrier, the way a
@@ -1032,6 +1039,7 @@ def test_buying_a_lot_races_offering_one_of_its_coins(
     barrier = threading.Barrier(2)
 
     def buy_the_lot() -> Outcome:
+        """Place an order for the lot, in a session of its own."""
         with committed() as session:
             try:
                 # Buyer and operator loaded before the barrier, the way a
@@ -1060,6 +1068,7 @@ def test_buying_a_lot_races_offering_one_of_its_coins(
                 return "stale"
 
     def offer_a_coin() -> Outcome:
+        """Offer one of the lot's coins by itself, on another venue."""
         with committed() as session:
             try:
                 item = session.get_one(InventoryItem, members[0])
@@ -1199,6 +1208,7 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
     barrier = threading.Barrier(2)
 
     def buy_the_lot() -> Outcome:
+        """Place an order for the lot, in a session of its own."""
         with committed() as session:
             try:
                 buyer = session.get_one(Customer, customer_id)
@@ -1223,6 +1233,7 @@ def test_buying_a_lot_races_marking_one_of_its_coins_missing(
                 return "stale"
 
     def mark_it_missing() -> Outcome:
+        """Record one of the lot's coins as missing, through the receiving route."""
         with committed() as session:
             try:
                 operator = session.get_one(User, admin_id)

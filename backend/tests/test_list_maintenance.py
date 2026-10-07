@@ -29,6 +29,7 @@ Headers = dict[str, str]
 
 
 def _fr(db: Session, fr_number: str, **fields: object) -> FriedbergNumber:
+    """A catalog row with this number, committed."""
     row = FriedbergNumber(fr_number=fr_number, **fields)
     db.add(row)
     db.commit()
@@ -37,6 +38,7 @@ def _fr(db: Session, fr_number: str, **fields: object) -> FriedbergNumber:
 
 
 def _note_using(db: Session, row: FriedbergNumber) -> int:
+    """The id of a banknote that the catalog row is proposed for."""
     item = build_bare_item(db, item_kind_id=code_id(db, ItemKind, "currency"))
     db.add(
         CurrencyDetail(
@@ -48,6 +50,7 @@ def _note_using(db: Session, row: FriedbergNumber) -> int:
 
 
 def _by_id(body: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """A list response's rows, keyed by their ids."""
     return {row["id"]: row for row in body}
 
 
@@ -186,6 +189,7 @@ def test_recording_a_combination_already_on_file_names_that_row(
 
 
 def _seller(db: Session, name: str) -> Seller:
+    """A seller of this name, committed."""
     seller = Seller(name=name)
     db.add(seller)
     db.commit()
@@ -279,6 +283,7 @@ def test_vendors_are_listed_with_their_use_and_only_the_unused_deleted(
 
 
 def _location(db: Session, identifier: str) -> StorageLocation:
+    """A safe-deposit box with this identifier, committed."""
     location = StorageLocation(
         storage_location_kind_id=code_id(db, StorageLocationKind, "safe_deposit_box"),
         institution="Test Bank",

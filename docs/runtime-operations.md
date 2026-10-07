@@ -86,7 +86,10 @@ and MCP scripts use only podman and do not. It uses
 `ccwebdb` if that is already active and activates it if not; the activation
 lasts only as long as the script, so your own shell is left as it was. It
 also sets `ENVDIR` (the environment's folder) and `PGBIN` (PostgreSQL's
-binaries in it, `%ENVDIR%\Library\bin`) for the calling script.
+binaries in it, `%ENVDIR%\Library\bin`) for the calling script. When the
+environment cannot be put in play, the calling script stops with exit 2
+(`ccweb_claude.cmd` with 1); `ccweb_status.cmd` and `ccweb_shutdown.cmd`
+carry on and report it.
 
 "Already active" is checked against `PATH`, not only the variables that
 describe it. Git Bash rebuilds `PATH` and drops the conda entries while
@@ -146,7 +149,8 @@ demand, not part of the runtime.
 
 1. **Preflight** -- the conda environment, the `.pgdata` cluster and
    `frontend\node_modules` must exist; otherwise it stops (exit 1) with a
-   pointer to the setup doc. An environment that cannot be activated exits 2.
+   pointer to the setup doc or, for `node_modules`, the `npm install` to run.
+   An environment that cannot be activated exits 2.
 2. **PostgreSQL** -- started in a console of its own
    (`scripts\ccweb_pgstart.cmd`) unless `pg_isready` says it is up.
 3. **Backend** -- `uvicorn app.main:app` on 127.0.0.1:8000, minimized window,
@@ -270,8 +274,8 @@ set "SONAR_TOKEN=squ_..."
 
 On a fresh server, log in at http://localhost:9000 as `admin` / `admin`,
 complete the forced password change, then generate a token at
-http://localhost:9000/account/security. The scan runs the test suite first and
-refuses to publish if it fails.
+http://localhost:9000/account/security. The scan runs the Python and frontend
+test suites first, with coverage, and refuses to publish if either fails.
 
 `scripts\ccweb_sonar_mcp.cmd` launches the SonarQube MCP server behind the
 `mcp__sonarqube__*` tools, and also needs `SONAR_TOKEN`; why it exists rather

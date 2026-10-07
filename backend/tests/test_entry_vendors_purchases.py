@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 
 def _vendor(db: Session, name: str = "Existing Vendor") -> Vendor:
+    """A vendor of this name, committed before the request under test."""
     vendor = Vendor(name=name)
     db.add(vendor)
     db.commit()

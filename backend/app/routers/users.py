@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from ..deps import AdminUser, DbSession
 from ..models import Customer, User, UserRole
@@ -22,6 +21,7 @@ from ..order_writes import customer_for_user
 from ..schemas import AccountCreate, CustomerOut, PasswordSet, UserOut, UserUpdate
 from ..security import hash_password
 from ._resolve import get_or_404
+from ._tx import commit_unique
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -95,15 +95,9 @@ def create_user(body: AccountCreate, db: DbSession, _: AdminUser) -> User:
         role=body.role,
     )
     db.add(user)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        # Two creations of one email at once both pass the check above; the
-        # unique index stops the second, and it should read as the same 409.
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_EMAIL_TAKEN
-        ) from exc
+    # Two creations of one email at once both pass the check above; the
+    # unique index stops the second, and it should read as the same 409.
+    commit_unique(db, _EMAIL_TAKEN)
     db.refresh(user)
     return user
 

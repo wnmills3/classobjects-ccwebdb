@@ -47,10 +47,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import field_changes
+from . import field_changes, pass_cli
 from .classifier_defaults import refresh_items
 from .database import SessionLocal
 from .field_sources import (
@@ -61,7 +61,7 @@ from .field_sources import (
     record_derived,
     sources_by_item,
 )
-from .models import InventoryItem, ItemKind, User
+from .models import InventoryItem, ItemKind
 
 __all__ = ["Guess", "Plan", "apply", "fineness_in", "plan", "weight_in"]
 
@@ -320,6 +320,7 @@ def plan(db: Session) -> Plan:
             item: InventoryItem = item,
             recorded: dict[str, str] = recorded,
         ) -> None:
+            """Plan `value` for the item's column, if empty and not held empty."""
             if getattr(item, column) is None and recorded.get(column) != HELD:
                 todo.guesses.append(
                     Guess(item.id, item.item_code, column, value, rule, why)
@@ -406,6 +407,7 @@ def _values(item: InventoryItem) -> dict[str, str | None]:
 
 
 def _print(todo: Plan, *, listed: bool) -> None:
+    """Print the plan's counts by rule and, when `listed`, every guess and miss."""
     print(f"items with no fine weight: {todo.looked_at}")
     print(f"items given at least one value: {todo.items()}")
     for (column, rule), count in sorted(todo.by_rule().items()):
@@ -440,30 +442,17 @@ def expected_fine(todo: Plan, db: Session) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     """Report, or with --commit write, the guessed weights."""
     parser = argparse.ArgumentParser(prog="bullion_weights", description=__doc__)
-    parser.add_argument("--commit", action="store_true", help="write the guesses")
-    parser.add_argument("--by", help="the person the History rows name (email)")
+    pass_cli.add_commit_arguments(parser, "write the guesses")
     parser.add_argument("--list", action="store_true", help="name every item")
-    args = parser.parse_args(argv)
-    if args.commit and not args.by:
-        parser.error("--commit needs --by: every change is logged under a person")
+    args = pass_cli.parse_args(parser, argv)
 
     with SessionLocal() as db:
         todo = plan(db)
         _print(todo, listed=args.list)
         print(f"items that would end with a fine weight: {expected_fine(todo, db)}")
-        if not args.commit:
-            print("dry run: nothing written (--commit --by EMAIL to apply)")
-            return 0
-        user_id = db.scalar(
-            select(User.id).where(func.lower(User.email) == args.by.lower())
+        return pass_cli.commit_or_report(
+            db, args, lambda user_id: apply(db, todo, user_id)
         )
-        if user_id is None:
-            print(f"no user {args.by}", file=sys.stderr)
-            return 1
-        counts = apply(db, todo, user_id)
-        db.commit()
-        print(f"written: {counts}")
-    return 0
 
 
 if __name__ == "__main__":

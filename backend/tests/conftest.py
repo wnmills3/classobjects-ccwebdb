@@ -791,6 +791,7 @@ CUSTOMER_PASSWORD = "customerpassword"
 
 @pytest.fixture
 def admin_user(db: Session) -> User:
+    """A manager, committed, whose password is `ADMIN_PASSWORD`."""
     user = User(
         email="admin@example.com",
         full_name="Test Admin",
@@ -805,6 +806,7 @@ def admin_user(db: Session) -> User:
 
 @pytest.fixture
 def customer_user(db: Session) -> User:
+    """A customer, committed, whose password is `CUSTOMER_PASSWORD`."""
     user = User(
         email="customer@example.com",
         full_name="Test Customer",
@@ -818,6 +820,7 @@ def customer_user(db: Session) -> User:
 
 
 def _token_headers(client: TestClient, email: str, password: str) -> dict[str, str]:
+    """The Authorization header of a session signed in through the login route."""
     response = client.post(
         "/api/auth/login", data={"username": email, "password": password}
     )
@@ -827,11 +830,13 @@ def _token_headers(client: TestClient, email: str, password: str) -> dict[str, s
 
 @pytest.fixture
 def admin_headers(client: TestClient, admin_user: User) -> dict[str, str]:
+    """Request headers that sign the manager in."""
     return _token_headers(client, admin_user.email, ADMIN_PASSWORD)
 
 
 @pytest.fixture
 def customer_headers(client: TestClient, customer_user: User) -> dict[str, str]:
+    """Request headers that sign the customer in."""
     return _token_headers(client, customer_user.email, CUSTOMER_PASSWORD)
 
 
@@ -1051,6 +1056,7 @@ def make_item(db: Session) -> ItemFactory:
     """Factory for inventory items inside one test."""
 
     def factory(**overrides: object) -> InventoryItem:
+        """An inventory item in this test's session, the overrides applied."""
         return build_item(db, **overrides)
 
     return factory
@@ -1138,6 +1144,7 @@ def item_id_of(listing: Listing) -> int:
 
 @pytest.fixture
 def listing(db: Session) -> Listing:
+    """One catalog entry, built with every default."""
     return build_listing(db)
 
 
@@ -1146,6 +1153,7 @@ def make_listing(db: Session) -> ListingFactory:
     """Factory for additional catalog entries within a test."""
 
     def _make(**overrides: object) -> Listing:
+        """A catalog entry in this test's session, the overrides applied."""
         return build_listing(db, **overrides)
 
     return _make
@@ -1177,6 +1185,7 @@ def make_lot(db: Session) -> Callable[..., SalesLot]:
     """Factory for sales lots within one test."""
 
     def _make(items: Sequence[InventoryItem], **overrides: str) -> SalesLot:
+        """A sales lot of these items in this test's session."""
         return build_lot(db, items, **overrides)
 
     return _make

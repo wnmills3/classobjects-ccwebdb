@@ -7,6 +7,10 @@ const DECIMAL = /^-?\d+(\.\d+)?$/
 //: One formatter per currency, built on first use.
 const formatters = new Map()
 
+/**
+ * The en-US currency formatter for an ISO code, kept after its first use.
+ * Throws for a code `Intl` does not know, which `money` handles.
+ */
 function formatterFor(currencyCode) {
   if (!formatters.has(currencyCode)) {
     formatters.set(

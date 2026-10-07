@@ -33,6 +33,7 @@ from tests.builders import build_bare_item, code_id
 def _history(
     client: TestClient, headers: dict[str, str], item_id: int
 ) -> list[dict[str, Any]]:
+    """The item's history as its route returns it."""
     response = client.get(f"/api/inventory/{item_id}/history", headers=headers)
     assert response.status_code == 200, response.text
     body: list[dict[str, Any]] = response.json()
@@ -42,10 +43,12 @@ def _history(
 def _label(
     db: Session, model: type[Country | ItemAttribute | ErrorType], code: str
 ) -> str:
+    """The label of the value with this code, as the history should show it."""
     return db.execute(select(model.label).where(model.code == code)).scalar_one()
 
 
 def _location(db: Session, institution: str, identifier: str) -> StorageLocation:
+    """A safe-deposit box at this institution, flushed."""
     location = StorageLocation(
         storage_location_kind_id=code_id(db, StorageLocationKind, "safe_deposit_box"),
         institution=institution,

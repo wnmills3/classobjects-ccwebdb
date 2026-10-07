@@ -32,6 +32,7 @@ def test_platform_kinds_cannot_be_retired() -> None:
 
 
 def _kind_id(db: Session, code: str) -> int:
+    """The id of the sales venue kind with this code."""
     return db.scalars(
         select(SalesVenueKind.id).where(SalesVenueKind.code == code)
     ).one()
@@ -120,6 +121,7 @@ URL = "/api/sales-venues"
 
 
 def _create(client: TestClient, headers: dict[str, str], **fields: object) -> dict:
+    """Add a platform through the API -- eBay unless overridden; the created body."""
     body = {"code": "ebay", "name": "eBay", "kind": "marketplace", **fields}
     response = client.post(URL, json=body, headers=headers)
     assert response.status_code == 201, response.text

@@ -1,3 +1,4 @@
+/** What a history row calls its listing: the title, else the listing's id. */
 const title = (row) => row.listing_title ?? `listing ${row.listing_id}`
 
 /** One history row as a phrase. Money values arrive as plain decimals. */

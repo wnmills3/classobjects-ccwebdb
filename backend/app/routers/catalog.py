@@ -379,6 +379,7 @@ def list_catalog(
 
 
 def _get_listing(db: Session, listing_id: int) -> Listing:
+    """The listing with its item loaded, or a 404."""
     return found_or_404(
         db.scalar(_eager(select(Listing).where(Listing.id == listing_id))),
         "Catalog item not found",

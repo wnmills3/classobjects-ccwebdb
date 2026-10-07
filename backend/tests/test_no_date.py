@@ -18,6 +18,7 @@ from tests.builders import build_bare_item, build_purchase_order, code_id
 
 
 def _bar(db: Session, **overrides: object) -> InventoryItem:
+    """A bullion item with no year recorded, the overrides applied."""
     columns: dict[str, object] = {
         "item_kind_id": code_id(db, ItemKind, "bullion"),
         "year_start": None,
@@ -29,6 +30,7 @@ def _bar(db: Session, **overrides: object) -> InventoryItem:
 def _patch(
     client: TestClient, headers: dict[str, str], item_id: int, body: dict[str, object]
 ) -> Response:
+    """The response to saving these fields on an item."""
     return client.patch(f"/api/inventory/{item_id}", json=body, headers=headers)
 
 

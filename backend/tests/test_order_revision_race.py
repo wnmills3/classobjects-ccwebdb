@@ -197,6 +197,7 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
     barrier = threading.Barrier(2)
 
     def checkout() -> str | int:
+        """Buy the last unit as the customer: "checkout", or the refusal's status."""
         s = committed()
         try:
             user = _present(s.get(User, buyer_id))
@@ -212,6 +213,7 @@ def test_an_edit_and_a_checkout_cannot_both_take_the_last_unit(
             s.close()
 
     def edit() -> str | int:
+        """Revise the order to two units, from the version read before the race."""
         s = committed()
         try:
             o = _present(s.get(SalesOrder, order_id))
@@ -285,6 +287,7 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
     barrier = threading.Barrier(2)
 
     def cancel() -> str | int:
+        """Cancel the order through its route: "cancel", or the refusal's status."""
         s = committed()
         try:
             admin = _present(s.get(User, admin_id))
@@ -299,6 +302,7 @@ def test_a_cancel_and_an_edit_on_the_same_order_cannot_deadlock_or_corrupt_stock
             s.close()
 
     def edit() -> str | int:
+        """Revise the order to three units, from the version read before the race."""
         s = committed()
         try:
             o = _present(s.get(SalesOrder, order_id))
@@ -551,6 +555,7 @@ def _stale_on_first_real_flush(session: Session) -> Callable[..., None]:
     real = session.flush
 
     def _flush(*args: object, **kwargs: object) -> None:
+        """Flush as usual, unless there is something to write: then fail as stale."""
         if session.new or session.dirty or session.deleted:
             raise StaleDataError(
                 "forced: a version-tracked row this write touched had already moved"

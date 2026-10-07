@@ -16,6 +16,7 @@ from tests.conftest import build_item
 
 
 def _image(db: Session, sha: str) -> Image:
+    """A stored photograph's row with this hash, flushed; no bytes behind it."""
     image = Image(
         sha256=sha,
         storage_key=f"orig/{sha}.jpg",

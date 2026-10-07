@@ -45,6 +45,16 @@ const KEYS = {
   save: 'c',
 }
 
+/**
+ * The dialog that records the sale of `listing`: its price, the buyer, the
+ * platform's order number and a fee amount per fee kind, with the gross,
+ * fees, net and margin worked out as they are typed.
+ *
+ * `isAuctionHouse` changes only what a blank buyer is said to mean. A price
+ * or fee that is not an amount is refused before anything is sent.
+ * `onRecorded` gets the sale the server made; a refusal keeps the dialog
+ * open as typed, and `onClose` leaves the listing active.
+ */
 export default function RecordSaleDialog({
   listing,
   isAuctionHouse = false,

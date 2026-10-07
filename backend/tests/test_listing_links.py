@@ -45,6 +45,7 @@ def test_an_ebay_id_rebuilds_its_listing_address() -> None:
 def _item(
     db: Session, make_item: ItemFactory, order: PurchaseOrder, **fields: object
 ) -> InventoryItem:
+    """An item bought on this purchase, with these fields."""
     return make_item(purchase_order_id=order.id, **fields)
 
 
@@ -179,6 +180,7 @@ def _ebay_order(
 
 
 def _page(order: PurchaseOrder) -> str:
+    """The web address of eBay's page for the whole order, not for a listing."""
     return f"https://order.ebay.com/ord/show?orderId={order.order_number}"
 
 

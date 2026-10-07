@@ -1547,6 +1547,7 @@ def test_the_receipt_lookup_binds_no_parameter_per_held_item(
     """
 
     def _max_params() -> int:
+        """The most parameters any one statement binds while the aging report runs."""
         counts: list[int] = []
 
         def _record(

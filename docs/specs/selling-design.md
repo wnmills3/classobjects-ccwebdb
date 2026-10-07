@@ -332,11 +332,14 @@ staff-only.
    active non-store rows (buyer by platform username or undisclosed, sale
    price, order number, actual fees by kind, and net and margin before
    confirming). A paused row names the listing it is paused for.
-4. **Lots** (`/management/lots`): assembling lots with add and remove, title,
-   description, running cost basis and value; **Offer for sale...** or add
-   to an auction. History of offered, sold and dissolved lots, newest page
-   first, with **Re-offer as a lot** on a dissolved one, which pre-fills a
-   new assembling lot.
+4. **Lots** (`/management/lots`): **New lot...**, and each assembling lot
+   with its members and a remove for each (coins go in from the coin and
+   currency pages' **Group into lot...**, not from here), running cost basis
+   and value, **Offer for sale...**, **Edit wording...** (title and
+   description) and **Discard...**. An assembling lot enters an auction from
+   the Auctions page's **Add lot...**. History of offered, sold and dissolved
+   lots, newest page first, with **Re-offer as a lot** on a dissolved one,
+   which pre-fills a new assembling lot.
 5. **Auctions** (`/management/auctions`): list by platform, date, status and
    lot count. Detail: platform, sale number, dates; **Schedule**, **Mark
    consigned...**, **Close**, **Cancel auction**; a lot table with editable

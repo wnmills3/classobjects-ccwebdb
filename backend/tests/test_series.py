@@ -20,6 +20,7 @@ from tests.builders import ItemFactory
 
 
 def _series(db: Session, code: str) -> Series:
+    """The series with this code."""
     return db.execute(select(Series).where(Series.code == code)).scalar_one()
 
 

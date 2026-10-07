@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 
 def _vendor(db: Session, name: str) -> Vendor:
+    """A vendor of this name, committed."""
     vendor = Vendor(name=name)
     db.add(vendor)
     db.commit()
@@ -21,6 +22,7 @@ def _vendor(db: Session, name: str) -> Vendor:
 
 
 def _order(db: Session, vendor: Vendor, number: str | None) -> PurchaseOrder:
+    """A purchase from the vendor with this order number, committed."""
     order = PurchaseOrder(vendor_id=vendor.id, order_number=number)
     db.add(order)
     db.commit()
@@ -28,6 +30,7 @@ def _order(db: Session, vendor: Vendor, number: str | None) -> PurchaseOrder:
 
 
 def _platform(db: Session, code: str, vendor: Vendor) -> SalesVenue:
+    """A marketplace sales platform linked to the vendor, committed."""
     kind_id = db.scalar(
         select(SalesVenueKind.id).where(SalesVenueKind.code == "marketplace")
     )

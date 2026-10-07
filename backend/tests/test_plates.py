@@ -49,12 +49,14 @@ def test_a_back_plate_is_digits() -> None:
 
 
 def _order(db: Session) -> PurchaseOrder:
+    """A purchase for the test's notes to be entered on."""
     return build_purchase_order(db, vendor_name="Plates Vendor")
 
 
 def _note(
     client: TestClient, headers: dict[str, str], db: Session, **fields: object
 ) -> dict[str, object]:
+    """Enter a Series 2017A note through the API; the created item's body."""
     body = {
         "purchase_order_id": _order(db).id,
         "source_title": "t",

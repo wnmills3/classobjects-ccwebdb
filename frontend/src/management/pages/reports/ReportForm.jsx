@@ -68,6 +68,10 @@ export default function ReportForm({ report, values, error, busy, ranAt, onRun }
   )
 }
 
+/**
+ * The control for one parameter, chosen by its type. `onChange` is given
+ * the new value as text, whatever the control.
+ */
 function ParamInput({ param, value, onChange }) {
   if (param.type === 'choice') {
     return (

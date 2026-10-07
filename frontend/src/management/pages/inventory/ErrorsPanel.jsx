@@ -26,13 +26,13 @@ function withNoEmptyDetails(rows) {
  * Mint and printing errors recorded against one item -- a bill is commonly
  * miscut AND misprinted, so this is a set, each entry carrying its own note.
  *
- * Two modes, since it is mounted in three places. With an `itemId` -- in
+ * Two modes, one for each place it is mounted. With an `itemId` -- in
  * Receiving -- the panel is self-loading and self-saving: it fetches its own
  * set on mount and PUTs the whole set again whenever a row is added,
  * removed, or edited. With `itemId` null the panel holds no state of its
  * own: `value` is the whole set, and every change is reported through
- * `onChange` for the caller to send -- the new-item form once the item is
- * created, the item editor when its Save is pressed.
+ * `onChange` for the caller to send -- the item editor, when its Save is
+ * pressed.
  *
  * A save that fails shows the message but never rolls the edit back: the row
  * a person just typed stays on screen, still editable, rather than vanishing

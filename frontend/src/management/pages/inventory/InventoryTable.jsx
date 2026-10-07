@@ -5,6 +5,10 @@ import HelpScope from '../../HelpScope'
 
 import { date, money } from '../../../shared/format'
 
+/**
+ * What one column shows for a row: a muted dash for a value that is missing
+ * or empty, the amount formatted when `kind` is 'money', else the text.
+ */
 function cell(row, key, kind) {
   const value = row[key]
   if (value === null || value === undefined || value === '')

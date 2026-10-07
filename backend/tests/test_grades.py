@@ -256,6 +256,7 @@ def graded(db: Session) -> dict[str, int]:
 def _found(
     client: TestClient, headers: dict[str, str], graded: dict[str, int], **params: str
 ) -> set[str]:
+    """Which of the graded coins a search returns, by the names in `graded`."""
     response = client.get(
         "/api/inventory/coins/search",
         params={**params, "limit": 200},

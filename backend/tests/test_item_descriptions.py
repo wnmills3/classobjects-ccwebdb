@@ -40,14 +40,17 @@ from tests.conftest import build_item
 
 
 def _label(db: Session, model: type[ReferenceMixin], code: str) -> str:
+    """The label of the vocabulary value with this code."""
     return db.execute(select(model.label).where(model.code == code)).scalar_one()
 
 
 def _short(grade_label: str) -> str:
+    """A grade's label as a description writes it: Uncirculated as Unc."""
     return grade_label.replace("Uncirculated", "Unc")
 
 
 def _note(db: Session, **overrides: object) -> InventoryItem:
+    """A graded $1 note with its currency detail, the overrides applied."""
     fields: dict[str, object] = {
         "kind": "currency",
         "denomination_id": code_id(db, Denomination, "usd_note_1"),
@@ -76,6 +79,7 @@ def _note(db: Session, **overrides: object) -> InventoryItem:
 
 
 def _link(db: Session, item: InventoryItem, code: str) -> str:
+    """Give the item the attribute with this code, and return its label."""
     attribute = db.scalars(
         select(ItemAttribute).where(ItemAttribute.code == code)
     ).one()

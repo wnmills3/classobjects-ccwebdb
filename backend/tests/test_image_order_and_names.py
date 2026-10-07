@@ -19,6 +19,7 @@ from tests.builders import ItemFactory, make_jpeg
 
 
 def _webp(color: str = "navy") -> bytes:
+    """A small WebP image of one colour."""
     buffer = io.BytesIO()
     PILImage.new("RGB", (64, 40), color).save(buffer, format="WEBP")
     return buffer.getvalue()
@@ -32,6 +33,7 @@ def _upload(
     media_type: str,
     **form: str,
 ) -> dict[str, object]:
+    """Upload one file with these form fields; the stored photograph's response."""
     res = client.post(
         "/api/images",
         files={"file": (name, data, media_type)},
@@ -44,6 +46,7 @@ def _upload(
 
 
 def _positions(db: Session, item_id: int) -> list[int]:
+    """The item's photographs' positions, in the order they were filed."""
     return list(
         db.scalars(
             select(ItemImage.sort_order)

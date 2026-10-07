@@ -113,6 +113,15 @@ const draftFor = (subject) => ({
   external_id: '',
 })
 
+/**
+ * The dialog that offers `items`, or the one `lot`, on a chosen platform.
+ *
+ * `skipped` is how many selected items could not be shown here, said so
+ * they are not taken as offered. A row with no valid price stops the offer
+ * before it is sent. `onOffered` gets the listings the batch made; a
+ * refusal keeps the dialog open with what was typed, and `onClose` leaves
+ * with nothing offered.
+ */
 export default function OfferDialog({
   items = [],
   lot = null,

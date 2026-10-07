@@ -16,6 +16,7 @@ from tests.conftest import build_item
 
 
 def _image(db: Session, sha: str, source_ref: str | None = None) -> Image:
+    """A stored photograph's row with this hash and file name, flushed."""
     image = Image(
         sha256=sha,
         storage_key=f"orig/{sha}.jpg",
@@ -38,6 +39,7 @@ def _filed(
     position: int = 1,
     name: str | None = None,
 ) -> ItemImage:
+    """A new photograph filed on the item, through the writer of such links."""
     return image_links.attach(
         db,
         image=_image(db, sha, name),

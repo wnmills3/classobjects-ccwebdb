@@ -25,10 +25,12 @@ from tests.builders import build_purchase_order
 
 
 def _purchase_order(db: Session, name: str = "Item Test Vendor") -> PurchaseOrder:
+    """A purchase from this vendor, for new items to be entered on."""
     return build_purchase_order(db, vendor_name=name)
 
 
 def _coin_payload(order_id: int, **overrides: object) -> dict[str, object]:
+    """The request body that enters a Morgan dollar on the purchase, overridden."""
     payload: dict[str, object] = {
         "purchase_order_id": order_id,
         "item_kind": "coin",
@@ -45,6 +47,7 @@ def _coin_payload(order_id: int, **overrides: object) -> dict[str, object]:
 
 
 def _currency_payload(order_id: int, **overrides: object) -> dict[str, object]:
+    """The request body that enters a $1 Silver Certificate, overridden."""
     payload: dict[str, object] = {
         "purchase_order_id": order_id,
         "item_kind": "currency",
@@ -476,6 +479,7 @@ def test_a_suggested_series_is_accepted_and_recorded_as_one(
 def _attribute_codes(
     client: TestClient, headers: dict[str, str], item_id: int
 ) -> list[str]:
+    """The codes of the attributes the item's detail shows, sorted."""
     body = client.get(f"/api/inventory/{item_id}", headers=headers).json()
     return sorted(held["code"] for held in body["attributes"])
 

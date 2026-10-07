@@ -213,10 +213,20 @@ function ReportTable({ result, onOpenItem }) {
   )
 }
 
+/** The class that right-aligns a numeric column's cells; none for the rest. */
 function alignment(column) {
   return NUMERIC_KINDS.has(column.kind) ? 'num' : undefined
 }
 
+/**
+ * One cell: its value as text, made a link where the row has a `drill`.
+ *
+ * The `linked` column carries the row's drill -- a button that opens the
+ * item editor when the drill names one item and `onOpenItem` is given, a
+ * link to the drill's page otherwise. A percent column links to the same
+ * drill narrowed to the rows that column counts as missing. A blank value
+ * is never a link.
+ */
 function Cell({ column, value, drill, linked, onOpenItem }) {
   const text = cellText(column.kind, value)
   if (!drill || isBlank(value)) return text

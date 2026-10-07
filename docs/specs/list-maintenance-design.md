@@ -28,10 +28,11 @@ The server refuses the rest too -- every foreign key into these tables is
 | Friedberg numbers | number, the type it was recorded with, description, confirmed or proposed | number, description; **Confirm** / **Undo confirm** | notes holding it |
 | Sellers | name, store link | name, store link | purchases naming the seller |
 | Vendors | name, link, kind | name, link, kind | purchases and sales platforms naming the vendor |
-| Storage locations | kind, institution, identifier, notes | the same four | items kept there now plus location-history rows to or from it |
+| Storage locations | kind, institution, identifier, notes | the same four | items kept there now plus location-history rows naming it |
 
 A Friedberg number's type -- denomination, note type, series, district,
-seal, web press, printing facility -- is what the lookup matches it by and
+signatures, seal, web press, printing facility -- is what the lookup matches
+it by (the page's Type column shows all of these but the signatures) and
 is not edited here: a type recorded with a wrong attribute is deleted, if
 unused, and recorded again from the note.
 

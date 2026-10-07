@@ -38,10 +38,12 @@ from tests.builders import ItemFactory, code_id
 
 
 def _codes(db: Session, model: type[ReferenceMixin], ids: list[int]) -> set[str]:
+    """The codes of the vocabulary rows with these ids."""
     return set(db.scalars(select(model.code).where(model.id.in_(ids))))
 
 
 def _alias_row(db: Session, table: str, alias: str) -> ReferenceAlias:
+    """The one stored alias with this spelling in a vocabulary."""
     return db.execute(
         select(ReferenceAlias).where(
             ReferenceAlias.table_name == table, ReferenceAlias.alias == alias
@@ -231,6 +233,7 @@ def test_the_defaults_pass_ignores_a_retired_note_class_alias(db: Session) -> No
     us_note = code_id(db, NoteType, "us_note")
 
     def reads(text: str) -> bool:
+        """Whether the loaded class names read the text as a United States Note."""
         return any(
             type_id == us_note and pattern.search(text)
             for type_id, pattern in load_facts(db).class_names
@@ -246,6 +249,7 @@ def test_the_defaults_pass_ignores_a_retired_note_class_alias(db: Session) -> No
 
 
 def _codes_found(db: Session, view: ViewSpec, query: str) -> set[str]:
+    """The item codes a free-text search of the view returns."""
     rows, _ = search(db, view, params={}, query=query)
     return {row["item_code"] for row in rows}
 
@@ -335,6 +339,7 @@ def test_a_note_matching_two_ways_is_listed_once(
 
 
 def _value(body: dict, code: str) -> dict:
+    """The value with this code in a vocabulary response."""
     return next(v for v in body["values"] if v["code"] == code)
 
 

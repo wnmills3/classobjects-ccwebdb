@@ -33,6 +33,7 @@ from tests.builders import (
 
 
 def _status_id(db: Session, code: str) -> int:
+    """The id of the item status with this code."""
     return db.scalars(select(ItemStatus.id).where(ItemStatus.code == code)).one()
 
 

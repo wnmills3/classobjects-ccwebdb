@@ -1,8 +1,8 @@
 """Who changed which field of an item, and when: the `item_field_change` log.
 
 The sole writer of `item_field_change`. The item edit, bulk edit, the
-errors endpoint, the eBay order pass (`app.ebay_orders`) and the listing
-links pass (`app.listing_links`) call `record`
+errors endpoint and the passes run under a named person (`app.ebay_orders`,
+`app.listing_links`, `app.bullion_weights`, `app.seller_titles`) call `record`
 with the item's values before and after, and one row is written per field
 whose value actually moved -- a field sent unchanged leaves no trace.
 `latest` answers the item editor's question when it warns about a field

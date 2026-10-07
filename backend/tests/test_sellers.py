@@ -19,6 +19,7 @@ STORE = "https://www.ebay.com/usr/coind0g"
 def _seller(
     db: Session, name: str = "coind0g", store_url: str | None = STORE
 ) -> Seller:
+    """A seller with this name and store address, committed."""
     seller = Seller(name=name, store_url=store_url)
     db.add(seller)
     db.commit()
@@ -26,6 +27,7 @@ def _seller(
 
 
 def _order(db: Session, **fields: object) -> PurchaseOrder:
+    """A purchase with these fields, from a marketplace vendor made for it."""
     vendor = Vendor(name=f"ebay.com {len(fields)}")
     db.add(vendor)
     db.flush()

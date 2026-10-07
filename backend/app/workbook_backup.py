@@ -156,6 +156,7 @@ class WorkbookError(RuntimeError):
 
 
 def _is_json(kind: TypeEngine[Any]) -> bool:
+    """Whether the column holds JSON, which a cell carries as its text."""
     return isinstance(kind, (JSON, JSONB))
 
 
@@ -186,6 +187,11 @@ def from_cell(value: object, kind: TypeEngine[Any], where: str) -> object:
 
 
 def _convert(value: object, kind: TypeEngine[Any]) -> object:
+    """A cell's value as the column's type stores it.
+
+    Raises ValueError (or the type's own error) for a value the type cannot
+    hold; the caller names the cell.
+    """
     if _is_json(kind):
         # A JSON null is a value, not SQL NULL: sent as JSON's null.
         decoded = json.loads(str(value))
@@ -245,10 +251,12 @@ def _tables(meta: MetaData) -> list[Table]:
 
 
 def _revision(conn: Connection) -> str | None:
+    """The migration revision the database is at."""
     return conn.execute(text(f"SELECT version_num FROM {VERSION_TABLE}")).scalar()
 
 
 def _order(table: Table) -> list[Column[Any]]:
+    """The columns a table's rows are read in order of: its key, else all of them."""
     return list(table.primary_key.columns) or list(table.columns)
 
 
@@ -451,6 +459,10 @@ class _Loaded:
 
 
 def _about(book: Workbook) -> dict[str, object]:
+    """The workbook's own description, from its first sheet, down to the table list.
+
+    Raises `WorkbookError` for a file with no such sheet or in another format.
+    """
     if ABOUT not in book.sheetnames:
         raise WorkbookError(f"no {ABOUT} sheet: not a ccwebdb workbook")
     out: dict[str, object] = {}
@@ -621,6 +633,7 @@ def import_workbook(
 
 
 def _is_vocabulary(table: Table) -> bool:
+    """Whether the table has the columns every vocabulary has."""
     return {c.name for c in table.columns} >= _VOCABULARY_COLUMNS
 
 
@@ -691,6 +704,7 @@ def _check_links(parts: list[_Loaded], unknown_for_missing: bool) -> list[Substi
     present: dict[tuple[str, str], set[object]] = {}
 
     def values(table: str, column: str) -> set[object]:
+        """Every value the workbook holds in one column, gathered once."""
         if (table, column) not in present:
             present[table, column] = {r.get(column) for r in by_name[table].rows}
         return present[table, column]
@@ -884,6 +898,7 @@ def compare(left: Engine, right: Engine) -> list[Difference]:
 
 
 def _print_counts(counts: dict[str, int]) -> None:
+    """Print the row count of each table that has rows, and the totals."""
     for name, n in counts.items():
         if n:
             print(f"  {name:<28}{n:>8,}")
@@ -891,6 +906,7 @@ def _print_counts(counts: dict[str, int]) -> None:
 
 
 def _lines(differences: Iterable[Difference]) -> Iterator[str]:
+    """One printed line per table that differs, with each side's row count."""
     for d in differences:
         right = "missing" if d.right_rows < 0 else f"{d.right_rows:,}"
         yield f"  DIFFERS {d.table}: {d.left_rows:,} rows vs {right}"

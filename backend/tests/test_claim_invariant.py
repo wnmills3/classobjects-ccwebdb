@@ -279,10 +279,12 @@ def scheduled_auction_lot(
 
 
 def _result_before_settlement(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: give a lot a result while its auction is unsettled."""
     lot.result = AuctionLotResult.unsold
 
 
 def _ended_under_an_open_auction(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: end a lot's listing while its auction is still open."""
     # Through the sanctioned writer, so the claim, history and disposition
     # checks all stay satisfied and only the auction rule is broken -- the
     # shape a missing End guard on an auction lot would leave.
@@ -290,31 +292,38 @@ def _ended_under_an_open_auction(db: Session, lot: AuctionLot) -> None:
 
 
 def _settled_without_results(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: settle an auction whose lots have no result."""
     lot.auction.status = AuctionStatus.settled
 
 
 def _cancelled_with_lots(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: cancel an auction that still has lots on offer."""
     lot.auction.status = AuctionStatus.cancelled
 
 
 def _sold_without_a_buyer(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: mark a lot sold with a hammer price and no buyer."""
     lot.hammer_price = Decimal("100.00")
     lot.result = AuctionLotResult.sold
 
 
 def _money_on_an_unsold_lot(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: put a hammer price on a lot that has not sold."""
     lot.hammer_price = Decimal("100.00")
 
 
 def _consigned_on_a_scheduled_auction(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: date the consignment of an auction not yet consigned."""
     lot.auction.consigned_on = date(2026, 9, 23)
 
 
 def _consigned_without_a_date(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: mark an auction consigned with no consignment date."""
     lot.auction.status = AuctionStatus.consigned
 
 
 def _detailing_a_fixed_price_listing(db: Session, lot: AuctionLot) -> None:
+    """Break the rule: leave an auction lot on a listing that is fixed-price."""
     lot.listing.format = ListingFormat.fixed_price
 
 

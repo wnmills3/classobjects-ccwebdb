@@ -17,6 +17,7 @@ from tests.builders import build_bare_item, code_id
 
 
 def _errors_of(db: Session, item: InventoryItem) -> set[int]:
+    """The ids of the error types the item now holds, read afresh."""
     db.expire_all()
     return {
         row.error_type_id

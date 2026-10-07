@@ -151,6 +151,7 @@ def check_media(db: Session, folder: Path) -> list[str]:
 
 
 def _sha256(path: Path) -> str:
+    """The SHA-256 of a file's bytes in hex, read a megabyte at a time."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1 << 20), b""):

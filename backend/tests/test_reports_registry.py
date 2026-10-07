@@ -36,6 +36,7 @@ def _run_noop(db: Session, params: _NoopParams) -> ReportResult:
 
 
 def _make_report(report_id: str, group: str = "Money") -> Report[_NoopParams]:
+    """A report with this id and group that does nothing, not yet registered."""
     return Report(
         id=report_id,
         group=group,

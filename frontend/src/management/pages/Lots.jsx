@@ -9,7 +9,7 @@ import OfferDialog from './inventory/OfferDialog'
 import { accel, useSaveShortcut } from '../shortcuts'
 import { UNKNOWN } from './listing-labels'
 import { ASSEMBLING_LOTS } from './assembling-lots'
-import { useMounted } from '../useMounted'
+import { useGuardedSave } from '../useGuardedSave'
 import { SaveButton } from '../SaveButton'
 
 /**
@@ -73,14 +73,8 @@ function LotForm({ lot, onSaved, onClose }) {
     title: lot?.title ?? '',
     description: lot?.description ?? '',
   })
-  const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { error, setError, saving, send } = useGuardedSave(onSaved)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
-
-  // Guards save()'s continuation once the request settles: Cancel (and
-  // Escape, which ModalDialog routes to onClose) can unmount this form while
-  // a save is still in flight.
-  const mounted = useMounted()
 
   // `save` is a function declaration below, hoisted for the whole component
   // scope. Disabled while a save is in flight, so holding Ctrl+S cannot start
@@ -96,9 +90,7 @@ function LotForm({ lot, onSaved, onClose }) {
       setError('A lot needs a title: it is what the offer and the shop call it.')
       return
     }
-    setSaving(true)
-    setError('')
-    try {
+    await send(async () => {
       const saved = lot
         ? await api.updateLot(lot.id, {
             title,
@@ -110,14 +102,8 @@ function LotForm({ lot, onSaved, onClose }) {
             version: lot.version,
           })
         : await api.createLot({ title, description: form.description })
-      if (!mounted.current) return
-      onSaved(saved)
-    } catch (err) {
-      if (!mounted.current) return
-      setError(err.message)
-    } finally {
-      if (mounted.current) setSaving(false)
-    }
+      return saved
+    })
   }
 
   const label = lot ? `Edit the lot ${lot.title}` : 'Start a new lot'

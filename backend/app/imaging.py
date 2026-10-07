@@ -83,6 +83,11 @@ class CleansedImage:
 
 
 def _open(raw: bytes) -> Image.Image:
+    """The bytes decoded as an image, or `ImageRejected`.
+
+    Refuses an upload over the size limit, one whose pixel count is
+    implausible, and anything that is not a readable image.
+    """
     if len(raw) > settings.max_upload_bytes:
         raise ImageRejected(
             f"image is {len(raw)} bytes, over the "

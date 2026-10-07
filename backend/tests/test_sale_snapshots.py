@@ -23,6 +23,7 @@ from tests.conftest import item_id_of
 def _order(
     client: TestClient, headers: dict[str, str], listing: Listing, quantity: int = 1
 ) -> dict:
+    """Order this quantity of the listing through the API; the order's body."""
     response = client.post(
         "/api/orders",
         json={"items": [{"listing_id": listing.id, "quantity": quantity}]},
@@ -35,6 +36,7 @@ def _order(
 def _status(
     client: TestClient, headers: dict[str, str], order_id: int, status: str
 ) -> None:
+    """Move the order to this status, which must be allowed."""
     response = client.patch(
         f"/api/orders/{order_id}", json={"status": status}, headers=headers
     )
@@ -44,10 +46,12 @@ def _status(
 def _edit(
     client: TestClient, headers: dict[str, str], item_id: int, **changes: object
 ) -> Response:
+    """The response to saving these changes on an item."""
     return client.patch(f"/api/inventory/{item_id}", json=changes, headers=headers)
 
 
 def _admin_order(client: TestClient, headers: dict[str, str], order_id: int) -> dict:
+    """The order as its detail route returns it."""
     return client.get(f"/api/orders/{order_id}", headers=headers).json()
 
 

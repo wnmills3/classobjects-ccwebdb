@@ -173,6 +173,7 @@ def test_a_concurrent_confirmation_of_the_same_field_is_not_an_error(
     calls = {"n": 0}
 
     def reviewed_fields_that_races(db: Session, item_id: int) -> list[str]:
+        """Read as empty once, after another request has confirmed the field."""
         calls["n"] += 1
         if calls["n"] == 1:
             # Stand in for the other request: it reads `existing` as empty

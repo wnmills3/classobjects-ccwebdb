@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 
 def _login(client: TestClient, email: str, password: str) -> dict[str, str] | None:
+    """The login route's answer to these credentials, or None when refused."""
     response = client.post(
         "/api/auth/login", data={"username": email, "password": password}
     )
@@ -249,6 +250,7 @@ def test_two_managers_deactivating_each_other_leave_one(
     counted = users._admin_count
 
     def slow_count(db: Session) -> int:
+        """Count the managers as usual, then linger so both requests have counted."""
         result = counted(db)
         time.sleep(0.5)
         return result
@@ -257,6 +259,7 @@ def test_two_managers_deactivating_each_other_leave_one(
     barrier = threading.Barrier(2)
 
     def deactivate(user_id: int) -> int | str:
+        """Deactivate one manager as the other: "ok", or the refusal's status."""
         with committed() as session:
             actor = session.get_one(User, ids[0] if user_id == ids[1] else ids[1])
             barrier.wait(timeout=10)

@@ -13,7 +13,6 @@ import re
 
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import and_, case, func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from ..deps import AdminUser, DbSession
@@ -50,6 +49,7 @@ from ..schemas import (
     VendorUpdate,
 )
 from ._resolve import found_or_404, get_or_404, refuse_future
+from ._tx import commit_unique
 
 vendors_router = APIRouter(prefix="/vendors", tags=["acquisitions"])
 sellers_router = APIRouter(prefix="/sellers", tags=["acquisitions"])
@@ -161,18 +161,11 @@ def create_vendor(payload: VendorCreate, db: DbSession, _admin: AdminUser) -> Ve
         vendor_kind_id=vendor_kind_id,
     )
     db.add(vendor)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        # Two inline "+ Add a vendor..." submissions of the same name at
-        # once both pass the case-insensitive check above; `uq_vendor_name`
-        # (case-sensitive) stops the second at the database, and it should
-        # read as the same 409 rather than an unhandled 500.
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"A vendor named {payload.name} already exists",
-        ) from exc
+    # Two inline "+ Add a vendor..." submissions of the same name at
+    # once both pass the case-insensitive check above; `uq_vendor_name`
+    # (case-sensitive) stops the second at the database, and it should
+    # read as the same 409 rather than an unhandled 500.
+    commit_unique(db, f"A vendor named {payload.name} already exists")
     db.refresh(vendor)
     return _vendor_out(db, vendor)
 
@@ -209,14 +202,7 @@ def update_vendor(
             if payload.vendor_kind is not None
             else require_code(db, VendorKind, "unknown", "vendor_kind")
         )
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"A vendor named {vendor.name} already exists",
-        ) from exc
+    commit_unique(db, f"A vendor named {vendor.name} already exists")
     db.refresh(vendor)
     return _vendor_out(db, vendor)
 
@@ -386,14 +372,7 @@ def _refuse_seller_name(db: Session, name: str, keep: int | None) -> None:
 
 def _commit_seller(db: Session, name: str) -> None:
     """Commit, reading a racing duplicate name as the same 409."""
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"A seller named {name} already exists",
-        ) from exc
+    commit_unique(db, f"A seller named {name} already exists")
 
 
 def _seller_orders(db: Session, seller_id: int) -> int:
@@ -569,14 +548,7 @@ def _commit_order(db: Session, vendor: Vendor, number: str | None) -> None:
     `uq_purchase_order_vendor_number` stops the second at the database, and
     it should read as a 409 rather than an unhandled 500.
     """
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"{vendor.name} order {number} is already recorded",
-        ) from exc
+    commit_unique(db, f"{vendor.name} order {number} is already recorded")
 
 
 #: Location kinds made by other code: a consignment by the auction code,
@@ -623,14 +595,7 @@ def create_storage_location(
         notes=payload.notes,
     )
     db.add(location)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="That storage location already exists",
-        ) from exc
+    commit_unique(db, "That storage location already exists")
     db.refresh(location)
     return _location_out(db, location)
 
@@ -717,14 +682,7 @@ def update_storage_location(
     location.identifier = identifier
     if "notes" in sent:
         location.notes = payload.notes
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="That storage location already exists",
-        ) from exc
+    commit_unique(db, "That storage location already exists")
     db.refresh(location)
     return _location_out(db, location)
 

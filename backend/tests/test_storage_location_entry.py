@@ -23,6 +23,7 @@ from tests.conftest import build_listing
 
 
 def _location(db: Session, kind: str = "safe") -> StorageLocation:
+    """A storage location of this kind, committed."""
     kind_id = db.scalar(
         select(StorageLocationKind.id).where(StorageLocationKind.code == kind)
     )
@@ -34,6 +35,7 @@ def _location(db: Session, kind: str = "safe") -> StorageLocation:
 
 
 def _moves(db: Session, item_id: int) -> list[int | None]:
+    """The locations the item's history records it moving to, oldest first."""
     return list(
         db.scalars(
             select(LocationHistory.storage_location_id)
@@ -46,6 +48,7 @@ def _moves(db: Session, item_id: int) -> list[int | None]:
 def _new_item(
     client: TestClient, headers: dict[str, str], db: Session, **fields: object
 ) -> dict[str, object]:
+    """Enter a coin through the API with these fields; the created item's body."""
     order = build_purchase_order(db, vendor_name="Location Vendor")
     res = client.post(
         "/api/inventory",

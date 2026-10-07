@@ -23,6 +23,7 @@ SEVEN_CENTS = {
 
 
 def _fields(client: TestClient, table: str) -> dict[str, dict[str, object]]:
+    """The vocabulary's own columns as its route describes them, by name."""
     body = client.get(f"/api/reference/{table}").json()
     return {field["name"]: field for field in body["fields"]}
 
@@ -263,6 +264,7 @@ def test_a_descriptive_vocabulary_can_be_added_to(client: TestClient) -> None:
 
 
 def _added_series(client: TestClient, headers: dict[str, str]) -> None:
+    """Add a series by label alone, and check it is taken to be a coin's."""
     made = client.post(
         "/api/reference/series", json={"label": "Horseblanket"}, headers=headers
     )

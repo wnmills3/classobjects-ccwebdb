@@ -93,18 +93,21 @@ def _name(column: Column[Any]) -> str:
 
 
 def _required(column: Column[Any]) -> bool:
+    """Whether a value must be given: not nullable, and no default to fall on."""
     return (
         not column.nullable and column.default is None and column.server_default is None
     )
 
 
 def _choices(table: str, column: Column[Any]) -> list[str]:
+    """The fixed values a column takes: its enum's, or those listed for it."""
     if isinstance(column.type, Enum):
         return list(column.type.enums)
     return list(_CHOICES.get((table, column.name), ()))
 
 
 def _kind(table: str, column: Column[Any]) -> str:
+    """How a column is entered: reference, choice, boolean, integer, decimal, text."""
     if target_of(column) is not None:
         return "reference"
     if _choices(table, column):

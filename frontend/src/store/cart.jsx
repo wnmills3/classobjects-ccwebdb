@@ -5,6 +5,10 @@ import { CartContext } from './cart-context'
 
 const CART_KEY = 'ccwebdb.cart'
 
+/**
+ * The cart lines kept in this browser, or an empty cart when there are
+ * none, or storage cannot be read, or what it holds is not JSON.
+ */
 function readCart() {
   try {
     const raw = localStorage.getItem(CART_KEY)
@@ -14,6 +18,16 @@ function readCart() {
   }
 }
 
+/**
+ * Holds the shopper's cart and keeps it in the browser, so it outlasts a
+ * reload.
+ *
+ * A line is a listing and a quantity, one line per listing. `add` and
+ * `setQuantity` never take a line past the stock the listing showed, and a
+ * quantity of none drops the line. `count` is the items in the cart and
+ * `total` their price as a decimal string; both are for display, and
+ * checkout prices every line again.
+ */
 export function CartProvider({ children }) {
   const [lines, setLines] = useState(readCart)
 

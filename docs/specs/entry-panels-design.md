@@ -4,8 +4,8 @@ The database is the system of record, so every acquisition is entered in the
 management console as it is bought: that is what gives each piece a cost
 basis traceable to the purchase it came from, and what Receiving later checks
 arrivals against. Staff use one page, **Purchases** (`/management/purchases`):
-it records a vendor and a purchase order, and its **New item** form records
-each coin, banknote or lot bought on it.
+it records a vendor and a purchase order, and its **New item** row makes
+each coin, banknote or lot bought on it and opens it in the item editor.
 
 Other work happens elsewhere: splitting a lot and attributing its pieces in
 the inventory pages (`attribution-design.md`); correcting or deleting a
@@ -62,7 +62,8 @@ serve the Lists page (`list-maintenance-design.md`).
   identifier, case aside); 422 for an unknown kind, or `consigned` / `sold`:
   the auction code makes a consigned location, and `sold` is reserved
   (nothing creates one).
-- Every location picker -- New item, the item editor, Receiving -- is
+- Every location picker -- the item editor's, where a new item is entered
+  too, and Receiving's -- is
   `LocationSelect`: the locations, "--" for not recorded, and "+ Add a
   location..." opening an inline kind / bank or place / box form.
 
@@ -104,6 +105,7 @@ serve the Lists page (`list-maintenance-design.md`).
 | `tax_rate`, `tax_includes_shipping` | null -> the configured default |
 | `status` | `ordered` or `received` |
 | `country`, `denomination`, `grade`, `strike_type`, `grade_designation`, `grading_service`, `metal`, `series`, `bullion_form`, `set_form` | codes; unknown -> 422 naming the field. `grade` may be compound (`MS65`), split into number and strike type. |
+| `fineness`, `gross_weight_ozt`, `fine_weight_ozt`, `weight_note` | optional; per piece, in troy ounces: fineness above 0 and at most 1 (4 places), weights >= 0 (6 places), a note of <= 200. A fine weight left out is worked out from the other two |
 | `storage_form` | null -> `single` |
 | `authenticity` | null -> `unverified` |
 | `cert_number` | creates one `item_certification`, graded by `grading_service` |

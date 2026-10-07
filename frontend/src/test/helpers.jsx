@@ -15,6 +15,10 @@ import { AuthContext } from '../shared/auth-context'
 import { CartContext } from '../store/cart-context'
 import { ReferenceContext } from '../shared/reference-context'
 
+/**
+ * An auth context value with nobody signed in and every action a mock;
+ * `overrides` replace any part of it.
+ */
 export function anonymousAuth(overrides = {}) {
   return {
     user: null,
@@ -27,6 +31,7 @@ export function anonymousAuth(overrides = {}) {
   }
 }
 
+/** An auth context value for a signed-in manager, who may use the console. */
 export function adminAuth(overrides = {}) {
   return anonymousAuth({
     user: { id: 1, email: 'admin@example.com', role: 'manager', full_name: 'Manager' },
@@ -35,6 +40,7 @@ export function adminAuth(overrides = {}) {
   })
 }
 
+/** An auth context value for a signed-in customer, who may not. */
 export function customerAuth(overrides = {}) {
   return anonymousAuth({
     user: { id: 2, email: 'buyer@example.com', role: 'customer', full_name: 'Buyer' },
@@ -42,6 +48,10 @@ export function customerAuth(overrides = {}) {
   })
 }
 
+/**
+ * A cart context value holding nothing, every action a mock; `overrides`
+ * replace any part of it.
+ */
 export function emptyCart(overrides = {}) {
   return {
     lines: [],
@@ -66,10 +76,23 @@ export function rowNamed(prefix) {
   return screen.getByRole('row', { name: new RegExp(`^${literal}`) })
 }
 
+/**
+ * A reference context value with no vocabulary loaded, so every picker is
+ * its free-text fallback unless `overrides` supply `tables`.
+ */
 export function emptyReference(overrides = {}) {
   return { tables: {}, load: vi.fn(), invalidate: vi.fn(), ...overrides }
 }
 
+/**
+ * Render `ui` inside a router and the auth, cart and reference contexts.
+ *
+ * `options` may give any of `auth`, `cart` and `reference` (the defaults
+ * are nobody signed in, an empty cart and no vocabularies), the `route` the
+ * router starts on, its `basename`, and `strict` to render in StrictMode;
+ * anything else is passed to Testing Library's `render`, whose result is
+ * returned.
+ */
 export function renderWithProviders(ui, options = {}) {
   const {
     auth = anonymousAuth(),

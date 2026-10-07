@@ -40,6 +40,7 @@ def _run_date_range(db: Session, params: _DateRangeParams) -> ReportResult:
 
 
 def _register() -> Report[_DateRangeParams]:
+    """Register the test's own date-range report, and return it."""
     return register(
         Report(
             id=_TEST_REPORT_ID,

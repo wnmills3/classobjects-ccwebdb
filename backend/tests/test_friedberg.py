@@ -40,6 +40,7 @@ def _currency_item(db: Session, **overrides: object) -> InventoryItem:
 
 
 def _add_friedberg(db: Session, **overrides: object) -> FriedbergNumber:
+    """A catalog row with these columns, committed."""
     row = FriedbergNumber(**overrides)
     db.add(row)
     db.commit()
@@ -48,6 +49,7 @@ def _add_friedberg(db: Session, **overrides: object) -> FriedbergNumber:
 
 
 def _ids(body: list[dict[str, Any]]) -> set[int]:
+    """The ids of the rows in a search response."""
     return {row["id"] for row in body}
 
 
@@ -599,6 +601,7 @@ def test_clearing_a_coin_is_404(
 def _signatures(
     client: TestClient, headers: dict[str, str], **params: object
 ) -> tuple[list[str], str]:
+    """The signature codes offered for these facts, and the rule that chose them."""
     resp = client.get("/api/friedberg/signatures", params=params, headers=headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()

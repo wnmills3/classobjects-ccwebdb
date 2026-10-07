@@ -51,6 +51,14 @@ def _strip_or_none(value: str | None) -> str | None:
     return (value or "").strip() or None
 
 
+def _name_or_refuse(value: str) -> str:
+    """A name without its surrounding space; one with nothing left is refused."""
+    trimmed = value.strip()
+    if not trimmed:
+        raise ValueError("name must not be blank")
+    return trimmed
+
+
 #: The seller's id for the listing an item was bought from -- eBay's item
 #: number. Text, as the seller prints it; blank clears it.
 SellersItemId = Annotated[
@@ -1676,10 +1684,7 @@ class SellerCreate(BaseModel):
     @classmethod
     def _trimmed_name(cls, value: str) -> str:
         """Surrounding space is never part of a seller's name."""
-        trimmed = value.strip()
-        if not trimmed:
-            raise ValueError("name must not be blank")
-        return trimmed
+        return _name_or_refuse(value)
 
 
 class SellerUpdate(BaseModel):
@@ -1697,10 +1702,7 @@ class SellerUpdate(BaseModel):
         """A name sent is trimmed and may not be blank."""
         if value is None:
             return None
-        trimmed = value.strip()
-        if not trimmed:
-            raise ValueError("name must not be blank")
-        return trimmed
+        return _name_or_refuse(value)
 
 
 class VendorOut(BaseModel):
@@ -1735,10 +1737,7 @@ class VendorUpdate(BaseModel):
         """A name sent is trimmed and may not be blank."""
         if value is None:
             return None
-        trimmed = value.strip()
-        if not trimmed:
-            raise ValueError("name must not be blank")
-        return trimmed
+        return _name_or_refuse(value)
 
     @field_validator("url")
     @classmethod
@@ -1767,10 +1766,7 @@ class VendorCreate(BaseModel):
     @classmethod
     def _trimmed_name(cls, value: str) -> str:
         """Leading and trailing whitespace is never part of a vendor's name."""
-        trimmed = value.strip()
-        if not trimmed:
-            raise ValueError("name must not be blank")
-        return trimmed
+        return _name_or_refuse(value)
 
     @field_validator("url")
     @classmethod
@@ -2453,10 +2449,7 @@ class PurchaseOrderCreate(BaseModel):
     @classmethod
     def _blank_to_none(cls, value: str | None) -> str | None:
         """An empty order number is the same absence as none at all."""
-        if value is None:
-            return None
-        trimmed = value.strip()
-        return trimmed or None
+        return _strip_or_none(value)
 
     @field_validator("source_url")
     @classmethod
@@ -2548,10 +2541,7 @@ class PurchaseOrderUpdate(BaseModel):
     @classmethod
     def _blank_to_none(cls, value: str | None) -> str | None:
         """Surrounding space is not part of the value; nothing left is None."""
-        if value is None:
-            return None
-        trimmed = value.strip()
-        return trimmed or None
+        return _strip_or_none(value)
 
     @field_validator("source_url")
     @classmethod

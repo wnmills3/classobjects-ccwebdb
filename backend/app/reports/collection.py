@@ -225,6 +225,7 @@ def _cb_holdings(db: Session, params: HoldingsParams) -> ReportResult:
     current_kind: str | None = None
 
     def _append_subtotal(kind_code: str) -> None:
+        """Add the kind's subtotal row, and the search that lists its items."""
         subtotal = kind_subtotals[kind_code]
         rows.append(
             {

@@ -25,6 +25,7 @@ from tests.builders import build_bare_item, code_id
 
 
 def _location(db: Session) -> StorageLocation:
+    """A storage location at home for received items to go to, committed."""
     location = StorageLocation(
         storage_location_kind_id=code_id(db, StorageLocationKind, "home"),
         identifier="test box",
@@ -36,6 +37,7 @@ def _location(db: Session) -> StorageLocation:
 
 
 def _ordered(db: Session) -> InventoryItem:
+    """An item still at status `ordered`: bought, and not yet arrived."""
     item = build_bare_item(db)
     item.status_id = db.scalars(
         select(ItemStatus.id).where(ItemStatus.code == "ordered")

@@ -23,6 +23,7 @@ from tests.builders import build_bare_item
 
 
 def _years(db: Session, item: InventoryItem) -> tuple[int | None, int | None]:
+    """The item's first and last year as the database now holds them."""
     db.expire_all()
     fresh = db.get(InventoryItem, item.id)
     assert fresh is not None
@@ -32,6 +33,7 @@ def _years(db: Session, item: InventoryItem) -> tuple[int | None, int | None]:
 def _patch(
     client: TestClient, headers: dict[str, str], item: InventoryItem, **body: object
 ) -> Response:
+    """The response to saving these fields on the item."""
     return client.patch(f"/api/inventory/{item.id}", json=body, headers=headers)
 
 

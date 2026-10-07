@@ -330,8 +330,10 @@ value is never replaced, but it narrows the facts: a $1
 Series 1928 note recorded with a red seal is a United States Note.
 
 Defaults are brought up to date as an item is created or saved (correct a
-note's series year and its class follows), and the **New item** form suggests
-them as you type. For everything already recorded, run the pass. Its report
+note's series year and its class follows), and the item editor shows them as
+the facts are typed, before anything is saved
+(`POST /api/inventory/{id}/preview`, which writes nothing). For everything
+already recorded, run the pass. Its report
 lists by item code:
 
 - **ambiguous** -- the series was issued in more than one class and nothing
@@ -351,9 +353,8 @@ Silver and Gold Certificate, Fractional Currency, Demand Note, Treasury Note.
 
 ### Weight
 
-Everything but a note has four weight fields, in the item editor and on New
-item: **Gross weight**, **Fineness**, **Fine weight** and **Weight as
-written**. A weight is per piece -- Pieces multiplies it in the reports --
+Everything but a note has four weight fields in the item editor: **Gross
+weight**, **Fineness**, **Fine weight** and **Weight as written**. A weight is per piece -- Pieces multiplies it in the reports --
 and is typed in troy ounces or grams, by the unit picker beside the box; it
 is kept in troy ounces either way (a gram is 0.032151 troy ounces).
 
@@ -474,9 +475,10 @@ and `deleted` (`no`, `only`, `any`) as filters (`app/inventory_search.py`);
 reports' drill-down links use several of them. An unknown filter name is
 refused.
 
-**Every field has an Alt+letter shortcut**, underlined in its label: Alt+S the
-search box, Alt+H the tips, Alt+C clear, Alt+Y and Alt+O the years, Alt+P the
-coins' **Strike type**. No field uses D, E or F, which the browser keeps. A
+**Every field but Seller's item id has an Alt+letter shortcut**, underlined in
+its label: Alt+S the search box, Alt+H the tips, Alt+C clear, Alt+Y and Alt+O
+the years, Alt+P the coins' **Strike type**. No field uses D, E or F, which the
+browser keeps. A
 shortcut on a disabled dropdown does nothing.
 
 ## Inventory items
@@ -512,7 +514,7 @@ relisting, because a returned item resumes its own history.
 | `POST /api/inventory/{id}/reviewed` | mark fields as confirmed by a person looking at the object |
 | `PUT /api/inventory/{id}/errors` | replace the item's recorded errors -- see *Errors* |
 
-**Editable scalars:** `source_title`, `description`, `sellers_item_id`,
+**Editable scalars:** `source_title`, `description`, `rating`, `sellers_item_id`,
 `listing_url`, `year_start`, `year_end`, `fineness`, `gross_weight_ozt`,
 `fine_weight_ozt`, `weight_note`, `piece_count`, `item_cost`, `shipping_cost`, `tax_rate`,
 `tax_includes_shipping` (`EDITABLE_SCALARS`, `routers/inventory.py`).
@@ -589,14 +591,14 @@ Responses carry `grade`, `strike_type` and `grade_display` (`PR69+`).
 Adjectival words are read at the bottom of their range: BU is 60, BU+ 63,
 BU++ 65, PROOF PR63, AU 55.
 
-**An unknown field name in an edit is dropped without an error** -- the edit
-schema (`InventoryItemUpdate`) does not forbid extra fields, so a misspelt
-field in a `PATCH` or bulk edit does nothing. Creating an item
-(`POST /api/inventory`) does refuse an unknown field. Bulk edit does not set
+**An unknown field name in an edit is refused (422)** -- the edit schema
+(`InventoryItemUpdate`) forbids extra fields, so a misspelt field in a
+`PATCH` or bulk edit never answers 200 for a change that was not made.
+Creating an item (`POST /api/inventory`) refuses one too. Bulk edit does not set
 attributes: one set applied to many items would wipe whatever each carried
 that the others do not.
 
-**Every console edit window** -- item, new item, order, platform, offer,
+**Every console edit window** -- item, order, platform, offer,
 listing, record sale, lot, auction, a purchase's details, a customer and their
 address -- takes Alt plus the underlined letter to jump to a field, and Ctrl+S
 or Ctrl+Enter to save. Every Save button underlines its S and shows "Ctrl+S"
@@ -756,13 +758,22 @@ keeps the cost it was allocated, and repeating it is harmless.
 no item is entered outside a purchase, so a standalone buy is a purchase
 holding one item (`docs/specs/entry-panels-design.md`).
 
+- The page opens on **Start a new purchase**; **Add to an existing purchase**
+  lists the purchases already recorded (`GET /api/purchase-orders`), filtered
+  by order number or vendor and, when ticked, to those with items not yet
+  received. Choosing one opens it for more items.
 - **Vendors** are picked from a list (`GET /api/vendors`) or added inline
-  (`POST /api/vendors`: name, kind, web address). Names are unique,
+  (`POST /api/vendors`: web address, name, kind). Names are unique,
   case-insensitively.
 - The purchase (`POST /api/purchase-orders`) needs only a vendor, so a
   walk-in or show purchase needs nothing else. Left blank, the order number
   is generated (`Order-0001` and up). Vendor and order number together must
   be unique; the date, if given, must be no later than tomorrow.
+- **The seller** a marketplace purchase was bought from is optional, and is
+  picked from a list (`GET /api/sellers`) or added inline (`POST
+  /api/sellers`: store web address, name). **Edit details**, on an open
+  purchase, changes its order number, date, web address, seller and notes
+  (`PATCH /api/purchase-orders/{id}`).
 - **Items** are entered on the purchase: a kind and a title make the item
   (`POST /api/inventory`, as `ordered`) and open it in the item editor, where
   the rest -- photographs and the description included -- is entered, and
@@ -781,7 +792,7 @@ holding one item (`docs/specs/entry-panels-design.md`).
   purchase** returns to step one.
 
 The help band at the bottom of the console window explains whichever field
-has focus, on this form and every other. All four endpoints above are
+has focus, on this form and every other. Every endpoint above is
 manager-only.
 
 ## Sales
@@ -811,7 +822,7 @@ Two kinds of pending or paid order **cannot be cancelled or refunded**, because 
 listing they sold has already ended and there is nothing to put the stock
 back on: a sale recorded from an outside platform, and an order that bought a
 **sales lot**. The API refuses with a 409 naming what is in the way; the
-Sales page grays out **cancelled** and **refunded** on an outside-platform order. Once such an
+Sales page grays out **cancelled** and **refunded** on both. Once such an
 order is packed it can be cancelled like any other (no stock returns). There is no "undo an outside sale" path: if one falls through,
 restore the item's status and disposition by hand and offer it again.
 
@@ -1167,6 +1178,9 @@ reorders them.
   typed. Nothing can be added to a vocabulary the application acts on value
   by value -- statuses, kinds, dispositions -- and the page says so.
 
+- **Edit details...** changes what a vocabulary records about a value
+  besides its label -- which items a series is offered for, a denomination's
+  face value, a mint's mark.
 - **Rename** changes the label, which is what people read. The code never
   changes: saved searches, the data and the API use it. A renamed value is
   marked `manual`, so a later seed load keeps your wording.
@@ -1305,30 +1319,27 @@ each with its own free-text note ("miscut at 3 o'clock, 4mm"), but not the
 same type twice. `GET` and `PUT /api/inventory/{id}/errors` read and replace
 the whole set.
 
-One panel is mounted in three places:
+One panel is mounted in two places:
 
 | Where | Saving |
 |---|---|
-| The item editor, beside Attributes | its own `PUT`, independent of Save, so an error is neither held back by nor lost to a discarded edit |
-| **New item** | held on the form; sent once the item is created |
-| **Receiving**, in the item's dialog | its own `PUT`, once the item's record has loaded (its kind decides which types are offered) |
+| The item editor, beside Attributes | held in the draft and sent by Save, in its own `PUT` after the fields; an item entered on a purchase is entered in this editor, so its errors are recorded the same way |
+| **Receiving**, in the item's dialog | its own `PUT` on every change, once the item's record has loaded (its kind decides which types are offered) |
 
 The type picker offers a note the currency error types and those that apply
 to both, never the coin ones, and never a type already recorded on the item.
 
-**On New item, the item is created first and its errors saved second.** If
-the errors call fails, the form says so -- the item was created, its errors
-were not -- keeps the rows and the new item's code on screen, and offers
-**Retry**. Save stays disabled until the retry succeeds, so the same piece
-cannot be entered twice.
+**In the item editor, the fields are saved first and the errors second.** If
+the errors call fails, the editor stays open and says so ("Not all was saved
+-- the errors were not recorded: ..."), keeping the rows on screen; Save
+sends them again.
 
 ## Lists: Friedberg numbers, sellers, vendors, storage locations
 
 These four lists are not vocabularies, but they grow the same way: a row is
 added inline while something else is being done (a Friedberg number while a
 note is identified, a seller or vendor while a purchase is entered, a storage
-location from the location picker on New item, the item editor or
-Receiving). **Lists** (`/management/lists`, a tab each, `?tab=` in the
+location from the location picker in the item editor or Receiving). **Lists** (`/management/lists`, a tab each, `?tab=` in the
 address) is where a slip made there is corrected
 (`docs/specs/list-maintenance-design.md`).
 

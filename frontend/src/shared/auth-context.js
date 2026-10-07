@@ -13,6 +13,11 @@ import { createContext, useContext } from 'react'
  */
 export const AuthContext = createContext(null)
 
+/**
+ * What the provider holds: `user`, `loading`, `isAdmin`, and `login`,
+ * `register` and `logout`. Throws outside an `AuthProvider`, where a null
+ * would otherwise read as nobody being signed in.
+ */
 export function useAuth() {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used inside an AuthProvider')

@@ -27,6 +27,7 @@ from tests.builders import build_bare_item, build_purchase_order, code_id
 
 
 def coin(db: Session, **overrides: object) -> InventoryItem:
+    """A coin with only the columns a search needs, the overrides applied."""
     return build_bare_item(db, item_kind_id=code_id(db, ItemKind, "coin"), **overrides)
 
 
@@ -37,6 +38,7 @@ def note(
     serial: str | None = None,
     **overrides: object,
 ) -> InventoryItem:
+    """A banknote and its currency detail, with this seal colour and serial."""
     item = build_bare_item(
         db, item_kind_id=code_id(db, ItemKind, "currency"), **overrides
     )
@@ -55,6 +57,7 @@ def note(
 def search(
     client: TestClient, view: str, headers: dict[str, str], **params: object
 ) -> Response:
+    """The response to searching one inventory view with these parameters."""
     return client.get(f"/api/inventory/{view}/search", params=params, headers=headers)
 
 
@@ -109,6 +112,7 @@ def test_each_view_returns_the_columns_that_matter_to_it(
 def _order(
     db: Session, *, number: str, vendor_name: str, ordered_on: date
 ) -> PurchaseOrder:
+    """A purchase with this order number, vendor and date, to search items by."""
     return build_purchase_order(
         db, vendor_name=vendor_name, order_number=number, ordered_on=ordered_on
     )
@@ -344,6 +348,7 @@ def test_free_text_searches_the_rating_as_recorded(
     note(db, source_title="1", description="Lot #17", rating="Blue Seal")
 
     def found(q: str) -> set[int]:
+        """The ids of the notes a free-text search returns."""
         body = search(client, "currency", admin_headers, q=q).json()
         return {r["id"] for r in body["rows"]}
 

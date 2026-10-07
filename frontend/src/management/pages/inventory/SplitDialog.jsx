@@ -30,6 +30,11 @@ const VALUE = /^\d+(\.\d+)?$/
 
 let nextKey = 0
 
+/**
+ * One piece's row before anything is typed: the lot's description and year,
+ * one item, no value. `key` is the row's own, so removing a row above it
+ * does not move what was typed into another.
+ */
 const blankRow = (item) => ({
   key: (nextKey += 1),
   description: item.description ?? '',
@@ -79,6 +84,14 @@ function problems(rows, mode) {
   return ''
 }
 
+/**
+ * The dialog that splits `item` into pieces, a row per piece.
+ *
+ * The button is held back while a row cannot be sent, and, for a lot that
+ * is listed for sale, until ending that offer is acknowledged. `onSplit`
+ * gets the server's result, the pieces and their real shares; a refusal
+ * keeps the dialog open as typed, and `onClose` leaves the lot whole.
+ */
 export default function SplitDialog({ item, onSplit, onClose }) {
   const [mode, setMode] = useState('equal')
   const [rows, setRows] = useState(() => startingRows(item))

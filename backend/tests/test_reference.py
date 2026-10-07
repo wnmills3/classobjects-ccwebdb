@@ -565,6 +565,7 @@ def test_a_value_can_be_retired_without_breaking_existing_records(
 
 
 def _value(client: TestClient, table: str, code: str) -> dict:
+    """The value with this code as the vocabulary's route returns it, retired or not."""
     body = client.get(f"/api/reference/{table}?include_inactive=true").json()
     return next(v for v in body["values"] if v["code"] == code)
 

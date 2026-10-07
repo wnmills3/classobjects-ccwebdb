@@ -340,6 +340,26 @@ def _move_claims(db: Session, listing: Listing, state: ClaimState) -> None:
 # --------------------------------------------------------------------------
 
 
+def _lock_rows(
+    db: Session, model: type[InventoryItem] | type[SalesLot], row_ids: Collection[int]
+) -> None:
+    """Take `model`'s rows with these ids FOR UPDATE, in id order, and re-read them.
+
+    One statement, ascending by id, the whole entity with `populate_existing`:
+    `_lock_items` and `_lock_lots` say why each part matters for their rows.
+    """
+    ids = sorted(set(row_ids))
+    if not ids:
+        return
+    db.scalars(
+        select(model)
+        .where(model.id.in_(ids))
+        .order_by(model.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).all()
+
+
 def _lock_items(db: Session, item_ids: Collection[int]) -> None:
     """Take the affected items' rows FOR UPDATE, in id order, and re-read them.
 
@@ -361,16 +381,7 @@ def _lock_items(db: Session, item_ids: Collection[int]) -> None:
     fail with `StaleDataError`
     (`tests/test_order_revision_race.py`).
     """
-    ids = sorted(set(item_ids))
-    if not ids:
-        return
-    db.scalars(
-        select(InventoryItem)
-        .where(InventoryItem.id.in_(ids))
-        .order_by(InventoryItem.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    ).all()
+    _lock_rows(db, InventoryItem, item_ids)
 
 
 def _names_any(
@@ -480,16 +491,7 @@ def _lock_lots(db: Session, lot_ids: Collection[int]) -> None:
     under its own lock is what keeps that write working from the version the
     lock just granted rather than from one a caller read earlier.
     """
-    ids = sorted(set(lot_ids))
-    if not ids:
-        return
-    db.scalars(
-        select(SalesLot)
-        .where(SalesLot.id.in_(ids))
-        .order_by(SalesLot.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    ).all()
+    _lock_rows(db, SalesLot, lot_ids)
 
 
 def _lock_listing_rows(

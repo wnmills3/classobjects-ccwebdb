@@ -40,6 +40,15 @@ function QuantityInput({ coin, quantity, onChange }) {
   )
 }
 
+/**
+ * The cart page: a line per listing with its quantity and line total, the
+ * total, and the button that places the order.
+ *
+ * Placing an order needs a sign-in, so a visitor is sent to sign in and
+ * brought back here. An order the server accepts empties the cart and is
+ * thanked for by number; a refusal -- the stock went meanwhile -- is shown
+ * and the cart is kept.
+ */
 export default function Cart() {
   const { lines, setQuantity, remove, clear, total } = useCart()
   // The total is in the lines' own currency. Lines in two currencies have no

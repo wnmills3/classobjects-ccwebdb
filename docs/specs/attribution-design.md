@@ -104,7 +104,9 @@ Neither derives the other.
 | Delete | `DELETE /api/inventory/{id}` | soft delete; idempotent | see below |
 
 Split is in the console. Detach and Delete are API operations with no console
-control.
+control of their own; the console calls Delete only to remove an item made
+for entry on a purchase whose editor was closed without a save
+(`pages/entry/AddItem.jsx`).
 
 Most items have no parent and never will. Nothing in search, the views or
 valuation assumes one exists; an item with no parent is complete, not
@@ -239,6 +241,8 @@ FriedbergPanel.jsx      the note's Friedberg number
 PhotosPanel.jsx         the item's photographs
 SplitDialog.jsx         splitting a lot
 OffersPanel.jsx         the item's offers
+OfferDialog.jsx         offering items, or a lot, for sale
+useLinkedItem.js        the item an address or a report row names by its code
 SaleHistory.jsx         every sale of the item, each as it was sold
 HistoryPanel.jsx        field changes, status and location moves
 fieldMerge.js           field-by-field merge against changes made elsewhere

@@ -42,6 +42,7 @@ NOTE = {
 def _create(
     client: TestClient, headers: dict[str, str], db: Session, fields: dict
 ) -> int:
+    """The id of an item entered through the API with these fields."""
     order = build_purchase_order(db, vendor_name="On Screen Test Vendor")
     created = client.post(
         "/api/inventory",
@@ -55,6 +56,7 @@ def _create(
 def _on_screen(
     client: TestClient, headers: dict[str, str], item_id: int, body: dict
 ) -> str:
+    """The description suggested for the item as the screen, unsaved, has it."""
     resp = client.post(
         f"/api/inventory/{item_id}/suggested-description", json=body, headers=headers
     )
@@ -63,6 +65,7 @@ def _on_screen(
 
 
 def _saved(client: TestClient, headers: dict[str, str], item_id: int) -> str:
+    """The description suggested for the item as it is saved."""
     resp = client.get(
         f"/api/inventory/{item_id}/suggested-description", headers=headers
     )
@@ -71,6 +74,7 @@ def _saved(client: TestClient, headers: dict[str, str], item_id: int) -> str:
 
 
 def _error_code(db: Session, side: AppliesTo) -> str:
+    """The code of the first seeded error type a coin, or a note, may take."""
     return db.scalars(
         select(ErrorType.code)
         .where(ErrorType.applies_to.in_([side, AppliesTo.any]))

@@ -34,7 +34,8 @@ SUGGESTION = "suggestion"
 RATING = "rating"
 #: Fine weight worked out as gross weight times fineness.
 WEIGHT = "weight"
-#: A weight or fineness read from the item's own title or description.
+#: A weight or fineness read from the item's own title, description or
+#: weight as written.
 WEIGHT_TEXT = "weight_text"
 #: A weight or fineness taken from what most items of its form and metal hold.
 WEIGHT_PEERS = "weight_peers"

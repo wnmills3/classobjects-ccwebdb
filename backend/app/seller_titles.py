@@ -45,12 +45,12 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from . import field_changes
+from . import field_changes, pass_cli
 from .classifier_defaults import refresh_items
 from .database import SessionLocal
 from .item_descriptions import suggested_description
 from .live import live_item
-from .models import InventoryItem, ItemKind, User
+from .models import InventoryItem, ItemKind
 from .short_titles import SHORT_TITLE
 
 __all__ = ["LONG_DESCRIPTION", "SHORT_TITLE", "Plan", "apply", "plan"]
@@ -171,14 +171,11 @@ def main(argv: Sequence[str] | None = None, *, db: Session | None = None) -> int
     tests, which must never let this open the live database -- passes it.
     """
     parser = argparse.ArgumentParser(prog="seller_titles", description=__doc__)
-    parser.add_argument("--commit", action="store_true", help="write the changes")
-    parser.add_argument("--by", help="the person the History rows name (email)")
+    pass_cli.add_commit_arguments(parser, "write the changes")
     parser.add_argument(
         "--show", type=int, default=3, help="examples to print per kind (default 3)"
     )
-    args = parser.parse_args(argv)
-    if args.commit and not args.by:
-        parser.error("--commit needs --by: every change is logged under a person")
+    args = pass_cli.parse_args(parser, argv)
     # A seller's text holds whatever they typed; a console that cannot show
     # a character must not stop the report.
     for stream in (sys.stdout, sys.stderr):
@@ -206,19 +203,7 @@ def _run(db: Session, args: argparse.Namespace) -> int:
         print("short titles left alone:")
         for reason, count in todo.left.most_common():
             print(f"  {count:>6}  {reason}")
-    if not args.commit:
-        print("dry run: nothing written (--commit --by EMAIL to apply)")
-        return 0
-    user_id = db.scalar(
-        select(User.id).where(func.lower(User.email) == args.by.lower())
-    )
-    if user_id is None:
-        print(f"no user {args.by}", file=sys.stderr)
-        return 1
-    written = apply(db, todo, user_id)
-    db.commit()
-    print(f"written: {written}")
-    return 0
+    return pass_cli.commit_or_report(db, args, lambda user_id: apply(db, todo, user_id))
 
 
 if __name__ == "__main__":

@@ -28,19 +28,24 @@ PUBLIC = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 
 
 def _webp(color: str = "navy") -> bytes:
+    """A small WebP image of one colour, as a marketplace serves photographs."""
     buffer = io.BytesIO()
     PILImage.new("RGB", (64, 40), color).save(buffer, format="WEBP")
     return buffer.getvalue()
 
 
 def _resolver(addresses: dict[str, str]) -> Callable[..., list[Any]]:
+    """A stand-in for `getaddrinfo` that resolves each host as the table says."""
+
     def resolve(host: str, *_args: object, **_kwargs: object) -> list[Any]:
+        """The one address the table gives the host, in `getaddrinfo`'s shape."""
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (addresses[host], 443))]
 
     return resolve
 
 
 def _client(handler: Callable[[httpx.Request], httpx.Response]) -> httpx.Client:
+    """An HTTP client whose every request is answered by the handler."""
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
@@ -80,6 +85,7 @@ def test_an_address_inside_the_network_is_refused(address: str) -> None:
     calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        """Answer anything, recording that a request was made at all."""
         calls.append(request)
         return httpx.Response(200, content=b"x")
 
@@ -94,6 +100,7 @@ def test_an_address_inside_the_network_is_refused(address: str) -> None:
 
 def test_a_redirect_is_checked_as_it_is_followed() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        """Redirect the public host to one inside the network."""
         if request.headers["host"] == "public.example":
             return httpx.Response(
                 302, headers={"location": "http://inside.example/a.jpg"}
@@ -121,9 +128,11 @@ def test_the_address_checked_is_the_address_connected_to() -> None:
     seen: list[httpx.Request] = []
 
     def resolve(_host: str, *_args: object, **_kwargs: object) -> list[Any]:
+        """Resolve to the next address in turn: a different one on each lookup."""
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (next(answers), 443))]
 
     def handler(request: httpx.Request) -> httpx.Response:
+        """Answer with image bytes, recording the request as it was sent."""
         seen.append(request)
         return httpx.Response(200, content=b"img")
 
@@ -139,6 +148,7 @@ def test_the_address_checked_is_the_address_connected_to() -> None:
 
 def test_too_many_redirects_are_refused() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
+        """Redirect every request onward, without end."""
         return httpx.Response(302, headers={"location": "https://public.example/again"})
 
     with pytest.raises(ImageFetchRefused, match="redirect"):
@@ -174,6 +184,7 @@ def test_a_file_over_the_limit_is_refused(monkeypatch: pytest.MonkeyPatch) -> No
 def _from_url(
     client: TestClient, headers: dict[str, str], **body: object
 ) -> httpx.Response:
+    """The response to asking for a photograph to be fetched from an address."""
     return client.post("/api/images/from-url", json=body, headers=headers)
 
 
@@ -238,6 +249,7 @@ def test_a_refused_fetch_stores_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def refuse(_url: str) -> bytes:
+        """Stand in for the fetch, refusing the address."""
         raise ImageFetchRefused("not a public web address")
 
     monkeypatch.setattr(image_fetch, "fetch_image", refuse)

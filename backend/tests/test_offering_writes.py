@@ -707,6 +707,7 @@ def test_a_paused_store_listing_is_the_shops_but_not_sellable(
     assert offering_writes.sellable_in_shop(listing, active_only=False)
 
     def shop_ids(*, active_only: bool) -> set[int]:
+        """The ids of the listings the shop's filters let through."""
         return set(
             db.scalars(
                 select(Listing.id).where(

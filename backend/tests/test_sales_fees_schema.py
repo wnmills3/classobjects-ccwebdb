@@ -106,6 +106,7 @@ def test_fee_and_share_amounts_are_exact(db: Session) -> None:
     """Money columns are numeric(12,2), so a cent is a cent."""
 
     def scale(table: str, column: str) -> int | None:
+        """The decimal places the database keeps for a numeric column."""
         return db.scalar(
             text(
                 "SELECT numeric_scale FROM information_schema.columns "

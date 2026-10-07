@@ -58,6 +58,7 @@ shop, the console and the API.
 | [docs/runtime-operations.md](docs/runtime-operations.md) | Starting, stopping and checking the servers |
 | [docs/database-design.md](docs/database-design.md) | The schema |
 | [docs/code-quality.md](docs/code-quality.md) | The quality gates and their exceptions |
+| [docs/reference-data.md](docs/reference-data.md) | What reference data may be shipped with the product |
 | [docs/specs/](docs/specs/) | One design document per feature |
 
 ## Layout
@@ -65,7 +66,8 @@ shop, the console and the API.
 ```
 backend/
   app/
-    main.py, config.py, database.py, deps.py, security.py, schemas.py
+    main.py, config.py, database.py, deps.py, security.py, schemas.py,
+    errors.py
     models/              the schema by subject area: base (shared
                          conventions), core, reference, identification,
                          valuation, lifecycle, images, sales, auctions,
@@ -89,17 +91,22 @@ backend/
                          (lot splits to the penny), item_history,
                          item_descriptions, item_attributes, aliases,
                          reference_merge, references, grades, years, plates,
-                         composition, fr_format
+                         composition, fr_format, item_kinds (the detail row
+                         follows the kind), field_sources (which fields hold
+                         a derived default), attribute_rules, reference_fields
+                         (a vocabulary's own columns), purchases (purchase
+                         order text conventions), short_titles
     photographs          imaging (strip, orient, hash), image_store,
                          storage, image_fetch (from a web address),
                          photo_names (the CC-000412_01.jpg convention)
     passes               classifier_defaults, series_match, series_classify,
                          serial_patterns, photo_import, vendor_cleanup,
                          ebay_orders, listing_links, bullion_weights,
-                         image_sources:
+                         image_sources, seller_titles:
                          corrections over stored
                          items, run as python -m app.<name>; dry run unless
-                         --commit
+                         --commit. pass_cli is the --commit --by EMAIL
+                         command line the ones that write History share
     reports/             read-only reports: registry, API, CLI
                          (python -m app.reports list|run), workbook export
                          (docs/specs/reporting-design.md)
@@ -118,6 +125,7 @@ frontend/
   src/management/        the management console
   src/shared/            API client, auth, formatting, vocabularies, the
                          request and debounce hooks
+  src/test/              vitest setup and test helpers
   scripts/               check-bundle-isolation.mjs
 scripts/                 ccweb_*.cmd: startup, shutdown, status, check, psql,
                          pgadmin, claude, sonar_*; env, logdir and pgstart are
@@ -137,10 +145,10 @@ by `deps.require_admin`). By area:
 | Accounts | `/auth` (register, login, refresh, me), `/users`, `/customers` (including orders placed on a customer's behalf) | sign-in public; administration manager |
 | Shop catalog | `/catalog` | public, read only |
 | Customer orders | `/orders` | customers their own; managers all |
-| Inventory | `/inventory` (search, create, bulk, edit, receive, split, detach a piece, reviews, errors, history, sales, suggested description, delete) | manager |
+| Inventory | `/inventory` (search, create, bulk, edit, receive, split, detach a piece, reviews, errors, history, sales, suggested description, preview, delete) | manager |
 | Purchases | `/vendors`, `/sellers`, `/purchase-orders`, `/storage-locations` | manager |
 | Vocabularies | `/reference` (read public; add, rename, alias, merge manager), `/defaults` (suggested classifiers while entering an item) | mixed |
-| Photographs | `/images` (upload, from a web address, renditions), `/image-links` (role, primary, move, detach) | renditions public, by content hash; the rest manager |
+| Photographs | `/images` (upload, from a web address, file against an item, list, delete, renditions), `/image-links` (role, primary, move, detach) | renditions public, by content hash; the rest manager |
 | Selling | `/sales-venues`, `/offers`, `/listings` (edit, end, record a sale), `/sales-lots`, `/auctions` | manager |
 | Friedberg numbers | `/friedberg`, `/inventory/{id}/friedberg` | manager; the owner's own numbers only |
 | Reports | `/reports` (catalog, run, `/workbook`) | manager |

@@ -19,6 +19,7 @@ ORDERS = "/api/purchase-orders"
 
 
 def _vendor(db: Session, name: str) -> int:
+    """The id of a vendor of this name, committed."""
     vendor = Vendor(name=name)
     db.add(vendor)
     db.commit()
@@ -28,6 +29,7 @@ def _vendor(db: Session, name: str) -> int:
 def _create(
     client: TestClient, headers: dict[str, str], vendor_id: int, **fields: object
 ) -> dict[str, object]:
+    """Record a purchase from the vendor through the API; the created body."""
     response = client.post(
         ORDERS, json={"vendor_id": vendor_id, **fields}, headers=headers
     )
@@ -37,6 +39,7 @@ def _create(
 
 
 def _generated_high(db: Session) -> int:
+    """The highest number among generated `Order-N` order numbers; 0 for none."""
     numbers = db.scalars(select(PurchaseOrder.order_number)).all()
     return max(
         (

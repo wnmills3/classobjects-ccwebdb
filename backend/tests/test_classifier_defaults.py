@@ -51,6 +51,7 @@ def _no_seeded_issues(db: Session) -> None:
 
 
 def _code(db: Session, model: type[ReferenceMixin], row_id: int | None) -> str | None:
+    """The code of the vocabulary row with this id; None for no id."""
     if row_id is None:
         return None
     return db.get_one(model, row_id).code
@@ -66,6 +67,7 @@ def _note(
     serial: str | None = None,
     **detail: object,
 ) -> InventoryItem:
+    """A banknote with these recorded facts, its title saying nothing more."""
     item = make_item(
         kind="currency",
         title="Plain note",
@@ -86,6 +88,7 @@ def _note(
 
 
 def _detail(db: Session, item: InventoryItem) -> CurrencyDetail:
+    """The note's currency detail as the database now holds it."""
     db.refresh(item)
     detail = item.currency_detail
     assert detail is not None
@@ -268,6 +271,7 @@ def test_a_serial_from_another_series_is_reported(
 def _dime(
     db: Session, make_item: ItemFactory, year: int, **extra: object
 ) -> InventoryItem:
+    """A dime of this year, its title saying nothing of metal or weight."""
     return make_item(
         title="Plain dime",
         denomination_id=code_id(db, Denomination, "usd_coin_0_10"),
@@ -431,11 +435,13 @@ def test_an_unknown_suggested_field_is_refused(
 
 
 def _seed_file(tmp_path: Path, payload: dict) -> Path:
+    """A directory holding the payload as `facts.json`, for the loader to read."""
     (tmp_path / "facts.json").write_text(json.dumps(payload), encoding="utf-8")
     return tmp_path
 
 
 def _issue_row(**overrides: object) -> dict:
+    """A seed row for a note issue: the 1957 $1 Silver Certificate, overridden."""
     row = {
         "denomination": "usd_note_1",
         "series_year": 1957,
@@ -588,6 +594,7 @@ def test_the_form_is_told_what_a_note_would_be(
     add_note_issue(db, "usd_note_1", 1969, "frn", "green")
 
     def ask(**params: object) -> dict:
+        """What the note-defaults route answers for these facts."""
         response = client.get(
             "/api/defaults/note", params=params, headers=admin_headers
         )

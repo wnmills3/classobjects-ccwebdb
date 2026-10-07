@@ -49,6 +49,7 @@ def _history(tmp_path: Path, rows: list[tuple[str, str, str, str]]) -> Path:
 
 
 def _ebay(db: Session) -> Vendor:
+    """The vendor the pass treats as eBay, created when the database has none."""
     vendor = db.scalar(select(Vendor).where(Vendor.name == ebay_orders.EBAY))
     if vendor is None:
         vendor = Vendor(name=ebay_orders.EBAY)
@@ -80,12 +81,14 @@ def _someone_to_log_under(admin_user: User) -> None:
 
 
 def _admin(db: Session) -> int:
+    """The id of the first user, in whose name the pass logs its changes."""
     user_id = db.scalar(select(User.id).order_by(User.id).limit(1))
     assert user_id is not None
     return user_id
 
 
 def _run(db: Session, path: Path) -> ebay_orders.Plan:
+    """Plan from one history file and apply it, in the test's session."""
     todo = ebay_orders.plan(db, ebay_orders.read_history([path]))
     ebay_orders.apply(db, todo, _admin(db))
     db.flush()

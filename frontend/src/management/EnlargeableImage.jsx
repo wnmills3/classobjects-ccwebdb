@@ -2,6 +2,11 @@ import { useState } from 'react'
 
 import ModalDialog from './ModalDialog'
 
+//: Only a web address is ever made a link. The address is stored data, and
+//: an `href` of any other scheme -- `javascript:` above all -- would run in
+//: the console when clicked.
+const WEB_ADDRESS = /^https?:\/\//i
+
 /**
  * A thumbnail that opens its large rendition in a dialog when clicked.
  *
@@ -20,11 +25,6 @@ import ModalDialog from './ModalDialog'
  * what clicking does, and the image keeps `alt` as its own. With no
  * `largeSrc` there is nothing to enlarge and it is a plain image.
  */
-//: Only a web address is ever made a link. The address is stored data, and
-//: an `href` of any other scheme -- `javascript:` above all -- would run in
-//: the console when clicked.
-const WEB_ADDRESS = /^https?:\/\//i
-
 export default function EnlargeableImage({ src, largeSrc, alt, sourceUrl }) {
   const [open, setOpen] = useState(false)
   const from = WEB_ADDRESS.test(sourceUrl ?? '') ? sourceUrl : null

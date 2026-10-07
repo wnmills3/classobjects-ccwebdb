@@ -721,6 +721,7 @@ GRADE_PARAMS = ("grade", "grade_min", "grade_max")
 
 
 def _grade_term(key: str, value: str) -> grades.GradeTerm:
+    """The grade a search parameter names, or a ValueError saying what is read."""
     term = grades.search_term(value)
     if term is None:
         raise ValueError(
@@ -847,6 +848,11 @@ def _conditions(
     query: str | None,
     names: list[tuple[Named, list[int]]] | None = None,
 ) -> tuple[list[str], list[tuple[str, ...]], dict[str, Any]]:
+    """The WHERE clauses, joins and bound values a search's parameters ask for.
+
+    Raises KeyError for a filter the view does not have, rather than ignore
+    it and return the whole collection.
+    """
     clauses = list(spec.where)
     joins: list[tuple[str, ...]] = [(_J_KIND,)]  # every spec filters on kind
     bound: dict[str, Any] = {}

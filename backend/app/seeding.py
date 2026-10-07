@@ -84,6 +84,7 @@ class SeedError(RuntimeError):
 
 
 def _model_by_table() -> dict[str, SeedableModel]:
+    """Every seedable model, by the name of its table."""
     return {model.__tablename__: model for model in SEEDABLE}
 
 
@@ -571,6 +572,7 @@ def _seed_note_issues(
     }
 
     def resolve(where: str, kind: str, code: object) -> int:
+        """The id a code names in the `kind` vocabulary, or a `SeedError`."""
         found = lookups[kind].get(str(code))
         if found is None:
             raise SeedError(f"{where}: unknown {kind} {code!r}")
@@ -787,6 +789,7 @@ def _record_to_row(
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
+    """Run the command line: `load` seed files, or `export` reference tables."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 

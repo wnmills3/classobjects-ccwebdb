@@ -303,6 +303,7 @@ def test_sale_input_invalid_from_record_sale_is_a_422_not_a_409(
     """
 
     def _raise_invalid(*args: object, **kwargs: object) -> SalesOrder:
+        """Stand in for the sale writer, refusing its input as malformed."""
         raise sales_writes.SaleInputInvalid("deliberately malformed, for the test")
 
     monkeypatch.setattr(sales_writes, "record_sale", _raise_invalid)
@@ -324,6 +325,7 @@ def test_a_plain_sale_refused_from_record_sale_is_still_a_409(
     """
 
     def _raise_refused(*args: object, **kwargs: object) -> SalesOrder:
+        """Stand in for the sale writer, refusing the sale as a conflict."""
         raise sales_writes.SaleRefused("deliberately conflicting, for the test")
 
     monkeypatch.setattr(sales_writes, "record_sale", _raise_refused)

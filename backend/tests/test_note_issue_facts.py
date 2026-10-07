@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 def _issues(
     db: Session,
 ) -> list[tuple[str, int, str, str, str, str | None, str | None]]:
+    """Every seeded note issue, its classifiers as codes."""
     rows = db.execute(
         select(
             Denomination.code,
@@ -48,6 +49,7 @@ def _issues(
 
 
 def _find(db: Session, den: str, series: str) -> set[tuple[str, str, str | None]]:
+    """The class, seal and signatures seeded for a denomination and series."""
     year, letter = int(series[:4]), series[4:]
     return {
         (cls, seal, sig)

@@ -31,6 +31,7 @@ def _merge(
     *,
     dry_run: bool = False,
 ) -> Response:
+    """The response to merging one vocabulary value into another."""
     return client.post(
         f"/api/reference/{table}/{code}/merge",
         json={"into": into, "dry_run": dry_run},

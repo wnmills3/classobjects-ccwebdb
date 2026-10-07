@@ -9,6 +9,11 @@ import { createContext, useContext } from 'react'
  */
 export const CartContext = createContext(null)
 
+/**
+ * What the provider holds: the cart's `lines`, its `count` and `total`, and
+ * `add`, `setQuantity`, `remove` and `clear`. Throws outside a
+ * `CartProvider`, where a null would otherwise read as an empty cart.
+ */
 export function useCart() {
   const ctx = useContext(CartContext)
   if (!ctx) throw new Error('useCart must be used inside a CartProvider')

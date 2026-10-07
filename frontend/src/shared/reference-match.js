@@ -7,6 +7,10 @@
  * a value it offers matched.
  */
 
+/**
+ * Whether `text` has `needle` anywhere in it, ignoring the text's case. The
+ * needle is expected in lower case already; a missing text matches nothing.
+ */
 function contains(text, needle) {
   return String(text ?? '')
     .toLowerCase()
