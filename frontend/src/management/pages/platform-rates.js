@@ -140,3 +140,48 @@ export function netMarginPercent(price, costBasis, venue) {
 export function marginPercent(price, costBasis) {
   return netMarginPercent(price, costBasis, null)
 }
+
+//: Past this a price is not a price: the platform's rates and the margin
+//: asked for together leave nothing, however much is charged.
+const NO_SUCH_PRICE_CENTS = 100_000_000_00
+
+/**
+ * The lowest price that leaves at least `marginPercent` after the platform's
+ * fees and the item's cost: `priceForMargin('120.00', '20', ebay)`.
+ *
+ * The margin is the one `netMarginPercent` reports -- what is left of the
+ * price once fees and cost are taken out, as a share of the price -- so a
+ * price filled from here shows that margin, or just over it, beside it.
+ *
+ * Blank when there is nothing to work from: an item whose cost nobody has
+ * recorded, a cost of zero, a margin that is not a number from 0 up to but
+ * not including 100, or rates that leave no price at which it is reached.
+ * A platform with no recorded fees is charged none, as `netMarginPercent`
+ * charges it.
+ */
+export function priceForMargin(costBasis, marginPercent, venue) {
+  const text = String(marginPercent ?? '').trim()
+  if (!isMoney(costBasis) || text === '') return ''
+  const cost = toCents(costBasis)
+  const want = Number(text)
+  if (cost <= 0 || !Number.isFinite(want) || want < 0 || want >= 100) return ''
+  // Whether a price leaves the margin: net of fees and cost, against the
+  // price's own share. Whole cents on both sides, scaled to avoid a division.
+  const meets = (cents) => (cents - feeCents(cents, venue) - cost) * 100 >= want * cents
+
+  let high = cost
+  while (!meets(high)) {
+    high *= 2
+    if (high > NO_SUCH_PRICE_CENTS) return ''
+  }
+  let low = cost
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (meets(middle)) high = middle
+    else low = middle + 1
+  }
+  // A fee rounded to the cent can make the margin dip for a cent or two as
+  // the price rises: step back while the cheaper price still leaves it.
+  while (low > cost && meets(low - 1)) low -= 1
+  return signedFromCents(low)
+}

@@ -19,6 +19,7 @@ import {
   hasDefaultFees,
   netAfterFees,
   netMarginPercent,
+  priceForMargin,
 } from '../platform-rates'
 import { ApiError } from '../../../shared/api'
 import { renderWithProviders } from '../../../test/helpers'
@@ -321,6 +322,55 @@ describe('OfferDialog', () => {
     expect(within(rowFor('CC-000009')).getAllByText('--')).toHaveLength(5)
   })
 
+  it('fills each blank price to the margin asked for after the fees', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await fillIn(user, { prices: [] })
+
+    await user.click(screen.getByRole('button', { name: 'Fill blank prices' }))
+
+    // Cost 120.00, eBay's 16.15% and 0.30, a 20% margin: 188.42 is the
+    // lowest price that leaves it, and the row shows the margin it gives.
+    expect(screen.getByLabelText('Price for CC-000007')).toHaveValue('188.42')
+    expect(within(rowFor('CC-000007')).getByText('20%')).toBeInTheDocument()
+    // No cost recorded: nothing to work a margin from, so it stays blank.
+    expect(screen.getByLabelText('Price for CC-000009')).toHaveValue('')
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '1 price(s) filled. 1 left blank: no cost to work a margin from.',
+    )
+  })
+
+  it('never replaces a price that was typed', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await fillIn(user, { prices: ['250.00'] })
+
+    await user.click(screen.getByRole('button', { name: 'Fill blank prices' }))
+
+    expect(screen.getByLabelText('Price for CC-000007')).toHaveValue('250.00')
+    expect(screen.getByRole('status')).toHaveTextContent('0 price(s) filled.')
+  })
+
+  it('works to the margin typed, and offers no fill for one that is not a margin', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+    await fillIn(user, { venue: 'store', prices: [] })
+    const margin = screen.getByLabelText(/Margin after fees/)
+    const fill = screen.getByRole('button', { name: 'Fill blank prices' })
+    expect(margin).toHaveValue('20')
+
+    await user.clear(margin)
+    expect(fill).toBeDisabled()
+    await user.type(margin, '100')
+    expect(fill).toBeDisabled()
+
+    await user.clear(margin)
+    await user.type(margin, '40')
+    await user.click(fill)
+    // The store takes nothing: 120.00 is 60% of 200.00.
+    expect(screen.getByLabelText('Price for CC-000007')).toHaveValue('200.00')
+  })
+
   // The refusal that matters: the API refuses the whole batch and says why,
   // item by item. A dialog that closed here would take the reasons with it.
   it('lists every refused item with its reason and stays open', async () => {
@@ -545,5 +595,50 @@ describe('platform fees', () => {
     ['0.00', '10.00', ebay, ''],
   ])('margin on %s costing %s is %s', (price, cost, venue, expected) => {
     expect(netMarginPercent(price, cost, venue)).toBe(expected)
+  })
+
+  it.each([
+    // No fees: the cost is 80% of the price.
+    ['120.00', '20', store, '150.00'],
+    // eBay's 16.15% and 0.30: one cent less leaves under 20%.
+    ['120.00', '20', ebay, '188.42'],
+    // Nothing asked for but the cost back, after a flat fee.
+    ['10.00', '0', flat, '10.35'],
+    ['120.00', '0', store, '120.00'],
+    ['120.00', ' 20 ', store, '150.00'],
+    // A fraction of a percent is a margin too.
+    ['100.00', '12.5', store, '114.29'],
+  ])(
+    'the price that leaves %s a margin of %s%% is %s',
+    (cost, margin, venue, expected) => {
+      expect(priceForMargin(cost, margin, venue)).toBe(expected)
+    },
+  )
+
+  it('finds the lowest such price, to the cent', () => {
+    expect(priceForMargin('120.00', '20', ebay)).toBe('188.42')
+    // At 188.42 the fees leave 157.69: 37.69 over cost, a fifth of the price
+    // or more. One cent less leaves 157.68: 37.68, a hair under a fifth.
+    expect(netAfterFees('188.42', ebay)).toBe('157.69')
+    expect(3769 * 100).toBeGreaterThanOrEqual(20 * 18842)
+    expect(netAfterFees('188.41', ebay)).toBe('157.68')
+    expect(3768 * 100).toBeLessThan(20 * 18841)
+  })
+
+  it.each([
+    // Nothing to work from: no cost, or a cost of nothing.
+    ['', '20', ebay],
+    [null, '20', ebay],
+    ['0.00', '20', ebay],
+    // Not a margin.
+    ['120.00', '', ebay],
+    ['120.00', null, ebay],
+    ['120.00', 'a fifth', ebay],
+    ['120.00', '-5', ebay],
+    ['120.00', '100', ebay],
+    // The platform takes 90%: no price leaves 20% as well.
+    ['120.00', '20', { commission_rate: '0.9000' }],
+  ])('there is no price for a cost of %s at %s%%', (cost, margin, venue) => {
+    expect(priceForMargin(cost, margin, venue)).toBe('')
   })
 })

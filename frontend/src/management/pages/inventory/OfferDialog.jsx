@@ -12,6 +12,7 @@ import {
   hasDefaultFees,
   netAfterFees,
   netMarginPercent,
+  priceForMargin,
 } from '../platform-rates'
 import { useMounted } from '../../useMounted'
 import { useSalesVenues } from '../../useSalesVenues'
@@ -137,6 +138,9 @@ export default function OfferDialog({
       subjectsFor(items, lot).map((subject) => [subject.key, draftFor(subject)]),
     ),
   )
+  // The margin "Fill blank prices" works to, and what the last fill did.
+  const [margin, setMargin] = useState('20')
+  const [filled, setFilled] = useState('')
   const [offerError, setError] = useState('')
   const error = offerError || venuesError
   const [refused, setRefused] = useState([])
@@ -203,6 +207,28 @@ export default function OfferDialog({
         [key]: e.target.value,
       },
     }))
+
+  // Each blank price set to the lowest that leaves the margin asked for
+  // after this platform's fees. A price already typed is never touched,
+  // and an item with no cost recorded is left blank: there is nothing
+  // to work a margin from, and it is counted so the gap is seen.
+  function fillPrices() {
+    const filled = {}
+    let uncosted = 0
+    for (const subject of subjects) {
+      const draft = rowFor(subject)
+      if (draft.price.trim() !== '') continue
+      const price = priceForMargin(subject.cost, margin, chosen)
+      if (price === '') uncosted += 1
+      else filled[subject.key] = { ...draft, price }
+    }
+    setRows((current) => ({ ...current, ...filled }))
+    const count = Object.keys(filled).length
+    setFilled(
+      `${count} price(s) filled.` +
+        (uncosted > 0 ? ` ${uncosted} left blank: no cost to work a margin from.` : ''),
+    )
+  }
 
   async function offer() {
     if (venue === '') {
@@ -339,6 +365,29 @@ export default function OfferDialog({
             ))}
           </select>
         </label>
+      </div>
+      <div className="row">
+        <label>
+          Margin after fees, %{/* */}
+          <input
+            inputMode="decimal"
+            size={5}
+            value={margin}
+            onChange={(e) => setMargin(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={fillPrices}
+          disabled={priceForMargin('1.00', margin, chosen) === ''}
+        >
+          Fill blank prices
+        </button>
+        {filled && (
+          <span className="notice" role="status">
+            {filled}
+          </span>
+        )}
       </div>
       <table>
         <thead>

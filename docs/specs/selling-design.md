@@ -323,7 +323,12 @@ staff-only.
    new lot, or joins an assembling one). The offer dialog takes platform and
    format, then per item: price, public title (suggested by
    `GET /api/offers/titles`) and description, external id, with cost basis,
-   value, estimated fees and net, and margin. The **item editor** has an
+   value, estimated fees and net, and margin. **Fill blank prices** sets
+   each price not yet typed to the lowest that leaves the margin entered
+   beside it (20% to begin with) after the chosen platform's fees and the
+   item's cost (`priceForMargin` in `platform-rates.js`, the inverse of the
+   margin the row shows); a typed price is never replaced, and an item with
+   no cost recorded is left blank and counted. The **item editor** has an
    **Offers** panel (current and past listings, lot memberships included,
    with Offer and End) beside its sales history.
 3. **Listings** (`/management/listings`): every listing, filterable by

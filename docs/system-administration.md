@@ -510,7 +510,7 @@ relisting, because a returned item resumes its own history.
 | Endpoint | Use |
 |---|---|
 | `PATCH /api/inventory/{id}` | one item, any editable field |
-| `POST /api/inventory/bulk` | the same change across many items, one transaction, all or nothing |
+| `POST /api/inventory/bulk` | the same change across many items, one transaction, all or nothing. A `storage_location_id` moves each item there and records the move in its location history; the Coins and Currency pages' bulk bar offers it as **Location**, with the item editor's picker |
 | `POST /api/inventory/receive` | record what arrived -- see *Receiving* |
 | `POST /api/inventory/{id}/reviewed` | mark fields as confirmed by a person looking at the object |
 | `PUT /api/inventory/{id}/errors` | replace the item's recorded errors -- see *Errors* |
