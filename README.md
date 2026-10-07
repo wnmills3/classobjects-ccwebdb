@@ -98,11 +98,12 @@ backend/
                          order text conventions), short_titles
     photographs          imaging (strip, orient, hash), image_store,
                          storage, image_fetch (from a web address),
+                         image_urls (an address at its host's full size),
                          photo_names (the CC-000412_01.jpg convention)
     passes               classifier_defaults, series_match, series_classify,
                          serial_patterns, photo_import, vendor_cleanup,
                          ebay_orders, listing_links, bullion_weights,
-                         image_sources, seller_titles:
+                         image_sources, image_enlarge, seller_titles:
                          corrections over stored
                          items, run as python -m app.<name>; dry run unless
                          --commit. pass_cli is the --commit --by EMAIL
