@@ -34,6 +34,7 @@ Run from the repository root:
 .\scripts\ccweb_claude.cmd [name]        start Claude Code with the env in play
 .\scripts\ccweb_psql.cmd [psql args]     psql against ccwebdb
 .\scripts\ccweb_pgadmin.cmd              pgAdmin on http://127.0.0.1:5050
+.\scripts\ccweb_backup.cmd               one proved backup; /schedule runs it daily
 ```
 
 **Run `ccweb_startup.cmd` bare -- never piped or redirected** (no `| more`,
@@ -212,6 +213,14 @@ connection dies.
   localhost:5432, database and user `ccwebdb`, password `devpassword`,
   matching `DATABASE_URL`'s default; set `PGDATABASE` (or any other) first to
   point it elsewhere.
+- **`ccweb_backup.cmd`** takes one whole backup into
+  `%USERPROFILE%\OneDrive\coins_backup` (or `CCWEB_BACKUP_DIR`), proves it,
+  and only then removes what is obsolete; it appends what it did to
+  `backup.log` in the logs folder and exits 1 when the backup could not be
+  proved. `/schedule [HH:MM]` creates the daily scheduled task `ccwebdb
+  backup`, `/unschedule` deletes it, `/scheduled` shows it; any other
+  argument is refused with exit 2. See `system-administration.md`, *The
+  routine backup*.
 - **`ccweb_pgadmin.cmd`** starts pgAdmin 4 on http://127.0.0.1:5050 with the
   `ccwebdb` connection registered and no login screen, and opens the browser;
   close the "pgAdmin 4" window to stop it. pgAdmin is not a project

@@ -115,6 +115,7 @@ backend/
     seed.py              first administrator plus five demo items (never on live)
     backup.py            database-to-database copy with --verify
     workbook_backup.py   the whole database to and from one Excel workbook
+    backup_run.py        one whole backup: export, prove by restoring, then tidy
     media_backup.py      the photographs' bytes copied to a folder, checked there,
                          and pruned of files no image names
     logpipe.py           size-bounded log files for the dev runtime

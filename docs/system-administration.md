@@ -1368,6 +1368,41 @@ restore. **Photograph bytes are in no database backup** -- they live under
 | **Workbook** | `python -m app.workbook_backup export` | a backup a person can open, read and correct, and the only bulk way in or out of the database |
 | **Database copy** | `python -m app.backup` | a working copy beside live, on this server or any SQLAlchemy URL |
 | **Photographs** | `python -m app.media_backup copy` | the image bytes, which none of the three above holds |
+| **The whole backup, proved** | `.\scripts\ccweb_backup.cmd` | the routine backup: workbook and photographs, proved, with what is obsolete removed |
+
+### The routine backup
+
+```cmd
+.\scripts\ccweb_backup.cmd                    back up now
+.\scripts\ccweb_backup.cmd /schedule [HH:MM]  every day at that time (default 20:00)
+.\scripts\ccweb_backup.cmd /unschedule        stop the daily run
+.\scripts\ccweb_backup.cmd /scheduled         show the daily task
+```
+
+One command does what the sections below describe step by step
+(`python -m app.backup_run <folder> [--keep N]`):
+
+1. exports the database to `ccwebdb_<time>.xlsx` in the backup folder and
+   copies the photographs into `media\` beside it;
+2. **proves the workbook**: loads it into a new database on the same server
+   (`ccwebdb_proof_<time>`, built by the migrations as a restore is, and
+   dropped afterwards) and compares that with live, every row of every table;
+3. checks the photograph copy against the image rows;
+4. only when all of that held, prunes the photograph files no image names
+   and removes the older workbooks, keeping the newest `--keep` (default 1).
+
+When any step fails nothing is removed -- the workbooks already there are
+the proved ones -- the reason is printed, and the exit code is 1. An edit
+made between the export and the comparison shows as a difference and fails
+that run; the next one sets it right.
+
+The folder is `%USERPROFILE%\OneDrive\coins_backup`, or the one
+`CCWEB_BACKUP_DIR` names. Every run is appended to `backup.log` in the logs
+folder under a line with its date and time: read it after a failure, and now
+and then to see that the daily runs say `proved`. `/schedule` makes a Windows
+scheduled task named `ccwebdb backup` that runs while you are signed in;
+PostgreSQL has to be running, and a run the machine was off or asleep for is
+not made up later.
 
 ### Photographs
 
