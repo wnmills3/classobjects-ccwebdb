@@ -1095,6 +1095,7 @@ parameters and its table. Groups appear in the order the API lists them:
 | `sl_fulfilment` | Selling | To ship | Orders still open and unshipped -- pending, paid or packed -- oldest first | none |
 | `sl_aging` | Selling | Held and not offered | Live items received and held, not on offer or in an open lot, by months since received and kind | none |
 | `sl_auctions` | Selling | Auctions | One row per auction, by status; for a settled one: lots, sold, unsold, hammer total and fees | none |
+| `sl_ready` | Selling | Ready to sell | By kind: items in hand and not offered, and how many have an own photograph, a grade or weight, a location and a cost -- and all four | none |
 | `mn_basis` | Money | Cost basis | Status x disposition of every live item: items and total cost | none |
 | `mn_tax` | Money | Sales tax paid | Period x vendor: purchases and sales tax paid, over purchases with a live item | From, To, Period (month/year, default month) |
 | `mn_value` | Money | Recorded value | Per item kind: live items, the ones with a recorded value, their cost and value, the difference, and items without one | Status (default received), Disposition (default held) |
